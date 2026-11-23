@@ -17,6 +17,7 @@ Usage: home-thread-click-away-clip.py --tag <tag> --app APP --out DIR
 import argparse, json, os, signal, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -97,6 +98,26 @@ def thread_rows():
     return json.loads(r["rows"]) if r.get("ok") == "1" else None
 
 
+def store_texts(conversation):
+    """The message texts Home's store holds for the conversation (debug.home.api snapshot)."""
+    messages = (rpc("debug.home.api", {"call": "snapshot", "conversation": conversation, "tail": 20}) or {}).get("messages") or []
+    return [m.get("text") for m in messages]
+
+
+def settled_view():
+    """What the transcript draws, once it stops changing: the thread view's rows when one is open, else Home's rows."""
+    return wait_stable(lambda: json.dumps([drive("thread_state").get("open_thread"), thread_rows() or drive("rows").get("rows")],
+                                          sort_keys=True), "the transcript's rows", timeout=10, interval=0.1,
+                       raise_on_timeout=False)
+
+
+def thread_closed():
+    """Esc, Esc closed the thread view (it is gone from thread_state), and the rows settled."""
+    wait_until(lambda: drive("thread_state").get("open_thread") is None and "closed", "the thread view to close",
+               timeout=10, raise_on_timeout=False)
+    settled_view()
+
+
 if os.path.exists(sock):
     os.unlink(sock)
 env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "SHELL": "/bin/zsh",
@@ -125,24 +146,39 @@ try:
            op={"kind": "message.send", "client_msg_id": f"away-start-{stamp}", "parts": [{"type": "text", "text": first}]})
 
     def opened():
-        if ((rpc("debug.home") or {}).get("page") or {}).get("shown") != conversation:
+        def shown():
+            return ((rpc("debug.home") or {}).get("page") or {}).get("shown") == conversation
+        if not shown():
             rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
-            time.sleep(1)  # harness: one request per second while Home starts
-            return None
+            # Home shows it; a request while Home starts can be dropped, and the poll asks again.
+            if not wait_until(shown, "Home to show the conversation", timeout=5, raise_on_timeout=False):
+                return None
         return first in (drive("texts").get("texts") or [])
     if not poll(opened, timeout=180): sys.exit("Home did not show the conversation")
     texts = {"R": "Can the thread close on any empty click?", "A": "It should, anywhere off a bubble.",
              "B": "Even beside the 1 Reply line under this one."}
-    send_from_field(texts["R"]); time.sleep(1.5)
+    def sent(text):
+        """The message is in Home's store and the transcript drew it (its rows settled)."""
+        if not wait_until(lambda: text in store_texts(conversation), f"Home's store to hold {text!r}", timeout=20,
+                          raise_on_timeout=False):
+            print(f"Home's store does not hold {text!r} yet", flush=True)
+        settled_view()
+
+    send_from_field(texts["R"]); sent(texts["R"])
     for parent, child in (("R", "A"), ("A", "B")):
-        if drive("thread_state").get("open_thread"): drive("escape"); drive("escape")
-        drive("reply", mine=True); time.sleep(0.5)
-        send_from_field(texts[child]); time.sleep(1.5)
+        if drive("thread_state").get("open_thread"): drive("escape"); drive("escape"); thread_closed()
+        drive("reply", mine=True)
+        # Reply… opened the thread view on my message, and its rows settled, before the field takes the text.
+        wait_until(lambda: drive("thread_state").get("open_thread"), "Reply… to open the thread view", timeout=10,
+                   raise_on_timeout=False)
+        settled_view()
+        send_from_field(texts[child]); sent(texts[child])
     if drive("thread_state").get("open_thread"): drive("escape"); drive("escape")
-    time.sleep(1)
+    thread_closed()
 
     def open_thread():
-        state = drive("thread"); time.sleep(1.0)  # the open's flight
+        state = drive("thread")
+        settled_view()  # the open's flight: the thread view's rows stop moving
         return state.get("open_thread")
     if not open_thread(): sys.exit("the thread did not open")
     rows = thread_rows()
@@ -156,11 +192,14 @@ try:
     words_left = c["x"] < f["x"] + f["width"] / 2
     empties = [f["x"] + f["width"] - 60, f["x"] + f["width"] / 2] if words_left else [f["x"] + 60, f["x"] + f["width"] / 2]
     spots = [("empty", x) for x in empties] + [("words", c["x"] + c["width"] / 2)]
-    drive("escape"); drive("escape"); time.sleep(0.6)
+    drive("escape"); drive("escape"); thread_closed()
     rec = os.path.join(opts.out, "frames")
     rpc("debug.window_record", {"dir": rec, "seconds": 12})
     t0 = time.monotonic()
-    time.sleep(0.6)
+    # The recording runs: its first frame is in the frames folder.
+    wait_until(lambda: os.path.isdir(rec) and os.listdir(rec), "the recording's first frame", timeout=10,
+               raise_on_timeout=False)
+    time.sleep(0.6)  # sleep-ok: the clip's lead-in, 0.6 s of the closed view before the first open
     for name, x in spots:
         if not drive("thread_state").get("open_thread"):
             open_thread()
@@ -174,7 +213,7 @@ try:
                                  "closed": after.get("open_thread") is None,
                                  "drilled": len(after.get("thread_path") or []) > len(before.get("thread_path") or [])})
         print(json.dumps(result["clicks"][-1]), flush=True)
-    time.sleep(1.0)
+    time.sleep(1.0)  # sleep-ok: the clip's tail, 1 s of the last click's effect on the recording
 finally:
     with open(os.path.join(opts.out, "clicks.json"), "w") as fh:
         json.dump(result, fh, indent=1)
@@ -182,6 +221,9 @@ finally:
         rpc("action.run", {"action": "quit", "origin": "script"}, timeout=5)
     except Exception:
         pass
-    time.sleep(2)
+    try:
+        process.wait(timeout=10)  # the quit ends the app
+    except subprocess.TimeoutExpired:
+        pass
     if process.poll() is None:
         os.killpg(process.pid, signal.SIGTERM)  # the app this script started
