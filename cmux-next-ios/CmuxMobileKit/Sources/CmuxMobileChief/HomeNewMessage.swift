@@ -43,6 +43,14 @@ public final class HomeNewMessage {
     /// The presenter lives as long as its sheet is up.
     private static var current: HomeNewMessage?
 
+    /// RootView's existing foreground callback reaches the sheet's private
+    /// keyboard tracker while the sheet remains visible. This keeps the
+    /// fix at the lifecycle owner instead of adding another notification
+    /// observer to every tracker.
+    public static func appActiveChanged() {
+        current?.sheet?.keyboard.dropKeyboardWithoutOwner()
+    }
+
     init(context: Context) {
         self.context = context
         // The Cloud's own id for this account (a creator joins its group as itself).
