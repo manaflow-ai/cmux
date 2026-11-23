@@ -112,14 +112,18 @@ export function useEmojiCompletion({
       if (inside(event.target) && !inside(event.relatedTarget)) away();
     };
     const focusedNow = () => inside(document.activeElement);
-    setFocused(focusedNow());
+    // The window back: the element WebKit kept focused has the keyboard again.
+    const back = () => setFocused(focusedNow());
+    back();
     document.addEventListener("focusin", focusIn);
     document.addEventListener("focusout", focusOut);
     window.addEventListener("blur", away);
+    window.addEventListener("focus", back);
     return () => {
       document.removeEventListener("focusin", focusIn);
       document.removeEventListener("focusout", focusOut);
       window.removeEventListener("blur", away);
+      window.removeEventListener("focus", back);
     };
   }, [field]);
   const look = experimentArm(emojiShortcodeLook);

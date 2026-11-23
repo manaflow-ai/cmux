@@ -288,15 +288,12 @@ test("the list closes when another pane takes the keyboard, and shows again back
     window.dispatchEvent(new window.Event("blur"));
   });
   expect(rows()).toEqual([]);
-  // Back in this prompt, its caret still on the token.
-  await act(async () => prompt.focus());
+  // The window back (the element stayed focused): the list shows again at the same caret.
   await act(async () => {
-    host
-      .querySelector(".acpmux-md-field [contenteditable]")!
-      .dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
+    window.dispatchEvent(new window.Event("focus"));
   });
-  await type(prompt, "i");
-  expect(rows().length).toBeGreaterThan(0);
+  await settle();
+  expect(rows()[0]).toBe("🥺 :pleading_face:");
 });
 
 test("never in code, a time or a URL", async () => {
