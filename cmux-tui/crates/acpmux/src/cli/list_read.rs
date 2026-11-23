@@ -233,51 +233,71 @@ pub(crate) fn name_probe(summary: &Summary) -> Option<Value> {
     Some(Value::Object(probe))
 }
 
-/// The rows `keys` name, as `_acpmux/sessions` writes them, in the order asked: a hundred keys
-/// a request, and the keys past a reply's bytes asked again. A key that names no row now (a
-/// chat closed and purged since its summary) is left out.
+/// Requests of one [`fetch`] round that are in flight together.
+const FETCH_IN_FLIGHT: usize = 8;
+
+/// The rows `keys` name, as `_acpmux/sessions` writes them: a hundred keys a request, the
+/// requests of a round sent together (a read of N keys waits for about one reply, not N/100, on a
+/// host whose CPUs are busy), and the keys past a reply's bytes asked again in the next round. A
+/// key that names no row now (a chat closed and purged since its summary) is left out. The rows
+/// come in the order asked, each round's rest after them; callers sort.
 pub(crate) async fn fetch(
     client: &Client,
     keys: Vec<String>,
     with_tools: bool,
     usage: bool,
 ) -> Result<Vec<Value>> {
-    let mut queue: VecDeque<String> = keys.into();
+    use futures::{StreamExt as _, TryStreamExt as _};
+    let mut queue = keys;
     let mut rows = Vec::new();
     while !queue.is_empty() {
-        let ask: Vec<String> = queue.drain(..queue.len().min(KEYS_PER_PAGE)).collect();
-        let mut params = serde_json::Map::new();
-        params.insert("sessionIds".into(), json!(ask));
-        params.insert("row".into(), json!(true));
-        if with_tools {
-            params.insert("withTools".into(), json!(true));
-        }
-        if usage {
-            params.insert("usage".into(), json!(true));
-        }
-        let mut reply = client.request(method::MUX_INFO, Value::Object(params)).await?;
-        let got = match reply.get_mut("rows").map(Value::take) {
-            Some(Value::Array(got)) => got,
-            _ => anyhow::bail!("the daemon's rows by key hold no rows"),
-        };
-        let rest: Vec<String> = match reply.get("rest") {
-            Some(Value::Array(rest)) => {
-                rest.iter().filter_map(Value::as_str).map(str::to_owned).collect()
-            }
-            _ => Vec::new(),
-        };
-        if got.is_empty() && !rest.is_empty() {
-            anyhow::bail!(
-                "the daemon answered none of {} keys and named them all again",
-                rest.len()
-            );
-        }
-        rows.extend(got);
-        for key in rest.into_iter().rev() {
-            queue.push_front(key);
+        let asks: Vec<Vec<String>> = queue.chunks(KEYS_PER_PAGE).map(<[String]>::to_vec).collect();
+        let replies: Vec<(Vec<Value>, Vec<String>)> = futures::stream::iter(asks)
+            .map(|ask| fetch_batch(client, ask, with_tools, usage))
+            .buffered(FETCH_IN_FLIGHT)
+            .try_collect()
+            .await?;
+        queue = Vec::new();
+        for (got, rest) in replies {
+            rows.extend(got);
+            queue.extend(rest);
         }
     }
     Ok(rows)
+}
+
+/// One `_acpmux/info` request for `ask` (at most [`KEYS_PER_PAGE`] keys): the rows it answers,
+/// and the keys it leaves for another request.
+async fn fetch_batch(
+    client: &Client,
+    ask: Vec<String>,
+    with_tools: bool,
+    usage: bool,
+) -> Result<(Vec<Value>, Vec<String>)> {
+    let mut params = serde_json::Map::new();
+    params.insert("sessionIds".into(), json!(ask));
+    params.insert("row".into(), json!(true));
+    if with_tools {
+        params.insert("withTools".into(), json!(true));
+    }
+    if usage {
+        params.insert("usage".into(), json!(true));
+    }
+    let mut reply = client.request(method::MUX_INFO, Value::Object(params)).await?;
+    let got = match reply.get_mut("rows").map(Value::take) {
+        Some(Value::Array(got)) => got,
+        _ => anyhow::bail!("the daemon's rows by key hold no rows"),
+    };
+    let rest: Vec<String> = match reply.get("rest") {
+        Some(Value::Array(rest)) => {
+            rest.iter().filter_map(Value::as_str).map(str::to_owned).collect()
+        }
+        _ => Vec::new(),
+    };
+    if got.is_empty() && !rest.is_empty() {
+        anyhow::bail!("the daemon answered none of {} keys and named them all again", rest.len());
+    }
+    Ok((got, rest))
 }
 
 /// v1's order of two rows (`hub/session_pages.rs` `sort_session_summaries`).
