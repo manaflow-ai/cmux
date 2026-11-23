@@ -106,6 +106,12 @@ fn agent_refused(what: &str, marker: &str) -> Value {
     })
 }
 
+/// The `bytes` param of `participant.avatar.set`: the file's standard base64. The catalog row
+/// `home.setMyAvatar` sends the same (`ParamSource::FileBase64`); `catalog_request_matches_cli`.
+pub(in crate::cli) fn set_bytes(bytes: &[u8]) -> String {
+    STANDARD.encode(bytes)
+}
+
 /// `cmux avatar …`.
 pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
     let t = text();
@@ -223,7 +229,7 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
         }
         let bytes =
             std::fs::read(file).map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?;
-        params.set("bytes", json!(STANDARD.encode(bytes)));
+        params.set("bytes", json!(set_bytes(&bytes)));
     }
     let key = super::link::new_message_id();
     let written = link.call("participant.avatar.set", params, Some(&key))?;

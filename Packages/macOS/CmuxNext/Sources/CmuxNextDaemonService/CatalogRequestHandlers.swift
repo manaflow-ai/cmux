@@ -97,9 +97,9 @@ public struct CatalogRequestHandlers {
         switch request.lane {
         case .session:
             let daemon = host.catalogDaemon
-            let params = values.mapValues(daemonJSON)
             return {
                 do {
+                    let params = try values.mapValues(daemonParam)
                     _ = try await daemon.perform(operation) { try await $0.catalogOperation(operation, params: params, mutation: true) }
                     return .success([:])
                 } catch {
@@ -216,7 +216,23 @@ public struct CatalogRequestHandlers {
         case .int(let number): .number(Double(number))
         case .bool(let flag): .bool(flag)
         case .strings(let items): .array(items.map(CmuxNextDaemon.JSONValue.string))
+        case .fileBase64(let path): .string(path)
         }
+    }
+
+    /// The largest file a ``ActionCatalogRequest/Value/fileBase64(path:)`` param reads: past the
+    /// daemon's own limit for any picture (1 MiB), so the daemon says what is too big.
+    nonisolated static let fileReadLimit = 4 << 20
+
+    /// A param as the session lane sends it: a picked file is read and encoded here.
+    nonisolated static func daemonParam(_ value: ActionCatalogRequest.Value) throws -> CmuxNextDaemon.JSONValue {
+        guard case .fileBase64(let path) = value else { return daemonJSON(value) }
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: fileReadLimit + 1) ?? Data()
+        guard data.count <= fileReadLimit else { throw CatalogFileError.tooLarge(url.lastPathComponent) }
+        return .string(data.base64EncodedString())
     }
 
     /// The app's control request for `operation` with `values`, nil when they do not encode. The
@@ -236,6 +252,20 @@ public struct CatalogRequestHandlers {
         case .int(let number): number
         case .bool(let flag): flag
         case .strings(let items): items
+        case .fileBase64(let path): path
+        }
+    }
+}
+
+/// A picked file a catalog request row cannot send.
+enum CatalogFileError: Error, CustomStringConvertible {
+    case tooLarge(String)
+
+    var description: String {
+        switch self {
+        case .tooLarge(let name):
+            String(format: String(localized: "catalogRequest.fileTooLarge", defaultValue: "%@ is too large to send",
+                                  table: "CatalogRequests", bundle: .localizedModule), name)
         }
     }
 }

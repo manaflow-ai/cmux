@@ -252,7 +252,8 @@ nonisolated struct RustActionCatalog: Sendable {
         var suggestions: ActionSuggestions?
         if let wire = value["suggestions"] as? [String: Any], let source = wire["source"] as? String {
             suggestions = ActionSuggestions(source: source, pinned: cases(wire["pinned"]), otherTitle: wire["otherTitle"] as? String,
-                                            allowsMultiple: wire["allowsMultiple"] as? Bool ?? false)
+                                            allowsMultiple: wire["allowsMultiple"] as? Bool ?? false,
+                                            picker: ActionPicker.decode(wire["picker"]))
         }
         var argument = ActionArgument(name: name, title: value["title"] as? String ?? name, kind: kind,
                                       isRequired: value["isRequired"] as? Bool ?? false, suggestions: suggestions)

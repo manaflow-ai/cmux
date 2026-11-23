@@ -42,9 +42,24 @@ struct PaletteArgumentFlow {
             return .perform { registry.perform(id, invocation: invocation) }
         }
         switch argument.kind {
+        case .string where argument.suggestions?.picker != nil:
+            guard let picker = argument.suggestions?.picker else { return .performKeepingOpen {} }
+            let name = argument.name
+            let title = argument.title
+            let invocation = collected
+            return .perform {
+                // task-owner: one panel for one chosen path; ends when the person chooses or cancels
+                // main-hop-allow: the person's own panel after the palette closed, no model work behind it
+                Task { @MainActor in
+                    guard let path = await PathPickerPanel.choose(picker, title: title) else { return }
+                    var next = invocation
+                    next.arguments[name] = .string(path)
+                    registry.perform(id, invocation: next)
+                }
+            }
         case .string where argument.suggestions?.allowsMultiple == true:
             return .push(multipleChoicePage(for: argument, chosen: [], collected: collected))
-        case .string where argument.suggestions != nil:
+        case .string where argument.suggestions != nil && argument.suggestions?.picker == nil:
             return .push(withPreview(suggestionPage(for: argument, collected: collected), argument, collected))
         case .string, .int:
             return .textInput(textSpec(for: argument, collected: collected))

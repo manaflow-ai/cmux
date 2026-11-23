@@ -7,6 +7,24 @@ use crate::text::t;
 
 const GROUP: &str = "HomeActionCatalog";
 
+/// The picture the palette asks for with the file panel (`Suggestions::source` `file:<extensions>`).
+const PICTURE: Argument = Argument {
+    name: "file",
+    title: t("HomeActions", "argument.home.attach.path", "File Path"),
+    kind: ArgKind::String,
+    required: true,
+    suggestions: Some(Suggestions {
+        source: "file:png,jpg,jpeg,gif,webp",
+        pinned: &[],
+        other_title: None,
+        allows_multiple: false,
+    }),
+    is_target_name: false,
+    is_target_description: false,
+    is_supplied_by_target: false,
+    asked_in_palette: false,
+};
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -312,8 +330,17 @@ pub static ACTIONS: &[Action] = &[
         category: "window",
         symbol: "person.crop.circle",
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[PICTURE],
         cli_name: "avatar set",
         waits_for_result: true,
+        request: Some(Request {
+            lane: RequestLane::Session,
+            operation: "participant.avatar.set",
+            params: &[
+                RequestParam { name: "participant_id", source: ParamSource::Constant(BindingValue::String("user_local")) },
+                RequestParam { name: "bytes", source: ParamSource::FileBase64("file") },
+            ],
+        }),
         ..Action::DEFAULT
     },
     Action {

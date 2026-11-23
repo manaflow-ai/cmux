@@ -30,6 +30,9 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
         /// The daemon id of the invocation's target of this kind, else the focused one.
         case target(ActionTargetKind)
         case constant(Constant)
+        /// The bytes of the file whose path the argument of this name holds (a picked file), base64
+        /// on the wire; left out when the argument is omitted.
+        case fileBase64(String)
     }
 
     public struct Param: Sendable, Hashable {
@@ -59,6 +62,8 @@ public nonisolated struct ActionCatalogRequest: Sendable, Hashable {
             guard let name = row["name"] as? String else { return nil }
             if let argument = row["argument"] as? String {
                 params.append(Param(name: name, source: .argument(argument)))
+            } else if let argument = row["fileBase64"] as? String {
+                params.append(Param(name: name, source: .fileBase64(argument)))
             } else if let kind = (row["target"] as? String).flatMap(ActionTargetKind.init(rawValue:)) {
                 params.append(Param(name: name, source: .target(kind)))
             } else if let constant = constant(row["constant"]) {
@@ -117,6 +122,8 @@ extension ActionCatalogRequest {
         /// A several-valued argument (``ActionSuggestions/allowsMultiple``, comma-joined in the
         /// invocation): a list, as the CLI sends one.
         case strings([String])
+        /// The file at this path, sent as its bytes in base64 (read when the request goes out).
+        case fileBase64(path: String)
     }
 
     /// The params this request sends for `invocation` (as cmux-action-catalog's
@@ -139,6 +146,8 @@ extension ActionCatalogRequest {
             case .target(let kind):
                 guard let id = target(kind) else { return .failure(MissingTarget(kind: kind)) }
                 values[param.name] = .string(id)
+            case .fileBase64(let name):
+                if case .string(let path)? = invocation[name], !path.isEmpty { values[param.name] = .fileBase64(path: path) }
             case .argument(let name):
                 let multiple = arguments.first { $0.name == name }?.suggestions?.allowsMultiple ?? false
                 switch invocation[name] {
