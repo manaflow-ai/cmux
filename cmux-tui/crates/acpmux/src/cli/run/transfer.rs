@@ -2,16 +2,14 @@
 //! build's) through `_acpmux/transfer_*` (`hub/transfer_out.rs`). The reference client of the
 //! move: it pages the bundle from one daemon to the other, and gives the chat back on a failure.
 
+use super::move_end::{Journal, MoveEnd, Reach, Wait, journal_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
 #[path = "transfer_live.rs"]
 pub(crate) mod live;
-#[path = "transfer_reconnect.rs"]
-pub(crate) mod reconnect;
 pub(crate) use live::{Live, move_progress_line};
 use live::{Pager, page_files};
-pub(crate) use reconnect::Daemon;
 
 /// Moves `session` to the daemon at `to`.
 pub(super) async fn run(
@@ -24,6 +22,8 @@ pub(super) async fn run(
     json_out: bool,
 ) -> Result<()> {
     let src = connect(true).await?;
+    // A move this machine began whose client went away is ended first (`move_end.rs`).
+    super::move_end::reclaim_dead_moves(&journal_dir()).await;
     let dst = Client::connect(to).await?;
     let dst_init = dst
         .request(
@@ -39,9 +39,13 @@ pub(super) async fn run(
     let to_meta = json!({"socket": socket});
     let watch = json!({"socket": socket});
     let running = (interrupt, after_turn);
-    let (src, dst) = (Daemon::over(&src, "source"), Daemon::over(&dst, "target"));
+    let reach = (
+        Some(Reach::Socket { path: std::path::absolute(crate::config::socket_path())? }),
+        Some(Reach::Socket { path: socket.clone() }),
+    );
     let moved =
-        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta).await?;
+        move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta, reach)
+            .await?;
     if json_out {
         print_json(&moved);
     } else {
@@ -53,24 +57,24 @@ pub(super) async fn run(
 /// A move begun on the source: the chat is frozen there and its bundle made. `stage_id`: the
 /// target's staged prefix of a pre-copied move, whose bundle holds only what follows it.
 pub(super) struct Begun {
-    begin: Value,
-    transfer_id: String,
-    epoch: u64,
-    stage_id: Option<String>,
+    pub(super) begin: Value,
+    pub(super) transfer_id: String,
+    pub(super) epoch: u64,
+    pub(super) stage_id: Option<String>,
     /// The last seq of the history that follows the chat (`history_follows`), when the staged
     /// prefix left it behind.
-    history_after: Option<u64>,
+    pub(super) history_after: Option<u64>,
     /// When the source answered the begin: the freeze runs from `frozenMs` before it.
-    begun_at: std::time::Instant,
+    pub(super) begun_at: std::time::Instant,
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
 pub(super) struct Staged {
-    prepare_id: String,
-    after_seq: u64,
-    stage_id: String,
+    pub(super) prepare_id: String,
+    pub(super) after_seq: u64,
+    pub(super) stage_id: String,
     /// The prefix holds no history: it follows the chat (`hub/transfer_history.rs`).
-    history_later: bool,
+    pub(super) history_later: bool,
 }
 
 /// How many of a chat's last turns a move carries in its freeze when its history follows the
@@ -86,7 +90,7 @@ fn history_later_turns() -> Option<u64> {
 /// `turn_bound`: with `after_turn`, the longest the daemon waits for the running turn
 /// (`afterTurnTimeoutMs`; a daemon too old to read it waits its own 15 minutes).
 pub(super) async fn begin_move(
-    src: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
     id: &str,
     watch: Option<Value>,
     running: (bool, bool),
@@ -99,7 +103,7 @@ pub(super) async fn begin_move(
 /// past its prefix; a prefix the source no longer holds as it was is moved in full (the refusal
 /// gave the chat back first).
 pub(super) async fn begin_staged(
-    src: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
     id: &str,
     watch: Option<Value>,
     running: (bool, bool),
@@ -117,7 +121,7 @@ pub(super) async fn begin_staged(
 
 /// [`begin_move`]; after `staged`, the bundle holds only the records past its prefix.
 async fn begin_move_after(
-    src: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
     id: &str,
     watch: Option<Value>,
     (interrupt, after_turn): (bool, bool),
@@ -142,7 +146,7 @@ const TOOL_POLL: std::time::Duration = std::time::Duration::from_millis(500);
 /// the turn stops as with `--interrupt`. A turn that ends meanwhile moves as an idle chat does,
 /// and so does a chat with no turn.
 pub(super) async fn begin_move_live(
-    src: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
     id: &str,
     watch: Option<Value>,
     wait: std::time::Duration,
@@ -181,7 +185,7 @@ pub(crate) fn waits_for_turn(e: &anyhow::Error) -> bool {
 }
 
 async fn begin_with(
-    src: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
     id: &str,
     watch: Option<Value>,
     (interrupt, at_tool_boundary, after_turn): (bool, bool, bool),
@@ -209,7 +213,7 @@ async fn begin_with(
     if let Some(bound) = turn_bound.filter(|_| after_turn) {
         begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
     }
-    let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
+    let begin = src.call("_acpmux/transfer_begin", begin_params, Wait::Turn, true).await?;
     let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
     let epoch = match begin.get("epoch") {
         None => 0,
@@ -225,7 +229,7 @@ async fn begin_with(
 }
 
 /// Gives the chat back on the source: the move did not happen.
-pub(super) async fn abort_move(src: &Daemon<'_>, id: &str, begun: &Begun) {
+pub(super) async fn abort_move(src: &mut MoveEnd<'_>, id: &str, begun: &Begun) {
     let abort = json!({"sessionId": id, "transferId": begun.transfer_id, "epoch": begun.epoch});
     if let Err(e) = src.request("_acpmux/transfer_abort", abort).await {
         eprintln!("acpmux: the move failed and the chat stays frozen here: {e}");
@@ -236,8 +240,8 @@ pub(super) async fn abort_move(src: &Daemon<'_>, id: &str, begun: &Begun) {
 /// commits it on `src` with `to_meta` (plus the chat's id there) as where it went.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn move_chat(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &Client,
+    dst: &Client,
     dst_init: &Value,
     id: &str,
     watch: Option<Value>,
@@ -245,10 +249,14 @@ pub(super) async fn move_chat(
     name: Option<String>,
     running: (bool, bool),
     to_meta: Value,
+    (src_reach, dst_reach): (Option<Reach>, Option<Reach>),
 ) -> Result<Value> {
     // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
     // that lost its stage refuses the bundle, and the move is made again in full.
     let live = Live { verbose: true, ..Live::default() };
+    let mut src_end = MoveEnd::new("source", src, src_reach);
+    let mut dst_end = MoveEnd::new("target", dst, dst_reach);
+    let (src, dst) = (&mut src_end, &mut dst_end);
     let staged = precopy(src, dst, dst_init, id, &live).await?;
     if staged.is_none() {
         whole_freeze_refusal(src, id).await?;
@@ -271,7 +279,7 @@ pub(super) async fn move_chat(
 /// Refuses a move of chat `id` whole inside its freeze when its log is past
 /// `live::WHOLE_FREEZE_LIMIT`: the chat would be frozen for the whole copy (2026-11-22: 6 h
 /// over a relay). A source that does not say how big the log is is not refused.
-pub(super) async fn whole_freeze_refusal(src: &Daemon<'_>, id: &str) -> Result<()> {
+pub(super) async fn whole_freeze_refusal(src: &mut MoveEnd<'_>, id: &str) -> Result<()> {
     let info = src.request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": false})).await?;
     let Some(bytes) = info.get("historyBytes").and_then(Value::as_u64) else { return Ok(()) };
     if bytes > live::WHOLE_FREEZE_LIMIT {
@@ -285,8 +293,14 @@ pub(super) async fn whole_freeze_refusal(src: &Daemon<'_>, id: &str) -> Result<(
     Ok(())
 }
 
-fn refused_as(e: &anyhow::Error, code: &str) -> bool {
+pub(super) fn refused_as(e: &anyhow::Error, code: &str) -> bool {
     format!("{e:#}").contains(code)
+}
+
+/// Whether a daemon's `initialize` or `_acpmux/status` reply lists pre-copy.
+pub(super) fn lists_precopy(reply: &Value, pointer: &str) -> bool {
+    let ids = reply.pointer(pointer).and_then(Value::as_array);
+    ids.is_some_and(|ids| ids.iter().any(|id| id == crate::capabilities::TRANSFER_PRECOPY))
 }
 
 /// The chat's history as of now staged on `dst`, with no freeze, when both daemons list
@@ -294,8 +308,8 @@ fn refused_as(e: &anyhow::Error, code: &str) -> bool {
 /// either does not or a step fails; `Err` only when the copy would be too slow
 /// (`live::SLOW`), the chat untouched and what was copied kept on the target.
 pub(super) async fn precopy(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     dst_init: &Value,
     id: &str,
     live: &Live,
@@ -311,7 +325,7 @@ pub(super) async fn precopy(
     }
     let zstd = live::lists(dst_init, target_caps, TRANSFER_LIVE);
     let resume = zstd && live::lists(&status, "/capabilities", TRANSFER_LIVE);
-    let mut pager = Pager::new(src, id, live.clone(), zstd);
+    let mut pager = Pager::new(id, live.clone(), zstd);
     // The copy `dst` still holds from the chat's last move, if any: the source prepares only
     // what came after it. A base either side refuses falls back to a full prefix.
     let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.ok();
@@ -334,9 +348,9 @@ pub(super) async fn precopy(
     }
     if staged.is_some() {
         pager.phase = "freeze";
-        let _ = pager.tick(true).await;
+        let _ = pager.tick(src, true).await;
     } else {
-        pager.done().await;
+        pager.done(src).await;
     }
     Ok(staged)
 }
@@ -346,13 +360,13 @@ pub(super) async fn precopy(
 /// sends little (`live::SMALL_ROUND`); then the stage is finished. With no `resume` (an older
 /// daemon) one round, whole.
 async fn stage_rounds(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     id: &str,
     base: Option<Value>,
     resume: bool,
     later: Option<u64>,
-    pager: &mut Pager<'_>,
+    pager: &mut Pager,
 ) -> Result<Option<Staged>> {
     let mut staged = None;
     for _ in 0..live::MAX_ROUNDS {
@@ -397,7 +411,7 @@ async fn stage_rounds(
             Err(_) => return Ok(None),
             Ok(()) => {}
         }
-        let _ = pager.tick(true).await;
+        let _ = pager.tick(src, true).await;
         let history_later = *field(&prepared, "historyLater") == true;
         staged = Some(Staged { prepare_id, after_seq, stage_id, history_later });
         if !resume || pager.sent <= live::SMALL_ROUND {
@@ -437,10 +451,16 @@ pub(crate) fn receiver_takes(begin: &Value, dst_init: &Value) -> Result<()> {
 
 /// The rest of a move [`begin_move`] began: the bundle paged into a receive on `dst`, finished
 /// there, and committed on `src`. A failure that leaves the chat nowhere else aborts the move.
+///
+/// Each end reconnects when its connection drops, and every request has a deadline
+/// (`move_end.rs`): on a laptop (2026-11-23) moves through ssh forwards lost their
+/// connections mid-page and one waited 30 minutes on a reply that never came. A move whose ends
+/// can both be reached again is noted in this machine's move journal until it ends, so that one
+/// whose client dies is ended by the next move here, not left frozen.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn finish_move(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     dst_init: &Value,
     id: &str,
     begun: &Begun,
@@ -448,51 +468,101 @@ pub(super) async fn finish_move(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
+    let dir = journal_dir();
+    let journal = (dir.as_path(), to_meta);
+    finish_journaled(src, dst, dst_init, id, begun, cwd, name, journal).await
+}
+
+/// [`finish_move`], the move noted in the journal at `dir` while it is under way.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finish_journaled(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    (dir, to_meta): (&std::path::Path, Value),
+) -> Result<Value> {
+    let journal = match (src.reach(), dst.reach()) {
+        (Some(s), Some(d)) => Some(Journal {
+            session_id: id.to_owned(),
+            transfer_id: begun.transfer_id.clone(),
+            epoch: begun.epoch,
+            pid: std::process::id(),
+            src: s.clone(),
+            dst: d.clone(),
+            to: to_meta.clone(),
+        }),
+        _ => None,
+    };
+    if let Some(j) = &journal {
+        j.note(dir);
+    }
+    let result = finish_noted(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
+    if !matches!(result, Err(Unresolved(_))) {
+        Journal::done(dir, &begun.transfer_id);
+    }
+    result.map_err(|(Unresolved(e) | Resolved(e))| e)
+}
+
+/// How a failed move left the chat: given back or on the target (`Resolved`), or frozen with
+/// neither end able to say (`Unresolved`, kept in the journal for the next run).
+enum Failed {
+    Resolved(anyhow::Error),
+    Unresolved(anyhow::Error),
+}
+use Failed::*;
+
+impl From<anyhow::Error> for Failed {
+    fn from(e: anyhow::Error) -> Self {
+        Unresolved(e)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn finish_noted(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+) -> Result<Value, Failed> {
     let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
     if let Err(e) = receiver_takes(begin, dst_init) {
-        abort_move(src, id, begun).await;
-        return Err(e);
+        return Err(abort_end(src, id, begun, e).await);
     }
     let mut receive_params = json!({"manifest": begin});
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
     }
-    let receive = match dst.request("_acpmux/transfer_receive", receive_params).await {
+    let receive = dst.call("_acpmux/transfer_receive", receive_params, Wait::Page, false);
+    let receive = match receive.await {
         Ok(receive) => receive,
-        Err(e) => {
-            abort_move(src, id, begun).await;
-            return Err(e);
-        }
+        Err(e) => return Err(abort_end(src, id, begun, e).await),
     };
     // A receive seeded from the stage's native files pages only what they grew by.
     let from = live::resume_offsets(src, transfer_id, &receive).await;
-    let moved = match copy(
-        src,
-        dst,
-        dst_init,
-        &from,
-        begin,
-        receive.get("receiveId").unwrap_or(&Value::Null),
-        begun.epoch,
-        cwd,
-        name,
-    )
-    .await
-    {
+    let receive_id = receive.get("receiveId").unwrap_or(&Value::Null);
+    let copied = copy(src, dst, dst_init, &from, begin, receive_id, begun.epoch, cwd, name).await;
+    let moved = match copied {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
         Err(e) => match landed(dst, id, transfer_id).await {
-            Some(true) => dst.request(method::MUX_INFO, json!({"sessionId": id})).await?,
-            Some(false) => {
-                abort_move(src, id, begun).await;
-                return Err(e);
+            Some(true) => {
+                dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?
             }
+            Some(false) => return Err(abort_end(src, id, begun, e).await),
             None => {
                 eprintln!(
-                    "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the move is retried or aborted"
+                    "acpmux: the move failed and the target cannot say whether it took the chat; it stays frozen here until the next move from this machine ends it"
                 );
-                return Err(e);
+                return Err(Unresolved(e));
             }
         },
     };
@@ -514,12 +584,10 @@ pub(super) async fn finish_move(
     eprintln!("acpmux: move {transfer_id}: frozen {ms} ms, {bytes} bytes carried{later}");
     let mut to_meta = to_meta;
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
-    src.request(
-        "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch,
-               "freeze": {"ms": ms, "bytes": bytes}}),
-    )
-    .await?;
+    // A commit is answered again the same once it is on disk (`transfer_commit_with_epoch`).
+    let commit = json!({"sessionId": id, "transferId": transfer_id, "to": to_meta,
+                        "epoch": begun.epoch, "freeze": {"ms": ms, "bytes": bytes}});
+    src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
     // The chat runs on the target now. Its history follows; a failure leaves it on the source,
     // whose copy keeps the log, and the chat on the target awaiting it.
     if let Some(through) = begun.history_after {
@@ -538,8 +606,8 @@ pub(super) async fn finish_move(
 /// packs its log through `through` and bundles the chunks the target lacks, the target stages
 /// and unpacks them, and the live chat there takes them as its history. Returns what it cost.
 async fn history_follows(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     id: &str,
     through: u64,
 ) -> Result<String> {
@@ -583,11 +651,24 @@ async fn history_follows(
     ))
 }
 
+/// Gives the chat back on the source through `src` (reconnected if its connection dropped):
+/// the move failed with `e`.
+async fn abort_end(src: &mut MoveEnd<'_>, id: &str, begun: &Begun, e: anyhow::Error) -> Failed {
+    let abort = json!({"sessionId": id, "transferId": begun.transfer_id, "epoch": begun.epoch});
+    match src.call("_acpmux/transfer_abort", abort, Wait::Page, true).await {
+        Ok(_) => Resolved(e),
+        Err(why) => {
+            eprintln!("acpmux: the move failed and the chat stays frozen here: {why:#}");
+            Unresolved(e)
+        }
+    }
+}
+
 /// Whether the target took this move (its log has the `transferred_in` of `transfer_id`); `None`
 /// when it cannot say.
-async fn landed(dst: &Daemon<'_>, id: &str, transfer_id: &str) -> Option<bool> {
+async fn landed(dst: &mut MoveEnd<'_>, id: &str, transfer_id: &str) -> Option<bool> {
     let kinds = json!({"sessionId": id, "afterSeq": 0, "kinds": ["transferred_in"]});
-    match dst.request(method::MUX_EVENTS, kinds).await {
+    match dst.call(method::MUX_EVENTS, kinds, Wait::Page, true).await {
         Ok(page) => Some(
             field(&page, "events")
                 .as_array()
@@ -602,11 +683,13 @@ async fn landed(dst: &Daemon<'_>, id: &str, transfer_id: &str) -> Option<bool> {
     }
 }
 
-/// Pages every bundle file from `src` into the receive on `dst`, and finishes it there.
+/// Pages every bundle file from `src` into the receive on `dst`, and finishes it there. A page
+/// whose connection dropped is asked again on the end's new one; a write the target already had
+/// (or never got) goes on from the size it says it has (`live::page_files`).
 #[allow(clippy::too_many_arguments)]
 async fn copy(
-    src: &Daemon<'_>,
-    dst: &Daemon<'_>,
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
     dst_init: &Value,
     from: &std::collections::HashMap<String, u64>,
     begin: &Value,
@@ -618,20 +701,12 @@ async fn copy(
     let id = field(begin, "sessionId").as_str().unwrap_or_default();
     let zstd =
         live::lists(dst_init, "/_meta/acpmux/capabilities", crate::capabilities::TRANSFER_LIVE);
-    let mut pager = Pager::new(src, id, Live::default(), zstd);
+    let mut pager = Pager::new(id, Live::default(), zstd);
     pager.begin_round("freeze", begin);
-    let paged = page_files(
-        src,
-        dst,
-        begin,
-        field(begin, "transferId"),
-        receive_id,
-        Some(epoch),
-        from,
-        &mut pager,
-    )
-    .await;
-    pager.done().await;
+    let transfer_id = field(begin, "transferId");
+    let paged =
+        page_files(src, dst, begin, transfer_id, receive_id, Some(epoch), from, &mut pager).await;
+    pager.done(src).await;
     paged?;
     let mut finish =
         json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
@@ -641,7 +716,9 @@ async fn copy(
     if let Some(name) = name {
         finish.set("name", json!(name));
     }
-    dst.request("_acpmux/transfer_finish", finish).await
+    // Not asked again: a finish that landed answers a second one with an error; the caller
+    // asks the (reconnected) target whether it landed.
+    dst.call("_acpmux/transfer_finish", finish, Wait::Finish, false).await
 }
 
 /// A client of the target's daemon at `socket`, through an ssh forward of it unless `ssh` is

@@ -414,6 +414,7 @@ impl Hub {
                     require_asking: false,
                     // A side chat never runs on its chat's Cloud credential.
                     credential: None,
+                    create_key: None,
                 };
                 let side = match with_inline_creation(
                     self.clone(),
