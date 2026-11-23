@@ -19,7 +19,7 @@ struct DevicePatchSignatureTests {
     static func machO(team: String?, adhoc: Bool = false, cms: Bool = true, version: UInt32 = 0x20400) -> [UInt8] {
         var directory = be(0xFADE_0C02) + be(0) + be(version) + be(adhoc ? 0x2 : 0)
         directory += [UInt8](repeating: 0, count: 48 - directory.count)
-        let teamBytes = team.map { Array($0.utf8) + [0] } ?? []
+        let teamBytes: [UInt8] = team.map { Array($0.utf8) + [0] } ?? []
         directory += be(team == nil ? 0 : 56) + be(0)
         directory += teamBytes
         let length = UInt32(directory.count)
