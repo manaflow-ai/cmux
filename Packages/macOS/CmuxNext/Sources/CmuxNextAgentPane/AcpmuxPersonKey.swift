@@ -31,14 +31,9 @@ nonisolated enum AcpmuxPersonKey {
         var pid: Int32?
         /// The instance a reader that is not a pane re-enrolled already (``claimReenroll(for:pid:)``).
         var reenrolled: Int32?
-        /// The instance that took this key (``EnrollOutcome/delivered``).
+        /// The instance that took this key (``EnrollOutcome/delivered``): a pane proves under it
+        /// without asking for another enroll (``deliveredKey(for:)``).
         var delivered: Int32?
-    }
-
-    /// The pid of the daemon on `socketPath` that took this launch's key, nil when none did yet:
-    /// a host may keep that daemon's endpoint for its next handshakes (``AcpmuxPrewarmedEndpoint``).
-    static func delivered(for socketPath: String) -> Int32? {
-        keys.withLock { $0[socketPath]?.delivered }
     }
 
     /// Keys by daemon socket path, and who hears of each key a daemon takes
