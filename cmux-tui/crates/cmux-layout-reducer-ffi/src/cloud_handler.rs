@@ -228,6 +228,13 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let r: Route = read(request)?;
             json!({ "start": value(decide::new_machine_start(r.is_default, r.by_user, r.has_window))? })
         }
+        b"cloud_handler_prewarm" => {
+            let facts: decide::PrewarmFacts = read(request)?;
+            match decide::prewarm(&facts) {
+                decide::Prewarm::Resume => json!({ "resume": true }),
+                decide::Prewarm::Skip(reason) => json!({ "resume": false, "reason": reason }),
+            }
+        }
         b"cloud_handler_setup_readiness" => {
             let c: CreationFacts = read(request)?;
             json!({ "readiness": value(decide::setup_readiness(c.torn_down, c.has_workspace, c.listed))? })

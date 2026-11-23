@@ -8,6 +8,7 @@
 mod claim_check;
 mod control_asks;
 
+mod account_usage;
 mod activity;
 mod app_exit;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
@@ -194,6 +195,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+mod cold_segments;
 pub(crate) mod history_delete;
 pub(crate) mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
@@ -233,7 +235,6 @@ mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 #[cfg(test)]
 mod fork_retarget_tests;
-mod image_dims;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -265,6 +266,7 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub(crate) mod create_key;
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 mod credentials;
 mod live_name;
@@ -329,6 +331,7 @@ pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
 pub(crate) mod register;
+mod terminal_input;
 pub(crate) use shutdown::{
     AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
 };
@@ -348,6 +351,7 @@ mod tags;
 mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
+mod capacity_retry;
 mod titles;
 mod tool_installs;
 mod tool_paths;
@@ -463,8 +467,10 @@ mod transcript;
 mod transfer;
 mod transfer_authority;
 mod transfer_guard;
+mod transfer_hub_precopy;
 mod transfer_in;
 mod transfer_out;
+pub mod transfer_pull;
 mod transfer_watch;
 #[cfg(test)]
 mod translator_queue_tests;
@@ -867,6 +873,7 @@ pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Val
 /// `turn_result`.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
+    capacity_retries: capacity_retry::Retries,
     /// `messageId` of the assistant message streaming now.
     pub(super) open_message: Option<String>,
     /// Set by a harness retry signal while `open_message` was streaming:
@@ -1133,6 +1140,13 @@ pub struct Hub {
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
     pub(super) cold_wake: Arc<Notify>,
+    /// Chats whose log sealed a segment since the cold segments' worker last looked, and its wake
+    /// (`cold_segments.rs`).
+    pub(super) cold_sealed: Arc<StdMutex<std::collections::BTreeSet<String>>>,
+    pub(super) cold_sealed_wake: Arc<Notify>,
+    /// Tests: the level the cold segments' worker moves at, in place of the settings file's.
+    #[cfg(test)]
+    pub(super) cold_segments_level: StdMutex<Option<Option<i32>>>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -1209,6 +1223,9 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The app's `agents.chats.sessionRecap` (`away_recap.rs`), from its last chat settings push.
     pub(super) session_recap: AtomicBool,
+    /// The app's `agents.chats.terminalChatWritable` (`release_to_watch.rs`), from its last chat
+    /// settings push: whether a chat handed to a cmux terminal stays writable.
+    pub(super) terminal_chat_writable: AtomicBool,
     /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Chats whose host below the level moved, or will not, in this daemon's run (`host_level.rs`).
@@ -1326,6 +1343,9 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
     pub(super) watched_moves: StdMutex<HashSet<String>>,
+    /// How a hub move reaches its source for the pages (`transfer_pull.rs`): the hub carrier's
+    /// `TransferSource` circuit once it starts, or a test's in-process stand-in.
+    pub(super) transfer_dial: StdMutex<Option<Arc<dyn transfer_pull::TransferDial>>>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// How long a foreground shell runs before it goes to the background, None: never
@@ -1616,6 +1636,10 @@ impl Hub {
             retention_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
+            cold_sealed: Default::default(),
+            cold_sealed_wake: Arc::new(Notify::new()),
+            #[cfg(test)]
+            cold_segments_level: Default::default(),
             adoption_ready: tokio::sync::watch::channel(true).0,
             chat_adopted_wake: Notify::new(),
             catalog_ready: tokio::sync::watch::channel(true).0,
@@ -1655,6 +1679,7 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             session_recap: AtomicBool::new(away_recap::saved_setting()),
+            terminal_chat_writable: AtomicBool::new(release_to_watch::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             host_moved: StdMutex::new(HashSet::new()),
             recap_wake: Arc::new(Notify::new()),
@@ -1719,6 +1744,7 @@ impl Hub {
             page_replies: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
+            transfer_dial: StdMutex::new(None),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),
@@ -1864,12 +1890,10 @@ impl Hub {
         self.events.subscribe()
     }
 
-    /// [`Hub::subscribe`] for a connection's fan-out task: each event's fan-out clock waits for
-    /// it until the seat drops (`gauges.fanout`).
-    pub(crate) fn subscribe_fanout(
-        &self,
-    ) -> (broadcast::Receiver<HubEvent>, list_guard::FanoutSeat) {
-        self.events.subscribe_fanout()
+    /// Which connections each event wakes (`server/interest.rs`): a connection's fan-out reads
+    /// its own inbox, not [`Hub::subscribe`].
+    pub(crate) fn fanout_router(&self) -> &Arc<crate::server::interest::Router> {
+        self.events.router()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
@@ -2454,6 +2478,14 @@ impl Hub {
         drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
+        }
+        // A given name (`session_handle.rs`, "Mango") reaches its session as `key_route` tier 0
+        // does, ahead of former names and prefixes (Leo, 2026-11-23: "the renaming paradigm
+        // still hasn't hit yet").
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_handle_here(key)
+        {
+            return found;
         }
         // No session has it as its name now: one that had it before a rename
         // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it
