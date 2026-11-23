@@ -112,7 +112,7 @@ final class MacScreenPageService: InternalPageProvider {
     func open(_ record: MacScreenRecord, in pane: PaneController, focus: Bool, byPerson: Bool,
               created: (@MainActor () -> Void)? = nil) -> String {
         let key = LocalPageTab.makeKey(.macScreen)
-        pages.prepare(key, record: record, byPerson: byPerson)
+        pages.prepareOpen(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
         var onCreated: (@MainActor (SurfaceID) -> Void)?

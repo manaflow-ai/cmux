@@ -81,6 +81,9 @@ struct Toxics {
 #[derive(Clone)]
 struct ToxicControl {
     offline: watch::Sender<bool>,
+    /// Mac to phone only: the phone's downlink stalls, its uplink works (a slow or
+    /// starved download with a free upload).
+    downstream_stalled: watch::Sender<bool>,
 }
 
 impl ToxicControl {
@@ -91,6 +94,14 @@ impl ToxicControl {
     fn come_back(&self) {
         let _ = self.offline.send(false);
     }
+
+    fn stall_downstream(&self) {
+        let _ = self.downstream_stalled.send(true);
+    }
+
+    fn resume_downstream(&self) {
+        let _ = self.downstream_stalled.send(false);
+    }
 }
 
 /// Two stream ends (phone, Mac) joined through the toxics.
@@ -100,13 +111,27 @@ fn toxic_pipe(toxics: Toxics, seed: u64) -> (DuplexStream, DuplexStream, ToxicCo
     let (offline, offline_rx) = watch::channel(false);
     let (phone_read, phone_write) = tokio::io::split(phone_inner);
     let (mac_read, mac_write) = tokio::io::split(mac_inner);
-    tokio::spawn(pump(phone_read, mac_write, toxics, offline_rx.clone(), seed));
-    tokio::spawn(pump(mac_read, phone_write, toxics, offline_rx, seed.wrapping_mul(31).wrapping_add(7)));
-    (phone, mac, ToxicControl { offline })
+    let (downstream_stalled, downstream_rx) = watch::channel(false);
+    tokio::spawn(pump(phone_read, mac_write, toxics, offline_rx.clone(), None, seed));
+    tokio::spawn(pump(
+        mac_read,
+        phone_write,
+        toxics,
+        offline_rx,
+        Some(downstream_rx),
+        seed.wrapping_mul(31).wrapping_add(7),
+    ));
+    (phone, mac, ToxicControl { offline, downstream_stalled })
 }
 
-async fn pump<R, W>(mut read: R, mut write: W, toxics: Toxics, mut offline: watch::Receiver<bool>, seed: u64)
-where
+async fn pump<R, W>(
+    mut read: R,
+    mut write: W,
+    toxics: Toxics,
+    mut offline: watch::Receiver<bool>,
+    mut stalled: Option<watch::Receiver<bool>>,
+    seed: u64,
+) where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -145,6 +170,13 @@ where
         while *offline.borrow() {
             if offline.changed().await.is_err() {
                 break;
+            }
+        }
+        if let Some(stalled) = stalled.as_mut() {
+            while *stalled.borrow() {
+                if stalled.changed().await.is_err() {
+                    break;
+                }
             }
         }
         if write.write_all(&chunk).await.is_err() {
@@ -297,6 +329,10 @@ struct Rig {
 
 impl Rig {
     async fn start(workspaces: usize, toxics: Toxics) -> Self {
+        Self::start_acpmux(workspaces, toxics, "ws://127.0.0.1:1/".into()).await
+    }
+
+    async fn start_acpmux(workspaces: usize, toxics: Toxics, acpmux_url: String) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let daemon = FakeDaemon::start(dir.path(), workspaces);
         let config = Arc::new(ServiceConfig {
@@ -304,7 +340,7 @@ impl Rig {
             default_session: "main".into(),
             default_socket: None,
             file_roots: vec![],
-            acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+            acpmux: AcpmuxTarget::Fixed { url: acpmux_url, token: None },
             pairing: None,
             agent_tab_host: None,
             uploads_dir: dir.path().join("uploads"),
@@ -326,6 +362,7 @@ impl Rig {
                         session_id: "matrix-session".into(),
                         video: None,
                         session_exposure: None,
+                        path: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,
@@ -729,4 +766,165 @@ async fn cell_host_mac_asleep_link_notices() {
     );
     assert!(noticed, "a silent link stayed open for {elapsed:?}");
     rig.finish().await;
+}
+
+// ---------------------------------------------------------------------------
+// Chat: a prompt must not wait behind bulk output (contract point 5)
+// ---------------------------------------------------------------------------
+
+/// A fake acpmux WebSocket. An `_acpmux/status` request makes it push `frames` event frames of
+/// `size` bytes down that connection; `_acpmux/info` is answered; the moment a
+/// `session/prompt` arrives is sent on `prompt_seen`.
+async fn fake_acpmux(
+    frames: usize,
+    size: usize,
+    prompt_seen: mpsc::UnboundedSender<Instant>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            let prompt_seen = prompt_seen.clone();
+            tokio::spawn(async move {
+                let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
+                let (mut sink, mut source) = socket.split();
+                let (out, mut queue) = mpsc::channel::<Message>(1);
+                tokio::spawn(async move {
+                    while let Some(message) = queue.recv().await {
+                        if sink.send(message).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+                while let Some(Ok(frame)) = source.next().await {
+                    let Message::Text(text) = frame else { continue };
+                    let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
+                    match request["method"].as_str() {
+                        Some("_acpmux/info") => {
+                            let session = request["params"]["sessionId"].clone();
+                            let reply = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"sessionId": session}});
+                            if out.send(Message::Text(reply.to_string().into())).await.is_err() {
+                                return;
+                            }
+                        }
+                        Some("session/prompt") => {
+                            let _ = prompt_seen.send(Instant::now());
+                        }
+                        Some("_acpmux/status") => {
+                            let out = out.clone();
+                            tokio::spawn(async move {
+                                let pad = "x".repeat(size);
+                                for seq in 0..frames {
+                                    let event = json!({"jsonrpc": "2.0", "method": "_acpmux/event",
+                                        "params": {"sessionId": "s1", "seq": seq, "pad": pad}});
+                                    if out.send(Message::Text(event.to_string().into())).await.is_err() {
+                                        return;
+                                    }
+                                }
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
+    });
+    (url, task)
+}
+
+/// Chat, phone to Mac while the Mac pushes bulk to the phone: 16 MB of event frames flood
+/// down while the phone's downlink is stalled (the uplink works), then the phone sends
+/// `session/prompt`. Measures prompt-sent to the fake acpmux receiving it. One relay loop
+/// that waits for room to push a frame to the phone stops reading the phone's prompt
+/// until the phone drains; two independent halves do not. The flood still arrives whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
+async fn cell_chat_prompt_behind_bulk_downstream() {
+    let toxics = Toxics { latency: Duration::from_millis(20), ..Toxics::default() };
+    let (frames, size) = (64usize, 256 * 1024usize);
+    let (seen_tx, mut seen) = mpsc::unbounded_channel();
+    let (url, acpmux) = fake_acpmux(frames, size, seen_tx).await;
+    let rig = Rig::start_acpmux(1, toxics, url).await;
+    let mut channel = rig.phone.open_on("acpmux", json!({}), Lane::Bulk).await.expect("open acpmux channel");
+    // The phone's downlink is starved (a weak cell, a stalled app) while its uplink works.
+    rig.toxic.stall_downstream();
+    channel
+        .send(Bytes::from(json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status"}).to_string()))
+        .await
+        .unwrap();
+    // The phone reads nothing for 1.5 s; the link and the relay fill meanwhile.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let sent = Instant::now();
+    let prompt = json!({"jsonrpc": "2.0", "id": 2, "method": "session/prompt",
+        "params": {"sessionId": "s1", "prompt": [{"type": "text", "text": "hi"}]}});
+    channel.send(Bytes::from(prompt.to_string())).await.unwrap();
+    let arrived = tokio::time::timeout(Duration::from_millis(1100), seen.recv()).await;
+    let prompt_ms = arrived.ok().flatten().map(|at| ms(at - sent));
+    tokio::time::sleep(
+        Duration::from_millis(1500).saturating_sub(sent.elapsed() + Duration::from_millis(400)),
+    )
+    .await;
+    rig.toxic.resume_downstream();
+    // Now the phone drains. The flood arrives whole and in order.
+    let mut pending = Vec::new();
+    let mut got = 0usize;
+    let drained = tokio::time::timeout(Duration::from_secs(60), async {
+        while got < frames {
+            match channel.recv().await {
+                Some(ChannelEvent::Data(data)) => pending.extend_from_slice(&data),
+                other => {
+                    println!(
+                        "NETCOND-ERROR phone channel ended after {got} frames: {:?}",
+                        other.map(|e| match e {
+                            ChannelEvent::Closed(info) => format!("closed {}: {}", info.code, info.reason),
+                            _ => "data".into(),
+                        })
+                    );
+                    break;
+                }
+            }
+            let mut stream = serde_json::Deserializer::from_slice(&pending).into_iter::<Value>();
+            let mut used = 0;
+            while let Some(Ok(event)) = stream.next() {
+                assert_eq!(
+                    event["params"]["seq"],
+                    got,
+                    "flood lost, duplicated or reordered an event: {}",
+                    event.to_string().chars().take(300).collect::<String>()
+                );
+                got += 1;
+                used = stream.byte_offset();
+            }
+            pending.drain(..used);
+        }
+    })
+    .await;
+    let prompt_ms_final = match prompt_ms {
+        Some(value) => Some(value),
+        None => tokio::time::timeout(Duration::from_secs(30), seen.recv())
+            .await
+            .ok()
+            .flatten()
+            .map(|at| ms(at - sent)),
+    };
+    println!(
+        "NETCOND {}",
+        json!({"surface": "chat", "profile": "duplex-20ms@1", "phase": "warm", "scale": "1x",
+               "metric": "prompt_behind_bulk_ms", "value": prompt_ms_final, "run": 0, "seed": 0x5eed})
+    );
+    report(
+        "chat_prompt_behind_bulk_downstream",
+        "flood-16MB",
+        json!({"prompt_to_acpmux_ms": prompt_ms_final, "flood_frames": got}),
+    );
+    assert!(drained.is_ok() && got == frames, "flood delivered {got}/{frames} frames");
+    rig.finish().await;
+    acpmux.abort();
+    assert!(
+        prompt_ms.is_some_and(|value| value < 300.0),
+        "prompt took {prompt_ms:?} ms to reach acpmux behind bulk output (bound 300 ms)"
+    );
 }

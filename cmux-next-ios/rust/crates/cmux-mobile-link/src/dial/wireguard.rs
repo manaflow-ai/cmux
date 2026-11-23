@@ -52,7 +52,8 @@ mod roam;
 use roam::{Control, Session};
 #[path = "wireguard_paths.rs"]
 mod paths;
-pub use roam::{network_changed, rehome, roam_timeline};
+pub use paths::{app_backgrounded, set_app_backgrounded};
+pub use roam::{network_changed, rehome, roam_timeline, route_destinations};
 #[doc(hidden)]
 pub use roam::{
     roam_session, session_endpoints, simulate_blackout, simulate_network_loss, simulate_turn_loss,
@@ -131,6 +132,26 @@ pub(crate) const KEEPALIVE_SECONDS: u16 = 10;
 /// directions recovers on TURN before the link gives up.
 const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
+
+/// Measurement only: answer as before the answer trickled its endpoints
+/// (wg-resp waits out the STUN gather, up to [`STUN_WAIT`]). Off by
+/// default; tests turn it on for their baseline.
+static ANSWER_AFTER_GATHER: AtomicBool = AtomicBool::new(false);
+
+/// Measurement only (see [`ANSWER_AFTER_GATHER`]).
+pub fn set_answer_after_gather(on: bool) {
+    ANSWER_AFTER_GATHER.store(on, Ordering::Relaxed);
+}
+
+/// Whether an answer sends `wg-resp` with its host endpoints at once and
+/// announces its reflexive (and TURN) endpoints after it, through the
+/// roaming messages (`wg-endpoints` and the in-tunnel announcement, resent
+/// until acknowledged). A version-2 peer reads those; an older one, or a
+/// side with no plain UDP (whose only endpoint is its TURN address), gets
+/// the answer after the gather, as before.
+fn answer_trickles(options: &DialOptions, peer_version: u32) -> bool {
+    peer_version >= WG_VERSION && !no_plain_udp(options) && !ANSWER_AFTER_GATHER.load(Ordering::Relaxed)
+}
 /// Once one STUN server answered, how much longer the others get. Cloudflare
 /// lists STUN on 3478 and on 53, and cellular networks often take port 53 for
 /// their own DNS or drop it: waiting out [`STUN_WAIT`] for that one held
@@ -308,6 +329,19 @@ pub fn primary_local_ip() -> Option<IpAddr> {
 /// Whether this side uses no plain UDP at all (relay only, or UDP blocked).
 fn no_plain_udp(options: &DialOptions) -> bool {
     options.relay_only || options.block_udp
+}
+
+/// The answer's gather before `wg-resp` (an older peer, or no plain UDP):
+/// host and reflexive endpoints, and the TURN allocation of a Mac whose
+/// network answers no STUN (it drops UDP), over TLS when UDP to the server
+/// fails too. The allocation starts once STUN has been silent for
+/// [`STUN_SILENT`], beside the rest of the STUN wait, not after it.
+async fn gather_for_answer(socket: &UdpSocket, options: &DialOptions) -> (Gathered, Option<TurnCarrier>) {
+    let (stun_side, turn_side) = stun_turn_link();
+    tokio::join!(
+        gather_endpoints(socket, options, Some(stun_side)),
+        turn_beside(options, no_plain_udp(options), turn_side)
+    )
 }
 
 /// Asked for a TURN allocation (`wanted`) and got none in time, though a TURN
@@ -736,6 +770,10 @@ struct HybridUnderlay {
     /// When a datagram last arrived relayed (through a TURN server).
     last_relayed_arrival: Option<Instant>,
     path: watch::Sender<LinkPath>,
+    /// The peer address plain UDP on the current route goes to (none on
+    /// this side's own TURN allocation): which local interface carries the
+    /// session ([`route_destinations`]).
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
     /// STUN transactions of the current socket still unanswered, and where
     /// the reflexive addresses go.
@@ -812,6 +850,7 @@ struct UnderlaySpec<'a> {
     turn: Option<TurnCarrier>,
     reach_out: mpsc::UnboundedSender<(SocketAddr, Carrier)>,
     path: watch::Sender<LinkPath>,
+    route_to: Arc<watch::Sender<Option<SocketAddr>>>,
     control: mpsc::UnboundedReceiver<Control>,
 }
 
@@ -850,6 +889,7 @@ impl HybridUnderlay {
             last_on_route: None,
             last_relayed_arrival: None,
             path: spec.path,
+            route_to: spec.route_to,
             control: spec.control,
             stun: Vec::new(),
             reflexive: None,
@@ -1001,6 +1041,17 @@ impl HybridUnderlay {
                 self.publish_path();
                 self.replay_recent(true);
                 self.wake_receiver();
+            }
+            Control::Gather { stun, reflexive } => {
+                for server in stun {
+                    let mut transaction = [0u8; 12];
+                    getrandom::fill(&mut transaction).expect("operating system randomness");
+                    let request = cmux_transport::stun::binding_request(transaction);
+                    if self.socket.try_send_to(&request, server).is_ok() {
+                        self.stun.push((transaction, server));
+                    }
+                }
+                self.reflexive = Some(reflexive);
             }
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
@@ -1454,6 +1505,8 @@ impl HybridUnderlay {
     fn publish_path(&mut self) {
         let own = self.turn.as_ref().map(|turn| turn.transport);
         let path = path_of(self.direct, &self.labels, own);
+        let to = self.direct.filter(|route| route.carrier == Carrier::Udp).map(|route| route.addr);
+        self.route_to.send_if_modified(|current| std::mem::replace(current, to) != to);
         if self.direct_only()
             && let Some(roam) = self.roam.take()
         {
@@ -1556,6 +1609,9 @@ impl HybridUnderlay {
             if self.send_route(route, datagram, class) {
                 if !self.answering {
                     self.paths.sent(route, now);
+                }
+                if class != SendClass::Control {
+                    self.paths.sent_data(now);
                 }
                 self.maybe_spray(datagram, route);
                 return true;
@@ -1965,6 +2021,7 @@ fn start_tunnel(
 ) -> Result<Tunnel, DialError> {
     let current = Arc::new(Mutex::new(signaling.clone()));
     let (path_tx, path_rx) = watch::channel(LinkPath::NoPath);
+    let route_to = Arc::new(watch::channel(None).0);
     let (control_tx, control_rx) = mpsc::unbounded_channel();
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
@@ -1979,6 +2036,7 @@ fn start_tunnel(
             turn: spec.turn,
             reach_out: reach_tx,
             path: path_tx,
+            route_to: Arc::clone(&route_to),
             control: control_rx,
         },
         options,
@@ -2015,6 +2073,7 @@ fn start_tunnel(
         relayed: (relayed, relayed_tls),
         keeps_turn: spec.keeps_turn,
         turn_dead,
+        route_to,
     });
     Ok(Tunnel { session, path: path_rx })
 }
@@ -2241,16 +2300,17 @@ impl Dialer for WireGuardDialer {
                 .map_err(|_| DialError::Unexpected("wg-init overlayIP is not IPv4".into()))?;
             let own_ip = if peer_ip == ANSWER_OVERLAY { DIALER_OVERLAY } else { ANSWER_OVERLAY };
             let socket = bind_udp().map_err(transport_error)?;
-            // A Mac whose network answers no STUN (it drops UDP) takes its
-            // own TURN allocation, over TLS when UDP to the server fails too.
-            // It starts once STUN has been silent for STUN_SILENT, beside
-            // the rest of the STUN wait, not after it.
-            let (stun_side, turn_side) = stun_turn_link();
-            let (gathered, turn) = tokio::join!(
-                gather_endpoints(&socket, options, Some(stun_side)),
-                turn_beside(options, no_plain_udp(options), turn_side)
-            );
-            let wants_turn = no_plain_udp(options) || gathered.udp_looks_blocked();
+            let port = socket.local_addr().map_err(transport_error)?.port();
+            let trickle = answer_trickles(options, peer_version);
+            let (gathered, turn) = if trickle {
+                // Host endpoints now; the STUN (and TURN) gather runs after
+                // `wg-resp`, on the tunnel's socket (gather_after_answer).
+                let endpoints = offered(host_endpoints(port, options), options);
+                (Gathered { endpoints, stun: Vec::new(), answered: 0 }, None)
+            } else {
+                gather_for_answer(&socket, options).await
+            };
+            let wants_turn = !trickle && (no_plain_udp(options) || gathered.udp_looks_blocked());
             // A STUN answer came after all: the early allocation is dropped
             // (released) unused.
             let turn = if wants_turn { turn } else { None };
@@ -2346,6 +2406,10 @@ impl Dialer for WireGuardDialer {
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
+            options.timeline.mark("wg_resp_sent");
+            if trickle {
+                tunnel.session.gather_after_answer(port, options.timeline.clone());
+            }
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
             // The phone's second connection is the input lane.
@@ -2478,6 +2542,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2514,6 +2579,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2552,6 +2618,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2600,6 +2667,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2687,6 +2755,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2744,6 +2813,7 @@ mod tests {
                 turn: None,
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &DialOptions::default(),
@@ -2825,6 +2895,7 @@ mod tests {
                 turn: Some(first),
                 reach_out,
                 path: watch::channel(LinkPath::NoPath).0,
+                route_to: Arc::new(watch::channel(None).0),
                 control,
             },
             &options,

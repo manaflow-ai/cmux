@@ -112,6 +112,12 @@ pub const INDEXED_KINDS: &[&str] = &[
     "inbox_subscription",
     // A recipient's grants of its threads to owners, read with them.
     "inbox_owner_grant",
+    // A log load's rate-limit hold (`hub/rate_hold.rs` `restore_rate_hold`), read back to the
+    // newest completed turn: a chat with none near its end read its whole log at every start.
+    "rate_limit_held",
+    "rate_limit_parked",
+    "rate_limit_lifted",
+    "rate_limit_unparked",
 ];
 
 /// The folder of a chat's copies, beside its `events`.
@@ -354,14 +360,17 @@ impl LocalStore {
             }
             true
         };
-        for (index, path) in self.segments(id)?.into_iter().rev() {
-            if self.segment_starts.first_seq(id, index, &path)?.is_some_and(|first| first >= before)
+        let segments = self.segments(id)?;
+        let end = self.segment_starts.end(id, &segments, before)?;
+        for (index, path) in segments[..end].iter().rev() {
+            let index = *index;
+            if self.segment_starts.first_seq(id, index, path)?.is_some_and(|first| first >= before)
             {
                 continue;
             }
-            let mut file = crate::config::private_state_file(&path)?;
+            let mut file = crate::config::private_state_file(path)?;
             let copy =
-                if indexed { self.copy_for_read_back(id, index, &path, &file)? } else { None };
+                if indexed { self.copy_for_read_back(id, index, path, &file)? } else { None };
             match copy {
                 // A copy covers the segment's first `from` bytes, whole lines: what was written
                 // after them (none in a segment a log load sealed and copied, at most the segment
