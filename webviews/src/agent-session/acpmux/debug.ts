@@ -11,6 +11,7 @@ import type { LoadRunOptions, LoadTickOptions, LoadToolsOptions } from "./loadDe
 import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
+import { focusRoute } from "../../ui/focusRoute";
 import { wantAllSessions } from "./sessionPages";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
@@ -378,7 +379,8 @@ export function createAcpmuxDebug(
           '.acpmux-composer-prompt[contenteditable="true"], .acpmux-composer-prompt [contenteditable="true"]',
         );
         if (!prompt) return { error: "no prompt" };
-        prompt.focus();
+        if (!focusRoute(prompt, "system", "debug reset_typing fills the prompt's draft"))
+          return { error: "focus refused" };
         const range = document.createRange();
         range.selectNodeContents(prompt);
         range.collapse(false);
