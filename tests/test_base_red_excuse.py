@@ -5387,6 +5387,20 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
                     self.judge()
 
+    def test_the_controllers_own_compile_status_is_a_pass_and_its_look_alikes_are_not(self):
+        """The build fleet's controller posts cmux-next/compile itself as the manaflow-checks App
+        (COMPILE_STATUS_CONTROLLER_POSTER) on the pull request heads it compiles. Its success passes the head like
+        cmux-bot's; its GraphQL-style login, another id or a User of that name do not."""
+        controller = excuse.COMPILE_STATUS_CONTROLLER_POSTER
+        self.gh.statuses = [{**self.FALLBACK, "creator": dict(controller)}]
+        self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
+        for creator in ({**controller, "login": "manaflow-checks"}, {**controller, "id": 1},
+                        {**controller, "type": "User"}):
+            with self.subTest(creator=creator):
+                self.gh.statuses = [{**self.FALLBACK, "creator": creator}]
+                with self.assertRaisesRegex(excuse.Refused, "no compile verdict.*nothing else compiled"):
+                    self.judge()
+
     def test_a_look_alike_newer_than_the_posters_red_does_not_hide_it(self):
         """GitHub's combined status shows the newest per context, so a forged success posted after the poster's own
         no-verdict reads as success there. The gate takes the newest of its poster's, which did not pass."""
