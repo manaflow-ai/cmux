@@ -9,9 +9,7 @@
 
 use std::sync::Arc;
 
-use serde_json::Value;
-#[cfg(feature = "hub-carrier")]
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::Conn;
 use super::computer_use_relay::{Admission, admit};
@@ -24,7 +22,7 @@ use crate::rpc::RpcError;
 const CALL_WAIT: std::time::Duration = std::time::Duration::from_secs(630);
 
 fn refused(code: &str, message: impl Into<String>) -> RpcError {
-    RpcError::invalid_params(message).with_data(serde_json::json!({"code": code}))
+    RpcError::invalid_params(message).with_data(json!({"code": code}))
 }
 
 /// The machine a call names, and its checked action and params.
@@ -66,8 +64,6 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
     use crate::server::Origin;
     use crate::server::conn_auth::ConnAuth;

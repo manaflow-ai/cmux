@@ -175,12 +175,12 @@ mod lost_home_race_tests;
 pub mod machine_call_service;
 #[path = "cli/machine_consent.rs"]
 pub(crate) mod machine_consent;
-/// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
-#[cfg(feature = "hub-carrier")]
 /// File and command actions for another of the person's machines (`machine_call_service.rs`).
 pub mod machine_files;
 pub(crate) mod machine_info;
 pub(crate) mod machine_record;
+/// A local route to each of the person's other machines' cmux-tui session (`machine_routes.rs`).
+#[cfg(feature = "hub-carrier")]
 pub mod machine_routes;
 pub mod machine_tunnel;
 pub mod machine_wake;
