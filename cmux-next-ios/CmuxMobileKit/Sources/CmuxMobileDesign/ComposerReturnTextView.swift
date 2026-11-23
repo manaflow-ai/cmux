@@ -240,6 +240,20 @@ open class ComposerReturnTextView: UITextView {
 
     /// The field's height at the field's width: `height`, and whether the text overflows it.
     private var settled: (width: CGFloat, height: CGFloat, scrolls: Bool)?
+
+    /// The text's height as last settled (`contentHeight(width:)` at the field's width): past
+    /// `maxLines` a leading part already taller than the field, so clamp against it only. Nil
+    /// until the field has a width and a size was asked. For layout that follows the field's
+    /// height (an inset, an overlap): read this, never measure per layout pass.
+    public private(set) var settledContentHeight: CGFloat?
+
+    /// Something outside the text changed the height rule (a reserve, a strip): measure again
+    /// at the field's width, and ask SwiftUI to size the field again if its height changed.
+    public func resettle() {
+        guard bounds.width > 0 else { return unsettle(invalidate: true) }
+        let old = settled?.height
+        if settle(width: bounds.width).height != old { invalidateIntrinsicContentSize() }
+    }
     /// Set while a typed text goes in at a caret with nothing selected or marked.
     private var insertingOnly = false
 
@@ -247,14 +261,17 @@ open class ComposerReturnTextView: UITextView {
     private func settle(width: CGFloat) -> (width: CGFloat, height: CGFloat, scrolls: Bool) {
         let rule = fieldHeight
         let content = contentHeight(width: width)
+        settledContentHeight = content
         let result = (width: width, height: rule.height(contentHeight: content), scrolls: rule.scrolls(contentHeight: content))
         settled = result
         return result
     }
 
     /// Text, font, insets or `maxLines` changed: the next size asked for measures again.
-    private func unsettle() {
+    private func unsettle(invalidate: Bool = false) {
         settled = nil
+        settledContentHeight = nil
+        if invalidate { invalidateIntrinsicContentSize() }
     }
 
     /// Whether the text is taller than the field (it scrolls inside).
