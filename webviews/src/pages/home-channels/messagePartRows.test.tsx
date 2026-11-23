@@ -5,6 +5,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import { intl } from "../../ui/intl";
 import type { Strings } from "../shared/i18n";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
@@ -23,7 +24,7 @@ const { createRoot } = await import("react-dom/client");
 const { MessageRow } = await import("./MessageRow");
 
 const strings = { t: (key: string) => key, format: (key: string) => key } as unknown as Strings;
-const timeFormat = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+const timeFormat = intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
 
 function drawn(part: HomePart): string {
   const message: HomeMessage = {
