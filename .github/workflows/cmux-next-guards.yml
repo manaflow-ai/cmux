@@ -1344,6 +1344,11 @@ jobs:
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-sim-create ')) }}
         run: python3 -I tests/test_ios_sim_create.py
 
+      - name: Fast gates run side by side; only the two bun gates share a lane (cmux_next_fast_gates.py)
+        id: tt-fast-gates-lanes
+        if: ${{ !cancelled() && (needs.portable-placement.outputs.tooling_all != 'false' || contains(needs.portable-placement.outputs.tooling_steps, ' tt-fast-gates-lanes ')) }}
+        run: python3 -I tests/test_fast_gates_lanes.py
+
       - name: The iOS simulator step reuses a verified FFI build, and a broken cache only warns (ios_ffi_cache.py)
         id: tt-ios-ffi-cache
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-ffi-cache ')) }}
@@ -1462,6 +1467,12 @@ jobs:
         id: tt-console-session-hop
         if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-console-session-hop ')) }}
         run: bash scripts/ci/tests/console-session-hop.test.sh
+
+      # The tour's base app waited 45 min for a cmux-tui tree nothing publishes and recorded no clip.
+      - name: media_build_app.sh builds cmux-tui on the Mac for an unpublished tree
+        id: tt-media-build-app-local-tui
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-media-build-app-local-tui ')) }}
+        run: bash scripts/ci/tests/media-build-app-local-tui.test.sh
 
       # launch-ready.sh judges each restore case against its expectation (the launch reopens exactly where the person
       # was, Home included) and flags an A/B whose arms first showed different surfaces as not like for like.

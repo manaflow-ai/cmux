@@ -99,6 +99,8 @@ jobs:
             --body-file "$RUNNER_TEMP/body.md" --files-json "$RUNNER_TEMP/changed-files.json"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
       - name: Set the risk label
+        # An ungraded run (a GitHub rate limit, risk_tier.py's RateLimited) sets no label and leaves the old one.
+        if: steps.grade.outputs.label != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

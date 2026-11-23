@@ -194,7 +194,8 @@ case "${1:-}" in
     [ -n "$wp" ] && stop_pid "$wp"
     rm -f "$ST/py.pid" "$ST/watchdog.pid"
     clear_all
-    sleep 0.5
+    # Until no dnctl is running (one still running could create the pipe again), 5 s; then check the pipe.
+    for _ in $(seq 50); do pgrep -x dnctl >/dev/null 2>&1 || break; sleep 0.1; done
     dnctl list 2>/dev/null | grep -q "^0$PIPE:" && { echo "pipe came back; clearing again" >&2; clear_all; }
     for p in $pp $wp; do ours "$p" && echo "still running: $p" || echo "exited: $p"; done
     echo "holds: $(wc -l < "$ST/holds.jsonl" 2>/dev/null || echo 0)"
