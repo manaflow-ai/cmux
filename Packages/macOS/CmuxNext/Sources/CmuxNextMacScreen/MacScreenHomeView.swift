@@ -179,7 +179,9 @@ final class MacScreenHomeView: MacScreenThemedView {
         if snapshot.sharing?.showFirstUse == true {
             MacScreenStack.addFullWidth(firstUseGuide(), to: column)
         }
-        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook), to: column) }
+        if let list = snapshot.devices {
+            MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook, placement: snapshot.setupPlacement), to: column)
+        }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
         paint(column)
