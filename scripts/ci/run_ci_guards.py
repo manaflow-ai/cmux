@@ -473,6 +473,12 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
 
 def main(argv: list[str]) -> int:
     global ROOT, WORKFLOW
+    # A runner started in the background (Freestyle's `cmux-linux` VMs) hands
+    # its jobs SIGINT already ignored, and an ignored signal survives exec: the
+    # Ctrl-C Actions sends on cancel, and every step that tests its own Ctrl-C
+    # handling, then waits out its timeout. A caught handler resets on exec, so
+    # Python's own handler here gives every step a default SIGINT.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--group", action="append", default=[], help="run these matrix groups or jobs instead of the fast set")
     parser.add_argument("--all", action="store_true", help="run every guard group, not only the fast set")
