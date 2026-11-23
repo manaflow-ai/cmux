@@ -501,6 +501,7 @@ notifications.attention.showOnTab
 notifications.attention.style
 notifications.attention.terminals
 notifications.attention.width
+notifications.delivery.blocked
 notifications.delivery.permissionRequest
 notifications.delivery.question
 notifications.delivery.taskComplete
