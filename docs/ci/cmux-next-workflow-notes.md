@@ -688,10 +688,16 @@ Other runs get 60, not 30. On 2026-11-22, run 45002704947 (cmux#49316) was cance
 10:05:56 to 10:36:24Z). Each started cold: the seed root was refused ("busy, unprovisioned or has no room") and
 every shared root was busy, so the job skipped the R2 restore. `swift build --build-tests` for CmuxHomeRender
 took 37 s. For CmuxNext it ran 28.5 min, reached step 13998 of 14000 (CmuxNextAppTests) and was cancelled
-before any test started. That build takes no `--jobs`: SwiftPM uses every core, so the hook's
-`CMUX_CI_CPU_BUDGET=2` does not slow it, and raising the grant would not speed it up. The time comes from the
-cold start on a host that a waiting fleet build also needs. With 60, a cold run gets past its last link and
-gives a verdict.
+before any test started. With 60, a cold run gets past its last link and gives a verdict.
+
+Other runs get 120, not 60. 60 was too close: on 2026-11-22, job 137256550516 (run 45037691864, cmux#49316 head
+3a5c858edcfe, cmux9s-mac-mini-glaeda-5) passed in 58.0 of its 60 minutes (97%). It started cold ("evicted, 0.0
+GiB kept", seed root refused). The hook gave it 3 cores and its shim passes `swift build --jobs 3`. CmuxNext
+build-tests ran 16:06:32 to 16:57:59Z (51.5 min), and the 8 entries then passed in 40 s. #50336's 5-core
+cold run took 32.7 min. The build time scales with the core grant, about 155 core-minutes. A 2-core cold
+run is about 78 min of building plus 5 of setup, so it needs at least 83 min. 120 keeps that at 69% of the
+cap and a 3-core run at 48%. A 1-unit grant (about 155 min) still cannot finish; that is a placement problem,
+not something to cover with the cap.
 
 ## note-40
 
@@ -2147,6 +2153,8 @@ those two hours, 11 were at the limit (2,775 runner-min/day). Both hosts build a
 `/home/runner/work/cmux/cmux` with the pinned toolchain, and cargo's fingerprints check every reused
 crate. acpmux tests made the same fix in #49482. `cmux-next-car-guards.yml` reads this cache with the
 same key.
+
+The same toggle is now on every `Swatinem/rust-cache` step (42 more in 27 workflows; `cloud-journey-prod.yml` runs main's copy on its schedule, so it is left for a main PR). The macOS-on-Linux build (`cmux-tui-build-package.yml`) showed it: after #49976 saved its first entry (key hash `2a69944b`, 2026-11-22 19:26Z), the next 4 sampled legs on pool runners computed `6ec71d0a`, `1ca27fd1`, `6ec71d0a` and `2a69944b`. The difference was `rustup toolchain list`: 1.95.0 alone, or with 1.98.1 and 1.100.0 left over. All 4 found no cache, and cargo took 20 min each. In the 11.5 h after the save, green `build aarch64-apple-darwin` legs averaged 33.3 min on pull requests and lanes (25.7 before) and 29.5 min on feat-cmux-next (29.7 before). The entry was evicted from the full store by 07:00Z on 11-23.
 
 ## note-210b
 
