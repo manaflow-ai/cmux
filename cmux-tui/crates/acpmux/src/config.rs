@@ -1263,7 +1263,8 @@ pub struct TitlesConfig {
     /// then keeps its first-prompt title.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
-    /// `model`: the Claude model of the default command. Default `haiku`.
+    /// `model`: the Claude model of the default command. Unset: the cmux setting
+    /// `agents.titles.model` (`model_settings.rs`), else `haiku`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }

@@ -364,8 +364,11 @@ impl Hub {
         // Never the shared temp dir or the daemon's folder: Claude Code runs
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
-        let cwd =
-            tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd).await.ok()?;
+        let (cwd, chosen) = tokio::task::spawn_blocking(|| {
+            (crate::protected_folders::unattended_cwd(), crate::model_settings::text_model())
+        })
+        .await
+        .ok()?;
         let cfg = self.config.read().await;
         if cfg.titles.generate == Some(false) {
             return None;
@@ -390,7 +393,8 @@ impl Hub {
         if profile.kind != crate::config::HarnessKind::ClaudeStdio {
             return None;
         }
-        let model = cfg.titles.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_owned());
+        // acpmux config's `titles.model`, else the Settings row (`model_settings.rs`), else haiku.
+        let model = cfg.titles.model.clone().or(chosen).unwrap_or_else(|| DEFAULT_MODEL.to_owned());
         let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
         let mut args: Vec<String> = profile.argv.iter().skip(1).cloned().collect();
         args.extend(

@@ -69,6 +69,9 @@ extension SettingsSchema {
         "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll",
         // The cmux model router's default model is the same choice exposed by its Settings and MCP pickers.
         "agents.modelRouter.model",
+        // The model and effort new chats start on, and the model that writes titles and summaries: the same choices an agent makes with a chat's model and effort pickers.
+        "agents.defaults.claude.model", "agents.defaults.claude.effort", "agents.defaults.codex.model",
+        "agents.defaults.codex.effort", "agents.titles.model",
         "layout.minimumPaneWidth", "layout.minimumPaneHeight", "appearance.theme", "appearance.appTheme",
         "appearance.accent", "appearance.selection",
         // Cosmetic icon preference; the reserved Neko value currently falls back to default artwork
