@@ -1131,11 +1131,13 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     ]}));
     assert_eq!(
         shared.device_hub_of("lane-1"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": true}))
+        Some(json!({"listed": true, "id": "d1", "platform": "linux", "online": true,
+            "screenShared": true}))
     );
     assert_eq!(
         shared.device_hub_of("lane-2"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": false}))
+        Some(json!({"listed": true, "id": "d3", "platform": "linux", "online": true,
+            "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
     // This device's own record is never another machine's.
