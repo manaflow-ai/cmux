@@ -117,10 +117,14 @@ export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
 
 /**
  * Tools of a Computer Use server that would record video or install software: role cua-video (ffmpeg,
- * libx264) stays off on cmux machines, so CU_SERVER must list none.
+ * libx264) stays off on cmux machines, so CU_SERVER must list none. One exception: cmux-computer-use's
+ * `record` tool (#50070) encodes with the desktop's own H.264 encoder, which only the macOS worker has, so
+ * on a cmux machine it is listed but refused. It passes when `recordCall` (the probe's call to it) was
+ * refused as unsupported.
  */
-export function videoToolProblems(tools: readonly string[]): string[] {
-  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t)).map((t) => `lists ${t}`);
+export function videoToolProblems(tools: readonly string[], recordCall?: { isError: boolean; text: string }): string[] {
+  const recordRefused = recordCall !== undefined && recordCall.isError && /unsupported|H\.264 encoder/i.test(recordCall.text);
+  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t) && !(t === "record" && recordRefused)).map((t) => `lists ${t}`);
 }
 /**
  * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
@@ -214,8 +218,9 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
 /**
  * MCP client over stdio (python3 on the image): starts one server from a spec file, initializes,
  * lists tools, runs `before_calls` (a shell command), makes `calls`, and writes a JSON report.
- * A call `{shell}` runs that shell command at its place instead. A call's PNG (an image content
- * item, else a PNG path in its text) is written to `copy_png_to`.
+ * A call `{shell}` runs that shell command at its place instead. A call with `until` is repeated
+ * every 2 s, for up to `until_s` seconds, until its text contains `until`. A call's PNG (an image
+ * content item, else a PNG path in its text) is written to `copy_png_to`.
  */
 const MCP_CLIENT_PY = String.raw`import base64, json, os, re, select, shutil, subprocess, sys, time
 spec = json.load(open(sys.argv[1]))
@@ -248,9 +253,13 @@ if spec.get("before_calls"): subprocess.run(spec["before_calls"], shell=True)
 for n, call in enumerate(spec.get("calls", [])):
     if "shell" in call:
         subprocess.run(call["shell"], shell=True); continue
-    res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
-    body = res.get("result", {})
-    text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+    deadline = time.time() + call.get("until_s", 0)
+    while True:
+        res = rpc(10 + n, "tools/call", {"name": call["name"], "arguments": call["arguments"]}, 180)
+        body = res.get("result", {})
+        text = " ".join(c.get("text", "") for c in body.get("content", []) if c.get("type") == "text")
+        if not call.get("until") or call["until"] in text or time.time() >= deadline: break
+        time.sleep(2)
     entry = {"name": call["name"], "isError": bool(body.get("isError")) or "error" in res, "expect_error": bool(call.get("expect_error")), "text": (text or str(res.get("error", "")))[:1500]}
     images = [c["data"] for c in body.get("content", []) if c.get("type") == "image" and c.get("data")]
     m = re.search(r"(/[^\s\"']+\.png)", text)
@@ -469,7 +478,10 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "status", arguments: {} },
         { shell: displayWindowCommand(`http://127.0.0.1:${PAGE_PORT}/cua.html`) },
         { name: "screenshot", arguments: { force: true }, copy_png_to: `${WORK_DIR}/cua.png` },
-        { name: "list_windows", arguments: {} },
+        // Chrome can still be mapping the window, titled by its URL, after the 5 s (cmux run 44955837342's bake).
+        { name: "list_windows", arguments: {}, until: CUA_PAGE_TEXT, until_s: 30 },
+        // Role cua-video stays off: a cmux machine's desktop has no H.264 encoder, so `record` must refuse.
+        { name: "record", arguments: { seconds: 1 }, expect_error: true },
       ],
     },
     [LEGACY_CU_SERVER]: {
@@ -566,8 +578,8 @@ async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string
     workerStartedByComputerUse(w, bus),
     JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
   );
-  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);
-  const listed = videoToolProblems(report?.tools ?? []);
+  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; isError: boolean; text: string }> }).catch(() => null);
+  const listed = videoToolProblems(report?.tools ?? [], report?.calls.find((c) => c.name === "record"));
   const firstPath = (w["worker-env-PATH"] ?? "").split(":")[0];
   check(
     "cua-video-refused",

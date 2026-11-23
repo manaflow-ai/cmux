@@ -94,9 +94,37 @@ import Testing
         fixture.glass.onClose = { fixture.closes += 1 }
         #expect(fixture.glass.runKeyEquivalent(try Self.key(24, "=", flags: .command)))
         #expect(fixture.glass.runKeyEquivalent(try Self.key(24, "=", flags: .command)))
-        #expect(fixture.target.ran == ["Zoom In", "Zoom In"], "⌘= ran Zoom In inline, as the + button does")
-        #expect(fixture.zoomRow.valueLabel.stringValue == "120%")
         Self.turnRunLoop()
+        #expect(fixture.target.ran == ["Zoom In", "Zoom In"], "⌘= ran Zoom In after the key, as the + button does")
+        #expect(fixture.zoomRow.valueLabel.stringValue == "120%")
+        #expect(fixture.closes == 0)
+    }
+
+    /// The App's action rows validate as disabled while a key it already handled is dispatched
+    /// (`ActionMenuTarget` asks the key router's gate for every row with a shortcut, and the zoom
+    /// buttons have ⌘- ⌘= ⌘0). A zoom key in the open menu is a pick, as a click is: it runs after
+    /// that key, so the zoom changes and the buttons stay enabled. Live VoiceOver capture on the
+    /// fleet (cmux21, 2026-11-21): Right on the zoom row left it at 100% with its buttons dimmed.
+    @Test func zoomKeysRunAfterTheKeyThatPressedThem() throws {
+        var fixture = Fixture()
+        fixture.glass.onClose = { fixture.closes += 1 }
+        let list = fixture.list
+        list.keyDown(with: try Self.key(125))
+        list.keyDown(with: try Self.key(125))
+        #expect(list.highlightedIndex == fixture.zoomIndex)
+        try fixture.target.dispatchingKey {
+            list.keyDown(with: try Self.key(124))  // Right
+            list.keyDown(with: try Self.key(124))
+            #expect(fixture.glass.runKeyEquivalent(try Self.key(24, "=", flags: .command)))
+        }
+        Self.turnRunLoop()
+        #expect(fixture.target.ran == ["Zoom In", "Zoom In", "Zoom In"], "a zoom key ran inside the key's own dispatch")
+        #expect(fixture.zoomRow.valueLabel.stringValue == "130%")
+        let row = fixture.zoomRow
+        #expect(row.minus.isEnabled && row.plus.isEnabled && row.resetButton.isEnabled, "the zoom buttons read dimmed after a key")
+        try fixture.target.dispatchingKey { list.keyDown(with: try Self.key(36, "\r")) }  // Return: Actual Size
+        Self.turnRunLoop()
+        #expect(fixture.zoomRow.valueLabel.stringValue == "100%")
         #expect(fixture.closes == 0)
     }
 
@@ -112,6 +140,7 @@ import Testing
         list.keyDown(with: try Self.key(124))
         list.keyDown(with: try Self.key(123))  // Left
         list.keyDown(with: try Self.key(36, "\r"))  // Return
+        Self.turnRunLoop()
         #expect(fixture.target.ran == ["Zoom In", "Zoom In", "Zoom Out", "Actual Size"])
         list.keyDown(with: try Self.key(125))
         #expect(fixture.title(at: list.highlightedIndex) == "History", "Down skips the separator and the disabled row")
@@ -160,9 +189,10 @@ import Testing
         for (button, label) in [(row.minus, "Zoom Out"), (row.plus, "Zoom In"), (row.resetButton, "Actual Size")] {
             #expect(button.accessibilityRole() == .button)
             #expect(button.accessibilityLabel() == label)
-            #expect(button.toolTip?.hasPrefix(label) == true)
+            #expect(button.themedToolTip == label, "the tooltip names the button")
+            #expect(button.toolTip == nil, "the stock bubble drew")
         }
-        #expect(row.plus.toolTip == "Zoom In (⌘=)", "the button's tooltip names its shortcut")
+        #expect(row.plus.themedToolTipShortcut == "⌘=", "the tooltip's keycap shows the shortcut")
         #expect(row.plus.accessibilityPerformPress())
         #expect(fixture.target.ran == ["Zoom In"])
     }
@@ -210,6 +240,7 @@ import Testing
         #expect(list.highlightedIndex == fixture.zoomIndex)
         #expect(posts.selected.last == "Zoom")
         list.keyDown(with: try Self.key(124))  // Right: Zoom In
+        Self.turnRunLoop()
         #expect(fixture.zoomRow.plus.press())
         #expect(posts.announced == ["110%", "120%"], "VoiceOver did not hear the new zoom")
     }
@@ -251,7 +282,20 @@ import Testing
     /// The titles whose items validate as disabled.
     var disabled: Set<String> = []
 
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { !disabled.contains(menuItem.title) }
+    /// A key-down is being dispatched: rows with a shortcut validate as disabled, as the App's
+    /// `ActionMenuTarget` does when its key router already handled the key.
+    private(set) var isDispatchingKey = false
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        !disabled.contains(menuItem.title) && !(isDispatchingKey && !menuItem.keyEquivalent.isEmpty)
+    }
+
+    /// Runs `body` as the handling of a key-down.
+    func dispatchingKey(_ body: () throws -> Void) rethrows {
+        isDispatchingKey = true
+        defer { isDispatchingKey = false }
+        try body()
+    }
 
     @objc func run(_ sender: NSMenuItem) {
         ran.append(sender.title)
