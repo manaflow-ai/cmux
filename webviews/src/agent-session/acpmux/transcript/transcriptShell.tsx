@@ -107,6 +107,9 @@ export type TranscriptShellDeps = {
   findReveal: React.ContextType<typeof FindReveal>;
   lane: number;
   lift: number;
+  /// The whole pixels of the room held above the loaded rows for older history, which the thread
+  /// stands under (VirtualTranscript `threadRoom`).
+  threadRoom: number;
   standIns: Parameters<typeof standInElements>[1];
   frameKey: Parameters<typeof standInElements>[3];
   thread: React.RefObject<HTMLDivElement | null>;
@@ -177,6 +180,7 @@ export function drawTranscriptShell({
   findReveal,
   lane,
   lift,
+  threadRoom,
   standIns,
   frameKey,
   thread,
@@ -317,7 +321,7 @@ export function drawTranscriptShell({
                 <div
                   ref={thread}
                   className="acpmux-thread"
-                  style={{ top: lift + topInset }}
+                  style={{ top: lift + topInset + threadRoom }}
                   onPointerOver={(event) => pointAt(event.target)}
                   onPointerLeave={() => pointAt(null)}
                 >

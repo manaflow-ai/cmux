@@ -398,16 +398,6 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
         const frame = state.frames;
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         if (scroller) {
-          // DIAG (temporary)
-          {
-            const t = scroller.querySelector<HTMLElement>(".acpmux-thread");
-            const sp = scroller.querySelector<HTMLElement>(".acpmux-spacer");
-            const r0 = scroller.querySelector<HTMLElement>(".acpmux-row");
-            const d = ((window as unknown as { __diag?: string[] }).__diag ??= []);
-            const line = `top=${t?.style.top} mt=${t?.style.marginTop} cls=${t?.className} st=${scroller.scrollTop} sh=${scroller.scrollHeight} room=${sp?.dataset.olderRoom} spH=${sp?.style.height} r0=${r0?.dataset.rowId}@${r0?.style.top} tRect=${Math.round(t?.getBoundingClientRect().top ?? 0)} fs=${t?.style.getPropertyValue("--acpmux-flow-start")} fe=${t?.style.getPropertyValue("--acpmux-flow-end")}`;
-            if (d[d.length - 1]?.slice(d[d.length - 1]!.indexOf(" ") + 1) !== line && d.length < 60)
-              d.push(`${state.frames} ${line}`);
-          }
           const view = scroller.getBoundingClientRect();
           const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
           const placed = mounted.map((row) => ({ row, rect: row.getBoundingClientRect() }));
@@ -543,12 +533,6 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
         () => (window as unknown as { __openBreakpoint: Promise<unknown> }).__openBreakpoint,
       )) as Opened;
       const connected = opens[0] ?? navigated;
-      console.log(
-        `DIAG ${scale}:\n` +
-          ((await tab.evaluate(() => (window as unknown as { __diag?: string[] }).__diag ?? [])) as string[]).join(
-            "\n",
-          ),
-      );
 
       // The socket drops once and the stand-in takes the pane's next connect at once.
       await tab.evaluate(`(${recoverySampler.toString()})()`);
