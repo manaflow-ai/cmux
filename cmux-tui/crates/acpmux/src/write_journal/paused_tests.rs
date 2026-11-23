@@ -117,7 +117,7 @@ fn a_conflict_on_resume_waits_for_the_next_file_call() {
 fn what_the_seed_left_out_needs_the_machine() {
     let big = "x".repeat(64);
     let bounds = SeedBounds { max_files: 10, max_total_bytes: 1 << 20, max_file_bytes: 32 };
-    let f = fixture(&[("big.txt", &big), (".git/HEAD", "ref\n"), ("ok.txt", "ok")], bounds);
+    let f = fixture(&[("big.txt", big.as_str()), (".git/HEAD", "ref\n"), ("ok.txt", "ok")], bounds);
     f.fs.pause("m1", &f.machine, FakeResume::new(Duration::ZERO), 0).unwrap();
     for path in ["big.txt", ".git/HEAD"] {
         assert_eq!(
@@ -164,7 +164,7 @@ fn a_resume_gap_since_the_seed_makes_the_replica_stale() {
 async fn paused_read_latency_journal_vs_resume_then_read() {
     let body = "let x = 1;\n".repeat(372);
     for delay_ms in [0u64, 10, 100] {
-        let f = fixture(&[("src/lib.rs", &body)], SeedBounds::default());
+        let f = fixture(&[("src/lib.rs", body.as_str())], SeedBounds::default());
         let resume = FakeResume::new(Duration::from_millis(delay_ms));
         let path = f.machine.join("src/lib.rs");
         f.fs.pause("m1", &f.machine, resume.clone(), 0).unwrap();
