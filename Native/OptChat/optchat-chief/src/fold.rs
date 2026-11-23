@@ -149,6 +149,9 @@ pub struct TurnFold {
     /// between two Chief turns of a kept session: its lines are not this
     /// turn's, and its words never join this turn's reply.
     in_background_turn: bool,
+    /// The fold reads the turns Claude Code runs on its own (`following`):
+    /// only the lines inside a `background_turn` bracket count.
+    follow_background: bool,
     /// The last raw Claude Code line came from one of its own subagents
     /// (Task/Agent): it is not timed, and its result and usage are not the turn's.
     in_subagent: bool,
@@ -168,6 +171,26 @@ pub struct TurnFold {
 impl TurnFold {
     pub fn new() -> TurnFold {
         TurnFold::default()
+    }
+
+    /// A fold of the turns Claude Code runs on its own after event `seq`
+    /// (acpmux `background_turn` brackets) in a kept turn session: a
+    /// background task the turn moved there ended, and Claude Code answered
+    /// it (`brain/background.rs`).
+    pub fn following(seq: u64) -> TurnFold {
+        TurnFold {
+            follow_background: true,
+            ..TurnFold::after(seq)
+        }
+    }
+
+    /// Whether the fold saw a call of the Chief's own `send` or `reply`
+    /// tool (it posted itself).
+    pub fn posted_itself(&self) -> bool {
+        self.tools.values().any(|t| {
+            let name = t.name.rsplit("__").next().unwrap_or(&t.name);
+            t.done && matches!(name, "send" | "reply")
+        })
     }
 
     /// A fold that resumes after event `seq` (an orphaned turn's rest: what
@@ -244,11 +267,24 @@ impl TurnFold {
         }
         let mut out = Vec::new();
         if event.dir == "mux" && event.kind == "background_turn" {
-            self.in_background_turn =
-                event.msg.get("state").and_then(Value::as_str) == Some("started");
+            let started = event.msg.get("state").and_then(Value::as_str) == Some("started");
+            if self.follow_background && self.in_background_turn && !started {
+                // A followed turn ended: its words are the reply, and the
+                // fold stops here (a later bracket is the next follow's).
+                self.finish_talk(&mut out);
+                if let Some(text) = self.last_talk.take() {
+                    self.answered.push(text);
+                }
+                self.ended = Some(Ended { error: None });
+                self.in_background_turn = false;
+                return out;
+            }
+            self.in_background_turn = started;
             return out;
         }
-        if self.in_background_turn {
+        // A Chief turn skips a turn Claude Code ran on its own; a followed
+        // one reads only those.
+        if self.in_background_turn != self.follow_background {
             return out;
         }
         // After a `turn_end`: its `turn_result` says whether Claude Code runs

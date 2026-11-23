@@ -16,7 +16,8 @@ import CmuxNextCompat
 /// let faces = ChatFontFaces.Loader().dataURLs(["Lora:italic": "file:~/Fonts/Lora-Italic.woff2"])
 /// // ["Lora:italic": "data:font/woff2;base64,d09GMg..."]
 /// ```
-public nonisolated enum ChatFontFaces {
+public nonisolated struct ChatFontFaces {
+    public nonisolated init() {}
     /// The most faces one map declares; entries past it (in key order) are skipped.
     public static let maximumFaces = 8
     /// The most one face file may be: 2 MiB.

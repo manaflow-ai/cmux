@@ -18,7 +18,9 @@
 //! as a theme file: applying it changes nothing.
 
 mod colors;
+pub mod contrast;
 pub mod render;
+pub mod two_tone;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -45,13 +47,14 @@ pub const SETTING_KEY: &str = "appearance.themeFile";
 pub const SCHEMA_FILE_NAME: &str = ".schema.json";
 
 /// Keys a theme file reads that are not settings.
-pub const RESERVED_KEYS: [&str; 6] =
-    ["name", "description", "$schema", "colors", "ghostty", "density"];
+pub const RESERVED_KEYS: [&str; 8] =
+    ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
-/// (where this Mac is), the saved
-/// custom densities, and the keys the person changed over the file.
-const EXCLUDED_KEYS: [&str; 9] = [
+/// (where this Mac is), what each background mode last showed and the
+/// backgrounds shown before, the saved custom densities, where each picture
+/// is placed, and the keys the person changed over the file.
+const EXCLUDED_KEYS: [&str; 12] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -60,6 +63,9 @@ const EXCLUDED_KEYS: [&str; 9] = [
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
     "appearance.backgroundLocation",
+    "appearance.backgroundMemory",
+    "appearance.backgroundPlacement",
+    "appearance.backgroundRecents",
     EXCEPTIONS_KEY,
 ];
 /// The look keys the person changed in Settings while the active theme
@@ -86,12 +92,14 @@ const LOOK_PREFIXES: [&str; 8] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the chat code font; the sidebar's shape,
-/// edges, text, group headers and buttons; the tab strip's and titlebar's
-/// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
-/// sender marks and Session Info. Keep in step with Swift
+/// Look keys outside those prefixes: the terminal font and the chat code font;
+/// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
+/// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
+/// tabs; pane corners; the agent chat's text sizes, sender marks and Session
+/// Info; and the transcript look and its tokens
+/// (docs/cmux-next/transcript-customization.md). Keep in step with Swift
 /// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 36] = [
+const LOOK_KEYS: [&str; 39] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -99,6 +107,9 @@ const LOOK_KEYS: [&str; 36] = [
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "agentPane.display.transcriptLook",
+    "agentPane.display.transcriptTokens",
+    "sidebar.look",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",
@@ -179,12 +190,16 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 5] = [
+const SHIPPED: [(&str, &str); 9] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
     ("harbor", include_str!("../../../../../Resources/theme-files/harbor.json")),
+    ("lily-pond", include_str!("../../../../../Resources/theme-files/lily-pond.json")),
+    ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
+    ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
+    ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
 ];
 
 /// The text of the shipped theme file `name`.
@@ -632,5 +647,7 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     })
 }
 
+#[cfg(test)]
+mod contrast_tests;
 #[cfg(test)]
 mod tests;

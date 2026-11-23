@@ -98,6 +98,8 @@ createRoot(root).render(
       {...(query.has("crowdedSuggestions")
         ? {
             onCreate: noop,
+            // More rows than the list shows: New Tab lists no Ask row, and tabs, workspaces and pages
+            // share four rows (MAX_MATCH_ROWS), so palette actions (three rows) fill it past its height.
             omnibar: {
               tabs: [],
               workspaces: [],
@@ -107,6 +109,11 @@ createRoot(root).render(
               history: Array.from({ length: 4 }, (_, index) => ({
                 url: `https://example.com/project-${index}`,
                 title: `Project notes ${index + 1}`,
+              })),
+              actions: Array.from({ length: 3 }, (_, index) => ({
+                id: `project-action-${index + 1}`,
+                title: `Project action ${index + 1}`,
+                keywords: ["project"],
               })),
             },
           }

@@ -1,0 +1,38 @@
+/* Gallery stand-in for the widget host's tile; the shipped tile is the cmux.widget/1 host's frame.
+   The widget insets itself (16 pt), so the tile adds no padding. */
+.gallery-calendar-widget {
+  --gallery-calendar-widget-tile: 170px;
+  --gallery-calendar-widget-tile-wide: 364px;
+  --gallery-calendar-widget-tile-large: 382px;
+  --gallery-calendar-widget-tile-radius: 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+}
+.gallery-calendar-widget-row {
+  display: flex;
+  gap: 24px;
+}
+.gallery-calendar-widget-tile {
+  box-sizing: border-box;
+  display: flex;
+  width: var(--gallery-calendar-widget-tile);
+  height: var(--gallery-calendar-widget-tile);
+  border-radius: var(--gallery-calendar-widget-tile-radius);
+  background: var(--agent-control);
+  color: var(--agent-text);
+  overflow: hidden;
+}
+.gallery-calendar-widget-tile[data-size="medium"] {
+  width: var(--gallery-calendar-widget-tile-wide);
+}
+.gallery-calendar-widget-tile[data-size="large"] {
+  width: var(--gallery-calendar-widget-tile-wide);
+  height: var(--gallery-calendar-widget-tile-large);
+}
+.gallery-calendar-widget-tile > * {
+  flex: 1;
+  min-width: 0;
+}

@@ -33,6 +33,9 @@ pub struct MachineCredential {
     pub machine_id: String,
     #[serde(default)]
     pub credential_generation: u64,
+    /// The platform that issued it: only its deployment's device hub signs it in ([`Join`]).
+    #[serde(default)]
+    pub hub_origin: String,
 }
 
 impl std::fmt::Debug for MachineCredential {
@@ -74,6 +77,49 @@ pub fn current() -> Res<Option<(PathBuf, MachineCredential)>> {
     Ok(load(&home)?.map(|credential| (home, credential)))
 }
 
+/// One read of a join: its acpmux home, its credential and the device hub that credential signs
+/// in at, all from the same credential file (review F2 of #45480). Every sign-in for a join
+/// takes one ([`Join::of`] is the only way to make one outside tests), so a credential is only
+/// ever sent to its own deployment's hub, whatever hub a caller held from an earlier join.
+#[derive(Clone, Debug)]
+pub struct Join {
+    pub home: PathBuf,
+    pub credential: MachineCredential,
+    pub hub: String,
+}
+
+impl Join {
+    /// The join `credential` from `home` is, at its deployment's device hub; an error when no
+    /// deployment issued it (`hub_origin` names no platform this build knows).
+    pub fn of(home: &Path, credential: MachineCredential) -> Res<Self> {
+        // The tests' stub hubs: a loopback origin is its own deployment's hub.
+        #[cfg(test)]
+        if credential.hub_origin.starts_with("http://127.0.0.1:") {
+            let hub = credential.hub_origin.clone();
+            return Ok(Self { home: home.to_owned(), credential, hub });
+        }
+        let hub =
+            cmux_hub_host::deployment::device_hub_of(&credential.hub_origin).ok_or_else(|| {
+                format!(
+                    "no device hub serves the platform this machine was joined at ({})",
+                    cmux_hub_host::printable(&credential.hub_origin)
+                )
+            })?;
+        Ok(Self { home: home.to_owned(), credential, hub: hub.to_owned() })
+    }
+
+    /// The join in `home` now: None when it has no usable credential ([`load`]).
+    pub fn read(home: &Path) -> Res<Option<Self>> {
+        load(home)?.map(|credential| Self::of(home, credential)).transpose()
+    }
+
+    /// A join at `hub` as it is, for tests that sign in at a stub hub.
+    #[cfg(test)]
+    pub fn at(home: &Path, credential: MachineCredential, hub: &str) -> Self {
+        Self { home: home.to_owned(), credential, hub: hub.to_owned() }
+    }
+}
+
 /// Beside `account.json`: the host's sign-in came from a join, never from a person's token.
 pub const JOINED_FILE: &str = "joined.json";
 
@@ -89,6 +135,11 @@ pub struct Joined {
     pub machine_id: String,
     #[serde(default)]
     pub credential_generation: u64,
+    /// Whether this join's consent is tracked by consent-join.json (#45480): set when a build
+    /// that writes that marker first signs the join in. A record without it is from before, so
+    /// its consent.json, or the absence of one, is its person's choice, never a stopped run.
+    #[serde(default)]
+    pub consent_tracked: bool,
 }
 
 impl Joined {
@@ -98,12 +149,41 @@ impl Joined {
             acpmux_home: acpmux_home.to_owned(),
             machine_id: credential.machine_id.clone(),
             credential_generation: credential.credential_generation,
+            consent_tracked: false,
         }
+    }
+
+    /// The record a sign-in with `credential` from `acpmux_home` writes over `previous` (what
+    /// `joined.json` held): a new join's consent is tracked from now on; the same join (or a
+    /// record from before joins were marked, from this home) keeps what it had, so signing in
+    /// again never makes a person's earlier choice read as a stopped run.
+    pub fn signed_in(
+        previous: Option<&Self>,
+        acpmux_home: &Path,
+        credential: &MachineCredential,
+    ) -> Self {
+        let of = Self::of(acpmux_home, credential);
+        let consent_tracked = match previous {
+            Some(previous) if previous.same_machine(&of) || previous.unmarked_from(acpmux_home) => {
+                previous.consent_tracked
+            }
+            _ => true,
+        };
+        Self { consent_tracked, ..of }
+    }
+
+    /// Whether this record and `other` are the same joined machine from the same acpmux home,
+    /// whatever credential generation the hub gave it since.
+    pub fn same_machine(&self, other: &Self) -> bool {
+        !self.machine_id.is_empty()
+            && self.machine_id == other.machine_id
+            && self.acpmux_home == other.acpmux_home
     }
 
     /// Whether this record is the join `credential` from `acpmux_home` is now.
     pub fn is(&self, acpmux_home: &Path, credential: &MachineCredential) -> bool {
-        !self.machine_id.is_empty() && *self == Self::of(acpmux_home, credential)
+        let of = Self::of(acpmux_home, credential);
+        self.same_machine(&of) && self.credential_generation == of.credential_generation
     }
 
     /// Whether this record was written from `acpmux_home` before joins were marked (#45369): it
@@ -158,6 +238,23 @@ mod tests {
         let c = load(&dir).unwrap().unwrap();
         assert_eq!((c.credential.as_str(), c.name.as_str()), ("cmm_x", "vm-1"));
         assert!(!format!("{c:?}").contains("cmm_x"), "the credential is never printed");
+    }
+
+    #[test]
+    fn a_join_signs_in_at_its_own_deployments_hub() {
+        let dir = home(
+            "deployment",
+            Some(
+                r#"{"credential":"cmm_x","machine_id":"m","hub_origin":"https://cmux-platform-production.debussy.workers.dev"}"#,
+            ),
+        );
+        let join = Join::read(&dir).unwrap().unwrap();
+        assert_eq!(join.hub, "https://cmux-device-hub.debussy.workers.dev");
+        assert_eq!(join.home, dir);
+        let unknown = r#"{"credential":"cmm_x","hub_origin":"https://elsewhere.example"}"#;
+        let e = Join::read(&home("deployment-unknown", Some(unknown))).unwrap_err();
+        assert!(e.to_string().contains("no device hub serves"), "{e}");
+        assert!(Join::read(&home("deployment-none", None)).unwrap().is_none());
     }
 
     #[test]

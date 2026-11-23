@@ -4,9 +4,34 @@ import Observation
 /// How many GitHub completions answered this launch (``CloudGitHubCompletion/handle(_:auth:)``), one per sign-in
 /// (``CloudAuth/gitHubChanges``): Settings' GitHub and each chat's folder menu observe it and read GitHub again, so the
 /// repositories list with no restart and no click.
+///
+/// It also keeps the last completion the API refused (``refusal``), so the Connect GitHub button can say why the link
+/// did not take instead of staying silent.
 @MainActor @Observable public final class CloudGitHubChanges {
     public internal(set) var count = 0
+    /// The last completion's refusal (an expired state, a non-owner's request, GitHub refusing the code); nil when the
+    /// last answer connected, none came back, or a new connect started. ``count`` changes after it is set.
+    public internal(set) var refusal: Refusal?
     public init() {}
+
+    /// Why a completion was refused: the API's `reason` when it gave words that are safe to show, else nil (the link
+    /// expired is the common case, and the client's own words say it).
+    public struct Refusal: Equatable, Sendable {
+        public let reason: String?
+        public init(reason: String?) { self.reason = reason }
+    }
+
+    /// Records what a completion answered: a refusal is kept, a connection or a lost answer clears the last one.
+    func record(_ answer: CloudOwnerAPIClient.GitHubCompletion, reason: String?) {
+        switch answer {
+        case .refused: refusal = Refusal(reason: reason)
+        case .connected, .noAnswer: refusal = nil
+        }
+        count += 1
+    }
+
+    /// A new Connect GitHub starts over: the last refusal no longer applies.
+    public func forgetRefusal() { refusal = nil }
 }
 
 /// GitHub's install redirect handed back to this app (#46018): the connect this app started named
@@ -80,9 +105,9 @@ extension CloudGitHubCompletion {
             await auth.awaitRestored()
             guard auth.isSignedIn else { return }
             let access: CloudOwnerAPIClient.AccessToken = { try await auth.tokens().access }
-            _ = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
-                .gitHubComplete(completion)
-            auth.gitHubChanges.count += 1
+            let (answer, reason) = await CloudOwnerAPIClient(baseURL: base, accessToken: access, teamID: { team }, buildSpace: auth.configuration.buildSpace)
+                .gitHubCompleteWithReason(completion)
+            auth.gitHubChanges.record(answer, reason: reason)
         }
         return true
     }
@@ -99,9 +124,26 @@ extension CloudOwnerAPIClient {
 
     /// `integration.complete` on `/v1/ops` as the person, in ``teamID``'s team, under the console's own key.
     public func gitHubComplete(_ completion: CloudGitHubCompletion) async -> GitHubCompletion {
+        await gitHubCompleteWithReason(completion).answer
+    }
+
+    /// ``gitHubComplete(_:)`` and, for a refusal, the API's own words (``refusalReason(body:)``).
+    public func gitHubCompleteWithReason(_ completion: CloudGitHubCompletion) async -> (answer: GitHubCompletion, reason: String?) {
         let body: [String: Any] = ["op": "integration.complete", "params": completion.params, "origin": "user", "idempotency_key": completion.idempotencyKey]
-        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return .noAnswer }
-        return Self.completion(status: answer.status, body: answer.body)
+        guard let json = try? JSONSerialization.data(withJSONObject: body), let answer = await person("/v1/ops", post: json) else { return (.noAnswer, nil) }
+        let result = Self.completion(status: answer.status, body: answer.body)
+        return (result, result == .refused ? Self.refusalReason(body: answer.body) : nil)
+    }
+
+    /// The API's message for a refused completion (`{error: {code, message}}`), trimmed and capped; nil when it gave none,
+    /// or when it is the expired or invalid `state` (`integration.state_invalid` and kin), which the client words itself.
+    static func refusalReason(body: Data) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let error = object["error"] as? [String: Any] else { return nil }
+        let code = (error["code"] as? String ?? "").lowercased()
+        guard !code.contains("state") else { return nil }
+        let text = (error["message"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : String(text.prefix(200))
     }
 
     /// A 2xx answer that says `ok` (no error) is connected; a 408, 429 or 5xx may not have run; anything else refused.

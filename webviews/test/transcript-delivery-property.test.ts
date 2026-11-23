@@ -6,10 +6,13 @@
 // what it missed. Seeded random cases (the repo has no direct fast-check dependency): a failure prints its seed and
 // the delivery, and PROPERTY_SEED=N PROPERTY_CASES=1 replays it.
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { prng } from "../bench/godFixture";
-import { connectClient, FakeDaemon, logFor, retainedEntries, VirtualClock } from "../bench/stateGrowth";
+import { connectClient, FakeDaemon, logFor, rekey, retainedEntries, VirtualClock } from "../bench/stateGrowth";
+import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 
 const SESSION = "prop-chat";
 const CASES = Number(process.env.PROPERTY_CASES ?? 24);
@@ -80,14 +83,17 @@ function perturb(events: EventRecord[], seed: number, kinds: readonly Kind[] = K
   return { events: out, lost, dropAt, log };
 }
 
-async function play(events: EventRecord[], deliver: (daemon: FakeDaemon) => Promise<void>) {
+async function play(
+  events: EventRecord[],
+  deliver: (daemon: FakeDaemon) => Promise<void>,
+  stored = events.slice(0, events.findIndex((event) => event.kind === "turn_result") + 1),
+) {
   clock = new VirtualClock().install();
   const daemon = new FakeDaemon();
   // The chat starts with its first turn stored, so the pane opens on a transcript and the rest comes live.
-  const firstTurn = events.findIndex((event) => event.kind === "turn_result") + 1;
   daemon.add(
     { sessionId: SESSION, cwd: "/home/dev/x", title: "x", harness: "claude", status: "running", updatedAt: clock.now },
-    events.slice(0, firstTurn),
+    [...stored],
   );
   const { client, rows } = await connectClient(daemon, SESSION, clock);
   await deliver(daemon);
@@ -267,14 +273,187 @@ test("closing the shown chat frees its records and rows", async () => {
   client.close();
 });
 
-// One fault kind at a time over the same seeds. Duplicates and a dropped socket converge alone and stay held to it;
-// a lost record, and a swap (its later record is dropped as stale, so a loss too), still diverge until
+// One fault kind at a time over the same seeds. Duplicates, a dropped socket and a swap converge alone and stay
+// held to it (a swap's late record takes its place among the held ones, `mergeLate`; it was dropped as stale and
+// missing until its turn ended); a record lost and never sent again still diverges until
 // manaflow-ai/cmuxterm-hq#8950 is fixed.
-for (const kind of ["dup", "drop"] as const)
+for (const kind of ["dup", "drop", "swap"] as const)
   test(`${kind} alone converges to the in-order rows`, async () => {
     expect(await convergence([kind])).toEqual([]);
   });
-for (const kind of ["swap", "lose"] as const)
+for (const kind of ["lose"] as const)
   test(`${kind} alone still diverges only as manaflow-ai/cmuxterm-hq#8950 says`, async () => {
     stillKnown(await convergence([kind]), `${kind} alone`);
   });
+
+// ---------- a recorded chat through a faulty delivery ----------
+// Leo, 2026-11-21: "you guys need to analyze simulated behaviour. we can do this without any real agent sessions,
+// just simulated ones. ... you can even replay my transcript." acpmux has a seeded delivery simulation
+// (`acpmux simulation`); this is the pane's side of it. A recorded chat (test/fixtures/chat-sim, sanitized by
+// sim/sanitize.ts) is delivered live with every record arriving at least once but not as written: sent twice,
+// late, shuffled with its neighbours, dropped and sent again later, or lost while the socket was down and read back
+// on the reconnect. Once the clock settles the rows drawn are the rows in-order delivery draws.
+//
+// SIM_SEEDS seeds from SIM_SEED (300 from 1); a failure prints `seed N` with its delivery, and
+// SIM_SEED=N SIM_SEEDS=1 replays it. Known reds, each checked by taking the code out of direct.ts:
+// - `apply` without its "at or below the newest seq folded" dedupe: a record sent twice is held and drawn twice
+//   (seed 1, "the held log has 129 before 128", 14 rows for 8);
+// - `apply` dropping a late record instead of `mergeLate`: its words are missing (seed 1);
+// - `keepSame` not comparing a background turn's line: a finish whose result came after the next prompt stays
+//   "ended by a prompt" (seed 56).
+const SIM_SEEDS = Number(process.env.SIM_SEEDS ?? 300);
+const SIM_FIRST = Number(process.env.SIM_SEED ?? 1);
+/// The most records a seed delivers live: the rest of the chat before them is stored when the pane opens.
+const SIM_LIVE = 120;
+/// The records stored before them that the pane opens on: a late record folds the held ones again, so the count
+/// held is what a seed costs.
+const SIM_STORED = 150;
+
+const recorded = parseRecords(
+  readFileSync(path.join(import.meta.dir, "fixtures/chat-sim/replay-lane-session.ndjson"), "utf8"),
+)
+  .sort((a, b) => a.seq - b.seq)
+  .map((event) => rekey(event, SESSION));
+
+/// Where a seed's live part may start: the chat's first record after each turn's end, and each `SIM_LIVE` records
+/// on from it inside a long turn (a pane opened in the middle of a turn).
+const simStarts: number[] = [];
+for (let index = 0, since = SIM_LIVE; index < recorded.length - 8; index++, since++) {
+  const afterTurn = index > 0 && recorded[index - 1]!.kind === "turn_result";
+  if (index > 0 && (afterTurn || since >= SIM_LIVE)) {
+    simStarts.push(index);
+    since = 0;
+  }
+}
+
+type SimDelivery = { order: EventRecord[]; dropAt?: number; log: string[] };
+
+/// A seeded delivery of `live`: every record is sent, at its place or later, and some twice.
+function faulty(live: EventRecord[], seed: number): SimDelivery {
+  const random = prng(seed);
+  const log: string[] = [];
+  // Each sending has a place in line: the record's own, or one further on.
+  const sends: { at: number; event: EventRecord }[] = [];
+  for (let index = 0; index < live.length; index++) {
+    const event = live[index]!;
+    const roll = random();
+    const far = 2 + Math.floor(random() * 30);
+    if (roll < 0.05) {
+      // Sent twice: the copy up to 30 places later.
+      sends.push({ at: index, event }, { at: index + far + 0.5, event });
+      log.push(`dup ${event.seq}+${far}`);
+    } else if (roll < 0.1) {
+      // Late: overtaken by the records after it.
+      sends.push({ at: index + far + 0.5, event });
+      log.push(`late ${event.seq}+${far}`);
+    } else if (roll < 0.16) {
+      // Shuffled with its neighbours: a place within three of its own.
+      sends.push({ at: index + (random() - 0.5) * 6, event });
+      log.push(`shuffle ${event.seq}`);
+    } else if (roll < 0.2) {
+      // Dropped, then sent again far later (and sometimes a second time).
+      const again = 20 + Math.floor(random() * 60);
+      sends.push({ at: index + again + 0.5, event });
+      if (random() < 0.3) sends.push({ at: index + again + 3.5, event });
+      log.push(`resend ${event.seq}+${again}`);
+    } else sends.push({ at: index, event });
+  }
+  sends.sort((a, b) => a.at - b.at);
+  // The socket drops once in half the seeds: what is sent while it is down is lost, and the reconnect reads it.
+  const dropRoll = random();
+  const dropSpot = Math.floor(random() * sends.length);
+  const dropAt = dropRoll < 0.5 ? dropSpot : undefined;
+  if (dropAt !== undefined) log.push(`socket drops at ${dropAt}`);
+  return { order: sends.map((send) => send.event), dropAt, log };
+}
+
+/// The rows as the person sees them. A reply's id is the first of its chunks the pane held, so one whose first
+/// chunk came late is made again under the earlier id and keeps drawing in the element it had (`frame`,
+/// `adoptFrames`): the same words in the same place, so the frame is not compared.
+function shown(rows: unknown): unknown[] {
+  return (rows as readonly AcpmuxRow[]).map((row) => (row.frame === undefined ? row : { ...row, frame: undefined }));
+}
+
+/// Plays one window of the recorded chat: `deliver` sends its live part.
+async function playRecorded(start: number, end: number, delivery?: SimDelivery) {
+  const live = recorded.slice(start, end);
+  const result = await play(
+    recorded,
+    async (daemon) => {
+      const history = daemon.sessions.get(SESSION)!.history;
+      if (!delivery) {
+        daemon.push(live);
+        await clock!.advance(1000);
+        return;
+      }
+      // acpmux writes its log in order whatever the connection does: a record is in the log before it, or any
+      // record after it, is sent.
+      let written = start;
+      for (let index = 0; index < delivery.order.length; index++) {
+        const event = delivery.order[index]!;
+        while (written < end && recorded[written]!.seq <= event.seq) history.push(recorded[written++]!);
+        if (index === delivery.dropAt) {
+          daemon.drop();
+          // Sent into the closed socket: lost. The reconnect's attach reads the log.
+          for (let lost = index; lost < Math.min(index + 6, delivery.order.length); lost++)
+            daemon.deliver(delivery.order[lost]!);
+          await clock!.advance(5_000);
+        }
+        daemon.deliver(event);
+        if (index % 7 === 0) await clock!.advance(16);
+      }
+    },
+    recorded.slice(Math.max(0, start - SIM_STORED), start),
+  );
+  const problems: string[] = [];
+  const held = (result.client as unknown as { events: EventRecord[] }).events;
+  for (let index = 1; index < held.length; index++)
+    if (held[index - 1]!.seq >= held[index]!.seq) {
+      problems.push(`the held log has ${held[index - 1]!.seq} before ${held[index]!.seq}`);
+      break;
+    }
+  if (clock!.errors.length) problems.push(`a timer threw: ${clock!.errors.join("; ")}`);
+  result.client.close();
+  clock!.uninstall();
+  clock = undefined;
+  return { rows: result.rows, problems };
+}
+
+test(`a recorded chat delivered shuffled, twice, late and resent draws the in-order transcript (${SIM_SEEDS} seeds)`, async () => {
+  expect(simStarts.length).toBeGreaterThan(10);
+  const references = new Map<number, unknown>();
+  const failures: string[] = [];
+  let faults = 0;
+  for (let seed = SIM_FIRST; seed < SIM_FIRST + SIM_SEEDS; seed++) {
+    const start = simStarts[seed % simStarts.length]!;
+    const end = Math.min(recorded.length, start + SIM_LIVE);
+    let reference = references.get(start);
+    if (reference === undefined) {
+      const inOrder = await playRecorded(start, end);
+      expect(inOrder.problems).toEqual([]);
+      references.set(start, (reference = shown(inOrder.rows)));
+    }
+    const delivery = faulty(recorded.slice(start, end), seed);
+    faults += delivery.log.length;
+    const got = await playRecorded(start, end, delivery);
+    const problems = [...got.problems];
+    if (JSON.stringify(shown(got.rows)) !== JSON.stringify(reference))
+      problems.push(firstDiff(shown(got.rows), reference));
+    if (problems.length)
+      failures.push(
+        `seed ${seed} (records ${recorded[start]!.seq}-${recorded[end - 1]!.seq}; SIM_SEED=${seed} SIM_SEEDS=1 replays it): ` +
+          `${problems.join("; ")}\n  after ${delivery.log.join(", ") || "plain delivery"}`,
+      );
+  }
+  for (const failure of failures.slice(0, 5)) console.log(failure);
+  if (failures.length > 5)
+    console.log(
+      `and ${failures.length - 5} more seeds: ${failures
+        .slice(5)
+        .map((f) => f.split(" (")[0])
+        .join(", ")}`,
+    );
+  // The faults are real: every seed's delivery differs from the log.
+  expect(faults).toBeGreaterThan(SIM_SEEDS * 5);
+  expect(failures.map((failure) => failure.split(" (")[0])).toEqual([]);
+}, 120_000);

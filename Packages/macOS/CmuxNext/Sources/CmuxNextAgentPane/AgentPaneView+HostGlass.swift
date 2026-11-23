@@ -26,12 +26,12 @@ extension AgentPaneView {
         let pageView: NSView = page ?? webView
         let container = holder.container ?? makeHostGlassContainer(below: pageView)
         if container.frame != pageView.frame { container.frame = pageView.frame }
-        let zoom = max(0.25, CGFloat(uiPointerPageZoom))
         let bounds = CGRect(origin: .zero, size: container.frame.size)
         var kept = Set<String>()
         for surface in holder.surfaces {
             kept.insert(surface.id)
             let view = holder.views[surface.id] ?? makeHostGlassView(surface, in: container)
+            let zoom = surface.placementZoom(paneZoom: CGFloat(uiPointerPageZoom))
             let frame = Self.hostGlassFrame(surface.rect, page: bounds, zoom: zoom, flipped: container.isFlipped)
             if view.frame != frame { view.frame = frame }
             let radius = surface.radius * zoom

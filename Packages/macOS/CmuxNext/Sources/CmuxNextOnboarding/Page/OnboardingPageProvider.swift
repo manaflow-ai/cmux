@@ -22,12 +22,20 @@ final class OnboardingPageProvider: PageProvider {
     private let images = OnboardingPageImages()
     /// The click or key the last gesture ran on (`PageCallContext.gestureEvent`).
     private var spentGesture: TimeInterval?
+    /// The Agents step's in-place sign-in (``OnboardingSignIn``); nil keeps the step as before.
+    private let signIn: OnboardingSignIn?
 
-    init(model: OnboardingModel) {
+    init(model: OnboardingModel, signIn: OnboardingSignIn? = nil) {
         self.model = model
+        self.signIn = signIn
+        guard let signIn, model.step == .agents else { return }
+        // task-owner: one read when the window opens; it ends with the read.
+        Task { await signIn.refresh() }
     }
 
-    var state: OnboardingPageState { OnboardingPageState(model: model, images: images) }
+    var state: OnboardingPageState {
+        OnboardingPageState(model: model, images: images, signIn: model.step == .agents ? signIn?.state() : nil)
+    }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         if op == "cmux.onboarding.state" { return try Self.json(state) }
@@ -36,14 +44,31 @@ final class OnboardingPageProvider: PageProvider {
         // the window's own didBecomeKey does not see.
         if op == "cmux.onboarding.focused" {
             model.windowBecameKey()
+            if let signIn, model.step == .agents { await signIn.refresh() }
             return [:]
         }
+        if op == OnboardingSignIn.op { return try await runSignIn(params, context: context) }
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
             throw PageError(code: PageNativeOp.userOnlyCode, message: "\(op) runs only on its own click or key in the window")
         }
         spentGesture = event
         try perform(op, params)
         return [:]
+    }
+
+    /// `cmux.onboarding.accounts.run {action, ...}`: Settings > Accounts' forwarder's answer, unchanged.
+    /// A start, switch, sign-out or remove runs only on its own click or key, as every other gesture.
+    private func runSignIn(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        guard let signIn, model.step == .agents else { throw PageError.unknownOp(OnboardingSignIn.op) }
+        let action = try Self.string(params, "action")
+        if !OnboardingSignIn.followUps.contains(action) {
+            guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "\(action) runs only on its own click or key in the window")
+            }
+            spentGesture = event
+        }
+        guard let reply = try await signIn.run(action, params) else { throw PageError.invalidParams("unknown action") }
+        return reply
     }
 
     /// One gesture on the model. A step's own op runs only while the window shows that step (an
@@ -82,6 +107,15 @@ final class OnboardingPageProvider: PageProvider {
             }
             model.computerUse.allow(pane)
         case "cmux.onboarding.computerUse.restart": model.computerUse.restart()
+        case "cmux.onboarding.makeItYours.workStyle":
+            guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
+            model.makeItYours.setWorkStyle(value)
+        case "cmux.onboarding.makeItYours.density":
+            guard let value = DensityChoice(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
+            model.makeItYours.setDensity(value)
+        case "cmux.onboarding.makeItYours.background":
+            // null: no background.
+            guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
         default: throw PageError.unknownOp(op)
         }
     }
@@ -105,6 +139,7 @@ final class OnboardingPageProvider: PageProvider {
         if op.hasPrefix("cmux.onboarding.agents.") { return .agents }
         if op.hasPrefix("cmux.onboarding.import.") { return .importData }
         if op.hasPrefix("cmux.onboarding.computerUse.") { return .computerUse }
+        if op.hasPrefix("cmux.onboarding.makeItYours.") { return .makeItYours }
         return nil
     }
 

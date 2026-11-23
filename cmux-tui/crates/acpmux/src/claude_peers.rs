@@ -170,6 +170,11 @@ pub fn live(config: &Path) -> Vec<Peer> {
     dir.flatten().filter_map(|e| read_entry(&e.path())).collect()
 }
 
+/// The live session registered under `pid` (`<pid>.json`), checked as [`live`] checks each.
+pub fn entry(config: &Path, pid: u32) -> Option<Peer> {
+    read_entry(&registry(config).join(format!("{pid}.json")))
+}
+
 /// The live session registered with Claude Code session id `id`.
 pub fn find(config: &Path, id: &str) -> Option<Peer> {
     live(config).into_iter().find(|p| p.session_id == id)
@@ -520,7 +525,8 @@ pub fn forget_token(home: &Path, chat_id: &str) {
 
 /// Delivers `text` into `peer`'s inbox as message `uuid`: connecting and writing take at most
 /// [`IO_TIMEOUT`] together. `child_token` is the session's own registered token ([`token_for`]);
-/// without one, the peer key file is read.
+/// without one, the peer key file is read. When the session runs an inbox relay
+/// (`claude_inbox_relay.rs`), the relay, its own child, writes the same lines instead.
 #[cfg(unix)]
 pub async fn deliver(
     config: &Path,
@@ -530,36 +536,48 @@ pub async fn deliver(
     from: &str,
     child_token: Option<&str>,
 ) -> Result<(), String> {
-    use tokio::io::AsyncWriteExt;
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
+    let token = match child_token {
+        Some(token) => token.to_owned(),
+        None => tokio::time::timeout(IO_TIMEOUT, peer_key(&key)).await.unwrap_or_else(|_| {
+            Err(format!("the session's inbox key {} did not read in time", key.display()))
+        })?,
+    };
+    let frames = frames(Some(&token), text, uuid, from);
+    if let Some(relayed) = crate::claude_inbox_relay::deliver(peer.pid, socket, &frames).await {
+        return relayed;
+    }
+    write_frames(socket, &frames).await
+}
+
+/// The peer token in the key file Claude Code publishes at `key`.
+#[cfg(unix)]
+async fn peer_key(key: &Path) -> Result<String, String> {
+    // Claude Code drops what comes without its token: with no readable key, nothing is sent.
+    // Only a small regular file is read (never a FIFO).
+    let small_file =
+        tokio::fs::metadata(key).await.is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
+    let bytes = if small_file { tokio::fs::read(key).await.ok() } else { None };
+    bytes
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
+        .ok_or_else(|| {
+            format!("the session's inbox key {} is missing or unreadable", key.display())
+        })
+}
+
+/// Writes `frames` ([`frames`]) to the inbox at `socket`, within [`IO_TIMEOUT`]: what the daemon
+/// does for a session with no relay, and what the relay does for its own session.
+#[cfg(unix)]
+pub async fn write_frames(socket: &Path, frames: &str) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
     let send = async {
-        let token = match child_token {
-            Some(token) => token.to_owned(),
-            None => {
-                // Claude Code drops what comes without its token: with no readable key, nothing
-                // is sent. Only a small regular file is read (never a FIFO), within the deadline.
-                let small_file = tokio::fs::metadata(&key)
-                    .await
-                    .is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
-                let bytes = if small_file { tokio::fs::read(&key).await.ok() } else { None };
-                bytes
-                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-                    .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
-                    .ok_or_else(|| {
-                        format!(
-                            "the session's inbox key {} is missing or unreadable",
-                            key.display()
-                        )
-                    })?
-            }
-        };
         // Claude Code refuses to write through a symlink at a peer's socket path; neither does
         // acpmux.
         if std::fs::symlink_metadata(socket).is_ok_and(|m| m.file_type().is_symlink()) {
             return Err(format!("the session's inbox {} is a symlink", socket.display()));
         }
-        let frames = frames(Some(&token), text, uuid, from);
         let mut stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
             format!("could not reach the session's inbox {}: {e}", socket.display())
         })?;

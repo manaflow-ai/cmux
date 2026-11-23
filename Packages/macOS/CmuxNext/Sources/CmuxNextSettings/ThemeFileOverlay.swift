@@ -22,6 +22,9 @@ public import Foundation
 /// `appearance.density`:
 /// `"density": {"basedOn": "compact", "tokens": {"tabCornerRadius": 2, "sidebarCornerRadius": 2, "sidebarWidth": 250}}`.
 ///
+/// It may bring its own font files (`"fonts": ["file:/…/Sakura-Mono.otf"]`, a theme pack's faces): they
+/// are registered for the app while the file applies (``ThemeFonts``), so `terminal.fontFamily` can name them.
+///
 /// A background picture may be relative (`"file:harbor.jpg"`, `"folder:walls"`) or start at `~`: it
 /// resolves against the themes folder, so a theme and its pictures move together as one folder.
 ///
@@ -45,38 +48,45 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     public let corrected: [String]
     /// The file's own density (`"density"`), nil when it sets none.
     public let density: DensityTokens?
+    /// The file's own font files (`"fonts"`, a theme pack's faces), registered while it applies
+    /// (``ThemeFonts``).
+    public let fontFiles: [URL]
 
     /// Keys a theme file reads that are not settings.
-    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density"]
+    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
-    /// per-machine and per-display maps, the sun location (where this Mac is), and the saved custom densities.
+    /// per-machine and per-display maps, the sun location (where this Mac is), what each background mode
+    /// last showed and the backgrounds shown before, and the saved custom densities.
     static let excludedKeys: Set<String> = [
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
-        "appearance.customDensities", "appearance.backgroundLocation", ThemeFileExceptionsSetting.configPath.joined(separator: "."),
+        "appearance.customDensities", "appearance.backgroundLocation", "appearance.backgroundMemory",
+        "appearance.backgroundPlacement", "appearance.backgroundRecents",
+        ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
     /// Look key prefixes; `agentPane.display.font.` is the agent chat's typography (a font pack's
     /// families and face files).
     static let lookPrefixes = ["appearance.", "agentPane.display.font.", "ui.animation", "ui.calm", "ui.paneAnimations",
                                "ui.reducedBackgrounds", "browser.omnibar.glass", "app.uiScale"]
     /// Look keys outside those prefixes: the terminal font and the chat code font; the sidebar's shape, edges,
-    /// text, group headers and buttons; the tab strip's and titlebar's buttons and inactive tabs; pane corners; and
-    /// the agent chat's text sizes, sender marks and Session Info (Leo, 2026-11-18: "you guys should be
-    /// customizing the tabs/sidebars a lot deeper too. prob likewise the session info and the top right buttons as
-    /// well"). Keep in step with cmux-config's `LOOK_KEYS`.
+    /// text, group headers and buttons, and the sidebar look (`SidebarLookPreset`); the tab strip's and titlebar's
+    /// buttons and inactive tabs; pane corners; the agent chat's text sizes, sender marks and Session Info
+    /// (Leo, 2026-11-18: "you guys should be customizing the tabs/sidebars a lot deeper too. prob likewise the
+    /// session info and the top right buttons as well"); and the transcript look and its tokens
+    /// (docs/cmux-next/transcript-customization.md). Keep in step with cmux-config's `LOOK_KEYS`.
     static let lookKeys: Set<String> = [
-        "terminal.fontFamily", "terminal.fontSize",
-        "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.density",
+        "terminal.fontFamily", "agentPane.display.code.family", "terminal.fontSize",
+        "sidebar.style", "sidebar.border", "sidebar.borderWidth", "sidebar.sectionLook", "sidebar.look",
+        "sidebar.density",
         "sidebar.textSize", "sidebar.groupHeader.background", "sidebar.groupPalette", "sidebar.groupGradient",
         "sidebar.showSearchButton", "sidebar.showProfileControl", "sidebar.showNewWorkspaceChooser",
         "sidebar.controlsOnHover", "sidebar.detailedStatusIcons", "sidebar.showColors", "sidebar.spacesVisibility",
         "tabs.toolbarButtons", "tabs.plusButton", "window.titlebarButtons", "focus.inactiveTabStyle",
         "layout.paneCornerRadius", "layout.cornerPadding", "layout.paneBorderWidth",
         "agentPane.display.sessionInfo.placement", "agentPane.display.font.preset", "agentPane.display.font.ui",
-        "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family",
-        "agentPane.display.code.scale", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
-        "agentPane.display.senderIcon.corner",
-        "agentPane.display.trayHandle",
+        "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.scale",
+        "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
+        "agentPane.display.trayHandle", "agentPane.display.transcriptLook", "agentPane.display.transcriptTokens",
     ]
 
     /// Whether a theme file may set `descriptor`: a look setting an agent may set too.
@@ -114,6 +124,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         diagnostics = reader.diagnostics
         corrected = reader.corrected
         density = reader.density
+        fontFiles = reader.fontFiles
     }
 
     /// `root` with every value set, except keys a managed layer sets (dotted, as `managedKeys`).
@@ -134,7 +145,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.name == rhs.name && lhs.isLoaded == rhs.isLoaded && lhs.isUnparsable == rhs.isUnparsable && lhs.diagnostics == rhs.diagnostics && lhs.corrected == rhs.corrected
-            && lhs.density == rhs.density
+            && lhs.density == rhs.density && lhs.fontFiles == rhs.fontFiles
             && lhs.values.map(\.path) == rhs.values.map(\.path) && lhs.values.map(\.value) == rhs.values.map(\.value)
     }
 
@@ -145,6 +156,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         var diagnostics: [SettingsDiagnostic] = []
         var corrected: [String] = []
         var density: DensityTokens?
+        var fontFiles: [URL] = []
         var isUnparsable = false
 
         /// Reads the file's text; false when there is none or it is not a JSON object.
@@ -154,10 +166,12 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return false
             }
             let parsed: JSONValue
+            var text: String?
             do {
-                parsed = try JSONC.parse(try source.get())
+                text = try source.get()
+                parsed = try JSONC.parse(text ?? "")
             } catch {
-                unreadable(String(describing: error))
+                unreadable(JSONC.problem(error, in: text))
                 return false
             }
             guard case .object(let members) = parsed else {
@@ -169,7 +183,21 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             }
             readColors(members, base: base)
             if let value = members["density"] { readDensity(value, named: members["name"]?.stringValue, base: base) }
+            if let value = members["fonts"] { readFonts(value) }
             return true
+        }
+
+        /// `"fonts"`: font files as `file:` paths (absolute, `~`, or relative to the themes folder), at most 32.
+        private mutating func readFonts(_ value: JSONValue) {
+            guard case .array(let items) = value else { return refuse("fonts", value, "expected a list of file: paths") }
+            for item in items.prefix(32) {
+                guard case .string(let resolved) = picture(item), resolved.hasPrefix("file:/") else {
+                    refuse("fonts", item, "expected a file: path")
+                    continue
+                }
+                let url = URL(filePath: String(resolved.dropFirst("file:".count)))
+                if !fontFiles.contains(url) { fontFiles.append(url) }
+            }
         }
 
         /// `"density"`: a built-in (`basedOn`; else the one the file or `base` picks; else Default) with the file's
