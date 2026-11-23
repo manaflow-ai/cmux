@@ -51,13 +51,18 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.recommended",
       "onboarding.makeItYours.density.standard",
       "onboarding.makeItYours.background.none",
-      "onboarding.makeItYours.background.shuffle",
     ])
       expect(words).toContain(strings.t(key));
+    // The tiles are pictures: each is named by its radio (and the chosen one under the window).
+    expect(html).toContain(`aria-label="${strings.t("onboarding.makeItYours.background.shuffle")}"`);
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
     // One checked radio per group: GUI-first, Standard, no background.
-    expect(await checked(makeItYoursState("fresh"))).toEqual({ workStyle: "gui", density: "standard", background: "" });
+    expect(await checked(makeItYoursState("fresh"))).toEqual({
+      workStyle: "gui",
+      density: "standard",
+      background: "",
+    });
   });
 
   test("the settings a person already has are what is checked", async () => {
@@ -75,6 +80,21 @@ describe("make cmux yours", () => {
     for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
+  });
+
+  test("every look draws every choice; the default draws the window from the answers", () => {
+    for (const look of ["preview", "segmented", "form", "cards", "rows"] as const)
+      expect(render(makeItYoursState("picked"), look).match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
+    const preview = render(makeItYoursState("picked"));
+    expect(preview).toContain('data-look="preview"');
+    expect(preview).toContain('data-density="compact"');
+    expect(preview).toContain('data-work="gui"');
+    expect(preview).toContain("onb-make-pane-chat");
+    // The chosen work is named once, whole, under the window.
+    expect(text(preview)).toContain("Forest in the Moonlight — Caspar David Friedrich");
+    const terminal = render(makeItYoursState("terminal"));
+    expect(terminal).toContain("onb-make-pane-term");
+    expect(terminal).not.toContain("onb-make-pane-chat");
   });
 
   test("while the previews load only None is offered", () => {
