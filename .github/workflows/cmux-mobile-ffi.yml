@@ -376,7 +376,7 @@ jobs:
           ')"
           echo "simulator $udid, scheme $scheme"
           xcodebuild test -scheme "$scheme" -destination "id=$udid" \
-            -derivedDataPath "$RUNNER_TEMP/dd-sim" CODE_SIGNING_ALLOWED=NO
+            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP}/dd-sim" CODE_SIGNING_ALLOWED=NO
 
       - name: Link the iOS device slice
         working-directory: cmux-tui/crates/cmux-mobile-ffi/swift
@@ -388,7 +388,7 @@ jobs:
           print("CmuxMobileFFI-Package" if "CmuxMobileFFI-Package" in schemes else "CmuxMobileFFI")
           ')"
           xcodebuild build-for-testing -scheme "$scheme" -destination "generic/platform=iOS" \
-            -derivedDataPath "$RUNNER_TEMP/dd-device" CODE_SIGNING_ALLOWED=NO
+            -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP}/dd-device" CODE_SIGNING_ALLOWED=NO
 
       - name: Upload xcframework
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
