@@ -48,6 +48,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalStateRead
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
+            | ResourceOperation::TerminalTailPinSet
             | ResourceOperation::TerminalOutputRead
             | ResourceOperation::TerminalWait
             | ResourceOperation::TerminalWaitExit
@@ -90,6 +91,7 @@ pub(super) fn dispatch(
         | ResourceOperation::TerminalInputMouse
         | ResourceOperation::TerminalInputFocus
         | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalTailPinSet
         | ResourceOperation::TerminalViewportScroll
         | ResourceOperation::TerminalClose => terminal_effect(mux, request),
         ResourceOperation::BrowserNavigate
@@ -448,6 +450,10 @@ fn execute_terminal_effect(
         return finish_projection_commit(mux, prepared, commit);
     }
 
+    if prepared.operation == "terminal.tail_pin.set" {
+        return terminal_tail_pin_set(mux, prepared, &terminal_id, &fields);
+    }
+
     mux.wake_lazy_terminal(&terminal_id);
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
@@ -498,6 +504,45 @@ fn execute_terminal_effect(
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
     effects::commit_success_without_changes(mux, prepared, json!({}))
+}
+
+/// `terminal.tail_pin.set`: show or clear the terminal's last output line under its workspace in
+/// the sidebar (`terminal-tail-pin-v1`, what the raw `set-terminal-tail-pin` does). `pinned`
+/// omitted flips the pin, so the palette's Show Last Line in Sidebar row is one request with
+/// nothing read first. A terminal no tab shows still unpins by its id.
+fn terminal_tail_pin_set(
+    mux: &Arc<Mux>,
+    prepared: PreparedEffect,
+    terminal_id: &TerminalPublicId,
+    fields: &Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    let pinned = match fields.get("pinned") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(pinned)) => Some(*pinned),
+        Some(_) => {
+            let error = validation_error("terminal tail pin `pinned` must be a boolean", json!({}));
+            return effects::commit_known_failure(mux, prepared, error);
+        }
+    };
+    let Some(view) = mux.placed_surface_of_terminal(terminal_id.as_str()) else {
+        if pinned == Some(false) && mux.end_terminal_tail_of(terminal_id.as_str()) {
+            return effects::commit_success_without_changes(mux, prepared, json!({}));
+        }
+        let error = ResourceError::not_found("terminal", terminal_id.as_str());
+        return effects::commit_known_failure(mux, prepared, error);
+    };
+    let pinned = pinned.unwrap_or_else(|| !mux.terminal_tail_pinned(view));
+    match mux.set_terminal_tail_pin(view, pinned) {
+        Ok(_) => effects::commit_success_without_changes(mux, prepared, json!({})),
+        Err(error) => {
+            let error = ResourceError::operation_failed(
+                "terminal.tail_pin.set",
+                error.to_string(),
+                json!({"pinned": pinned}),
+            );
+            effects::commit_known_failure(mux, prepared, error)
+        }
+    }
 }
 
 fn browser_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {

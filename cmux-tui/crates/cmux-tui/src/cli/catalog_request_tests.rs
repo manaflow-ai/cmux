@@ -33,6 +33,14 @@ fn cases() -> Vec<Case> {
             argv: &["room", "unpin", "--workspace", "ws_00000000000000000000000000000004"],
             values: vec![("target:workspace", json!("ws_00000000000000000000000000000004"))],
         },
+        Case {
+            id: "terminal.pinTail",
+            argv: &["terminal", "term_0123456789abcdef0123456789abcdef", "pin-tail", "on"],
+            values: vec![
+                ("target:terminal", json!("term_0123456789abcdef0123456789abcdef")),
+                ("argument:on", json!(true)),
+            ],
+        },
     ]
 }
 
