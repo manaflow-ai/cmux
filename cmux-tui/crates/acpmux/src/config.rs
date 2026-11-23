@@ -76,7 +76,34 @@ pub fn panic_log_path() -> std::path::PathBuf {
 /// The default state directory, with no ACPMUX_HOME and no override: the
 /// person's own daemon home (a hand, which runs its own daemon, protects it).
 pub fn default_home() -> PathBuf {
-    default_home_in(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+    resolve_supervised_home(&dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
+}
+
+/// `<account_home>/.acpmux`, or the real directory it links to when it is a symlink to the
+/// person's own supervised home (`<account_home>/.acpmux-supervised/<name>`, what a supervised
+/// daemon's `ACPMUX_HOME` names). The private-state directory opens with O_NOFOLLOW and the
+/// consent check refuses redirection, so both must see the real path. A link anywhere else is
+/// returned unresolved and keeps being refused.
+pub fn resolve_supervised_home(account_home: &Path) -> PathBuf {
+    let link = default_home_in(account_home);
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    if !is_link(&link) {
+        return link;
+    }
+    let supervised = account_home.join(".acpmux-supervised");
+    if is_link(&supervised) {
+        return link;
+    }
+    let (Ok(real), Ok(account)) =
+        (std::fs::canonicalize(&link), std::fs::canonicalize(account_home))
+    else {
+        return link;
+    };
+    if real.parent() == Some(account.join(".acpmux-supervised").as_path()) && real.is_dir() {
+        real
+    } else {
+        link
+    }
 }
 
 /// [`default_home`] for the OS account whose home folder is `account_home`.
