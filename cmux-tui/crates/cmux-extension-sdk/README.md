@@ -142,8 +142,13 @@ agent chat composer, so saving `cmux-app.json` updates the composer without a re
 - `cmux.composer.mention/1`: items the daemon ranks for a query (`apps.composer.mentions`). Up to
   200 per extension.
 
-The TypeScript types are `ComposerCommand` and `ComposerMention`; in Rust,
-`Manifest::slash_command` and `Manifest::mention`.
+- `cmux.composer.chip/1`: context chips (`{"chips": [{"id", "label", "insert", "detail"?}]}`), short
+  labels the person clicks to add `insert` to the draft. The daemon lists them in
+  `apps.composer.list` (`chips`), in app id and manifest order, dropping a chip whose insert text
+  an earlier one already writes. Up to 12 per extension.
+
+The TypeScript types are `ComposerCommand`, `ComposerMention` and `ComposerChip`; in Rust,
+`Manifest::slash_command`, `Manifest::mention` and `Manifest::composer_chip`.
 
 ## The Rust API
 

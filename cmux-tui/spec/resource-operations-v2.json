@@ -21329,6 +21329,128 @@
         "validation.invalid"
       ]
     },
+    "cloud.machine.chief_start": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Starts a Chief on its own Cloud machine, resumably by args.key: creates the machine sized for a Chief (cloud.machine.create, 4 CPU, 8 GiB memory, 32 GiB disk, idempotency key chief-machine-<key>-create), sets idle_seconds 0 and keep, runs the machine's own optchat-chief cloud pair and approves its code as the caller (server.pair.approve), creates the Chief placed on that install (chief.create with brain_place, not the default), and enables and starts cmux-chief.service. Owner or worker auth; args are key (1 to 48 of a-z, 0-9 and -), name (the Chief's, default Chief), machine_name (default chief-<key>) and until (machine: stop once the machine runs with its policies set). Running it again with the same key finishes a half-done start and never makes a second machine or Chief. Answers {machine, machine_name, host, install, chief, conversation, host_unit (image or installed), stage (machine or done)}; refusals chief.host_missing (the image has no Chief host), chief.machine_gone, chief.pair_failed, chief.place_unsupported, chief.machine_exec.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "cloud.machine.io": {
       "class": "mutation",
       "idempotency": "required",
@@ -21547,128 +21669,6 @@
         "extra": false,
         "constraints": [
           "Shares a team Cloud machine's app chat starts with a member, or takes the share back: cmux-platform's PUT or DELETE /v1/machines/{id}/chat-grants/{user} through the generated platform client (worker auth; args are machine, user, revoke, me). Only the creator or a team admin may (403 machine.creator_or_admin), on a team machine only (403 machine.private). With me (Share with Me: user is the caller), a creator_or_admin refusal answers the caller's chat access when the machine is already shared with them. Answers the platform's MachineChatAccess.",
-          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
-          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
-          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
-          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
-        ]
-      },
-      "result": {
-        "kind": "apply",
-        "name": "MutationResult",
-        "arguments": [
-          {
-            "kind": "ref",
-            "name": "JsonValue"
-          }
-        ]
-      },
-      "errors": [
-        "idempotency.conflict",
-        "operation.failed",
-        "origin.forbidden",
-        "selector.ambiguous",
-        "selector.invalid",
-        "selector.not_found",
-        "validation.invalid"
-      ]
-    },
-    "cloud.machine.chief_start": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "session",
-      "ancestors": [
-        "machine"
-      ],
-      "params": {
-        "selectors": {
-          "machine": "required",
-          "session": "required"
-        },
-        "fields": {
-          "api": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 2048
-            },
-            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
-          },
-          "auth": {
-            "required": true,
-            "type": {
-              "kind": "enum",
-              "values": [
-                "stack",
-                "owner",
-                "worker"
-              ]
-            },
-            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
-          },
-          "access_token": {
-            "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
-          },
-          "refresh_token": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
-          },
-          "team": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 256
-            },
-            "description": "The team the call acts for."
-          },
-          "app_version": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 128
-            },
-            "description": "stack: X-Cmux-App-Version (default cmux-next)."
-          },
-          "local_only": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "boolean"
-            },
-            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
-          },
-          "args": {
-            "required": false,
-            "type": {
-              "kind": "map",
-              "values": {
-                "kind": "ref",
-                "name": "JsonValue"
-              }
-            },
-            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
-          }
-        },
-        "extra": false,
-        "constraints": [
-          "Starts a Chief on its own Cloud machine, resumably by args.key: creates the machine sized for a Chief (cloud.machine.create, 4 CPU, 8 GiB memory, 32 GiB disk, idempotency key chief-machine-<key>-create), sets idle_seconds 0 and keep, runs the machine's own optchat-chief cloud pair and approves its code as the caller (server.pair.approve), creates the Chief placed on that install (chief.create with brain_place, not the default), and enables and starts cmux-chief.service. Owner or worker auth; args are key (1 to 48 of a-z, 0-9 and -), name (the Chief's, default Chief), machine_name (default chief-<key>) and until (machine: stop once the machine runs with its policies set). Running it again with the same key finishes a half-done start and never makes a second machine or Chief. Answers {machine, machine_name, host, install, chief, conversation, host_unit (image or installed), stage (machine or done)}; refusals chief.host_missing (the image has no Chief host), chief.machine_gone, chief.pair_failed, chief.place_unsupported, chief.machine_exec.",
           "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
           "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
           "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
