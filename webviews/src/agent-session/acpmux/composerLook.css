@@ -60,13 +60,13 @@
   z-index: var(--layer-raised, 1);
 }
 /* The box keeps its own four corners and whole rim over the tray (not the default's joined top). */
-:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box {
+:root .acpmux-composer[data-composer-look="codex"][data-strip] > .acpmux-composer-box {
   /* glass-opaque-allow: a keyword the lens reads, not a color; the box joins nothing */
   --glass-join: initial;
   border-top-left-radius: var(--acpmux-composer-radius);
   border-top-right-radius: var(--acpmux-composer-radius);
 }
-:root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
+:root .acpmux-composer[data-composer-look="codex"][data-strip] > .acpmux-composer-box::before {
   content: none;
 }
 /* ChatGPT's two-row composer: the prompt has its own full-width line, with + at the lower left
@@ -124,10 +124,6 @@
   align-self: end;
   margin-top: 0;
   margin-bottom: var(--acpmux-codex-row-bottom);
-}
-/* A capped draft's leading controls keep the capped bottom inset (composerLocation.css). */
-.acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > :not(.acpmux-composer-actions) {
-  margin-bottom: var(--acpmux-lead-bottom, var(--acpmux-codex-row-bottom));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
   grid-column: 2;
