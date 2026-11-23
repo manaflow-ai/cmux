@@ -177,3 +177,17 @@ export function answerOf(question: string, reply: string): string {
   if (quoted !== asked && !quoted.endsWith(`: ${asked}`)) return reply;
   return lines.slice(end).join("\n").trim();
 }
+
+/// The pinned copy's ask: the question without its recap (the recap stays with the turn it sums up).
+/// One object per ask, so NextStepCard's memo holds while the stack re-renders; a new spread each
+/// render drew every pinned card again on any change to the stack.
+const pinned = new WeakMap<NextStepAsk, NextStepAsk>();
+export function pinnedAsk(ask: NextStepAsk): NextStepAsk {
+  let shown = pinned.get(ask);
+  if (!shown) {
+    const { recap: _recap, ...rest } = ask;
+    shown = rest;
+    pinned.set(ask, shown);
+  }
+  return shown;
+}

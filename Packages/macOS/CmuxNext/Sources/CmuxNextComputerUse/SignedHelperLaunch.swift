@@ -20,9 +20,15 @@ public nonisolated struct SignedHelperLaunch: Sendable {
 
     private let staging: SignedHelperStaging
 
-    /// The Screen Sharing helper's copy, one per app build (`bundleID`'s scope).
-    public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app") -> SignedHelperLaunch {
-        SignedHelperLaunch(staging: .screenSharing(bundleID: bundleID))
+    /// The Screen Sharing helper's copy, at one fixed path per helper bundle id for every build.
+    public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
+                                     helperBundleID: String? = nil) -> SignedHelperLaunch {
+        SignedHelperLaunch(staging: .screenSharing(bundleID: bundleID, helperBundleID: helperBundleID))
+    }
+
+    /// The CFBundleIdentifier of the helper bundle at `app`; nil when unreadable.
+    public static func bundleIdentifier(of app: URL) -> String? {
+        SignedHelperStaging.bundleIdentifier(app)
     }
 
     init(staging: SignedHelperStaging) {
