@@ -59,6 +59,8 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-actions: read
           permission-contents: read
+          # A read-only token is left to expire on its own: the revoke call would spend the App's budget.
+          skip-token-revoke: true
       - name: Start one batch run when the tip is untested
         env:
           GH_TOKEN: ${{ github.token }}
