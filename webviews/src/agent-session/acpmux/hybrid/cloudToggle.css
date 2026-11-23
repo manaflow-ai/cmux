@@ -290,10 +290,10 @@
 }
 .acpmux-hybrid-tri__dot {
   position: absolute;
-  top: 3px;
-  inset-inline-end: 2px;
+  top: 4px;
+  inset-inline-end: 0;
   width: 5px;
-  height: 5px;
+  aspect-ratio: 1;
   border-radius: 999px;
   background: var(--agent-warning);
   box-shadow: 0 0 0 1.5px var(--agent-page-bg, transparent);
@@ -306,14 +306,14 @@ button.acpmux-hybrid-tri__name {
 
 /* The name as the slot holders' menu button (every slot taken): a quiet chevron after it. */
 .acpmux-hybrid-tri__chevron {
-  margin-inline-start: 2px;
+  margin-inline-start: 4px;
   color: var(--agent-muted);
   line-height: 1;
 }
 .acpmux-hybrid-holder {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
   padding-block: 4px;
 }
