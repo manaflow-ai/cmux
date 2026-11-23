@@ -569,7 +569,10 @@ describe("auto-roll workflows", () => {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
       expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
-      expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
+      // report holds a contents: write token, so it reads only the ephemeral linux_4 pool, never linux_8 (whose first
+      // member is a persistent owned label): #51925, tests/test_ci_ephemeral_pool_readers.py.
+      if (job === "report") expect(runsOn).not.toContain("linux_8");
+      else expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
     }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     // The bake takes the one Linux label (scripts/ci/one_linux_label.py), never a size.
@@ -583,7 +586,8 @@ describe("auto-roll workflows", () => {
     expect(token.if).toContain("CMUX_VM_DEPLOY_ENABLED != '1'");
     expect(token.with).toMatchObject({ owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "write" });
     const checkout = promote.steps.find((step) => step.with?.path === "cmux-platform");
-    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "main" });
+    // A checkout names its branch as refs/heads/X, so it fetches one branch (#51926).
+    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "refs/heads/main" });
     expect(stepOf(promote, "push").env).toMatchObject({ PLATFORM_CHECKOUT: expect.stringContaining("cmux-platform") });
     expect(stepOf(promote, "push").run).toContain("--platform-checkout");
   });
