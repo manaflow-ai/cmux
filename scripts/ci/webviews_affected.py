@@ -200,6 +200,12 @@ GALLERY_HARNESS = {
     "webviews/vite.config.settings-page.mjs": "2f522df32899cae1068eef1085ad3309fdeebf08cf9b38d35875c67d74f8b077",
     "webviews/scripts/agent-pane/paneLocales.mjs": "9cc8c34c48d1da374160cf266a19134cd32f67c593e0a803753fa6d356202093",
     "webviews/scripts/pages/split-strings.mjs": "58c8e95e8abcc440e30a36fdb4ab44da20cc203a4c7f5f2a6dd20b063930de5b",
+    # GALLERY_ROOTS' closure modules the graph cannot follow: bundle.mjs reads only its own outputs (outfile and
+    # its chunks/); frameOwners.ts's dynamic import is chunks/frame-sites.js beside the document (none in the gallery);
+    # customizeLooks.ts's import.meta.glob reads examples/looks/*/cmux-setup.json (GALLERY_OUTSIDE).
+    "webviews/scripts/agent-pane/bundle.mjs": "87c755f96e7e58d80ee81bfe5a047b26f2b3de221f7e7795cc2497fc9e506f6a",
+    "webviews/src/agent-session/acpmux/frameOwners.ts": "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
+    "webviews/src/pages/settings/customizeLooks.ts": "a363b52647f381cb53ced55783fddd32e0e82716bdcdaaae2f0926efaeed2cfa",
 }
 # galleryFrame.ts's own test for the file that defines an entry id (galleryEntryPath).
 GALLERY_ID_LINE = re.compile(r'^\s*id:\s*"([^"\n]+)",?\s*$', re.M)
@@ -551,16 +557,20 @@ class Selector:
         return out | self.always, ""
 
 
-# A doc comment that opens a line: prose such as "the last import (ImportStepModel)" is not a dynamic import. A
-# match that starts inside one is skipped; one that starts in code (`from /* note */ "x"`) still counts.
+# A doc or line comment that opens a line: prose such as "the last import (ImportStepModel)" or "inflated on import
+# (CMUX-570)" is not a dynamic import. A match that starts inside one is skipped; one that starts in code
+# (`from /* note */ "x"`) still counts.
 DOC_COMMENT = re.compile(r"^[ \t]*/\*\*[\s\S]*?\*/", re.M)
+LINE_COMMENT = re.compile(r"^[ \t]*//[^\n]*", re.M)
 
 
 def outside_doc(pattern: re.Pattern[str], text: str) -> bool:
-    """Whether pattern matches text somewhere other than inside a line-opening doc comment (always, unless narrow)."""
+    """Whether pattern matches text somewhere other than inside a line-opening doc or line comment (always, unless
+    narrow)."""
     if not NARROW:
         return bool(pattern.search(text))
     docs = [m.span() for m in DOC_COMMENT.finditer(text)] if "/**" in text else []
+    docs += [m.span() for m in LINE_COMMENT.finditer(text)] if "//" in text else []
     return any(not any(a <= m.start() < b for a, b in docs) for m in pattern.finditer(text))
 
 

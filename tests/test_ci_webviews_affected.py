@@ -426,6 +426,12 @@ class GalleryEdgesTest(unittest.TestCase):
         wa.GALLERY_EDGES = False
         self.assertTrue(EDGED <= wa.Selector(self.root).always)
 
+    def test_a_line_comment_naming_an_import_is_not_a_dynamic_import(self) -> None:
+        prose = "const x = 1;\n// inflated on import (CMUX-570, app size).\n"
+        self.assertFalse(wa.outside_doc(wa.UNTRACKED, prose))
+        self.assertTrue(wa.outside_doc(wa.UNTRACKED, 'const x = 1; import (path);\n'))
+        self.assertTrue(wa.outside_doc(wa.UNTRACKED, '// note\nimport (path);\n'))
+
     def test_a_doc_comment_naming_an_import_is_not_a_dynamic_import(self) -> None:
         self.assertNotIn("webviews/test/ops.test.ts", wa.Selector(self.root).always)
         self.assertTrue(wa.outside_doc(wa.UNTRACKED, '/** note */\nimport fs from "node:fs";\n'))
