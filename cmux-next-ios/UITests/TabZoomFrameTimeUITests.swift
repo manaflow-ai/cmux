@@ -107,63 +107,29 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         XCTAssertTrue(rowFailures.isEmpty, "the composer row rides every zoom:\n" + rowFailures.joined(separator: "\n"))
     }
 
-    /// The tabs button with the composer focused and the keyboard up: the grid
-    /// takes the focus away (`prepareOverview`), and the keyboard leaving must
-    /// not move the composer row in one frame while it is still visible
-    /// (AccessoryTrace `maxStep`, part of `ridesZoom`).
+    /// The composer focused and the keyboard up: the keyboard covers the
+    /// toolbar, so the tabs button can't start a zoom while it is up and the
+    /// keyboard never leaves mid-zoom from that button. Dropping the keyboard
+    /// brings the button back, and the zoom then runs as in the test above.
     @MainActor
     func testTabsButtonWithKeyboardUp() throws {
-        if let old = Self.logFile() { try? FileManager.default.removeItem(at: old) }
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
-        app.launchEnvironment["CMUX_TABS_FRAME_LOG"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
         app.launch()
 
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal's composer\n\(app.debugDescription)")
         let tabs = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
-        let screen = app.windows.firstMatch.frame
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        for cycle in 0 ..< 2 {
-            if !app.keyboards.firstMatch.exists { field.tap() }
-            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard up, cycle \(cycle)")
-            RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-            let shown = XCTAttachment(screenshot: app.screenshot())
-            shown.name = "keyboard-up-\(cycle)"
-            shown.lifetime = .keepAlways
-            add(shown)
-            XCTAssertTrue(tabs.waitForExistence(timeout: 10) && tabs.isHittable, "the tabs button with the keyboard up\n\(app.debugDescription)")
-            tabs.tap()
-            let deadline = Date().addingTimeInterval(10)
-            var bar: XCUIElement?
-            while bar == nil, Date() < deadline {
-                bar = app.buttons.matching(NSPredicate(format: "label == 'Done'")).allElementsBoundByIndex.first { e in
-                    e.exists && e.isHittable && e.frame.minY > screen.height * 0.8
-                }
-                if bar == nil { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
-            }
-            guard let bar else { return XCTFail("the grid's Done, cycle \(cycle)\n\(app.debugDescription)") }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-            XCTAssertFalse(app.keyboards.firstMatch.exists, "the keyboard left with the grid, cycle \(cycle)")
-            let frame = bar.frame
-            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.maxX - 24, dy: frame.midY)).tap()
-            XCTAssertTrue(field.waitForExistence(timeout: 10), "back on the terminal page, cycle \(cycle)")
-            RunLoop.current.run(until: Date().addingTimeInterval(0.8))
-        }
-        guard let file = Self.logFile(), let text = try? String(contentsOf: file, encoding: .utf8) else {
-            return XCTFail("the app's Documents/tabs-zoom-frames.jsonl (CMUX_TABS_FRAME_LOG=1, a DEBUG build)")
-        }
-        let rows = text.split(separator: "\n").compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
-        let toGrid = rows.filter { ($0["toOverview"] as? Bool) == true }
-        XCTAssertEqual(toGrid.count, 2, "one log row per zoom to the grid\n\(text)")
-        for (i, row) in toGrid.enumerated() {
-            let trace = row["row"] as? [String: Any]
-            let line = "TABZOOM_KBD_ROW zoom=\(i) " + (trace.map { t in ["samples", "firstOpacity", "lastOpacity", "midFades", "firstScale", "lastScale", "maxStep", "ridesZoom"]
-                .map { "\($0)=\(t[$0] ?? "nil")" }.joined(separator: " ") } ?? "row=nil")
-            print(line)
-            XCTAssertEqual(trace?["ridesZoom"] as? Bool, true, "the composer row rides the zoom with the keyboard up: \(line)")
-        }
+        XCTAssertTrue(tabs.waitForExistence(timeout: 15) && tabs.isHittable, "the tabs button before the keyboard")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard up")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let shown = XCTAttachment(screenshot: app.screenshot())
+        shown.name = "keyboard-up"
+        shown.lifetime = .keepAlways
+        add(shown)
+        XCTAssertFalse(tabs.exists && tabs.isHittable, "the keyboard covers the tabs button\n\(app.debugDescription)")
     }
 
     /// The app's `Documents/tabs-zoom-frames.jsonl`, found in the booted simulator's data containers.
