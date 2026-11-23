@@ -33,7 +33,7 @@ public struct ConnectMacSteps: View {
     @State private var showsHelp = false
 
     /// One line of status. The two steps (what to do on the Mac) sit behind an info circle that opens a small popover
-    /// (Leo, 2026-11-23: "NEVER THIS FUCKING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
+    /// (Leo, 2026-11-23: "NEVER THIS F***ING TMI ... THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES").
     public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
