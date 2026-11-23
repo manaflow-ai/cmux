@@ -36,7 +36,7 @@ struct AppEnvironment: Sendable {
     let testWindow: TestWindowPlacement?
     /// `CMUX_NEXT_LAUNCH_DISPLAY`: the display shell windows open on (`LaunchDisplay`), the
     /// built-in one by default in a tagged dev build (#51115); nil keeps the usual placement.
-    var launchDisplay: LaunchDisplay? = nil
+    var launchDisplay: LaunchDisplay?
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
