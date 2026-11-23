@@ -236,10 +236,7 @@ pub fn is_acpmux_own(argv: &[String]) -> bool {
     argv.iter().skip(1).any(|a| own.contains(&a.as_str())) || is_daemon_run(argv)
 }
 
-/// Whether `argv` runs `daemon run` (the acpmux daemon).
-fn is_daemon_run(argv: &[String]) -> bool {
-    argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
-}
+pub(crate) use super::is_daemon_run;
 
 /// Whether the nearest acpmux process above `proc` is the daemon itself, not an agent host or a
 /// task runner: the daemon's own helpers (MCP servers, git, peer links) carry whatever marks the
