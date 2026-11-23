@@ -77,6 +77,7 @@ struct Fields<'a> {
     model: Option<&'a str>,
     agent_session_id: Option<&'a str>,
     host_build: Option<&'a str>,
+    handle: Option<&'a str>,
 }
 
 impl<'a> Fields<'a> {
@@ -92,6 +93,9 @@ impl<'a> Fields<'a> {
             model: s.model.as_deref().filter(|m| !m.is_empty()),
             agent_session_id: s.agent_session_id.as_deref().filter(|a| !a.is_empty()),
             host_build: s.host_build.as_deref().filter(|b| !b.is_empty()),
+            // Only a given handle: a derived one is every reader's to derive, and an invalid one
+            // is no handle at all (`session_handle::valid`).
+            handle: s.handle.as_deref().filter(|h| crate::session_handle::valid(h)),
         }
     }
 }
@@ -111,6 +115,7 @@ struct Bare {
     model: Option<String>,
     agent_session_id: Option<String>,
     host_build: Option<String>,
+    handle: Option<String>,
     read: u64,
 }
 
@@ -128,6 +133,7 @@ impl Bare {
             model: own(fields.model),
             agent_session_id: own(fields.agent_session_id),
             host_build: own(fields.host_build),
+            handle: own(fields.handle),
             read,
         }
     }
@@ -144,6 +150,7 @@ impl Bare {
             model: self.model.as_deref(),
             agent_session_id: self.agent_session_id.as_deref(),
             host_build: self.host_build.as_deref(),
+            handle: self.handle.as_deref(),
         }
     }
 
@@ -186,7 +193,7 @@ pub(crate) fn mine(
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
 #[cfg(test)]
-pub(crate) const ROW_KEYS: [&str; 10] = [
+pub(crate) const ROW_KEYS: [&str; 11] = [
     "name",
     "nameGiven",
     "title",
@@ -196,6 +203,7 @@ pub(crate) const ROW_KEYS: [&str; 10] = [
     "harness",
     "agentSessionId",
     "hostBuild",
+    "handle",
     "status",
 ];
 
@@ -213,6 +221,7 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         model,
         agent_session_id,
         host_build,
+        handle,
     } = *fields;
     json!({
         "sessionId": session_id,
@@ -226,6 +235,11 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         "harness": harness,
         "agentSessionId": agent_session_id,
         "hostBuild": host_build,
+        // Its given handle (`acpmux rename ... --handle`), which `resolve`, `send` and `locate`
+        // match (`peer_row::Hot`) and `ls` shows; null for a derived one, which readers derive
+        // from the id (`session_handle::display`, `session_handle::matches`).
+        "handle": handle,
+        "displayName": handle,
         "status": state,
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
@@ -454,10 +468,27 @@ impl Hub {
         let mut found = book.rows.iter().filter_map(|(qualified, (_, r))| {
             let id = r.receipt.mux_session_id.as_str();
             let name = r.summary.name();
-            (key == id || key == qualified || name == Some(key)).then(|| id.to_owned())
+            (key == id || key == qualified || name == Some(key) || names_by_handle(r, key))
+                .then(|| id.to_owned())
         });
         let id = found.next()?;
         found.next().is_none().then_some(id)
+    }
+
+    /// The hub row `key` names by its handle, bare (`Mango`) or on its machine (`HOST/Mango`),
+    /// as `(host, id)` when one row only does. The hub and the far daemon know a chat by its id
+    /// and name, never its handle, so a send or read through the hub names it by id
+    /// (`mesh_send.rs`, `mesh_read.rs`).
+    pub(crate) fn mesh_book_handle(&self, key: &str) -> Option<(String, String)> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let mut found = book
+            .rows
+            .values()
+            .map(|(_, r)| r)
+            .filter(|r| names_by_handle(r, key))
+            .map(|r| (r.peer.clone(), r.receipt.mux_session_id.clone()));
+        let row = found.next()?;
+        found.next().is_none().then_some(row)
     }
 
     /// Whether the hub lists machine `host` for this person.
@@ -477,6 +508,17 @@ impl Hub {
             .map(|r| &r.peer);
         let host = hosts.next()?.clone();
         hosts.next().is_none().then_some(host)
+    }
+}
+
+/// Whether `key` names hub row `r` by its handle (`session_handle::matches`: its given one, or
+/// the one derived from its id), bare or as `HOST/HANDLE` with the row's machine.
+fn names_by_handle(r: &RemoteSession, key: &str) -> bool {
+    let id = r.receipt.mux_session_id.as_str();
+    let handle = r.summary.handle();
+    match key.strip_prefix(r.peer.as_str()).and_then(|rest| rest.strip_prefix('/')) {
+        Some(rest) => crate::session_handle::matches(handle, id, rest),
+        None => crate::session_handle::matches(handle, id, key),
     }
 }
 
