@@ -1083,14 +1083,13 @@ fn write_json(
         edit(&source, &parts, value.map(|v| Value::String(v.to_owned()))).map_err(fail)?
     };
     if value.is_none()
-        && parts.len() == 2
-        && parts[0] == "env"
+        && matches!(parts.as_slice(), [table, _] if table == "env")
         && serde_json::from_str::<Value>(&text).is_ok_and(|v| {
             v.get("env").is_some_and(|env| env.as_object().is_some_and(|o| o.is_empty()))
         })
     {
         // The last variable out takes its empty `env` with it.
-        text = edit(&text, &parts[..1], None).map_err(fail)?;
+        text = edit(&text, &["env".to_owned()], None).map_err(fail)?;
     }
     if key == "statusLine.command" && value.is_some() {
         text = edit(&text, &["statusLine".to_owned(), "type".to_owned()], Some(json!("command")))
