@@ -1816,7 +1816,7 @@ async fn a_daemon_join_is_one_attempt_when_it_answers_and_bounded_when_none_does
 
     let started = Instant::now();
     let hung = hedged_join(
-        || std::future::pending::<Result<(), ProviderError>>(),
+        std::future::pending::<Result<(), ProviderError>>,
         Duration::from_secs(1),
         4,
         Duration::from_secs(15),
