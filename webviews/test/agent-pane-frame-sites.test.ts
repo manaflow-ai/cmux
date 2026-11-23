@@ -30,6 +30,11 @@ test("node_modules sources collapse to their package, others stay paths under we
     "src/agent-session/acpmux/flickerLog.ts",
   );
   expect(siteSource("artifact-runtime:shim", "/w/webviews/out/pane", webviews)).toBe("artifact-runtime:shim");
+  // esbuild's own modules keep their name, never the build's temporary directory: two builds, one table.
+  expect(siteSource("<define:import.meta.env>", "/tmp/tmp.a/pane", webviews)).toBe("<define:import.meta.env>");
+  expect(siteSource("../../<define:import.meta.env>", "/tmp/tmp.b/pane/chunks", webviews)).toBe(
+    "<define:import.meta.env>",
+  );
 });
 
 test("boundaries keep one entry per run of one source", () => {
