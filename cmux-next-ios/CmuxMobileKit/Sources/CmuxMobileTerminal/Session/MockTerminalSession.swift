@@ -716,10 +716,6 @@ public final class MockTerminalSession: TerminalSession {
         write(chunk.map { $0 + "\r\n" }.joined())
         try await pause(lineDelay)
     }
-        guard !chunk.isEmpty else { return }
-        write(chunk.map { $0 + "\r\n" }.joined())
-        try await pause(lineDelay)
-    }
 
     /// `claudecli`'s live region: a blank row, the spinner, the input box
     /// (5 rows, the cursor after its prompt on the 4th).
