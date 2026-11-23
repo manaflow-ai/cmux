@@ -599,6 +599,9 @@ pub mod method {
     pub const MUX_COMPUTER_USE_MACHINES: &str = "_acpmux/computer_use_machines";
     /// Whether Computer Use is on here (asked by a peer for its machine list).
     pub const MUX_COMPUTER_USE_STATE: &str = "_acpmux/computer_use_state";
+    /// A scoped key minted by another of the person's machines, which keeps the provider's
+    /// bootstrap token (`server/keys_relay.rs`).
+    pub const MUX_KEYS_MINT: &str = "_acpmux/keys_mint";
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
@@ -1054,6 +1057,9 @@ pub mod method {
     pub const MUX_VAULT_STATUS: &str = "_acpmux/vault_status";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A text chunk as a delta of the chat's last chunk event, to a client that asked
+    /// (`initialize` `_meta.acpmux.chunkDeltas`, `server/chunk_deltas.rs`).
+    pub const MUX_CHUNK: &str = "_acpmux/chunk";
     /// A followed chat's row changes since the last, `{sessionId, version, lastSeq, patches}`
     /// (`rows/`).
     pub const MUX_ROWS_PATCH: &str = "_acpmux/rows_patch";
