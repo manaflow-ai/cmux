@@ -240,6 +240,7 @@ extension SidebarMapping {
         row.focusedTab = focused.map { TabID($0.id) }
         // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
         row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
+        row.paneShape = Self.paneShape(workspace)
         row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)

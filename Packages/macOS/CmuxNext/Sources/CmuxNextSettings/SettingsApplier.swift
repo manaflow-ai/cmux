@@ -77,6 +77,7 @@ public final class SettingsApplier {
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
         if design.agentSignature != snapshot.agentSignature { design.agentSignature = snapshot.agentSignature }
+        if design.backgroundPlacements != snapshot.backgroundPlacements { design.backgroundPlacements = snapshot.backgroundPlacements }
         if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
         if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
@@ -114,7 +115,12 @@ public final class SettingsApplier {
         if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
         Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
+        if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
+        // `experiments.*`: every switch that is on, by name (CmuxConfigSnapshot+Experiments.swift), for
+        // every page's theme and the native menus.
+        let experiments = snapshot.experimentSwitches.filter(\.value)
+        if design.experiments != experiments { design.experiments = experiments }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
         for key in MetricKey.allCases {
@@ -126,6 +132,9 @@ public final class SettingsApplier {
         }
 
         design.setPaneChrome(snapshot.paneChrome)
+        // `experiments.menuStyleV2` for the right-click NSMenu (CmuxNextActions reads no DesignSettings).
+        let menuStyleV2 = design.experiment("menuStyleV2")
+        if registry.contextMenuStyleV2 != menuStyleV2 { registry.contextMenuStyleV2 = menuStyleV2 }
 
         var applied: Set<ActionID> = []
         for (rawID, binding) in snapshot.shortcuts.sorted(by: { $0.key < $1.key }) {

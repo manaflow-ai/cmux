@@ -160,6 +160,8 @@ final class AppServices {
         let joinLine = JoinConsentFixtureLine()
         /// `debug.object_menu`: the tab or pane menu it opened last; nil after a workspace menu.
         weak var objectMenu: NSMenu?
+        /// `debug.object_menu {menu: customizations}`: the item whose submenu it opened last, which owns that menu's delegate.
+        var customizationsItem: NSMenuItem?
     }
     #endif
     /// The Machines section's hub-joined machines (`cmux machine list`); signed out or switched account or team: emptied, then read.
@@ -716,6 +718,10 @@ final class AppServices {
         keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
+        cache.phonePictures = PhoneTabPictures(iphone: iphone, surface: { [weak cache] in cache?.phoneSurface($0) }) { image, fit, quality in
+            let cut = PreviewImageCache.fitted(image, fit)  // browser tabs' pictures for the phones' tab overview
+            return PreviewImageCache.compressed(cut, quality: quality).map { ($0.data, cut.width, cut.height) }
+        }
         cache.onTerminalConfirmed = { [weak self] tab, daemon in self?.terminalConfirmed(tab, on: daemon) }
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
