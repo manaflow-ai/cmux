@@ -216,7 +216,7 @@ impl Brain {
         let mut refused_part_key = None;
         for part_key in &part_keys {
             let mut under = part_key.clone();
-            while let Some(into) = self.merged_sends.remove(&under) {
+            while let Some(into) = self.merged_sends.get(&under).cloned() {
                 under = into;
             }
             let ours = |k: &str| {
@@ -232,7 +232,8 @@ impl Brain {
         }
         if let Some(refused) = refused {
             if let Some(part_key) = refused_part_key {
-                self.sent_keys.remove(&part_key);
+                self.sent_keys.remove(part_key);
+                self.merged_sends.remove(part_key.as_str());
             }
             let status = if part_keys.len() == 1 {
                 "nothing was posted"
@@ -256,8 +257,8 @@ impl Brain {
         for part_key in &part_keys {
             let mut resolved = part_key.clone();
             queued_keys.insert(resolved.clone());
-            while let Some(into) = self.merged_sends.get(&resolved) {
-                resolved = into.clone();
+            while let Some(into) = self.merged_sends.get(&resolved).cloned() {
+                resolved = into;
                 queued_keys.insert(resolved.clone());
             }
             queued_keys.insert(format!("{resolved}:text"));
