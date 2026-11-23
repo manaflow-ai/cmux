@@ -104,7 +104,7 @@ public struct AgentChatDestinations {
     /// The notice row: this Mac's acpmux has not listed the other Macs yet.
     static var peersPending: Destination {
         .init(id: peersPendingID, title: String(localized: "agentPane.chatDestinations.peersPending",
-                                                defaultValue: "Other Macs not loaded yet", bundle: .module),
+                                                defaultValue: "Other Macs not loaded yet", bundle: .localizedModule),
               state: nil, symbol: "hourglass", isReady: false, route: .pending)
     }
 
@@ -114,7 +114,7 @@ public struct AgentChatDestinations {
     /// The notice row: this Mac's acpmux could not list the other Macs (not running, refused).
     static var peersFailed: Destination {
         .init(id: peersFailedID, title: String(localized: "agentPane.chatDestinations.peersFailed",
-                                               defaultValue: "Other Macs could not be loaded", bundle: .module),
+                                               defaultValue: "Other Macs could not be loaded", bundle: .localizedModule),
               state: nil, symbol: "exclamationmark.triangle", isReady: false, route: .pending)
     }
 

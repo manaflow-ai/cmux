@@ -1267,6 +1267,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             end_terminals: false,
             keep_layout: false,
             restart: None,
+            if_idle: false,
         },
         &requester_writer,
     )
@@ -1291,6 +1292,7 @@ fn daemon_shutdown_atomically_fences_native_browser_ownership() {
             end_terminals: false,
             keep_layout: false,
             restart: None,
+            if_idle: false,
         },
         &requester_writer,
     )

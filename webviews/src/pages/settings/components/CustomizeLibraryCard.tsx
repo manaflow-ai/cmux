@@ -18,6 +18,7 @@ import type { LibraryEntry, LibraryListing, LibraryRun } from "../ops";
 import { LIBRARY_KEY, libraryQuery, type LibraryRead } from "../sectionQueries";
 import { t } from "../strings";
 import { focusRoute } from "../../../ui/focusRoute";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** How the list draws (gallery `settings.customize-library-layouts`). `layers`, the shipped one, is
  * the stack itself: one Settings row per entry, top first, with its switch and its order. `cards` is
@@ -310,23 +311,27 @@ export function LibraryEntryRow({
   }
   if (layout === "table") {
     return (
-      <div className="row library-line" {...shared} title={entryDetail(entry)}>
-        <div className="row-main">
-          <span className="library-position row-help">{entry.position}</span>
-          <LibrarySwatches entry={entry} />
-          <span className="row-label">
-            <span className="row-title" id={labelId}>
-              {entry.name}
-            </span>
-            <span className="row-help"> · {sourceLabel(entry.source)}</span>
-            {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
-          </span>
-          <span className="row-control library-controls">
-            {order}
-            {toggle}
-          </span>
-        </div>
-      </div>
+      <WithFacts facts={[{ value: entryDetail(entry) }]}>
+        {(facts) => (
+          <div {...facts} className="row library-line" {...shared}>
+            <div className="row-main">
+              <span className="library-position row-help">{entry.position}</span>
+              <LibrarySwatches entry={entry} />
+              <span className="row-label">
+                <span className="row-title" id={labelId}>
+                  {entry.name}
+                </span>
+                <span className="row-help"> · {sourceLabel(entry.source)}</span>
+                {beaten.length > 0 && <span className="row-help library-beaten"> · {beatenLine(beaten[0]!)}</span>}
+              </span>
+              <span className="row-control library-controls">
+                {order}
+                {toggle}
+              </span>
+            </div>
+          </div>
+        )}
+      </WithFacts>
     );
   }
   return (
