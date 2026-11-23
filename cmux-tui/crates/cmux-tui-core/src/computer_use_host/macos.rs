@@ -239,11 +239,15 @@ mod tests {
         let in_nightly = nightly.join("Contents/Library/cmux NIGHTLY Helper.app");
         helper(&in_nightly, "x", true);
         assert_eq!(find_helper(None, &bare, &installed), Some(in_nightly));
-        // The app holding the daemon comes first, and the override beats all.
+        // A daemon inside an app with no helper of its own never borrows an installed app's
+        // (it would act under that other build's macOS grants).
         let own = root.join("own.app");
+        let exe = own.join("Contents/Resources/bin/cmux-tui");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        assert_eq!(find_helper(None, &exe, &installed), None);
+        // The app holding the daemon runs its own, and the override beats all.
         let in_own = own.join("Contents/Library/cmux Screen Sharing.app");
         helper(&in_own, "x", true);
-        let exe = own.join("Contents/Resources/bin/cmux-tui");
         assert_eq!(find_helper(None, &exe, &installed), Some(in_own));
         let dev = root.join("Dev Screen Sharing.app");
         helper(&dev, "x", true);
