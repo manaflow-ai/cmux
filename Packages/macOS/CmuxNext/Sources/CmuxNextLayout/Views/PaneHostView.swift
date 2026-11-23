@@ -34,6 +34,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// an agent chat does not, and the dividers beside it draw their line instead (`ScreenContentView.showsIdleLine`).
     var framesContent: Bool { reporter?.paneFramesContent ?? true }
     private var lastWindowFrame: CGRect?
+    /// Window-frame moves held from the content during a live resize of the window (``noteWindowFrame(topRowFloor:)``).
+    private(set) var windowFrameDeferred = false
+    /// The last report to the content was for a frame below the top row's floor.
+    private var lastReportBelowTopRow = false
 
     /// Whether content keeps its size while the host is on a split, close or zoom spring: the provider's rule (an agent
     /// chat holds: page pixels, S5/S6), live resize otherwise. Injected so tests pin it.
@@ -500,12 +504,36 @@ final class PaneHostView: NSView, RestingPlacement {
 
     /// Tells the content when the pane's frame in the window changed, and gives the ring the corners it meets there
     /// (a pane that moves without changing size, ``clipCorners(of:)``).
-    func noteWindowFrame() {
+    ///
+    /// `topRowFloor` (window coordinates; only during a person's live resize of the window, `LayoutRootView.syncOverlay`):
+    /// a pane whose frame was below it at its last report and still is tells its content nothing until the resize's end
+    /// (``flushDeferredWindowFrame()``). Below the top row the traffic lights' inset is 0, the tabs' and buttons' tops are
+    /// their own, and the hover and corner reports wait: what the content does with the move cannot change what shows,
+    /// and a resize from the window's bottom edge moves every pane in every tick (#50672, 155 of 278 overlay-sync samples).
+    func noteWindowFrame(topRowFloor: CGFloat? = nil) {
         let frame = convert(bounds, to: nil)
-        guard frame != lastWindowFrame else { return }
+        guard frame != lastWindowFrame || (windowFrameDeferred && topRowFloor == nil) else { return }
         if chrome.areaIsSquare { chrome.setClipCorners(clipCorners(of: roundedRect)) }
         guard let reporter, window != nil else { return }
         lastWindowFrame = frame
+        if let topRowFloor, restOffset == .zero, lastReportBelowTopRow, frame.maxY <= topRowFloor {
+            windowFrameDeferred = true
+            return
+        }
+        windowFrameDeferred = false
+        // Outside a resize nothing says where the top row is: the next resize's first tick reports.
+        lastReportBelowTopRow = topRowFloor.map { frame.maxY <= $0 } ?? false
+        reporter.paneFrameInWindowDidChange()
+    }
+
+    /// The window's live resize ended: a pane that held its window-frame moves (``noteWindowFrame(topRowFloor:)``) tells
+    /// its content once, at the final frame.
+    func flushDeferredWindowFrame() {
+        guard windowFrameDeferred else { return }
+        windowFrameDeferred = false
+        lastReportBelowTopRow = false
+        guard let reporter, window != nil else { return }
+        lastWindowFrame = convert(bounds, to: nil)
         reporter.paneFrameInWindowDidChange()
     }
 
