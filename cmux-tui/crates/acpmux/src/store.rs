@@ -1720,6 +1720,19 @@ pub trait Store: Send + Sync {
     fn is_cold(&self, _id: &str) -> bool {
         false
     }
+    /// Moves a cold-archived chat's archive to the person's cloud history store (opt-in,
+    /// `cmux-session-cloud`), leaving a stub; its next read fetches it back. The bytes freed, or
+    /// None when the chat is not archived here, cloud history is off, or the archive changed.
+    fn offload_cold(&self, _id: &str) -> Result<Option<u64>> {
+        Ok(None)
+    }
+    /// Registers this machine's cloud history GC root: one tree naming the blob of every chat
+    /// offloaded here, so the store keeps them (roots expire unless registered again within 90
+    /// days). Call it after a batch of offloads, not per chat. The blobs named, or None when cloud
+    /// history is off.
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        Ok(None)
+    }
     /// Called with a chat's id each time its log comes back from its cold archive, on any path
     /// (a read, an append, a fork's history): the hub drops the chat's preview
     /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
@@ -2106,13 +2119,15 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
-    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is a segment
-    /// zstd'd in place (`store/sealed_segments.rs`), which its first read decodes back.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened; so is its cloud stub
+    /// (an archive offloaded to cloud history), and a segment zstd'd in place
+    /// (`store/sealed_segments.rs`), which its first read decodes back.
     fn has_records(&self, id: &str) -> Result<bool> {
         // A home that is no longer the held one is an error, never "no record" (#41721
         // review F1): a closed chat with no record reads as purged.
         if crate::home_fs::try_exists_nofollow(self.marker(id))?
             || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
+            || crate::home_fs::try_exists_nofollow(self.cloud_stub_path(id))?
         {
             return Ok(true);
         }
@@ -2847,6 +2862,15 @@ impl Store for LocalStore {
 
     fn is_cold(&self, id: &str) -> bool {
         LocalStore::is_cold(self, id)
+    }
+
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        let _open = self.writable()?;
+        LocalStore::offload_cold(self, id)
+    }
+
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        LocalStore::register_cloud_root(self)
     }
 
     fn on_rehydrate(&self, hook: RehydrateHook) {
