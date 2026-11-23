@@ -37,6 +37,12 @@ extension HomeKeepLocationSetting {
     public nonisolated static let fallback = false
 }
 
+extension HomeClipboardHistorySetting {
+    /// `home.clipboardHistory`.
+    public nonisolated static let configPath = ["home", "clipboardHistory"]
+    public nonisolated static let fallback = true
+}
+
 extension HomeChannelsSetting {
     /// `home.channelsEnabled`.
     public nonisolated static let configPath = ["home", "channelsEnabled"]
@@ -184,6 +190,16 @@ nonisolated enum HomeSettingsSchema {
                 kind: .toggle,
                 default: .bool(HomeKeepLocationSetting.fallback),
                 keywords: ["gps", "location", "privacy", "metadata", "exif", "attachments", "photos"]
+            ),
+            SettingDescriptor(
+                HomeClipboardHistorySetting.configPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.clipboardHistory", "Clipboard History in the + Menu"),
+                help: SettingsText.keyed("settings.home.clipboardHistory.help", "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."),
+                kind: .toggle,
+                default: .bool(HomeClipboardHistorySetting.fallback),
+                keywords: ["clipboard", "pasteboard", "copy", "paste", "history", "privacy", "attachments", "chief", "plus"]
             ),
         ]
     }

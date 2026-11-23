@@ -24,7 +24,9 @@ extension HomeService {
                                                                     object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor per activation
             Task { @MainActor [weak self] in
-                guard let self, self.homeOpened else { return }
+                guard let self else { return }
+                self.clipboardHistory.appDidBecomeActive()  // the + menu's copies made in other apps
+                guard self.homeOpened else { return }
                 self.publishAppLinks()
                 self.requests.refresh()
             }

@@ -204,6 +204,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+        transcript.clipboardHistory = service.clipboardHistory  // the + menu's recent copies
 
         spellCheckingWatch = Task { [weak self, weak services] in
             for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {

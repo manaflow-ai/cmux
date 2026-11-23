@@ -76,6 +76,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = HomeKeepLocationSetting.fallback, homeChannelsEnabled = HomeChannelsSetting.fallback
     public var homeChiefPetEnabled = HomeChiefPetSetting.fallback, homeChiefPetMascot = HomeChiefPetSetting.mascotDefault
+    /// `home.clipboardHistory`: the Chief composer's + menu lists recent copies; on when unset.
+    public var homeClipboardHistory = HomeClipboardHistorySetting.fallback
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
     /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``), `left` when unset; `home.chiefDock.sidePanel`: every window keeps it docked there (Chief in Side Panel), off when unset.
