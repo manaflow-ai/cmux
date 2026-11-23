@@ -76135,6 +76135,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -89125,6 +89127,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -89223,6 +89227,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
