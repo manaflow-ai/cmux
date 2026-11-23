@@ -5,6 +5,10 @@ The base-health reconciler publishes `tap-tests/v1` to `ci-test-health:tap-tests
 failure attribution. Each observation names a test, an explicit `pass` or `fail`,
 and the diagnostic when available. A skipped, absent or unreported test is never
 a pass. Crashed, truncated and runner-loss logs contribute no observations.
+A cargo test failure's diagnostic is its panic site, `panicked at FILE:LINE:COL` for each panic in
+its captured output: the thread name and id and the run-time message are left out, since a Rust panic
+message is formatted at run time (measured values) and would never match the same assertion again.
+The reconciler watches `rust workspaces` (`rust-workspaces.yml`) jobs, named by Cargo workspace.
 
 The state contains `generated_at` and a `tests` list. Each row contains `workflow`,
 `job`, `test`, `last_observed_at`, `observations`, `passes`, `failures`, `flips`, `flip_rate`,

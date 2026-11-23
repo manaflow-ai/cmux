@@ -1338,8 +1338,12 @@ SHELL_FAIL = re.compile(r"^FAIL: (?!\w+ \([\w.]+\)$)\S")
 # The parenthesized diagnostic is expected output, not a failed check; only
 # error annotations outside a successful `ok:` wrapper are evidence.
 SUCCESS_DIAGNOSTIC = re.compile(r"^\s*ok:\s+.*\berror:", re.IGNORECASE)
-# Summaries carry counts, and a test's own lines already name it.
-GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$")
+# Summaries carry counts, and a test's own lines already name it. Cargo's own `error: test failed, to rerun pass
+# `-p CRATE --test BIN`` after a binary's failed tests, and .github/scripts/rust-workspaces.py's
+# `\`cargo test ...\` failed in ROOT` after the run, are summaries of the `test NAME ... FAILED` lines above them:
+# compared as errors, every quarantined Rust flake read as an unrelated error too (hq#12066, cmux run 43865211609).
+GENERIC = re.compile(r"Process completed with exit code|red tests?:|✘ Test |Test Case '|\.\.\. FAILED$|"
+                     r"\berror: test failed, to rerun pass `[^`]+`$|`cargo test\b[^`]*` failed in \S+$")
 SUMMARY_FAILURE = re.compile(
     r"(?i)\b(?:changed|stale|missing|mismatch|not stamped|not found|out of date|invalid|unavailable|"
     r"cannot|could not|failure|failed|fail|does not match|not match)\b"

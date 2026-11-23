@@ -246,6 +246,11 @@ def spliced_pass(name: str, text: str) -> bool:
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
+# A failed cargo test's captured output opens with `---- NAME stdout ----` (or stderr) and runs to the next such header
+# or the binary's `failures:` / `test result:` lines; each panic in it is `thread 'NAME' (TID) panicked at
+# FILE:LINE:COL:` (Rust 1.73+; the thread id since 1.88) or `panicked at 'MESSAGE', FILE:LINE:COL` (older).
+CARGO_OUTPUT = re.compile(r"^---- (\S+) std(?:out|err) ----$")
+CARGO_PANIC = re.compile(r"^thread '[^']*'(?: \(\d+\))? panicked at (?:'.*', )?(\S+?:\d+:\d+):?$")
 MANGLED = re.compile(r"\$s([0-9]+)(\w+)")
 DIGITS = "0123456789"
 LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -1260,9 +1265,9 @@ def exported_observations(lines: list[str]) -> list[dict] | None:
 def observations(log: str | None) -> list[dict]:
     """Positive named results from a whole run; absence, skips and infrastructure losses are never passes.
 
-    Signatures use the classifier's Bun diagnostics, Swift issue lines or pytest's failure summary. Other readers
-    can still contribute a score, but an empty diagnostic cannot excuse a future failure of that test. Read once
-    per text, like read().
+    Signatures use the classifier's Bun diagnostics, Swift issue lines, pytest's failure summary or cargo's panic
+    sites (cargo_signatures). Other readers can still contribute a score, but an empty diagnostic cannot excuse a
+    future failure of that test. Read once per text, like read().
     """
     if not log:
         return _observations(log)
@@ -1293,16 +1298,41 @@ def _observations(log: str | None) -> list[dict]:
             if match := pattern.search(line):
                 passed.add(match.group(1))
         # Final Swift failure lines include durations; only issue lines are a stable diagnostic. Pytest's short
-        # summary includes the error. A bare FAILED marker from cargo/unittest is not an error signature.
+        # summary includes the error. A bare FAILED marker from cargo/unittest is not an error signature; cargo's
+        # panic sites are (cargo_signatures, below).
         for pattern in (FAILED[0], FAILED[4]):
             if (match := pattern.search(line)) and ("recorded an issue" in line or line.startswith("FAILED ")):
                 signatures.setdefault(match.group(1), []).append(line)
+    for name, sites in cargo_signatures(lines).items():
+        signatures.setdefault(name, []).extend(sites)
     suites = {m.group(1).strip('"') for line in lines for m in [SUITE_FAILED.search(line)] if m}
     failures = {name for name in found.failed if name not in suites and not is_rule_failure(name)}
     return [{"test": name, "outcome": "fail" if name in failures else "pass",
              "signature": (found.messages.get(name) or "\n".join(sorted(set(signatures.get(name, [])))))
              if name in failures else ""} for name in sorted(passed | failures)]
 
+
+
+def cargo_signatures(lines: list[str]) -> dict[str, list[str]]:
+    """Each failed cargo test's diagnostic: `panicked at FILE:LINE:COL` for every panic its captured output holds
+    (CARGO_OUTPUT, CARGO_PANIC), by test name. The site, never the message: a Rust panic message is formatted at run
+    time (cmux-next-ios/rust's wireguard_bitrate_adapts_to_a_capped_link prints its ten measured bitrates, different
+    every run; run 43865211609's attempts), so an exact message would never match the same assertion failing again,
+    while the site names the assertion as Swift's issue line does. The thread's name and id are dropped for the same
+    reason. A test whose output names no panic (a process exit, a harness timeout) has none, so no quarantine can
+    excuse it."""
+    found: dict[str, list[str]] = {}
+    name = None
+    for text in lines:
+        if match := CARGO_OUTPUT.match(text):
+            name = match.group(1)
+        elif text == "failures:" or text.startswith("test result: "):
+            name = None
+        elif name is not None and (match := CARGO_PANIC.match(text)):
+            site = f"panicked at {match.group(1)}"
+            if site not in found.setdefault(name, []):
+                found[name].append(site)
+    return found
 
 TAP_STATE_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/ci-test-health/tap-tests.json"
 TAP_MIN_OBSERVATIONS = 8
