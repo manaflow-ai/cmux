@@ -67,10 +67,10 @@ pub(in crate::hub) struct CheckedPrefix {
 }
 
 /// A history-later prepare's folds of its prefix, which the begin's freeze would otherwise read
-/// from the whole log: the held prompts ([`super::super::queue_approve::HeldFold`]), the
+/// from the whole log: the held prompts ([`super::super::queue::HeldFold`]), the
 /// ownership epoch, and the prepare's native copies with what each holds.
 pub(in crate::hub) struct PrefixFold {
-    pub(in crate::hub) held: super::super::queue_approve::HeldFold,
+    pub(in crate::hub) held: super::super::queue::HeldFold,
     pub(in crate::hub) epoch: u64,
     /// The prepare's copies of the agent's own files (`<prepare>/<chat>/native`).
     pub(in crate::hub) native_dir: PathBuf,
@@ -88,7 +88,7 @@ fn read_prefix_fold(root: &Path, chat: &str, after_seq: u64) -> Option<PrefixFol
         return None;
     }
     Some(PrefixFold {
-        held: super::super::queue_approve::HeldFold::from_json(field(&fold, "held"))?,
+        held: super::super::queue::HeldFold::from_json(field(&fold, "held"))?,
         epoch: field(&fold, "epoch").as_u64()?,
         native_dir: root.join(chat).join("native"),
         native: field(&fold, "native").clone(),
@@ -136,7 +136,7 @@ impl Hub {
     /// `_acpmux/transfer_prepare`: the chat's log as of now, for a later move to send only what
     /// follows it. The chat keeps running.
     pub(in crate::hub) fn transfer_prepare(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         base: Option<&Value>,
         keep_turns: Option<u64>,
@@ -202,6 +202,7 @@ impl Hub {
         }
         if history_later {
             self.write_prefix_fold(session, &root, after_seq, Value::Object(native));
+            self.prepack_history(session, after_seq);
         }
         let token = format!("{prepare_id}:{after_seq}:{digest}");
         let mut record = json!({"sessionId": session.id, "afterSeq": after_seq, "digest": digest,
