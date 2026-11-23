@@ -91,6 +91,26 @@ export function newChatEntranceParts(hero: Element, style: Exclude<NewChatEntran
   return parts;
 }
 
+/** The chats (by key) whose entrance this document already played: a hero mounted again is at rest. */
+const played = new Set<string>();
+
+/**
+ * Whether the hero of chat `key` should play its entrance now, and marks it played: once per chat,
+ * so a hero remounted by the same chat (the harness picker closing, a reconnect, a switch back)
+ * is drawn at rest. No key: every mount plays (the gallery, tests).
+ */
+export function claimNewChatEntrance(key: string | undefined): boolean {
+  if (key === undefined) return true;
+  if (played.has(key)) return false;
+  played.add(key);
+  return true;
+}
+
+/** Tests only: forget which chats played. */
+export function resetNewChatEntranceClaims(): void {
+  played.clear();
+}
+
 export type NewChatEntrancePlay = { readonly animations: readonly Animation[]; stop(): void };
 
 /**

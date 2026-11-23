@@ -4,7 +4,7 @@ import { ProjectChooser, type Project } from "./ProjectChooser";
 import { useT } from "./i18n";
 import { EMPTY_STATE_LABELS } from "./emptyStateModel";
 import { TourOffer, type TourOfferActions } from "./repoTour/TourOffer";
-import { NEW_CHAT_ENTRANCE, playNewChatEntrance, type NewChatEntrance } from "./newChatEntrance";
+import { NEW_CHAT_ENTRANCE, claimNewChatEntrance, playNewChatEntrance, type NewChatEntrance } from "./newChatEntrance";
 /// The hero's project picker (cx-9g0w): the chat's folder choices and what a pick does.
 export type EmptyStateProjects = {
   projects: Project[];
@@ -23,22 +23,27 @@ export type EmptyStateProjects = {
 /// name is a picker (ChatGPT style): a pick moves the new chat to that folder. With `tour`, a folder no chat has
 /// used yet offers a repo tour under the question (repoTour/TourOffer.tsx). On mount the hero and the
 /// composer under it settle in on one spring (newChatEntrance.ts); `entrance` picks the motion.
+/// `entranceKey` names the chat: its entrance plays once, and a remount of the same chat's hero is at rest.
 export function EmptyState({
   project,
   picker,
   tour,
   entrance = NEW_CHAT_ENTRANCE,
+  entranceKey,
 }: {
   project?: string;
   picker?: EmptyStateProjects;
   tour?: TourOfferActions;
   entrance?: NewChatEntrance;
+  entranceKey?: string;
 }) {
   const t = useT();
   const hero = useRef<HTMLDivElement>(null);
   // The mount's entrance only: a new project or tour later is the same hero, already at rest.
   const entranceOnMount = useRef(entrance);
+  const entranceKeyOnMount = useRef(entranceKey);
   useLayoutEffect(() => {
+    if (!claimNewChatEntrance(entranceKeyOnMount.current)) return undefined;
     const play = playNewChatEntrance(hero.current, entranceOnMount.current);
     return () => play?.stop();
   }, []);

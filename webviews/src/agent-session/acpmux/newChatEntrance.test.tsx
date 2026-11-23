@@ -6,7 +6,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { EmptyState } from "./EmptyState";
-import { NEW_CHAT_PART_MS, NEW_CHAT_STAGGER_MS, type NewChatEntrance } from "./newChatEntrance";
+import {
+  NEW_CHAT_PART_MS,
+  NEW_CHAT_STAGGER_MS,
+  resetNewChatEntranceClaims,
+  type NewChatEntrance,
+} from "./newChatEntrance";
 import { settleReact } from "../../../test/support/domTeardown";
 
 type FakeAnimation = {
@@ -86,6 +91,7 @@ function installDom({ reduced = false } = {}): HTMLElement {
 }
 
 afterEach(async () => {
+  resetNewChatEntranceClaims();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   await settleReact();
@@ -99,10 +105,10 @@ afterEach(async () => {
 });
 
 /** A new chat as App.tsx lays it out: the hero over the dock's composer. */
-function Pane({ entrance, hero = true }: { entrance?: NewChatEntrance; hero?: boolean }) {
+function Pane({ entrance, hero = true, chat }: { entrance?: NewChatEntrance; hero?: boolean; chat?: string }) {
   return (
     <div className="acpmux-main" data-new-chat="">
-      {hero && <EmptyState {...(entrance ? { entrance } : {})} />}
+      {hero && <EmptyState {...(entrance ? { entrance } : {})} {...(chat ? { entranceKey: chat } : {})} />}
       <div className="acpmux-dock">
         <div className="acpmux-composer">
           <textarea aria-label="Message" />
@@ -206,4 +212,22 @@ test("entrance off plays nothing", async () => {
   const container = installDom();
   await render(container, <Pane entrance="off" />);
   expect(animations.length).toBe(0);
+});
+
+test("once per chat: re-renders and a remount of the same chat's hero play nothing more", async () => {
+  const container = installDom();
+  await render(container, <Pane chat="a" />);
+  const first = animations.length;
+  expect(first).toBeGreaterThan(0);
+  // A re-render of the same hero.
+  await render(container, <Pane chat="a" />);
+  expect(animations.length).toBe(first);
+  // The hero unmounts and mounts again for the same chat (the harness picker closing, a reconnect).
+  await render(container, <Pane chat="a" hero={false} />);
+  await render(container, <Pane chat="a" />);
+  expect(animations.length).toBe(first);
+  // Another new chat plays its own entrance.
+  await render(container, <Pane chat="b" hero={false} />);
+  await render(container, <Pane chat="b" />);
+  expect(animations.length).toBe(first * 2);
 });

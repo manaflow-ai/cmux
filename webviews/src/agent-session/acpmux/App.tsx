@@ -11096,6 +11096,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     project={projectName(composerSnapshot.summary?.cwd)}
                     picker={heroPicker}
                     tour={tourOffer}
+                    // Once per chat: the hero remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
