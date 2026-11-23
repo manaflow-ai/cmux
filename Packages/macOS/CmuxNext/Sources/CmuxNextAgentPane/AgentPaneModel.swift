@@ -34,6 +34,9 @@ public final class AgentPaneModel {
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// Told each paint report of a page reloading under its picture (``AgentPaneView/reloadUnderCover(_:)``),
+    /// with whether that frame drew the chat as it stands (a kept tail or the settled view).
+    @ObservationIgnored var reloadPaintWaiters: [(_ settled: Bool) -> Void] = []
     /// The chat whose settled paint this pane last published (``RemoteChatEvents``): a repaint publishes nothing.
     @ObservationIgnored var livePaintedSession: String?
     /// The waits for another process this open ran before its first paint, as the host sees them.
@@ -640,6 +643,8 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            let reloadWaiters = reloadPaintWaiters
+            for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
             // acpmux's settled view is on screen: a remote chat's `agent.chat.live_paint`, once per chat.
             if settled, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
             return AgentPaneReply.success()
