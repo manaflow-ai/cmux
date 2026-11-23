@@ -7,8 +7,8 @@ Chief (shared plan "Chief turns are slow and large", 2026-11-23; chief_trace_sta
 host's own trace ($MUX_HOME/optchat/traces, copied into the run dir by chief_driver.py) and the
 driver's turns.json (metrics.py: what the person saw, from the daemon).
 
-  chief_latency.py summary RUN_DIR [--label NAME] [--ref SHA] [--out FILE]
-      one run's numbers as JSON (printed, and written to FILE)
+  chief_latency.py summary RUN_DIR [RUN_DIR...] [--label NAME] [--ref SHA] [--out FILE] [--md FILE]
+      one ref's numbers as JSON, its rounds pooled (printed, and written to FILE)
   chief_latency.py compare BEFORE.json AFTER.json [--md FILE] [--json FILE]
       the before/after markdown table a PR body pastes, and both summaries in one JSON
 
@@ -75,7 +75,7 @@ def trace_events(run_dir):
     return ev
 
 
-def summary(run_dir, label=None, ref=None):
+def _collect(run_dir):
     ev = trace_events(run_dir)
     if not ev:
         raise SystemExit(f"{run_dir}: no trace events (traces/*.jsonl)")
@@ -85,25 +85,20 @@ def summary(run_dir, label=None, ref=None):
     requests = [e for e in ev if e.get("ev") == "request" and e.get("turn") in keys]
     tools = [e for e in ev if e.get("ev") == "tool" and e.get("turn") in keys]
     per_turn = []
-    for e in ends:
+    for i, e in enumerate(ends):
         s = starts.get(e["turn"]) or {}
         sources = s.get("sources") or []
         delta = ((s.get("layout") or {}).get("delta") or {})
         first = e.get("first_usage") or e.get("usage")
         per_turn.append({
-            "turn": e["turn"], "status": e.get("status"), "sources": sources,
-            "host_started": "human" not in sources,
-            "rerendered": bool(delta.get("rendered")),
+            "turn": e["turn"], "round": os.path.basename(os.path.normpath(run_dir)), "status": e.get("status"),
+            "sources": sources, "host_started": "human" not in sources,
+            "rerendered": bool(delta.get("rendered")), "round_first": i == 0,
             "first_tokens": prompt_tokens(first), "first_usage": first, "cold": is_cold(first),
             "requests": e.get("requests"), "ttft_ms": e.get("ttft_ms"), "ms": e.get("ms"),
             "headers_ms": e.get("headers_ms"), "cost_usd": e.get("cost_usd"),
             "view_bytes": (s.get("view") or {}).get("bytes"), "system_bytes": (s.get("system") or {}).get("bytes"),
         })
-    ok = [t for t in per_turn if t["first_usage"]]
-    cold = [t for t in ok if t["cold"]]
-    rer = [t for t in ok if t["rerendered"]]
-    sends = [t for t in tools if str(t.get("name", "")).split("__")[-1] in ("send", "reply")]
-    refused = [t for t in sends if t.get("ok") is False]
     felt = []
     tj = os.path.join(run_dir, "turns.json")
     if os.path.exists(tj):
@@ -113,11 +108,31 @@ def summary(run_dir, label=None, ref=None):
     rj = os.path.join(run_dir, "run.json")
     if os.path.exists(rj):
         run = json.load(open(rj))
+    return per_turn, requests, tools, felt, run
+
+
+def summary(run_dirs, label=None, ref=None):
+    """Pool one or more run directories (rounds of one ref) into one summary."""
+    if isinstance(run_dirs, str):
+        run_dirs = [run_dirs]
+    per_turn, requests, tools, felt, run = [], [], [], [], {}
+    for d in run_dirs:
+        p, r, t, f, rn = _collect(d)
+        per_turn += p
+        requests += r
+        tools += t
+        felt += f
+        run = run or rn
+    ok = [t for t in per_turn if t["first_usage"]]
+    cold = [t for t in ok if t["cold"]]
+    rer = [t for t in ok if t["rerendered"]]
+    sends = [t for t in tools if str(t.get("name", "")).split("__")[-1] in ("send", "reply")]
+    refused = [t for t in sends if t.get("ok") is False]
     tool_ms = {}
     for t in tools:
         tool_ms.setdefault(str(t.get("name", "")).split("__")[-1], []).append(t.get("ms"))
     out = {
-        "label": label, "ref": ref or run.get("build"), "claude_code_version": run.get("claude_code_version"),
+        "label": label, "ref": ref or run.get("build"), "rounds": len(run_dirs), "claude_code_version": run.get("claude_code_version"),
         "engine": run.get("engine"),
         "asks": len(felt), "asks_timed_out": sum(1 for r in felt if r.get("timeout")),
         "asks_correct": sum(1 for r in felt if r.get("correct") is True),
@@ -135,7 +150,7 @@ def summary(run_dir, label=None, ref=None):
         "felt_first_reply_ms": dist([r.get("ttft_ms") for r in felt]),
         "felt_last_reply_ms": dist([r.get("turn_ms") for r in felt]),
         "cold_turns": len(cold), "cold_share": round(len(cold) / len(ok), 3) if ok else None,
-        "cold_turns_after_first": sum(1 for t in cold if t is not ok[0]) if ok else 0,
+        "cold_turns_after_first": sum(1 for t in cold if not t["round_first"]),
         "rerendered_turns": len(rer), "rerendered_cold": sum(1 for t in rer if t["cold"]),
         "sends": len(sends), "refused_sends": len(refused),
         "tool_ms": {k: dist(v) for k, v in sorted(tool_ms.items())},
@@ -164,13 +179,13 @@ ROWS = [
     ("Send to last reply, felt (p90)", "felt_last_reply_ms", "p90", "ms"),
 ]
 COUNTS = [
-    ("Cold turns (first request wrote more cache than it read)", "cold_turns"),
-    ("Cold share", "cold_share"),
-    ("Chief turns (host-started)", None),
-    ("View re-renders (cold)", None),
-    ("Refused sends", "refused_sends"),
-    ("Asks correct", None),
-    ("Chief turn cost, USD", "cost_usd"),
+    ("Cold turns (first request wrote more cache than it read)", "cold_turns", ""),
+    ("Cold share", "cold_share", "ratio"),
+    ("Chief turns (host-started)", None, ""),
+    ("View re-renders (cold)", None, ""),
+    ("Refused sends", "refused_sends", ""),
+    ("Asks correct", None, ""),
+    ("Chief turn cost, API-equivalent", "cost_usd", "usd"),
 ]
 
 
@@ -179,7 +194,9 @@ def _fmt(v, unit=""):
         return "-"
     if unit == "ms":
         return f"{v / 1000:.1f} s"
-    if isinstance(v, float) and v < 1:
+    if unit == "usd":
+        return f"${v:,.2f}"
+    if unit == "ratio":
         return f"{100 * v:.0f}%"
     if isinstance(v, float):
         return f"{v:,.2f}" if v < 100 else f"{v:,.0f}"
@@ -209,13 +226,13 @@ def table(a, b):
     for title, key, stat, unit in ROWS:
         va, vb = (a.get(key) or {}).get(stat), (b.get(key) or {}).get(stat)
         lines.append(f"| {title} | {_fmt(va, unit)} | {_fmt(vb, unit)} | {_delta(va, vb)} |")
-    for title, key in COUNTS:
+    for title, key, unit in COUNTS:
         if key is None:
             lines.append(f"| {title} | {_count(a, title)} | {_count(b, title)} | |")
         else:
-            lines.append(f"| {title} | {_fmt(a.get(key))} | {_fmt(b.get(key))} | {_delta(a.get(key), b.get(key)) if key != 'cold_share' else ''} |")
+            lines.append(f"| {title} | {_fmt(a.get(key), unit)} | {_fmt(b.get(key), unit)} | {_delta(a.get(key), b.get(key)) if unit != 'ratio' else ''} |")
     lines.append("")
-    lines.append(f"One run each, same worker, back to back; Claude Code {a.get('claude_code_version') or '?'}. "
+    lines.append(f"{a.get('rounds') or 1} round(s) each, same worker, alternating before/after; Claude Code {a.get('claude_code_version') or '?'}. "
                  "Tokens are input + cache read + cache write. Cold share counts the run's first turn too (always cold).")
     return "\n".join(lines) + "\n"
 
@@ -224,8 +241,8 @@ def single_table(s):
     lines = [f"| Chief latency (scenario `latency`, {s['asks']} asks) | `{(s.get('ref') or '')[:10]}` |", "|---|---|"]
     for title, key, stat, unit in ROWS:
         lines.append(f"| {title} | {_fmt((s.get(key) or {}).get(stat), unit)} |")
-    for title, key in COUNTS:
-        lines.append(f"| {title} | {_count(s, title) if key is None else _fmt(s.get(key))} |")
+    for title, key, unit in COUNTS:
+        lines.append(f"| {title} | {_count(s, title) if key is None else _fmt(s.get(key), unit)} |")
     return "\n".join(lines) + "\n"
 
 
@@ -233,7 +250,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("summary")
-    s.add_argument("run_dir")
+    s.add_argument("run_dir", nargs="+", help="one directory per round of one ref (chief_driver.py --out)")
     s.add_argument("--label")
     s.add_argument("--ref")
     s.add_argument("--out")
