@@ -1,6 +1,8 @@
 // The New Tab clock's look and its time text (NewTabClock.tsx, `tabs.newTabClock.*`): no React here, so
 // the handshake reader (newTabModel.ts) can read it without the component.
 
+import { intl } from "../../../ui/intl";
+
 export const CLOCK_FONTS = ["rounded", "system", "serif", "mono", "condensed"] as const;
 export const CLOCK_WEIGHTS = ["thin", "regular", "bold", "heavy"] as const;
 export const CLOCK_COLORS = ["text", "accent", "muted", "glass"] as const;
@@ -36,7 +38,7 @@ export function readClockStyle(value: unknown): NewTabClockStyle | undefined {
 /// The time as the Lock Screen shows it: hours and minutes in the locale's 12- or 24-hour form,
 /// without the AM/PM mark.
 export function clockTime(at: Date, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
+  return intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" })
     .formatToParts(at)
     .filter((part) => part.type !== "dayPeriod")
     .map((part) => part.value)
@@ -45,7 +47,7 @@ export function clockTime(at: Date, locale?: string): string {
 }
 
 export function clockDate(at: Date, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(at);
+  return intl.DateTimeFormat(locale, { weekday: "long", month: "long", day: "numeric" }).format(at);
 }
 
 /// Milliseconds from `now` to the next minute boundary: the clock redraws once a minute, on the minute.

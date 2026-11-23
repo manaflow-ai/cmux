@@ -828,22 +828,6 @@ export function drawPaneBody({
                         ),
                       }
                     : {})}
-                  // `tabs.newTabApp`: the extension draws in a slot over cmux's composer, never in its
-                  // place; whatever it does, the composer, its focus and its input-ready report stay
-                  // the page's own (Leo 2026-11-16, newtab/NewTabAppSlot.tsx).
-                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
-                  {...(newTab.app
-                    ? {
-                        above: newTabApp ? (
-                          <NewTabAppSlot
-                            key={`${newTabGeneration}:${newTabApp}`}
-                            app={newTabApp}
-                            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
-                            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-                          />
-                        ) : null,
-                      }
-                    : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
