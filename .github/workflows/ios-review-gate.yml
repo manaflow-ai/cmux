@@ -106,11 +106,11 @@ on:
         required: false
         default: ""
       lane:
-        description: appstore (the AppStore configuration, com.cmux.app) or internal (cmux INTERNAL)
+        description: appstore (the AppStore configuration, com.cmux.app), internal (cmux INTERNAL) or internal-submission (cmux INTERNAL judged as an App Store submission)
         required: false
         default: appstore
         type: choice
-        options: [appstore, internal]
+        options: [appstore, internal, internal-submission]
       ipa_artifact_run:
         description: Optional run id whose `app-store-ipa` artifact is the exact binary to lint
         required: false
@@ -130,6 +130,8 @@ on:
         type: string
         required: false
         default: ""
+      # appstore, internal, or internal-submission: cmux INTERNAL's build held
+      # to every appstore check (the INTERNAL builder's `submittable` run calls it).
       lane:
         type: string
         required: false
@@ -149,6 +151,16 @@ on:
         type: string
         required: false
         default: feat-cmux-next
+    # A called workflow sees only the secrets its caller passes, even in a job
+    # with `environment: release`: without these, asc-validate ran with an
+    # empty key and blocked on "missing authentication" (run 45038240860).
+    secrets:
+      ASC_API_KEY_ID:
+        required: false
+      ASC_API_ISSUER_ID:
+        required: false
+      ASC_API_KEY_P8_BASE64:
+        required: false
     outputs:
       blocking:
         description: Number of blocking findings
@@ -175,7 +187,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       # The device families the reviewer-path matrix walks, and the whole
@@ -200,15 +212,26 @@ jobs:
           set -euo pipefail
           # One full SHA for every job, so the lint, the walk and the caller's
           # upload all judge the same commit even when a branch moves mid-run.
+          # A branch resolves over git (ls-remote), which spends none of the
+          # installation's REST quota: run 45056656791's plan failed twice on
+          # "API rate limit exceeded for installation" on these reads
+          # (2026-11-22). Anything else (a tag, a short SHA) still asks the API.
+          resolve() {
+            local r="$1" s
+            s="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/heads/$r" 2>/dev/null | awk -v want="refs/heads/$r" '$2==want{print $1}')" || s=""
+            [[ "$s" =~ ^[0-9a-f]{40}$ ]] || s="$(gh api "repos/$GITHUB_REPOSITORY/commits/$r" --jq .sha)"
+            echo "$s"
+          }
           ref="${REF_INPUT:-$HEAD_SHA}"
           if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
             sha="$ref"
           else
-            sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref" --jq .sha)"
+            sha="$(resolve "$ref")"
           fi
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve $ref: $sha" >&2; exit 1; }
           lane="${LANE_INPUT:-appstore}"
-          case "$lane" in appstore|internal) ;; *) echo "::error::unknown lane $lane" >&2; exit 1 ;; esac
+          case "$lane" in appstore|internal|internal-submission) ;; *) echo "::error::unknown lane $lane" >&2; exit 1 ;; esac
           # The gate's own scripts, history and UI tests. Run directly, that is
           # this run's commit. Called from another branch (main's production
           # pipeline), github.sha is the caller's commit, which has no gate, so
@@ -216,7 +239,7 @@ jobs:
           # resolved once to a full SHA here.
           if [ "$CALLED" = true ]; then
             gate_ref="${GATE_REF_INPUT:-feat-cmux-next}"
-            gate_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$gate_ref" --jq .sha)"
+            gate_sha="$(resolve "$gate_ref")"
           else
             gate_sha="$GITHUB_SHA"
           fi
@@ -308,7 +331,7 @@ jobs:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -636,17 +659,22 @@ jobs:
     # Apple's own readiness check, read-only: the version, the attached
     # build, metadata and screenshots, --strict. The NEXT app sells nothing,
     # so there is no subscription or in-app purchase check. Needs the release
-    # environment, which serves only main.
+    # environment, which serves main and rc/**: the appstore lane from main's
+    # production pipeline, internal-submission (cmux INTERNAL, app
+    # vars.IOS_INTERNAL_APP_ID) from the INTERNAL builder on rc/cnx-ios-builder.
+    # Anywhere else it skips, and an internal-submission report then blocks
+    # (asc.missing): that lane is never judged without Apple's check.
     needs: plan
     if: >-
       github.event_name != 'pull_request'
-      && needs.plan.outputs.lane == 'appstore'
-      && github.ref == 'refs/heads/main'
+      && ((needs.plan.outputs.lane == 'appstore' && github.ref == 'refs/heads/main')
+        || (needs.plan.outputs.lane == 'internal-submission' && github.ref == 'refs/heads/rc/cnx-ios-builder'))
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
     env:
-      ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
+      ASC_APP_ID: ${{ needs.plan.outputs.lane == 'internal-submission' && vars.IOS_INTERNAL_APP_ID || vars.IOS_APPSTORE_APP_ID }}
+      LANE: ${{ needs.plan.outputs.lane }}
     steps:
       # Nothing from the judged source runs here: this job holds the App
       # Store Connect key. The gate's own scripts come from gate_sha, the
@@ -682,9 +710,10 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          # The AppStore configuration's MARKETING_VERSION (project.yml), read
-          # by the gate's own script before any secret is exposed.
-          version="$(python3 -I gate/cmux-next-ios/scripts/app_review_gate.py version --source-root app --lane appstore || true)"
+          # The lane's configuration's MARKETING_VERSION (project.yml: AppStore,
+          # or TestFlight's base one for internal-submission), read by the
+          # gate's own script before any secret is exposed.
+          version="$(python3 -I gate/cmux-next-ios/scripts/app_review_gate.py version --source-root app --lane "$LANE" || true)"
           [[ -z "$version" || "$version" =~ ^[0-9][0-9.]*$ ]] || version=""
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: asc validate --strict (read-only)
@@ -700,7 +729,10 @@ jobs:
           chmod 600 "$key"
           export ASC_KEY_ID="$ASC_API_KEY_ID" ASC_ISSUER_ID="$ASC_API_ISSUER_ID" ASC_PRIVATE_KEY_PATH="$key"
           version="$ASC_VERSION"
-          if [ -z "$version" ]; then
+          if ! [[ "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
+            # No app to validate against (vars.IOS_APPSTORE_APP_ID or vars.IOS_INTERNAL_APP_ID unset): fail closed.
+            echo "{\"issues\":[{\"severity\":\"error\",\"code\":\"app.unknown\",\"message\":\"no App Store Connect app id for lane $LANE (repository variable IOS_APPSTORE_APP_ID or IOS_INTERNAL_APP_ID)\"}]}" > asc-validate.json
+          elif [ -z "$version" ]; then
             echo '{"issues":[{"severity":"error","code":"version.unknown","message":"no MARKETING_VERSION in cmux-next-ios/project.yml"}]}' > asc-validate.json
           else
             asc validate --app "$ASC_APP_ID" --version "$version" --platform IOS --strict --output json > asc-validate.json || true
@@ -725,7 +757,7 @@ jobs:
     if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     # A seed that fails never turns the push run red; the report does not need it.
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     env:
@@ -779,7 +811,7 @@ jobs:
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     # actions: read lets the screen diff download the newest feat-cmux-next
     # push run's review-gate-path-* stills (scripts/ci/ios_gate_screen_diff.py).
@@ -887,7 +919,7 @@ jobs:
             if [ -f "$RUNNER_TEMP/screens.md" ]; then
               # Also into the log: a step summary has no API to read it back with.
               tee -a review-gate.md "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/screens.md"
-              unjustified="$(grep -m1 -oE '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" || true)"
+              unjustified="$(grep -m1 -E '[0-9]+ iOS screens differ from feat-cmux-next with no Visual-change line' "$RUNNER_TEMP/screens.md" | tr -d '*' || true)"
               if [ -n "$unjustified" ]; then echo "::warning::$unjustified (see the run summary)"; fi
             fi
           fi

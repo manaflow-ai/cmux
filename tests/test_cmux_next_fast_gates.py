@@ -1373,7 +1373,7 @@ class BunInstallScriptWithoutGnuTimeout(BunInstallScript):
     """The same bun-install.sh tests through scripts/ci/timeout.sh's perl watchdog, the path a Mac runner takes.
 
     2026-11-11: bun-install.sh called GNU `timeout` bare; tooling-tests passed on Linux and failed on the Macs
-    portable-placement sends it to ("timeout: command not found") on #40892, #41288, #41299 and #41305.
+    it then ran on ("timeout: command not found") on #40892, #41288, #41299 and #41305.
     """
 
     def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:
