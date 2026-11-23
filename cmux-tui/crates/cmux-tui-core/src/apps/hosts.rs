@@ -183,6 +183,7 @@ impl Supervisor {
 
     pub(super) fn unmount_locked(&self, inner: &mut Inner, key: &MountKey) -> Vec<Out> {
         let Some(mount) = inner.mounts.remove(key) else { return vec![] };
+        self.signals_mount_gone(key);
         self.cancel_widget_timers(mount.widget.as_ref());
         if let Some(process) = inner.hosts.get(&mount.host).and_then(|h| h.process.clone()) {
             process.send(&ToHost::Unmount { mount: key.wire() });
@@ -589,6 +590,13 @@ impl Supervisor {
             FromHost::Subscribe { sub, stream, .. } => {
                 self.subscribe_locked(inner, key, sub, stream)
             }
+            FromHost::Watch { watch, name, params, mount, every_seconds } => {
+                self.watch_locked(inner, key, watch, &name, params, mount, every_seconds)
+            }
+            FromHost::Unwatch { watch, refresh } => {
+                self.unwatch_locked(inner, key, watch, refresh);
+                vec![]
+            }
             FromHost::Unsubscribe { sub } => {
                 inner.hosts.get_mut(key).expect("host").subs.remove(&sub);
                 // An `onEvent` host with no subscription left may idle out.
@@ -685,6 +693,7 @@ impl Supervisor {
                 return;
             };
             host.process = None;
+            self.signals_host_gone(key);
             if let Some(timer) = host.idle.take() {
                 self.timers.cancel(timer);
             }
@@ -818,6 +827,7 @@ impl Supervisor {
             return;
         }
         let inner = self.inner.lock().unwrap();
+        self.signals_pushed_locked(&inner, stream);
         Self::publish_stream_locked(&inner, stream, body);
     }
 }
@@ -843,7 +853,7 @@ pub(super) fn new_host() -> Host {
     }
 }
 
-fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
+pub(super) fn find_mount(inner: &Inner, key: &HostKey, wire: &str) -> Option<MountKey> {
     inner.mounts.iter().find(|(k, m)| m.host == *key && k.wire() == wire).map(|(k, _)| k.clone())
 }
 

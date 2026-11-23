@@ -6,7 +6,6 @@
 // behind it".
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import wallpaper from "../../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
 const ASK =
@@ -37,13 +36,17 @@ const snapshot = chat([
   ...turns,
 ]);
 
-/// The wallpaper behind a see-through pane, as cmux's own wallpaper draws it.
-const overWallpaper =
+// The picture comes through the variant's `background` (format.ts), so the window is see-through as in the app: the
+// theme's tint over the picture and the pane's inks fit for it. The stage once painted a wallpaper of its own with
+// neither, which no window draws: Rose Pine Dawn's header tools and "Worked for" read 1.1-2.9:1 on its bare pinks and
+// blues (control-contrast-2). The busy picture behind a dark theme, the light one behind a light theme, as the audit
+// pairs them: over the busy picture Rose Pine Dawn's own text read 3.06:1 under its tint.
+const OVER_PICTURE = { dark: "busy", light: "light" } as const;
+
+/// Scrolled up `scrolledUp` px from the latest message, once the pinned line is up.
+const scrolled =
   (scrolledUp: number): Play =>
   async (ctx) => {
-    const root = ctx.document.documentElement;
-    root.style.setProperty("background", `url("${wallpaper}") 0 0 / 100vw 100vh no-repeat fixed`, "important");
-    root.style.setProperty("--agent-page-bg", "transparent");
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pending-ask__head"));
     const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
     if (scroller && scrolledUp > 0)
@@ -52,6 +55,14 @@ const overWallpaper =
         Math.max(0, scroller.scrollHeight - scroller.clientHeight - scrolledUp),
       );
   };
+
+/// The same pane after a click on Dismiss: the line and its card go, and the turns that were under
+/// them stay in sight, none blanked where the line sat.
+const dismissed: Play = async (ctx) => {
+  await scrolled(120)(ctx);
+  await ctx.click({ selector: ".acpmux-pending-ask__dismiss" });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-pending-ask__head"));
+};
 
 export default agentPaneEntry({
   id: "agent-pane.pending-ask-wallpaper",
@@ -64,12 +75,20 @@ export default agentPaneEntry({
     "at-latest": {
       note: "At the latest message: the line and its Dismiss sit on the wallpaper with no band behind them.",
       snapshot,
-      play: overWallpaper(0),
+      background: OVER_PICTURE,
+      play: scrolled(0),
     },
     "scrolled-under": {
       note: 'Scrolled up a little: the turns pass behind the line and stay in sight ("Worked for" is not cut off); only the cards hide them.',
       snapshot,
-      play: overWallpaper(120),
+      background: OVER_PICTURE,
+      play: scrolled(120),
+    },
+    dismissed: {
+      note: "After Dismiss: the line and its card are gone, and the turns behind where they sat stay in sight.",
+      snapshot,
+      background: OVER_PICTURE,
+      play: dismissed,
     },
   },
 });

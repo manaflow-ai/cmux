@@ -13,6 +13,7 @@ import "./AgentTag.css";
 export function AgentTag({
   name,
   title,
+  about,
   onClick,
   ariaLabel,
   className,
@@ -23,6 +24,9 @@ export function AgentTag({
 }: {
   name: ReactNode;
   title?: string;
+  /// What a tag that opens a chat cannot show (its harness, model and effort): on its facts card when
+  /// no chat hover card says more. A plain tag's `title` does this.
+  about?: string;
   onClick?(event: MouseEvent<HTMLButtonElement>): void;
   ariaLabel?: string;
   className?: string;
@@ -35,24 +39,35 @@ export function AgentTag({
 } & Omit<HTMLAttributes<HTMLElement>, "onClick" | "title" | "className">) {
   const classes = `cv-agent-tag${className ? ` ${className}` : ""}`;
   if (onClick) {
+    // A chat's hover card (or a hover card trigger's) says more and would sit under the facts card.
+    const said = hover?.onPointerEnter || trigger.onPointerEnter ? [] : [{ value: about ?? "" }];
     return (
-      <button
-        {...trigger}
-        ref={ref as Ref<HTMLButtonElement> | undefined}
-        type="button"
-        className={`${classes} is-open`}
-        aria-label={ariaLabel}
-        data-interactive=""
-        {...attributes}
-        {...hover}
-        onClick={(event) => {
-          // A hover card trigger's own click (it puts the card away) runs first.
-          (trigger as { onClick?(event: MouseEvent<HTMLButtonElement>): void }).onClick?.(event);
-          onClick(event);
-        }}
-      >
-        <span className="cv-agent-tag__label">{name}</span>
-      </button>
+      <WithFacts facts={said}>
+        {({ ref: anchor, ...card }) => (
+          <button
+            {...trigger}
+            {...card}
+            ref={(element: HTMLButtonElement | null) => {
+              anchor(element);
+              if (typeof ref === "function") ref(element);
+              else if (ref) (ref as { current: HTMLElement | null }).current = element;
+            }}
+            type="button"
+            className={`${classes} is-open`}
+            aria-label={ariaLabel}
+            data-interactive=""
+            {...attributes}
+            {...hover}
+            onClick={(event) => {
+              // A hover card trigger's own click (it puts the card away) runs first.
+              (trigger as { onClick?(event: MouseEvent<HTMLButtonElement>): void }).onClick?.(event);
+              onClick(event);
+            }}
+          >
+            <span className="cv-agent-tag__label">{name}</span>
+          </button>
+        )}
+      </WithFacts>
     );
   }
   // A plain tag's title (the agent's whole name) shows on its facts card; a hover card the tag

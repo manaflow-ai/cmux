@@ -29,6 +29,7 @@ extension AddressBarView {
     /// the pointer is.
     func updateStarVisibility() {
         let hidden = starButton.state == .hidden || state.phase == .editing
+        updateQuietIcons(fade: nil)
         guard starButton.isHidden != hidden else { return }
         starButton.isHidden = hidden
         updateBadgeSpace()
