@@ -1777,6 +1777,19 @@ let package = Package(
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
 
+    def test_push_that_adds_a_lone_diff3_base_marker_is_refused(self):
+        # #50674 (2026-11-22) resolved a diff3 conflict but kept `||||||| 4b816cb17582` as host.rs's last line.
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/HalfMergedTests.swift", "struct T {}\n||||||| 4b816cb17582\n")
+        self.commit("half-finished merge")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the half-merged file must not reach origin")
+        self.assertIn("HalfMergedTests.swift:2: ||||||| 4b816cb17582", output)
+
     def cargo_workspace(self):
         """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
         cargo = shutil.which("cargo")

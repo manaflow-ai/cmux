@@ -838,7 +838,7 @@ if ! patches=$(gh_list "repos/$repo/pulls/$num/files" --field patch 2>/dev/null)
   fi
   echo "note: used verified Git fallback to inspect the diff for $ref" >&2
 fi
-if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
+if grep -qE '^\+(<<<<<<<|>>>>>>>|\|{7}( |$)|=======$)' <<<"$patches"; then
   refuse \
     "not green: conflict markers are present in $ref" \
     'resolve the conflict markers, push the repaired head, and rerun the checks'
