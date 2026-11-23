@@ -23,8 +23,18 @@ use serde_json::{Value, json};
 
 use super::super::{GlobalArgs, OutputMode, wire};
 
-pub(super) const VERBS: &[&str] =
-    &["install", "update", "remove", "export", "installed", "check", "on", "off", "order"];
+pub(super) const VERBS: &[&str] = &[
+    "install",
+    "install-link",
+    "update",
+    "remove",
+    "export",
+    "installed",
+    "check",
+    "on",
+    "off",
+    "order",
+];
 
 pub(super) const HELP: &str = "\
 Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, views, actions, extensions).
@@ -34,6 +44,9 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
                                                      --strict: warnings fail too)
   cmux setup install HOST/OWNER/REPO[@REF] [--yes]   Fetch it at one commit, show what it changes, apply it
   cmux setup install ./DIR [--as OWNER/NAME] [--yes] Try a setup folder on this machine before you publish it
+  cmux setup install-link URL                        Install from a cmux.com setup page's Open in cmux link
+                                                     (<scheme>://setups/install?repo=HOST/OWNER/REPO&commit=SHA):
+                                                     the same card; it never takes --yes
   cmux setup update [REPO|ID] [--yes]                Move an installed setup to its ref's newest commit (a folder:
                                                      to what the folder holds now)
   cmux setup remove [REPO|ID|DIR]                    Take off its layer only: its settings, views, actions and extensions
@@ -70,6 +83,10 @@ pub(super) enum Request {
         reference: String,
         yes: bool,
         as_id: Option<String>,
+    },
+    /// cmux.com's Open in cmux link for a setup: an install that always asks.
+    InstallLink {
+        link: String,
     },
     Update {
         which: Option<String>,
@@ -132,6 +149,19 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
                 ),
             }
         }
+        "install-link" => match (yes, words.as_slice()) {
+            (false, [link]) if !link.starts_with('-') => {
+                Ok(Request::InstallLink { link: (*link).clone() })
+            }
+            (true, _) => Err(
+                "cmux setup install-link never takes --yes: whoever opens a link sees the card first"
+                    .to_owned(),
+            ),
+            _ => Err(
+                "usage: cmux setup install-link '<scheme>://setups/install?repo=HOST/OWNER/REPO&commit=SHA'"
+                    .to_owned(),
+            ),
+        },
         "check" if !yes => {
             let (mut dir, mut owner, mut strict) = (None, None, false);
             let mut iter = rest.iter();
@@ -232,6 +262,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         Request::Install { reference, yes, as_id } => {
             install_as(&customize, &apps, global.output, &reference, yes, as_id.as_deref())
         }
+        Request::InstallLink { link } => install_link(&customize, &apps, global.output, &link),
         Request::Update { which, yes } => {
             update(&customize, &apps, global.output, which.as_deref(), yes)
         }
@@ -257,6 +288,34 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             failure(global.output, code, &message, details, 1)
         }
     }
+}
+
+/// `cmux setup install-link URL`: the link's repo at its pinned commit, installed
+/// as `cmux setup install` would, never without the person's yes. With --json
+/// (the Mac app) the `setup.needs_consent` refusal also carries the card as text
+/// (`text`) and the pinned `reference`, so the app can show it and, on Install,
+/// run `cmux setup install REFERENCE --yes`.
+pub(super) fn install_link(
+    customize: &Customize,
+    apps: &dyn Apps,
+    output: OutputMode,
+    link: &str,
+) -> Result<Value, Failure> {
+    let reference = super::super::community::link_reference_at(link, "setups")
+        .map_err(|why| refused("setup.link", why))?;
+    if let Err(why) = Reference::parse(&reference) {
+        return Err(refused("setup.link", format!("{link}: {why}")));
+    }
+    install_as(customize, apps, output, &reference, false, None).map_err(|mut failure| {
+        if failure.code == "setup.needs_consent" {
+            let text = card_text(&failure.details);
+            if let Value::Object(details) = &mut failure.details {
+                details.insert("text".to_owned(), json!(text));
+                details.insert("reference".to_owned(), json!(reference));
+            }
+        }
+        failure
+    })
 }
 
 fn unreachable_check() -> Result<Value, Failure> {
