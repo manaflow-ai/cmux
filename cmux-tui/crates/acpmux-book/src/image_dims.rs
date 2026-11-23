@@ -1,19 +1,71 @@
-//! An image's pixel size, read from its header only (no decode), so a record that names an image
-//! carries `width` and `height` and the chat reserves its exact box before the bytes arrive: a
+//! An image's pixel size, read from its header only (no decode), so a record or a row that names
+//! an image carries its size and the chat reserves its exact box before the bytes arrive: a
 //! decoded image never changes a row's height (design: agent-transcript-clean-slate.md, step 2,
 //! "It supplies image sizes, so a decoded image never changes height").
 //! PNG, GIF, JPEG and WebP (VP8, VP8L, VP8X). Anything else, or a cut-short header, is `None`,
-//! and the record names the image as before.
+//! and the record names the image as before. The v1 hub reads a prompt image's bytes with
+//! [`image_dims`]; the book's translator reads an inline base64 image with [`base64_image_dims`].
 
 /// Largest side a header may claim and still be believed. A header claiming more is not an image
 /// the chat can draw; the record leaves the size out rather than reserve a giant box.
 const MAX_SIDE: u32 = 1 << 16;
 
 /// `(width, height)` in pixels from the image's header, or `None`.
-pub(crate) fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+pub fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
     let dims = png(bytes).or_else(|| gif(bytes)).or_else(|| jpeg(bytes)).or_else(|| webp(bytes))?;
     let sane = |side: u32| side > 0 && side <= MAX_SIDE;
     (sane(dims.0) && sane(dims.1)).then_some(dims)
+}
+
+/// The most bytes of an image's start [`base64_image_dims`] decodes: a PNG, GIF or WebP header
+/// is in its first 30 bytes, and a JPEG's frame header comes after its APP segments (EXIF, ICC),
+/// which a camera can make tens of KB. So a line's cost is bounded whatever the image's size.
+pub const MAX_HEADER_BYTES: usize = 256 * 1024;
+
+/// `(width, height)` of an image given as standard base64 (an inline `source.data` or a data URL's
+/// payload), decoding at most [`MAX_HEADER_BYTES`] of its start: first 4 KB, which holds every
+/// header but a JPEG's with large APP segments, then the bound. `None` as for [`image_dims`], and
+/// for text that is not base64.
+pub fn base64_image_dims(data: &str) -> Option<(u32, u32)> {
+    let mut bytes = Vec::new();
+    for cap in [4 * 1024, MAX_HEADER_BYTES] {
+        decode_prefix(data.as_bytes(), cap, &mut bytes)?;
+        let dims = image_dims(&bytes);
+        // A short image decodes whole at the first cap; reading again would give the same.
+        if dims.is_some() || bytes.len() < cap {
+            return dims;
+        }
+    }
+    None
+}
+
+/// Decodes standard base64 (padding optional) into `out`, stopping once `out` holds `cap` bytes
+/// or the text ends. `None` at a character that is not base64.
+fn decode_prefix(text: &[u8], cap: usize, out: &mut Vec<u8>) -> Option<()> {
+    out.clear();
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for &c in text {
+        if out.len() >= cap {
+            break;
+        }
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            _ => return None,
+        };
+        acc = (acc << 6) | u32::from(v);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(())
 }
 
 fn be32(bytes: &[u8], at: usize) -> Option<u32> {
@@ -113,7 +165,25 @@ fn webp(bytes: &[u8]) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::image_dims;
+    use super::{base64_image_dims, image_dims};
+
+    /// Standard base64 with padding, the encoder the tests need.
+    fn b64(bytes: &[u8]) -> String {
+        const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n =
+                chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+            for i in 0..4 {
+                out.push(if i <= chunk.len() {
+                    ABC[(n >> (18 - 6 * i) & 63) as usize] as char
+                } else {
+                    '='
+                });
+            }
+        }
+        out
+    }
 
     fn png(width: u32, height: u32) -> Vec<u8> {
         let mut bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
@@ -127,11 +197,8 @@ mod tests {
     fn a_png_size_comes_from_its_ihdr() {
         assert_eq!(image_dims(&png(1280, 720)), Some((1280, 720)));
         // A real 1x1 PNG, as the prompt image tests send it.
-        use base64::Engine;
-        let one = base64::engine::general_purpose::STANDARD
-            .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
-            .unwrap();
-        assert_eq!(image_dims(&one), Some((1, 1)));
+        let one = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+        assert_eq!(base64_image_dims(one), Some((1, 1)));
     }
 
     #[test]
@@ -190,5 +257,29 @@ mod tests {
         // A JPEG that reaches its scan before any frame header.
         assert_eq!(image_dims(&[0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02]), None);
         assert_eq!(image_dims(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]), None);
+    }
+
+    #[test]
+    fn a_base64_image_is_sized_from_its_start_alone() {
+        assert_eq!(b64(&[0xFB, 0xFF, 0xBF]), "+/+/");
+        assert_eq!(base64_image_dims(&b64(&png(640, 160))), Some((640, 160)));
+        // Only an image's start is decoded, so what lies past it is never read.
+        let mut bytes = png(1920, 1080);
+        bytes.extend(vec![7; 9000]);
+        let mut big = b64(&bytes)[..8192].to_string();
+        big.push_str("!not base64!");
+        assert_eq!(base64_image_dims(&big), Some((1920, 1080)));
+        // A JPEG whose frame header is past 4 KB of EXIF is read at the second cap.
+        let mut jpeg = vec![0xFF, 0xD8];
+        for _ in 0..3 {
+            jpeg.extend([0xFF, 0xE1, 0xFF, 0xF0]);
+            jpeg.extend(vec![0xAB; 0xFFF0 - 2]);
+        }
+        jpeg.extend([0xFF, 0xC0, 0x00, 0x11, 0x08, 0x0F, 0xC0, 0x0B, 0xD0, 0x03]);
+        jpeg.extend(vec![0; 9]);
+        assert_eq!(base64_image_dims(&b64(&jpeg)), Some((3024, 4032)));
+        // Text that is not base64, or an empty one, names no size.
+        assert_eq!(base64_image_dims("not base64!"), None);
+        assert_eq!(base64_image_dims(""), None);
     }
 }

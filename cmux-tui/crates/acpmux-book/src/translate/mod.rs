@@ -219,6 +219,10 @@ impl QueueEntry {
     }
 }
 
+/// The most bytes of a row's [`OwnedRow::head`]: with a 4 KB preview and the row's own keys it
+/// stays well under the 16 KB row.
+pub const MAX_HEAD_BYTES: usize = 8 * 1024;
+
 /// Only metadata: no body, preview, tool output or arguments live in translator state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnedRow {
@@ -251,6 +255,23 @@ impl OwnedRow {
                 u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX)
             },
         }
+    }
+    /// The small body a row keeps when its body is out of line or left out: its own fields
+    /// (an image's `w` and `h`, a tool's name and status), never a bulk body field, as one
+    /// compact JSON object in the body's key order. `{}` when they would pass [`MAX_HEAD_BYTES`],
+    /// so a head never makes a row too large to encode.
+    pub fn head(&self) -> String {
+        let mut head = String::from("{");
+        for (key, value) in &self.fields {
+            if head.len() > 1 {
+                head.push(',');
+            }
+            head.push_str(&json_string(key));
+            head.push(':');
+            head.push_str(value);
+        }
+        head.push('}');
+        if head.len() > MAX_HEAD_BYTES { "{}".into() } else { head }
     }
     fn field(&mut self, key: &str, value: &str) -> bool {
         self.field_capped(key, value, MAX_KEY_BYTES)
