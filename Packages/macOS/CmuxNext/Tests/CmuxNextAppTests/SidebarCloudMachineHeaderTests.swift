@@ -47,15 +47,22 @@ import Testing
         #expect(!local.runsInCloud)
     }
 
-    /// The mark draws right after the name, inside the row, and the name gives up room for it.
-    @Test func theCloudMarkDrawsRightAfterTheName() throws {
-        let row = try #require(layout(sections).rows.first { $0.key == .workspace(WorkspaceID("ws_a")) })
-        let view = WorkspaceRowView(key: row.key)
-        view.frame = NSRect(x: 0, y: 0, width: 240, height: row.height)
-        view.configure(SidebarWorkspace(id: WorkspaceID("ws_a"), machineID: MachineID("lease-lease_21_c6c"), title: "Fix login"), row: row)
-        view.layoutSubtreeIfNeeded()
-        #expect(!view.cloudMark.isHidden)
-        #expect(view.cloudMark.frame.minX >= view.title.frame.minX + view.title.intrinsicContentSize.width - 0.5)
-        #expect(view.cloudMark.frame.maxX <= 240)
+    /// Leo 2026-11-22: "im not sure we want the cloud icon at the left. it makes it stick out in a slight eyesore-y
+    /// way. compared to the local ones which have no icon." The leading slot is state only: a Cloud row with no icon
+    /// of its own starts its title where a local row's does, and its small cloud sits in the trailing status cluster.
+    @Test func theCloudMarkSitsTrailingAndTheTitleStartsWhereALocalRowsDoes() throws {
+        let rows = layout(sections).rows
+        func view(_ id: String, machine: String) throws -> WorkspaceRowView {
+            let row = try #require(rows.first { $0.key == .workspace(WorkspaceID(id)) })
+            let view = WorkspaceRowView(key: row.key)
+            view.frame = NSRect(x: 0, y: 0, width: 240, height: row.height)
+            view.configure(SidebarWorkspace(id: WorkspaceID(id), machineID: MachineID(machine), title: "Fix login"), row: row)
+            view.layoutSubtreeIfNeeded()
+            return view
+        }
+        let cloud = try view("ws_a", machine: "lease-lease_21_c6c"), local = try view("ws_mac", machine: "local")
+        #expect(!cloud.cloudMark.isHidden && local.cloudMark.isHidden)
+        #expect(abs(cloud.title.frame.minX - local.title.frame.minX) < 0.5, "a Cloud row's title moved for a leading cloud")
+        #expect(cloud.cloudMark.frame.minX > 240 / 2 && cloud.cloudMark.frame.maxX <= 240, "the cloud is not in the trailing cluster")
     }
 }

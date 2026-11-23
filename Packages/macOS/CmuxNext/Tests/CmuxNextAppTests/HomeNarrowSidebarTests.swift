@@ -69,6 +69,7 @@ struct HomeNarrowSidebarTests {
         #expect(!home.searchButton.isHidden, "the search icon is gone from the \(width) pt list")
         #expect(home.unreadToggle.frame.maxX <= width && home.searchButton.frame.minX >= 0)
         #expect(!home.unreadToggle.frame.intersects(home.searchButton.frame))
+        #expect(home.newChief.isHidden, "New Chief shows in the \(width) pt list")
         #expect(home.searchCapsule.isHidden, "the search capsule shows in the \(width) pt list")
         #expect(home.list.searchField.alphaValue == 0 || home.list.searchField.frame.width == 0,
                 "the search field shows in the \(width) pt list")

@@ -62,6 +62,8 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
         view?.applyZoom()
+        // `app.language`: the old host's document has no PageWebView to push it on load.
+        view?.applyLanguage()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
         view?.applyLiveTree()

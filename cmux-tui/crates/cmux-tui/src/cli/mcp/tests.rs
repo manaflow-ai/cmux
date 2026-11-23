@@ -61,6 +61,10 @@ struct Fake {
     cloud_machines: Option<Value>,
     /// The server was started on another session (`--session`, `--socket`).
     other_session: bool,
+    /// The app's `action.run` answers by action (id or CLI name): its `result`, or its error.
+    action_answers: BTreeMap<String, Result<Value, Value>>,
+    /// What `Backend::chief_computer` answers (the Chief's attached machine id).
+    chief_computer: Option<String>,
     /// Successive answers to `tab.list`, before `resource_result`.
     tab_lists: RefCell<std::collections::VecDeque<Value>>,
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
@@ -177,6 +181,10 @@ impl Backend for Fake {
         !self.other_session
     }
 
+    fn chief_computer(&self) -> Option<String> {
+        self.chief_computer.clone()
+    }
+
     fn resource_sender(&self) -> Option<live_file::Sender> {
         let reloads = self.reloads.clone()?;
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
@@ -278,6 +286,11 @@ impl Backend for Fake {
                 return Err(CallFailure::local(FailureKind::NotRun, "app.timeout", "no answer"));
             }
         }
+        let scripted = if method == "action.run" {
+            params["action"].as_str().and_then(|action| self.action_answers.get(action)).cloned()
+        } else {
+            None
+        };
         self.sent.borrow_mut().push(json!({
             "kind": "app",
             "method": method,
@@ -316,6 +329,17 @@ impl Backend for Fake {
                               "retryable": true}),
                 idempotency_key: Some("open-viewer-app-key".into()),
             });
+        }
+        match scripted {
+            Some(Ok(result)) => return Ok(json!({"result": result})),
+            Some(Err(error)) => {
+                return Err(CallFailure {
+                    kind: FailureKind::Rejected,
+                    error,
+                    idempotency_key: None,
+                });
+            }
+            None => {}
         }
         match method {
             "action.list" => Ok(self.actions.clone()),
@@ -1685,6 +1709,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod cloud_agent_tools;
 mod cloud_connect;
 mod cloud_workspace_list;
 mod computer_use;
