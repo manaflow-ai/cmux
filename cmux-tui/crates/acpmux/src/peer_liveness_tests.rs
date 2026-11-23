@@ -287,7 +287,8 @@ async fn stall_like_a_loaded_mac(
 /// cosmic-gray at load 80 to 100 (2026-11-22): its daemon's link loops waited seconds (for a
 /// thread, for the hub to take a notice), and 493 links in 3 h were dropped for "6 to 19 s
 /// without a frame" while the peer's frames waited unread. The time this loop was stuck is not
-/// the peer's silence: a link to a live peer survives ten 9 s stalls.
+/// the peer's silence: a link to a live peer survives ten 9 s stalls, each after a calm 70 s
+/// (past `stable_after`, so the silence budget is back at its 6 s start, as between load waves).
 #[tokio::test(start_paused = true)]
 async fn a_stall_of_this_computer_is_not_the_peers_silence() {
     let (tx, mut notices) = mpsc::channel(1);
@@ -302,7 +303,7 @@ async fn a_stall_of_this_computer_is_not_the_peers_silence() {
     let serving = peer.serve(client, &mut out_rx);
     tokio::pin!(serving);
     for stall in 0..10 {
-        let calm = Duration::from_secs(3);
+        let calm = Duration::from_secs(70);
         let ended =
             stall_like_a_loaded_mac(&mut notices, &mut serving, calm, Duration::from_secs(9)).await;
         assert!(ended.is_none(), "dropped at stall {stall}: {ended:?}");
@@ -383,8 +384,9 @@ async fn a_request_waits_for_a_peer_whose_round_trip_is_measured_slow() {
 
 /// Duress count, run by hand on any commit (it uses nothing newer than the link loop):
 /// `cargo test -p acpmux duress_link_drops -- --ignored --nocapture`. A live peer, and this
-/// computer stalls 60 times for 3 to 9 s, 3 s apart (cosmic-gray at load 80 to 100): how many
-/// times its link drops and is redialed.
+/// computer stalls 60 times for 3 to 9 s, each after a calm 70 s (load waves on cosmic-gray at
+/// load 80 to 100, the budget settled back to its start between them): how many times its link
+/// drops and is redialed.
 #[tokio::test(start_paused = true)]
 #[ignore = "a duress count for a PR's Duress line, not a check"]
 async fn duress_link_drops_under_this_computers_stalls() {
@@ -406,7 +408,7 @@ async fn duress_link_drops_under_this_computers_stalls() {
         while next < stalls.len() {
             let stall = Duration::from_secs(stalls[next]);
             next += 1;
-            let calm = Duration::from_secs(3);
+            let calm = Duration::from_secs(70);
             if let Some(ended) =
                 stall_like_a_loaded_mac(&mut notices, &mut serving, calm, stall).await
             {
