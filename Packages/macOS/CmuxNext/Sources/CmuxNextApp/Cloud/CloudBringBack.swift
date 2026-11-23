@@ -179,7 +179,7 @@ struct CloudBringBack {
         // The flow the chat's header draws (``CloudPlaceFlows``): each step below reports itself.
         let place = services.cloud.place, flow = toMachine ? nil : entry.session
         place.begin(session: flow, toCloud: false, trigger: invocation["trigger"]?.stringValue, from: services.machines.machineName(entry.machineID) ?? "",
-                    to: CloudPlaceFlows.thisMac, cargo: CloudPlaceCargo.read(tab: tab, session: entry.session, services: services))
+                    to: CloudPlaceFlows.thisMac, cargo: CloudPlaceFlows.Cargo.read(tab: tab, session: entry.session, services: services))
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
             if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted, retry: pinned.map { _ in again }) }
