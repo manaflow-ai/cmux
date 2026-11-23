@@ -1,0 +1,17 @@
+/* Grove's chat: moss ink on paper by day, lichen on fern by night. Every color is made from the
+   theme's own (--agent-text, --agent-accent), which Grove's theme file sets per appearance, so the
+   stylesheet follows light and dark and the person's theme edits.
+   Only cmux.agentPane.style/1 tokens (schemas/agent-pane/style-tokens.json), on :root: paint, so
+   nothing in the transcript moves when this applies or reloads. */
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 80%, var(--agent-accent)) 84%, transparent);
+  --cv-text-dim: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 65%, var(--agent-accent)) 80%, transparent);
+  --cv-link: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 20%, var(--agent-accent)) 99%, transparent);
+  --agent-link: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 20%, var(--agent-accent)) 99%, transparent);
+  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 24%, transparent);
+  --cv-user-bubble-tint: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 20%, var(--agent-accent)) 10%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, color-mix(in srgb, var(--agent-text) 10%, var(--agent-accent)) 21%, transparent);
+  --cv-user-bubble-radius: 18px;
+}
