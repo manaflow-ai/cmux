@@ -1126,6 +1126,23 @@ function TranscriptView({
   workingRef.current = working;
   const transcriptMounted = useRef(true);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
+  /// The scroller height the last commit drew the followed view at, at its layout's end (`projectedTop`,
+  /// which reads no offset); undefined when it drew it anywhere else.
+  const drewFollowedEnd = useRef<number | undefined>(undefined);
+  /// A frame that stays at the latest row, where the last commit already drew the followed view: that
+  /// commit placed the rows at the layout's end, not at the offset, so a render for the offset draws the
+  /// same rows. Each streamed chunk's follow write brings a scroll event, and its forced render of the
+  /// whole transcript ran ahead of the key the reader typed (Leo, 2026-11-22: "the interactive/visible
+  /// parts of cmux are not prioritized enough"). The offset is kept for the next render that reads it.
+  /// A scroller resized since (a window grown back while hidden) has an end that commit did not draw: it
+  /// renders. The pacer has read the live offset by then, so its height costs no layout of its own.
+  const followedFrameDrawn = (node: HTMLDivElement, atLatest: boolean) =>
+    atLatest &&
+    followingRef.current &&
+    drewFollowedEnd.current !== undefined &&
+    node.clientHeight === drewFollowedEnd.current &&
+    jumpTarget.current === undefined &&
+    !userScrollIntent(node).isHeld();
   const pacedScroll = (frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
     // A wheel/default write or a rail jump may move the live scroller after an event queued this
@@ -1146,6 +1163,7 @@ function TranscriptView({
         top,
         delta: top - scrollRef.current.top || scrollRef.current.delta,
       };
+      if (followedFrameDrawn(node, atLatest)) return;
       // Route recovery through the authoritative setter so the parent callback and synchronous
       // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
@@ -1154,6 +1172,9 @@ function TranscriptView({
       });
       return;
     }
+    if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
+    // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
+    acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
         setScroll(scrollRef.current);
@@ -3795,6 +3816,10 @@ function TranscriptView({
             })
           : undefined;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
+  const followedEnd = projectedTop !== undefined && followingRef.current && following;
+  useLayoutEffect(() => {
+    drewFollowedEnd.current = followedEnd ? height : undefined;
+  });
   const renderFollowing = sessionSwitched || followingRef.current;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
@@ -3907,6 +3932,12 @@ function TranscriptView({
   // window changes. Keep this signature primitive so scroll and layout state updates that leave
   // the mounted rows alone do not walk every text node in the transcript again.
   const mountedRangeKey = mountedRanges.map(({ first, last }) => `${first}:${last}`).join(",");
+  // The live line is mounted: a call's row entering beside it waits the line's roll out (conversation.css
+  // `data-live-line`). A mark the render writes, not `.acpmux-scroll:has(.acpmux-row[data-row-id=...])`: a
+  // `:has()` on the scroller over its whole subtree is checked again for every node a commit inserts into
+  // any row, and each check restyles every element under the scroller that some `X:has(...) Y` rule names
+  // (test/agent-pane-stream-composer-still.test.ts), about 1.5 ms of forced layout per tool call in a long chat.
+  const liveLineMounted = mountedIndexOf(rows, mountedRanges, LIVE_THINKING) >= 0;
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
   if (lastPlaced.current) {
@@ -6748,6 +6779,7 @@ function TranscriptView({
     livePulse,
     ref,
     slimFollow,
+    liveLineMounted,
     onAnchor,
     t,
     onScroll,

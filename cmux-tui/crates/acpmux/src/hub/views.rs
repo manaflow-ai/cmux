@@ -732,6 +732,8 @@ impl Hub {
             session_id: m.id.clone(),
             name: m.name.clone(),
             handle: Some(m.spoken_handle().into_owned()),
+            display_name: m.handle.clone().filter(|h| crate::session_handle::valid(h)),
+            icon: m.icon.clone(),
             name_given: m.name_given,
             former_names: m.former_names.clone(),
             harness: m.harness.clone(),
