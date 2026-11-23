@@ -3,6 +3,8 @@
 // chat's name, its next action after an arrow, the whole text as its tooltip; nothing before the
 // first summary.
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { rollingSummaryOf } from "../direct";
 import { translate } from "../i18n";
@@ -35,9 +37,17 @@ test("no summary, or a blank one, draws nothing", () => {
   expect(html(<ChatSummaryLine summary={{ text: "   ", next: "Go" }} />)).toBe("");
 });
 
-test("the tab-row header's copy is the inline variant", () => {
-  const out = html(<ChatSummaryLine summary={{ text: "Done." }} inline />);
-  expect(out).toContain('class="acpmux-chat-summary acpmux-chat-summary--inline"');
+// Leo, 2026-11-22: "the icons on the top right have gotten displaced due to putting things on a line" and "why do we
+// have this subheading here ... it's overlapping". The tab row's tools slot (`data-tab-row-slot="tools"`) is what the
+// page measures for the native strip (header/tabRow.ts useTabRowTools); the pane drops the tools to a second row when
+// that width is more than half the room. The summary line is up to 300px of text, so it lives in the header's own row.
+test("the summary line is never inside the tab row's measured tools slot", () => {
+  const source = readFileSync(path.join(import.meta.dir, "../pane/PaneBody.tsx"), "utf8");
+  const open = source.indexOf('data-tab-row-slot="tools"');
+  expect(open).toBeGreaterThan(0);
+  const close = source.indexOf("</header>", open);
+  expect(source.slice(open, close)).not.toContain("<ChatSummaryLine");
+  expect(source.slice(0, open)).toContain("<ChatSummaryLine");
 });
 
 test("the pane's summary keeps acpmux's rollingSummary, trimmed, and drops a blank one", () => {

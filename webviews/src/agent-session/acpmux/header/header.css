@@ -511,9 +511,6 @@
   cursor: default;
   user-select: none;
 }
-.acpmux-chat-summary--inline {
-  max-width: min(34vw, 300px);
-}
 .acpmux-chat-summary__text {
   flex: 0 1 auto;
   min-width: 3ch;
