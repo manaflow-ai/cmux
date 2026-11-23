@@ -101,7 +101,12 @@ export function GitHubOnMachine({ transport }: { transport: AccountSignInTranspo
         {strings.t("signIn.title.github")}
       </button>
     );
-  return <DeviceSignInCard family="github" view={github.running.view} look="inline" {...github.card} />;
+  // On its own line in the notice's actions, as the agent's own card is: never between two buttons.
+  return (
+    <div className="cv-turn-signin" data-testid="cloud-github-signin-card">
+      <DeviceSignInCard family="github" view={github.running.view} look="inline" {...github.card} />
+    </div>
+  );
 }
 
 /// The sign-in's part of the failed turn's card. `rowId` and `prompt` are the failed prompt's, which
