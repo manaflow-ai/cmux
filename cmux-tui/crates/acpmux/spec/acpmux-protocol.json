@@ -1751,6 +1751,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_preflight",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_read",
       "params": true,
       "result": true

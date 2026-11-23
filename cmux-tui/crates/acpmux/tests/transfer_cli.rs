@@ -61,12 +61,17 @@ impl Daemon {
     }
 
     async fn with_peer(tag: &str, target: Option<&Daemon>) -> Self {
+        Self::with_harness(tag, target, "fake").await
+    }
+
+    /// The same, with the test agent under the harness name `harness`.
+    async fn with_harness(tag: &str, target: Option<&Daemon>, harness: &str) -> Self {
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"});
+        let mut config = json!({"harnesses": {harness: {"argv": ["python3", fake]}}, "defaultHarness": harness, "permissionPolicy": "approve-all"});
         let path = target.map(|target| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
             session_move::fake_ssh(&home, target)
@@ -140,3 +145,5 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_target_ask.rs"]
+mod session_move_target_ask;

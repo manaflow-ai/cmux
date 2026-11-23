@@ -447,6 +447,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/transfer_commit", Request),
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_preflight", Request),
         untyped("_acpmux/transfer_read", Request),
         untyped("_acpmux/transfer_receive", Request),
         untyped("_acpmux/transfer_write", Request),

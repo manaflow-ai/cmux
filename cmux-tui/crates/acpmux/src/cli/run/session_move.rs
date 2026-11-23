@@ -56,6 +56,8 @@ use std::process::Command as StdCommand;
 mod preflight;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
+#[path = "session_move_target_ask.rs"]
+mod target_ask;
 
 /// `--timeout`'s default: the longest an `--after-turn` move waits for the running turn.
 pub(crate) const DEFAULT_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -574,7 +576,33 @@ async fn move_steps(
         }
         anyhow!(e)
     })?;
+    // The target is asked what `transfer_receive` will ask, before anything is frozen or copied:
+    // a refusal it can give without the bytes ends the move (and the dry run) here, in its words.
+    let opened =
+        waiting(&o.name, "opening the target's daemon", target_ask::open(&target, &remote)).await?;
+    let asked =
+        waiting(&o.name, "asking the target to take it", target_ask::ask(&opened.dst, &id, &info))
+            .await;
+    let answer = match asked {
+        Ok(answer) => answer,
+        Err(e) => {
+            o.error_code = target_ask::refusal_code(&e);
+            opened.close().await;
+            return Err(e);
+        }
+    };
     if args.dry_run {
+        opened.close().await;
+        if answer == target_ask::Answer::Unasked {
+            // An older acpmux there: nothing says the move would land, so the dry run does not.
+            o.error_code = Some("target_unasked");
+            bail!(
+                "{} could not be asked whether it takes this chat: its acpmux is older than \
+                 this check (update acpmux there; a move without --dry-run still asks it at \
+                 the copy)",
+                target.name
+            );
+        }
         o.cwd = Some(match &planned {
             Folder::Plain { cwd } => cwd.clone(),
             Folder::Worktree { repo, branch, subdir, snapshot: false, .. } => {
@@ -607,10 +635,14 @@ async fn move_steps(
         prepare(&cwd, &home, &target, &remote, args, source, o),
     )
     .await;
-    let (record, forward, dst, dst_init) = match prepared {
-        Ok(p) => p,
+    let target_ask::Opened { forward, dst, init: dst_init } = opened;
+    let record = match prepared {
+        Ok(record) => record,
         Err(e) => {
             super::transfer::abort_move(src, &id, &begun).await;
+            if let Some(forward) = forward {
+                forward.close().await;
+            }
             return Err(e);
         }
     };
@@ -658,10 +690,9 @@ async fn move_steps(
     Ok(())
 }
 
-/// The frozen chat's folder made on the target, and a client of the target's daemon: the
-/// checkout read again (it may have changed before the freeze), its branch pushed, the folder
-/// made there. Returns the move's record (`movedTo`), the forward, the client, and the
-/// receiving daemon's own `initialize` reply on it (`transfer::receiver_takes`).
+/// The frozen chat's folder made on the target: the checkout read again (it may have changed
+/// before the freeze), its branch pushed, the folder made there. Returns the move's record
+/// (`movedTo`). The client of the target's daemon is `target_ask::open`'s, from before the freeze.
 async fn prepare(
     cwd: &Path,
     home: &Path,
@@ -670,7 +701,7 @@ async fn prepare(
     args: &MoveArgs,
     source: &Source,
     o: &mut Outcome,
-) -> Result<(Value, Option<Forward>, std::sync::Arc<Client>, Value)> {
+) -> Result<Value> {
     let checkout = checkout_unless_named(cwd, args, source).await?;
     let folder = plan::plan_folder(
         cwd,
@@ -760,21 +791,7 @@ async fn prepare(
     }
     o.cwd = Some(there.clone());
     record.set("cwd", json!(there));
-    // This machine as the target (`--machine local`): its own daemon, no forward.
-    let (forward, dst) = if target.ssh.is_empty() {
-        (None, Client::connect(Path::new(&remote.socket)).await?)
-    } else {
-        let forward = Forward::open(&target.ssh, &remote.socket).await?;
-        let dst = Client::connect(&forward.local).await?;
-        (Some(forward), dst)
-    };
-    let dst_init = dst
-        .request(
-            method::INITIALIZE,
-            json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}}),
-        )
-        .await?;
-    Ok((record, forward, dst, dst_init))
+    Ok(record)
 }
 
 /// The checkout `cwd` is in, unless `--cwd` names the folder there (no checkout is carried).

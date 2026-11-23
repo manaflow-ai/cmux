@@ -3,6 +3,8 @@
 //!
 //! - `_acpmux/transfer_receive {manifest}`: the source's `transfer_begin` answer. Refused when a
 //!   chat with its id is here already, or its agent is not configured here. Answers `{receiveId}`.
+//! - `_acpmux/transfer_preflight {manifest}`: the same question with nothing begun, for a dry
+//!   run and for a move before it freezes the chat. Answers `{takes: true}` or that refusal.
 //! - `_acpmux/transfer_write {receiveId, path, offset, data}`: one page (base64), in order.
 //! - `_acpmux/transfer_finish {receiveId, cwd?, name?, from?}`: the chat is imported (its history,
 //!   draft and agent store), in `cwd` when its folder has another path here, and its queue runs
@@ -397,14 +399,35 @@ impl Hub {
         self.kill(old, false).await
     }
 
-    pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+    /// `_acpmux/transfer_preflight {manifest, guard?}`: whether this daemon would take the chat
+    /// the manifest describes, asked before the source freezes or copies anything. The manifest
+    /// is what the source knows by then (`schema`, `sessionId`, `session.harness`, and `epoch`,
+    /// `approvedWaiting`, `files` when it has them); the answer is `transfer_receive`'s own
+    /// ([`Self::receive_admission`]): `{takes: true}`, or the refusal the receive would give,
+    /// code and text. Nothing is written and no receive begins.
+    pub(super) async fn transfer_preflight(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
-        let incoming_epoch = manifest_epoch(&manifest)?;
-        let incoming_floor = incoming_epoch.unwrap_or(0);
+        manifest_epoch(&manifest)?;
         let guard = match params.get("guard") {
             Some(g) => Some(Guard::parse(g).await?),
             None => None,
         };
+        self.receive_admission(&manifest, guard.as_ref(), true).await?;
+        Ok(json!({"takes": true, "sessionId": manifest["sessionId"]}))
+    }
+
+    /// Every refusal this daemon can give a chat from its manifest alone, before one byte of the
+    /// bundle: the one check behind `transfer_receive` and `transfer_preflight`, so a dry run
+    /// and the move it previews hear the same answer. `preflight`: the source has not begun the
+    /// move, so a manifest without an epoch has none yet and is not judged stale.
+    async fn receive_admission(
+        &self,
+        manifest: &Value,
+        guard: Option<&Guard>,
+        preflight: bool,
+    ) -> Result<(), RpcError> {
+        let incoming_epoch = manifest_epoch(manifest)?;
+        let incoming_floor = incoming_epoch.unwrap_or(0);
         let schema = manifest["schema"].as_str().unwrap_or("");
         if schema != TRANSFER_SCHEMA && schema != DURABLE_TRANSFER_SCHEMA {
             return Err(transfer_error(
@@ -435,7 +458,12 @@ impl Hub {
             // A delayed bundle for an older owner must not replace a newer moved copy.
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
-            if incoming_floor != 0 || schema != TRANSFER_SCHEMA {
+            let judged = if preflight {
+                incoming_epoch.is_some()
+            } else {
+                incoming_floor != 0 || schema != TRANSFER_SCHEMA
+            };
+            if judged {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
@@ -450,7 +478,16 @@ impl Hub {
             ));
         }
         if !self.config.read().await.harnesses.contains_key(harness) {
-            let e = transfer_error("harness", format!("agent {harness:?} is not configured here"));
+            // What to do next, for whoever reads it on the source: the chat runs under that
+            // harness, so the machine it moves to must have a profile of the same name.
+            let e = transfer_error(
+                "harness",
+                format!(
+                    "agent {harness:?} is not configured here: this machine needs a harness \
+                     profile named {harness:?} (a `harnesses` entry in its acpmux config) before \
+                     the chat can move to it"
+                ),
+            );
             return Err(e.with_data(json!({"harness": harness})));
         }
         let files = manifest["files"].as_array().cloned().unwrap_or_default();
@@ -463,9 +500,21 @@ impl Hub {
         if files.len() > MAX_FILES {
             return Err(transfer_error("size", format!("{} files", files.len())));
         }
-        if let Some(g) = &guard {
-            self.guarded_receive_check(g, &manifest).await?;
+        if let Some(g) = guard {
+            self.guarded_receive_check(g, manifest).await?;
         }
+        Ok(())
+    }
+
+    pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+        let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
+        manifest_epoch(&manifest)?;
+        let guard = match params.get("guard") {
+            Some(g) => Some(Guard::parse(g).await?),
+            None => None,
+        };
+        self.receive_admission(&manifest, guard.as_ref(), false).await?;
+        let id = manifest["sessionId"].as_str().unwrap_or("");
         let _receives = RECEIVES.lock().await;
         let transfer_id = manifest["transferId"].as_str().unwrap_or("");
         let Some(mark) = forgotten(transfer_id) else {
