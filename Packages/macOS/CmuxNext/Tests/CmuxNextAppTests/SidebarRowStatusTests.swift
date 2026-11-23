@@ -86,6 +86,21 @@ import Testing
         }
     }
 
+    /// `experiments.agentBadges`' Done pill (`agentDone`): only the chat that finished while nobody looked, whatever
+    /// the row toggles say, until it is marked read; the row's chip still never says done.
+    @Test func aFinishedUnseenChatMarksItsRowDoneForThePill() throws {
+        let fixture = try Fixture()
+        try Self.withRowStatus(nil) {
+            let done = Set(fixture.rows().filter(\.agentDone).map(\.title))
+            #expect(done == ["finished"])
+            let finished = try #require(fixture.rows().first { $0.title == "finished" })
+            #expect(SidebarAgentPill.of(finished) == .done)
+            #expect(finished.agentChip == nil)
+            fixture.marks.markRead(try #require(fixture.lanes.lanes["s-finished"]))
+            #expect(fixture.rows().allSatisfy { !$0.agentDone })
+        }
+    }
+
     /// Off by default (Lawrence 2026-10-21): no chip and no lane state unless the toggles are on.
     @Test func rowsReadNoLanesByDefault() throws {
         let fixture = try Fixture()

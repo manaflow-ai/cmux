@@ -274,7 +274,7 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.react_shards }}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
-                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
+                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, source rules)",
                      "Check PR-scoped webview rules"):
             with self.subTest(step=step):
                 body = block[block.index(f"- name: {step}"):]
@@ -360,6 +360,20 @@ class WebValidationTests(unittest.TestCase):
         self.assertEqual(self.check_results(docs), 0)
         self.assertNotEqual(self.check_results({**docs, "build": {"result": "failure"}}), 0)
 
+
+    def test_web_typecheck_generates_next_route_types_the_build_no_longer_checks(self):
+        """The production build skips type errors (CMUX_CI_TYPECHECK_SEPARATE); web-typecheck runs next typegen
+        first, so a route type error in .next/types still turns web-typecheck red."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  web-typecheck:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        typegen = block.index("run: bun x next typegen")
+        self.assertLess(typegen, block.index("- name: Typecheck"))
+        # next typegen loads next.config.ts, which validates app/env.ts; CI holds none of its secrets.
+        step = block[block.index("- name: Generate Next route types") : typegen]
+        self.assertIn('SKIP_ENV_VALIDATION: "1"', step)
+        self.assertIn("CMUX_CI_TYPECHECK_SEPARATE: \"1\"", workflow)
 
 if __name__ == "__main__":
     unittest.main()
