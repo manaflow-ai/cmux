@@ -23,15 +23,16 @@ export function PickerChoiceGroup({
       {choices.map((choice) => {
         const text = choice.name ?? choice.value;
         return (
-          <label key={choice.value} aria-label={text}>
+          <label key={choice.value}>
             <input
               type="radio"
               name={name}
               value={choice.value}
+              aria-label={text}
               checked={choice.value === current}
               onChange={() => onPick(choice.value)}
             />
-            <span>{text}</span>
+            {text}
           </label>
         );
       })}
