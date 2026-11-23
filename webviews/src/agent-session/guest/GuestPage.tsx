@@ -384,12 +384,7 @@ export function LiveChat({
     () =>
       new GuestSendQueue(
         prompts,
-        (prompt) =>
-          socket.current?.send({
-            t: "prompt",
-            client_id: prompt.clientId,
-            text: prompt.text,
-          }) ?? false,
+        (prompt) => socket.current?.send({ t: "prompt", client_id: prompt.clientId, text: prompt.text }) ?? false,
       ),
     [prompts],
   );
@@ -447,11 +442,7 @@ export function LiveChat({
       client?.dispose();
     };
     const room = new ShareSocket(
-      {
-        url: socketUrl,
-        unresolved: () => prompts.held(),
-        ...(openSocket ? { open: openSocket } : {}),
-      },
+      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -689,11 +680,7 @@ export function GuestPage({
   const [ended, setEnded] = useState<GuestEnded | undefined>(endedAtStart);
   const join = async (name: string): Promise<RedeemError | undefined> => {
     if (!secret) return "failed";
-    const result = await redeem(shareId, {
-      attempt_id: attempt(),
-      secret,
-      name,
-    });
+    const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
       // The redeem names the role: `talk` for a signed-in account on a talk link; an anonymous
       // guest watches (the daemon refuses its messages whatever the room says).

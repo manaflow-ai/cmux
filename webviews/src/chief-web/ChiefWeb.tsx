@@ -201,11 +201,7 @@ function ChiefChat({
       setConnection(state);
     });
     const client = new ChiefWire(
-      {
-        identity,
-        ticket: () => api.ticket(controller.signal),
-        open: openSocket,
-      },
+      { identity, ticket: () => api.ticket(controller.signal), open: openSocket },
       {
         rows: transcript.update,
         machineLogin: setLoginRun,
