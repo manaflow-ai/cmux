@@ -8457,8 +8457,13 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* An attachment in the text lays its thumbnail out as a flex box, as the strip's tile does: on a
+   text line the loaded image's button adds the font's descent (about 7px) under it, so the tile,
+   its line and every line under it would grow when the image loads, past the placeholder's box
+   and the row's estimate (Leo, 2026-11-22: "there should be no problem doing so for inline
+   attachments after send"). */
 .cv-user__inline-image {
-  display: inline-block;
+  display: inline-flex;
   max-width: calc(100% - 8px);
   margin: 2px 4px;
   vertical-align: middle;

@@ -215,12 +215,20 @@ impl Supervisor {
             }
         }
         let chips = chips(&inner);
-        json!({
+        let model_picker = places(&inner, "cmux.composer.model.picker/1")
+            .into_iter()
+            .next()
+            .map(|(_, _, options)| options.clone());
+        let mut result = json!({
             "commands": commands,
             "mentions": mentions,
             "toolbarButtons": toolbar_buttons,
             "chips": chips,
-        })
+        });
+        if let (Some(picker), Some(fields)) = (model_picker, result.as_object_mut()) {
+            fields.insert("modelPicker".to_owned(), picker);
+        }
+        result
     }
 
     /// `apps.composer.mentions {query, prefix?, limit?}`: the items that
