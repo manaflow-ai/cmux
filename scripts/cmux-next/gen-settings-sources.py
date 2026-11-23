@@ -9,7 +9,9 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsSchema+RetiredKeys.generated.swift, `SettingsSchema.retiredKeys`).
 - schemas/settings/source/<section>.json: the rows of one settings section. Swift gets the
   descriptors AND the parser constants (paths, defaults, ranges, choice values and enums, legacy
-  aliases), so a value has one definition. schemas/settings/generator/<section>.json maps the file to
+  aliases), so a value has one definition. The daemon compiles the sources with aliases in
+  (cmux-config schema/aliases.rs).
+  schemas/settings/generator/<section>.json maps the file to
   its Swift schema type and each list's static var and owner type (one file per section).
   schemas/settings/settings-schema.json is still exported from Swift (SettingsSchemaExportTests);
   moving a section must not change it.
@@ -128,8 +130,9 @@ def load_retired():
     entries = data["retired"]
     seen = set()
     for entry in entries:
-        if set(entry) - {"key", "reason", "why", "replaced_by", "values"} or not {"key", "reason"} <= set(entry):
-            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values): %r" % (RETIRED_SOURCE, entry))
+        if set(entry) - {"key", "reason", "why", "replaced_by", "values", "since", "until"} or not {"key", "reason"} <= set(entry):
+            raise SystemExit("%s: entry needs key, reason (and optional why, replaced_by, values, since, until): %r" % (RETIRED_SOURCE, entry))
+        check_window(entry)
         key = entry["key"]
         parts = key.split(".")
         if not key or any(not part for part in parts):
@@ -146,10 +149,27 @@ def load_retired():
     return entries
 
 
+WINDOW_MARK = re.compile(r"^(\d{4}-\d{2}-\d{2}|\d+\.\d+\.\d+)$")
+
+
+def check_window(entry):
+    """`since` and `until` bound a key's deprecation window (cmux-config `migrations`): each a
+    date `YYYY-MM-DD` or a cmux version `X.Y.Z`; `until` needs `since`, and two dates are in order."""
+    key = entry["key"]
+    for field in ("since", "until"):
+        if field in entry and not (isinstance(entry[field], str) and WINDOW_MARK.match(entry[field])):
+            raise SystemExit("%s: %s of %r is YYYY-MM-DD or X.Y.Z: %r" % (RETIRED_SOURCE, field, key, entry[field]))
+    if "until" in entry and "since" not in entry:
+        raise SystemExit("%s: until without since for %r" % (RETIRED_SOURCE, key))
+    since, until = entry.get("since", ""), entry.get("until", "")
+    if "-" in since and "-" in until and until <= since:
+        raise SystemExit("%s: until is not after since for %r" % (RETIRED_SOURCE, key))
+
+
 def check_replacement(entry):
     """`replaced_by` names the row that took the key's place; `values` lists what the old key's
     values read as in that row ({"from", "to"} scalars). Any other old value reads as the row's
-    default."""
+    default. Without `values` it is a plain rename: every old value reads as is."""
     key = entry["key"]
     if "values" in entry and "replaced_by" not in entry:
         raise SystemExit("%s: values without replaced_by for %r" % (RETIRED_SOURCE, key))
@@ -183,9 +203,13 @@ def retired_swift(entries):
     for entry in entries:
         if "replaced_by" not in entry:
             continue
-        values = ", ".join("%s: %s" % (json_value_swift(pair["from"]), json_value_swift(pair["to"]))
-                           for pair in entry.get("values", []))
-        replaced.append("        %s: (old: %s, values: [%s])," % (path(entry["replaced_by"]), path(entry["key"]), values or ":"))
+        if "values" in entry:
+            pairs = ", ".join("%s: %s" % (json_value_swift(pair["from"]), json_value_swift(pair["to"]))
+                              for pair in entry["values"])
+            values = "[%s]" % (pairs or ":")
+        else:
+            values = "nil"
+        replaced.append("        %s: (old: %s, values: %s)," % (path(entry["replaced_by"]), path(entry["key"]), values))
     return """// {header}
 
 extension SettingsSchema {{
@@ -199,10 +223,11 @@ extension SettingsSchema {{
     ]
 
     /// Retired keys a row took the place of, by the row's path: the old key's path and what its
-    /// values read as in the row (any other value reads as the row's default). While the row is
-    /// unset Settings shows the old key's value, and every write or reset of the row removes the
-    /// old key (``RenamedSettingKeys``), as the daemon does (cmux-config `schema::retired`).
-    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue])] = [
+    /// values read as in the row (any other value reads as the row's default; `nil`: a plain
+    /// rename, every value reads as is). While the row is unset Settings shows the old key's
+    /// value, and every write or reset of the row removes the old key (``RenamedSettingKeys``), as
+    /// the daemon does (cmux-config `schema::retired`).
+    static let replacedKeys: [[String]: (old: [String], values: [JSONValue: JSONValue]?)] = [
 {replaced}
     ]
 }}

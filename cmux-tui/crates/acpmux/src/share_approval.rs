@@ -16,71 +16,16 @@
 use std::collections::HashSet;
 
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
+/// The format itself is shared with the iPhone, which asks with it
+/// (cmux-mobile-link-ffi `share_approval`): one definition of its canonical bytes.
+pub use cmux_share_approval::{AskRefused, Device, ShareApproval, VERSION};
 use serde_json::{Value, json};
 
-/// The approval format; the first line of [`ShareApproval::canonical`].
-pub const VERSION: &str = "cmux.share-approval.v1";
 /// How old an approval may be when the target reads it (the app stamps it at the
 /// Allow click, however long the dialog waited; delivery takes seconds).
 pub const MAX_AGE_SECS: u64 = 300;
 /// How far ahead of the target's clock an approval may be.
 pub const MAX_SKEW_SECS: u64 = 60;
-
-/// The asker app's answer to one Allow click: what the person allowed, where
-/// and when, signed by the asker's device key. Ids are the device hub's; the
-/// names are for people (the audit and the dialog) and are not signed.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShareApproval {
-    pub v: String,
-    /// The Mac to share (its device hub id).
-    pub target: String,
-    #[serde(default)]
-    pub target_name: String,
-    /// The device the person clicked Allow on (its device hub id).
-    pub asker: String,
-    #[serde(default)]
-    pub asker_name: String,
-    /// The signed-in account (device hub user id) that clicked.
-    pub confirmed_by: String,
-    /// When the person clicked, Unix seconds (a JSON number or decimal string:
-    /// the app sends a string, so no float rounding touches it).
-    #[serde(deserialize_with = "unix_seconds")]
-    pub confirmed_at: u64,
-    /// Random per click; the target admits each once.
-    pub nonce: String,
-    /// base64 raw r||s ECDSA P-256 SHA-256 signature of [`Self::canonical`].
-    pub signature: String,
-}
-
-fn unix_seconds<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    match Value::deserialize(deserializer)? {
-        Value::Number(number) => number.as_u64(),
-        Value::String(text) => text.parse().ok(),
-        _ => None,
-    }
-    .ok_or_else(|| serde::de::Error::custom("confirmed_at must be whole Unix seconds"))
-}
-
-impl ShareApproval {
-    /// The signed bytes, one field per line. The app builds the same string
-    /// (`CmuxRemoteShareApproval.canonical`); `share_approval_vectors.json`
-    /// holds both sides to it.
-    pub fn canonical(&self) -> String {
-        format!(
-            "{}\ntarget={}\nasker={}\nconfirmed_by={}\nconfirmed_at={}\nnonce={}",
-            self.v, self.target, self.asker, self.confirmed_by, self.confirmed_at, self.nonce
-        )
-    }
-
-    pub fn display_target(&self) -> &str {
-        if self.target_name.is_empty() { &self.target } else { &self.target_name }
-    }
-
-    pub fn display_asker(&self) -> &str {
-        if self.asker_name.is_empty() { &self.asker } else { &self.asker_name }
-    }
-}
 
 /// A machine asking the target, as the target sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

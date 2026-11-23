@@ -29,6 +29,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from real_git import real_git  # noqa: E402
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -200,7 +202,7 @@ class WebLintPrePushTests(unittest.TestCase):
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
-                              text=True, capture_output=True, check=check)
+                              text=True, capture_output=True, check=check, timeout=120)
 
     def write(self, relative, text):
         path = self.repo / relative
@@ -1882,7 +1884,7 @@ class TuiBindingsTests(unittest.TestCase):
         for name, text in (("npm", FAKE_NPM), ("bun", FAKE_BUN)) if npm else (("bun", FAKE_BUN),):
             (tools / name).write_text(text)
             (tools / name).chmod(0o755)
-        for name, target in (("python3", sys.executable), ("git", shutil.which("git"))):
+        for name, target in (("python3", sys.executable), ("git", real_git())):
             (tools / name).symlink_to(target)
         # No real npm, node or bun: only the stand-ins, so the order of the calls is the test.
         self.env.update(PATH=f"{tools}{os.pathsep}/usr/bin{os.pathsep}/bin", TOOL_LOG=str(self.tool_log))

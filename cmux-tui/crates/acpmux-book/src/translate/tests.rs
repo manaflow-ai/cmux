@@ -38,10 +38,28 @@ struct MirrorEnvelope {
 struct MirrorMessage {
     text: Option<String>,
 }
+/// The daemon's takeaway rule on a whole reply's text: the model asks the source, never a copy.
+fn is_takeaway(text: &str) -> bool {
+    let mut reply = fold::Reply::default();
+    text.chars().for_each(|ch| reply.push(ch));
+    reply.takeaway()
+}
 impl Mirror {
     fn apply(&mut self, op: &Op, bytes: &[u8]) {
         assert!(op.raw.offset + op.raw.length <= bytes.len());
         match &op.change {
+            // A row taken back is the settle or patch it was before the leave op, hidden.
+            Change::Leave(row) => {
+                assert!(!row.open);
+                assert_eq!(row.fields.get("hidden").map(String::as_str), Some("true"));
+                assert_eq!(row.phase(), Phase::Leaving);
+                let change = if row.rev <= 1 {
+                    Change::Row(row.clone())
+                } else {
+                    Change::Patch(row.clone())
+                };
+                self.apply(&Op { raw: op.raw, change }, bytes);
+            }
             Change::Row(row) => {
                 if let Some(old) = self.rows.get(&row.id) {
                     assert!(old.open, "settled row {} changed", row.id);
@@ -246,7 +264,6 @@ fn r1_recorded_replies_stay_under_their_person_prompt() {
 #[derive(Default)]
 struct Stretch {
     replies: Vec<String>,
-    takeaways: Vec<bool>,
     stepped: bool,
     worked: bool,
     work_at: usize,
@@ -386,16 +403,14 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>, Vec<String>) {
                             "Reply {seed}-{t}-{step}: the fix is in.\n\nCI is green at its head."
                         )
                     } else {
-                        format!("Note {seed}-{t}-{step}: checking.")
+                        format!("Checking {seed}-{t}-{step} now.")
                     };
                     stretch.stepped = false;
                     if !open {
                         message = format!("msg-{seed}-{t}-{step}");
                         stretch.replies.push(words.clone());
-                        stretch.takeaways.push(full);
                     } else {
                         stretch.replies.last_mut().unwrap().push_str(&format!(" {words}"));
-                        *stretch.takeaways.last_mut().unwrap() |= full;
                     }
                     let cut = 1 + pick(words.len() as u32 - 1) as usize;
                     c.say(&format!("{}{}", if open { " " } else { "" }, &words[..cut]), &message);
@@ -571,9 +586,8 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
                     .iter()
                     .enumerate()
                     .skip(stretch.work_at)
-                    .zip(&stretch.takeaways)
                     .rev()
-                    .find_map(|((_, s), t)| t.then_some(s))
+                    .find_map(|(_, s)| is_takeaway(s).then_some(s))
                     .or_else(|| stretch.replies.get(stretch.work_at..).and_then(|r| r.last()))
             } else {
                 stretch.replies.last()
