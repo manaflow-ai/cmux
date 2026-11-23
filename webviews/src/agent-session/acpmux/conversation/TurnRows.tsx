@@ -26,6 +26,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
+import { SavePromptButton } from "./SavePromptButton";
 import { TurnActionsContext } from "./turnActions";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
@@ -569,6 +570,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
+            {!messages && text && <SavePromptButton text={text} />}
             {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
           </span>
           {stoppedLook === "word" && stoppedWord}

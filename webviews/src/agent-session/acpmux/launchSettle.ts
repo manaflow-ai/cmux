@@ -125,7 +125,7 @@ const boxOf = (rect: DOMRectReadOnly): SettleBox => ({ x: rect.x, y: rect.y, w: 
 export function readSettleBoxes(doc: Document, hostTag: string): Map<string, SettleBox> {
   const boxes = new Map<string, SettleBox>();
   const drawn = doc.querySelector<HTMLElement>(hostTag);
-  const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+  const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
   if (!host && doc.getElementById("root")?.style.opacity === "0") return boxes;
   const scope: ParentNode = host?.shadowRoot ?? doc;
   const composer = [...scope.querySelectorAll(".acpmux-composer-box")]

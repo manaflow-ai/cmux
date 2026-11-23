@@ -213,8 +213,11 @@ async fn agent_login_over_the_wire() {
     assert!(caps.contains(&json!("agent-login-v1")), "{caps:?}");
 
     // An agent this does not sign in.
-    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "opencode"})).await.unwrap_err();
+    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "pi"})).await.unwrap_err();
     assert_eq!(reason(&e), "unsupported_agent");
+    // OpenCode signs in with a key only: no sign-in page to start.
+    let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "opencode"})).await.unwrap_err();
+    assert_eq!(reason(&e), "unsupported");
 
     // Claude: the link from the OSC-8 hyperlink, and the automatic link its
     // BROWSER got; a wrong code is bad_code.
