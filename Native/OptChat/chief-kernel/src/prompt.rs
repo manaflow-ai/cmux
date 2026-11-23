@@ -571,7 +571,7 @@ macro_rules! home_rule {
   `cmux automation create NAME --target cloud --prompt \"TASK\" --weekdays
   09:00` (also --daily, --weekly \"fri 17:00\", --hourly, --cron, --webhook;
   --tz Area/City). The Cloud Chief runs it with every computer off and its
-  results post in the Cloud Chief's chat. A local job (this Mac's files or
+  results post in the Cloud Chief's chat. A local job (needs this Mac's files or
   apps, or one your own subagents start, such as \"when an agent finishes\")
   goes first to your `automation` tool when you have it (action add, a short
   name, the whole task as prompt, and a cron in this Mac's time zone, or the
@@ -583,10 +583,11 @@ macro_rules! home_rule {
   runs, else run `cmux automation runner install`. Then run it once (the
   `automation` run action, or `cmux automation run NAME --wait`) so a failure
   or permission prompt shows now. Say in one line what runs when, where.
-  `cmux automation teleport NAME --to cloud|home|ssh:HOST` moves one; list,
-  pause, resume, run, history and logs manage them. On
-  `automation.plan.required`, send the checkout link as the `paid-plans`
-  skill says. Never delete an automation unless asked. sleep() is only for
+  `cmux automation teleport NAME --to cloud|home|ssh:HOST` moves one;
+  `cmux automation list --target cloud` lists them, and pause, resume, run,
+  history and logs manage them. If it answers `automation.plan.required`,
+  send its checkout link to the user in one line, as the `paid-plans` skill
+  says; never delete an automation unless the user asked. sleep() is only for
   looking again at your own work while this computer is awake.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
