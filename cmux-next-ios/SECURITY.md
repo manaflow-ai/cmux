@@ -1085,6 +1085,37 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   behind `auth` wait for it, one `auth` per link, a refusal silences new keys
   from that device id, and nothing is asked before the app's list arrives).
 
+## `pair-requests`: another paired device answers a waiting pairing
+
+Leo, 2026-11-22: "ok surely we dont need to be bottled this hard by a click. and esp on a single
+machine." A probe phone of the person's own account should pair without a gesture on the Mac. The
+person's devices that this Mac already paired can now answer it (`src/pair_requests.rs`):
+
+- `{"action":"list"}` returns the requests hostd holds open in `auth` now (id, name, kind, the
+  16-hex fingerprint of the approval key, or the identity key for a machine, and how long each has
+  waited). `{"action":"answer","deviceId","fingerprint","allow"}` answers one.
+- **Same account only.** The link reaches hostd only through the team hub's admission
+  (`host::admitted`: `fromUserId` is the Mac's own user), so a device of another account never gets
+  a link to open it on, and a probe of another account never reaches `auth` to wait.
+- **Only a device already paired with this Mac.** The service sits behind the pairing gate like
+  every other: a Stack token alone (audit B2) or a device still waiting opens nothing (`unpaired`).
+  A machine needs the Control grant (`peer::need_for`). A device never answers its own request
+  (`forbidden`).
+- **Named, not guessed.** The answer names the device id and at least 8 hex of the fingerprint
+  the Mac's prompt shows (`fingerprint_mismatch` otherwise), and only a request hostd waits on now
+  can be answered: with none, `no_waiting_request`. Other keys under the same id are another request.
+- **The app still decides.** hostd emits `pair_answer` with the keys; the app answers only its own
+  waiting prompt with the same keys, only while the answering device is still on its paired list,
+  through the same path as the person's Allow or Don't Allow (`IPhoneHostService.answerFromPairedDevice`).
+  The answer is recorded in Activity.
+- Not changed: the first device of an account still needs the Mac's Allow (or a pairing code),
+  and nothing approves with account credentials alone.
+
+Tests: `pair_requests::tests` (paired device approves, unpaired refused, nothing waiting, other keys
+and self answers, deny forwarded, machines named by identity key, Control needed) and
+`tests/host.rs` `a_paired_device_of_the_same_account_approves_a_waiting_request` (end to end over a
+link, including another account's dial refused).
+
 ## Parity round 2: Codex, model proxies, Restart Shell, the Mac's last pick (`feat-cnx-ios-parity2`)
 
 ### `acpmux`: Codex from a phone, always asking
