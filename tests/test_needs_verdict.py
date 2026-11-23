@@ -252,7 +252,7 @@ def rule_jobs():
 
 
 WEB_SCOPE = {"result": "success", "outputs": {name: "true" for name in (
-    "db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests")}}
+    "db", "diff_sidecar", "instant", "production_build", "react_apps", "agent_pane", "typecheck", "unit_tests")}}
 # For every rule job: the step's env with one needed job abandoned and another failed. The failure wins: exit 1.
 MIXED = {
     ("ios-reliability-matrix.yml", "report", "Matrix table"): {"PROTOCOL_RESULT": "abandoned", "IOS_RESULT": "failure"},
@@ -281,7 +281,7 @@ MIXED = {
         "WEB_INPUTS": json.dumps({"web": "true", "macos": "false", "agent_session_web": "false"}),
         "WEB_NEEDS": json.dumps({"web-subarea-scope": {"result": "abandoned"}, "web-tests": {"result": "failure"},
                                  **{job: {"result": "skipped"} for job in (
-                                     "web-typecheck", "web-production-build", "web-instant-navigation",
+                                     "web-typecheck", "webviews-typecheck", "web-production-build", "web-instant-navigation",
                                      "react-apps-check", "agent-pane-real-acpmux", "diff-sidecar-check",
                                      "web-db-migrations")}})},
 }

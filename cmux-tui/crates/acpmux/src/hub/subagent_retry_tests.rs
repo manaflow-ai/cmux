@@ -215,6 +215,7 @@ fn by_person() -> crate::hub::auto_resume::retry_turn::RetryBy {
         trust_gate: false,
         full_access_device: None,
         from: None,
+        person: true,
     }
 }
 
