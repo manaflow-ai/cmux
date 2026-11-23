@@ -128,6 +128,7 @@ import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, runResumeMatrix } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
@@ -4050,6 +4051,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
+  // --resume-matrix 5,30,300,900,3600: after the chaos leg, this machine paused and woken --resume-n times (default 20)
+  // per pause length and per arm (--resume-arms, default direct,platform,send), each wake timed from its event to the
+  // resume's answer, the guest running, the relay registered and the reply's first byte (cloud-resume-matrix.ts).
+  const resumePauses = (argValue("--resume-matrix", argv) ?? "").split(",").filter(Boolean).map(Number);
+  if (resumePauses.some((x) => !Number.isFinite(x) || x < 0 || x > 21_600)) throw new Error("--resume-matrix takes pause seconds 0..21600, comma separated");
+  const resumeN = Number(argValue("--resume-n", argv) ?? 20);
+  if (!Number.isInteger(resumeN) || resumeN < 1) throw new Error("--resume-n must be a positive integer");
+  const resumeArms = (argValue("--resume-arms", argv) ?? RESUME_ARMS.join(",")).split(",").filter(Boolean) as ResumeArm[];
+  if (resumeArms.some((a) => !RESUME_ARMS.includes(a))) throw new Error(`--resume-arms: ${RESUME_ARMS.join(", ")}`);
   // --start-via app: the app's own start (agent-session-start over the carrier dial) instead of `acp ensure`.
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
@@ -5278,6 +5288,56 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);
         if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+      }
+    }
+
+    // --resume-matrix: the machine paused and woken through every arm, interleaved (cloud-resume-matrix.ts).
+    if (resumePauses.length) {
+      if (!cmux || !lifecycle) J.skip("resume matrix", !cmux ? "--cmux is required for the resume matrix" : "the resume matrix needs a chat session");
+      else {
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        let k = 0;
+        const platformStart = async (): Promise<{ serverTiming?: Record<string, number> }> => {
+          const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: `${tag}-rm-start-${k++}` }, 180_000);
+          if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+          return { serverTiming: parseServerTiming(r.headers?.get("server-timing")) };
+        };
+        const samples = await runResumeMatrix({
+          ctx: {
+            cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+            credentials: launchCredential ? { env: { CLAUDE_CODE_OAUTH_TOKEN: login } } : undefined,
+            env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+            log: (line) => console.log(scrub(line, J.secrets)),
+          },
+          pause: async () => {
+            await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
+            await waitMachine(api, created.id, (x) => x.status === "paused", 180_000);
+          },
+          platformResume: platformStart,
+          platformSync: async () => {
+            await platformStart();
+            await waitMachine(api, created.id, (x) => x.status === "running", 180_000);
+          },
+          clientSession: async (ttl) => {
+            const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/client-session`, { ttl_seconds: Math.min(ttl, 86_400) });
+            const v = r.body?.value ?? r.body;
+            if (r.status !== 200 || typeof v?.token !== "string") throw new Error(`client-session: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
+            J.secrets.push(v.token);
+            return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
+          },
+        }, resumePauses, resumeN, resumeArms).catch((e: Error) => {
+          J.record({ step: "resume matrix", status: "fail", ms: 0, detail: e.message });
+          return [];
+        });
+        const table = resumeMarkdown(samples);
+        for (const s of samples.filter((x) => x.error)) J.record({ step: `resume matrix: ${s.pause_s} s ${s.arm} #${s.i}`, status: "fail", ms: s.first_byte_ms ?? 0, detail: s.error });
+        if (samples.length) J.record({ step: "resume matrix", status: samples.some((x) => x.error) ? "fail" : "pass", ms: 0, detail: `${samples.length} samples` });
+        console.log(table);
+        if (outDir) {
+          writeFileSync(path.join(outDir, "resume-matrix.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, samples }, null, 2)}\n`);
+          writeFileSync(path.join(outDir, "resume-matrix.md"), table);
+        }
+        if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Resume matrix (${backend.name}, ${created.id})\n\n${table}`);
       }
     }
 
