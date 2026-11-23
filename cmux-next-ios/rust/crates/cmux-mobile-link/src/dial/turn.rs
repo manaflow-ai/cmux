@@ -41,6 +41,10 @@ const UDP_WAIT: Duration = Duration::from_millis(2000);
 /// first): it pays one TLS connection, dropped when UDP wins, so that a
 /// network that drops UDP is not held for the stagger.
 const STREAM_STAGGER: Duration = Duration::from_millis(500);
+/// UDP allocations tried, each from a fresh socket, before one fails.
+const UDP_ATTEMPTS: u32 = 3;
+/// Pause before the next UDP allocation attempt, times the attempts so far.
+const UDP_RETRY_PAUSE: Duration = Duration::from_millis(50);
 /// Bound on a stream allocation (TCP, TLS and two TURN round trips).
 const STREAM_WAIT: Duration = Duration::from_millis(4000);
 /// When the stream allocation finished first, UDP gets this much longer.
@@ -417,11 +421,36 @@ impl TurnCarrier {
     /// Allocate on `server` in a task of its own: a caller that gives up (a
     /// timeout, the losing side of the UDP and TLS race) drops only the
     /// answer, and the task still finishes and releases what it opened.
+    ///
+    /// A UDP allocation that fails is tried again from a fresh socket, up to
+    /// [`UDP_ATTEMPTS`] times, while the caller still waits (its own bound
+    /// stops it). On a lossy link the server's answer to the Allocate can be
+    /// lost: the client's retransmit then meets the allocation that answer
+    /// made on the same 5-tuple, and a server without a transaction cache
+    /// answers 437 (Allocation Mismatch). A new socket is a new 5-tuple.
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (mut tx, rx) = tokio::sync::oneshot::channel();
         let options = options.clone();
         tokio::spawn(async move {
-            let result = Self::allocate_inner(server, &options).await;
+            let mut attempt = 1;
+            let result = loop {
+                let result = Self::allocate_inner(server.clone(), &options).await;
+                let retry = result.is_err()
+                    && server.transport == TurnTransport::Udp
+                    && attempt < UDP_ATTEMPTS
+                    && !tx.is_closed();
+                if !retry {
+                    break result;
+                }
+                if let Err(error) = &result {
+                    tracing::debug!(%error, attempt, "TURN allocation over UDP failed; again from a new socket");
+                }
+                tokio::select! {
+                    () = tokio::time::sleep(UDP_RETRY_PAUSE * attempt) => {}
+                    () = tx.closed() => break result,
+                }
+                attempt += 1;
+            };
             // Unwanted by now: dropping the carrier releases the allocation.
             let _ = tx.send(result);
         });
@@ -679,6 +708,26 @@ fn servers_in_order(servers: &[IceServer]) -> Vec<TurnServer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// lossy-3 lost 2 dials in 20 (lan_roundtrip, before): the server's
+    /// answer to the Allocate was lost, the client's retransmit met the
+    /// allocation that answer made, the server said 437, and the dial had
+    /// no relay. A fresh socket's allocation must come up instead.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_lost_allocate_answer_still_allocates() {
+        let turn = crate::testing::TestTurn::start().await;
+        turn.drop_allocate_successes(1);
+        let options = DialOptions {
+            ice_servers: vec![turn.udp_only()],
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let started = tokio::time::Instant::now();
+        let carrier =
+            TurnCarrier::allocate(&options).await.expect("a TURN allocation despite the lost answer");
+        assert_eq!(carrier.transport, TurnTransport::Udp);
+        assert!(started.elapsed() < UDP_WAIT, "took {:?}", started.elapsed());
+    }
 
     fn ice(urls: &[&str]) -> Vec<IceServer> {
         vec![IceServer {
