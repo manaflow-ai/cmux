@@ -52,6 +52,7 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
+import { MoveDock, PlaceChip } from "../place/PlaceMounts";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -705,6 +706,7 @@ export function drawPaneComposer({
           </output>
         </Notice>
         {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+        {!showNewTab && !quick && <MoveDock session={snapshot.sessionId} say={notices.transient} />}
         {!showNewTab && (
           <ShareNudge
             open={shareNudge.shown}
@@ -1321,6 +1323,10 @@ export function drawPaneComposer({
                 }
               : {})}
             onConnect={connectMachine}
+            // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
+            {...(quick || !snapshot.sessionId
+              ? {}
+              : { placeControl: <PlaceChip session={snapshot.sessionId} say={notices.transient} /> })}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
