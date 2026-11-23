@@ -510,10 +510,19 @@ fn projection_run(
     let mut mac_state = RenderState::new().map_err(vt_err)?;
     // Each side's CPU runs one frame at a time; the phone presents what it has at each vsync.
     let (mut mac_free, mut phone_free) = (0.0f64, 0.0f64);
-    for Redraw { t, from_input, bytes } in tui_redraws(scenario, inputs)? {
+    // Coalesced to the latest screen: a frame covers every redraw the Mac's terminal got by
+    // the time its CPU is free, never one queued frame per redraw.
+    let mut redraws = tui_redraws(scenario, inputs)?.into_iter().peekable();
+    let mut held: Vec<(f64, bool)> = Vec::new();
+    while let Some(Redraw { t, from_input, bytes }) = redraws.next() {
         mac.vt_write(&bytes);
-
         let start = t.max(mac_free);
+        held.clear();
+        held.push((t, from_input));
+        while let Some(Redraw { t, from_input, bytes }) = redraws.next_if(|next| next.t <= start) {
+            mac.vt_write(&bytes);
+            held.push((t, from_input));
+        }
         let started = Instant::now();
         let (grid, cursor) = screen(&mut mac, &mut mac_state)?;
         let grid_ms = ms(started);
@@ -541,7 +550,9 @@ fn projection_run(
         phone_free = ready + paint_ms;
         let present = (phone_free / FRAME_MS).ceil() * FRAME_MS;
 
-        metrics.push("mac_queue_ms", "ms", start - t);
+        for (t, _) in &held {
+            metrics.push("mac_queue_ms", "ms", start - t);
+        }
         metrics.push("mac_grid_ms", "ms", grid_ms);
         metrics.push("mac_diff_ms", "ms", diff_ms);
         metrics.push("mac_encode_ms", "ms", encode_ms);
@@ -550,8 +561,11 @@ fn projection_run(
         metrics.push("vsync_wait_ms", "ms", present - phone_free);
         metrics.push("phone_paint_ms", "ms", paint_ms);
         metrics.push("wire_bytes", "bytes", lean.len() as f64);
-        if from_input {
-            metrics.push("scroll_to_paint_ms", "ms", present - t);
+        metrics.push("redraws_per_event", "redraws", held.len() as f64);
+        for (t, from_input) in &held {
+            if *from_input {
+                metrics.push("scroll_to_paint_ms", "ms", present - t);
+            }
         }
         let mac_text = mac.viewport_text().map_err(vt_err)?;
         let phone_text = phone.viewport_text().map_err(vt_err)?;
