@@ -141,21 +141,56 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     return out.stdout
 
 
-def push_token() -> str:
-    """The token that creates and pushes the revert branch: PUSH_TOKEN, minted with workflows write, else GH_TOKEN.
-    A branch based on feat-cmux-next differs from main in its workflow files, and GitHub refuses or times out a
-    token with no workflows permission that creates one (cmux-next-batch.yml's push token says the same)."""
-    return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+WORKFLOWS_TOKEN_ISSUE = "https://github.com/manaflow-ai/cmuxterm-hq/issues/18499"
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45)) -> None:
+class WorkflowsTokenMissing(SystemExit):
+    """The swap-out or revert changes a workflow file and the job has no workflows-write token: it stops with the
+    command that does it by hand and the issue that grants the permission, never a silent skip."""
+
+
+def touches_workflows(files) -> list[str]:
+    return [f for f in files if f.startswith(".github/workflows/")]
+
+
+def push_token(files=(), command: str = "") -> str:
+    """The token that creates and pushes the swap-out, probe or revert branch. PUSH_TOKEN is minted with contents
+    write only; a diff that touches .github/workflows/** takes WORKFLOWS_TOKEN, minted apart with workflows write
+    (a step that may fail: the routing App had no Workflows permission and the combined mint failed every revert
+    job, run 45021631601, hq#18499). With no WORKFLOWS_TOKEN such a diff stops here with `command`."""
+    workflow_files = touches_workflows(files)
+    if not workflow_files:
+        return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+    token = os.environ.get("WORKFLOWS_TOKEN", "")
+    if token:
+        return token
+    raise WorkflowsTokenMissing(
+        f"This change touches workflow files ({', '.join(workflow_files)}) and the job has no workflows-write token "
+        f"(the \"Mint the workflows push token\" step failed or did not run). Grant the routing App Workflows: Read and "
+        f"write ({WORKFLOWS_TOKEN_ISSUE}, hq#18499) and rerun this job, or do it by hand:\n\n    {command}"
+    )
+
+
+def push_url(template: str, token: str) -> str:
+    """--push-url with its {token} filled; a plain remote name or URL is used as it is."""
+    return template.replace("{token}", token)
+
+
+def publish(args: argparse.Namespace, branch: str, start: str, refspec: str, files, command: str) -> None:
+    """Creates branch at start and pushes refspec to it with the token the files need (push_token)."""
+    token = push_token(files, command)
+    start_branch(args.repo, branch, start, token=token)
+    push_branch(push_url(args.push_url, token), refspec)
+
+
+def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
     """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
     then reaches it as an update. With the job token, a git push that creates the branch timed out every time
     (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
     44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
     for wait in (*waits, None):
         try:
-            api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[push_token()])
+            api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[token or push_token()])
             return
         except RuntimeError as error:
             text = str(error)
@@ -346,14 +381,15 @@ def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since
     """The suites a batch run calls: every one the commits since the newest earlier batch run reach.
     Only a run whose judge succeeded counts: one whose plan died (drill run 44881749105, rate limit)
     tested nothing, and planning past it skipped the suites its commits reached. A hot swap out drill
-    branch (lane/post-merge-drill-pieces-*) with no earlier batch run calls only the drill suite: its
-    first batch is the green the drill's red is new against, and every other suite there is cost."""
+    branch (lane/post-merge-drill-pieces-*) calls only the drill suite on every batch: its first batch is
+    the green the drill's red is new against, and every other suite there is cost (the judge waits for
+    the whole batch: run 45037084940 held the drill's red 85 minutes behind web shards)."""
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
     tested = next((r for r in earlier if judged(r["id"])), None)
     base = tested["head_sha"] if tested else ""
     files = files_since(base) if base else None
     picked = [key for key, suite in suites.items() if files is None or suite.reached(files)]
-    if files is None and branch.startswith(PIECES_DRILL) and "drill" in suites:
+    if branch.startswith(PIECES_DRILL) and "drill" in suites:
         picked = ["drill"]
     return {"base": base, "suites": picked, "files": None if files is None else len(files)}
 
@@ -391,7 +427,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # tip is still tested; the next batch's judge compares against this run as usual.
         print(f"plan: earlier batch runs unreadable, running every suite: {err}", file=sys.stderr)
         summary(args.summary, "- Earlier batch runs could not be read (rate limit): every suite runs.")
-        plan = plan_batch(args.sha, [], suites, lambda base: [])
+        plan = plan_batch(args.sha, [], suites, lambda base: [], branch=args.branch)
     write_outputs(
         args.github_output,
         {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"]},
@@ -755,8 +791,8 @@ def dispatch_piece_probe(args: argparse.Namespace, culprit: str, state, by_id: d
     summary(args.summary, f"Piece probe {state.probes + 1}: `{args.job}` at `{culprit[:11]}` with {', '.join(state.out)} swapped out "
                           f"(`{sha[:11]}` on {ref}); of {len(state.candidates)} suspect piece(s).")
     if not args.dry_run:
-        start_branch(args.repo, ref, culprit)
-        push_branch(args.push_url, f"+{sha}:refs/heads/{ref}")
+        publish(args, ref, culprit, f"+{sha}:refs/heads/{ref}", files,
+                f"python3 scripts/ci/piece_swap.py out {culprit} " + " ".join(f"--piece {i}" for i in state.out))
         dispatch_probe(args.repo, args.branch, probe)
     return True
 
@@ -799,8 +835,8 @@ def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, 
     if args.dry_run:
         summary(args.summary, f"Would open {branch}: {title}")
         return True
-    start_branch(args.repo, branch, git("rev-parse", "HEAD").strip())
-    push_branch(args.push_url, f"+{sha}:refs/heads/{branch}")
+    publish(args, branch, git("rev-parse", "HEAD").strip(), f"+{sha}:refs/heads/{branch}", piece.files,
+            f"python3 scripts/ci/piece_swap.py out {culprit} --piece {piece.id} --onto origin/{args.branch}")
     created = gh_api(f"repos/{args.repo}/pulls", method="POST", fields={"head": branch, "base": args.branch, "title": title, "body": body})
     summary(args.summary, f"Swap-out pull request: {created['html_url']}")
     write_outputs(args.github_output, {"url": created["html_url"]})
@@ -844,8 +880,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
         summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
         return 0
     if not args.dry_run:
-        start_branch(args.repo, branch, git("rev-parse", "HEAD^").strip())
-        push_branch(args.push_url, f"+HEAD:refs/heads/{branch}")
+        publish(args, branch, git("rev-parse", "HEAD^").strip(), f"+HEAD:refs/heads/{branch}", changed_files(f"{culprit}^", culprit),
+                piece_swap().whole_revert_command(culprit, args.branch, len(parents)))
     origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
     this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     who = f"#{pr}" if pr else f"`{culprit[:12]}`"

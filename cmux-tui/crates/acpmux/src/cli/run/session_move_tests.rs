@@ -460,6 +460,21 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     remote_server.abort();
 }
 
+#[test]
+fn the_run_error_names_each_chat_that_did_not_move_and_why() {
+    let moved = outcome("a1", None);
+    let mut refused = outcome("x", Some("a turn is running; the move takes it along"));
+    refused.session = "claude-13".into();
+    refused.name = "claude-13".into();
+    let mut lost = outcome("optchat", Some("transfer.busy: the running turn did not stop"));
+    lost.session = "s-2".into();
+    assert!(not_moved(&[moved]).is_none(), "every chat moved");
+    let why = not_moved(&[outcome("a1", None), refused, lost]).unwrap().message;
+    assert!(why.starts_with("2 of 3 chats did not move: "), "{why}");
+    assert!(why.contains("claude-13 (claude-13): a turn is running"), "{why}");
+    assert!(why.contains("optchat (s-2): transfer.busy: the running turn did not stop"), "{why}");
+}
+
 /// Item C (a `--cwd --after-turn` move sat 12 minutes with no output): every wait prints a line
 /// at least every 5 s naming the chat and the step, and none while the step is quick.
 #[tokio::test(start_paused = true)]
