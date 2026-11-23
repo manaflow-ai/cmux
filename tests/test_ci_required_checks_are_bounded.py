@@ -104,18 +104,6 @@ def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
         except (AssertionError, KeyError, TypeError):
             return name
         return REQUIRED_CHECK
-    if path.name == "cla-policy-guard.yml" and job_id == "validate":
-        from test_cla_guard_metadata_routing import (
-            REQUIRED_CHECK as CLA_REQUIRED_CHECK,
-            validate_metadata_routing as validate_cla_metadata_routing,
-        )
-        try:
-            validate_cla_metadata_routing(workflow)
-        except (AssertionError, KeyError, TypeError) as error:
-            if "${{" in str(name) or "if" in job:
-                raise ValueError("CLA metadata route violates its condition/name contract") from error
-        else:
-            return CLA_REQUIRED_CHECK
     if isinstance(name, str) and "${{" in name:
         # A name that differs only on a title or body edit (pattern pr-edit-fans-out-ci) is the check's
         # name on a push. Unknown expressions stay unmatched rather than silently drop coverage.
@@ -170,10 +158,8 @@ def main() -> int:
     for path, workflow in workflows.items():
         if "pull_request" not in triggers(workflow):
             continue
-        # A group is the requirement; what it does with a superseded run is
-        # the workflow's call. repair-nightly-appcast-content-types.yml sets
-        # cancel-in-progress: false on purpose because it writes to R2, and
-        # serializing is as good an answer as cancelling.
+        # A group is the requirement; whether it cancels a superseded pull
+        # request run is checked by test_ci_pr_runs_cancel_superseded.py.
         if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "

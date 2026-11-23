@@ -175,7 +175,7 @@ NEXT = "refs/heads/feat-cmux-next"
 def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
     """path_route's own expression context: its route step, the tree probes and the marker upload."""
     return {"github": {"event_name": event, "ref": ref,
-                       "event": {"pull_request": {"labels": [{"name": label} for label in labels]}}},
+                       "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
@@ -243,7 +243,7 @@ class GeneratedFoldTest(unittest.TestCase):
                        "tree_state": tree_state, "generated_host": host}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
-                              "event": {"pull_request": {"head": {"repo": {"full_name": head}},
+                              "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "head": {"repo": {"full_name": head}},
                                                          "labels": [{"name": label} for label in labels]}}},
                    "inputs": {}, "cancelled": False,
                    "needs": {"path_route": {"outputs": outputs}, "web-bundles": {"result": web},

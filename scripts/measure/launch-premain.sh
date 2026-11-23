@@ -8,6 +8,8 @@
 # with no public URL, such as a pull request's signed candidate. The step is submitted with CMUX_WORKSPACE_ID=W, and the
 # download is checked against HEX. Every run prints LP-GATE rows for the DMG and its app before the arms:
 # `spctl --assess` (open for the DMG, exec for the app) and `stapler validate`, as Gatekeeper sees the copy it runs.
+# Then one LP-LAYOUT row (bundle_layout: stub=yes|no, the executable's and the framework's size; layout.txt in the
+# report has the ls -l, otool -L and codesign -dv it rests on).
 # A launch reaches `main` in 30 to 80 ms when launches follow each other closely, and 600 to 1170 ms when about 60 s
 # have passed since a full run began. Each arm is one pair (A, then the measured launch B), interleaved per rep, each
 # pair started only while the Mac's 1-minute load is under 8. A and B are open (LaunchServices) launches, as the Dock
@@ -101,6 +103,26 @@ gate() {
   echo "LP-GATE $what stapler rc=$rc $(printf '%s' "$text" | tail -1)"
 }
 
+# bundle_layout APP FILE PREFIX: which layout the measured build has, so every report says it and no reader infers it
+# from the commit: FILE gets `ls -l` of Contents/MacOS and of CmuxNextApp.framework, `otool -L` of the main executable
+# and `codesign -dv` of it and of the framework; one "PREFIX-LAYOUT" line says stub=yes when the main executable links
+# CmuxNextApp.framework and the framework's binary is in the bundle (cmux#44204's stub layout), else stub=no.
+bundle_layout() {
+  local app="$1" file="$2" prefix="$3" exe fw links=no present=no
+  exe="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+  fw="$app/Contents/Frameworks/CmuxNextApp.framework/CmuxNextApp"
+  {
+    echo "== ls -l Contents/MacOS"; ls -l "$app/Contents/MacOS"
+    echo "== ls -lL CmuxNextApp.framework"; ls -lL "$app/Contents/Frameworks/CmuxNextApp.framework" 2>&1
+    echo "== otool -L $(basename "$exe")"; xcrun otool -L "$exe" 2>&1
+    echo "== codesign -dv $(basename "$exe")"; codesign -dv "$exe" 2>&1
+    echo "== codesign -dv CmuxNextApp.framework"; codesign -dv "$app/Contents/Frameworks/CmuxNextApp.framework" 2>&1
+  } >"$file"
+  xcrun otool -L "$exe" 2>/dev/null | grep -q 'CmuxNextApp\.framework/' && links=yes
+  [[ -f "$fw" ]] && present=yes
+  echo "$prefix-LAYOUT stub=$([[ $links == yes && $present == yes ]] && echo yes || echo no) exe_bytes=$(stat -f %z "$exe") links_framework=$links framework=$present framework_bytes=$([[ $present == yes ]] && stat -L -f %z "$fw") file=$(basename "$file")"
+}
+
 # fetch_dmg DMG FILE: DMG (nightly: the newest the NIGHTLY feed offers; https://...; sha256:HEX) downloaded into FILE,
 # with its "LP dmg" line. Returns 2 for a malformed sha256:, 3 when nothing was downloaded (launch-reboot.sh uses it).
 fetch_dmg() {
@@ -186,6 +208,7 @@ main() {
   OUT="$out" fresh_keychain "$out/home/h" || true
   APP="$(copy_app "$out/app.dmg" "$out/mnt" "$out/copy")" || exit 3
   gate app exec "$APP"
+  bundle_layout "$APP" "$out/layout.txt" LP
   EXE="$APP/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/Info.plist")"
   STUB="$(find_stub "$APP")"
   # The app's code on a stub-executable build (cmux#44204): its link count and ctime are recorded beside the

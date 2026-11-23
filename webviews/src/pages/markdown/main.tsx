@@ -180,7 +180,7 @@ function editorHost(
       return highlighter.tokens(code, language, refresh);
     },
     renderDiagram(language, source, target) {
-      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
+      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed), strings.t(L.diagramUnavailable));
     },
     label: (key) => strings.t(LABELS[key]),
     // A Run button's click sends its block to a new terminal in the file's repository.

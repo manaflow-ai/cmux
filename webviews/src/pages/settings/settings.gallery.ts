@@ -13,7 +13,6 @@ import type {
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 import { minutesAgo } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
-import { PERSONALIZATION_KEYS } from "./personalizationParts";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -294,9 +293,9 @@ const showEndpoint =
 /** States whose fixture steps change the page's height on purpose (the scope switch drops the
  * All Workspaces tiles; a refused name opens its error line), so the rows below them move. They are
  * measured in pages.settings-motion, whose layout shift is recorded, not held at 0 (#41237: on
- * Personalization those rows are in view). */
+ * Appearance those rows are in view). */
 export const heightChangingVariants: Record<string, SettingsPageVariant> = {
-  "backdrops-workspace": variant("personalization", {
+  "backdrops-workspace": variant("appearance", {
     focus: "appearance.background",
     workspace: "ws-1",
     options: {
@@ -307,10 +306,12 @@ export const heightChangingVariants: Record<string, SettingsPageVariant> = {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [
-      wait('[data-card="backdrop"] .backdrop-scope'),
-      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
-    ],
+    play: async (ctx) => {
+      const selector = ".backdrop-scope label:last-child";
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+      await ctx.waitFor(() => ctx.document.querySelector(`${selector} input:checked`));
+    },
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
   "theme-file-refused": variant("theme", {
@@ -345,8 +346,8 @@ const variants: Record<string, SettingsPageVariant> = {
   }),
 };
 for (const category of categories) {
-  // The theme studio (every bundled theme) is Personalization's since the Theme page moved there.
-  const allThemes = category.id === "personalization";
+  // The theme studio (every bundled theme) is Appearance's since the Theme page moved there.
+  const allThemes = category.id === "appearance";
   // Variant names are lower kebab case: the New Tab category's id is newTab.
   const name = category.id.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
   variants[name] = variant(category.id, { allThemes });
@@ -354,11 +355,7 @@ for (const category of categories) {
   // Every group gets a scroll/focus target, including controls below the initial viewport.
   for (const [index, group] of category.groups.entries())
     variants[`${name}-group-${index + 1}`] = variant(category.id, {
-      // A key Personalization draws opens Personalization (routeSection), so another page's group
-      // focuses its first row that page draws itself.
-      focus: (category.id === "personalization"
-        ? group.rows[0]
-        : (group.rows.find((row) => !PERSONALIZATION_KEYS.includes(row.key)) ?? group.rows[0]))!.key,
+      focus: group.rows[0]!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
     });
@@ -543,9 +540,9 @@ Object.assign(variants, {
     note: "Harnesses while the first look has found nothing yet: it says it is checking.",
     harnesses: { loading: true, problem: null, harnesses: [] },
   }),
-  // Change Background… (cx-t2x.4): the picker on Personalization, with its Opacity slider.
-  backdrops: variant("personalization", {
-    focus: "personalization.background",
+  // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
+  backdrops: variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
@@ -564,9 +561,21 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
-  "personalization-background": variant("personalization", {
-    focus: "personalization.background",
+  // David Beyer (Nov 20) could not find a sidebar font size: General opens on one Text Size and density pick.
+  "general-text-size": variant("general", {
+    note: "General's first card: Text Size (five Aa steps) and density, the pick Set Up cmux offers too.",
+  }),
+  "general-text-size-larger": variant("general", {
+    options: { values: { "appearance.metrics.chromeFontSize": 16, "appearance.density": "comfortable" } },
+    note: "Text Size at Larger with Comfortable density: the steps follow the density's own body size.",
+  }),
+  // One settings area (David Beyer, 2026-11-20): the sidebar's short top level, then More opened.
+  "sidebar-more": variant("general", {
+    steps: [click(".sidebar-more"), wait('.sidebar-more[aria-expanded="true"]')],
+    note: "The sidebar's More opened from General: the pages a person opens less often, below the short top level.",
+  }),
+  "appearance-background": variant("appearance", {
+    focus: "appearance.background",
     workspace: "ws-1",
     options: {
       values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
@@ -576,26 +585,17 @@ Object.assign(variants, {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
-    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+    steps: [wait('[data-card="backdrop"]')],
+    note: "Change Background… opens Appearance on its background picker: the art, Material and Opacity, for a workspace.",
   }),
-  "personalization-chief": variant("personalization", {
-    focus: "personalization.chief",
-    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
-    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
-  }),
-  "personalization-text": variant("personalization", {
-    focus: "personalization.text",
-    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
-    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
-  }),
-  "personalization-sounds": variant("personalization", {
-    focus: "personalization.sounds",
-    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
+  "appearance-density": variant("appearance", {
+    focus: "card.density",
+    options: { values: { "appearance.density": "cozy" } },
+    note: "Appearance on its density card: the density tiles and Text Size.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
-  "appearance-undo-bar": variant("personalization", {
-    focus: "personalization.background",
+  "appearance-undo-bar": variant("appearance", {
+    focus: "appearance.background",
     host: {
       ...host,
       derived: { "appearance.backgroundOpacity": 1 },
@@ -630,8 +630,8 @@ Object.assign(variants, {
     steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
     note: "Surfaces: each unset opacity shows the window's 80% as its value and each unset color the window's color under an Inherits window badge; no row reads a truncated default label.",
   }),
-  "backdrops-pending": variant("personalization", {
-    focus: "personalization.background",
+  "backdrops-pending": variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
     host: {
       ...host,
@@ -678,8 +678,8 @@ Object.assign(variants, {
     steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
     note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
   }),
-  "backdrops-empty": variant("personalization", {
-    focus: "personalization.background",
+  "backdrops-empty": variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
     // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
@@ -687,8 +687,8 @@ Object.assign(variants, {
     note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
-  "backdrops-link": variant("personalization", {
-    focus: "personalization.background",
+  "backdrops-link": variant("appearance", {
+    focus: "appearance.background",
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -703,8 +703,8 @@ Object.assign(variants, {
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
-  "curated-art": variant("personalization", {
-    focus: "personalization.background",
+  "curated-art": variant("appearance", {
+    focus: "appearance.background",
     options: {
       values: { "appearance.background": "van-gogh-starry-night" },
     },
@@ -816,8 +816,8 @@ Object.assign(variants, {
     note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
   }),
   // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
-  "art-browser": variant("personalization", {
-    focus: "personalization.background",
+  "art-browser": variant("appearance", {
+    focus: "appearance.background",
     options: {
       values: { "appearance.background": "starryNight" },
       museumArt: [
@@ -860,13 +860,12 @@ Object.assign(variants, {
           ),
       ]),
     ),
-    steps: [
-      wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] button[aria-expanded]'),
-      input('[data-card="art-browser"] input[type="search"]', "night"),
-      click('[data-card="art-browser"] button[type="submit"]'),
-      wait('[data-card="art-browser"] .backdrop-grid'),
-    ],
+    play: async (ctx) => {
+      await ctx.click({ selector: '[data-card="backdrop"] button[aria-expanded]' });
+      await ctx.type("night", { selector: '[data-card="art-browser"] input[type="search"]' });
+      await ctx.click({ selector: '[data-card="art-browser"] button[type="submit"]' });
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="art-browser"] .backdrop-grid'));
+    },
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "terminal-shell-unknown": variant("terminal", {
@@ -1250,6 +1249,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
@@ -1314,6 +1314,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="claude"]'),
       { selector: "[data-harness-update-command]", action: "focus" },
@@ -1351,6 +1352,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-agent-update-job="exited"]', action: "focus" },
@@ -1366,13 +1368,13 @@ Object.assign(variants, {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
-  // Settings > Personalization > Chief with the pet off (the default): the Chief's character stays checked.
-  "chief-pet-off": variant("personalization", {
+  // Settings > Chief's look with the pet off (the default): the Chief's character stays checked.
+  "chief-pet-off": variant("chief", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
-  // Settings > Personalization > Chief with Mochi, the first animated set, picked and the pet shown.
-  "chief-pet-mochi": variant("personalization", {
+  // Settings > Chief's look with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("chief", {
     focus: "home.chiefPetMascot",
     options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
     note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",

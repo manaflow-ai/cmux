@@ -99,26 +99,26 @@ struct HomeChiefControl {
 /// The stop-all toast's words. Keys live in Resources/Localizable.xcstrings.
 enum HomeStopAllStrings {
     static var stopToolTip: String {
-        String(localized: "home.stop.toolTip", defaultValue: "Stop the Chief (Option-click: Stop All Agents)", bundle: .module)
+        String(localized: "home.stop.toolTip", defaultValue: "Stop the Chief (Option-click: Stop All Agents)", bundle: .module.inAppLanguage)
     }
-    static var restart: String { String(localized: "home.stopAll.restart", defaultValue: "Restart", bundle: .module) }
+    static var restart: String { String(localized: "home.stopAll.restart", defaultValue: "Restart", bundle: .module.inAppLanguage) }
     static var stoppedNone: String {
-        String(localized: "home.stopAll.none", defaultValue: "No agents were running", bundle: .module)
+        String(localized: "home.stopAll.none", defaultValue: "No agents were running", bundle: .module.inAppLanguage)
     }
     static var stoppedChiefOnly: String {
-        String(localized: "home.stopAll.chiefOnly", defaultValue: "Stopped the Chief; no subagents were running", bundle: .module)
+        String(localized: "home.stopAll.chiefOnly", defaultValue: "Stopped the Chief; no subagents were running", bundle: .module.inAppLanguage)
     }
     /// Why Stop All Agents is unavailable: the key window shows no Chief's Home.
     static var unavailable: String {
-        String(localized: "home.stopAll.unavailable", defaultValue: "Stop All Agents works in a Chief's Home", bundle: .module)
+        String(localized: "home.stopAll.unavailable", defaultValue: "Stop All Agents works in a Chief's Home", bundle: .module.inAppLanguage)
     }
     /// "Stopped the Chief": its turn stopped, no subagent did, and some could not be stopped.
     static var stoppedChief: String {
-        String(localized: "home.stopAll.chiefStopped", defaultValue: "Stopped the Chief", bundle: .module)
+        String(localized: "home.stopAll.chiefStopped", defaultValue: "Stopped the Chief", bundle: .module.inAppLanguage)
     }
     /// How many subagents acpmux refused to stop; which ones and why are the toast's detail.
     static func couldNotStop(_ count: Int) -> String {
-        String(localized: "home.stopAll.couldNotStop", defaultValue: "\(count) could not be stopped", bundle: .module)
+        String(localized: "home.stopAll.couldNotStop", defaultValue: "\(count) could not be stopped", bundle: .module.inAppLanguage)
     }
     /// The toast after Stop all agents, one row (overlay-surfaces.md): what stopped (never "all"
     /// while some refused), then how many could not. Which and why, and the note about any still
@@ -144,8 +144,8 @@ enum HomeStopAllStrings {
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
     static func stopped(_ names: [String], all: Bool = true) -> String {
-        let format = all ? String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module)
-            : String(localized: "home.stopAll.stoppedSome", defaultValue: "Stopped %@", bundle: .module)
+        let format = all ? String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module.inAppLanguage)
+            : String(localized: "home.stopAll.stoppedSome", defaultValue: "Stopped %@", bundle: .module.inAppLanguage)
         return String(format: format, ListFormatter.localizedString(byJoining: names))
     }
 }

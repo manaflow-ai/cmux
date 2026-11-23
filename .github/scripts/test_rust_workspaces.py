@@ -249,6 +249,46 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.change(path, "{\"v\": 2}\n")
                 self.assertEqual(self.planned(), planned)
 
+    def test_a_dependencys_own_tests_reads_are_not_its_users_inputs(self) -> None:
+        # cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root) and then a path:
+        # read as a read of the whole tree, every change planned cmux-app-ffi, the cloud server and three more
+        # workspaces that use it by path, whose `cargo test --workspace` never builds a dependency's tests.
+        self.write("ws/crates/a/tests/root.rs", 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+                   'let menu = root.join("menus/main.json");\n')
+        self.write("ws/crates/a/benches/b.rs", 'const B: &str = include_str!("../../../../bench/data.json");\n')
+        self.write("bench/data.json", "{}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a reads the tree in its own tests and benches")
+        for path in ("docs/other.md", "bench/data.json"):
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "changed\n")
+                self.assertEqual(self.planned(), [])
+        # A dependency's own sources and build script still count: they are built into the workspace.
+        self.base = self.head()
+        self.write("ws/crates/a/src/lib.rs", 'const D: &str = include_str!("../../../../bench/data.json");\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a embeds the file")
+        self.base = self.head()
+        self.change("bench/data.json", "{\"v\": 3}\n")
+        self.assertEqual(self.planned(), ["ws/crates/own", "solo"])
+
+    def test_a_root_reference_reads_what_its_comment_lists(self) -> None:
+        # CARGO_MANIFEST_DIR/../../.. is the repository root: unannotated, every path reaches its reader (five
+        # workspaces ran on 325 of 327 merged PRs, 2026-11-17); `// affected-reads:` names what it reads.
+        root = 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+        cases = (("", "README.md", ["ws/crates/own"]),
+                 ("// affected-reads: fixtures/f.json\n", "README.md", []),
+                 ("// affected-reads: fixtures/f.json\n", "fixtures/f.json", ["ws/crates/own"]),
+                 ("// affected-reads: none\n", "README.md", []),
+                 ("// affected-reads: fixtures/gone.json\n", "README.md", ["ws/crates/own"]))  # stale: every path
+        for i, (note, path, planned) in enumerate(cases):
+            with self.subTest(note=note, path=path):
+                self.change("ws/crates/own/tests/t.rs", f"// case {i}\n{note}{root}")
+                self.base = self.head()
+                self.change(path, f"changed {i}\n")
+                self.assertEqual(self.planned(), planned)
+
     def test_no_usable_base_or_a_list_change_plans_every_run_entry(self) -> None:
         everything = ["ws/crates/own", "solo", "term", "vws", "solo/tool", "vws/side"]
         for base in ("", "0" * 40, "f" * 40):
