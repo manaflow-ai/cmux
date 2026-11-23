@@ -35,7 +35,10 @@
 // REPEAT=N plays the session's turns N times over (seq renumbered), for a longer chat. CPU=N slows each page's CPU
 // N times. TOP=N prints each stage's N busiest source files. PANE_SOURCE_REF=<sha> builds the pane's sources under
 // src/agent-session and src/ui at that revision, the same harness, for a before/after. One `CHAT_FLOOR_JSON {...}`
-// line carries every number; PERF_ROW lines name chat_floor.<mode>.first and chat_floor.<mode>.live.
+// line carries every number; PERF_ROW lines name chat_floor.<mode>.first and chat_floor.<mode>.live. BOOT_REF=<sha>
+// with MODES=pane-copy,pane-copy@ref interleaves the copy's boot script now and at that ref, round by round.
+// TIMELINE=1 prints each untimed load's resources, marks and long tasks; PROFILE=FILE writes one cold pane load's
+// source-mapped CPU profile; TRACE_DUMP=DIR writes each traced load's trace.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -57,7 +60,7 @@ import {
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 
-const MODES_KNOWN = ["bare", "pane", "pane-copy"] as const;
+const MODES_KNOWN = ["bare", "pane", "pane-copy", "pane-copy@ref"] as const;
 type Mode = (typeof MODES_KNOWN)[number];
 const MODES = (process.env.MODES ?? MODES_KNOWN.join(",")).split(",").filter(Boolean) as Mode[];
 for (const mode of MODES) if (!MODES_KNOWN.includes(mode)) throw new Error(`MODES must name ${MODES_KNOWN.join(", ")}`);
@@ -66,6 +69,8 @@ const TRACE_ROUNDS = Number(process.env.TRACE_ROUNDS ?? 2);
 const REPEAT = Number(process.env.REPEAT ?? 1);
 const CPU = Number(process.env.CPU ?? 1);
 const TOP = Number(process.env.TOP ?? 0);
+/// TIMELINE=1: print each untraced load's navigation timing, resources and user-timing marks (ms from navigation).
+const TIMELINE = process.env.TIMELINE === "1";
 for (const [name, value] of [
   ["ROUNDS", ROUNDS],
   ["TRACE_ROUNDS", TRACE_ROUNDS],
@@ -213,7 +218,10 @@ socket.onmessage = (message) => {
 type Probe = { first: number; live: number; fcp: number; via: string };
 function probe([target, hostTag]: [string, string]) {
   const record = { first: 0, live: 0, fcp: 0, via: "" };
-  (window as unknown as { __floor: typeof record }).__floor = record;
+  // The bench awaits this once instead of polling the page (polling ran ~120 ms of main-thread work per load).
+  let finish = (_: typeof record) => {};
+  const done = new Promise<typeof record>((resolve) => (finish = resolve));
+  Object.assign(window, { __floor: record, __floorDone: done });
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) if (entry.name === "first-contentful-paint") record.fcp = entry.startTime;
   }).observe({ type: "paint", buffered: true });
@@ -230,6 +238,7 @@ function probe([target, hostTag]: [string, string]) {
     if (pending === "live" && !record.live) {
       record.live = now;
       performance.mark("floor:live-paint");
+      finish(record);
     }
   };
   // The chat's rows: the pane's transcript rows (data-row-id), the bare page's rows; `target`, when given, must
@@ -243,7 +252,8 @@ function probe([target, hostTag]: [string, string]) {
     const root = document.getElementById("root") ?? document.getElementById("t");
     if (root && root.style.opacity !== "0" && drawn(root.parentElement)) return "live";
     const host = document.querySelector(hostTag) as HTMLElement | null;
-    if (host && host.style.visibility !== "hidden" && drawn(host.shadowRoot)) return "copy";
+    if (host && host.style.visibility !== "hidden" && host.style.opacity !== "0" && drawn(host.shadowRoot))
+      return "copy";
     return "";
   };
   const tick = () => {
@@ -255,6 +265,35 @@ function probe([target, hostTag]: [string, string]) {
     if (seen !== "live") requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
+}
+
+/// TIMELINE's socket marks: when the page opened its acpmux socket and when its first replies landed.
+function markSockets() {
+  const tasks: [number, number][] = [];
+  new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) tasks.push([entry.startTime, entry.duration]);
+  }).observe({ type: "longtask", buffered: true });
+  Object.assign(window, { __floorTasks: tasks });
+  new MutationObserver((_, observer) => {
+    const root = document.getElementById("root");
+    if (!root?.firstChild) return;
+    performance.mark("root:first-child");
+    observer.disconnect();
+  }).observe(document, { childList: true, subtree: true });
+  const Native = WebSocket;
+  let seen = 0;
+  window.WebSocket = class extends Native {
+    constructor(...args: ConstructorParameters<typeof WebSocket>) {
+      super(...args);
+      performance.mark("ws:new");
+      this.addEventListener("open", () => performance.mark("ws:open"));
+      this.addEventListener("message", (event) => {
+        if (++seen > 8) return;
+        const text = String(event.data);
+        performance.mark(`ws:reply ${/"method":"([^"]+)"/.exec(text.slice(0, 200))?.[1] ?? "result"} ${text.length} B`);
+      });
+    }
+  };
 }
 
 /// The live root's text, all of it and the part in view and drawn (the rest is mounted and unseen).
@@ -601,8 +640,32 @@ try {
   const readSource = (file: string) => priorSources.get(file);
   // The boot script at the ref too, so a before/after builds the whole page at one revision.
   const bootEntry = path.join(chatSnapshotSource, "boot.ts");
-  const bootScript = readSource(bootEntry) === undefined ? await bundle(bootEntry) : await bundleAt(bootEntry);
-  async function bundleAt(entry: string): Promise<string> {
+  const bootScript =
+    readSource(bootEntry) === undefined ? await bundle(bootEntry) : await bundleAt(bootEntry, priorSources);
+  // BOOT_REF=<sha>: the boot script (boot.ts and what it imports: the copy's paint) at that ref too, served to the
+  // `pane-copy@ref` mode, so one run interleaves the copy's paint before and after on one loaded machine.
+  const bootRef = process.env.BOOT_REF;
+  const bootAtRef = new Map<string, string>();
+  if (bootRef) {
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: webviews, encoding: "utf8" }).trim();
+    for (const file of execFileSync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=M", bootRef, "--", path.relative(top, chatSnapshotSource)],
+      { cwd: top, encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean))
+      bootAtRef.set(
+        path.join(top, file),
+        execFileSync("git", ["show", `${bootRef}:${file}`], { cwd: top, encoding: "utf8" }),
+      );
+    console.log(
+      `boot script read at ${bootRef}: ${[...bootAtRef.keys()].map((f) => path.basename(f)).join(", ") || "none"}`,
+    );
+  }
+  if (MODES.includes("pane-copy@ref") && !bootRef) throw new Error("the pane-copy@ref mode needs BOOT_REF=<sha>");
+  const bootScriptAtRef = bootRef ? await bundleAt(bootEntry, bootAtRef) : bootScript;
+  async function bundleAt(entry: string, sources: Map<string, string>): Promise<string> {
     const built = await Bun.build({
       entrypoints: [entry],
       format: "iife",
@@ -612,7 +675,7 @@ try {
           name: "at-ref",
           setup(builder) {
             builder.onLoad({ filter: /\.ts$/ }, (args) => {
-              const prior = priorSources.get(args.path);
+              const prior = sources.get(args.path);
               return prior === undefined ? undefined : { contents: prior, loader: "ts" };
             });
           },
@@ -670,6 +733,7 @@ try {
       '<main id="root"></main>\n<script async src="/__snapshot/chat.js"></script>\n<script src="/chat-snapshot.js"></script>',
   );
   let servedCopy: ChatSnapshot | null = null;
+  let servedBoot = bootScript;
   const script = (body: string) =>
     new Response(body, { headers: { "Content-Type": "text/javascript", "Cache-Control": "no-store" } });
   const statics = Bun.serve({
@@ -685,7 +749,7 @@ try {
         return script(
           `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(SESSION_ID)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
         );
-      if (pathname === "/chat-snapshot.js") return script(bootScript);
+      if (pathname === "/chat-snapshot.js") return script(servedBoot);
       const file = Bun.file(path.join(out, pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -698,22 +762,27 @@ try {
   releases.push(() => browser.close());
   const mapper = sourceMapper(out);
 
+  let dumped = 0;
   type Load = { probe: Probe; hidden: ReturnType<typeof hiddenText>; trace?: TraceEvent[] };
   const load = async (mode: Mode, trace: boolean): Promise<Load> => {
-    servedCopy = mode === "pane-copy" ? copy : null;
+    servedCopy = mode.startsWith("pane-copy") ? copy : null;
+    servedBoot = mode === "pane-copy@ref" ? bootScriptAtRef : bootScript;
     const context = await browser.newContext({ viewport: VIEWPORT });
     try {
       const page = await context.newPage();
       const cdp = await context.newCDPSession(page);
       if (CPU > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
       await page.addInitScript(probe, [LATEST, SNAPSHOT_HOST_TAG] as [string, string]);
+      if (TIMELINE && !trace) await page.addInitScript(markSockets);
       const run = async () => {
         await page.goto(urlOf(mode));
         await page
-          .waitForFunction(() => (window as unknown as { __floor: Probe }).__floor.live > 0, undefined, {
-            timeout: 60_000,
-            polling: 50,
-          })
+          .evaluate(() =>
+            Promise.race([
+              (window as unknown as { __floorDone: Promise<Probe> }).__floorDone,
+              new Promise((_, reject) => setTimeout(() => reject(new Error("timeout 60000 ms")), 60_000)),
+            ]),
+          )
           .catch(async (error: unknown) => {
             const state = await page.evaluate((hostTag) => {
               const root = document.getElementById("root") ?? document.getElementById("t");
@@ -730,7 +799,38 @@ try {
       };
       const browserCdp = trace ? await browser.newBrowserCDPSession() : undefined;
       const got = browserCdp ? await traced(browserCdp, run) : { result: await run(), trace: undefined };
+      // TRACE_DUMP=DIR: each traced load's trace as DIR/<mode>-<n>.json (Perfetto or DevTools open it).
+      if (got.trace && process.env.TRACE_DUMP)
+        fs.writeFileSync(
+          path.join(process.env.TRACE_DUMP, `${mode}-${++dumped}.json`),
+          JSON.stringify({ traceEvents: got.trace }),
+        );
       const hidden = await page.evaluate(hiddenText);
+      if (TIMELINE && !trace) {
+        const lines = await page.evaluate(() => {
+          const [nav] = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+          const out: [number, string][] = [];
+          if (nav)
+            out.push(
+              [nav.responseEnd, "html responseEnd"],
+              [nav.domInteractive, "domInteractive"],
+              [nav.domContentLoadedEventEnd, "DOMContentLoaded end"],
+              [nav.loadEventEnd, "load end"],
+            );
+          for (const r of performance.getEntriesByType("resource") as PerformanceResourceTiming[])
+            out.push([
+              r.responseEnd,
+              `${r.initiatorType} ${r.name.split("/").at(-1)} (start ${r.startTime.toFixed(0)})`,
+            ]);
+          for (const m of performance.getEntriesByType("mark")) out.push([m.startTime, `mark ${m.name}`]);
+          for (const [at, ms] of (window as unknown as { __floorTasks?: [number, number][] }).__floorTasks ?? [])
+            out.push([at, `long task ${ms.toFixed(0)} ms (ends ${(at + ms).toFixed(0)})`]);
+          for (const m of performance.getEntriesByType("measure"))
+            out.push([m.startTime + m.duration, `measure ${m.name} ${m.duration.toFixed(1)} ms`]);
+          return out.sort((a, b) => a[0] - b[0]).map(([t, what]) => `${t.toFixed(1).padStart(8)}  ${what}`);
+        });
+        console.log(`--- ${mode} timeline\n${lines.join("\n")}`);
+      }
       return { probe: got.result, hidden, trace: got.trace };
     } finally {
       await context.close();
@@ -739,13 +839,13 @@ try {
 
   // The warm load that writes the copy the pane-copy rounds are served.
   let copy: ChatSnapshot | null = null;
-  if (MODES.includes("pane-copy")) {
+  if (MODES.some((mode) => mode.startsWith("pane-copy"))) {
     const context = await browser.newContext({ viewport: VIEWPORT });
     const page = await context.newPage();
     await page.addInitScript(probe, [LATEST, SNAPSHOT_HOST_TAG] as [string, string]);
     await page.goto(urlOf("pane"));
     await page
-      .waitForFunction(() => (window as unknown as { __floor: Probe }).__floor.live > 0, undefined, { timeout: 60_000 })
+      .evaluate(() => (window as unknown as { __floorDone: Promise<Probe> }).__floorDone)
       .catch(async (error: unknown) => {
         const shown = await page.evaluate(() => document.getElementById("root")?.innerText.slice(-1500) ?? "(no root)");
         throw new Error(`the pane never drew "${LATEST}"; its root ends:\n${shown}\n${String(error)}`);
@@ -766,6 +866,37 @@ try {
     if (!written.snapshot) throw new Error(`the settled pane wrote no copy: ${written.miss}`);
     copy = written.snapshot;
     console.log(`copy: ${(copy.html.length / 1024).toFixed(0)} KiB of markup`);
+  }
+
+  // PROFILE=FILE: one cold pane load under the page's own CPU profiler (100 us samples), every node source-mapped,
+  // written to FILE for reading by hand (which functions fill the long tasks the TIMELINE shows).
+  if (process.env.PROFILE) {
+    const context = await browser.newContext({ viewport: VIEWPORT });
+    const page = await context.newPage();
+    await page.addInitScript(probe, [LATEST, SNAPSHOT_HOST_TAG] as [string, string]);
+    await page.addInitScript(markSockets);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Profiler.enable");
+    await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+    await cdp.send("Profiler.start");
+    await page.goto(urlOf("pane"));
+    await page.evaluate(() => (window as unknown as { __floorDone: Promise<Probe> }).__floorDone);
+    const { profile } = (await cdp.send("Profiler.stop")) as unknown as {
+      profile: { nodes: ProfileNode[]; startTime: number; samples: number[]; timeDeltas: number[] };
+    };
+    const origin = await page.evaluate(() => performance.timeOrigin);
+    const marks = await page.evaluate(() => performance.getEntriesByType("mark").map((m) => [m.startTime, m.name]));
+    for (const node of profile.nodes) {
+      const { url: frameUrl, lineNumber, columnNumber, functionName } = node.callFrame;
+      const file = frameUrl.split("/").at(-1) ?? "";
+      (node as ProfileNode & { at?: string }).at =
+        frameUrl.startsWith("http") && file.endsWith(".js")
+          ? `${functionName || "(anon)"} @ ${mapper(file, lineNumber, columnNumber)}`
+          : functionName || "(native)";
+    }
+    fs.writeFileSync(process.env.PROFILE, JSON.stringify({ profile, origin, marks }));
+    console.log(`profile: ${process.env.PROFILE}`);
+    await context.close();
   }
 
   const timed = new Map<Mode, Load[]>(MODES.map((mode) => [mode, []]));
@@ -809,10 +940,15 @@ try {
     const fcp = loads.map((l) => l.probe.fcp);
     const hidden = loads.at(-1)!.hidden;
     console.log(
-      `${mode.padEnd(10)} ${fmt(median(first))} ${fmt(p95(first))} ${fmt(median(live))} ${fmt(median(fcp))}  ${(loads.at(-1)!.probe.via || "-").padEnd(5)} ${String(hidden.mounted).padStart(8)}/${String(hidden.visible).padEnd(8)} ${String(hidden.nodes).padStart(9)}`,
+      `${mode.padEnd(13)} ${fmt(median(first))} ${fmt(p95(first))} ${fmt(median(live))} ${fmt(median(fcp))}  ${(loads.at(-1)!.probe.via || "-").padEnd(5)} ${String(hidden.mounted).padStart(8)}/${String(hidden.visible).padEnd(8)} ${String(hidden.nodes).padStart(9)}`,
     );
-    perfRow({ name: `chat_floor.${mode}.first`, p50: median(first), p95: p95(first), samples: first });
-    perfRow({ name: `chat_floor.${mode}.live`, p50: median(live), p95: p95(live), samples: live });
+    perfRow({
+      name: `chat_floor.${mode.replace("@", "_at_")}.first`,
+      p50: median(first),
+      p95: p95(first),
+      samples: first,
+    });
+    perfRow({ name: `chat_floor.${mode.replace("@", "_at_")}.live`, p50: median(live), p95: p95(live), samples: live });
     json[mode] = { first, live, fcp, hidden };
   }
   const stageLine = (label: string, rows: Stages[]) => {
