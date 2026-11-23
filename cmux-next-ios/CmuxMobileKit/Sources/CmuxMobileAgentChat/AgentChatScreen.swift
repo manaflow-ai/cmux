@@ -263,6 +263,16 @@ public final class AgentChatSurface {
     /// (the transcript's inset follows it in the same frame).
     @ObservationIgnored var stackHeightFrame: ((CGFloat) -> Void)?
     @ObservationIgnored var drawnStackHeight: CGFloat?
+    /// The spring the bottom stack's current height change rides; the transcript's inset
+    /// takes the same one so the two move as one.
+    @ObservationIgnored var stackMotion: StackMotion = .smooth
+    enum StackMotion: String {
+        /// `.cmuxMobileSmooth` (0.35 s): collapse, expand, attachments, the queue.
+        case smooth
+        /// `ComposerLineMotion`: the draft gained or lost a line.
+        case line
+        var seconds: TimeInterval { self == .line ? ComposerLineMotion.seconds : 0.35 }
+    }
     /// Rows the person opened or closed (the transcript's cells are reused).
     let disclosures = ChatDisclosures()
 
@@ -725,7 +735,7 @@ struct AgentChatConnectionLine: View {
     var body: some View {
         Group {
             if let line = store.connectionLine {
-                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
@@ -895,10 +905,17 @@ public struct AgentChatBottomStack: View {
                 surface.bottomStackTop = frame.minY
                 if surface.stackHeight != frame.height { surface.stackHeight = frame.height }
                 if surface.stackMaxY != frame.maxY { surface.stackMaxY = frame.maxY }
+                // A line the draft gained or lost moves on the line motion, field and
+                // transcript together; the stack's other changes on `.cmuxMobileSmooth`.
+                let lineMotion = store.lineMotionPending && reportedHeight != frame.height
+                if reportedHeight != frame.height { store.lineMotionPending = false }
                 if reportedHeight != frame.height {
-                    // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
-                    // the reporter below hands the transcript every frame.
-                    let spring = Animation.cmuxMobileSmooth.unlessReduceMotion
+                    // Interpolated on the composer's spring (`.cmuxMobileSmooth`, or
+                    // `ComposerLineMotion` for a line): the reporter below hands the
+                    // transcript every frame, and the transcript's own spring takes the
+                    // same length (`surface.stackMotion`).
+                    let spring = (lineMotion ? ComposerLineMotion.animation : Animation.cmuxMobileSmooth).unlessReduceMotion
+                    surface.stackMotion = lineMotion ? .line : .smooth
                     if reportedHeight == 0 || store.placeBottomStackInstantly || spring == nil {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height

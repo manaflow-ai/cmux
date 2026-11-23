@@ -135,6 +135,9 @@ struct KeyBarScrollerKey: View {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
                 // It draws its own cap: no glass over it (`PasteKeyCap`).
                 PasteKeyCap(model: model)
+                    // A paste control's colours are fixed when it is made (writing them later throws),
+                    // so a new Mac theme makes a new control.
+                    .id(PasteKeyCap.ThemeKey(palette: CmuxMobileMacTheme.shared.palette))
                     .frame(width: TerminalDockMetrics.minKeyWidth, height: TerminalDockMetrics.keyRowHeight)
                     .clipShape(RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
             } else {
@@ -310,10 +313,12 @@ struct PasteKeyCap: UIViewRepresentable {
 
     func updateUIView(_ control: UIPasteControl, context: Context) {
         if control.target == nil { control.target = model.controller?.surface }
-        // The Mac's theme can change while the key row is up (read here, so SwiftUI updates it).
-        _ = CmuxMobileMacTheme.shared.palette
-        control.configuration.baseBackgroundColor = KeyRowGlass.pasteBackground
-        control.configuration.baseForegroundColor = KeyRowGlass.pasteForeground
+    }
+
+    /// The Mac theme the control was made in: its `.id`, so a theme change makes a new control.
+    struct ThemeKey: Hashable {
+        let palette: CmuxMobileMacPalette?
+        func hash(into hasher: inout Hasher) {}
     }
 }
 #endif

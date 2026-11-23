@@ -36,6 +36,8 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/ShellModel.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/SidebarContainer.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/TerminalChipPage.swift	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalComposer.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalJumpToBottomRow.swift	1
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Composer/TerminalLastSentStrip.swift	4
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/Ghostty/CmuxMobileGhosttyApp.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/Joystick.swift	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTerminal/KeyBar/KeyBarGallery.swift	2
@@ -54,5 +56,5 @@ cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerScreen.swif
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TaskComposerSheets.swift	2
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift	1
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspaceTabsSource+GroupsScreens.swift	2
-cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspaceTabsSource.swift	2
+cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspaceTabsSource.swift	3
 cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/WorkspacesList.swift	2
