@@ -176,8 +176,12 @@ fn label_matches(pattern: &str, label: &str) -> bool {
     fn glob(pattern: &[u8], label: &[u8]) -> bool {
         match pattern.split_first() {
             None => label.is_empty(),
-            Some((b'*', rest)) => (1..=label.len()).any(|at| glob(rest, &label[at..])),
-            Some((c, rest)) => label.first() == Some(c) && glob(rest, &label[1..]),
+            Some((b'*', rest)) => {
+                (1..=label.len()).any(|at| label.get(at..).is_some_and(|tail| glob(rest, tail)))
+            }
+            Some((c, rest)) => {
+                label.split_first().is_some_and(|(first, tail)| first == c && glob(rest, tail))
+            }
         }
     }
     glob(pattern.as_bytes(), label.as_bytes())
