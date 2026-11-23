@@ -8,7 +8,7 @@ the sibling panes, terminal, tabs, and palette packs.
 ## Install and preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/pane-operations@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/pane-operations@feat-cmux-next
 ```
 
 Remove this layer with `cmux setup remove manaflow-ai/rex-pane-operations`.

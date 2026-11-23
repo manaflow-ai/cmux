@@ -6,7 +6,7 @@
 #
 #   cmux-ci run --class exclusive --label measure --script scripts/measure/ios-network-conditions.sh \
 #     --ref SHA [--arg before=SHA] [--arg n=5] [--arg profiles=lte,elevator-30s] \
-#     [--arg surfaces=terminal,chat] [--arg scales=1x,10x,100x] [--arg seed=0] \
+#     [--arg surfaces=terminal,chat] [--arg scales=1x,10x,100x] [--arg seed=0] [--arg relay=relay-80] \
 #     --artifact .build/ios-network-conditions/report.json --timeout 7200
 #
 # Headless leg (Linux or Mac, no simulator): real daemons behind cmux-fault's seeded link shaper
@@ -16,6 +16,9 @@
 #     the phone's `daemon` service requests: set-client-info, identify, attach-surface, send);
 #   chat: cmux-tui/crates/acpmux/tests/mobile_link_conditions.rs (the real acpmux, the phone's
 #     `acpmux` service requests: _acpmux/watch, _acpmux/attach, afterSeq on reconnect).
+# relay=NAME measures a Cloud machine as the peer: that link profile is a second shaped hop behind
+# the phone's link (the relay between the signed-in Mac and the machine), and rows read
+# `lte@1+relay-80@1`. Without it the peer is the Mac.
 # Each prints NETCOND lines; ios-network-conditions-report.py makes report.json (profile x surface
 # x phase x scale x metric: p50, p95, n) and report.md (the table a PR body pastes, with a before
 # column and the change when before= is given).
@@ -39,7 +42,7 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0
+before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay=""
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -51,7 +54,8 @@ for kv in "$@"; do
     surfaces=*) surfaces="${kv#*=}" ;;
     scales=*) scales="${kv#*=}" ;;
     seed=*) seed="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=)" >&2; exit 2 ;;
+    relay=*) relay="${kv#*=}" ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
@@ -63,6 +67,7 @@ done
 [[ "$surfaces" =~ ^(terminal|chat)(,(terminal|chat))?$ ]] || { echo "ios-network-conditions.sh: surfaces=terminal,chat" >&2; exit 2; }
 [[ "$scales" =~ ^[0-9]+x(,[0-9]+x)*$ ]] || { echo "ios-network-conditions.sh: scales=1x,10x,100x" >&2; exit 2; }
 [[ -z "$profiles" || "$profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: profiles=NAME,..." >&2; exit 2; }
+[[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
 
 export GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=120
 root="$(git rev-parse --show-toplevel)"
@@ -132,13 +137,13 @@ bench() {
     echo "NETCOND-SKIP $label $surface: no bench file at this ref"; return 0; }
   log="$work/$label-$surface.log"
   local locked=(--locked)
-  [[ "$tree" != "$root" && -n "${overlaid[$label]:-}" ]] && locked=()
+  [[ "$tree" != "$root" && "$overlaid" == *" $label "* ]] && locked=()
   local filter=()
   [[ "$mode" == duress && "$surface" == terminal ]] && filter=(--exact open_path_under_duress)
   [[ "$mode" == links && "$surface" == terminal ]] && filter=(--exact terminal_attach_under_link_profiles)
   # One target directory for every leg: the dependencies build once.
   (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target" \
-    NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" \
+    NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \
     NETCOND_DURESS_PROFILES="$duress_profiles" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
@@ -156,7 +161,9 @@ bench() {
 : >"$work/lines.txt"
 status=0
 IFS=, read -r -a surface_list <<<"$surfaces"
-declare -A overlaid=()
+# Labels whose tree got this checkout's harness files, space-separated: a plain string, since macOS
+# runs /bin/bash 3.2, which has no associative arrays (declare -A).
+overlaid=" "
 cleanup=()
 trap 'for tree in ${cleanup[@]+"${cleanup[@]}"}; do git -C "$root" worktree remove --force "$tree" 2>/dev/null || true; done' EXIT
 # checkout LABEL SHA: the ref's tree at $work/LABEL-src, with this checkout's harness files laid over
@@ -170,9 +177,9 @@ checkout() {
   git -C "$tree" submodule update --init --depth 1 ghostty-next >/dev/null
   for file in "${harness_files[@]}"; do
     [[ -f "$root/$file" ]] || continue
-    cmp -s "$root/$file" "$tree/$file" || overlaid[$label]=1
+    cmp -s "$root/$file" "$tree/$file" || { [[ "$overlaid" == *" $label "* ]] || overlaid+="$label "; }
   done
-  if [[ -n "${overlaid[$label]:-}" ]]; then
+  if [[ "$overlaid" == *" $label "* ]]; then
     overlay "$tree"
     echo "NETCOND-OVERLAY $label=$sha: the harness files of $(git rev-parse HEAD) laid over it"
   fi
