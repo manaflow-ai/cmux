@@ -241,6 +241,13 @@ none" >/dev/null; then
   while ((status != 0)); do
     held="$(grep . "$work/held" || true)"
     if [[ -z "$held" ]]; then
+      if ((status == 75)); then
+        # A base that keeps moving is no red: every push to it starts a run (cancel-in-progress: false keeps
+        # the newest pending one), and that run repairs these (Leo, 2026-11-20: "WHY IS LINT EVEN STOPPING
+        # SHIT INSTEAD OF JUST BEING OOPS").
+        echo "$branch kept moving under every push; the run its newest push started repairs it."
+        exit 0
+      fi
       exit "$status"  # not a hold: a rejected push, a conflict, an unreadable history
     fi
     git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
@@ -281,9 +288,10 @@ none" >/dev/null; then
       exit "$status"
     fi
     if ((round >= rounds)); then
-      echo "::error::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
+      # No red: the run the newest of those pushes started repairs them.
+      echo "::warning title=Base autofix::$branch kept moving the inputs of these through $rounds rounds; the next run repairs them:" >&2
       printf '%s' "$again" | sed 's/^/  /' >&2
-      exit 1
+      exit 0
     fi
     round=$((round + 1))
     echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"

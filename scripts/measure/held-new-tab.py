@@ -1073,7 +1073,9 @@ def take_row(opts, samplers):
     seen = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq")
     first = bluetoothd()
     fresh = bool(STRESS.wait(lambda: bluetoothd() != first, 12, step=0.05))
-    time.sleep(0.8)  # test script: the stall of a bluetoothd start is over before this
+    # sleep-ok: the take's fixed phase in the host's ~10 s bluetoothd cycle (the header's 0.8 s lead; FRAMES_S is
+    # budgeted on it so the take ends before the next start), not a wait on a state
+    time.sleep(0.8)
     # The window that has the keys now (KEY WINDOW): the app takes the word, with no key, before the frames start.
     word, early = key_window_ready(rpc, opts.pane) if opts.launch_form == "activate" else (None, None)
     first, start = bluetoothd(), time.time()
@@ -1109,7 +1111,7 @@ def take_row(opts, samplers):
     if sent.get("error") or "base_s" not in sent:
         record["errors"].append(f"keys: {sent}")
     duration, began = float(sent.get("duration_ms") or 0) / 1000, time.monotonic()
-    time.sleep(duration)  # test script: the sequence's own schedule, not a settle
+    time.sleep(duration)  # sleep-ok: the key sequence's own schedule (its duration_ms), the sender's calls joined next
     for call in sent.get("calls") or []:
         call.join(opts.deadline)  # the sender's end: a late call must not leave a key for after the frames
     calls = key_calls(sent, opts.launch_form)
@@ -1419,7 +1421,7 @@ def preflight(app, st, out, film, form, display):
           f"key_window={focus.get('key_window') or 'none'} display={display}", flush=True)
     name = "frames"
     rpc("debug.frames", {"action": "start"})
-    time.sleep(1.0)  # test script: 1 s of the app's display link, the rate that the display has for this app
+    time.sleep(1.0)  # sleep-ok: a 1 s window of the app's display link, the measured frame rate
     link = rpc("debug.frames", {"action": "stop"})
     link = link if isinstance(link, dict) else {}
     if not link.get("frames"):
