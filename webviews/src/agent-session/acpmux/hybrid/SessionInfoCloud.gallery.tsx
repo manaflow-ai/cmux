@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample machine, folder and chat names), not shipped UI.
 //
-// Session Info's cloud controls and the sidebar mark (RFD 0075). Leo, 2026-11-23: "especially in
+// Session Info's cloud controls and the sidebar mark (RFD 0078). Leo, 2026-11-23: "especially in
 // the session info. remote control LITERALLY DOES NOTHING ... we can replace that area with our
 // cloud... paradigms", and "a slight mark or something sweet and unobtrusive but informative in the
 // sidebar". The Environment list is the real one, with the cloud rows where Remote Control was.

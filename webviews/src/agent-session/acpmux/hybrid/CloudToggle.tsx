@@ -1,4 +1,4 @@
-// The cloud button (RFD 0075, Leo 2026-11-23: "a toggleable cloud button, maybe a rainbow cloud
+// The cloud button (RFD 0078, Leo 2026-11-23: "a toggleable cloud button, maybe a rainbow cloud
 // symbol..... that is dull when not toggled on, and when you toggle it on it becomes a rainbow or
 // some hilariously satisfying toggle-on"). One per chat. Off, the chat is Auto: it runs on this Mac
 // and pauses when the Mac goes away. On, it is high priority: it holds one of the plan's slots and

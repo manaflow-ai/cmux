@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample folders, models and prompts), not shipped UI.
 //
-// The cloud button by the composer (CloudToggle.tsx, RFD 0075). Leo, 2026-11-23: "somewhere in
+// The cloud button by the composer (CloudToggle.tsx, RFD 0078). Leo, 2026-11-23: "somewhere in
 // the composer area, either below it or slightly above it both in a chat and in the new tab page".
 // Four placements (a chat or the New Tab page; the strip above the box or the quiet row under it),
 // each in the three on-looks, plus off and waiting. The stage is a composer drawn from the real

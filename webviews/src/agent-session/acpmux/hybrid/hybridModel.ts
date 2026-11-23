@@ -1,4 +1,4 @@
-// A hybrid chat's cloud state as the page draws it (RFD 0075). The rules (who holds a slot, who
+// A hybrid chat's cloud state as the page draws it (RFD 0078). The rules (who holds a slot, who
 // waits, what moves when the computer goes away) are Rust's: cmux-cloud-start-core `moves/priority.rs`
 // computes this view and the page only reads it.
 
