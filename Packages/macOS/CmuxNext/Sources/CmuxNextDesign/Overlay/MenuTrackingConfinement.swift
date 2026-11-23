@@ -12,12 +12,14 @@ private nonisolated final class MenuTrackingConfinement: NSObject, NSMenuDelegat
         self.bounds = bounds
     }
 
-    override func responds(to selector: Selector!) -> Bool {
-        super.responds(to: selector) || original?.responds(to: selector) == true
+    override func responds(to selector: Selector?) -> Bool {
+        guard let selector else { return false }
+        return super.responds(to: selector) || original?.responds(to: selector) == true
     }
 
-    override func forwardingTarget(for selector: Selector!) -> Any? {
-        original?.responds(to: selector) == true ? original : super.forwardingTarget(for: selector)
+    override func forwardingTarget(for selector: Selector?) -> Any? {
+        guard let selector else { return nil }
+        return original?.responds(to: selector) == true ? original : super.forwardingTarget(for: selector)
     }
 
     @MainActor
