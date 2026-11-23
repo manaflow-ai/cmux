@@ -476,6 +476,8 @@ export function NewTabPage({
       case "open":
         return make("browser", row.text);
       case "ask":
+        // An Ask row's press is its own gesture: held for Computer Use here, as Return is in `submit`.
+        if (holdsSend?.(row.text.trim())) return;
         return make("agent", row.text, projectCwd);
     }
   };

@@ -8084,6 +8084,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const start = (folder?: string) =>
       void (async () => {
         if (!isCurrent()) return;
+        // Asked again once the folder is confirmed: Computer Use may have stopped meanwhile (holds, says why).
+        if (
+          text &&
+          holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here", false)
+        )
+          return;
         // A chat on another machine starts only with a send (cx-k21v): with no text, the folder
         // waits for the first send.
         if (folder && !text && directClient.current?.startsOnSend) {

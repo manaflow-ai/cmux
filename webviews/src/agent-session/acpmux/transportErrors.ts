@@ -12,6 +12,8 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.intent_invalid": "transport.intentInvalid",
   "transport.mode_not_confirmed": "transport.modeNotConfirmed",
   "transport.full_access_off": "transport.fullAccessOff",
+  // acpmux held a prompt naming `@computer-use` while Computer Use is not ready (CMUX-682).
+  "transport.computer_use_not_ready": "computerUseSetup.title",
 };
 
 // acpmux's own refusals (`data.reason`, which direct.ts copies to `error.reason`) that read the
@@ -21,6 +23,7 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
 const DAEMON_REASON_CODE: Record<string, string> = {
   full_access_off: "transport.full_access_off",
   "permission.person_required": "transport.person_required",
+  "computer_use.not_ready": "transport.computer_use_not_ready",
 };
 
 function refusalCode(error: unknown): unknown {

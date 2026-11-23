@@ -1704,7 +1704,23 @@ export function paneSnapshotEffect({
           client.answerHeld(String(promptId), true, typeof revision === "number" ? revision : 0),
         "chat.queue.decline": ({ promptId }) => client.answerHeld(String(promptId), false),
         "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
-        "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
+        // The transcript's queue controls (Send Now, an edit): held as the composer's are (CMUX-682), on
+        // the text this page has; acpmux holds the stored prompt itself too (`computer_use.not_ready`).
+        "chat.queue.edit": ({ promptId, ...edit }) => {
+          const change = edit as QueueEdit;
+          const queued =
+            change.op === "update"
+              ? change.text
+              : change.op === "send_now"
+                ? trustRouteSnapshot.current?.queue.find((entry) => entry.id === String(promptId))?.prompt
+                : undefined;
+          const place = chatPlace(client);
+          if (queued && computerUseGate(queued, computerUseState(), place) !== "free") {
+            holdsForComputerUseSetupRef.current(queued, false, place);
+            return Promise.resolve(false);
+          }
+          return client.editQueued(String(promptId), change);
+        },
         "chat.secret": ({ secretId, value }) =>
           client.secret(String(secretId), typeof value === "string" ? value : undefined),
         "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
@@ -2330,9 +2346,13 @@ export function paneSnapshotEffect({
           if (!text && !files.length) return;
           // Asked again once the fork is open (CMUX-682): Computer Use may have stopped meanwhile. The
           // composer keeps `/side <prompt>` and its files, the side chat opens empty, and the chat says why.
+          // The Enter's ticket first, so a hold found after its wait still reaches the composer.
+          const ticket = held ? await held.ticket : undefined;
           const lateHold = text ? client.sendHold?.(text) : undefined;
           if (lateHold) throw new CmuxCommandRefused(lateHold);
-          void client.promptSide(sessionId, text, files, held).catch(sidePromptRefused);
+          void client
+            .promptSide(sessionId, text, files, held ? { ...held, ticket: Promise.resolve(ticket) } : undefined)
+            .catch(sidePromptRefused);
         },
         // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
         // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,

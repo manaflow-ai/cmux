@@ -664,3 +664,33 @@ test("a held @computer-use send binds no gesture and never goes, even with a scr
   expect(sent).toHaveLength(0);
   expect(composer.current!.draftText()).toContain("@computer-use");
 });
+
+// CMUX-682: a send that waited for its screenshot asks the Computer Use hold again when it resumes, as a
+// late check: by then the person may have pressed other keys, so it may only hold and say why, never
+// open setup with one of them.
+test("a send resumed after its screenshot asks the hold again as a late check", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const asked: [string, boolean][] = [];
+  let ready = true;
+  const composer = await openComposer(sent, "chat-a", {
+    holdsSend: (text, late) => {
+      asked.push([text, late === true]);
+      return !ready && text.includes("@computer-use");
+    },
+  });
+  const shot = slowScreenshot();
+  await paste([shot.file]);
+  act(() => composer.current!.restore("open Notes with @computer-use", [], true));
+  act(() => {
+    composer.current!.send();
+  });
+  // Computer Use stops while the screenshot is still being read.
+  ready = false;
+  shot.release();
+  await until(() => asked.length >= 2, "the resumed send's check");
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(asked.map(([, late]) => late)).toEqual([false, true]);
+  expect(sent).toHaveLength(0);
+});

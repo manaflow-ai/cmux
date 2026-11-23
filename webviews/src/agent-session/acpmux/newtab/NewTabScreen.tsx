@@ -1,4 +1,5 @@
 import { SignInContext, useSignIn } from "../signIn";
+import { runResumed } from "../composer/resumedSend";
 import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth, authLoginText, authParty } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
@@ -135,7 +136,7 @@ import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
-import { markdownOffset, mentionQuery } from "../mentionMenuModel";
+import { mentionQuery } from "../mentionMenuModel";
 import { toolMentionsIn } from "../toolMentions";
 import {
   applyCommand,
@@ -208,7 +209,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// said why. Asked on the Return, Cmd-Return or Ask row's own key press or click, before anything
   /// waits (files being read, the handshake) or makes something (a project, a worktree), so that
   /// gesture still opens the setup window and the prompt stays (CMUX-682).
-  holdsSend?(text: string, place: ComputerUsePlace): boolean;
+  /// `late`: the send resumed after a wait (files read, dictation ended, setup done): hold and say why only.
+  holdsSend?(text: string, place: ComputerUsePlace, late?: boolean): boolean;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
@@ -465,8 +467,10 @@ export function NewTabScreen(props: Props) {
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
   const [commandArrowedAt, setCommandArrowedAt] = useState<string>();
-  /// The caret in the prompt's shown text (MarkdownField onChange/onCaret), for the `@word` it is in; unknown: the end.
-  const [promptCaret, setPromptCaret] = useState<number>();
+  /// The `@word` the prompt's caret is in, read in the caret's own line of the field (MarkdownField
+  /// `mentionWord`, any paragraph), and the draft it was read on. Another draft (one set from outside,
+  /// or none read yet): the word the text ends in.
+  const [promptMention, setPromptMention] = useState<{ text: string; query: string | undefined }>();
   const [commandDismissed, setCommandDismissed] = useState<string>();
   /// The `/word` the field's caret ends (MarkdownField `onSlash`), as in the chat composer.
   const [commandTrigger, setCommandTrigger] = useState<SlashTrigger>();
@@ -695,12 +699,16 @@ export function NewTabScreen(props: Props) {
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
   /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
   /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
+  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend`).
+  const sendResuming = useRef(false);
+  const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
   const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
   // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
   // again on each key. `onSetup` is read when it runs.
   const onSetup = useRef(props.onSetup);
   const openSetup = useCallback((empty = false) => {
-    if (onSetup.current) onSetup.current((agent) => continueAfterSetup.current(agent, undefined, empty === true));
+    if (onSetup.current)
+      onSetup.current((agent) => resumeSend(() => continueAfterSetup.current(agent, undefined, empty === true)));
     else openHarnessesPage();
   }, []);
   const wholeSelection = useRef(false);
@@ -993,7 +1001,7 @@ export function NewTabScreen(props: Props) {
       : (props.runMode?.mode === "sandboxed" && props.onSandbox) || remoteTarget || elsewhere.current
         ? "machine"
         : "here";
-  const holdsSend = (prompt: string) => props.holdsSend?.(prompt, computerUsePlace()) === true;
+  const holdsSend = (prompt: string) => props.holdsSend?.(prompt, computerUsePlace(), sendResuming.current) === true;
   // Match screenActions: an inherited tab folder is not the host's chat start folder.
   const localChatCwd = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
   const environmentCwd = environment?.kind === "local" ? (environment.folder ?? props.startCwd) : environment?.folder;
@@ -1045,8 +1053,15 @@ export function NewTabScreen(props: Props) {
   // An `@word` the text ends in lists the plugins, as Codex's @ does (Lucas 2026-11-21: "@ is for
   // plugins"): computer use, browser use (toolMentions.ts) and extension commands, every row that
   // writes its own text. In the same menu as `/`, never in the address rows below the field.
-  const atCaret = promptCaret === undefined ? text.length : Math.min(text.length, markdownOffset(text, promptCaret));
-  const atWord = shell || commandAt || profilePick ? undefined : mentionQuery(text, atCaret);
+  const fieldMention = promptMention?.text === text ? promptMention : undefined;
+  const atWord: { query: string; start?: number } | undefined =
+    shell || commandAt || profilePick
+      ? undefined
+      : fieldMention
+        ? fieldMention.query === undefined
+          ? undefined
+          : { query: fieldMention.query }
+        : mentionQuery(text, text.length);
   const atMatches = atWord ? matchCommands((snapshot.commands ?? []).filter(insertsText), atWord.query, false) : [];
   const atOpen = !slashOpen && atWord !== undefined && commandDismissed !== text && atMatches.length > 0;
   const commandsOpen = slashOpen || atOpen;
@@ -1065,16 +1080,13 @@ export function NewTabScreen(props: Props) {
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
-    // From the @ menu: its text over the `@word` the draft ends in.
+    // From the @ menu: its text over the whole `@word` at the caret (the letters after the caret
+    // too), the text around it kept, as one edit the field reports. The field keeps focus while the
+    // menu is open (a row's press never takes it), and its caret goes just after what the row wrote.
     if (atOpen && atWord && insertsText(command)) {
-      // Over the `@word` at the caret, the text after it kept.
-      setText(text.slice(0, atWord.start) + command.insert + text.slice(atCaret));
-      // The field keeps focus while the menu is open (a row's press never takes it): only the caret
-      // moves, to just after what the row wrote.
-      // The caret counts shown characters: the typed `@` and its word as shown (the query, unescaped).
-      const after =
-        promptCaret === undefined ? undefined : promptCaret - (1 + atWord.query.length) + command.insert.length;
-      requestAnimationFrame(() => field.current?.setCaret(after ?? field.current.plainText().length));
+      if (field.current?.insertMention(command.insert)) return;
+      // No editor yet: over the `@word` the draft ends in.
+      if (atWord.start !== undefined) setText(text.slice(0, atWord.start) + command.insert);
       return;
     }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -1533,7 +1545,9 @@ export function NewTabScreen(props: Props) {
     // A dictation session still running ends first, keeping its words; this goes once they land.
     if (listening && props.dictation && !dictationEnded.current) {
       // The session is over even if this render has not heard so yet.
-      props.dictation.finish(() => withDictationEnded(dictationEnded, () => submitNow.current(beside)));
+      props.dictation.finish(() =>
+        withDictationEnded(dictationEnded, () => resumeSend(() => submitNow.current(beside))),
+      );
       return;
     }
     // The profile search: Return opens the address in the highlighted profile (the first one).
@@ -1550,7 +1564,7 @@ export function NewTabScreen(props: Props) {
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
-    if (holdForAttachments(() => submitNow.current(beside))) return;
+    if (holdForAttachments(() => resumeSend(() => submitNow.current(beside)))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
@@ -1587,7 +1601,7 @@ export function NewTabScreen(props: Props) {
   const askNow = useRef(() => {});
   const askTyped = () => {
     if (listening && props.dictation && !dictationEnded.current) {
-      props.dictation.finish(() => withDictationEnded(dictationEnded, () => askNow.current()));
+      props.dictation.finish(() => withDictationEnded(dictationEnded, () => resumeSend(() => askNow.current())));
       return;
     }
     // Shell mode's field is a command: Cmd-Return runs it, as Return does.
@@ -1597,7 +1611,7 @@ export function NewTabScreen(props: Props) {
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     if (holdsSend(prompt)) return;
     if (pairingLinkRefused(typed)) return props.onOpen(prompt);
-    if (holdForAttachments(() => askNow.current())) return;
+    if (holdForAttachments(() => resumeSend(() => askNow.current()))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     if (!harness) {
       openSetup();
@@ -1648,7 +1662,8 @@ export function NewTabScreen(props: Props) {
   const continueAfterSetupNow = (agent: string, model?: string, empty = false): void => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent, model, empty)) || created.current) return;
+    if (holdForAttachments(() => resumeSend(() => continueAfterSetup.current(agent, model, empty))) || created.current)
+      return;
     created.current = true;
     const prompt = empty || shell ? "" : typed.trim();
     const asked = askChat(
@@ -2554,9 +2569,12 @@ export function NewTabScreen(props: Props) {
                 onBeforeInput={(data, state) =>
                   !shell && state.paste && !state.composing ? pastedChips.take(data) : false
                 }
-                onCaret={setPromptCaret}
-                onChange={(value, caret) => {
-                  setPromptCaret(caret);
+                onCaret={() => {
+                  const current = field.current;
+                  if (current) setPromptMention({ text: current.value(), query: current.mentionWord() });
+                }}
+                onChange={(value) => {
+                  setPromptMention({ text: value, query: field.current?.mentionWord() });
                   // The editor canonicalizes escaping while mounting; that is still the untouched
                   // location, not a typed draft or a reason to show suggestions or hold a web swap.
                   if (!fieldReady && field.current?.agentText(value) === originalLocation.current) {

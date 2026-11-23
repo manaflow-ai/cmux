@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { runResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
@@ -326,7 +327,9 @@ type Props = {
   /// `holdsForComputerUseSetup`), and the pane already opened setup or said why. Asked before anything
   /// binds the send's key press or click (a hold for files, a side chat), so that gesture still opens
   /// the setup page (CMUX-682).
-  holdsSend?(text: string): boolean;
+  /// `late`: the send resumed after a wait (files read or uploaded, dictation ended), whose key press
+  /// is long gone: hold and say why, never open setup (it would spend a key pressed since).
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -1630,6 +1633,9 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
+  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend` `late`).
+  const sendResuming = useRef(false);
+  const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
   const send = (force: boolean, steer = false, kept?: SendGesture, route?: "side"): boolean => {
@@ -1654,7 +1660,7 @@ function ComposerFrame({
     if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
       dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
-        holdFlag(dictationEnded, true, () => submitNow.current(force, steer, kept, route));
+        holdFlag(dictationEnded, true, () => resumeSend(() => submitNow.current(force, steer, kept, route)));
       });
       return true;
     }
@@ -1663,7 +1669,7 @@ function ComposerFrame({
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
     // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
-    if (holdsSend?.(draftText)) return false;
+    if (holdsSend?.(draftText, sendResuming.current)) return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -1712,7 +1718,7 @@ function ComposerFrame({
       // being read, and for the originals a too-large prompt goes with, as a send does.
       const sideFiles = owned.action === "side";
       if (sideFiles) {
-        const again = (gesture?: SendGesture) => submitNow.current(force, steer, gesture, route);
+        const again = (gesture?: SendGesture) => resumeSend(() => submitNow.current(force, steer, gesture, route));
         // Bound to no chat: one bound to this chat would not let its prompt go to the side chat.
         const bindSide = () => onBindSideGesture?.();
         if (holdForAttachments(again, kept, bindSide)) return false;
@@ -1834,12 +1840,12 @@ function ComposerFrame({
       return true;
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
+    if (holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
         awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id), {}, undefined, needsOriginal),
-        (gesture) => submitNow.current(force, steer, gesture),
+        (gesture) => resumeSend(() => submitNow.current(force, steer, gesture)),
         kept,
       )
     )
@@ -2690,7 +2696,7 @@ function ComposerFrame({
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
       // Held for Computer Use on this key press, before a wait for files reserves its gesture (CMUX-682).
       if (holdsSend?.(withoutDeadTokens(unwrapped()))) return;
-      if (!owned && holdForAttachments(sendAndOpen)) return;
+      if (!owned && holdForAttachments((gesture) => resumeSend(() => sendAndOpen(gesture)))) return;
       sendAndOpen();
       return;
     }

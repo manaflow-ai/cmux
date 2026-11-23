@@ -839,11 +839,14 @@ export function drawPaneBody({
                   // `@computer-use` held on the send's own gesture, before the page waits or starts anything (CMUX-682).
                   // A page whose chats start on another machine (an inherited remote workspace: the client starts
                   // them on the first send) is that machine's, whatever the screen's own pick says.
-                  holdsSend={(text, place) =>
+                  holdsSend={(text, place, late) =>
                     holdsForComputerUseSetup(
                       text,
                       true,
-                      place === "here" && directClient.current?.startsOnSend ? "machine" : place,
+                      place === "here" && (newTab.startsRemote || directClient.current?.startsOnSend)
+                        ? "machine"
+                        : place,
+                      !late,
                     )
                   }
                   onSetup={(resume) => {
@@ -1129,7 +1132,11 @@ export function drawPaneBody({
           ) : showNewTab ? (
             <NewTabPage
               holdsSend={(text) =>
-                holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here")
+                holdsForComputerUseSetup(
+                  text,
+                  true,
+                  newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                )
               }
               onCmuxCommand={(command, args) => handleCmuxCommand(command, args, true)}
               onImportFile={importFile}
@@ -1158,7 +1165,12 @@ export function drawPaneBody({
                 startChat: chatFromNewTab,
                 // After the page's own hold on Return (NewTabPage `holdsSend`) and its wait for files: holds and says why.
                 holdsSend: (text) =>
-                  holdsForComputerUseSetup(text, true, directClient.current?.startsOnSend ? "machine" : "here", false),
+                  holdsForComputerUseSetup(
+                    text,
+                    true,
+                    newTab.startsRemote || directClient.current?.startsOnSend ? "machine" : "here",
+                    false,
+                  ),
               })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={selectSession}

@@ -933,7 +933,7 @@ export function drawPaneComposer({
             transcriptFollowing={transcriptFollowing}
             // `@computer-use` held before the send binds its key press or click (CMUX-682), so that
             // gesture opens the setup page; onSend checks again for a send that waited for its files.
-            holdsSend={(text) => holdsForComputerUseSetup(text, false, sendPlace(text))}
+            holdsSend={(text, late) => holdsForComputerUseSetup(text, false, sendPlace(text), !late)}
             onSend={(text, chips, steer, gesture) => {
               // A Sandboxed new chat: the message runs once on a throwaway VM, through the
               // host, and the chat shows its receipt; no acpmux chat starts.
@@ -1348,6 +1348,12 @@ export function drawPaneComposer({
                         console.warn("agent pane: the side session did not start", error);
                         setBtwFailure({ sessionId, reason: knownRefusalText(error) ?? "" });
                       };
+                      // Asked again once the row left the queue (the removal awaited): it holds and says
+                      // why, and the text comes back to the composer.
+                      if (holdsForComputerUseSetup(prompt, false, computerUsePlace, false)) {
+                        composerHandle.current?.restore(prompt, []);
+                        return false;
+                      }
                       callNative<string>("chat.btw", { question: prompt }).then(
                         (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
                         (error: unknown) => {

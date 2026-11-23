@@ -870,6 +870,54 @@ test("an @ word opens the plugin menu (computer use, browser use) in place of th
   expect(names()).toEqual([]);
 });
 
+// The caret's `@word` is read in its own paragraph: the field's caret offset counted only the first
+// paragraph, so an @ further down opened nothing. A pick inside a word replaces the whole word.
+test("an @ word in a later paragraph opens the plugin menu, and a pick inside a word replaces all of it", async () => {
+  const snapshot = noChat([], { catalog: [], commands: toolSlashCommands((key) => key) });
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} snapshot={snapshot} />);
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  const field = await promptField();
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("first paragraph\n\nsecond paragraph @");
+  });
+  await settle();
+  expect(names()).toEqual(["mention.computerUse", "mention.browserUse"]);
+  await act(async () => {
+    field.acpmuxMarkdownField!.insertTyped("comp");
+  });
+  await settle();
+  expect(names()).toEqual(["mention.computerUse"]);
+  await press(field, "Enter");
+  await settle();
+  expect(promptValue()).toBe("first paragraph\nsecond paragraph @computer-use ");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+
+  // The caret inside `@brow|ser-use`: the menu reads the letters before it, and the pick writes over
+  // the whole word, its space taking the place of the one after it.
+  const draft = "ask @browser-use now";
+  await act(async () => {
+    field.acpmuxMarkdownField!.type(draft);
+  });
+  const inside = "ask @brow".length;
+  await act(async () => {
+    field.acpmuxMarkdownField!.writeText(draft, inside, inside);
+  });
+  await settle();
+  expect(names()).toEqual(["mention.browserUse"]);
+  await press(field, "Enter");
+  await settle();
+  expect(promptValue()).toBe("ask @browser-use now");
+  expect(field.acpmuxMarkdownField!.text().selectionStart).toBe("ask @browser-use ".length);
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+});
+
 test("a prompt that names a plugin lists only its Ask rows: no web search for it", async () => {
   await act(async () => {
     root!.render(
@@ -2482,50 +2530,134 @@ test("a Minimal page reads only the changed chat when another chat changes", asy
   expect(reads).toBeLessThan(400);
 });
 
+/// A pasted screenshot whose preparation (composer/imageWork.ts prepareImage: its header, then its
+/// decode) the test controls: the engine's decoder and canvas, which jsdom lacks, stand in, and the
+/// decode answers only on `release()`. Until then its chip is being read, so a send waits for it.
+function screenshotBeingRead() {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  // A PNG's signature and IHDR, 640x480 (read from its header before it is decoded), then filler.
+  const png = new Uint8Array([
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+    0,
+    0,
+    0,
+    0x0d,
+    0x49,
+    0x48,
+    0x44,
+    0x52,
+    0,
+    0,
+    2,
+    0x80,
+    0,
+    0,
+    1,
+    0xe0,
+    ...Array<number>(40).fill(7),
+  ]);
+  for (const key of ["createImageBitmap", "OffscreenCanvas"]) saved.set(key, scope[key]);
+  Object.assign(scope, {
+    createImageBitmap: async () => {
+      await gate;
+      return { width: 640, height: 480, close() {} };
+    },
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {}, fillRect() {}, fillStyle: "" };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob([png], { type });
+      }
+    },
+  });
+  const paste = async (field: MarkdownFieldElement) => {
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    const event = new dom!.window.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        files: [new dom!.window.File([png], "shot.png", { type: "image/png" })],
+        types: ["Files"],
+        getData: () => "",
+      },
+    });
+    await act(async () => void editor.dispatchEvent(event));
+    // Its header is read in later tasks; the decode still waits on the gate.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  };
+  /// The screenshot's chip while it is being read: a loading tile, in the text or in the strip.
+  const reading = () => container.querySelectorAll('[aria-busy="true"], .acpmux-attachment-pending').length > 0;
+  return { paste, reading, release };
+}
+
+const askingScreen = (asks: unknown[][], held: string[]) => (
+  <NewTabScreen
+    snapshot={noChat()}
+    onAsk={(...args) => void asks.push(args)}
+    holdsSend={(text) => {
+      held.push(text);
+      return text.includes("@computer-use");
+    }}
+    onOpen={() => {}}
+    onSearch={() => {}}
+    onShell={() => {}}
+    onJump={() => {}}
+    onOpenSession={() => {}}
+    onShowAll={() => {}}
+  />
+);
+
 // CMUX-682: a screenshot still being read makes Return wait for it; the Computer Use hold comes first,
 // on Return's own key press, so a slow read can never outlast the gesture that opens setup.
 test("Return holds @computer-use before it waits for a screenshot still being read", async () => {
   const asks: unknown[][] = [];
   const held: string[] = [];
-  await act(async () => {
-    root!.render(
-      <NewTabScreen
-        snapshot={noChat()}
-        onAsk={(...args) => void asks.push(args)}
-        holdsSend={(text) => {
-          held.push(text);
-          return text.includes("@computer-use");
-        }}
-        onOpen={() => {}}
-        onSearch={() => {}}
-        onShell={() => {}}
-        onJump={() => {}}
-        onOpenSession={() => {}}
-        onShowAll={() => {}}
-      />,
-    );
-  });
+  const screenshot = screenshotBeingRead();
+  await act(async () => root!.render(askingScreen(asks, held)));
   const field = await typePrompt("open Notes with @computer-use ");
-  // A screenshot whose bytes never come in this test: its chip stays "being read".
-  class Slow extends dom!.window.File {
-    override arrayBuffer(): Promise<ArrayBuffer> {
-      return new Promise(() => {});
-    }
-  }
-  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
-  const paste = new dom!.window.Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(paste, "clipboardData", {
-    value: {
-      files: [new Slow([new Uint8Array(64)], "shot.png", { type: "image/png" })],
-      types: ["Files"],
-      getData: () => "",
-    },
-  });
-  await act(async () => void editor.dispatchEvent(paste));
+  await screenshot.paste(field);
+  expect(screenshot.reading()).toBe(true);
   await press(field, "Enter");
   // Asked once, on this Return (the text holds the screenshot's place too), and nothing asked the agent.
   expect(held).toHaveLength(1);
   expect(held[0]).toStartWith("open Notes with @computer-use");
   expect(asks).toEqual([]);
   expect(promptValue()).toContain("@computer-use");
+  // The screenshot ready, the held prompt still asks nothing: the hold was the Return's answer.
+  await act(async () => screenshot.release());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toEqual([]);
+});
+
+// The control for the test above: the same screenshot under a prompt that names no plugin makes
+// Return wait for it, and the prompt goes once the screenshot is read.
+test("Return waits for a screenshot still being read, then asks", async () => {
+  const asks: unknown[][] = [];
+  const held: string[] = [];
+  const screenshot = screenshotBeingRead();
+  await act(async () => root!.render(askingScreen(asks, held)));
+  const field = await typePrompt("ls the notes folder");
+  await screenshot.paste(field);
+  expect(screenshot.reading()).toBe(true);
+  await press(field, "Escape");
+  await press(field, "Enter");
+  expect(asks).toEqual([]);
+  await act(async () => screenshot.release());
+  for (let turn = 0; turn < 50 && asks.length === 0; turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(screenshot.reading()).toBe(false);
+  expect(asks).toHaveLength(1);
+  expect(String(asks[0]![1])).toStartWith("ls the notes folder");
 });

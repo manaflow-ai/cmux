@@ -12325,11 +12325,11 @@ export class AcpmuxDirectClient {
     const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
     const carried = sendable.length ? fitPromptBudget(text, sendable, {}, promptBudgetFor(this.socket)) : sendable;
     const ticket = gesture ? await gesture.ticket : undefined;
-    // Asked again after the ticket wait (a `/side` prompt after its fork and the native open).
-    const hold = this.sendHold?.(text);
-    if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
-    await this.offerChildren.prompting(sessionId, () =>
-      this.request("session/prompt", {
+    await this.offerChildren.prompting(sessionId, () => {
+      // Asked right before the wire, after the ticket wait and the child attach (a `/side` prompt).
+      const hold = this.sendHold?.(text);
+      if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
+      return this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(text, carried),
         _meta: {
@@ -12340,8 +12340,8 @@ export class AcpmuxDirectClient {
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
-      }),
-    );
+      });
+    });
   }
   /// Binds the person's current gesture to `/side`'s prompt, held for its files: bound to no chat
   /// (the side chat it goes to does not exist yet), so the side chat's prompt redeems it by its
