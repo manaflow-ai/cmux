@@ -76,6 +76,13 @@ public final class MacTabsFeed {
     /// The grid's card size in pixels and the screen's, sent when a link comes up.
     public var viewport = TabsViewport(cardPixelWidth: 0, cardAspect: 0, displayScale: 0, screenPixelW: 0, screenPixelH: 0)
 
+    /// The viewport from plain values, for a caller that does not link the wire's types.
+    public func setViewport(cardPixelWidth: UInt32, cardAspect: Double, displayScale: Double,
+                            screenPixelW: UInt32, screenPixelH: UInt32) {
+        viewport = TabsViewport(cardPixelWidth: cardPixelWidth, cardAspect: cardAspect, displayScale: displayScale,
+                                screenPixelW: screenPixelW, screenPixelH: screenPixelH)
+    }
+
     private struct Session {
         let mirror: TabsMirror
         let outbox: AsyncStream<Data>.Continuation
