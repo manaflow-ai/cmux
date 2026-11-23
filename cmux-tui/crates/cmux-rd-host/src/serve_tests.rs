@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn the_answer_goes_at_the_first_host_candidate_not_after_stun_and_turn() {
+    use cmux_rd_link::net::CandidateKind;
+    let mut gate = AnswerGate::default();
+    assert!(!gate.due(), "nothing known yet");
+    gate.candidate(CandidateKind::Host);
+    assert!(gate.due(), "a host candidate is enough to answer");
+    // Reflexive, relayed and the end of gathering come later and trickle: no second answer.
+    gate.candidate(CandidateKind::ServerReflexive);
+    gate.candidate(CandidateKind::Relay);
+    gate.gathered();
+    assert!(!gate.due());
+    // Relay only: no host candidate, so the answer waits for gathering to end.
+    let mut relay_only = AnswerGate::default();
+    relay_only.candidate(CandidateKind::Relay);
+    assert!(!relay_only.due());
+    relay_only.gathered();
+    assert!(relay_only.due());
+}
+
+#[test]
 fn serve_preserves_frame_boundaries_before_the_link_connects() {
     let local = KeyPair::generate().unwrap();
     let peer = KeyPair::generate().unwrap();

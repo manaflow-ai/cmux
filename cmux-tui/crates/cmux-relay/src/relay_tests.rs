@@ -126,6 +126,7 @@ async fn open_client_control(
             lane: LaneToken(lane.into()),
             generation,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;
@@ -174,6 +175,7 @@ fn provider_ticket_expiring_at(
             generation,
             issued_at_unix,
             expires_at_unix,
+            grant: None,
         })
         .unwrap()
 }
@@ -204,6 +206,7 @@ async fn websocket_circuit_registers_pairs_and_forwards_opaque_binary() {
             lane: LaneToken("interactive".into()),
             generation: 7,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;
@@ -449,6 +452,7 @@ async fn hmac_provider_and_join_tickets_enforce_permission_lane_and_generation()
             lane: lane.clone(),
             generation,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;
@@ -642,6 +646,7 @@ async fn per_slot_control_socket_quota_prevents_global_capacity_capture() {
             lane: LaneToken("bulk".into()),
             generation: 1,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;
@@ -671,6 +676,7 @@ async fn per_slot_pending_circuit_quota_bounds_repeated_connect() {
             lane: LaneToken("bulk".into()),
             generation: 1,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;
@@ -701,6 +707,7 @@ async fn per_slot_sliding_rate_limit_bounds_repeated_connect() {
             lane: LaneToken("bulk".into()),
             generation: 1,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;
@@ -741,6 +748,7 @@ async fn connect_answer(server: &TestServer, config: &RelayConfig) -> RelayContr
             lane,
             generation: 1,
             accepts_parked: false,
+            grant: None,
         },
     )
     .await;

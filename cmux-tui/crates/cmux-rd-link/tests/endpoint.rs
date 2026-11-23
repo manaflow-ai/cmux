@@ -5,8 +5,9 @@
 //! learned.
 
 use cmux_rd_link::{
-    Endpoint, EndpointEvent, Event, HANDSHAKE_RETRY_US, HANDSHAKE_TIMEOUT_US, KeyPair, LinkError,
-    Role, Route, SIGNALING_TIMEOUT_US,
+    Endpoint, EndpointEvent, Event, HANDSHAKE_FIRST_RETRY_US, HANDSHAKE_RETRY_US,
+    HANDSHAKE_TIMEOUT_US, KeyPair, LinkError, Role, Route, SIGNALING_TIMEOUT_US,
+    handshake_retry_us,
 };
 use cmux_transport::PathKind;
 use std::net::SocketAddr;
@@ -148,7 +149,7 @@ fn control_flows_and_the_host_learns_the_viewers_route() {
 
 #[test]
 fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
-    for candidate_at in [1, HANDSHAKE_RETRY_US + 1] {
+    for candidate_at in [1, HANDSHAKE_FIRST_RETRY_US + 1] {
         let viewer_key = KeyPair::generate().unwrap();
         let host_key = KeyPair::generate().unwrap();
         let mut viewer =
@@ -158,10 +159,14 @@ fn an_initial_handshake_waits_for_a_candidate_instead_of_being_dropped() {
 
         // Signaling may supply the candidate before or after the first retry deadline.
         assert!(viewer.poll_transmit(0).unwrap().is_empty(), "there is no route yet");
-        assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US));
-        if candidate_at > HANDSHAKE_RETRY_US {
-            assert!(viewer.poll_transmit(HANDSHAKE_RETRY_US).unwrap().is_empty());
-            assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_RETRY_US * 2));
+        assert_eq!(viewer.next_deadline_us(), Some(HANDSHAKE_FIRST_RETRY_US));
+        if candidate_at > HANDSHAKE_FIRST_RETRY_US {
+            assert!(viewer.poll_transmit(HANDSHAKE_FIRST_RETRY_US).unwrap().is_empty());
+            // The retry gap doubles from the first one.
+            assert_eq!(
+                viewer.next_deadline_us(),
+                Some(HANDSHAKE_FIRST_RETRY_US + handshake_retry_us(1))
+            );
         }
         viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, candidate_at);
         let initial = viewer.poll_transmit(candidate_at).unwrap();
@@ -368,4 +373,39 @@ fn keep_awake_is_off_by_default() {
     pair.run(&lan, 3_000);
     let (_, host) = quiet_gaps(&mut pair, &lan, 2_000);
     assert!(host.0 >= 100_000, "the host kept sending without keep-awake: {host:?}");
+}
+
+#[test]
+fn a_candidate_trickled_after_the_first_handshake_is_tried_without_waiting_for_a_retry() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"trickle", &viewer_key, host_key.public, 0).unwrap();
+    let mut host =
+        Endpoint::new(Role::Responder, b"trickle", &host_key, viewer_key.public, 0).unwrap();
+
+    // The answer's first candidate does not deliver; message 1 goes out on it and is lost.
+    viewer.add_path(Route::Udp(addr(HOST_WAN)), PathKind::DirectWan, 0);
+    assert_eq!(viewer.poll_transmit(0).unwrap().len(), 1);
+    // The working one trickles in 20 ms later, well before the 250 ms retry.
+    let at = 20_000;
+    assert!(at < HANDSHAKE_RETRY_US);
+    viewer.add_path(Route::Udp(addr(HOST_LAN)), PathKind::DirectLan, at);
+    let sent = viewer.poll_transmit(at).unwrap();
+    assert_eq!(
+        sent.iter().map(|t| t.route).collect::<Vec<_>>(),
+        vec![Route::Udp(addr(HOST_LAN))],
+        "only the new route gets the message in flight"
+    );
+    host.on_packet(Route::Udp(addr(VIEWER_WAN)), &sent[0].packet, at).unwrap();
+    for t in host.poll_transmit(at).unwrap() {
+        viewer.on_packet(Route::Udp(addr(HOST_LAN)), &t.packet, at).unwrap();
+    }
+    for t in viewer.poll_transmit(at).unwrap() {
+        host.on_packet(Route::Udp(addr(VIEWER_WAN)), &t.packet, at).unwrap();
+    }
+    assert!(viewer.link().is_established() && host.link().is_established());
+    // A later poll does not send it again.
+    let viewer_again = viewer.poll_transmit(at + 10_000).unwrap();
+    assert!(viewer_again.iter().all(|t| t.packet.first() != sent[0].packet.first()));
 }
