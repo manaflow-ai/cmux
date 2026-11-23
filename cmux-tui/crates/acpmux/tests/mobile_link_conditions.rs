@@ -49,7 +49,7 @@ use cmux_fault::shaper::{Disruption, LinkProfile, ProfileFile, Shaper};
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -135,6 +135,10 @@ struct Link {
     /// Every inbound frame with its arrival: `None` for a ping or pong.
     rx: mpsc::UnboundedReceiver<(Instant, Option<Value>)>,
     pending: VecDeque<(Instant, Value)>,
+    /// Answers that came while another was awaited: the daemon runs a connection's requests at
+    /// once, so a pipelined `_acpmux/watch` may be answered before `initialize` (the app's
+    /// `AcpmuxConnection` keeps them by id too, its `answered`).
+    answered: HashMap<i64, (Instant, Value)>,
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
@@ -181,6 +185,7 @@ impl Link {
             sink,
             rx,
             pending: VecDeque::new(),
+            answered: HashMap::new(),
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
@@ -226,25 +231,36 @@ impl Link {
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) if v.get("method").is_some() => return Next::Frame(at, v),
-                Next::Frame(..) => continue,
+                // An answer on the way waits for its `answer` read.
+                Next::Frame(at, v) => {
+                    if let Some(id) = v.get("id").and_then(Value::as_i64) {
+                        self.answered.insert(id, (at, v));
+                    }
+                }
                 other => return other,
             }
         }
     }
 
-    /// The answer to `id` and when it came; notifications on the way wait in `pending`.
+    /// The answer to `id` and when it came; notifications on the way wait in `pending`, and
+    /// answers to other requests in `answered`.
     async fn answer(&mut self, id: i64, deadline: Instant) -> Result<(Instant, Value), String> {
+        let answered = |at: Instant, v: Value| match v.get("error") {
+            Some(e) => Err(format!("request {id}: {e}")),
+            None => Ok((at, v["result"].clone())),
+        };
+        if let Some((at, v)) = self.answered.remove(&id) {
+            return answered(at, v);
+        }
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) => {
-                    if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
-                        if let Some(e) = v.get("error") {
-                            return Err(format!("request {id}: {e}"));
-                        }
-                        return Ok((at, v["result"].clone()));
-                    }
                     if v.get("method").is_some() {
                         self.pending.push_back((at, v));
+                    } else if v.get("id") == Some(&json!(id)) {
+                        return answered(at, v);
+                    } else if let Some(other) = v.get("id").and_then(Value::as_i64) {
+                        self.answered.insert(other, (at, v));
                     }
                 }
                 Next::Silent => return Err(format!("no answer to request {id} in time")),
@@ -645,6 +661,50 @@ async fn reconnect(
     }
     // The stream's turn ends before the next run.
     let _ = control.answer(turn, BOUND).await;
+}
+
+/// The daemon runs a connection's requests at once, so the pipelined `_acpmux/watch` may be
+/// answered before `initialize` (on a loss-free link, about 1 open in 60 of the bench's). The
+/// open reads that order too: it dropped the early watch answer and waited its whole bound for
+/// it, a `no answer to request 2` that was never the daemon's. Held: `initialize` runs only
+/// once the watch answer is queued and the pump had time to send it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_open_whose_watch_is_answered_before_initialize_opens() {
+    let _ = HERMETIC;
+    let scratch = daemon_env::Scratch::new("netcond-order");
+    let hub = hub(&scratch.path().join("home"));
+    let queued = Arc::new(tokio::sync::Semaphore::new(0));
+    let watch_first = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (q, first) = (queued.clone(), watch_first.clone());
+    hub.hold_requests_for_tests(Arc::new(move |stage, m: &str, _: &Value| {
+        let (q, first) = (q.clone(), first.clone());
+        let m = m.to_owned();
+        Box::pin(async move {
+            use acpmux::hub::RequestStage;
+            use std::sync::atomic::Ordering;
+            if stage == RequestStage::ListQueued && m == method::MUX_WATCH {
+                q.add_permits(1);
+            } else if stage == RequestStage::Dispatch && m == method::INITIALIZE {
+                let got = tokio::time::timeout(Duration::from_secs(10), q.acquire()).await;
+                first.store(matches!(got, Ok(Ok(_))), Ordering::SeqCst);
+                // The pump takes a read lane's answer (initialize's) ahead of queued bulk
+                // lines: the watch answer leaves the queue first.
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+        })
+    }));
+    let listener = app_ws::listen(&hub).await;
+    let addr: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let link = Link::open(addr, &listener.token, deadline).await;
+    assert!(
+        watch_first.load(std::sync::atomic::Ordering::SeqCst),
+        "the watch answer was not queued before initialize ran"
+    );
+    if let Err(e) = link {
+        panic!("an open whose watch was answered first: {e}");
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
