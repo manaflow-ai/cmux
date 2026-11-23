@@ -28,6 +28,7 @@ import {
   percentile,
   profileLinks,
   programInstallCommand,
+  storeStepTimeoutMs,
   readInputsLock,
   rolesManifest,
   sbomComponentCounts,
@@ -620,5 +621,17 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     expect(problemsOf(withRd({ checksumsUrl: undefined, checksumsName: undefined })).some((p) => p.startsWith(`programs[${at}].checksumsUrl: must be`))).toBe(true);
     expect(problemsOf(withRd({ roles: ["cua"] }))).toContain(`programs[${at}].roles: cmux-rd is in the desktop role`);
     expect(problemsOf(withRd({ firstUse: true })).some((p) => p.includes("cmux-rd is baked"))).toBe(true);
+  });
+});
+
+describe("store download budget", () => {
+  test("every baked program gets 5 minutes plus its size at 256 KiB/s, so codex no longer fails a roll on a slow link", () => {
+    expect(storeStepTimeoutMs({ size: 1 })).toBe(301_000);
+    expect(storeStepTimeoutMs({ size: 256 * 1024 * 100 })).toBe(400_000);
+    const lock = readInputsLock();
+    const codex = bakedPrograms(lock).find((p) => p.name === "codex")!;
+    // codex took over 300 s in rolls 45113664312 and 45114694294; its budget now covers ~0.25 MB/s.
+    expect(storeStepTimeoutMs(codex)).toBeGreaterThan(700_000);
+    for (const p of bakedPrograms(lock)) expect(storeStepTimeoutMs(p)).toBeGreaterThanOrEqual(300_000 + (p.size / (256 * 1024)) * 1_000);
   });
 });

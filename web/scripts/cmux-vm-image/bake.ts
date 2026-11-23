@@ -189,6 +189,7 @@ import {
   pgdgSourcesFile,
   profileCommand,
   programInstallCommand,
+  storeStepTimeoutMs,
   storeEntry,
   ROLES_MANIFEST_PATH,
   rolesManifest,
@@ -789,7 +790,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p))));
+  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p), storeStepTimeoutMs(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
@@ -1211,7 +1212,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   const { vm, L, lock } = ctx;
   const programs = bakedPrograms(lock).filter((p) => isAppProgram(p.name) === (layer === "app"));
   await L.step(vm, `${layer}-prepare`, overlayPrepareCommand(programs.flatMap((p) => Object.keys(p.bin))));
-  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
+  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name), storeStepTimeoutMs(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await L.step(vm, `${layer}-prune`, overlayPruneCommand());
   if (layer === "agents") {

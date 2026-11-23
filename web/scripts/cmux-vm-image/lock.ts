@@ -725,6 +725,15 @@ export function storeEntry(sha256: string): string {
 /** What an install needs from a lock program or a roles.json first-use program. */
 export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices">;
 
+/**
+ * One store download's step budget: 5 minutes, plus its size at 256 KiB/s. A bake VM's link to a release host
+ * varies run to run: codex (a 109 MB download from github.com) took 121 s in a green bake and over 300 s, like claude and
+ * juicefs, in the next two, so a flat 5 minutes failed whole rolls on the largest downloads.
+ */
+export function storeStepTimeoutMs(program: Pick<InstallableProgram, "size">): number {
+  return 300_000 + Math.ceil(program.size / (256 * 1024)) * 1_000;
+}
+
 /** Download, verify (sha256 and size) and unpack one program into its immutable store entry. */
 export function programInstallCommand(program: InstallableProgram): string {
   const entry = storeEntry(program.sha256);
