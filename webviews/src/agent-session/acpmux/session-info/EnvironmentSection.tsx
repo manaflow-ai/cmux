@@ -130,7 +130,7 @@ export function EnvironmentSection({
   cloudRepositoryAvailable?: boolean;
   /// Remote Control's state and switch, when the App offers it for this chat.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
-  /// The chat's cloud controls (RFD 0075): Keep Running and where it may run. Where the App offers
+  /// The chat's cloud controls (RFD 0078): Keep Running and where it may run. Where the App offers
   /// them they stand in Remote Control's place, and that row is not drawn: Remote Control is one
   /// app-wide switch in Settings, not a chat's.
   cloud?: SessionInfoCloudControl;
