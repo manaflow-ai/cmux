@@ -227,6 +227,7 @@ fn gcp_create_carries_a_stable_request_id_and_no_public_address() {
     let script = Script::default();
     let provider = gcp(&script);
     script.answer(200, json!({"name": "operation-1"}));
+    script.answer(200, json!({"name": "operation-1", "status": "DONE"}));
     let mut ledger = Ledger::open(&ledger_path("gcp-create")).unwrap();
     let out = ledger.run(&provider, &key("c"), &Request::create(spec())).unwrap();
     assert_eq!(out.receipt().state, MachineState::Provisioning);
@@ -490,4 +491,63 @@ fn label_keys_start_with_a_lowercase_letter() {
             Err(ProviderError::Refused(_))
         ));
     }
+}
+
+/// Review follow-up on #45380 (F1): an accepted operation is not a finished
+/// one. The default waits for it; a failure there is a failure, and one still
+/// running stays pending instead of being committed as done.
+#[test]
+fn an_operation_that_fails_after_it_is_accepted_is_not_recorded_done() {
+    let script = Script::default();
+    let provider = gcp(&script);
+    let mut ledger = Ledger::open(&ledger_path("op-later-fail")).unwrap();
+    script.answer(200, ours());
+    script.answer(200, json!({"name": "operation-2", "status": "RUNNING"}));
+    script.answer(
+        200,
+        json!({"name": "operation-2", "status": "DONE",
+               "error": {"errors": [{"message": "ZONE_RESOURCE_POOL_EXHAUSTED"}]}}),
+    );
+    let start = Request::on(Op::Start, "cmux-0123");
+    let err = ledger.run(&provider, &key("s"), &start).unwrap_err();
+    assert!(
+        matches!(err, ProviderError::Api { ref message, .. } if message == "ZONE_RESOURCE_POOL_EXHAUSTED")
+    );
+    {
+        let calls = script.calls.borrow();
+        assert!(calls[2].1.ends_with("/operations/operation-2/wait"), "{calls:?}");
+    }
+    // A failed op is reissued on the next run, never replayed as done.
+    script.answer(200, ours());
+    script.answer(200, json!({"name": "operation-2", "status": "DONE"}));
+    let out = ledger.run(&provider, &key("s"), &start).unwrap();
+    assert!(matches!(out, Outcome::Committed(_)));
+    assert_eq!(out.receipt().state, MachineState::Running);
+}
+
+#[test]
+fn an_unfinished_operation_stays_pending_until_a_later_run_settles_it() {
+    let script = Script::default();
+    let mut provider = gcp(&script);
+    provider.wait = false;
+    let mut ledger = Ledger::open(&ledger_path("op-pending")).unwrap();
+    let delete = Request::on(Op::Delete, "cmux-0123");
+    script.answer(200, ours());
+    script.answer(200, json!({"name": "operation-3", "status": "RUNNING"}));
+    assert!(matches!(
+        ledger.run(&provider, &key("d"), &delete),
+        Err(ProviderError::Indeterminate(_))
+    ));
+    assert_eq!(ledger.pending().len(), 1, "kept pending, not committed");
+    // Next run: the machine is still deleting, so nothing settles it; the
+    // reissue (same request id) answers the operation failed.
+    script.answer(200, json!({"status": "STOPPING", "labels": {"cmux-machine": "true"}}));
+    script.answer(200, ours());
+    script.answer(
+        200,
+        json!({"name": "operation-3", "status": "DONE",
+               "error": {"errors": [{"message": "RESOURCE_IN_USE"}]}}),
+    );
+    assert!(matches!(ledger.run(&provider, &key("d"), &delete), Err(ProviderError::Api { .. })));
+    assert!(ledger.pending().is_empty());
 }

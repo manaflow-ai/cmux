@@ -291,12 +291,11 @@ fn settled_by(op: Op, observed: Option<MachineState>) -> Option<MachineState> {
         {
             Some(state)
         }
+        // Only a finished op settles: a machine still deleting or starting
+        // may yet fail, so the op is reissued (same request id) instead.
         (Op::Delete, None | Some(MachineState::Deleted)) => Some(MachineState::Deleted),
-        (Op::Delete, Some(MachineState::Deleting)) => Some(MachineState::Deleting),
         (Op::Stop, Some(MachineState::Stopped)) => Some(MachineState::Stopped),
-        (Op::Start, Some(state @ (MachineState::Running | MachineState::Provisioning))) => {
-            Some(state)
-        }
+        (Op::Start, Some(MachineState::Running)) => Some(MachineState::Running),
         _ => None,
     }
 }

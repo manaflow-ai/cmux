@@ -4,8 +4,8 @@
 //!
 //! ```text
 //! cmux-gcp-machine plan   --key K --project P --zone Z --image I [--machine-type T] [--disk-gb N] [--idle-minutes N]
-//! cmux-gcp-machine create --key K --project P --zone Z --image I ... --token-fd N [--wait]
-//! cmux-gcp-machine start|stop|snapshot|delete --key K --machine M --project P --zone Z --token-fd N [--wait]
+//! cmux-gcp-machine create --key K --project P --zone Z --image I ... --token-fd N [--no-wait]
+//! cmux-gcp-machine start|stop|snapshot|delete --key K --machine M --project P --zone Z --token-fd N [--no-wait]
 //! cmux-gcp-machine observe --machine M --project P --zone Z --token-fd N
 //! cmux-gcp-machine pending --project P
 //! ```
@@ -111,7 +111,10 @@ fn run(args: &[String]) -> Result<String, ProviderError> {
         AccessToken::from_fd(fd)?,
         Box::new(CurlTransport::default()),
     )?;
-    provider.wait = flags.contains_key("wait");
+    // Waiting is the default: `--no-wait` returns once the operation is
+    // accepted, leaving its ledger line pending until a later run sees it
+    // finish.
+    provider.wait = !flags.contains_key("no-wait");
     if verb == "observe" {
         let state = provider.observe(need("machine")?)?;
         return Ok(serde_json::to_string(&state).unwrap_or_default());

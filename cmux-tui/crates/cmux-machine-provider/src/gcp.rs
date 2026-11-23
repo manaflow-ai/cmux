@@ -157,7 +157,9 @@ pub struct GcpProvider {
     transport: Box<dyn Transport>,
     base: String,
     /// Wait for each mutating call's operation to finish (one server-side
-    /// wait call) before answering.
+    /// wait call) before answering. On by default: off, an accepted but
+    /// unfinished operation is indeterminate, so the ledger keeps it
+    /// pending and settles it on the next run instead of calling it done.
     pub wait: bool,
 }
 
@@ -183,7 +185,7 @@ impl GcpProvider {
             token,
             transport,
             base: COMPUTE.to_owned(),
-            wait: false,
+            wait: true,
         })
     }
 
@@ -211,8 +213,10 @@ impl GcpProvider {
     }
 
     /// Wait (server side, up to about two minutes) for an operation, and
-    /// turn its error into ours. A wait that ends before the operation does
-    /// is indeterminate: the ledger settles it on the next run.
+    /// turn its error into ours. Only a `DONE` operation without an error is
+    /// a success: one still running when the wait ends (or when `wait` is
+    /// off) is indeterminate, so the ledger keeps it pending and settles it
+    /// on the next run rather than recording an op that may yet fail.
     fn finish(&self, operation: &Value) -> Result<(), ProviderError> {
         // An operation can come back already failed (a retried request id
         // returns the original operation).
@@ -220,12 +224,17 @@ impl GcpProvider {
         {
             return Err(ProviderError::Api { status: 200, message: message.to_owned() });
         }
-        if !self.wait {
+        if operation.get("status").and_then(Value::as_str) == Some("DONE") {
             return Ok(());
         }
         let Some(name) = operation.get("name").and_then(Value::as_str) else {
-            return Ok(());
+            return Err(ProviderError::Indeterminate("an operation with no name".into()));
         };
+        if !self.wait {
+            return Err(ProviderError::Indeterminate(format!(
+                "operation {name} accepted, not finished: run again to settle it"
+            )));
+        }
         let name_ok = name.len() <= 128
             && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
         if !name_ok {
@@ -398,13 +407,7 @@ impl MachineProvider for GcpProvider {
                     None,
                 )?;
                 self.finish(&operation)?;
-                let state = if !self.wait {
-                    if request.op == Op::Start {
-                        MachineState::Provisioning
-                    } else {
-                        MachineState::Stopping
-                    }
-                } else if request.op == Op::Start {
+                let state = if request.op == Op::Start {
                     MachineState::Running
                 } else {
                     MachineState::Stopped
@@ -448,10 +451,7 @@ impl MachineProvider for GcpProvider {
                 ) {
                     Ok(operation) => {
                         self.finish(&operation)?;
-                        Ok((
-                            if self.wait { MachineState::Deleted } else { MachineState::Deleting },
-                            None,
-                        ))
+                        Ok((MachineState::Deleted, None))
                     }
                     Err(ProviderError::NotFound(_)) => Ok((MachineState::Deleted, None)),
                     Err(e) => Err(e),
