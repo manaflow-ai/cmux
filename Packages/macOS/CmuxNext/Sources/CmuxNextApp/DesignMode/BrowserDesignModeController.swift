@@ -168,23 +168,34 @@ final class BrowserDesignModeController {
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last, with its tab
     /// and the workspace that holds both.
     private func chat(near key: String) -> (view: AgentPaneView, tab: TabModel, workspace: WorkspaceModel)? {
-        guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
-        let store = services.daemon(for: pane).store
+        guard let services, let (_, pane) = services.locateTabOnAnyMachine(key),
+              let chat = services.workspaceAgentChat(near: pane) else { return nil }
+        return (chat.view, chat.tab, chat.workspace)
+    }
+}
+
+extension AppServices {
+    /// The agent chat in the workspace of `pane` whose pane was focused last: its tab, view and the
+    /// workspace that holds both. Design mode's picks and a terminal selection's comments go to it.
+    func workspaceAgentChat(near pane: PaneModel) -> (tab: TabModel, view: AgentPaneView, workspace: WorkspaceModel)? {
+        let store = daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }
         let panes = workspace.screens.flatMap(\.panes).sorted { $0.focusedAt > $1.focusedAt }
         for candidate in panes {
             let selected = candidate.tabs.indices.contains(candidate.defaultTabIndex) ? [candidate.tabs[candidate.defaultTabIndex]] : []
             for tab in selected + candidate.tabs {
-                if let view = services.agentTabs.existingView(tab.id), !services.agentTabs.isNewTabPage(tab.id) {
-                    return (view, tab, workspace)
+                if let view = agentTabs.existingView(tab.id), !agentTabs.isNewTabPage(tab.id) {
+                    return (tab, view, workspace)
                 }
             }
         }
         return nil
     }
+}
 
-    // MARK: Comment threads
+// MARK: Comment threads
 
+extension BrowserDesignModeController {
     /// Where a pick of browser tab `key` goes as a thread: the chat ``chat(near:)`` picks, when it
     /// has an acpmux session and its session host keeps comment threads (`comment-threads-v1`).
     private func threadTarget(near key: String) -> (view: AgentPaneView, session: String, git: DiffAgentGit,
