@@ -90,7 +90,8 @@ impl Hub {
     fn pack_store(&self, id: &str) -> anyhow::Result<pack::Store> {
         let chat = self.store.session_dir(id);
         let dir = chat.ok_or_else(|| anyhow::anyhow!("this store keeps no packs"))?.join(PACK_DIR);
-        crate::config::private_state_dir(&dir)?;
+        // In the chat's folder, which the store made owner-only; made through the held home.
+        crate::home_fs::create_dir_all(&dir, 0o700)?;
         Ok(pack::Store::new(dir))
     }
 

@@ -219,6 +219,10 @@ pub struct SessionMeta {
     /// Explicit spoken handle. Older and unnamed sessions derive one from the same stable id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The icon it set for itself or a person gave it (`session_icon.rs`): what every surface
+    /// draws for it in place of its harness mark. None draws the harness mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<crate::session_icon::SessionIcon>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -1774,7 +1778,7 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 }
 
 mod durability;
-pub use durability::{Durability, ShowAfter};
+pub use durability::{Durability, FULL_WAIT, ShowAfter};
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
