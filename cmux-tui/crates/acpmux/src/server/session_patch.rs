@@ -130,12 +130,13 @@ fn diff(old: &Shape, new: &Value) -> Option<Value> {
 fn splice(held: &[u64], hashes: &[u64], now: &[Value]) -> Option<Value> {
     let first = *hashes.first()?;
     let from = held.iter().position(|h| *h == first)?;
-    let keep = held[from..].iter().zip(hashes).take_while(|(a, b)| a == b).count();
+    let keep = held.get(from..)?.iter().zip(hashes).take_while(|(a, b)| a == b).count();
     // Only the items after the run go out; a run of one or two saves nothing worth the form.
     if keep < 3 {
         return None;
     }
-    Some(json!({"$splice": [from, keep, &now[keep..]]}))
+    let after = now.get(keep..)?;
+    Some(json!({"$splice": [from, keep, after]}))
 }
 
 /// The last row of a chat one connection was sent.
