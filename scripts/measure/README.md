@@ -143,7 +143,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
-| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane), a palette command and a key binding. | - | 2026-11-19 | active |
+| `edit-repaint.sh` | Edit to repaint for cmux-next.json edits and customize saves (section, rows, pane, and a section card's `.glass` level), a palette command and a key binding. | - | 2026-11-23 | active |
 | `replay-build-bench.sh` | terminal VT replay build time, one text layout against two. | - | 2026-11-01 | active |
 | `pane-main-profile.sh` | One Instruments profile of the pane's 20 MB prompt bench. | - | 2026-10-05 | stale |
 | `pane-native-transport.sh` | Agent pane native transport against the page-world WebSocket. | - | 2026-11-07 | active |
