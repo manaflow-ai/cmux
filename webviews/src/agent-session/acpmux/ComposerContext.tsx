@@ -119,7 +119,7 @@ export type StripLayout = "where-machine" | "where-machine-always" | "cloud-togg
 
 /// After a join reports in: when acpmux's machine list is read again (ms after it), and how long the
 /// chat waits for the machine to show there before the line says it is not listed.
-/// The gaps before each read (500 ms, then 1.5, 3, 6, 12 and 24 s after the join reported in).
+/// The gap before each read, so the list is read 0.5, 1.5, 3, 6, 12 and 24 s after the join reported in.
 const JOIN_LIST_READS_MS = [500, 1_000, 1_500, 3_000, 6_000, 12_000];
 const JOIN_LIST_DEADLINE_MS = 45_000;
 

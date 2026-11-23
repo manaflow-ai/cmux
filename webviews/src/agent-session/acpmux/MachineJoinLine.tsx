@@ -34,6 +34,11 @@ export function failureAction(kind: string): "signIn" | "addMachine" | "retry" {
   return "retry";
 }
 
+/// acpmux's own words for a failure ("message · next"), or nothing when it sent none.
+function failureDetail(failure: { message?: string; next?: string }): string | undefined {
+  return [failure.message, failure.next].filter(Boolean).join(" · ") || undefined;
+}
+
 /// The one line under a new chat's composer while a machine picked from "Not added yet" is set up
 /// (Leo, 2026-11-16: "it should not take much at all to simply spin [stuff] up"): "Setting up gcp-3
 /// · installing 6 s", then the turn starts when acpmux lists the machine. A host that is not the
@@ -85,13 +90,14 @@ export function MachineJoinLine({
       };
     }
     if (join.phase === "failed") {
-      const kind = join.failure?.kind ?? "failed";
+      const failure = join.failure;
+      const kind = failure ? failure.kind : "failed";
       const action = failureAction(kind);
       const run = action === "signIn" ? onSignIn : action === "addMachine" ? onAddMachine : retryJoin;
       return {
         text: t(FAILURE_WORDS[kind] ?? "composer.joinFailOther", { host }),
         // acpmux's own words, in English, for the person who wants the detail.
-        title: [join.failure?.message, join.failure?.next].filter(Boolean).join(" · ") || undefined,
+        title: failure ? failureDetail(failure) : undefined,
         actions: (
           <>
             {run && (

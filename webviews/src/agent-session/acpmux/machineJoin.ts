@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { intl } from "../../ui/intl";
 
 /// Door A (cmuxterm-hq docs/design/remote-spin-up.md, section 2.1): the composer's machine menu
 /// lists the machines this Mac reaches but has not added, and one click joins one and picks it for
@@ -124,7 +125,7 @@ export function splitCandidates(candidates: readonly JoinCandidate[]): {
   mine: JoinCandidate[];
   other: JoinCandidate[];
 } {
-  const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const byName = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   const sorted = [...candidates].sort((a, b) => byName.compare(a.name, b.name));
   return { mine: sorted.filter((c) => c.mine), other: sorted.filter((c) => !c.mine) };
 }
