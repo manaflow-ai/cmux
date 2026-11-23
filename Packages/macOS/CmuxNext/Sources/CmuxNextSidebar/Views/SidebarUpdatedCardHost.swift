@@ -436,6 +436,11 @@ final class SidebarUpdatedCardHost: NSView {
     /// Whether the x shows now (proofs).
     var closeShown: Bool { !closeButton.isHidden && closeButton.alphaValue > 0 }
 
+    static func closeFrame(in cardRect: NSRect, cornerRadius: CGFloat, side: CGFloat) -> NSRect {
+        let corner = Metrics.cornerControl(outerRadius: cornerRadius, side: side)
+        return corner.centeredTrailingFrame(side: side, in: cardRect)
+    }
+
     // The open preview's room grows the view upward: the x keeps its place on the card's title line.
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -445,9 +450,11 @@ final class SidebarUpdatedCardHost: NSView {
     override func layout() {
         super.layout()
         layoutGlass()
-        // In the card's top trailing corner, concentric with the glass (laid out first: its corner follows the zoom).
-        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide), side = Self.closeSide
-        closeButton.frame = corner.topTrailingFrame(side: side, in: cardRect, flipped: true)
+        // The card is one content row at every density: keep the x on that row while its trailing inset and hover
+        // shape remain concentric with the card's corner (laid out first: its corner follows the zoom).
+        let side = Self.closeSide
+        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: side)
+        closeButton.frame = Self.closeFrame(in: cardRect, cornerRadius: glass.cornerRadius, side: side) // concentric-allow: the page owns the rounded card; this derives the x's trailing inset and hover shape from its corner
         closeButton.concentricRadius = corner.childRadius
     }
 

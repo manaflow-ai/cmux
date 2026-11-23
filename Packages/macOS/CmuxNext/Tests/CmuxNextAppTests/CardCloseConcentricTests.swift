@@ -4,11 +4,8 @@ import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import Testing
 
-/// A card's close x sits in its corner concentric with it (Lawrence 2026-11-15, on the "Updated to Nightly / What's new
-/// in this build" card: the x was not concentric with the card's corner): the same inset from the top and from the
-/// side, and its round hover shape the card's corner less that inset, the shared rule
-/// (``ConcentricContainer/cornerControl(outerRadius:side:minimumPadding:)``). Measured on every dismissable card as
-/// it lays out.
+/// A card's close x keeps its shared concentric trailing inset and hover shape, while the Updated card's x stays on
+/// the content row at every sidebar density. Measured on every dismissable card as it lays out.
 @MainActor @Suite(.serialized) struct CardCloseConcentricTests {
     /// What breaks the rule for the x at `close` (with `radius`) in the top trailing corner of the card at `card`
     /// rounded by `outer`: the top and the side insets differ, or the x does not round by the corner less the inset.
@@ -30,7 +27,7 @@ import Testing
         return button.layer?.cornerRadius ?? 0
     }
 
-    @Test func theUpdatedCardsCloseIsConcentric() throws {
+    @Test func theUpdatedCardsCloseIsCenteredOnItsContentRow() throws {
         _ = NSApplication.shared
         for anchor in [SidebarCardAnchor.top, .bottom] {
             let host = SidebarUpdatedCardHost(frame: NSRect(x: 0, y: 0, width: 216, height: 60))
@@ -38,9 +35,27 @@ import Testing
             host.layoutSubtreeIfNeeded()
             host.layout()
             let close = host.closeButton.frame
-            let broken = Self.broken(close: close, radius: Self.radius(of: host.closeButton), card: host.bounds, outer: host.glass.cornerRadius)
-            #expect(broken.isEmpty, "\(anchor): the x \(close) in \(host.bounds) r\(host.glass.cornerRadius): \(broken)")
+            #expect(abs(close.midY - host.bounds.midY) <= 0.5, "\(anchor): the x is not on the content row: \(close)")
+            #expect(close.width == SidebarUpdatedCardHost.closeSide)
+            let side = host.bounds.maxX - close.maxX
+            let corner = Metrics.cornerControl(outerRadius: host.glass.cornerRadius, side: SidebarUpdatedCardHost.closeSide)
+            #expect(abs(side - corner.padding) <= 0.5, "\(anchor): the x's trailing inset is \(side), not \(corner.padding)")
+            #expect(abs(Self.radius(of: host.closeButton) - corner.childRadius) <= 0.5)
         }
+    }
+
+    @Test(arguments: SidebarDensity.allCases)
+    func theUpdatedCardsCloseHitTargetFollowsEveryDensity(density: SidebarDensity) {
+        let base = SidebarRowTokens.Base(rowHeight: 24, space1: 2, space2: 4, space3: 6, space4: 8,
+                                         cornerRadius: 6, body: 12, caption: 10.5)
+        let side = SidebarRowTokens(density: density, textSize: .standard, base: base).card.closeSide
+        let card = CGRect(x: 0, y: 0, width: 216, height: 48)
+        let close = SidebarUpdatedCardHost.closeFrame(in: card, cornerRadius: LayoutGrid.cardRadius, side: side)
+
+        #expect(close.width == side, "\(density): the x hit target is \(close.width), not \(side)")
+        #expect(close.height == side)
+        #expect(abs(close.midY - card.midY) <= 0.5, "\(density): the x is not centered on the content row: \(close)")
+        #expect(close.maxX <= card.maxX)
     }
 
     @Test(arguments: [SidebarNoticeCard(id: "tip", eyebrow: "Did you know?", title: "Command Palette", dismissLabel: "Close"),
