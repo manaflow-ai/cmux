@@ -138,6 +138,13 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
     public var shellCompletionCache: URL { ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true) }
 
+    /// Browser tabs' thumbnails and favicons for the phones' tab overview (`PhoneTabPictures`), which hostd reads:
+    /// `<Caches>/<bundle id>/phone-tab-pictures`, in a DEV build's own caches folder in a DEV build.
+    public var phoneTabPicturesCache: URL {
+        (ownCaches ?? caches.appendingPathComponent(build.bundleID ?? "cmux-next", isDirectory: true))
+            .appendingPathComponent("phone-tab-pictures", isDirectory: true)
+    }
+
     /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux/vm.json` (cmux-vm
     /// `CMUX_VM_DEFAULT_CONFIG`): `<config>/vm.json`; nil for every other build (cmux-vm's own default).
     public var vmConfigFile: URL? {
