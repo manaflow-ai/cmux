@@ -515,6 +515,13 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// The phone projects this terminal (``TerminalProjectingSession``).
+    private var projectsLocally = false
+
+    public func setProjectsLocally(_ projects: Bool) {
+        projectsLocally = projects
+    }
+
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
     /// background). Leaving releases the phone's size on the Mac at once, so
@@ -828,6 +835,21 @@ public final class DaemonTerminalSession: TerminalSession {
     private var scrollFramesInFlight = 0
     static let maxScrollFramesInFlight = 2
 
+    /// Sends painted redraws to the Mac (`phone-frames` `paint`); the coordinator sets it.
+    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> Void)?
+    private var paintInFlight = false
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        // One report on its way at a time: a report while one is out is dropped, never queued.
+        guard let sink = paintSink, !paintInFlight, !samples.isEmpty else { return }
+        paintInFlight = true
+        let program = programName
+        Task { [weak self] in
+            await sink(samples, program)
+            self?.paintInFlight = false
+        }
+    }
+
     public func reportScrollFrames(_ pan: TerminalPanFrames) {
         guard let sink = scrollFramesSink, scrollFramesInFlight < Self.maxScrollFramesInFlight else { return }
         guard pan.intervalsMs.count >= TerminalPanFrames.minFrames else { return }
@@ -928,6 +950,9 @@ public final class DaemonTerminalSession: TerminalSession {
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
             info["capabilities"] = Self.capabilities(agentCLIHybrid: hybridWanted)
+            // Which attach the Mac sends (byte stream, or lean frames at most one per 100 ms):
+            // the setting this phone holds, read in its log beside the link's path and rtt.
+            log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(agentCLIHybridDefaults), privacy: .public) wanted=\(hybridWanted, privacy: .public)")
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
@@ -1215,6 +1240,8 @@ public final class DaemonTerminalSession: TerminalSession {
         switch event {
         case .output(let data):
             show(.output(data))
+        case .stamped(let seq, let receivedMs):
+            show(.paintMark(seq: seq, receivedMs: receivedMs))
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
@@ -1322,12 +1349,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// keeps its grid past ``reclaimWait``.
     private func show(_ event: TerminalSessionEvent) {
         let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
-        var claims = claimsSize
+        // Projected, the primary screen shows the Mac's own grid re-wrapped:
+        // nothing to hold back. A hidden full-screen app still waits for the
+        // phone's grid, so a return never shows it stretched.
+        let projectsPrimary = projectsLocally && !isAlternateScreen
+        var claims = claimsSize || projectsPrimary
         var unwanted = false
         if case .hostGrid(let columns, let rows) = event, let phoneGrid {
             if phoneGrid == TerminalReclaimHold.Grid(columns: columns, rows: rows) {
                 macKeepsGrid = false
-            } else if claimsSize, !macKeepsGrid, !reclaimHold.isHolding, client != nil {
+            } else if claimsSize, !projectsPrimary, !macKeepsGrid, !reclaimHold.isHolding, client != nil {
                 // Held as if hidden: the claim below answers it. Only with
                 // a channel (attached, or replaying an attach that then
                 // settles the hold): nothing else could end the hold.
