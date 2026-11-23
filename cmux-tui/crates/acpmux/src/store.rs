@@ -2408,11 +2408,10 @@ impl Store for LocalStore {
         let segments = self.segments(id)?;
         let mut line = Vec::new();
         let hinted = hint.and_then(|h| {
-            let index = segments.iter().position(|(n, _)| *n == h.segment)?;
-            let mut reader = BufReader::with_capacity(
-                64 * 1024,
-                crate::config::private_state_file(&segments[index].1).ok()?,
-            );
+            let (index, (_, path)) =
+                segments.iter().enumerate().find(|(_, (n, _))| *n == h.segment)?;
+            let mut reader =
+                BufReader::with_capacity(64 * 1024, crate::config::private_state_file(path).ok()?);
             reader.seek(SeekFrom::Start(h.offset)).ok()?;
             line.clear();
             reader.read_until(b'\n', &mut line).ok()?;
@@ -2422,7 +2421,7 @@ impl Store for LocalStore {
             Some((index, offset, reader)) => (index, Some((offset, reader))),
             None => (self.segment_starts.start(id, &segments, from.saturating_sub(1))?, None),
         };
-        for (index, path) in &segments[start..] {
+        for (index, path) in segments.get(start..).unwrap_or_default() {
             let (mut pos, mut reader) = match first.take() {
                 Some((offset, reader)) => (offset, reader),
                 None => {
@@ -2471,7 +2470,8 @@ impl Store for LocalStore {
         let bytes = held_file_bytes(&self.dir(id).join(ADOPTION_CHECKPOINT))?;
         let nl = bytes.iter().position(|&b| b == b'\n')?;
         let (head, body) = bytes.split_at(nl);
-        (head == self.compaction_digest(id).as_bytes()).then(|| body[1..].to_vec())
+        (head == self.compaction_digest(id).as_bytes())
+            .then(|| body.get(1..).unwrap_or_default().to_vec())
     }
 
     fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
