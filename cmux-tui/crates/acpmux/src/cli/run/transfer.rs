@@ -51,11 +51,14 @@ pub(super) struct Begun {
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
 /// the target as the source's watch reaches it if the move's client goes away
 /// (`{socket}`, or `{socket, ssh}` for a daemon on another machine, `hub/transfer_watch.rs`).
+/// `turn_bound`: with `after_turn`, the longest the daemon waits for the running turn
+/// (`afterTurnTimeoutMs`; a daemon too old to read it waits its own 15 minutes).
 pub(super) async fn begin_move(
     src: &Client,
     id: &str,
     watch: Option<Value>,
     (interrupt, after_turn): (bool, bool),
+    turn_bound: Option<std::time::Duration>,
 ) -> Result<Begun> {
     // This client hands the bundle on only to a receiver whose own `initialize` listed queue
     // approval when it carries approved prompts that still wait (`receiver_takes`).
@@ -65,6 +68,9 @@ pub(super) async fn begin_move(
                                   "afterTurn": after_turn, "gatesQueueApproval": true});
     if let Some(to) = watch {
         begin_params.set("to", to);
+    }
+    if let Some(bound) = turn_bound.filter(|_| after_turn) {
+        begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
     }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
@@ -99,7 +105,7 @@ pub(super) async fn move_chat(
     running: (bool, bool),
     to_meta: Value,
 ) -> Result<Value> {
-    let begun = begin_move(src, id, watch, running).await?;
+    let begun = begin_move(src, id, watch, running, None).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
 }
 
