@@ -584,8 +584,7 @@ impl Hub {
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
-        let t0 = std::time::Instant::now();
-        let prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
+        let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
                 drop(guard);
                 return Err(unfreeze(error, carried));
@@ -602,17 +601,22 @@ impl Hub {
                 carried,
             ));
         }
-        eprintln!("TIMING check_prefix {:?}", t0.elapsed());
-        let t0 = std::time::Instant::now();
+        // A history-later prepare folded its prefix and copied the agent's files: the freeze
+        // reads only what came after (`transfer_precopy.rs` `PrefixFold`).
+        let mut folded = prefix.as_mut().and_then(|p| p.folded.take());
+        let grown = folded.as_ref().map(|f| (f.native_dir.as_path(), &f.native));
         let made = self
-            .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
+            .export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
             .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
             .and_then(|bundle| {
-                let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
-                eprintln!("TIMING export_after {:?}", t0.elapsed());
-                let t0 = std::time::Instant::now();
-                let approved_waiting = self.held_prompts_with(prefix_seq, &bundle)?;
-                eprintln!("TIMING held_prompts {:?}", t0.elapsed());
+                let approved_waiting = match folded.as_mut() {
+                    Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
+                    None => {
+                        let prefix_seq =
+                            prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                        self.held_prompts_with(prefix_seq, &bundle)?
+                    }
+                };
                 if !approved_waiting.is_empty() && !gates_receiver {
                     return Err(approved_prompts_error(
                         json!(approved_waiting),
@@ -636,10 +640,12 @@ impl Hub {
                 return Err(if logged { unfreeze(error, carried) } else { error });
             }
         };
-        let t0 = std::time::Instant::now();
-        let restored = self.restore_ownership_epoch(session);
-        eprintln!("TIMING restore_epoch {:?}", t0.elapsed());
-        let t0 = std::time::Instant::now();
+        let restored = match (&folded, &prefix) {
+            (Some(f), Some(p)) => self
+                .ownership_epoch_after(&session.id, p.after_seq, f.epoch)
+                .map(|epoch| session.restore_ownership_epoch(epoch)),
+            _ => self.restore_ownership_epoch(session),
+        };
         if let Err(error) = restored {
             drop(guard);
             return Err(unfreeze(
@@ -670,7 +676,6 @@ impl Hub {
                 carried,
             ));
         }
-        eprintln!("TIMING epoch+append {:?}", t0.elapsed());
         drop(guard);
         if let Some(socket) = to {
             let _ = crate::home_fs::write(dir.join("to"), socket);
@@ -840,15 +845,11 @@ impl Hub {
         if let Some(freeze) = freeze {
             moved.set("freeze", freeze);
         }
-        let t0 = std::time::Instant::now();
         self.append(session, "mux", "transferred", moved);
         self.kill(session, false).await?;
-        eprintln!("TIMING commit kill {:?}", t0.elapsed());
-        let t0 = std::time::Instant::now();
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
-        eprintln!("TIMING commit rest {:?}", t0.elapsed());
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 
