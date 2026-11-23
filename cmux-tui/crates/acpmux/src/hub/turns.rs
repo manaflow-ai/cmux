@@ -1237,7 +1237,7 @@ impl Hub {
         let confirm_team_write = !team_messages.is_empty()
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
-        if session.rehydrate.swap(false, Ordering::SeqCst)
+        if session.take_rehydrate()
             && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
             // The whole transcript covers what an older agent session lacked too.
@@ -1510,7 +1510,7 @@ impl Hub {
                         // The rules this message carries: owed here, or kept from the first
                         // attempt's blocks, whose write may have failed before it was confirmed.
                         let rules_in_message = rules_owed || rules_owed_here;
-                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                        if session.take_rehydrate()
                             && let Some(transcript) =
                                 self.transcript(session, REPLAY_CHARS, &prompt_id)
                         {
