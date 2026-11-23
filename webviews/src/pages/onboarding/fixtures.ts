@@ -469,6 +469,7 @@ export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): Onboarding
     workStyle: kind === "terminal" ? "terminal" : "gui",
     density: kind === "picked" ? "compact" : "standard",
     background: kind === "picked" ? "friedrich-forest-moonlight" : null,
+    chatsRunIn: kind === "picked" ? "cloud" : "local",
     backgrounds: kind === "loading" ? [] : BACKGROUNDS,
     loaded: kind !== "loading",
   };

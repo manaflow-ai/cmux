@@ -284,6 +284,8 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let density: String
         /// The background's id; null: none.
         let background: String?
+        /// Where a new chat runs: `local` or `cloud`.
+        let chatsRunIn: String
         let backgrounds: [Background]
         let loaded: Bool
 
@@ -292,11 +294,12 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encode(workStyle, forKey: .workStyle)
             try c.encode(density, forKey: .density)
             try c.encodeNullable(background, forKey: .background)
+            try c.encode(chatsRunIn, forKey: .chatsRunIn)
             try c.encode(backgrounds, forKey: .backgrounds)
             try c.encode(loaded, forKey: .loaded)
         }
 
-        private enum Keys: String, CodingKey { case workStyle, density, background, backgrounds, loaded }
+        private enum Keys: String, CodingKey { case workStyle, density, background, chatsRunIn, backgrounds, loaded }
     }
 
     let step: String
@@ -349,6 +352,7 @@ extension OnboardingPageState {
     static func makeItYours(_ model: MakeItYoursStepModel) -> MakeItYours {
         let choices = model.choices
         return MakeItYours(workStyle: choices.workStyle.rawValue, density: choices.density.rawValue, background: choices.background,
+                           chatsRunIn: choices.chatsRunIn.rawValue,
                            backgrounds: model.backgrounds.map { Background(id: $0.id, name: $0.name, preview: $0.preview.map { Image(src: $0, template: false) }) },
                            loaded: model.loaded)
     }

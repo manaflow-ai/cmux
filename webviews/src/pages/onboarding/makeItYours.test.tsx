@@ -49,6 +49,9 @@ describe("make cmux yours", () => {
       "onboarding.makeItYours.work.gui",
       "onboarding.makeItYours.work.terminal",
       "onboarding.makeItYours.recommended",
+      "onboarding.makeItYours.runIn.local",
+      "onboarding.makeItYours.runIn.cloud",
+      "onboarding.makeItYours.runIn.local.detail",
       "onboarding.makeItYours.density.standard",
       "onboarding.makeItYours.background.none",
       "onboarding.makeItYours.background.shuffle",
@@ -57,12 +60,18 @@ describe("make cmux yours", () => {
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
     // One checked radio per group: GUI-first, Standard, no background.
-    expect(await checked(makeItYoursState("fresh"))).toEqual({ workStyle: "gui", density: "standard", background: "" });
+    expect(await checked(makeItYoursState("fresh"))).toEqual({
+      workStyle: "gui",
+      chatsRunIn: "local",
+      density: "standard",
+      background: "",
+    });
   });
 
   test("the settings a person already has are what is checked", async () => {
     expect(await checked(makeItYoursState("picked"))).toEqual({
       workStyle: "gui",
+      chatsRunIn: "cloud",
       density: "compact",
       background: "friedrich-forest-moonlight",
     });
@@ -72,7 +81,7 @@ describe("make cmux yours", () => {
   test("both looks draw every choice; only cards name the background tiles", () => {
     const cards = render(makeItYoursState("fresh"), "cards");
     const rows = render(makeItYoursState("fresh"), "rows");
-    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
+    for (const html of [cards, rows]) expect(html.match(/type="radio"/g)?.length).toBe(2 + 2 + 3 + 6);
     expect(cards).toContain("onb-make-tile-name");
     expect(rows).not.toContain("onb-make-tile-name");
   });
@@ -99,12 +108,29 @@ describe("make cmux yours", () => {
     const radio = (name: string, value: string) =>
       root.querySelector<HTMLInputElement>(`input[name="${name}"][value="${value}"]`)!;
     await act(async () => radio("workStyle", "terminal").click());
+    await act(async () => radio("chatsRunIn", "local").click());
     await act(async () => radio("density", "comfortable").click());
     await act(async () => radio("background", "").click());
     expect(calls).toEqual([
       { op: OPS.workStyle, params: { value: "terminal" } },
+      { op: OPS.chatsRunIn, params: { value: "local" } },
       { op: OPS.density, params: { value: "comfortable" } },
       { op: OPS.background, params: { id: null } },
     ]);
+  });
+
+  test("Cloud is offered to a person with nothing installed, and its caption says so", () => {
+    const fresh = text(render(makeItYoursState("fresh")));
+    expect(fresh).toContain(strings.t("onboarding.makeItYours.runIn.label"));
+    expect(fresh).not.toContain(strings.t("onboarding.makeItYours.runIn.cloud.detail"));
+    const cloud = text(render(makeItYoursState("picked")));
+    expect(cloud).toContain(strings.t("onboarding.makeItYours.runIn.cloud.detail"));
+  });
+
+  test("an older host that sends no chatsRunIn gets the screen without that row", () => {
+    const state = makeItYoursState("fresh");
+    const html = render({ ...state, makeItYours: { ...state.makeItYours!, chatsRunIn: undefined } });
+    expect(html).not.toContain('name="chatsRunIn"');
+    expect(html.match(/type="radio"/g)?.length).toBe(2 + 3 + 6);
   });
 });

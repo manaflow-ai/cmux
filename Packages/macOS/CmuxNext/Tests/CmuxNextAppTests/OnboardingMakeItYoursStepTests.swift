@@ -72,12 +72,19 @@ import Testing
         #expect(state["step"]?.stringValue == "makeItYours")
         #expect(state["makeItYours"]?["workStyle"]?.stringValue == "gui")
         #expect(state["makeItYours"]?["background"] == .null)
+        #expect(state["makeItYours"]?["chatsRunIn"]?.stringValue == "local", "chats stay on this Mac until the person picks Cloud")
         #expect(state["footer"]?["primary"]?.stringValue == "continue")
 
         _ = try await provider.call("cmux.onboarding.makeItYours.workStyle", params: ["value": "terminal"], context: clicked(300))
         _ = try await provider.call("cmux.onboarding.makeItYours.density", params: ["value": "comfortable"], context: clicked(301))
         _ = try await provider.call("cmux.onboarding.makeItYours.background", params: ["id": "daily"], context: clicked(302))
         #expect(source.current == FirstRunChoices(workStyle: .terminal, density: .comfortable, background: "daily"))
+        _ = try await provider.call("cmux.onboarding.makeItYours.chatsRunIn", params: ["value": "cloud"], context: clicked(307))
+        #expect(source.current.chatsRunIn == .cloud)
+        #expect(source.applied.last?.old.chatsRunIn == .local)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.onboarding.makeItYours.chatsRunIn", params: ["value": "moon"], context: clicked(308))
+        }
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.onboarding.makeItYours.background", params: ["id": "elsewhere"], context: clicked(303))
         }
