@@ -334,11 +334,12 @@ fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Opt
     if kind != "done"
         && semantic_id != "record"
         && let Some(permission) = msg.get("permissionId").and_then(Value::as_str)
+        && let Some(fields) = event.as_object_mut()
     {
         let (ask, choices) = crate::hub::ask_choices::choices(&msg["request"]);
-        event["ask"] = json!(ask.name());
-        event["permission_id"] = json!(permission);
-        event["choices"] = choices.iter().map(|c| c.json()).collect();
+        fields.insert("ask".into(), json!(ask.name()));
+        fields.insert("permission_id".into(), json!(permission));
+        fields.insert("choices".into(), choices.iter().map(|c| c.json()).collect());
     }
     Some(event)
 }
