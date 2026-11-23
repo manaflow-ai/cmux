@@ -1016,8 +1016,10 @@ pub struct Hub {
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
     pub(crate) mesh_read_parts: crate::server::mesh_relay::read::parts::ReadParts,
     /// Hub-routed session reads shared by callers while the same network read is in flight.
-    pub(crate) mesh_read_flights:
-        crate::single_flight::SingleFlight<String, Value, crate::rpc::RpcError>,
+    pub(crate) mesh_read_flights: crate::single_flight::SingleFlight<
+        crate::server::mesh_relay::read::ReadKey,
+        Result<Value, crate::rpc::RpcError>,
+    >,
     /// Each parent's children by tag, for an approval card's label (`permissions/display.rs`).
     pub(super) child_tags: permissions::ChildTags,
     /// Leased peers by name, with the generation of the peer each lease
