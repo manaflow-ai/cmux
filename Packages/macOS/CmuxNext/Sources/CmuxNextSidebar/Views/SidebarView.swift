@@ -321,8 +321,9 @@ public final class SidebarView: NSView {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
-        // overlay that never narrows the list.
-        SystemScrollers.followThin(scrollView)
+        // overlay that never narrows the list. It shows only while the list scrolls, never for
+        // the pointer alone: the resize band lies over it (ask-969743672d).
+        SystemScrollers.followThin(scrollView, revealsOnHover: false)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list

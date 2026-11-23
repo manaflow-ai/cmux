@@ -21,8 +21,9 @@ import Testing
         let scroller: ThinScroller
     }
 
-    /// A window whose sidebar list overflows, with its scroller's knob shown (a scroll just ran).
-    static func fixture(appearance: NSAppearance.Name? = nil) throws -> Fixture {
+    /// A window whose sidebar list overflows, with its scroller's knob shown (a scroll just ran), or
+    /// at rest with `scrolled` false.
+    static func fixture(appearance: NSAppearance.Name? = nil, scrolled: Bool = true) throws -> Fixture {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let workspaces = (0..<80).map { SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "workspace \($0)")) }
@@ -40,7 +41,7 @@ import Testing
         root.needsLayout = true
         root.layoutSubtreeIfNeeded()
         let scroller = try #require(container.sidebarView.scrollView.verticalScroller as? ThinScroller)
-        scroller.flash()
+        if scrolled { scroller.flash() }
         return Fixture(window: window, root: root, handle: container.handle, scroller: scroller)
     }
 
