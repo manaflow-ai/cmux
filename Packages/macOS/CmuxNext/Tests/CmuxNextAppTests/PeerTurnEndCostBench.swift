@@ -46,7 +46,7 @@ struct PeerTurnEndCostBench {
         service.services = services
         let turns = AgentTurnStateStore()
         turns.localHost = "install:peer-bench"
-        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded(session: $0) }
+        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded($0) }
         let feed = AgentTurnStateFeed(socketPath: "/nonexistent/peer-turn-end-bench.sock", turns: turns, lanes: AgentLaneStore())
         let design = DesignSettings.shared
         let before = design.attention

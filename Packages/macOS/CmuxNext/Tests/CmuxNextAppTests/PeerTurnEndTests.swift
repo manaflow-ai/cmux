@@ -73,7 +73,7 @@ struct PeerTurnEndTests {
         service.services = services
         let turns = AgentTurnStateStore()
         turns.localHost = "install:peer-turn-end"
-        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded(session: $0) }
+        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded($0) }
         let feed = AgentTurnStateFeed(socketPath: "/nonexistent/peer-turn-end.sock", turns: turns, lanes: AgentLaneStore())
         let design = DesignSettings.shared
         let before = design.attention
@@ -110,7 +110,7 @@ struct PeerTurnEndTests {
         service.services = services
         let turns = AgentTurnStateStore()
         turns.localHost = "install:peer-turn-end"
-        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded(session: $0) }
+        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded($0) }
         let feed = AgentTurnStateFeed(socketPath: "/nonexistent/peer-turn-end-local.sock", turns: turns, lanes: AgentLaneStore())
         let design = DesignSettings.shared
         let before = design.attention
@@ -131,6 +131,84 @@ struct PeerTurnEndTests {
         store.apply(snapshot: Self.session(workspaces: 1, tabsEach: 3))
         #expect(store.tabs(agentSession: "local-6").isEmpty, "a closed chat tab stayed in the index")
         #expect(store.tabs(agentSession: Self.peerSession).count == 1)
+    }
+
+    /// Session ids are each daemon's own: this Mac, the lab and another peer each have a chat `shared`. A turn
+    /// end of one rings only the tab of that machine's chat, never the others' tabs of the same id.
+    @Test func aTurnEndRingsOnlyTheTabOfTheMachineWhoseTurnItWas() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        let refs = [AgentSessionRef(host: "install:peer-turn-end", session: "shared", harness: "claude"),
+                    AgentSessionRef(host: "registry:lab", hostName: "lab", session: "shared", harness: "claude"),
+                    AgentSessionRef(host: "registry:elsewhere", hostName: "Elsewhere", session: "shared", harness: "claude")]
+        let tabs = refs.enumerated().map { index, ref in
+            var tab = TabSnapshot(surface: SurfaceID(rawValue: UInt64(index + 1)), kind: .conversation, cwd: nil)
+            tab.conversation = ConversationTabRef(agentSession: ref)
+            return tab
+        }
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: tabs)])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let models = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+        let ids = Dictionary(uniqueKeysWithValues: models.compactMap { tab in tab.agentSession.map { ($0.host, tab.id) } })
+        let id = { (host: String) in ids[host] ?? "" }
+        let service = NotificationCenterService()
+        service.services = services
+        let turns = AgentTurnStateStore()
+        turns.localHost = "install:peer-turn-end"
+        turns.onTurnEnded = { [weak service] in service?.agentTurnEnded($0, in: store, mirrorPeer: { _ in nil }, rings: true, viewed: { _ in false }) }
+        let feed = AgentTurnStateFeed(socketPath: "/nonexistent/peer-turn-end-shared.sock", turns: turns, lanes: AgentLaneStore())
+
+        feed.handle(try Self.peerChange("lab", session: "shared", indicator: "working"))
+        feed.handle(try Self.localChange("shared", indicator: "working"))
+        feed.handle(try Self.peerChange("lab", session: "shared", indicator: "idle"))
+        #expect(Set(service.agentFinished.keys) == [id("registry:lab")], "the lab's turn end rang another machine's chat of the same id")
+        feed.handle(try Self.localChange("shared", indicator: "idle"))
+        #expect(Set(service.agentFinished.keys) == [id("registry:lab"), id("install:peer-turn-end")],
+                "this Mac's turn end did not ring only this Mac's chat")
+        // The other peer's turn end rings that peer's tab (its name matched in any case).
+        feed.handle(try Self.peerChange("elsewhere", session: "shared", indicator: "working"))
+        feed.handle(try Self.peerChange("elsewhere", session: "shared", indicator: "idle"))
+        #expect(Set(service.agentFinished.keys) == Set(models.map(\.id)))
+    }
+
+    /// A tab of this Mac's host bound to a peer's mirrored session (cx-k21v) is that peer's chat: the peer's turn end
+    /// rings it, this Mac's own turn end of the same id does not, and another peer's does not.
+    @Test func aMirroredPeerChatTabIsThatPeersChat() {
+        let mirrored = AgentSessionRef(host: "install:here", session: "m1")
+        let own = AgentSessionRef(host: "install:here", session: "o1")
+        let mirrorPeer = { (session: String) in session == "m1" ? "lab" : nil }
+        let here: Set<String> = ["install:here", "chief:1"]
+        #expect(AgentTurnEnd(session: "m1", peer: "lab", hostsHere: here).reaches(mirrored, mirrorPeer: mirrorPeer))
+        #expect(!AgentTurnEnd(session: "m1", peer: "other", hostsHere: here).reaches(mirrored, mirrorPeer: mirrorPeer))
+        #expect(!AgentTurnEnd(session: "m1", hostsHere: here).reaches(mirrored, mirrorPeer: mirrorPeer))
+        #expect(AgentTurnEnd(session: "o1", hostsHere: here).reaches(own, mirrorPeer: mirrorPeer))
+        #expect(!AgentTurnEnd(session: "o1", peer: "lab", hostsHere: here).reaches(own, mirrorPeer: mirrorPeer))
+        #expect(AgentTurnEnd(session: "c1", hostsHere: here).reaches(AgentSessionRef(host: "chief:1", session: "c1"), mirrorPeer: mirrorPeer))
+    }
+
+    /// A peer's row of an id a mirrored acpmux holds (the Chief home's) never takes that record from it: this Mac's
+    /// next page, which does not list the id as its own, leaves the mirrored chat's state and title as they were.
+    @Test func aPeerRowLeavesAMirroredChatOfTheSameIdItsOwn() throws {
+        let turns = AgentTurnStateStore()
+        turns.localHost = "install:peer-turn-end"
+        turns.mirroredHosts = ["chief:1"]
+        let ref = AgentSessionRef(host: "chief:1", session: "c1")
+        turns.apply(session: "c1", state: .working, lastMessage: nil, muted: false, title: "Chief task", detail: nil, source: "chief:1")
+        // A push of the lab's row of c1, then this Mac's own page, which lists none of its own.
+        turns.apply(session: "c1", state: .working, lastMessage: "the lab's last line", muted: false, title: "The lab's chat", detail: nil,
+                    peer: AgentPeerRow(name: "lab", stale: false, state: .working), peerName: "lab")
+        #expect(turns.title(for: ref) == "Chief task", "a peer's push wrote its chat's title over the mirrored chat of the same id")
+        #expect(turns.lastMessage(for: ref) == nil, "a peer's push wrote its chat's last message over the mirrored chat of the same id")
+        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: [:], details: [:])
+        #expect(turns.state(for: ref) == .working, "a peer's push took the mirrored chat's record, and this Mac's page cleared it")
+        #expect(turns.title(for: ref) == "Chief task")
+        // A page with the lab's row of c1 lays the row and leaves the mirrored chat's facts.
+        turns.replace(states: AgentTurnStates(), lastMessages: [:], muted: [], titles: [:], details: [:],
+                      peers: ["c1": ["lab": AgentPeerRow(name: "lab", stale: false)]])
+        #expect(turns.state(for: ref) == .working, "a page's peer row of the id cleared the mirrored chat's state")
+        #expect(turns.title(for: ref) == "Chief task")
+        #expect(turns.peerRows("c1")["lab"] == AgentPeerRow(name: "lab", stale: false))
     }
 
     /// Leo, 2026-11-18, to "stay awake for local agents, and ignore other machines'": "Yeah sure". An agent of
@@ -218,7 +296,7 @@ struct PeerTurnEndTests {
         turns.localHost = "install:peer-turn-end"
         let feed = AgentTurnStateFeed(socketPath: "/nonexistent/peer-turn-end-wake.sock", turns: turns, lanes: AgentLaneStore())
         var ended: [String] = []
-        turns.onTurnEnded = { ended.append($0) }
+        turns.onTurnEnded = { ended.append($0.session) }
         feed.handle(try Self.peerChange("lab", session: "w1", indicator: "working"))
         feed.handle(try Self.peerChange("lab", session: "w2", indicator: "working"))
         feed.handle(try Self.localChange("w3", indicator: "working"))

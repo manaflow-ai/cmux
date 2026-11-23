@@ -142,7 +142,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
-        AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
+        AgentTurnStateStore.shared.onTurnEnded = { [weak self] end in self?.agentTurnEnded(end) }
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         let feed = services.feed
@@ -485,18 +485,18 @@ final class NotificationCenterService {
     /// (the focused content of the key window) never rings, and a burst pulses once: a finish
     /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959). Only the chat's own tabs are read, from
     /// the store's index by session id: a turn end of any chat on any machine never walks every tab of every workspace
-    /// (design audit 2026-11-18 finding 7).
-    func agentTurnEnded(session: String) {
+    /// (design audit 2026-11-18 finding 7), and of those only the machine's whose turn it was (``AgentTurnEnd``).
+    func agentTurnEnded(_ end: AgentTurnEnd) {
         guard let services else { return }
-        agentTurnEnded(session: session, in: services.daemon.store)
+        agentTurnEnded(end, in: services.daemon.store)
     }
 
-    func agentTurnEnded(session: String, in store: DaemonStore,
+    func agentTurnEnded(_ end: AgentTurnEnd, in store: DaemonStore, mirrorPeer: (String) -> String? = { AgentPeerUploads.peer(of: $0, lanes: .shared) },
                         rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
                         viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
         guard rings else { return }
-        for tab in store.tabs(agentSession: session)
-        where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
+        for tab in store.tabs(agentSession: end.session)
+        where tab.agentSession.map({ end.reaches($0, mirrorPeer: mirrorPeer) }) == true && !(viewed?(tab.id) ?? isViewed(tab.id)) {
             agentFinishGeneration &+= 1
             agentFinished[tab.id] = agentFinishGeneration
             if let last = lastAgentPulse, now - last < Self.burstWindow {

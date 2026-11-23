@@ -16,7 +16,7 @@ struct AgentTurnRingTests {
     @Test func aTurnThatStopsWorkingReportsItsEnd() {
         let turns = AgentTurnStateStore()
         var ended: [String] = []
-        turns.onTurnEnded = { ended.append($0) }
+        turns.onTurnEnded = { ended.append($0.session) }
         turns.apply(session: "s1", state: .working, lastMessage: nil, muted: false, title: nil, detail: nil)
         turns.apply(session: "s1", state: nil, lastMessage: nil, muted: false, title: nil, detail: nil)
         #expect(ended == ["s1"])
@@ -43,11 +43,11 @@ struct AgentTurnRingTests {
         defer { design.attention = before }
         design.attention = AttentionSettings()
         let service = NotificationCenterService()
-        service.agentTurnEnded(session: "s1", in: store)
+        service.agentTurnEnded(AgentTurnEnd(session: "s1"), in: store)
         #expect(service.agentFinished.isEmpty, "a finished turn was recorded for a ring by default")
         #expect(service.attentionMarks(for: workspace).isEmpty, "a finished reply rang its pane by default")
         design.attention.agentChatRing = .ring
-        service.agentTurnEnded(session: "s1", in: store)
+        service.agentTurnEnded(AgentTurnEnd(session: "s1"), in: store)
         #expect(service.attentionMarks(for: workspace).count == 1, "the opt-in ring did not ring")
         design.attention.agentChatRing = .none
         #expect(service.attentionMarks(for: workspace).isEmpty, "turning agent chat rings off left the ring")

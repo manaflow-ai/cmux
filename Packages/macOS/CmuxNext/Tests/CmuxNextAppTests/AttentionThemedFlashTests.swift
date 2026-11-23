@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextLayout
@@ -47,7 +48,7 @@ import Testing
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let service = NotificationCenterService()
-        if agentChat { service.agentTurnEnded(session: "s1", in: store, viewed: { _ in false }) }
+        if agentChat { service.agentTurnEnded(AgentTurnEnd(session: "s1"), in: store, viewed: { _ in false }) }
         return (service, try #require(store.workspaces.first))
     }
 
@@ -99,10 +100,10 @@ import Testing
         try #require(models.count == 3)
         let service = NotificationCenterService()
         let start = ContinuousClock.now
-        service.agentTurnEnded(session: "s1", in: store, rings: true, viewed: { $0 == models[0].id }, now: start)
+        service.agentTurnEnded(AgentTurnEnd(session: "s1"), in: store, rings: true, viewed: { $0 == models[0].id }, now: start)
         #expect(service.agentFinished[models[0].id] == nil, "the chat being looked at rang")
-        service.agentTurnEnded(session: "s2", in: store, rings: true, viewed: { _ in false }, now: start)
-        service.agentTurnEnded(session: "s3", in: store, rings: true, viewed: { _ in false }, now: start + .milliseconds(300))
+        service.agentTurnEnded(AgentTurnEnd(session: "s2"), in: store, rings: true, viewed: { _ in false }, now: start)
+        service.agentTurnEnded(AgentTurnEnd(session: "s3"), in: store, rings: true, viewed: { _ in false }, now: start + .milliseconds(300))
         #expect(!service.quietAgentFinishes.contains(models[1].id), "the first finish of a burst did not pulse")
         #expect(service.quietAgentFinishes.contains(models[2].id), "a second finish in the burst pulsed again")
         let view = Self.overlay()
