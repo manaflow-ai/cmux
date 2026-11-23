@@ -109,6 +109,9 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
+(session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
+as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
 """
 import base64
 import hashlib
@@ -2384,6 +2387,20 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "result": {"modes": {"currentModeId": load_mode, "availableModes": offered}}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})
+            quit_file = os.environ.get("FAKE_QUIT_429_FILE")
+            if quit_file and os.path.exists(quit_file):
+                with open(quit_file) as f:
+                    said = f.read().strip()
+
+                def quit_429(said=said):
+                    import time as clock  # main() imports `time` locally
+                    clock.sleep(0.3)
+                    sys.stderr.write(said + "\n")
+                    sys.stderr.flush()
+                    clock.sleep(0.2)
+                    os._exit(0)
+
+                threading.Thread(target=quit_429, daemon=True).start()
         elif m == "session/fork":
             # FAKE_NO_FORK=1: an agent without session/fork (Kimi, DeepSeek): a bare internal error.
             if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":
