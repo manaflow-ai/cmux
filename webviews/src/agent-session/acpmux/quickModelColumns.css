@@ -5,9 +5,11 @@
 .acpmux-cols.ui-popup {
   --acpmux-cols-line: var(--ui-line, color-mix(in srgb, var(--agent-text) 11%, transparent));
   /* One fill for the whole menu: the rail's quiet fill, under the models and the settings column too
-     (Lucas 2026-11-22: "make it all 1 colour", "the panel fill should follow the rail colour"). No
-     vertical rule between the columns (David Beyer 2026-11-20: "I hate those vertical lines");
-     horizontal rules stay where they end a row. .acpmux-cols-frame paints it. */
+     (Lucas 2026-11-22: "make it all 1 colour", "the panel fill should follow the rail colour").
+     .acpmux-cols-frame paints it. Hairlines part the columns (Lucas 2026-11-23, his reference: "we
+     need to introduce lines again"): one down the rail's end edge and one down the settings column's
+     start edge, each the whole height, and one under the search row across the whole width. They are
+     inset shadows, so no column loses width to them. */
   --acpmux-cols-side-fill: var(--ds-surface-card);
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
@@ -94,6 +96,7 @@
      columns under it keep their place as tabs with and without an account switch. */
   min-block-size: 32px;
   /* No padding above or below the corner: it spans the search row's height. */
+  box-shadow: inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-cols-line);
 }
 
 /* The account avatar: a round face with the family's mark at its corner. */
@@ -224,6 +227,10 @@
   min-width: 0;
   min-height: 0;
 }
+/* The rail's end edge. */
+.acpmux-cols-lists > .acpmux-cols-rail {
+  box-shadow: inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-cols-line);
+}
 .acpmux-cols-list {
   min-width: 0;
   min-height: 0;
@@ -235,7 +242,7 @@
 }
 /* The effort column's Reasoning heading sits in the search row, centered on its height; its text starts
    where the levels' text does (the list's padding and a row's). Head and column take the menu's one
-   fill: one column, with no rule beside or above it. */
+   fill and one hairline down their start edge; the column's top continues the search row's rule. */
 .acpmux-cols-body > .acpmux-cols-tune-head {
   grid-area: 1 / 2;
   /* The search field's type and ink, not a caption's (Lucas 2026-11-12: "not bold, the same font and
@@ -249,6 +256,7 @@
   min-width: 0;
   padding-block: 0;
   padding-inline: calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
+  box-shadow: inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-cols-line);
 }
 .acpmux-cols-body > .acpmux-cols-tune {
   grid-area: 2 / 2 / 4 / 3;
@@ -256,6 +264,11 @@
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  /* Its start edge, and the search row's rule continued along its top, on the same half pixel as the
+     strips' rule beside it (.acpmux-cols-sep). */
+  box-shadow:
+    inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-cols-line),
+    inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-cols-line);
 }
 /* Its levels and providers scroll on their own; Fast stays fixed under them, at the column's bottom,
    a hairline above it (Lucas 2026-11-12). */
