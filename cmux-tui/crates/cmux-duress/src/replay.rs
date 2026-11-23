@@ -722,7 +722,7 @@ fn tui_bytes_run(
             (t, if from_input { Write::Scroll } else { Write::Tick }, bytes)
         })
         .collect();
-    let mut up = Link::new(link.clone(), Rng::new(knobs.seed ^ SCENARIO_SALT).split(21));
+    let mut up = Link::new(link, Rng::new(knobs.seed ^ SCENARIO_SALT).split(21));
     for origin in tui_keys(scenario) {
         let at = up.deliver((origin * 1000.0) as u64, 1) as f64 / 1000.0;
         let echo = format!("\x1b[{rows};{}H\x1b[7mk\x1b[0m", cols.max(1));
