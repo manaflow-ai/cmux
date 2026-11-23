@@ -195,6 +195,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
+  -skipPackagePluginValidation
   -configuration Release
   -destination 'platform=macOS'
 )
