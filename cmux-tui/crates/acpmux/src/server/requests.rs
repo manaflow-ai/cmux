@@ -24,6 +24,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
 #[cfg(test)]
+#[path = "requests/reopen_attach_bytes_tests.rs"]
+mod reopen_attach_bytes_tests;
+#[cfg(test)]
 #[path = "requests/session_load_newest_tests.rs"]
 mod session_load_newest_tests;
 mod settled_attach;
@@ -31,6 +34,7 @@ mod settled_attach;
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
 mod successor;
+mod time_breakdown_gate;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
@@ -3414,13 +3418,15 @@ async fn dispatch_request_with_identity(
                 let presence = hub.presence.snapshot(&s.id);
                 let reader = crate::author::author(&params).ok().flatten();
                 let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
-                return Ok(json!({
+                let mut reply = json!({
                     "session": detail,
                     "lastSeq": last,
                     "presence": presence,
                     "readThrough": read_through,
                     "hold": true,
-                }));
+                });
+                time_breakdown_gate::apply(&mut reply, &params);
+                return Ok(reply);
             }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
             // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
@@ -3462,9 +3468,10 @@ async fn dispatch_request_with_identity(
             let settled_key = match settled {
                 Some((_, Some(view))) => {
                     let key = view.key.clone();
-                    if let Some(reply) =
+                    if let Some(mut reply) =
                         crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
                     {
+                        time_breakdown_gate::apply(&mut reply, &params);
                         return Ok(reply);
                     }
                     Some(key)
@@ -3531,6 +3538,7 @@ async fn dispatch_request_with_identity(
                 reply["settled"] = Value::Null;
                 hub.settle_view_for_open(&s, key);
             }
+            time_breakdown_gate::apply(&mut reply, &params);
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);

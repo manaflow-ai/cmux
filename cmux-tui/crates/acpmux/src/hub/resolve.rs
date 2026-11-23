@@ -415,6 +415,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_return: None,
         away_recap: None,
         rolling_summary: None,
+        approved_plan: None,
         read_through: Default::default(),
         claude_unstored: false,
         claude_unstored_work: false,
