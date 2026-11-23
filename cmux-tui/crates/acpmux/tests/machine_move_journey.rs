@@ -1574,6 +1574,14 @@ async fn e4_one_kill(seed: u64) -> E4Row {
             not_completed.push(format!("{p}:{}", statuses.join("/")));
         }
     }
+    // `E4_DUMP=1`: B2's journal, one line per record, to read a row's story.
+    if std::env::var_os("E4_DUMP").is_some() {
+        for e in &events {
+            let mut msg = e["msg"].to_string();
+            msg.truncate(msg.floor_char_boundary(220));
+            println!("  seed {seed} journal: {} {msg}", e["kind"]);
+        }
+    }
     let answers = ["echo: first", "tick2", "echo: second", "echo: third"]
         .iter()
         .map(|t| events.iter().filter(|e| says(e, t)).count().to_string())
