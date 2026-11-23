@@ -475,8 +475,9 @@ class TailnetHostIpTests(unittest.TestCase):
             a=types.SimpleNamespace(host="mac-a", host_ip=host_ip, clock_count=5),
             py="python3", me="screen-share-vs.py",
             host=types.SimpleNamespace(popen=lambda cmd: srv),
-            viewer=types.SimpleNamespace(run=fail))
-        with self.assertRaises(RuntimeError) as cm:
+            viewer=types.SimpleNamespace(run=fail), CLOCK_TRIES=2)
+        me.clock_once = lambda: vs.Orchestrator.clock_once(me)
+        with self.assertRaises(RuntimeError) as cm, contextlib.redirect_stderr(io.StringIO()):
             vs.Orchestrator.clock(me)
         return str(cm.exception)
 
@@ -838,6 +839,34 @@ class PresentedSourceLabel(unittest.TestCase):
         self.assertIn("null", b["app_timings"])
         with self.assertRaises(ValueError):
             vs.presented_source("bogus")
+
+
+class ClockRetryTest(unittest.TestCase):
+    def runner(self, outcomes):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        calls = []
+
+        def once():
+            calls.append(1)
+            r = outcomes[len(calls) - 1]
+            if isinstance(r, Exception):
+                raise r
+            return r
+        o.clock_once = once
+        return o, calls
+
+    def test_a_slow_start_is_retried(self):
+        o, calls = self.runner([RuntimeError("clock-serve on cmux20 did not start: None"), {"offset_ns": 5}])
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(o.clock(), {"offset_ns": 5})
+        self.assertEqual(len(calls), 2)
+
+    def test_every_try_failing_names_each_error(self):
+        o, calls = self.runner([RuntimeError("a"), TimeoutError("b"), ValueError("c")])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError) as e:
+            o.clock()
+        self.assertEqual(len(calls), vs.Orchestrator.CLOCK_TRIES)
+        self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
 if __name__ == "__main__":

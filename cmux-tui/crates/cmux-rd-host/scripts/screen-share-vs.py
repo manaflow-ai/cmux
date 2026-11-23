@@ -1870,18 +1870,33 @@ class Orchestrator:
             else:
                 raise SystemExit("the rig did not start in cmux NEXT")
 
+    CLOCK_TRIES = 3
+
     def clock(self):
+        """The clock probe, tried up to CLOCK_TRIES times. Its control path (a reach call to each Mac)
+        can stall for tens of seconds when the fanout is busy, while the pair link itself is fine; one
+        slow start or timed-out probe ended a whole run before any trial."""
+        errors = []
+        for _ in range(self.CLOCK_TRIES):
+            try:
+                return self.clock_once()
+            except Exception as e:  # a slow start, a timed-out probe, no replies
+                errors.append(f"{type(e).__name__}: {e}")
+                print(f"clock probe try {len(errors)} of {self.CLOCK_TRIES} failed: {errors[-1]}", file=sys.stderr, flush=True)
+        raise RuntimeError(f"clock probe failed {len(errors)} times: " + " | ".join(errors))
+
+    def clock_once(self):
         # Port 0: a clock server still draining from the last probe never collides.
         srv = self.host.popen(f"{self.py} {self.me} clock-serve --bind {self.a.host_ip} "
-                              f"--port 0 --seconds 120")
-        line = readline(srv, time.time() + 15)
+                              f"--port 0 --seconds 180")
+        line = readline(srv, time.time() + 45)
         try:
             port = json.loads(line or "{}").get("listening")
             if not port:
                 raise RuntimeError(f"clock-serve on {self.a.host} did not start: {line!r}")
             try:
                 out = self.viewer.run(f"{self.py} {self.me} clock-probe --addr {self.a.host_ip}:{port} "
-                                      f"--count {self.a.clock_count}", timeout=60)
+                                      f"--count {self.a.clock_count}", timeout=120)
             except RuntimeError as e:
                 if tailnet(self.a.host_ip):
                     raise RuntimeError(f"{e}\n{TAILNET_UDP}") from None
