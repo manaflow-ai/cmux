@@ -49,7 +49,8 @@ BIN=$RUN/bin/acpmux SIM=$RUN/bin/coord-sim
 echo "FANIN: acpmux $("$BIN" --version 2>/dev/null | head -1)"
 # The largest ramp's controller, found by the home in its environment (`fanin/fleet.rs` env_for).
 profile() {
-  local top=${RAMPS##*,} pid="" p
+  # FANIN_PERF_ROLE=h00 (any host name) profiles that host daemon instead of the controller.
+  local top=${RAMPS##*,} pid="" p ROLE=${FANIN_PERF_ROLE:-controller}
   command -v perf >/dev/null || { echo "FANIN perf: perf is not installed on this runner"; return; }
   # Ubuntu runners ship perf_event_paranoid 4 (no user profiling at all); a CI runner's sudo lowers it.
   if [ "$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null)" -gt 1 ] 2>/dev/null; then
@@ -58,13 +59,13 @@ profile() {
   fi
   for _ in $(seq 1 3600); do
     for p in $(pgrep -f -- "$BIN daemon run" || true); do
-      tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "n$top/controller" && { pid=$p; break; }
+      tr '\0' '\n' < "/proc/$p/environ" 2>/dev/null | grep -q "^ACPMUX_HOME=.*/n$top/$ROLE$" && { pid=$p; break; }
     done
     [ -n "$pid" ] && break
     sleep 1
   done
-  [ -n "$pid" ] || { echo "FANIN perf: no controller for n=$top"; return; }
-  echo "FANIN perf: recording controller pid $pid"
+  [ -n "$pid" ] || { echo "FANIN perf: no $ROLE for n=$top"; return; }
+  echo "FANIN perf: recording $ROLE pid $pid"
   # Where its threads block (a lock, a full channel): each switch away, with its stack. A
   # scheduler tracepoint, so it needs root; a runner without `sudo -n` keeps the CPU profile only.
   local off=""
