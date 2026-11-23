@@ -11,6 +11,7 @@ mod matcher;
 mod vectors;
 
 use cmux_auto_session::fake::FakeAutoCloud;
+use serde_json::{Value, json};
 
 use vectors::{Case, Step, Vectors};
 
@@ -112,6 +113,38 @@ fn the_fake_store_answers_every_vector_as_the_real_store_does() {
         differences.len(),
         differences.join("\n")
     );
+}
+
+#[test]
+fn the_replayer_reports_an_answer_or_a_refusal_that_differs() {
+    let open = json!({
+        "by": "owner", "op": "put", "id": "chat",
+        "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"},
+    });
+    let with = |more: Value| {
+        let mut step = open.clone();
+        if let (Value::Object(step), Value::Object(more)) = (&mut step, more) {
+            step.extend(more);
+        }
+        step
+    };
+    let wrong = json!([
+        {"name": "another epoch", "steps": [with(json!({"expect": {"session": {"epoch": 2}}}))]},
+        {"name": "another code", "steps": [open.clone(), {
+            "by": "owner", "op": "snapshot", "id": "chat",
+            "refuse": {"status": 404, "code": "not_found"},
+        }]},
+        {"name": "no refusal", "steps": [
+            with(json!({"refuse": {"status": 409, "code": "auto.closed"}})),
+        ]},
+        {"name": "a refusal", "steps": [{
+            "by": "owner", "op": "get", "id": "chat", "expect": {"session": {"epoch": 1}},
+        }]},
+    ]);
+    let wrong: Vec<Case> = serde_json::from_value(wrong).expect("the cases read");
+    for case in &wrong {
+        assert_eq!(replay(case).len(), 1, "{:?} has one step that differs", case.name);
+    }
 }
 
 #[test]

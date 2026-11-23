@@ -20,6 +20,14 @@ describe("auto sessions: the conformance vectors", () => {
     expect(differs({ a: { b: 1 } }, { a: null })).not.toBe("")
   })
 
+  it("the replayer refuses an answer or a refusal that differs from the vectors", async () => {
+    const open = { by: "owner", op: "put", id: "chat", body: { auto: true, title: "Fix it", harness: "claude", device: "mac1" } }
+    await expect(replay({ name: "another epoch", steps: [{ ...open, expect: { session: { epoch: 2 } } }] }, 9001)).rejects.toThrow()
+    await expect(replay({ name: "another code", steps: [open, { by: "owner", op: "snapshot", id: "chat", refuse: { status: 404, code: "not_found" } }] }, 9002)).rejects.toThrow()
+    await expect(replay({ name: "no refusal", steps: [{ ...open, refuse: { status: 409, code: "auto.closed" } }] }, 9003)).rejects.toThrow()
+    await expect(replay({ name: "a refusal", steps: [{ by: "owner", op: "get", id: "chat", expect: { session: { epoch: 1 } } }] }, 9004)).rejects.toThrow()
+  })
+
   it("names every case once", () => {
     expect(cases.length).toBeGreaterThan(0)
     expect(new Set(cases.map((c) => c.name)).size).toBe(cases.length)

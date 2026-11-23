@@ -377,6 +377,36 @@
       ]
     },
     {
+      "name": "the chat goes home to the standby that renewed last",
+      "steps": [
+        {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "needsRun": true}},
+        {"advanceMs": 50000, "by": "machine:vm_a", "op": "ack_assignment", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2}, "expect": {"session": {"state": "cloud"}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"standby": ["device:mac1"]}}},
+        {"advanceMs": 1000, "by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac2", "epoch": 2, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"standby": ["device:mac1", "device:mac2"]}}},
+        {"advanceMs": 1000, "by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"holder": "vm:vm_a", "epoch": 2, "state": "coming_back", "standby": ["device:mac1", "device:mac2"]}}},
+        {"advanceMs": 1000, "by": "machine:vm_a", "op": "lease", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2, "needsRun": false}, "expect": {"role": "lost", "session": {"holder": "device:mac1", "epoch": 3, "state": "local", "standby": ["device:mac2"]}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac2", "epoch": 2, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"holder": "device:mac1", "epoch": 3, "standby": ["device:mac2"]}}}
+      ]
+    },
+    {
+      "name": "at most 8 laptops stand by for one chat: a ninth drops the one that came first",
+      "steps": [
+        {"by": "owner", "op": "put", "id": "chat", "body": {"auto": true, "title": "Fix it", "harness": "claude", "device": "mac1"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d1", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d2", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d3", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d4", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d5", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d6", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d7", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby"}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d8", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"standby": ["device:d1", "device:d2", "device:d3", "device:d4", "device:d5", "device:d6", "device:d7", "device:d8"]}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d3", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"standby": ["device:d1", "device:d2", "device:d3", "device:d4", "device:d5", "device:d6", "device:d7", "device:d8"]}}},
+        {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:d9", "epoch": 1, "needsRun": false, "standby": true}, "expect": {"role": "standby", "session": {"holder": "device:mac1", "epoch": 1, "standby": ["device:d2", "device:d3", "device:d4", "device:d5", "device:d6", "device:d7", "device:d8", "device:d9"]}}}
+      ]
+    },
+    {
       "name": "a machine that said it was idle and stopped renewing gives the chat to a standby at the standby's renewal",
       "steps": [
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
@@ -412,6 +442,7 @@
         {"by": "machine:vm_a", "op": "assignments", "query": {"timeoutMs": 0}, "expect": {"assignments": []}},
         {"by": "machine:vm_a", "op": "get", "id": "chat", "refuse": {"status": 404, "code": "not_found"}},
         {"by": "machine:vm_a", "op": "ack_assignment", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2}, "refuse": {"status": 404, "code": "not_found"}},
+        {"by": "machine:vm_a", "op": "lease", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2, "needsRun": true}, "refuse": {"status": 404, "code": "not_found"}},
         {"by": "machine:vm_b", "op": "ack_assignment", "id": "chat", "body": {"holder": "vm:vm_b", "epoch": 3}, "expect": {"session": {"holder": "vm:vm_b", "epoch": 3, "state": "cloud"}}},
         {"by": "owner", "op": "set_machine", "body": {"team": "$team", "machine": "vm_a"}},
         {"by": "owner", "op": "machine", "expect": {"machine": "vm_a"}},
@@ -483,6 +514,8 @@
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": false, "title": "Fix it", "harness": "claude", "device": "mac1"}, "refuse": {"status": 409, "code": "auto.held_in_cloud"}},
         {"by": "machine:vm_a", "op": "release", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2}, "expect": {"session": {"holder": "parked", "epoch": 3, "state": "parked"}}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": false, "title": "Fix it", "harness": "claude", "device": "mac1"}, "refuse": {"status": 409, "code": "auto.held_in_cloud", "session": {"auto": true, "holder": "parked", "epoch": 3}}},
+        {"by": "machine:vm_a", "op": "lease", "id": "chat", "body": {"holder": "vm:vm_a", "epoch": 2, "needsRun": false}, "expect": {"role": "lost", "session": {"holder": "parked", "epoch": 3}}},
+        {"by": "machine:vm_a", "op": "get", "id": "chat", "refuse": {"status": 404, "code": "not_found"}},
         {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 2, "needsRun": false}, "expect": {"role": "lost", "session": {"holder": "parked", "epoch": 3}}},
         {"by": "owner", "op": "lease", "id": "chat", "body": {"holder": "device:mac1", "epoch": 2, "needsRun": false, "standby": true}, "expect": {"role": "holder", "session": {"holder": "device:mac1", "epoch": 4}}},
         {"by": "owner", "op": "put", "id": "chat", "body": {"auto": false, "title": "Fix it", "harness": "claude", "device": "mac1"}, "expect": {"session": {"auto": false, "holder": "parked", "epoch": 5, "state": "parked"}}}
