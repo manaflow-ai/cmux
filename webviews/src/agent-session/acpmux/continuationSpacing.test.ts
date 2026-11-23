@@ -243,6 +243,23 @@ test("the live line takes its run box and gap after activity while activity rows
       ? layoutConversation([row("a", "assistant", { text: "Done." }), live], 720).tailGap
       : TRANSCRIPT_COMPOSER_GAP,
   );
+  // Under a run and under a reply alike, the footer gap (8) over it and one room from its top to the end, so the row
+  // over it switching moves it nothing (Leo, 2026-11-21: "see the space/gap between tool calls and the current
+  // shimmer? this isnt great."; transcriptGrid.ts LIVE_GAP_LOOKS).
+  expect(TRANSCRIPT_LIVE_STEP_GAP).toBe(TRANSCRIPT_FOOTER_GAP);
+  const fromTop = (rows: AcpmuxRow[]) => {
+    const placed = layoutConversation(rows, 720);
+    const last = rows.length - 1;
+    return {
+      over: placed.tops[last]! - placed.tops[last - 1]! - placed.heights[last - 1]!,
+      room: placed.heights[last]! + placed.tailGap!,
+    };
+  };
+  const underRun = fromTop([run, live]);
+  const underReply = fromTop([row("a", "assistant", { text: "Done." }), live]);
+  expect(underRun.over).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(underReply.over).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(underRun.room).toBe(underReply.room);
   // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
   const prompt = row("p", "user", { text: "Go" });
   const waiting = layoutConversation([prompt, live], 720);

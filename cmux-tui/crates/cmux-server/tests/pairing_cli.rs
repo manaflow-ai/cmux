@@ -37,6 +37,22 @@ fn server_pairing_cli_reports_unpaired_without_creating_identity_or_starting_rol
 }
 
 #[test]
+fn server_unpair_cli_on_an_unpaired_machine_says_so_and_creates_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let result = command(home.path(), &["unpair", "--json"]);
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let value: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(value, serde_json::json!({"state":"unpaired","cloud":"none","removed":false}));
+    let human = command(home.path(), &["unpair", "--local"]);
+    assert!(human.status.success());
+    assert_eq!(
+        String::from_utf8(human.stdout).unwrap(),
+        "This machine was not paired; nothing to do.\n"
+    );
+    assert_eq!(std::fs::read_dir(home.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn server_pairing_cli_refuses_insecure_api_before_creating_keys_or_contacting_it() {
     let home = tempfile::tempdir().unwrap();
     let result = command(home.path(), &["pair", "--api-origin", "http://127.0.0.1:1", "--json"]);

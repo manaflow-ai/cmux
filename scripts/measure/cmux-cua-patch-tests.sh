@@ -54,7 +54,7 @@ while IFS= read -r p; do
 done < <(git ls-tree --name-only "$ref" scripts/)
 ((${#patches[@]})) || { finish "$ref has no scripts/cmux-cua-*.patch"; exit 4; }
 for p in scripts/build-cmux-cua.sh scripts/apply-cmux-cua-patch.sh scripts/strip-cmux-cua-rpaths.sh \
-  scripts/lib/rust-targets.sh cmux-tui/rust-toolchain.toml "${patches[@]}"; do
+  scripts/lib/rust-targets.sh cmux-tui/rust-toolchain.toml ${patches[@]+"${patches[@]}"}; do
   mkdir -p "$tree/$(dirname "$p")"
   git show "$ref:$p" >"$tree/$p" 2>>"$out/fetch.log" || { finish "$ref has no $p"; exit 4; }
 done
@@ -64,7 +64,7 @@ listed="$(bash -c 'eval "$(sed -n "/^CMUX_CUA_PATCH_RELATIVE_PATHS=(/,/^)/p" "$1
   "$tree/scripts/build-cmux-cua.sh")"
 pin="$(sed -n 's/^CMUX_CUA_PINNED_SHA="\([0-9a-f]*\)"$/\1/p' "$tree/scripts/build-cmux-cua.sh")"
 [[ -n "$listed" && "$pin" =~ ^[0-9a-f]{40}$ ]] || { finish "could not read the pin or patch list of $ref's build-cmux-cua.sh"; exit 4; }
-for p in "${patches[@]}"; do
+for p in ${patches[@]+"${patches[@]}"}; do
   grep -qxF "$p" <<<"$listed" || printf 'warning: %s is not in build-cmux-cua.sh, so it is not applied or tested\n' "$p" >>"$out/summary.txt"
 done
 digest="$(cd "$tree" && while IFS= read -r p; do cat "$p"; done <<<"$listed" | shasum -a 256 | awk '{print $1}')"

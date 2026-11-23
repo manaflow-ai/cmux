@@ -1,0 +1,287 @@
+/* Agent badges gallery (AgentBadges.tsx), a mock of the native tab strip and sidebar rows.
+ * Row geometry follows design/grid.md 5.4 as ProjectCapsDesigns.css does: the highlight is 6 from
+ * the sidebar edges with radius 8, lead box 16, text at lead + 24, one trailing column. */
+.abg-root {
+  --abg-tone: var(--cmux-app-sidebar, var(--cmux-surface-background, Canvas));
+  --abg-ink: var(--cmux-text, CanvasText);
+  --abg-ink-2: var(--cmux-text-secondary, color-mix(in srgb, var(--abg-ink) 62%, transparent));
+  --abg-ink-3: var(--cmux-text-tertiary, color-mix(in srgb, var(--abg-ink) 42%, transparent));
+  --abg-yellow: var(--acpmux-needs-you-mark, var(--cmux-app-warning, #e5a50a));
+  --abg-blue: var(--cmux-status-unread, var(--abg-blue-fallback));
+  --abg-green: var(--cmux-app-success, #34a853);
+  --abg-row: var(--grid-row, 28px);
+  --abg-box: 16px;
+  --abg-mark: 14px; /* RowBadgeView.markSide: every trailing mark's box */
+  --abg-dot: 8px; /* SidebarStyle.unreadDotSize */
+  --abg-badge: 16px; /* a pill's height: the mark box, so a row's height never changes */
+  --abg-beam-width: 1.25px;
+  --abg-beam-period: 2400ms;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--abg-ink);
+}
+
+/* The tab strip: equal tabs; the count slot is always there, so a tab is as wide at 0 as at 99+. */
+.abg-strip {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  height: 32px;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: calc(var(--ds-radius-control) + 4px);
+  background: color-mix(in srgb, var(--abg-ink) 4%, transparent);
+}
+.abg-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  flex: none;
+  width: 168px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--ds-radius-control);
+  color: var(--abg-ink-2);
+}
+.abg-tab[data-selected] {
+  color: var(--abg-ink);
+  background: color-mix(in srgb, var(--abg-ink) 10%, transparent);
+}
+.abg-tab-title {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.abg-tab-trail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--abg-mark);
+  height: var(--abg-mark);
+}
+
+/* The sidebar rows. */
+.abg-sidebar {
+  width: 260px;
+  padding: var(--grid-gap) 0;
+  border-radius: 8px;
+  background: var(--abg-tone);
+}
+.abg-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--abg-box) minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: center;
+  height: var(--abg-row);
+  margin-inline: var(--grid-gap);
+  padding-inline: var(--grid-composer-block-inset);
+  border-radius: 8px;
+}
+.abg-row::before {
+  content: "";
+  position: absolute;
+  inset: var(--grid-half-step) 0;
+  border-radius: 8px;
+}
+.abg-row > :not(.abg-beam) {
+  position: relative;
+}
+.abg-row[aria-selected="true"]::before {
+  background: color-mix(in srgb, var(--abg-ink) 11%, transparent);
+}
+.abg-lead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--abg-box);
+  height: var(--abg-box);
+}
+.abg-title {
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.abg-trail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--abg-mark);
+  height: var(--abg-mark);
+}
+.abg-dot {
+  width: var(--abg-dot);
+  height: var(--abg-dot);
+  border-radius: 50%;
+}
+.abg-dot[data-tone="blue"] {
+  background: var(--abg-blue);
+}
+.abg-dot[data-tone="yellow"] {
+  background: var(--abg-yellow);
+}
+
+/* A reserved slot: the sizers and the face share one grid cell; the sizers set the width, unseen. */
+.abg-slot {
+  display: inline-grid;
+  align-items: center;
+  justify-items: end;
+  font-size: var(--text-caption);
+  line-height: var(--abg-badge);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.abg-slot > * {
+  grid-area: 1 / 1;
+  height: var(--abg-badge);
+  box-sizing: border-box;
+  padding: 0 var(--grid-base);
+  border-radius: calc(var(--abg-badge) / 2);
+}
+.abg-sizer {
+  visibility: hidden;
+}
+.abg-slot[data-empty] .abg-face {
+  visibility: hidden;
+}
+
+/* Neutral count pill: grey, never tinted, so it reads as a number and not a state. */
+.abg-count .abg-face,
+.abg-count .abg-sizer {
+  min-width: var(--abg-badge);
+  font-weight: 600;
+  text-align: center;
+}
+.abg-count .abg-face {
+  color: var(--abg-ink-2);
+  background: color-mix(in srgb, var(--abg-ink) 10%, transparent);
+}
+.abg-tab[data-selected] .abg-count .abg-face {
+  color: var(--abg-ink);
+  background: color-mix(in srgb, var(--abg-ink) 14%, transparent);
+}
+
+/* The compact alternative: the count inside a small filled dot (a capsule past one digit). */
+.abg-countdot .abg-face,
+.abg-countdot .abg-sizer {
+  min-width: var(--abg-badge);
+  padding: 0 4px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-strong);
+  text-align: center;
+}
+.abg-countdot .abg-face {
+  color: var(--ds-color-on-accent);
+  background: var(--abg-blue);
+}
+
+/* One tinted status pill per row; the tone carries the state, the words say it. */
+.abg-pill .abg-sizer,
+.abg-pill .abg-face {
+  font-weight: var(--weight-emphasis);
+}
+.abg-pill[data-tone="running"] {
+  --abg-pill-tone: var(--abg-green);
+}
+.abg-pill[data-tone="approval"] {
+  --abg-pill-tone: var(--abg-yellow);
+}
+.abg-pill[data-tone="done"] {
+  --abg-pill-tone: var(--abg-blue);
+}
+.abg-pill .abg-face {
+  color: color-mix(in srgb, var(--abg-pill-tone, var(--abg-ink)) 78%, var(--abg-ink));
+  background: color-mix(in srgb, var(--abg-pill-tone, var(--abg-ink)) 16%, transparent);
+}
+
+/* The beam: three dashes of the row's rounded edge (tail, body, head), moving together along it.
+ * Only a running row draws it (showsBeam); Reduce Motion or motion off draws none, and the pill alone
+ * says Running. */
+.abg-beam {
+  position: absolute;
+  inset: var(--grid-half-step) 0;
+  width: 100%;
+  height: calc(100% - 2 * var(--grid-half-step));
+  overflow: visible;
+  pointer-events: none;
+}
+.abg-beam-seg {
+  x: calc(var(--abg-beam-width) / 2);
+  y: calc(var(--abg-beam-width) / 2);
+  width: calc(100% - var(--abg-beam-width));
+  height: calc(100% - var(--abg-beam-width));
+  fill: none;
+  stroke: var(--abg-green);
+  stroke-width: var(--abg-beam-width);
+  stroke-linecap: round;
+  animation: abg-beam var(--abg-beam-period) linear infinite;
+}
+.abg-beam-seg[data-part="tail"] {
+  --abg-from: 0;
+  stroke-dasharray: 16 84;
+  stroke-opacity: 0.18;
+}
+.abg-beam-seg[data-part="body"] {
+  --abg-from: -8;
+  stroke-dasharray: 8 92;
+  stroke-opacity: 0.45;
+}
+.abg-beam-seg[data-part="head"] {
+  --abg-from: -13;
+  stroke-dasharray: 3 97;
+  stroke: color-mix(in srgb, var(--abg-green) 55%, var(--ds-color-on-accent));
+}
+@keyframes abg-beam {
+  from {
+    stroke-dashoffset: var(--abg-from);
+  }
+  to {
+    stroke-dashoffset: calc(var(--abg-from) - 100);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .abg-beam {
+    display: none;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .abg-beam {
+  display: none;
+}
+
+/* Timeline: frames side by side, a faint guide on each title's trailing edge. */
+.abg-timeline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.abg-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.abg-caption {
+  font-size: var(--text-caption);
+  color: var(--abg-ink-3);
+}
+.abg-frame .abg-strip {
+  width: fit-content;
+}
+[data-guide] :is(.abg-tab-title, .abg-title)::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 0;
+  border-right: 1px dashed color-mix(in srgb, var(--abg-ink) 35%, transparent);
+}

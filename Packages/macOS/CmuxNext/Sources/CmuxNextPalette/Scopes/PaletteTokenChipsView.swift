@@ -24,7 +24,6 @@ final class PaletteTokenChipsView: NSView {
             let view = PaletteScopeChipView(chip: chip, style: .token, isTop: true)
             view.onClick = { [weak self] in self?.onRemove?(index) }
             view.setAccessibilityLabel(PaletteStrings.removeToken(token.title))
-            view.themedToolTip = PaletteStrings.removeToken(token.title)
             view.setAccessibilityIdentifier("palette.token.\(index)")
             addSubview(view)
             return view

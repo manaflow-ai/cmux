@@ -11,6 +11,7 @@ import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces } from "../cardRows";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -68,23 +69,21 @@ function ListRows({
   ));
 }
 
-/** Spaces (General): the active window's spaces, or why the host has none. */
+/**
+ * Spaces (Sidebar): the active window's spaces, from the second space on. With one space (or a host
+ * without spaces) no part of cmux names spaces (Hide Spaces, 2026-11-20), so the card is not drawn.
+ */
 export function SpacesSection() {
   const { host } = useSettingsState();
+  const rooms = host?.rooms ?? [];
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
-  const fade = useLoadFade(Boolean(host));
-  if (!host) return null;
+  const fade = useLoadFade(rooms.length > 1);
+  if (rooms.length < 2) return null;
   return (
     <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
-        {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
-        ) : (
-          <div className="row">
-            <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
-          </div>
-        )}
+        <ListRows rows={rooms} empty={t("settingsWindow.roomsEmpty")} marks />
       </div>
     </section>
   );
@@ -302,8 +301,7 @@ function MachineVmHost({ row }: { row: HostListRow }) {
   );
 }
 
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
+export { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces };
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

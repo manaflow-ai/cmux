@@ -634,6 +634,12 @@ final class NativeCodeCardView: UIView, UIScrollViewDelegate {
 
     private func updateFade() {
         let more = scroll.contentOffset.x + scroll.bounds.width < scroll.contentSize.width - 1
+        // The mask is a bare layer, whose frame changes animate implicitly (0.25 s): it trailed the
+        // scroll, so the code the finger brought in stayed masked until the mask caught up. It
+        // moves with the content in the same frame (ChatCodeCardView does the same).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         if more {
             fade.frame = scroll.bounds
             let width = max(scroll.bounds.width, 1)

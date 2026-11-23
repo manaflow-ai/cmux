@@ -109,7 +109,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             // ellipsis (#26606).
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
-            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textTertiary,
+            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textSecondary,
                                                              .paragraphStyle: style]
             field.placeholderAttributedString = NSAttributedString(
                 string: Self.fitted(placeholder, width: placeholderWidth, attributes: attributes),

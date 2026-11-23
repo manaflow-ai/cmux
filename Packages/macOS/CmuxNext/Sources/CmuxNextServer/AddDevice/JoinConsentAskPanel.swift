@@ -5,6 +5,11 @@ public import CmuxNextDesign
 /// `consent_required` asks the person at this Mac once. The cmux dialog card in the floating dialog
 /// panel (``CmuxFloatingDialogPanel``), like Mac Screen's approval prompt: over every app and full
 /// screen, never taking the keyboard or the frontmost app. Only a press on its buttons answers.
+///
+/// SECURITY: it is left out of every capture cmux makes (screen sharing, `cmux rd serve`, the recorders
+/// read `CaptureExcludedWindows`), and Computer Use refuses it (`sharingType = .none`). Since macOS 15.4
+/// another app's capture may still show it, so the ask never relies on being unseen: only the person's
+/// own click answers Allow.
 @MainActor
 public final class JoinConsentAskPanel: CmuxFloatingDialogPanel {
     /// Weak: the model's `present` owns this panel.
@@ -27,6 +32,7 @@ public final class JoinConsentAskPanel: CmuxFloatingDialogPanel {
         self.model = model
         content = JoinConsentAskView(model: model)
         super.init(identifier: "cmux.joinConsentAsk")
+        sharingType = .none
     }
 
     /// The sheet's own events: the person's click on Allow is read from them (``CmuxDialogPersonClick``).

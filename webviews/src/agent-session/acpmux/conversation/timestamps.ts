@@ -8,6 +8,7 @@
 // - wording: calendar days before now ≤ 1 → "Today" / "Yesterday", ≤ 7 → the weekday,
 //   ≤ 365 → "Sun, Sep 13", else "Sep 13, 2025"; dates past seven days use the locale's
 //   combined date and time format.
+import { intl } from "../../../ui/intl";
 
 const HOUR_MS = 36e5;
 
@@ -45,12 +46,14 @@ export type Clock = { now: number; timeZone?: string; locale?: string };
 
 /// Calendar date of `ms` in `timeZone`, as a UTC day number.
 function dayNumber(ms: number, timeZone?: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(ms);
+  const parts = intl
+    .DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    })
+    .formatToParts(ms);
   const part = (type: string) => Number(parts.find((entry) => entry.type === type)?.value);
   return Date.UTC(part("year"), part("month") - 1, part("day")) / 864e5;
 }
@@ -58,13 +61,13 @@ function dayNumber(ms: number, timeZone?: string) {
 /// The line as text: "Sun, Sep 13 at 7:55 PM", "Yesterday 8:16 PM".
 export function timestampText(ms: number, clock: Clock): string {
   const { timeZone } = clock;
-  const locale = clock.locale ?? new Intl.DateTimeFormat().resolvedOptions().locale;
+  const locale = clock.locale ?? intl.DateTimeFormat().resolvedOptions().locale;
   const days = Math.max(dayNumber(clock.now, timeZone) - dayNumber(ms, timeZone), 0);
   const format = (options: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat(locale, { timeZone, ...options }).format(ms);
+    intl.DateTimeFormat(locale, { timeZone, ...options }).format(ms);
   let date: string;
   if (days <= 1) {
-    const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day");
+    const relative = intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day");
     date = locale.startsWith("en") ? relative[0]!.toUpperCase() + relative.slice(1) : relative;
   } else if (days <= 7) date = format({ weekday: "long" });
   else {
