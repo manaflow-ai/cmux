@@ -246,17 +246,15 @@
    surface) and the previous glass keep the page's ink; Increase Contrast keeps the full text, as
    on the page. */
 @media (not (prefers-reduced-transparency: reduce)) and (not (prefers-contrast: more)) {
-  /* The onboarding import cards (onboarding/styles.css), the Chief dock (acpmux styles.css) and the
-     thread minimap's hover card (threadMinimap.css; its timestamp fell to 2.8:1 under dark glass on
-     a white page, cmux#48217's audit) are glass levels on classes of their own. */
+  /* The onboarding import cards (onboarding/styles.css) and the Chief dock (acpmux styles.css) are
+     glass levels on classes of their own. */
   :root:not([data-reduce-transparency], [data-glass-levels="previous"])
     :is(
       .ui-glass,
       .onb-import .onb-import-list,
       .onb-import .onb-import-options,
       .onb-import .onb-express-ask,
-      .acpmux-chief-dock,
-      .acpmux-minimap__card
+      .acpmux-chief-dock
     ) {
     --glass-ink-text: var(--agent-text, var(--cmux-text, CanvasText));
     --glass-ink-secondary: color-mix(in srgb, var(--glass-ink-text) var(--ds-glass-ink-secondary), transparent);

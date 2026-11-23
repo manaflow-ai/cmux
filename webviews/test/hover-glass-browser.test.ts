@@ -148,11 +148,14 @@ await requireBrowserLane("hover-glass-browser.test.ts", async () => {
       test(`${colorScheme}, ${window.name}: every hover tooltip and hover preview is glass`, async () => {
         const surfaces = await seen(colorScheme, window.attributes);
         expect(surfaces.map((surface) => surface.name)).toEqual(HOVER_SURFACES.map((surface) => surface.name));
+        const seeThrough = "data-cmux-see-through" in window.attributes;
         const solid = surfaces
           .filter((surface) => {
-            // A see-through page lays the tint over an underlay (a gradient over the fill).
-            const translucent = alpha(surface.fill) < 0.9;
-            return !surface.backdrop.includes("blur(") || !translucent;
+            if (!surface.backdrop.includes("blur(")) return true;
+            // A see-through page lays the tint (a gradient) over an underlay at the text floor
+            // (glass.css TEXT ON GLASS KEEPS ITS FLOOR, --surface-text-min 92%): translucent, never opaque.
+            if (seeThrough && surface.image.includes("gradient(")) return alpha(surface.fill) >= 1;
+            return alpha(surface.fill) >= 0.9;
           })
           .map((surface) => `${surface.name}: ${surface.fill} / ${surface.backdrop}`);
         expect(solid).toEqual([]);

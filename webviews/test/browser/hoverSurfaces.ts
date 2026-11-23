@@ -61,6 +61,5 @@ export const HOVER_SURFACES: HoverSurface[] = [
     className: "ui-card ui-glass acpmux-header-preview",
     role: "tooltip",
   },
-  // The rail's mark preview draws the glass by its own class (threadMinimap.css).
-  { name: "thread minimap card (PreviewCard.tsx)", className: "acpmux-minimap__card" },
+  { name: "thread minimap card (PreviewCard.tsx)", className: "ui-card ui-glass acpmux-minimap__card" },
 ];
