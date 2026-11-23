@@ -135,7 +135,7 @@ def ordering_side(base: dict, ours: dict, theirs: dict) -> str:
 
 
 def merge_keys(
-    base: dict, ours: dict, theirs: dict, label: str
+    base: dict, ours: dict, theirs: dict, label: str, texts: tuple[dict, dict, dict] | None = None
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Three-way merge one mapping by key. Returns ((key, side) list, conflicts).
 
@@ -145,7 +145,7 @@ def merge_keys(
     before the key that follows it there, so merging the base into a branch
     leaves the base's order alone.
     """
-    decided, conflicts = _decide_keys(base, ours, theirs, label)
+    decided, conflicts = _decide_keys(base, ours, theirs, label, texts)
     side_of = dict(decided)
     if ordering_side(base, ours, theirs) == "ours":
         skeleton, other = ours, theirs
@@ -168,9 +168,16 @@ def merge_keys(
 
 
 def _decide_keys(
-    base: dict, ours: dict, theirs: dict, label: str
+    base: dict, ours: dict, theirs: dict, label: str, texts: tuple[dict, dict, dict] | None = None
 ) -> tuple[list[tuple[str, str]], list[str]]:
-    """Which side each surviving key's text comes from, and the conflicting keys."""
+    """Which side each surviving key's text comes from, and the conflicting keys.
+
+    `texts`, each side's verbatim block per key, decides a key neither side changed
+    in value: theirs when only theirs rewrote its text. A base that reformats the
+    catalog (#40447 compacted 458k lines to 267k) changes every key's text and no
+    key's value; taking ours there put the branch's old layout back over every key,
+    a 360k-line diff on a pull request that adds 8 keys (#50146).
+    """
     ordered: list[tuple[str, str]] = []
     conflicts: list[str] = []
     for key in list(ours) + [k for k in theirs if k not in ours]:
@@ -200,8 +207,20 @@ def _decide_keys(
             if in_theirs:
                 ordered.append((key, "theirs"))
             continue
-        ordered.append((key, "ours"))
+        ordered.append((key, "theirs" if texts is not None and _only_theirs_rewrote(texts, key) else "ours"))
     return ordered, conflicts
+
+
+def _only_theirs_rewrote(texts: tuple[dict, dict, dict], key: str) -> bool:
+    base_text, ours_text, theirs_text = (t.get(key) for t in texts)
+    return base_text is not None and ours_text == base_text and theirs_text not in (None, base_text)
+
+
+def _layout_side(layouts: dict[str, Layout]) -> str:
+    """Whose separators lay out the merged object: theirs when only theirs changed them."""
+    shape = lambda layout: (layout.lead, layout.separator, layout.tail)  # noqa: E731
+    base, ours, theirs = (shape(layouts[side]) for side in ("base", "ours", "theirs"))
+    return "theirs" if ours == base and theirs != base else "ours"
 
 
 def _strings_open_index(text: str, layout: Layout) -> int:
@@ -229,9 +248,13 @@ def merge_catalog_text(
     }
 
     ordered_strings, conflicts = merge_keys(
-        base_doc.get("strings", {}), ours_doc.get("strings", {}), theirs_doc.get("strings", {}), "strings"
+        base_doc.get("strings", {}),
+        ours_doc.get("strings", {}),
+        theirs_doc.get("strings", {}),
+        "strings",
+        (strings["base"].blocks, strings["ours"].blocks, strings["theirs"].blocks),
     )
-    strings_text = strings["ours"].assemble(
+    strings_text = strings[_layout_side(strings)].assemble(
         [(key, strings[side].blocks[key]) for key, side in ordered_strings]
     )
 

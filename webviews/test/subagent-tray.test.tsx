@@ -11,6 +11,7 @@
 //   transcript. Between turns a command shows only when acpmux's process registry says it runs; one
 //   only the transcript knows (a peer's chat, whose end never arrived) does not pin the tray.
 // - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
+import { PHASE_DWELL_MS } from "../src/agent-session/acpmux/subagents/hatStep";
 import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
@@ -371,7 +372,14 @@ describe("the tray", () => {
   test("one running subagent heads the hat folded: its mark, name and time; a click expands, its line opens it", async () => {
     const now = Date.now();
     const items = trayItems(
-      [agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash", kind: "general-purpose" })],
+      [
+        agent("Explore the daemon", {
+          startedAt: now - 80_000,
+          action: "Bash",
+          actionKind: "execute",
+          kind: "general-purpose",
+        }),
+      ],
       [],
       NONE,
       true,
@@ -393,7 +401,8 @@ describe("the tray", () => {
       // Folded, the header reads as the item's own line: its one mark, its name, its time.
       expect(head.querySelectorAll(".acpmux-running-tray__stack-mark").length).toBe(1);
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("Explore the daemon");
-      expect(head.querySelector(".acpmux-running-tray__latest")?.textContent).toBe("Running a command");
+      // The step reads as its kind of work, one word held in a slot of fixed width (HatStepSlot.tsx).
+      expect(head.querySelector(".acpmux-running-tray__latest [data-on]")?.textContent).toBe("Running");
       expect(head.querySelector(".acpmux-running-tray__time[data-lone]")?.textContent).toMatch(/^1m 2\ds$/);
       // The first click expands the hat in place; it never navigates.
       await act(async () => head.click());
@@ -1508,7 +1517,9 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       await act(async () => head.click());
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
       head.focus();
-      // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
+      // Run 1 ends past the header's dwell (hatStep.ts PHASE_DWELL_MS), so its words change at once:
+      // one runs, one ended. The header stays, the same node, focused and open.
+      setSystemTime(new Date(Date.now() + PHASE_DWELL_MS + 1));
       await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
       expect(root.querySelector(".acpmux-running-tray__head")).toBe(head);
       expect(dom.window.document.activeElement).toBe(head);
@@ -1522,6 +1533,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
       expect(root.querySelector(".acpmux-running-tray__head")).toBe(head);
     } finally {
+      setSystemTime();
       await done();
     }
     // Nothing runs, the ended lines stay: the header says what ended, never an empty title.
