@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextActions
 public import CmuxNextDaemon
 import CmuxNextCompat
-import UniformTypeIdentifiers
+public import UniformTypeIdentifiers
 
 /// The person's own picture and an agent made a Chief: `participant.avatar.set` and
 /// `chief.profile.adopt` on the app's own connection to this Mac's Chief owner, which alone may run
