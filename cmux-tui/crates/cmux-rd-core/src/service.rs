@@ -35,14 +35,23 @@ pub mod caps {
     /// viewer draws the cursor itself. A viewer that does not offer it keeps the cursor in
     /// the picture.
     pub const CURSOR: &str = "cursor";
+    /// The viewer shows a picture smaller than the stream scaled up to the stream's size and
+    /// keeps sending input in stream pixels, so the host may encode a smaller picture under
+    /// the bits-per-pixel floor (the resolution ladder, design D5). A viewer that does not
+    /// offer it gets the full stream on every frame.
+    pub const VIDEO_SCALED: &str = "video.scaled";
     /// The stage ledger (screen-share-under-100ms.md D8): after each frame's last shard the
     /// host sends its times for that frame in a `FrameTimes` datagram.
     pub const LEDGER: &str = "ledger";
     /// Clipboard text both ways (`clipboard` control messages, cmux-rd-proto `clipboard`):
     /// the host applies the viewer's text and sends its own only in a control session.
     pub const CLIPBOARD_TEXT: &str = "clipboard.text";
+    /// The viewer decodes H.264 Constrained Baseline only (OpenH264: the Linux and Windows
+    /// viewers, the bench): an H.264 host encodes that profile for this session instead of
+    /// High. A viewer that does not offer it (VideoToolbox) gets the host's profile.
+    pub const H264_BASELINE: &str = "h264.baseline";
     /// Every named cap.
-    pub const ALL: [&str; 10] = [
+    pub const ALL: [&str; 12] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
@@ -51,8 +60,10 @@ pub mod caps {
         CLOCK,
         LINK_UDP,
         CURSOR,
+        VIDEO_SCALED,
         LEDGER,
         CLIPBOARD_TEXT,
+        H264_BASELINE,
     ];
 }
 
