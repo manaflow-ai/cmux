@@ -37,6 +37,9 @@ final class FoldResizeUITests: XCTestCase {
 
         // Unfold, then the harness steps on its own (fold at step 2) while the terminal scrolls.
         app.buttons["debug.fold.step"].tap()
+        let unfolding = NSPredicate(format: "label BEGINSWITH 'step 1 '")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: unfolding, evaluatedWith: state)], timeout: 10), .completed,
+                       "the step button unfolds (\(state.label))\n\(app.debugDescription)")
         var seen: Set<Int> = []
         let deadline = Date().addingTimeInterval(40)
         while Date() < deadline, !seen.contains(2) {
@@ -97,12 +100,16 @@ final class FoldResizeUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         RunLoop.current.run(until: Date().addingTimeInterval(2))
 
-        let home = app.buttons.matching(NSPredicate(format: "label == 'Home'")).firstMatch
-        XCTAssertTrue(home.waitForExistence(timeout: 10), "the Home tab\n\(app.debugDescription)")
-        home.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(2))
-        XCTAssertTrue(app.otherElements["shell.listColumn"].exists, "Home unfolded: the chats column")
-        attach(app, "gallery-5-home")
+        // An open workspace hides the tab bar (ShellModel.showsTabBar, the phone's rule, kept as is),
+        // so Home opens from a fresh launch.
+        app.terminate()
+        let homeApp = launch(environment: ["CMUX_MOBILE_FOLD_SIM_SIZES": "full"],
+                             arguments: ["-cmux-mobile-tab", "home", "-cmux-mobile-no-restore"])
+        if homeApp.scrollViews["setup.teams.choose"].waitForExistence(timeout: 10) { homeApp.buttons["Manaflow"].tap() }
+        XCTAssertTrue(homeApp.otherElements["shell.listColumn"].waitForExistence(timeout: 30),
+                      "Home unfolded: the chats column\n\(homeApp.debugDescription)")
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        attach(homeApp, "gallery-5-home")
     }
 
     @MainActor

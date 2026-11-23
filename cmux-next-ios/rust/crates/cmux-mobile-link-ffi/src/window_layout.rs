@@ -11,7 +11,7 @@
 /// A window whose shorter side is at least this is an unfolded foldable's
 /// (or an iPad's). No shipping iPhone's shorter side reaches it: the largest
 /// is 440 pt. The same threshold as the app's orientation rule
-/// (`ScreenSharingOrientation.unfoldedShortSide`).
+/// (`ScreenSharingOrientation.isUnfolded` asks this function).
 pub const UNFOLDED_SHORT_SIDE: f64 = 600.0;
 
 /// An unfolded window at least this wide shows a list beside its detail.
