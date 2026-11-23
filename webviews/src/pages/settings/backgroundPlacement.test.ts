@@ -24,7 +24,9 @@ type Case = {
   contents: [number, number, number, number] | null;
 };
 
-const near = (got: number, want: number) => expect(Math.abs(got - want)).toBeLessThan(1e-6);
+const near = (got: number, want: number, within = 1e-6) => expect(Math.abs(got - want)).toBeLessThan(within);
+// A dragged placement's text keeps 3 decimals (Rust `placement_text`), so it reads back within half a step.
+const nearText = (got: number, want: number) => near(got, want, 5e-4 + 1e-9);
 
 test("the mirror matches every case the Rust tests wrote", () => {
   const cases = (fixture as unknown as { cases: Case[] }).cases;
@@ -65,9 +67,9 @@ test("a drag moves the picture as the Rust tests wrote", () => {
     const got = placementDragged(parsePlacement(item.placement)!, image, view, item.delta[0], item.delta[1]);
     const want = parsePlacement(item.after)!;
     expect(got.mode).toBe(want.mode);
-    near(got.x, want.x);
-    near(got.y, want.y);
-    near(got.zoom, want.zoom);
+    nearText(got.x, want.x);
+    nearText(got.y, want.y);
+    nearText(got.zoom, want.zoom);
   }
 });
 
