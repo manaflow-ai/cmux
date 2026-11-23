@@ -58,7 +58,7 @@ _EVENT_EMISSIONS = frozenset({"emitted", "serialized-never-emitted"})
 _TYPE_NAME = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class ValidationIssue:
     path: str
     message: str
