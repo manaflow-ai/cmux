@@ -142,9 +142,10 @@ enum AccessoryProbe {
     static var trace = AccessoryTrace()
     static let on = ProcessInfo.processInfo.environment["CMUX_TABS_FRAME_LOG"] == "1"
 
-    static func note(_ z: AccessoryZoom, moving: Bool) {
+    /// `bottom`: the row's bottom edge in the full-screen layer, before the zoom's mapping.
+    static func note(_ z: AccessoryZoom, moving: Bool, bottom: CGFloat? = nil) {
         guard on, moving else { return }
-        trace.note(opacity: z.opacity, scale: Double(z.scale))
+        trace.note(opacity: z.opacity, scale: Double(z.scale), bottom: bottom.map { Double(z.origin.y + z.scale * $0) })
     }
 }
 

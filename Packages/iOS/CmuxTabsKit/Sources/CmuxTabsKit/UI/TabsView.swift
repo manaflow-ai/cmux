@@ -192,7 +192,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 let moving = zoomState.phase == .animating || zoomState.phase == .interactive
                 let z = AccessoryZoom.presentation(zoomState, path: moving ? zoomPath() : ZoomRectPath(full: fullRect, card: fullRect))
                 #if DEBUG
-                let _ = AccessoryProbe.note(z, moving: moving)
+                let _ = AccessoryProbe.note(z, moving: moving,
+                                            bottom: size.height - (keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8))
                 #endif
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
