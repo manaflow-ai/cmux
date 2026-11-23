@@ -247,7 +247,7 @@ impl FarRead {
                 Ok(Ok(Err(_))) | Err(_) => {
                     task.abort();
                     let _ = crate::home_fs::write(
-                        &cache.with_file_name(MISSED_MARK),
+                        cache.with_file_name(MISSED_MARK),
                         crate::store::now_ms().to_string(),
                     );
                     format!("not read within {}", seconds(budget))
