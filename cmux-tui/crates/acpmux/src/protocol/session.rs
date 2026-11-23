@@ -51,6 +51,18 @@ pub struct SessionSummary {
     /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,
+    /// notices, a message's sender): its handle when one was given (`acpmux rename @ Mango
+    /// --handle`), absent otherwise (a derived handle is no name a person chose; show `name`).
+    /// Its former names and handles are `formerNames` ("Mango (fka claude-sr2-coord-old)").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub display_name: Option<String>,
+    /// The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the
+    /// harness mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub icon: Option<crate::session_icon::SessionIcon>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
@@ -198,6 +210,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub rolling_summary: Option<crate::store::RollingSummary>,
+    /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
+    /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub approved_plan: Option<crate::store::ApprovedPlan>,
     pub queued: u64,
     /// Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
     /// that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
@@ -402,6 +419,10 @@ pub struct UsageStats {
     /// read and cache write.
     #[serde(rename = "tokens24h")]
     pub tokens24h: Option<u64>,
+    #[serde(rename = "tokensByModel1h")]
+    pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
+    /// Tokens per call model in the completed UTC hour preceding the hour of updatedAt.
+    pub tokens_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
@@ -1049,6 +1070,36 @@ pub struct SessionChanged {
     pub peer: Option<String>,
     /// The list position this change took (`hub/row_log.rs`): the client's cursor for
     /// `_acpmux/watch {afterSeq}` is the highest it applied.
+    pub list_seq: u64,
+    /// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):
+    /// this row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the
+    /// chat applies to it (`server/session_patch.rs`). Absent for every other connection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub row_seq: Option<u64>,
+}
+
+/// To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in
+/// place of a `_acpmux/session_changed` once it holds the chat's row: only what changed
+/// (`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)
+/// of the row it holds at `baseRowSeq`, in which `{"$splice": [from, keep, items]}` stands for
+/// an array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPatch {
+    pub session_id: String,
+    /// A peer's chat: the id its row has here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualified_session_id: Option<String>,
+    pub patch: Value,
+    pub row_seq: u64,
+    pub base_row_seq: u64,
+    /// As `session_changed`'s.
+    pub kind: String,
+    pub record_kind: String,
+    pub seq: u64,
+    /// The peer a remote session runs on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
     pub list_seq: u64,
 }
 

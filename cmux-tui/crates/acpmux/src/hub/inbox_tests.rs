@@ -89,6 +89,7 @@ fn a_self_declared_label_has_a_distinct_thread_key_and_display() {
                 session_id: Some("dot".into()),
                 harness: Some("codex".into()),
                 relay: None,
+                display_name: None,
             }),
         ),
         Some("other"),
@@ -112,6 +113,7 @@ fn an_authenticated_message_and_reply_keep_name_threads_on_each_side() {
             session_id: Some("dot-session".into()),
             harness: Some("codex".into()),
             relay: None,
+            display_name: None,
         }),
     );
     let sender = thread_sender(Some(&authenticated), "dot");
@@ -640,6 +642,56 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     assert!(!ordinary_fyi(&urgent));
 }
 
+#[tokio::test]
+async fn a_thread_read_finds_the_surge_held_messages_that_left_memory() {
+    // The surge notice's link, `acpmux session inbox ID --thread T`, answered "no messages" for
+    // a busy chat's held thread while `--search` found them (2026-11-23).
+    let (hub, session) = hub_with_chat("busy-thread");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-thread",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "held", "cli", &body, &opts).unwrap().unwrap();
+    let thread = receipt["threadId"].as_str().unwrap().to_owned();
+    // A burst of other unread messages: `trim` lets the held one go first.
+    {
+        let mut inbox = session.inbox();
+        for n in 0..KEEP {
+            let other = item(&format!("o{n}"), "other", "lane", PromptClass::Fyi, n as u64, "x");
+            inbox.items.push(other);
+        }
+        trim(&mut inbox);
+        assert!(inbox.items.iter().all(|i| i.prompt_id != "held"), "evicted");
+    }
+    assert_eq!(hub.inbox_thread(&session, &thread, false)["messages"], json!([]));
+    let whole = hub.inbox_thread_whole(&session, &thread, false).unwrap();
+    let messages = whole["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "{whole}");
+    assert_eq!(messages[0]["promptId"], "held");
+    assert_eq!(messages[0]["text"], body[0]["text"]);
+    assert_eq!(messages[0]["surgeHeld"], true);
+    // A thread with nothing evicted reads memory alone.
+    let other = hub.inbox_thread_whole(&session, "other", false).unwrap();
+    assert_eq!(other["messages"].as_array().unwrap().len(), KEEP);
+}
+
 #[test]
 fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
     let mut inbox = Inbox::default();
@@ -914,7 +966,8 @@ fn only_the_persons_own_prompt_makes_a_turn_theirs() {
     assert!(persons_prompt(None, Some(&json!({"kind": "something_else"}))));
     assert!(!persons_prompt(Some("lane-a"), None));
     let retry = super::super::subagent_retry::PROVENANCE_KIND;
-    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry] {
+    let resume = super::super::subagent_resume::PROVENANCE_KIND;
+    for kind in [NOTICE_KIND, "inbox_digest", "auto_resume", retry, resume] {
         assert!(!persons_prompt(None, Some(&json!({"kind": kind}))), "{kind}");
     }
     let cap = json!({"kind": super::super::turn_cap::NOTICE_KIND});
@@ -967,6 +1020,7 @@ fn a_relayed_sender_is_named_plainly_and_its_preview_is_the_message() {
                 machine: "gcp-agent-lane-2".into(),
                 session: Some("lock-proof-routes".into()),
             }),
+            display_name: None,
         }),
     );
     let verified = crate::prompt_provenance::sender_record(Some(&relayed), None, None);
@@ -1194,6 +1248,37 @@ fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_
     }
 }
 
+/// The `[inbox]` notice the agent reads names a sender with a given name by it first, with the
+/// HOST/NAME it was known by; one with none reads as before (Leo, 2026-11-23: "the send/recieve
+/// messages are still only the older names").
+#[test]
+fn an_inbox_line_names_a_sender_by_its_given_name() {
+    let stamped = crate::prompt_provenance::stamp_sender(
+        crate::prompt_provenance::session_message(
+            "coord-old-id",
+            "studio-mac/claude-sr2-coord-old",
+            "target",
+        ),
+        Some(&crate::prompt_provenance::BoundSender {
+            session_id: Some("coord-old-id".into()),
+            harness: Some("claude".into()),
+            relay: None,
+            display_name: Some("Mango".into()),
+        }),
+    );
+    let sender = crate::prompt_provenance::sender_record(Some(&stamped), None, None);
+    let from = "studio-mac/claude-sr2-coord-old";
+    assert_eq!(display_sender(&sender, from), "Mango · studio-mac/claude-sr2-coord-old");
+    let mut mango = item("p1", "from:coord-old-id", from, PromptClass::Fyi, 1, "PR is green");
+    mango.sender = sender;
+    let (text, _) = render(&[&mango]);
+    assert!(text.contains("from Mango · studio-mac/claude-sr2-coord-old"), "{text}");
+    // No given name: the old line.
+    let plain = item("p2", "from:lane-a", "lane-a", PromptClass::Fyi, 2, "PR is green");
+    let (text, _) = render(&[&plain]);
+    assert!(text.contains("from lane-a") && !text.contains(" · "), "{text}");
+}
+
 /// The row's held count is the messages still held: a triage record that decides one (digested,
 /// owner-bound or dropped) lowers it by that many, and a restart reads the lower count back.
 #[tokio::test]
@@ -1233,6 +1318,46 @@ async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
     hub.persist_surge_triage(&session, json!({"batchId":"b2","items":[{"promptId":"m3"}]}), 0)
         .unwrap();
     assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":0,"needYou":0}));
+}
+
+/// The listing's held count is the journal's undecided messages, not the running counter: a
+/// record the counter missed still lowers it, and the bar's snapshot follows (Leo, 2026-11-22:
+/// "not only do you allegedly have 100 held messages").
+#[tokio::test]
+async fn the_held_count_is_the_journals_undecided_messages_not_a_drifted_counter() {
+    let (hub, session) = hub_with_chat("held-drift");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        agent: Some("runner".into()),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"runner queued"})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    for id in ["m1", "m2", "m3"] {
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts).unwrap().is_some());
+    }
+    // A record written past the counter (as an older daemon, or a fork's copy, leaves it).
+    hub.append(
+        &session,
+        "mux",
+        "inbox_triaged",
+        json!({"items":[{"promptId":"m1"},{"promptId":"m2"}]}),
+    );
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    // The settled count is the one the next snapshot builds on.
+    assert!(hub.hold_surge_message(&session, "m4", "cli", &body, &opts).unwrap().is_some());
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 2);
 }
 
 /// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake

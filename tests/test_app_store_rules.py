@@ -113,6 +113,12 @@ class BuiltApp(unittest.TestCase):
         result = check("--app", str(make_app(self.root)))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_private_framework_path_is_refused(self) -> None:
+        binary = b"_OBJC_CLASS_$_AVAudioApplication /System/Library/PrivateFrameworks/ChatKit.framework"
+        result = check("--app", str(make_app(self.root, binary=binary)))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("CmuxMobileApp: 2.5.1-private-framework", result.stdout)
+
     def test_every_reserved_term_class_is_refused(self) -> None:
         for text in ("Ask Siri to call Chief", "Open on your Mac", "Works on iPad", "Sync with iCloud", "Built for Apple"):
             with self.subTest(text=text), tempfile.TemporaryDirectory() as tmp:
