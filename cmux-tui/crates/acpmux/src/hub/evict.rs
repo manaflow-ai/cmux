@@ -264,7 +264,8 @@ impl Hub {
             .filter(|s| self.evictable(s, now, after))
             .take(EVICT_AT_ONCE)
             .collect();
-        due.into_iter().filter(|s| self.evict(s.clone(), now, after).is_ok()).count()
+        // Each handle moves into `evict`: a clone kept here would count as a third holder.
+        due.into_iter().map(|s| self.evict(s, now, after)).filter(Result::is_ok).count()
     }
 
     /// `session` leaves the map for a tier row, when nothing else holds it.
