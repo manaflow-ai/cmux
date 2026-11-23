@@ -14,16 +14,26 @@
   );
   --sef-row: var(--grid-row, 28px);
   --sef-footer: 36px;
-  display: grid;
-  place-items: center;
-  min-height: 100vh;
-  padding: 20px;
-  box-sizing: border-box;
-  background:
+  /* The mock's own geometry and backdrop, held as stage properties: a picture of the native
+   * sidebar (6 px row inset, 10 px row padding, 22 px avatar), not a web surface's metrics. */
+  --sef-sidebar-height: 520px;
+  --sef-scroll-pad-top: 6px;
+  --sef-row-inset: 6px;
+  --sef-row-pad: 10px;
+  --sef-dot: 8px;
+  --sef-avatar: 22px;
+  --sef-avatar-fill: linear-gradient(135deg, #6a82fb, #fc5c7d);
+  --sef-backdrop:
     radial-gradient(circle at 15% 85%, #ff5f6d 0, transparent 45%),
     radial-gradient(circle at 80% 75%, #ffc371 0, transparent 40%),
     radial-gradient(circle at 70% 15%, #4facfe 0, transparent 45%),
     radial-gradient(circle at 20% 20%, #43e97b 0, transparent 40%), #7b4397;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+  box-sizing: border-box;
+  background: var(--sef-backdrop);
   font-family: var(--font-ui);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -33,7 +43,7 @@
 .sef-sidebar {
   position: relative;
   width: 260px;
-  height: 520px;
+  height: var(--sef-sidebar-height);
   display: flex;
   flex-direction: column;
   border-radius: 12px;
@@ -53,7 +63,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 0 8px;
+  padding: var(--sef-scroll-pad-top) 0 8px;
   scrollbar-width: none;
 }
 
@@ -83,8 +93,8 @@
   column-gap: 8px;
   align-items: center;
   height: var(--sef-row);
-  margin: 0 6px;
-  padding: 0 10px;
+  margin: 0 var(--sef-row-inset);
+  padding: 0 var(--sef-row-pad);
   border-radius: 8px;
 }
 
@@ -94,8 +104,8 @@
 
 .sef-dot {
   justify-self: center;
-  width: 8px;
-  height: 8px;
+  width: var(--sef-dot);
+  height: var(--sef-dot);
   border-radius: 50%;
 }
 
@@ -133,12 +143,12 @@
 }
 
 .sef-avatar {
-  width: 22px;
-  height: 22px;
+  width: var(--sef-avatar);
+  height: var(--sef-avatar);
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6a82fb, #fc5c7d);
+  background: var(--sef-avatar-fill);
   color: white;
   font-size: 11px;
   font-weight: 600;
