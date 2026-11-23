@@ -64,6 +64,7 @@ final class TabZoomDriver {
         if Self.logsFrames {
             if state.phase == .animating, before == .page || before == .overview {
                 frameLog.begin(at: CACurrentMediaTime(), toOverview: state.target == 1)
+                AccessoryProbe.trace.reset()
             } else if state.phase != .animating, frameLog.isRunning {
                 // A pinch grabbed it or it jumped: not a tap-to-settled zoom.
                 _ = frameLog.end(maxFPS: 0)
@@ -122,7 +123,8 @@ final class TabZoomDriver {
         stepChrome(dt)
         if wasAnimating, settled || state.phase != .animating {
             #if DEBUG
-            if let summary = frameLog.end(maxFPS: Int((1 / max(0.001, link.targetTimestamp - link.timestamp)).rounded())) {
+            if var summary = frameLog.end(maxFPS: Int((1 / max(0.001, link.targetTimestamp - link.timestamp)).rounded())) {
+                summary.row = AccessoryProbe.trace.summary(toOverview: summary.toOverview)
                 Self.write(summary)
             }
             #endif
@@ -133,6 +135,19 @@ final class TabZoomDriver {
 }
 
 #if DEBUG
+/// The accessory row's samples for the running zoom's frame log: TabsView
+/// notes what it draws while the zoom moves (`CMUX_TABS_FRAME_LOG=1` only).
+@MainActor
+enum AccessoryProbe {
+    static var trace = AccessoryTrace()
+    static let on = ProcessInfo.processInfo.environment["CMUX_TABS_FRAME_LOG"] == "1"
+
+    static func note(_ z: AccessoryZoom, moving: Bool) {
+        guard on, moving else { return }
+        trace.note(opacity: z.opacity, scale: Double(z.scale))
+    }
+}
+
 extension TabZoomDriver {
     fileprivate static func write(_ summary: ZoomFrameLog.Summary) {
         guard let data = try? JSONEncoder().encode(summary), let line = String(data: data, encoding: .utf8) else { return }

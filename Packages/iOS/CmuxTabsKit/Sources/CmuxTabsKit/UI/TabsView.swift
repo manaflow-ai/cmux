@@ -183,6 +183,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
             if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
                 // Above the toolbar, riding the keyboard while it is up.
+                #if DEBUG
+                // The probe the fix records (before ref): this row is drawn only on
+                // the settled page, so a running zoom notes nothing.
+                let _ = AccessoryProbe.note(.identity, moving: zoomState.phase == .animating || zoomState.phase == .interactive)
+                #endif
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     source.accessory(for: tab, context: contentContext)
