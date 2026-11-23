@@ -125,6 +125,16 @@ impl LocalStore {
         self.dir(id).join("events").join(MARKER)
     }
 
+    /// The digest of `id`'s compaction marker as it is now (`none` without one): every pass
+    /// writes a new one. A fold saved beside the log (`Store::save_adoption_checkpoint`) is tied
+    /// to it.
+    pub(super) fn compaction_digest(&self, id: &str) -> String {
+        match held_file_bytes(&self.marker(id)) {
+            Some(bytes) => crate::sha256::sha256_hex(&bytes),
+            None => "none".to_owned(),
+        }
+    }
+
     fn cut_intent(&self, id: &str) -> PathBuf {
         self.dir(id).join("events").join(CUT)
     }
