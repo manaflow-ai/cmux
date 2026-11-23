@@ -50,6 +50,10 @@ struct FeedCollection: UIViewControllerRepresentable {
     let headerSignature: AnyHashable
     /// Changes when what the header shows does at the same height (its cell redraws).
     let headerContent: AnyHashable
+    /// A part of the header that comes and goes while the Feed is read (the working-now strip):
+    /// when it changes, the header's new height animates at the top of the list, and the
+    /// reader's rows stay where they are further down.
+    var headerAnimatedPart: AnyHashable = AnyHashable(false)
 
     func makeCoordinator() -> FeedListController {
         FeedListController(context: context, swipe: swipe, control: control)
@@ -60,7 +64,8 @@ struct FeedCollection: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: FeedCollectionController, context: Context) {
-        context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
+        context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent,
+                                   animatedPart: headerAnimatedPart)
         // Room under the last row for the New Task button that floats over the list's bottom.
         let bottomRoom = context.environment.cmuxMobileFloatingBottomRoom
         let list = controller.collection
@@ -152,6 +157,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var header = AnyView(EmptyView())
     private var headerSignature: AnyHashable?
     private var headerContent: AnyHashable?
+    private var headerAnimatedPart: AnyHashable?
     private var headerHeight: CGFloat = 0
     private let headerSizer = UIHostingController(rootView: AnyView(EmptyView()))
     private var width: CGFloat = 0
@@ -278,16 +284,20 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     // MARK: Store updates
 
-    func update(items next: [FeedItem], header: AnyView, signature: AnyHashable, headerContent content: AnyHashable) {
+    func update(items next: [FeedItem], header: AnyView, signature: AnyHashable, headerContent content: AnyHashable,
+                animatedPart: AnyHashable = AnyHashable(false)) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("update y=\(Int(collectionView?.contentOffset.y ?? 0))", t0) }
         #endif
         self.header = header
+        // The first value is the header's first measure, not a part coming or going.
+        let partChanged = headerAnimatedPart != nil && headerAnimatedPart != animatedPart
+        headerAnimatedPart = animatedPart
         if signature != headerSignature {
             headerSignature = signature
             headerContent = content
-            measureHeader()
+            measureHeader(partChanged: partChanged)
         } else if content != headerContent {
             // A chip's count changed: the header cell reads its view again, at the same height.
             headerContent = content
@@ -333,7 +343,10 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         applyPending()
     }
 
-    private func measureHeader() {
+    /// `partChanged`: a part of the header came or went while the Feed is read (the working-now
+    /// strip). At the top the rows slide to the header's new height (not under Reduce Motion);
+    /// further down the reader's first row stays where it is.
+    private func measureHeader(partChanged: Bool = false) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("measureHeader", t0) }
@@ -345,10 +358,16 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             reconfigureHeader()
             return
         }
+        let anchor = partChanged && !syncAtTop() && !jumpingToTop ? visibleAnchor() : nil
         headerHeight = height
         reconfigureHeader()
         // The table reads the header's new height.
-        UIView.performWithoutAnimation { collectionView?.performBatchUpdates(nil) }
+        if partChanged, anchor == nil, control.atTop, !jumpingToTop, !UIAccessibility.isReduceMotionEnabled {
+            collectionView?.performBatchUpdates(nil)
+        } else {
+            UIView.performWithoutAnimation { collectionView?.performBatchUpdates(nil) }
+            if let anchor { restore(anchor) }
+        }
     }
 
     private func reconfigureHeader() {
@@ -1219,6 +1238,19 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             _ = store.mutedWorkspaces.insert(item.workspaceID)
         })
         return UIMenu(title: item.createdAt.formatted(.dateTime.weekday(.wide).hour().minute()), options: .displayInline, children: children)
+    }
+
+    func rowPeek(_ id: String) -> UIViewController? {
+        guard let item = items[id], let list = collectionView else { return nil }
+        let chat = context.chat(item)
+        let content = FeedPeek.content(opensTerminal: item.opensTerminal, hasLink: item.link != nil, loadedTurns: chat?.turns.count ?? 0)
+        let container = list.window?.bounds.size ?? list.bounds.size
+        return FeedPeekView.controller(item: item, chat: content == .chat ? chat : nil, container: container)
+    }
+
+    func rowPeekCommit(_ id: String) {
+        guard let item = items[id] else { return }
+        context.openFromPeek(item)
     }
 
     // MARK: Demo driver
