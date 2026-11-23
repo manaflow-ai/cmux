@@ -23,7 +23,7 @@ export const draftFoot = defineExperiment({
     ghost: {
       label: "Ghost foot",
       description:
-        "The draft runs to the box's bottom edge and fades only to a third of its ink over 18 px: soft, but nothing blank.",
+        "The draft runs to the box's bottom edge and fades only to half its ink over 18 px: soft, but nothing blank.",
     },
     short: {
       label: "Short fade",

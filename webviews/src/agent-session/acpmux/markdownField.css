@@ -50,12 +50,12 @@
    scrolled up, paraphrased: too much solid and blur at the bottom of the box; show more there, keep
    some blur. The field's bottom padding sat inside an 18 px fade to nothing, so the box's last 18 px
    read as a blank strip over its rim. The shipped foot (ghost) lets the draft run to the box's bottom
-   edge and fades it only to a third of its ink; the top edge keeps its fade to nothing. */
+   edge and fades it only to half its ink; the top edge keeps its fade to nothing. */
 .acpmux-md-field {
   --acpmux-md-foot-ink: transparent;
 }
 .acpmux-md-field[data-draft-foot="ghost"] {
-  --acpmux-md-foot-ink: rgb(0 0 0 / 0.34); /* colour-allow: a mask stop's alpha only, never painted */
+  --acpmux-md-foot-ink: rgb(0 0 0 / 0.5); /* colour-allow: a mask stop's alpha only, never painted */
 }
 .acpmux-md-field[data-draft-foot="short"] {
   --acpmux-md-foot-band: 8px;
