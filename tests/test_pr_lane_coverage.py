@@ -112,7 +112,7 @@ class PullRequestLanes(unittest.TestCase):
     def test_a_job_that_skips_feat_pull_requests_does_not_count(self):
         workflow = "on:\n  pull_request:\njobs:\n" + job(
             "python3 tests/test_a.py",
-            "${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}",
+            "${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}",
         )
         self.check({"ci.yml": workflow}, ["tests/test_a.py"])
 

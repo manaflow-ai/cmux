@@ -113,7 +113,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                         answer?.candidates.append(candidate)
                     }
                 }
-                // The answer goes once every candidate this side will find is known.
+                // The answer goes once this side's host candidates are known (serve says
+                // candidates_done then); reflexive and relayed ones trickle after it.
                 if line.candidatesDone == true, !answered, let document = answer {
                     answered = true
                     answerDeadline.cancel()
@@ -138,7 +139,9 @@ nonisolated final class MacScreenRdHost: Sendable {
             // The process ended without saying why (it crashed, or never started). A cancel is
             // this session ending (serve returned), which the hub host already handles.
             guard !Task.isCancelled else { return }
-            self?.emit(.sourceFailed(process.stderrTail.isEmpty ? "the screen host stopped" : process.stderrTail))
+            // Its own words, never a grant's: the process (the helper in a build with one) just ended.
+            let stopped = "the screen host exited without saying why"
+            self?.emit(.sourceFailed(process.stderrTail.isEmpty ? stopped : "\(stopped): \(process.stderrTail)"))
         }
         self.output.withLock { $0 = output }
         // Nothing to read when no rd host started (a WebRTC viewer, or a viewer that never offered).
@@ -183,7 +186,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                                    scope: session.viewOnly ? "view" : "control", stun: session.servers.stun,
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
-                                   maxWidth: offer.maxWidth))
+                                   maxWidth: offer.maxWidth, maxKbps: offer.maxKbps, cursor: offer.cursor,
+                                   encodeProfile: offer.encodeProfile))
                 watchExclusions()
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
@@ -297,12 +301,19 @@ nonisolated final class MacScreenRdHost: Sendable {
         var display: String
         var maxFps: Int?
         var maxWidth: Int?
+        /// The viewer's Customize wishes (nil: not sent, the host's defaults).
+        var maxKbps: Int?
+        var cursor: Bool?
+        /// `encode_profile`: the viewer's `a=cmux-rd-encode-profile:` (`ultra`); omitted when nil, the standard profile.
+        var encodeProfile: String?
 
         enum CodingKeys: String, CodingKey {
-            case session, viewer, scope, stun, turn, display
+            case session, viewer, scope, stun, turn, display, cursor
             case peerKey = "peer_key"
             case maxFps = "max_fps"
             case maxWidth = "max_width"
+            case maxKbps = "max_kbps"
+            case encodeProfile = "encode_profile"
         }
     }
 

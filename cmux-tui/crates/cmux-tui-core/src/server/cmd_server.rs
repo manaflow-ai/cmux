@@ -122,6 +122,7 @@ pub(super) fn shutdown_daemon(
     end_terminals: bool,
     keep_layout: bool,
     restart: Option<bool>,
+    if_idle: bool,
 ) -> anyhow::Result<Value> {
     anyhow::ensure!(
         end_terminals || !keep_layout,
@@ -129,6 +130,12 @@ pub(super) fn shutdown_daemon(
     );
     let actual_identity =
         mux.begin_daemon_handoff(client, DaemonHandoffRequest::fenced(pid, generation, force))?;
+    // The reservation refuses every new client from here on, so what the
+    // check sees stays true until the stop (stop_if_idle.rs).
+    if if_idle && let Err(busy) = super::stop_if_idle::check(mux, client) {
+        mux.cancel_daemon_handoff(client);
+        return Err(busy);
+    }
     mux.control_clients.set_daemon_handoff_restart(client, restart);
     // The fenced handoff reservation is held, so no second shutdown
     // can start while the hosts end. A failure releases it and keeps

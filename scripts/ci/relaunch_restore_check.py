@@ -420,6 +420,21 @@ def page_live_event(inst: Instance, seconds: float = 20.0) -> tuple[bool | None,
     return bool(wait(live, seconds, 0.25)), ""
 
 
+def page_marks(inst: Instance) -> dict[str, int]:
+    """The shown chat page's own launch marks (perf.ts `launchTimeline`: page origin, handshake asked and answered,
+    connect, first event) in ms since the app process started, beside the app's marks. Without them the ~300 ms from
+    `chat_page.setup_done` to `agent_pane.transport_open_start` could not be split (2026-11-22). Empty when the build
+    serves neither."""
+    stats = call(inst.sock, "debug.agent_pane", {"action": "perf_stats"}, timeout=10)
+    launch = stats.get("launch") if isinstance(stats, dict) else None
+    timings = call(inst.sock, "debug.timings", timeout=10)
+    zero = timings.get("process_start_epoch_ms") if isinstance(timings, dict) else None
+    if not isinstance(launch, dict) or not isinstance(zero, (int, float)):
+        return {}
+    return {f"page.{name.removesuffix('_epoch_ms')}": round(at - zero) for name, at in launch.items()
+            if name.endswith("_epoch_ms") and isinstance(at, (int, float))}
+
+
 def front(topo: dict | None) -> list[dict]:
     """What each visible window shows: its workspace (name, kind) and every pane's selected tab (kind, page, session).
     Ids are left out: a relaunch keeps them, but the compare is about what a person sees."""
@@ -577,6 +592,7 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             failures.append("the shown chat page reported no live event within 20 s (debug.agent_pane perf_stats)")
         elif detail:
             row["page_live_event_detail"] = detail
+        marks.update(page_marks(inst))
         # The next rounds compare against the chat with its new turn.
         after = state(inst)
         if "chat" in after:

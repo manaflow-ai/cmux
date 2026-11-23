@@ -123,7 +123,7 @@ func envMaxWidth(_ view: NSView, _ maxWidth: CGFloat) -> NSView {
 
 /// A vertical scroll view over `content`, which takes the scroll view's width and starts at the top.
 func envScroll(_ content: NSView) -> NSScrollView {
-    let scroll = NSScrollView()
+    let scroll = OverlayScrollView()
     scroll.drawsBackground = false
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
@@ -139,6 +139,36 @@ func envScroll(_ content: NSView) -> NSScrollView {
         document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
         document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
         document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+    ])
+    return scroll
+}
+
+/// A sideways scroll view over `content`: as tall as the content and at least as wide as itself; content
+/// wider than the scroll view scrolls sideways instead of wrapping or being cut off (a terminal's lines).
+func envHScroll(_ content: NSView) -> NSScrollView {
+    let scroll = OverlayScrollView()
+    scroll.drawsBackground = false
+    scroll.hasHorizontalScroller = true
+    scroll.hasVerticalScroller = false
+    scroll.autohidesScrollers = true
+    scroll.verticalScrollElasticity = .none
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    let document = EnvFlippedView()
+    document.translatesAutoresizingMaskIntoConstraints = false
+    content.translatesAutoresizingMaskIntoConstraints = false
+    document.addSubview(content)
+    scroll.documentView = document
+    // The document takes the scroll view's width unless the content needs more.
+    let fit = document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor)
+    fit.priority = .defaultLow
+    NSLayoutConstraint.activate([
+        content.topAnchor.constraint(equalTo: document.topAnchor), content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+        content.trailingAnchor.constraint(lessThanOrEqualTo: document.trailingAnchor), content.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+        document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+        document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+        document.widthAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.widthAnchor), fit,
+        document.widthAnchor.constraint(greaterThanOrEqualTo: content.widthAnchor),
+        scroll.heightAnchor.constraint(equalTo: document.heightAnchor),
     ])
     return scroll
 }

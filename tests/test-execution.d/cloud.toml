@@ -38,3 +38,13 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). Guardrails o
 [[test]]
 path = "tests/test_cloud_vm_attach_retry_script.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_pair_e2e_build_space.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_build_space.py"
+
+[[test]]
+path = "tests/test_pair_e2e_signin_session.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_pair_e2e_signin_session.py"

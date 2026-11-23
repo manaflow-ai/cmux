@@ -185,8 +185,9 @@ final class CloseUndoToasts {
 
     /// `CloseToastRule`'s answer for `tabs`, read before their close runs: whether the close earns its undo toast.
     /// Synchronous: no terminal is asked what it runs (Lawrence 2026-11-09, one idle terminal's toast).
+    /// With toasts v2 on (`CmuxToastCenter.v2`) every person's close earns it (`CloseToastRule.everyCloseShows`).
     func isCostly(_ tabs: [TabModel]) -> Bool {
-        switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
+        switch services.map({ CloseToastRule(services: $0, everyCloseShows: toasts.v2).decide(tabs) }) ?? .skip {
         case .show: true
         case .skip: false
         }

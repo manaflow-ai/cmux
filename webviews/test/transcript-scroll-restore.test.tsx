@@ -70,7 +70,7 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 type Anchor = { rowId: string; offset: number } | null;
 /// A scroll, then the pause after it on a fake clock: one report once the scroll has rested
 /// SCROLL_ANCHOR_SETTLE_MS, and none a moment before.
-async function scrollAndRest(scroller: HTMLElement, top: number, anchors: Anchor[]) {
+async function scrollAndRest(scroller: HTMLElement, top: number, anchors: Anchor[], beforeSettle?: () => void) {
   jest.useFakeTimers();
   try {
     const reported = anchors.length;
@@ -88,6 +88,7 @@ async function scrollAndRest(scroller: HTMLElement, top: number, anchors: Anchor
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     await act(async () => void jest.advanceTimersByTime(SCROLL_ANCHOR_SETTLE_MS - 1));
     expect(anchors.length).toBe(reported);
+    beforeSettle?.();
     await act(async () => void jest.advanceTimersByTime(1));
     expect(anchors.length).toBe(reported + 1);
   } finally {
@@ -155,6 +156,37 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
   }
 });
 
+// Toggle Terminal and Chat reads whether the chat is at its latest message on the next key, so
+// following stopping reaches the host at once, naming the row in view (the key that stops it comes
+// before the scroll leaves the latest message); the settled report still waits for the rest.
+test("following stopping is reported at once with the row in view, apart from the settled report", async () => {
+  const rows = turnView(turns, new Set());
+  const anchors: Anchor[] = [];
+  const following: Anchor[] = [];
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          onAnchor={(a) => anchors.push(a)}
+          onFollowingAnchor={(a) => following.push(a)}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const latest = scrollerEnd(scroller());
+    await scrollAndRest(scroller(), Math.round(latest / 3), anchors, () => {
+      expect(following.length).toBe(1);
+      expect(rows.some((row) => row.id === following[0]?.rowId)).toBe(true);
+    });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a place whose row is gone opens at the latest message", async () => {
   const rows = turnView(turns, new Set());
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -202,6 +234,61 @@ test("switching chats opens the new chat at latest instead of the old chat's scr
     );
     const latest = scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
     expect(scroller().scrollTop).toBe(latest);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a chat switched to mounts its rows at latest in its first commit, never the rows at the old offset", async () => {
+  const rowsA = turnView(turns, new Set());
+  const rowsB = turnView(
+    turns.map((one) => ({ ...one, id: `session-c-${one.id}` })),
+    new Set(),
+  );
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const mountedB = () =>
+    new Set(
+      [...dom.window.document.querySelectorAll<HTMLElement>("[data-row-id]")]
+        .map((node) => node.dataset.rowId!)
+        .filter((id) => id.startsWith("session-c-")),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={rowsA} sessionId="session-a" onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    scroller().scrollTop = Math.round(scroller().scrollTop / 3);
+    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+
+    // Every row the switch adds, in any of its commits.
+    const added = new Set<string>();
+    const observer = new dom.window.MutationObserver((records) => {
+      for (const record of records)
+        for (const node of record.addedNodes) {
+          if (!(node instanceof dom.window.HTMLElement)) continue;
+          for (const one of [node, ...node.querySelectorAll<HTMLElement>("[data-row-id]")])
+            if (one.dataset.rowId?.startsWith("session-c-")) added.add(one.dataset.rowId);
+        }
+    });
+    observer.observe(dom.window.document.body, { childList: true, subtree: true });
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={rowsB} sessionId="session-c" onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    for (const record of observer.takeRecords())
+      for (const node of record.addedNodes)
+        if (node instanceof dom.window.HTMLElement && node.dataset.rowId?.startsWith("session-c-"))
+          added.add(node.dataset.rowId);
+    observer.disconnect();
+
+    const shown = mountedB();
+    expect(shown.has(rowsB.at(-1)!.id)).toBe(true);
+    // Mounted at the old chat's offset first, the switch drew rows it then dropped before its paint.
+    expect([...added].filter((id) => !shown.has(id))).toEqual([]);
+    expect(scroller().scrollTop).toBe(scrollerEnd(scroller()));
   } finally {
     await act(async () => root.unmount());
   }
