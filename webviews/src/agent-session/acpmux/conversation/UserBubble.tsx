@@ -42,6 +42,8 @@ import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
+import { Slot } from "../../../slots/Slot";
+import { sendTransitionSlot } from "../../../slots/sendTransition";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -49,6 +51,7 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { SavePromptButton } from "./SavePromptButton";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
@@ -96,6 +99,8 @@ export function UserBubble({
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
+  /// What Save as Prompt keeps: the prompt as it went (its skills as `/$name`), else its text.
+  const resend = given.resend ?? given.text ?? givenText;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
   // The ordered bubble below skips them by the same rule.
@@ -237,20 +242,25 @@ export function UserBubble({
       <div className="cv-user__body">
         {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
-          <div className="ui-glass cv-user__bubble selectable">
-            {hasInterleaved ? (
-              <InlinePromptContent
-                rowId={row.id}
-                messageAt={row.at}
-                parts={shownParts!}
-                show={show}
-                renderImage={renderImage}
-                renderFile={renderFile}
-              />
-            ) : (
-              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
-            )}
-          </div>
+          // The bubble is the theme slot `chat.sendTransition` (slots/sendTransition): its default draws
+          // the glass div this row drew before.
+          <Slot
+            slot={sendTransitionSlot}
+            props={{
+              children: hasInterleaved ? (
+                <InlinePromptContent
+                  rowId={row.id}
+                  messageAt={row.at}
+                  parts={shownParts!}
+                  show={show}
+                  renderImage={renderImage}
+                  renderFile={renderFile}
+                />
+              ) : (
+                <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
+              ),
+            }}
+          />
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
@@ -265,6 +275,7 @@ export function UserBubble({
               ((actions) =>
                 pending(actions, {
                   fork: forkButton,
+                  save: <SavePromptButton text={resend} />,
                 }))
             }
           >
@@ -290,6 +301,7 @@ export function UserBubble({
               {forkButton}
               <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
+              <SavePromptButton text={resend} />
             </MessageFooterRow>
           </UserFooter>
         )}

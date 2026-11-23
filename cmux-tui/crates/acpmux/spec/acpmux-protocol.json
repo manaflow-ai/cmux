@@ -657,6 +657,70 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/prompts_list",
+      "params": {
+        "$ref": "#/types/PromptsListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_save",
+      "params": {
+        "$ref": "#/types/PromptsSaveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/prompts_delete",
+      "params": {
+        "$ref": "#/types/PromptsDeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_list",
+      "params": {
+        "$ref": "#/types/StashListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_push",
+      "params": {
+        "$ref": "#/types/StashPushParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_get",
+      "params": {
+        "$ref": "#/types/StashGetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_drop",
+      "params": {
+        "$ref": "#/types/StashDropParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stash_move",
+      "params": {
+        "$ref": "#/types/StashMoveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/memory_resolve",
       "params": {
         "$ref": "#/types/MemoryResolveParams"
@@ -771,6 +835,12 @@
       "params": {
         "$ref": "#/types/ProcessKillParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/process/census",
+      "params": true,
       "result": true
     },
     {
@@ -1682,6 +1752,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chats_warm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chat_fork",
       "params": true,
       "result": true
@@ -2534,6 +2610,13 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/session_patch",
+      "params": {
+        "$ref": "#/types/SessionPatch"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/peer_rows_changed",
       "params": {
         "$ref": "#/types/PeerRowsChanged"
@@ -2729,6 +2812,7 @@
         "senderHarness": true,
         "senderHarnessChecked": true,
         "senderToken": true,
+        "sessionChangedDelta": true,
         "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
@@ -2913,6 +2997,43 @@
       },
       "type": "object"
     },
+    "ApprovedPlan": {
+      "description": "The plan the person last approved in a chat (`hub/plan_build.rs` `approved_plan`): Claude\nCode's ExitPlanMode, or a Grok, Cursor or Gemini plan approval, answered with an allow. The\npane keeps it in sight while the agent builds it (Leo's feature map, 2026-11-23: \"plan pane\nthat stays during the build\"); a newer approval replaces it.",
+      "properties": {
+        "at": {
+          "description": "When it was approved, Unix ms.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edited": {
+          "description": "The person edited the plan before approving it.",
+          "type": "boolean"
+        },
+        "markdown": {
+          "description": "The plan as approved, Markdown: the person's edit when they made one.",
+          "type": "string"
+        },
+        "permissionId": {
+          "description": "The plan approval it answered.",
+          "type": "string"
+        },
+        "turn": {
+          "description": "The chat's turn count when it was approved.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "markdown",
+        "edited",
+        "permissionId",
+        "turn",
+        "at"
+      ],
+      "type": "object"
+    },
     "ApproverDecision": {
       "additionalProperties": false,
       "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
@@ -3010,6 +3131,13 @@
             "null"
           ]
         },
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "sessionId": {
           "type": "string"
         },
@@ -3017,6 +3145,13 @@
           "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "timeBreakdownVersion": {
+          "description": "The `timeBreakdownVersion` of the breakdown copy this client holds (from an earlier\nattach): while the chat's copy is the same, the reply's `session` leaves `timeBreakdown`\nout (`server/requests/time_breakdown_gate.rs`). Absent, or another version: sent whole.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3079,6 +3214,13 @@
         "session": {
           "$ref": "#/types/SessionDetail"
         },
+        "timeBreakdownVersion": {
+          "description": "The version of the session's `timeBreakdown` copy (a hash of it); null when it has none.\nSent back as the attach's `timeBreakdownVersion`, the next reply leaves an unchanged copy\nout of `session`. An older acpmux leaves it out.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "turnOpener": {
           "anyOf": [
             {
@@ -3099,6 +3241,7 @@
         "presence",
         "readThrough",
         "session",
+        "timeBreakdownVersion",
         "turnOpener"
       ],
       "type": "object"
@@ -5549,6 +5692,36 @@
       },
       "type": "object"
     },
+    "PromptsDeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true
+      },
+      "type": "object"
+    },
+    "PromptsListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        }
+      },
+      "type": "object"
+    },
+    "PromptsSaveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "name": true,
+        "text": true
+      },
+      "type": "object"
+    },
     "ProtocolParams": {
       "additionalProperties": false,
       "description": "`_acpmux/protocol` takes no params.",
@@ -6357,6 +6530,15 @@
         "recordKind": {
           "type": "string"
         },
+        "rowSeq": {
+          "description": "To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`):\nthis row's number among the chat's rows it heard; the next `_acpmux/session_patch` of the\nchat applies to it (`server/session_patch.rs`). Absent for every other connection.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "seq": {
           "format": "uint64",
           "minimum": 0,
@@ -6389,6 +6571,17 @@
             "string",
             "null"
           ]
+        },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
         },
         "attached": {
           "description": "Attached clients.",
@@ -7226,6 +7419,67 @@
       },
       "type": "object"
     },
+    "SessionPatch": {
+      "description": "To a connection that asked for patches (`initialize` `_meta.acpmux.sessionChangedDelta`), in\nplace of a `_acpmux/session_changed` once it holds the chat's row: only what changed\n(`server/session_patch.rs`). `patch` is a JSON merge patch (RFC 7386; `null` removes a key)\nof the row it holds at `baseRowSeq`, in which `{\"$splice\": [from, keep, items]}` stands for\nan array that is `held[from..from + keep]` then `items`; the result is the row at `rowSeq`.",
+      "properties": {
+        "baseRowSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "As `session_changed`'s.",
+          "type": "string"
+        },
+        "listSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "patch": true,
+        "peer": {
+          "description": "The peer a remote session runs on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qualifiedSessionId": {
+          "description": "A peer's chat: the id its row has here.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recordKind": {
+          "type": "string"
+        },
+        "rowSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "patch",
+        "rowSeq",
+        "baseRowSeq",
+        "kind",
+        "recordKind",
+        "seq",
+        "listSeq"
+      ],
+      "type": "object"
+    },
     "SessionPromptParams": {
       "additionalProperties": false,
       "properties": {
@@ -7292,6 +7546,17 @@
             "string",
             "null"
           ]
+        },
+        "approvedPlan": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApprovedPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps\nin sight while the agent builds it. Absent until one, and from a peer on an older acpmux."
         },
         "attached": {
           "description": "Attached clients.",
@@ -8142,6 +8407,62 @@
         "cwd": true,
         "harness": true,
         "preset": true
+      },
+      "type": "object"
+    },
+    "StashDropParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashGetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "id": true
+      },
+      "type": "object"
+    },
+    "StashListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true
+      },
+      "type": "object"
+    },
+    "StashMoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "chat": true,
+        "to": true
+      },
+      "type": "object"
+    },
+    "StashPushParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "attachments": true,
+        "chat": true,
+        "replaces": true,
+        "text": true
       },
       "type": "object"
     },
