@@ -88,35 +88,15 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
-            *self.copy_input_sources(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
                 continue  # a tree from before the file; the installer then fails on it if it needs it
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_dir():
-                shutil.copytree(source, target, dirs_exist_ok=True)
+                shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
-
-    @staticmethod
-    def copy_input_sources():
-        """Every source scripts/git-hooks/checks-copy-inputs names, so a new copy-input line never leaves the
-        fixture behind.
-
-        a37b6194810 added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to the copy
-        inputs, and test_every_file_the_install_copies_is_in_the_stamp_input then read a path the fixture had
-        never been given (FileNotFoundError on .../repository/scripts/ci/generated_files_guard.py). Reading the
-        list keeps the two in step, exactly as installed_sources() reads the installer.
-        """
-        text = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8")
-        sources = []
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            sources.append(line.split(" -> ")[0].strip())
-        return sources
 
     @staticmethod
     def installed_sources():
