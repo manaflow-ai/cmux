@@ -16,6 +16,7 @@
 
 pub mod bindings;
 pub mod catalog;
+pub mod context_menus;
 pub mod customize_elements;
 pub mod ffi;
 pub mod hand_built_menus;
