@@ -300,3 +300,75 @@ async fn an_ssh_peers_machine_keeps_its_carrier_route_but_is_listed_once() {
     let all = hub.all_session_summaries();
     assert!(all.iter().all(|s| s["name"] != "ssh-box/linked"), "{all:?}");
 }
+
+/// A chat's given handle (`acpmux rename ... --handle`) reaches another machine through the hub:
+/// its heartbeat lists it (a derived one stays off the wire), the hub row lists it, and
+/// `resolve` and `wait` find the chat by `HANDLE` and `HOST/HANDLE`. Leo, 2026-11-23: "the
+/// renaming paradigm still hasn't hit yet, and the send/recieve messages are still only the
+/// older names".
+#[tokio::test]
+async fn a_given_handle_rides_the_heartbeat_and_names_the_hub_row() {
+    let hub = hub();
+    let add = |id: &str, name: &str, handle: Option<String>| {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name, "harness": "fake",
+            "cwd": "/work/app", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "handle": handle,
+        }))
+        .expect("meta");
+        hub.store.save(&meta).expect("save");
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        hub.update_live_session_index(&session);
+    };
+    let derived_id = "0198f2a4-0000-7000-8000-0000000000d2";
+    add("given", "claude-sr2-coord-old", Some("Mango".into()));
+    add("plain", "no-handle", None);
+    add(derived_id, "derived", Some(crate::session_handle::default_handle(derived_id)));
+    let rows = hub.mesh_rows().await;
+    let row = |id: &str| rows.iter().find(|r| r.session_id == id).expect("listed");
+    assert_eq!(row("given").handle.as_deref(), Some("Mango"));
+    let wire = serde_json::to_value(row("given")).expect("json");
+    assert_eq!(wire["handle"], "Mango", "{wire}");
+    for id in ["plain", derived_id] {
+        let wire = serde_json::to_value(row(id)).expect("json");
+        assert!(wire.get("handle").is_none(), "a derived handle stays off the wire: {wire}");
+    }
+
+    let mut full = book();
+    full.sessions[1].handle = Some("Mango".into());
+    // An invalid handle from the hub is no handle.
+    full.sessions[3].handle = Some("not a handle".into());
+    hub.apply_mesh_book(full, "person-1", Some("d-a"));
+    let all = hub.all_session_summaries();
+    let named = all.iter().find(|s| s["sessionId"] == B_ID).expect("listed");
+    assert_eq!(named["handle"], "Mango", "{named}");
+    assert_eq!(named["displayName"], "Mango", "{named}");
+    let bare = all.iter().find(|s| s["name"] == "ssh-box/linked").expect("listed");
+    assert_eq!(bare["handle"], Value::Null, "{bare}");
+
+    for key in ["Mango", "mango", "machine-b/Mango"] {
+        let found = hub.locate(key, false, true).expect(key);
+        assert!(found.to_string().contains(B_ID), "{key}: {found}");
+        assert_eq!(hub.mesh_book_resolve(key).as_deref(), Some(B_ID), "{key}");
+        assert_eq!(
+            hub.mesh_book_handle(key),
+            Some(("machine-b".to_owned(), B_ID.to_owned())),
+            "{key}"
+        );
+    }
+    // Another host's `HOST/HANDLE` names nothing; a derived handle still names its row.
+    assert_eq!(hub.mesh_book_handle("ssh-box/Mango"), None);
+    let derived = crate::session_handle::default_handle("0198f2a4-0000-7000-8000-00000000000d");
+    assert_eq!(
+        hub.mesh_book_handle(&format!("ssh-box/{derived}")).map(|(host, _)| host).as_deref(),
+        Some("ssh-box")
+    );
+
+    // A rename on the far machine reaches the row with its next heartbeat.
+    let mut renamed = book();
+    renamed.sessions[1].handle = Some("Kiwi".into());
+    hub.apply_mesh_book(renamed, "person-1", Some("d-a"));
+    assert_eq!(hub.mesh_book_resolve("machine-b/Kiwi").as_deref(), Some(B_ID));
+    assert_eq!(hub.mesh_book_resolve("machine-b/Mango"), None);
+}
