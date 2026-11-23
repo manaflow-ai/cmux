@@ -73,26 +73,15 @@ public actor CmuxConfigFile {
         }
 
         let next = defaultURL(home: home, environment: environment)
-        guard !fileManager.fileExists(atPath: next.path) else { return LaunchFile(url: next, createdEmpty: false) }
-        var createdEmpty = false
-
+        // cmux-config `file.prepare_launch`: classic cmux.json's text (never the file: a classic
+        // file symlinked into a dotfiles repo would otherwise become next's too), else `{}`; a
+        // file another launch already made is kept.
         let classic = next.deletingLastPathComponent().appendingPathComponent("cmux.json")
-        try fileManager.createDirectory(at: next.deletingLastPathComponent(), withIntermediateDirectories: true)
-        do {
-            if fileManager.fileExists(atPath: classic.path) {
-                // Its text, never the file: a classic cmux.json symlinked into a
-                // dotfiles repo would otherwise become next's file too, and next's
-                // settings migration would rewrite classic's settings through it.
-                // concurrency-allow: first-launch seeding, as the copy it replaces; the file is small.
-                let text = try Data(contentsOf: classic.resolvingSymlinksInPath())
-                try text.write(to: next, options: .withoutOverwriting)
-            } else {
-                try Data("{}\n".utf8).write(to: next, options: .withoutOverwriting)
-                createdEmpty = true
-            }
-        } catch CocoaError.fileWriteFileExists {
-            // Another cmux-next launch won the first-launch race. Keep its file.
+        guard let reply = CmuxSettingsFFI.call("file.prepare_launch", ["next": next.path, "classic": classic.path]) else {
+            throw Failure.invalidPath(next.path)
         }
+        if let error = reply["error"] as? String { throw Failure.unreadable(error) }
+        let createdEmpty = reply["created_empty"] as? Bool ?? false
         return LaunchFile(url: next, createdEmpty: createdEmpty)
     }
 

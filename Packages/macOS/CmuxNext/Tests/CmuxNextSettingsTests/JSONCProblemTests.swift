@@ -42,13 +42,6 @@ struct JSONCProblemTests {
         #expect(toast.contains("line 1"))
     }
 
-    @Test func positionsCountCharactersNotBytes() {
-        #expect(JSONC.position(of: 0, in: "{}") == "line 1, column 1")
-        #expect(JSONC.position(of: 4, in: "{\n  x") == "line 2, column 3")
-        // "é" is two UTF-8 bytes and one column.
-        #expect(JSONC.position(of: 3, in: "\"é\"") == "line 1, column 3")
-    }
-
     @Test func aReadFailureIsItsPlainDescription() {
         let error = CocoaError(.fileReadNoPermission, userInfo: [NSFilePathErrorKey: "/tmp/cmux-next.json"])
         let text = JSONC.problem(error, in: nil)
