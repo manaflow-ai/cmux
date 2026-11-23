@@ -20,6 +20,9 @@ extension TerminalSurfaceView: UITextInput {
 
     public func insertText(_ text: String) {
         withTextChange { perform(input.insertText(text)) }
+        #if DEBUG
+        NotificationCenter.default.post(name: TerminalModel.debugKeyAccepted, object: self)
+        #endif
     }
 
     public func deleteBackward() {
