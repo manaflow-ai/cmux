@@ -40,6 +40,14 @@
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
 # step: the imported host code predates a cmux-screen rustfmt config.
+# channel: the feat-cmux-next channel candidate, built and tested by our scheduler with no Actions
+# job (civ2-channel-roll; Leo, 2026-11-23: "but why is it a job. we own/should own the in-between.
+# like ci v2. we own the end to end."). The cmux_next_ daemon tests (the targets of
+# cmux-tui-artifacts.yml "cargo test cmux_next_"), then acpmux for x86_64-unknown-linux-musl as the
+# machine channel builds it (acpmux-standalone with the shipping features, thin profile), and
+# .build/artifacts/channel/{acpmux-x86_64-unknown-linux-musl,candidate.json} (commit, tree key,
+# sha256, test summary). Report-only: nothing reads it yet; the R2 channel still moves on the
+# Actions path. Linux only. No TEST_FILTER.
 # acpmux-hot: cmux-tui/crates/acpmux-hot/bench.sh (the daemon's hot wasm modules: the guest
 # variants, the swap and rollback bench, and a running daemon's sign-in through a module swapped
 # under it), its outputs at .build/artifacts/acpmux-hot (fetch them with --artifact). No TEST_FILTER.
@@ -81,9 +89,13 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
-if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot ) && -n "$filter" ]]; then
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot || "$mode" == channel ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
+  exit 2
+fi
+if [[ "$mode" == channel && "$(uname -s)" != Linux ]]; then
+  echo "error: the channel mode runs only on Linux (it builds the Linux musl acpmux the lane hosts install)" >&2
   exit 2
 fi
 if [[ "$mode" == panic && "$(uname -s)" != Linux ]]; then
@@ -952,6 +964,64 @@ if [[ "$mode" == acpmux-hot ]]; then
   export FAST_CHECKS_OUT="$root/.build/artifacts/acpmux-hot"
   warm_target_guard
   step "acpmux-hot bench" bash "$root/cmux-tui/crates/acpmux-hot/bench.sh"
+  finish
+fi
+# channel (see the mode list at the top). cwd is cmux-tui.
+channel_triple=x86_64-unknown-linux-musl
+channel_out="$root/.build/artifacts/channel"
+channel_daemon_tests() {
+  local members status=0
+  read -r -a members <<<"$(../scripts/ci/cmux-next-daemon-test-packages.sh)"
+  ((${#members[@]})) || { echo "error: cmux-next-daemon-test-packages.sh printed nothing" >&2; return 3; }
+  cargo test "${members[@]}" --locked cmux_next_ 2>&1 | tee "$channel_out/daemon-tests.txt" || status=$?
+  return "$status"
+}
+channel_build_acpmux() {
+  local features cargo_build=(cargo build)
+  rustup target add "$channel_triple" >/dev/null || return 1
+  # cargo-zigbuild where the worker has it (as cmux-tui-build-package.yml builds the leg), else
+  # cargo with the musl target and musl-gcc.
+  if cargo zigbuild --version >/dev/null 2>&1; then cargo_build=(cargo zigbuild); fi
+  features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$channel_triple")"
+  CMUX_TUI_BUILD_COMMIT="$(git -C "$root" rev-parse HEAD)" \
+    CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$root/ghostty-next" rev-parse HEAD 2>/dev/null || echo unknown)" \
+    CARGO_PROFILE_RELEASE_LTO=off \
+    "${cargo_build[@]}" --release --locked --target "$channel_triple" \
+      --config profile.release.package.acpmux.codegen-units=16 \
+      -p acpmux-standalone --bin acpmux-standalone ${features:+"$features"} || return 1
+  cp "$CARGO_TARGET_DIR/$channel_triple/release/acpmux-standalone" "$channel_out/acpmux-$channel_triple"
+}
+channel_candidate() {
+  python3 - "$root" "$channel_out" "$channel_triple" <<'PY'
+import hashlib, json, os, re, subprocess, sys, time
+root, out, triple = sys.argv[1:4]
+commit = subprocess.check_output(["git", "-C", root, "rev-parse", "HEAD"], text=True).strip()
+key = subprocess.check_output([sys.executable, os.path.join(root, "scripts/ci/cmux_tui_tree_key.py"), commit],
+                              cwd=root, text=True).strip()
+binary = os.path.join(out, "acpmux-" + triple)
+digest = hashlib.sha256(open(binary, "rb").read()).hexdigest()
+passed = failed = 0
+for line in open(os.path.join(out, "daemon-tests.txt"), errors="replace"):
+    m = re.match(r"test result: \w+\. (\d+) passed; (\d+) failed", line)
+    if m:
+        passed += int(m.group(1)); failed += int(m.group(2))
+doc = {"schema": "cmux-channel-candidate/v1", "channel": "feat-cmux-next", "commit": commit, "key": key,
+       "binaries": {"acpmux": {triple: {"sha256": digest, "size": os.path.getsize(binary)}}},
+       "tests": {"filter": "cmux_next_", "passed": passed, "failed": failed},
+       "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+open(os.path.join(out, "candidate.json"), "w").write(json.dumps(doc, indent=1) + "\n")
+print("channel candidate:", json.dumps(doc))
+PY
+}
+if [[ "$mode" == channel ]]; then
+  # A warm slot keeps .build: never hand back an older step's candidate.
+  rm -rf "$channel_out"
+  mkdir -p "$channel_out"
+  warm_target_guard
+  step go ensure_go
+  step "channel daemon tests" channel_daemon_tests
+  [[ "$first_rc" -ne 0 ]] || step "channel acpmux $channel_triple" channel_build_acpmux
+  [[ "$first_rc" -ne 0 ]] || step "channel candidate" channel_candidate
   finish
 fi
 if [[ "$mode" == screen ]]; then
