@@ -59,6 +59,7 @@ GUARD_ALWAYS_JOBS = ("workflow-guard-submodule-forward-only",)
 WEB_JOBS = (
     "web-subarea-scope",
     "web-typecheck",
+    "webviews-typecheck",
     "web-production-build",
     "web-tests",
     "web-instant-navigation",
@@ -3325,7 +3326,11 @@ def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
     # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
-    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
+    # A fork head takes CI_FORK_LINUX_RUNNER, since fork code never reaches
+    # the owned label the map names for manaflow-ai.
+    runs_on = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
+    assert runs_on.endswith("|| fromJSON(needs.runners.outputs.map).linux_16 }}"), runs_on
+    assert "head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')" in runs_on, runs_on
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
@@ -3407,7 +3412,7 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
     assert "        run: bun run test:instant" in instant
 
-    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_typecheck = web_validation.index("        run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
     assert validation_typecheck < validation_instant
     assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
@@ -5028,6 +5033,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
             "web-typecheck": "skipped",
+            "webviews-typecheck": "skipped",
             "web-production-build": "skipped",
             "web-tests": "skipped",
             "web-instant-navigation": "skipped",
