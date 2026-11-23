@@ -132,6 +132,7 @@ boot_time() { sysctl -n kern.boottime | sed -n 's/.*sec = \([0-9]*\),.*/\1/p'; }
 reboot_later() {
   local log="$ROOT/reboot.log" delay="${LB_REBOOT_DELAY:-20}"
   echo "asked=$(date -u +%FT%TZ) delay_s=$delay" >"$log"
+  # sleep-ok: the detached reboot's delay (LB_REBOOT_DELAY) lets this step exit and its worker report before the host goes down
   local later=(/usr/bin/env -i PATH="$PATH" /bin/sh -c 'cd / && sleep "$1" && { sudo -n /sbin/shutdown -r now; echo "shutdown_rc=$?"; } >>"$2" 2>&1' sh "$delay" "$log")
   if command -v perl >/dev/null; then
     (cd / && exec perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' "${later[@]}" </dev/null >/dev/null 2>&1) &
@@ -184,6 +185,7 @@ since() { echo $(($(date +%s) - LOGIN)); }
 # at OFFSET WHAT: wait until login + OFFSET seconds; LB-LATE when that time has already passed.
 at() {
   local wait=$((LOGIN + $1 - $(date +%s)))
+  # sleep-ok: the schedule point login + OFFSET is the measurement's own clock, not a state to wait on
   if ((wait > 0)); then sleep "$wait"; else echo "LB-LATE reboot=$REBOOT arm=$ARM what=$2 target_s=$1 s_since_login=$(since)"; fi
 }
 

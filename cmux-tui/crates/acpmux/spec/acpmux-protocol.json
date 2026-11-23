@@ -223,6 +223,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -2339,6 +2345,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/owner_phone_changed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_consent_set",
       "params": true,
       "result": true
@@ -2376,6 +2388,18 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
       "params": true,
       "result": true
     },
@@ -2553,6 +2577,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -2641,6 +2670,7 @@
         "harness": true,
         "harnessFrom": true,
         "host": true,
+        "ifNameTaken": true,
         "inlineParts": true,
         "interrupt": true,
         "localAppToken": true,

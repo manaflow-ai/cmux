@@ -109,6 +109,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "harness",
     "harnessFrom",
     "host",
+    "ifNameTaken",
     "inlineParts",
     "interrupt",
     "localAppToken",
