@@ -87,6 +87,9 @@ cmux-json.workspace = true
 cmux-netwatch.workspace = true
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
+# Auto mode's shared core (src/auto_session/): the Cloud API's types, the holder's state machine
+# and the Cloud store as a trait.
+cmux-auto-session.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true

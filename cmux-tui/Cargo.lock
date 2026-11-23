@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-auto-session",
  "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
@@ -1360,6 +1361,16 @@ dependencies = [
 [[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "cmux-automations"
