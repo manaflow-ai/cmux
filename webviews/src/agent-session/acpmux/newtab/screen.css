@@ -820,7 +820,7 @@
 /* The icon column's arms (iconColumn.experiment.ts; the gallery's agent-pane.new-tab-icon-column).
    Each keeps the folder glyph, + and the shield on one center line (newtab-icon-column.test.ts) and
    changes only what carries the chips, so the arms read apart at a glance (Leo 2026-11-15: "those
-   all look the same to me"). pad, the shipped arm, is the bare text above: no rule here.
+   all look the same to me"). pad, the bare text above, has no rule here; tiles (below) ships.
    - tray: the strip sits in a filled tray inset by --nt-tray-inset from the box's sides and tucked
      --nt-tray-tuck under its top edge, the box raised over it (Codex's desktop composer). The strip
      steps back out by the inset, so its glyphs stay on the column. */
@@ -862,6 +862,84 @@
   white-space: nowrap;
 }
 .nt-composer[data-icon-column="icons"] :is(
+    .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child),
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child)
+  ) {
+  display: none;
+}
+/* The icon-treatment arms (Leo 2026-11-15: "theese are kinda crappy looking icons and stuff"). The
+   bare column (pad) is thin 16 px line glyphs in the muted text color, the same weight and size as every
+   other control, so nothing in it reads as an icon. These arms change what carries the glyph, never
+   the glyph's place: each tile is drawn around the glyph's own box (below), so its center stays on
+   the column (newtab-icon-column.test.ts) and only the label steps out by the tile's room. A
+   project's badge gets the same tile. One stroke (the 16 grid's 1.25) for every glyph.
+   - tiles (shipped): line glyphs in the chip's own ink on soft square tiles, as a system settings
+     sidebar; the names stay.
+   - appicon: app-icon squircles. The folder is the hero, on the accent's tile in the accent's ink;
+     the machine and the shield sit on neutral tiles, + on a round one; the project's name in the
+     text color and emphasis weight.
+   - dock: icons only, on larger tiles spaced apart, a dock-like column; the names stay in the
+     accessible name. */
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) {
+  --nt-tile-pad: calc(4px * var(--nt-density));
+  --nt-tile-radius: calc(6px * var(--nt-density));
+  --nt-tile-fill: var(--acpmux-pill-hover);
+  --nt-tile-ink: currentColor;
+  --nt-tile-after: 0px;
+}
+.nt-composer[data-icon-column="appicon"] {
+  --nt-tile-pad: calc(5px * var(--nt-density));
+  --nt-tile-radius: calc(8px * var(--nt-density));
+}
+.nt-composer[data-icon-column="dock"] {
+  --nt-tile-pad: calc(6px * var(--nt-density));
+  --nt-tile-radius: calc(9px * var(--nt-density));
+  --nt-tile-after: var(--ds-space-2);
+}
+/* The tile: the glyph's own box filled (background) and an outline of the same fill around it, no
+   offset. The two never overlap, so a translucent fill reads as one even tile; the outline follows
+   the box's corner, so the core radius is the tile's less its room. The glyph's box, and every
+   measure of it (newtab-chip-scale, newtab-chip-ink-edges), stays as it was. */
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) :is(
+    .nt-above .acpmux-location-button > :is(svg, .acpmux-project-badge):first-child,
+    .nt-box .acpmux-composer-plus svg,
+    .nt-foot .acpmux-access-trigger > .acpmux-icon:first-child
+  ) {
+  overflow: visible;
+  stroke-width: 1.25;
+  color: var(--nt-tile-ink);
+  --nt-tile-core-radius: max(1px, calc(var(--nt-tile-radius) - var(--nt-tile-pad)));
+  border-radius: var(--nt-tile-core-radius);
+  background: var(--nt-tile-fill);
+  outline: var(--nt-tile-pad) solid var(--nt-tile-fill);
+  outline-offset: 0;
+}
+/* The label steps out by the tile's room; the glyph's place does not move. */
+:root .nt-screen .nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) .nt-above .acpmux-location-button > svg:first-child {
+  margin-inline: var(--acpmux-location-room) calc(var(--acpmux-location-room) + var(--nt-tile-pad) + var(--nt-tile-after));
+}
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) .nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
+  margin-inline-end: calc((var(--acpmux-location-box, var(--ui-ghost-icon-size)) - var(--acpmux-chip-glyph)) / 2 + var(--nt-tile-pad) + var(--nt-tile-after));
+}
+.nt-composer:is([data-icon-column="tiles"], [data-icon-column="appicon"], [data-icon-column="dock"]) .nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
+  margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2 + var(--nt-tile-pad) + var(--nt-tile-after));
+}
+.nt-composer[data-icon-column="appicon"] .nt-above .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-button > :first-child {
+  --nt-tile-fill: var(--agent-accent);
+  --nt-tile-ink: var(--agent-on-accent, var(--cmux-on-accent, var(--acpmux-base)));
+}
+.nt-composer[data-icon-column="appicon"] .nt-box .acpmux-composer-plus svg { border-radius: 50%; }
+.nt-composer[data-icon-column="appicon"] .nt-above .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
+  color: var(--agent-text);
+  font-weight: var(--weight-emphasis);
+}
+.nt-composer[data-icon-column="dock"] :is(.nt-above .acpmux-location-label, .nt-foot .acpmux-mode-text) {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nt-composer[data-icon-column="dock"] :is(
     .nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child),
     .nt-foot .acpmux-access-trigger > .acpmux-icon:last-child:not(:first-child)
   ) {
