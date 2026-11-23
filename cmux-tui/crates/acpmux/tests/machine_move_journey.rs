@@ -9,8 +9,9 @@
 //! B's disk taken before either was sent, and the relay now reaches B2 (the same address, a
 //! fresh machine). A's copy of the chat goes back to B2 (`hub/peer_snapshot/restore.rs`,
 //! `hub/journal_restore.rs`) and what B had accepted is delivered again under its own prompt
-//! ids (`server/outbox.rs` `redeliver_open`): every prompt A sent runs exactly once, and B2's
-//! journal holds every record A saw of B.
+//! ids (`server/outbox.rs` `redeliver_open`): every prompt A sent runs exactly once, B2's
+//! journal holds every record A saw of B, and the agent, which resumed its own older session,
+//! is told the turns it missed (`hub/transcript.rs` `missed_turns`).
 //!
 //! Debug builds only: its faults are the library's debug seams (`journal_restore.rs`,
 //! `hub::peer_snapshot_reads_fail`), which a release build of the library does not have.
@@ -29,7 +30,7 @@ use acpmux::server::{Origin, WsAuth, bind_ws, serve_connection, serve_ws_with};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -127,11 +128,14 @@ async fn client(h: Arc<Hub>) -> C {
 }
 
 /// The machine's address: a TCP relay to whichever port it points at now. `cut` ends every
-/// connection at once (the machine is gone, with no shutdown).
+/// connection at once (the machine is gone, with no shutdown); `cut_after` cuts the next
+/// connection once that many bytes went from the Mac to the machine (a requester killed midway).
 struct Relay {
     port: u16,
     target: Arc<AtomicU16>,
     tasks: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    trip_at: Arc<AtomicUsize>,
+    tripped: Arc<AtomicBool>,
 }
 
 impl Relay {
@@ -140,7 +144,9 @@ impl Relay {
         let relay_port = l.local_addr().unwrap().port();
         let target = Arc::new(AtomicU16::new(port));
         let tasks: Arc<Mutex<Vec<JoinHandle<()>>>> = Arc::default();
+        let (trip_at, tripped) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
         let (kept, to) = (tasks.clone(), target.clone());
+        let (trip, cut) = (trip_at.clone(), tripped.clone());
         tokio::spawn(async move {
             while let Ok((mut client, _)) = l.accept().await {
                 let port = to.load(Ordering::SeqCst);
@@ -148,13 +154,46 @@ impl Relay {
                 else {
                     continue;
                 };
-                let pipe = tokio::spawn(async move {
-                    let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
-                });
+                let at = trip.swap(0, Ordering::SeqCst);
+                let pipe = if at == 0 {
+                    tokio::spawn(async move {
+                        let _ = tokio::io::copy_bidirectional(&mut client, &mut server).await;
+                    })
+                } else {
+                    let (to, cut) = (to.clone(), cut.clone());
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        let (mut from_mac, mut to_mac) = client.into_split();
+                        let (mut from_machine, mut to_machine) = server.into_split();
+                        let down = tokio::spawn(async move {
+                            let _ = tokio::io::copy(&mut from_machine, &mut to_mac).await;
+                        });
+                        let (mut sent, mut buf) = (0usize, vec![0u8; 8192]);
+                        loop {
+                            let n = match from_mac.read(&mut buf).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(n) => n,
+                            };
+                            if sent + n >= at {
+                                // What fits goes, then the connection ends mid-message, and
+                                // nothing reaches the machine until the test points at it again.
+                                let _ = to_machine.write_all(&buf[..at - sent]).await;
+                                to.store(1, Ordering::SeqCst);
+                                cut.store(true, Ordering::SeqCst);
+                                break;
+                            }
+                            if to_machine.write_all(&buf[..n]).await.is_err() {
+                                break;
+                            }
+                            sent += n;
+                        }
+                        down.abort();
+                    })
+                };
                 kept.lock().unwrap().push(pipe);
             }
         });
-        Self { port: relay_port, target, tasks }
+        Self { port: relay_port, target, tasks, trip_at, tripped }
     }
 
     /// The machine goes away: nothing reaches it from now on.
@@ -163,6 +202,17 @@ impl Relay {
         for task in self.tasks.lock().unwrap().drain(..) {
             task.abort();
         }
+    }
+
+    /// The next connection is cut once `bytes` went from the Mac to the machine.
+    fn cut_after(&self, bytes: usize) {
+        self.tripped.store(false, Ordering::SeqCst);
+        self.trip_at.store(bytes.max(1), Ordering::SeqCst);
+    }
+
+    /// The connection [`Self::cut_after`] armed was cut.
+    fn tripped(&self) -> bool {
+        self.tripped.load(Ordering::SeqCst)
     }
 
     fn point_at(&self, port: u16) {
@@ -331,6 +381,119 @@ async fn a_move_past_the_copys_bound_loses_no_prompt() {
 
 /// The moves run one at a time: their test seams are the process's, and each machine is "b".
 static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Fault `kill` the requester at 90% of a restore (cmuxterm-hq
+/// `docs/design/remote-cloud-durability.md` F19, H14; the class of hq#11930, a long fill tied to
+/// its request and restarted from zero). The Mac's copy runs past the fresh machine's journal by
+/// a turn of [`CUT_CHUNKS`] records; its link is cut once 90% of the restore's bytes crossed it,
+/// and comes back. The next link's restore goes on from where the machine's journal ends: it
+/// sends at most a few pages again, never the whole copy, and the journal ends whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restore_cut_at_ninety_percent_goes_on_from_where_it_stopped() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    acpmux::hub::peer_snapshot_reads_fail("b", 0);
+    acpmux::hub::peer_snapshot_bound(0);
+    let _ = HERMETIC;
+    let _ = tracing_subscriber::fmt().with_env_filter("acpmux=info").with_test_writer().try_init();
+    let home = tempfile::tempdir().unwrap();
+    let (b_disk, auth_dir) = (home.path().join("b-disk"), home.path().join("b-auth"));
+    std::fs::create_dir_all(&b_disk).unwrap();
+    let b_cfg = config(StoreMode::Local);
+    let b = Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &b_disk).unwrap());
+    b.resume_queues();
+    let auth = Arc::new(PeerAuth::create(&auth_dir).unwrap());
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth_dir)).unwrap();
+    let relay = Relay::to(serve(b.clone(), &auth).await).await;
+    let mut cb = plain_client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "moved"}}});
+    let id = cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+
+    let a_dir = home.path().join("a");
+    std::fs::create_dir_all(&a_dir).unwrap();
+    let a_cfg = config(StoreMode::Local);
+    let a = Hub::new(a_cfg.clone(), acpmux::store::open(&a_cfg.store, &a_dir).unwrap());
+    let url = format!("ws://127.0.0.1:{}", relay.port);
+    a.add_peer("b", &url, Some("tok".into()), Some(peer_token), true).await.unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/moved", "limit": 400})).await;
+
+    // A first turn, then the machine's disk is snapshotted: the fresh machine starts there.
+    send(&mut ca, "first", "p0").await;
+    copy_until(&mut ca, "the first reply", |e| e.iter().any(|e| says(e, "echo: first"))).await;
+    b.flush();
+    let snapshot = home.path().join("b-snapshot");
+    copy_dir(&b_disk, &snapshot);
+    let snapshot_end = journal(&b, &id).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+
+    // A long turn the copy keeps whole, past where the snapshot ends.
+    send(&mut ca, &format!("chunks: {CUT_CHUNKS}"), "p1").await;
+    let last_word = format!("w{} ", CUT_CHUNKS - 1);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let copy = loop {
+        let got =
+            ca.call("_acpmux/peer_snapshot", json!({"sessionId": "b/moved", "limit": 5000})).await;
+        let events = got["events"].as_array().cloned().unwrap_or_default();
+        if events.iter().any(|e| says(e, &last_word)) {
+            break events;
+        }
+        assert!(Instant::now() < deadline, "A's copy never held the long turn: {got}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    a.flush();
+    let ahead: Vec<&Value> =
+        copy.iter().filter(|e| e["seq"].as_u64().is_some_and(|s| s > snapshot_end)).collect();
+    let restore_bytes: usize = ahead.iter().map(|e| e.to_string().len()).sum();
+    relay.cut();
+    b.shutdown_all().await;
+
+    // The fresh machine; the link to it is cut once 90% of the restore's bytes went out.
+    let b2 = Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &snapshot).unwrap());
+    b2.resume_queues();
+    let taken_at_start = acpmux::hub::journal_restore::records_taken(&id);
+    relay.cut_after(restore_bytes * 9 / 10);
+    let b2_port = serve(b2.clone(), &auth).await;
+    relay.point_at(b2_port);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !relay.tripped() {
+        assert!(Instant::now() < deadline, "the restore never crossed 90% of its bytes");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let taken_before_cut = acpmux::hub::journal_restore::records_taken(&id) - taken_at_start;
+    // The requester comes back on a new link.
+    relay.point_at(b2_port);
+    let deadline = Instant::now() + Duration::from_secs(120);
+    while !journal(&b2, &id).iter().any(|e| says(e, &last_word)) {
+        assert!(Instant::now() < deadline, "the fresh machine never got the whole turn back");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let sent_again =
+        acpmux::hub::journal_restore::records_taken(&id) - taken_at_start - taken_before_cut;
+    eprintln!(
+        "restore of {} records ({restore_bytes} bytes): {taken_before_cut} taken before the cut, {sent_again} sent after it",
+        ahead.len()
+    );
+    // Every record the copy held past the snapshot is in the fresh machine's journal, once.
+    let restored = journal(&b2, &id);
+    for e in &ahead {
+        let seq = e["seq"].as_u64().unwrap();
+        assert_eq!(
+            restored.iter().filter(|r| r["seq"].as_u64() == Some(seq)).count(),
+            1,
+            "record {seq} once in the fresh machine's journal"
+        );
+    }
+    assert!(
+        sent_again * 100 <= ahead.len() * 40,
+        "the restore started again from zero after the cut: {sent_again} of {} records sent again ({taken_before_cut} were taken before it)",
+        ahead.len()
+    );
+}
+
+/// The records of the turn [`a_restore_cut_at_ninety_percent_goes_on_from_where_it_stopped`]
+/// restores: under the copy's bound (`peer_snapshot.rs` `SESSION_EVENTS`), so it keeps them all.
+const CUT_CHUNKS: usize = 900;
 
 async fn move_to_a_fresh_machine(fault: Fault) {
     let _one = ONE_AT_A_TIME.lock().await;
@@ -621,6 +784,17 @@ async fn move_to_a_fresh_machine(fault: Fault) {
     }
     if fail_midway {
         assert!(!acpmux::hub::journal_restore::fail_once_armed(&id), "the restore never failed");
+    }
+    // The agent resumed its own session from the older disk, which ended after p0: the first
+    // prompt it ran there (the cut turn's continuation) carried what it missed, p1's turn, and
+    // nothing it had (p0) nor what it runs itself next (p2). The agent echoes its prompt.
+    if fault == Fault::None {
+        let replays: Vec<&Value> =
+            events.iter().filter(|e| says(e, "restored_transcript")).collect();
+        assert_eq!(replays.len(), 1, "one prompt carries the missed turns: {replays:#?}");
+        let replay = replays[0]["msg"].to_string();
+        assert!(replay.contains("user: until-cancel") && replay.contains("running"), "{replay}");
+        assert!(!replay.contains("user: first") && !replay.contains("second"), "{replay}");
     }
 }
 
@@ -926,9 +1100,11 @@ async fn a_copy_takes_a_running_turns_records_while_it_runs() {
 
 /// What B's agent is asked to hold its turn on (`FAKE_UNTIL_CANCEL_IN`): the fresh machine's
 /// agent is not, so the prompt B was running when it went runs to its end there.
+#[cfg(unix)]
 const HOLD: &str = "hold-the-turn";
 
 /// The bytes of the document the attachment prompt carries.
+#[cfg(unix)]
 const NOTES: &[u8] = b"the notes say forty-two";
 
 /// Review of #37284 at 4bce04df, F1: a prompt with an inline document starts its turn at once
@@ -940,6 +1116,7 @@ const NOTES: &[u8] = b"the notes say forty-two";
 /// settled turn: it runs there once, with the document saved and named to the agent. 4bce04df
 /// continued it with its text alone and answered the resend as a duplicate, so the document
 /// never reached the fresh machine's agent.
+#[cfg(unix)] // the stand-in agent's `gate:` turn waits on a FIFO (make_fifo)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
     attachment_prompt_cut_mid_turn(false).await;
@@ -950,12 +1127,14 @@ async fn an_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine
 /// machine goes mid-turn. Its old `queued` record proves nothing once it started: A delivers it
 /// again, and it runs once on the fresh machine, whole. fd33a65b took any `queued` record as
 /// proof: A checked and released the delivery, and the document never reached the agent.
+#[cfg(unix)] // make_fifo, as above
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_queued_attachment_prompt_cut_mid_turn_runs_again_whole_on_the_fresh_machine() {
     attachment_prompt_cut_mid_turn(true).await;
 }
 
 /// Makes a FIFO at `path`: a `gate:` turn of the stand-in agent blocks until it is written.
+#[cfg(unix)]
 fn make_fifo(path: &Path) {
     let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
     // SAFETY: valid NUL-terminated path.
@@ -964,6 +1143,7 @@ fn make_fifo(path: &Path) {
 
 /// The attachment journey; `queued_first`: the attachment prompt waits in the queue first,
 /// behind a turn held at a gate, and starts once that turn ends.
+#[cfg(unix)]
 async fn attachment_prompt_cut_mid_turn(queued_first: bool) {
     let _one = ONE_AT_A_TIME.lock().await;
     acpmux::hub::peer_snapshot_reads_fail("b", 0);
@@ -1119,4 +1299,32 @@ async fn attachment_prompt_cut_mid_turn(queued_first: bool) {
     }
     let replies = events.iter().filter(|e| says(e, "echo: second")).count();
     assert_eq!(replies, 1, "p2 answered {replies} times: {events:#?}");
+}
+
+/// A daemon restart whose agent session is as far as its journal: no prompt carries a replay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restart_with_an_agent_as_far_as_its_journal_replays_nothing() {
+    let _ = HERMETIC;
+    let home = tempfile::tempdir().unwrap();
+    let cfg = config(StoreMode::Local);
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    hub.resume_queues();
+    let mut c = plain_client(hub.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "restarted"}}});
+    let id = c.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    c.call(method::SESSION_PROMPT, prompt("before")).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, home.path()).unwrap());
+    hub.resume_queues();
+    let mut c = plain_client(hub.clone()).await;
+    c.call(method::SESSION_PROMPT, prompt("after")).await;
+    let events = journal(&hub, &id);
+    assert!(events.iter().any(|e| says(e, "echo: after")), "{events:#?}");
+    let replays = events.iter().filter(|e| says(e, "restored_transcript")).count();
+    assert_eq!(replays, 0, "a restart replayed turns its agent had: {events:#?}");
 }

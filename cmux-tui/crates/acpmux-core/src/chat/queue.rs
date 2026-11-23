@@ -20,6 +20,16 @@ pub const SCAN_LIMIT: u64 = 1024 * 1024;
 
 const TEXT: [&[u8]; 2] = [b"msg", b"text"];
 const PROMPT_ID: [&[u8]; 2] = [b"msg", b"promptId"];
+const ACT_BODY_TEXT: [&[u8]; 2] = [b"body", b"text"];
+const ACT_BODY_PROMPT_ID: [&[u8]; 2] = [b"body", b"promptId"];
+
+fn prompt_id_at(bytes: &[u8]) -> Option<usize> {
+    find_string(bytes, &PROMPT_ID).or_else(|| find_string(bytes, &ACT_BODY_PROMPT_ID))
+}
+
+fn text_at(bytes: &[u8]) -> Option<usize> {
+    find_string(bytes, &TEXT).or_else(|| find_string(bytes, &ACT_BODY_TEXT))
+}
 
 /// Where a waiting prompt's scan stands: an offset in its decoded text and the byte of its line
 /// that offset is at, always between two characters. On the wire: 32 hex digits.
@@ -49,14 +59,14 @@ impl Token {
 pub fn head(source: &mut dyn RawSource, entry: &QueueEntry) -> io::Result<QueueItem> {
     let piece = source.read_at(entry.place, 0, HEAD_READ)?;
     let bytes = piece.bytes.as_slice();
-    let id = find_string(bytes, &PROMPT_ID)
+    let id = prompt_id_at(bytes)
         .and_then(|at| {
             let mut out = Vec::new();
             decode_into(bytes, at, usize::MAX, &mut out).ended.then_some(out)
         })
         .and_then(|id| String::from_utf8(id).ok())
         .unwrap_or_else(|| format!("#{:016x}", entry.id_hash));
-    let text = find_string(bytes, &TEXT)
+    let text = text_at(bytes)
         .map(|at| {
             let mut out = Vec::new();
             decode_into(bytes, at, HEAD_TEXT, &mut out);
@@ -81,7 +91,7 @@ pub const TEXT_READ: usize = 256 * 1024;
 /// begin in the head.
 pub fn read_text(source: &mut dyn RawSource, place: u64) -> io::Result<Option<Vec<u8>>> {
     let head = source.read_at(place, 0, HEAD_READ)?;
-    let Some(start) = find_string(&head.bytes, &TEXT) else { return Ok(None) };
+    let Some(start) = text_at(&head.bytes) else { return Ok(None) };
     let truncated = || io::Error::new(io::ErrorKind::InvalidData, "a line ended inside its text");
     let mut out = vec![b'"'];
     let (mut bytes, mut ends, mut at) = (head.bytes, head.ends, start);
@@ -158,7 +168,7 @@ pub fn read_prompt(
         Some(token) => token,
         None => {
             let piece = source.read_at(entry.place, 0, HEAD_READ)?;
-            let Some(text) = find_string(&piece.bytes, &TEXT) else {
+            let Some(text) = text_at(&piece.bytes) else {
                 return Ok(Err(PromptError::NoText));
             };
             Token { text: 0, line: text as u64 }

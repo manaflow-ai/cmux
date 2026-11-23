@@ -3,6 +3,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -151,7 +153,7 @@ for (const producer of [false, true])
     try {
       await mountApp(root);
       await act(async () => receive(publish(structuredClone(agents))));
-      const rows = () => [...dom.window.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      const rows = () => [...dom.window.document.querySelectorAll(RUNNING_TRAY_LINE)];
       expect(rows()).toHaveLength(2);
       const [first, second] = rows();
       const before = second!.innerHTML;
@@ -410,7 +412,7 @@ for (const surface of ["tray", "inspector"] as const)
     };
     const root = createRoot(dom.window.document.getElementById("root")!);
     const container = () =>
-      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : "aside.acpmux-session-info");
+      dom.window.document.querySelector(surface === "tray" ? ".acpmux-running-tray" : SESSION_INFO);
     // Session Info starts closed in a new chat: opened before the chat binds, it is this chat's.
     if (surface === "inspector") {
       bindSessionInfoPane(undefined);

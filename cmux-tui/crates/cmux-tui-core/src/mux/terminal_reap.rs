@@ -249,27 +249,7 @@ impl Mux {
     pub(crate) fn reapable_and_retained_terminals(
         &self,
     ) -> anyhow::Result<(HashSet<String>, HashSet<String>)> {
-        let (mut unplaced, mut retained) = {
-            let state = self.state.lock().unwrap();
-            let placed_runtimes: HashSet<SurfaceId> =
-                state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
-            let mut unplaced = HashSet::new();
-            let mut placed = HashSet::new();
-            for (public_id, runtime) in &state.terminal_catalog {
-                let Some(identity) = self.resource_terminal_host_identity(runtime) else {
-                    continue;
-                };
-                let content_id = ContentPublicId::Terminal(public_id.clone());
-                if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
-                    || !state.placements_of_content(&content_id).is_empty()
-                {
-                    placed.insert(identity.terminal_id);
-                } else {
-                    unplaced.insert(identity.terminal_id);
-                }
-            }
-            (unplaced, placed)
-        };
+        let (mut unplaced, mut retained) = self.unplaced_and_placed_terminals();
         if unplaced.is_empty() {
             return Ok((unplaced, retained));
         }
@@ -291,6 +271,30 @@ impl Mux {
             !keep
         });
         Ok((unplaced, retained))
+    }
+
+    /// Host ids of the hosted terminals with no tab placement and of those
+    /// with one, read under the state lock alone (no registry access).
+    pub(crate) fn unplaced_and_placed_terminals(&self) -> (HashSet<String>, HashSet<String>) {
+        let state = self.state.lock().unwrap();
+        let placed_runtimes: HashSet<SurfaceId> =
+            state.surfaces.values().filter_map(|view| view.terminal_runtime_id()).collect();
+        let mut unplaced = HashSet::new();
+        let mut placed = HashSet::new();
+        for (public_id, runtime) in &state.terminal_catalog {
+            let Some(identity) = self.resource_terminal_host_identity(runtime) else {
+                continue;
+            };
+            let content_id = ContentPublicId::Terminal(public_id.clone());
+            if runtime.terminal_runtime_id().is_some_and(|id| placed_runtimes.contains(&id))
+                || !state.placements_of_content(&content_id).is_empty()
+            {
+                placed.insert(identity.terminal_id);
+            } else {
+                unplaced.insert(identity.terminal_id);
+            }
+        }
+        (unplaced, placed)
     }
 
     /// The reapable terminals, each with how long it has been unplaced,
@@ -768,9 +772,26 @@ impl Mux {
         // read below queries the registry database while state is held.
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
-        ids.into_iter()
+        let ended: Vec<(Vec<String>, TerminalPublicId)> = ids
+            .into_iter()
             .filter(|id| state.terminal_catalog.get(id).is_none_or(|surface| surface.is_dead()))
-            .filter(|id| Self::terminal_tabs_kept_locked(&registry, &state, id).unwrap_or(false))
+            .map(|id| (Self::terminal_tab_ids(&state, &id), id))
+            .filter(|(tab_ids, _)| !tab_ids.is_empty())
+            .collect();
+        // One statement reads the kept tabs for each terminal of the session; no ended terminal, no statement.
+        let kept = if ended.is_empty() {
+            HashSet::new()
+        } else {
+            let read = registry.kept_tab_ids();
+            if let Err(error) = &read {
+                eprintln!("cmux-tui: the kept tabs were not read, no parked trim: {error:#}");
+            }
+            read.unwrap_or_default()
+        };
+        ended
+            .into_iter()
+            .filter(|(tab_ids, _)| tab_ids.iter().any(|tab_id| kept.contains(tab_id)))
+            .map(|(_, id)| id)
             .collect()
     }
 

@@ -1,6 +1,1709 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "remote.agents.allow.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لوكلائك على أجهزتك الخاصة عندها تشغيل مشاركة الشاشة والتحكم أو إيقافهما لأجهزة Mac دون أن يسألوا. يظهر لكل تغيير إشعار مع زر إيقاف، والمشاركة التي شغّلها وكيل تتوقف بعد بضع دقائق دون مشاهد. ويظل الآخرون ووكلاؤهم يطلبون الإذن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši agenti na vašim uređajima tada mogu uključiti ili isključiti dijeljenje ekrana i kontrolu za vaše Mac računare bez pitanja. Svaka promjena prikazuje obavijest s opcijom Isključi, a dijeljenje koje je uključio agent isključuje se nakon nekoliko minuta bez gledalaca. Drugi ljudi i njihovi agenti i dalje pitaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine agenter på dine egne enheder kan så slå skærmdeling og styring til eller fra for dine Mac-computere uden at spørge. Hver ændring viser en meddelelse med Slå fra, og deling, som en agent har slået til, slås fra efter nogle minutter uden seere. Andre personer og deres agenter spørger stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Agenten auf deinen eigenen Geräten können dann Bildschirmfreigabe und Steuerung für deine Macs ohne Nachfrage ein- oder ausschalten. Jede Änderung zeigt eine Mitteilung mit „Ausschalten“, und eine von einem Agenten eingeschaltete Freigabe endet nach einigen Minuten ohne Zuschauer. Andere Personen und ihre Agenten fragen weiterhin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agents on your own devices can then turn screen sharing and control on or off for your Macs without asking. Each change shows a notice with Turn Off, and sharing an agent turned on turns off after a few minutes with no viewer. Other people and their agents still ask."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus agentes en tus propios dispositivos podrán activar o desactivar compartir pantalla y el control de tus Mac sin preguntar. Cada cambio muestra un aviso con Desactivar, y lo que un agente comparte se desactiva tras unos minutos sin espectadores. Otras personas y sus agentes seguirán preguntando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos agents sur vos propres appareils pourront alors activer ou désactiver le partage d’écran et le contrôle de vos Mac sans demander. Chaque changement affiche une notification avec Désactiver, et un partage activé par un agent s’arrête après quelques minutes sans spectateur. Les autres personnes et leurs agents demandent toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi agenti sui tuoi dispositivi potranno attivare o disattivare la condivisione dello schermo e il controllo dei tuoi Mac senza chiedere. Ogni modifica mostra un avviso con Disattiva, e la condivisione attivata da un agente si disattiva dopo alcuni minuti senza spettatori. Le altre persone e i loro agenti continuano a chiedere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のデバイス上のエージェントが、確認なしでMacの画面共有と操作をオン・オフできるようになります。変更のたびに「オフにする」付きの通知が表示され、エージェントがオンにした共有は視聴者がいない状態が数分続くとオフになります。他の人やそのエージェントは引き続き確認を求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររបស់អ្នកនៅលើឧបករណ៍ផ្ទាល់ខ្លួនអាចបើក ឬបិទការចែករំលែកអេក្រង់ និងការគ្រប់គ្រងសម្រាប់ Mac របស់អ្នកដោយមិនចាំបាច់សួរ។ ការផ្លាស់ប្ដូរនីមួយៗបង្ហាញការជូនដំណឹងជាមួយប៊ូតុងបិទ ហើយការចែករំលែកដែលភ្នាក់ងារបានបើកនឹងបិទបន្ទាប់ពីប៉ុន្មាននាទីដែលគ្មានអ្នកមើល។ អ្នកដទៃ និងភ្នាក់ងាររបស់ពួកគេនៅតែត្រូវសួរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 기기의 에이전트가 묻지 않고 내 Mac의 화면 공유와 제어를 켜거나 끌 수 있습니다. 변경할 때마다 끄기 버튼이 있는 알림이 표시되며, 에이전트가 켠 공유는 보는 사람이 없으면 몇 분 뒤 꺼집니다. 다른 사람과 그 에이전트는 계속 허락을 구합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentene dine på dine egne enheter kan da slå skjermdeling og styring av eller på for Mac-ene dine uten å spørre. Hver endring viser et varsel med Slå av, og deling en agent slo på, slås av etter noen minutter uten seere. Andre personer og agentene deres spør fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoi agenci na Twoich urządzeniach będą mogli bez pytania włączać i wyłączać udostępnianie ekranu oraz sterowanie Twoimi Macami. Każda zmiana pokazuje powiadomienie z przyciskiem Wyłącz, a udostępnianie włączone przez agenta wyłącza się po kilku minutach bez widzów. Inne osoby i ich agenci nadal pytają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus agentes nos seus próprios dispositivos poderão ativar ou desativar o compartilhamento de tela e o controle dos seus Macs sem perguntar. Cada mudança mostra um aviso com Desativar, e o compartilhamento ativado por um agente é desativado após alguns minutos sem espectadores. Outras pessoas e seus agentes continuam pedindo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши агенты на ваших устройствах смогут без запроса включать и выключать общий экран и управление вашими Mac. Каждое изменение показывает уведомление с кнопкой «Выключить», а доступ, открытый агентом, выключается через несколько минут без зрителей. Другие люди и их агенты по-прежнему спрашивают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์บนอุปกรณ์ของคุณเองจะเปิดหรือปิดการแชร์หน้าจอและการควบคุม Mac ของคุณได้โดยไม่ต้องถาม การเปลี่ยนแปลงแต่ละครั้งจะแสดงการแจ้งเตือนพร้อมปุ่มปิด และการแชร์ที่เอเจนต์เปิดจะปิดเองหลังจากไม่มีผู้ดูสักครู่ คนอื่นและเอเจนต์ของพวกเขายังต้องขอเหมือนเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi aygıtlarınızdaki ajanlarınız, Mac’leriniz için ekran paylaşımını ve denetimi sormadan açıp kapatabilir. Her değişiklik Kapat düğmeli bir bildirim gösterir ve bir ajanın açtığı paylaşım birkaç dakika izleyen olmayınca kapanır. Diğer kişiler ve ajanları yine sorar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші агенти на ваших пристроях зможуть без запиту вмикати й вимикати спільний екран і керування вашими Mac. Кожна зміна показує сповіщення з кнопкою «Вимкнути», а доступ, відкритий агентом, вимикається через кілька хвилин без глядачів. Інші люди та їхні агенти й далі питають."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử trên thiết bị của bạn có thể bật hoặc tắt chia sẻ màn hình và điều khiển cho máy Mac của bạn mà không cần hỏi. Mỗi thay đổi hiện một thông báo có nút Tắt, và chia sẻ do tác tử bật sẽ tự tắt sau vài phút không có người xem. Người khác và tác tử của họ vẫn phải hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你自己设备上的智能体随后可以无需询问就开启或关闭你的 Mac 的屏幕共享和控制。每次更改都会显示带有“关闭”的通知，智能体开启的共享在无人观看几分钟后会自动关闭。其他人及其智能体仍需询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你自己裝置上的代理之後可以無需詢問就開啟或關閉你的 Mac 的螢幕共享與控制。每次變更都會顯示含「關閉」的通知，代理開啟的共享在無人觀看幾分鐘後會自動關閉。其他人及其代理仍需詢問。"
+          }
+        }
+      }
+    },
+    "remote.agents.allow.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تسمح لوكلائك بمشاركة أجهزتك؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoliti agentima da dijele vaše računare?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad dine agenter dele dine maskiner?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deinen Agenten erlauben, deine Geräte zu teilen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let your agents share your machines?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Permitir que tus agentes compartan tus equipos?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser vos agents à partager vos machines ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consentire ai tuoi agenti di condividere i tuoi computer?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにマシンの共有を許可しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យភ្នាក់ងាររបស់អ្នកចែករំលែកម៉ាស៊ីនរបស់អ្នក?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 내 컴퓨터를 공유하도록 허용할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La agentene dine dele maskinene dine?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwolić agentom udostępniać Twoje komputery?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que seus agentes compartilhem suas máquinas?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить агентам открывать доступ к вашим компьютерам?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เอเจนต์แชร์เครื่องของคุณไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınızın makinelerinizi paylaşmasına izin verilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити агентам відкривати доступ до ваших комп’ютерів?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép tác tử chia sẻ máy của bạn?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许你的智能体共享你的电脑？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許你的代理共享你的電腦？"
+          }
+        }
+      }
+    },
+    "remote.agents.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لوكلائك الآن مشاركة أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši agenti sada mogu dijeliti vaše računare"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine agenter kan nu dele dine maskiner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Agenten können deine Geräte jetzt teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agents can now share your machines"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus agentes ya pueden compartir tus equipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos agents peuvent maintenant partager vos machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ora i tuoi agenti possono condividere i tuoi computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがマシンを共有できるようになりました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឥឡូវនេះភ្នាក់ងាររបស់អ្នកអាចចែករំលែកម៉ាស៊ីនរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 에이전트가 내 컴퓨터를 공유할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentene dine kan nå dele maskinene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoi agenci mogą teraz udostępniać Twoje komputery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus agentes agora podem compartilhar suas máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Теперь агенты могут открывать доступ к вашим компьютерам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอนนี้เอเจนต์แชร์เครื่องของคุณได้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınız artık makinelerinizi paylaşabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тепер агенти можуть відкривати доступ до ваших комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử giờ có thể chia sẻ máy của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的智能体现在可以共享你的电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的代理現在可以共享你的電腦"
+          }
+        }
+      }
+    },
+    "remote.agents.disallowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيطلب وكلاؤك الإذن الآن قبل مشاركة أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši agenti sada pitaju prije dijeljenja vaših računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine agenter spørger nu, før de deler dine maskiner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Agenten fragen jetzt, bevor sie deine Geräte teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agents now ask before sharing your machines"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus agentes ahora preguntan antes de compartir tus equipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos agents demandent maintenant avant de partager vos machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ora i tuoi agenti chiedono prima di condividere i tuoi computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントはマシンを共有する前に確認するようになりました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឥឡូវនេះភ្នាក់ងាររបស់អ្នកសួរមុនពេលចែករំលែកម៉ាស៊ីនរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 에이전트가 내 컴퓨터를 공유하기 전에 묻습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentene dine spør nå før de deler maskinene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoi agenci pytają teraz przed udostępnieniem Twoich komputerów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus agentes agora perguntam antes de compartilhar suas máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Теперь агенты спрашивают, прежде чем открывать доступ к вашим компьютерам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอนนี้เอเจนต์จะถามก่อนแชร์เครื่องของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınız artık makinelerinizi paylaşmadan önce soruyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тепер агенти питають, перш ніж відкривати доступ до ваших комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử giờ sẽ hỏi trước khi chia sẻ máy của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的智能体现在会先询问再共享你的电脑"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的代理現在會先詢問再共享你的電腦"
+          }
+        }
+      }
+    },
+    "remote.agents.history.allowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سُمح للوكلاء بالمشاركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentima dozvoljeno dijeljenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter må dele"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten dürfen teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents allowed to share"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes autorizados a compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents autorisés à partager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti autorizzati a condividere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの共有を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានអនុញ្ញាតឱ្យភ្នាក់ងារចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 공유 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter får dele"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci mogą udostępniać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes autorizados a compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агентам разрешено открывать доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เอเจนต์แชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanların paylaşmasına izin verildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агентам дозволено відкривати доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cho phép tác tử chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许智能体共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允許代理共享"
+          }
+        }
+      }
+    },
+    "remote.agents.history.disallowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب الوكلاء الإذن قبل المشاركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti pitaju prije dijeljenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter spørger før deling"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten fragen vor dem Teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents ask before sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes preguntan antes de compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents demandent avant de partager"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti chiedono prima di condividere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは共有前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារសួរមុនពេលចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 공유 전에 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter spør før deling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci pytają przed udostępnieniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes perguntam antes de compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты спрашивают перед открытием доступа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ถามก่อนแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar paylaşmadan önce sorar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти питають перед відкриттям доступу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử hỏi trước khi chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体共享前先询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理共享前先詢問"
+          }
+        }
+      }
+    },
+    "remote.agents.indicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شاركه وكيلك %@؛ يتوقف عند عدم وجود مشاهد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeli vaš agent %@; isključuje se kada ga niko ne gleda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delt af din agent %@; slås fra uden seere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von deinem Agenten %@ geteilt; schaltet sich ohne Zuschauer aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared by your agent %@; turns off with no viewer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartido por tu agente %@; se desactiva sin espectadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partagé par votre agent %@ ; se désactive sans spectateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condiviso dal tuo agente %@; si disattiva senza spettatori"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント %@ が共有中。視聴者がいないとオフになります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចែករំលែកដោយភ្នាក់ងារ %@ របស់អ្នក; បិទពេលគ្មានអ្នកមើល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 %@이(가) 공유 중, 보는 사람이 없으면 꺼집니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delt av agenten din %@; slås av uten seere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnione przez agenta %@; wyłącza się bez widzów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhado pelo seu agente %@; desativa sem espectadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыт вашим агентом %@; выключится без зрителей"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์โดยเอเจนต์ %@ ของคุณ ปิดเองเมื่อไม่มีผู้ดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanınız %@ paylaştı; izleyen olmayınca kapanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрито вашим агентом %@; вимкнеться без глядачів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Được tác tử %@ chia sẻ; tự tắt khi không có người xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由你的智能体 %@ 共享；无人观看时关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由你的代理 %@ 共享；無人觀看時關閉"
+          }
+        }
+      }
+    },
+    "remote.agents.notice.byAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قام وكيلك %@ بذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To je uradio vaš agent %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din agent %@ gjorde dette."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das hat dein Agent %@ getan."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agent %@ did this."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo hizo tu agente %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre agent %@ l’a fait."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’ha fatto il tuo agente %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント %@ が行いました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារ %@ របស់អ្នកបានធ្វើវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 에이전트 %@이(가) 실행했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten din %@ gjorde dette."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrobił to Twój agent %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu agente %@ fez isso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это сделал ваш агент %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ %@ ของคุณทำสิ่งนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bunu ajanınız %@ yaptı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це зробив ваш агент %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử %@ của bạn đã làm việc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由你的智能体 %@ 执行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由你的代理 %@ 執行。"
+          }
+        }
+      }
+    },
+    "remote.agents.notice.shared": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت مشاركة %@ الآن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je sada dijeljen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deles nu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird jetzt geteilt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is now shared"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ahora se comparte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est maintenant partagé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ora è condiviso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を共有しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ត្រូវបានចែករំលែកឥឡូវនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 %@ 공유 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deles nå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ jest teraz udostępniany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ agora está compartilhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ теперь общий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตอนนี้แชร์ %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ artık paylaşılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ тепер спільний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hiện đang được chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 现已共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 現已共享"
+          }
+        }
+      }
+    },
+    "remote.agents.notice.turnOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнути"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "remote.agents.notice.unshared": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد مشاركة %@ قائمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ više nije dijeljen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deles ikke længere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird nicht mehr geteilt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is no longer shared"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya no se comparte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est plus partagé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è più condiviso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の共有を終了しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ លែងត្រូវបានចែករំលែកទៀតហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 공유가 끝났습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ deles ikke lenger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie jest już udostępniany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não está mais compartilhado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ больше не общий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้แชร์ %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ artık paylaşılmıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ більше не спільний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không còn được chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已停止共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已停止共享"
+          }
+        }
+      }
+    },
+    "remote.agents.settings.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشارك وكلاؤك دون أن يسألوا، مع إشعار في كل مرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaši agenti dijele bez pitanja, uz obavijest svaki put."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dine agenter deler uden at spørge, med en meddelelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Agenten teilen ohne Rückfrage, mit Mitteilung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agents share without asking, with a notice each time."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus agentes comparten sin preguntar, con un aviso cada vez."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos agents partagent sans demander, avec une notification."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi agenti condividono senza chiedere, con un avviso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは確認なしで共有し、毎回通知が届きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររបស់អ្នកចែករំលែកដោយមិនសួរ ហើយមានការជូនដំណឹង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 묻지 않고 공유하며 매번 알림이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentene dine deler uten å spørre, med et varsel hver gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoi agenci udostępniają bez pytania, z powiadomieniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus agentes compartilham sem perguntar, com um aviso."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши агенты делятся без вопроса, каждый раз с уведомлением."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ของคุณแชร์ได้โดยไม่ต้องถาม พร้อมแจ้งเตือนทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarınız sormadan paylaşır, her seferinde bildirim gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваші агенти діляться без запиту, щоразу зі сповіщенням."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử của bạn chia sẻ không cần hỏi, kèm thông báo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的智能体无需询问即可共享，每次都会显示通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的代理無需詢問即可共享，每次都會顯示通知。"
+          }
+        }
+      }
+    },
+    "remote.agents.settings.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لوكلائي تشغيل مشاركة الشاشة والتحكم على أجهزتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moji agenti mogu uključiti dijeljenje ekrana i kontrolu na mojim računarima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mine agenter kan slå skærmdeling og styring til på mine maskiner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meine Agenten dürfen Bildschirmfreigabe und Steuerung auf meinen Geräten einschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My agents can turn screen sharing and control on my machines"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis agentes pueden activar compartir pantalla y el control en mis equipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes agents peuvent activer le partage d’écran et le contrôle sur mes machines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I miei agenti possono attivare condivisione schermo e controllo sui miei computer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが自分のマシンで画面共有と操作をオンにできる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររបស់ខ្ញុំអាចបើកការចែករំលែកអេក្រង់ និងការគ្រប់គ្រងនៅលើម៉ាស៊ីនរបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 에이전트가 내 컴퓨터의 화면 공유와 제어를 켤 수 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentene mine kan slå på skjermdeling og styring på maskinene mine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moi agenci mogą włączać udostępnianie ekranu i sterowanie na moich komputerach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meus agentes podem ativar compartilhamento de tela e controle nas minhas máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мои агенты могут включать общий экран и управление на моих компьютерах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ของฉันเปิดการแชร์หน้าจอและการควบคุมบนเครื่องของฉันได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarım makinelerimde ekran paylaşımını ve denetimi açabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мої агенти можуть вмикати спільний екран і керування на моїх комп’ютерах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử của tôi có thể bật chia sẻ màn hình và điều khiển trên máy của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的智能体可以在我的电脑上开启屏幕共享和控制"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我的代理可以在我的電腦上開啟螢幕共享與控制"
+          }
+        }
+      }
+    },
     "remote.allow": {
       "extractionState": "manual",
       "localizations": {
@@ -656,6 +2359,268 @@
         }
       }
     },
+    "remote.confirm.shareOther.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ مشاركة جهاز Mac هذا إذا سمح مالكه بالتحكم من أجهزتك الأخرى المسجّل دخولها. ستظل أجهزتك تطلب الإذن قبل أن تراه أو تتحكم فيه، ويسجّل كلا جهازي Mac أنك سمحت بذلك هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ uključuje Dijeli ovaj Mac ako je vlasnik dozvolio kontrolu s vaših drugih prijavljenih računara. Vaši uređaji i dalje traže dozvolu prije nego što ga vide ili kontrolišu, a oba Mac računara bilježe da ste to dozvolili ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ slår Del denne Mac til, hvis ejeren har tilladt styring fra dine andre loggede ind-maskiner. Dine enheder spørger stadig, før de ser eller styrer den, og begge Mac-computere registrerer, at du tillod det her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ schaltet „Diesen Mac teilen“ ein, wenn sein Besitzer die Steuerung von deinen anderen angemeldeten Rechnern erlaubt hat. Deine Geräte fragen weiterhin, bevor sie ihn sehen oder steuern, und beide Macs protokollieren, dass du es hier erlaubt hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ turns on Share This Mac if its owner allowed control from your other signed-in machines. Your devices still ask before they see or control it, and both Macs record that you allowed it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ activa Compartir este Mac si su propietario permitió el control desde tus otras máquinas con sesión iniciada. Tus dispositivos siguen pidiendo permiso antes de verlo o controlarlo, y ambos Mac registran que lo permitiste aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ active Partager ce Mac si son propriétaire a autorisé le contrôle depuis vos autres machines connectées. Vos appareils demandent toujours avant de le voir ou de le contrôler, et les deux Mac enregistrent que vous l’avez autorisé ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ attiva Condividi questo Mac se il proprietario ha consentito il controllo dalle tue altre macchine con accesso effettuato. I tuoi dispositivi chiedono comunque prima di vederlo o controllarlo, ed entrambi i Mac registrano che lo hai consentito qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者がサインイン済みの他のマシンからの操作を許可していれば、%@ は「この Mac を共有」をオンにします。デバイスが画面を見たり操作したりする前には引き続き確認があり、ここで許可したことが両方の Mac に記録されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បើក ចែករំលែក Mac នេះ ប្រសិនបើម្ចាស់របស់វាបានអនុញ្ញាតការគ្រប់គ្រងពីម៉ាស៊ីនផ្សេងទៀតរបស់អ្នកដែលបានចូល។ ឧបករណ៍របស់អ្នកនៅតែសួរមុនពេលមើល ឬគ្រប់គ្រងវា ហើយ Mac ទាំងពីរកត់ត្រាថាអ្នកបានអនុញ្ញាតវានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소유자가 로그인된 내 다른 기기의 제어를 허용했다면 %@에서 이 Mac 공유가 켜집니다. 기기가 화면을 보거나 제어하기 전에는 계속 확인을 요청하며, 두 Mac 모두 여기에서 허용했다는 사실을 기록합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ slår på Del denne Macen hvis eieren har tillatt styring fra de andre påloggede maskinene dine. Enhetene dine spør fortsatt før de ser eller styrer den, og begge Mac-maskinene registrerer at du tillot det her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ włącza Udostępnianie tego Maca, jeśli jego właściciel zezwolił na sterowanie z Twoich innych zalogowanych komputerów. Twoje urządzenia nadal pytają, zanim go zobaczą lub nim sterują, a oba Maki zapisują, że zezwolono na to tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ativa Compartilhar este Mac se o proprietário permitiu o controle a partir das suas outras máquinas conectadas. Seus dispositivos ainda pedem permissão antes de vê-lo ou controlá-lo, e os dois Macs registram que você permitiu aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ включит «Поделиться этим Mac», если владелец разрешил управление с ваших других компьютеров, где выполнен вход. Ваши устройства по-прежнему спрашивают разрешение, прежде чем видеть его или управлять им, а оба Mac записывают, что вы разрешили это здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ จะเปิด แชร์ Mac เครื่องนี้ หากเจ้าของอนุญาตให้ควบคุมจากเครื่องอื่นของคุณที่ลงชื่อเข้าใช้อยู่ อุปกรณ์ของคุณยังคงต้องขออนุญาตก่อนดูหรือควบคุม และ Mac ทั้งสองเครื่องจะบันทึกว่าคุณอนุญาตที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sahibi oturum açmış diğer makinelerinizden denetime izin verdiyse %@ Bu Mac'i Paylaş'ı açar. Cihazlarınız onu görmeden veya denetlemeden önce yine sorar ve iki Mac de buna burada izin verdiğinizi kaydeder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ увімкне «Поділитися цим Mac», якщо власник дозволив керування з ваших інших комп’ютерів, де виконано вхід. Ваші пристрої й надалі питатимуть, перш ніж бачити його чи керувати ним, а обидва Mac записують, що ви дозволили це тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bật Chia sẻ máy Mac này nếu chủ sở hữu đã cho phép điều khiển từ các máy khác đã đăng nhập của bạn. Các thiết bị của bạn vẫn hỏi trước khi xem hoặc điều khiển, và cả hai máy Mac đều ghi lại rằng bạn đã cho phép tại đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果“%@”的所有者允许从你其他已登录的电脑进行控制，它会打开“共享此 Mac”。你的设备在查看或控制它之前仍会询问，两台 Mac 都会记录你在这里允许了此操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果「%@」的擁有者允許從你其他已登入的電腦進行控制，它會開啟「共享這台 Mac」。你的裝置在查看或控制它之前仍會詢問，兩台 Mac 都會記錄你在這裡允許了此操作。"
+          }
+        }
+      }
+    },
+    "remote.confirm.shareOther.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد مشاركة شاشة %@ مع أجهزتك؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijeliti ekran računara %@ s vašim uređajima?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del skærmen på %@ med dine enheder?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirm von %@ mit deinen Geräten teilen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share %@'s screen with your devices?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Compartir la pantalla de %@ con tus dispositivos?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager l’écran de %@ avec vos appareils ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Condividere lo schermo di %@ con i tuoi dispositivi?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の画面をあなたのデバイスと共有しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចែករំលែកអេក្រង់របស់ %@ ជាមួយឧបករណ៍របស់អ្នកឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 화면을 내 기기와 공유하겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dele skjermen til %@ med enhetene dine?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udostępnić ekran komputera %@ Twoim urządzeniom?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar a tela de %@ com seus dispositivos?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться экраном %@ с вашими устройствами?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชร์หน้าจอของ %@ กับอุปกรณ์ของคุณหรือไม่?"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekranı cihazlarınızla paylaşılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поділитися екраном %@ з вашими пристроями?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sẻ màn hình của %@ với các thiết bị của bạn?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要与你的设备共享“%@”的屏幕吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要與你的裝置共享「%@」的螢幕嗎？"
+          }
+        }
+      }
+    },
     "remote.done": {
       "extractionState": "manual",
       "localizations": {
@@ -783,6 +2748,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "完成"
+          }
+        }
+      }
+    },
+    "remote.notYourDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ليس جهازًا آخر لهذا الحساب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nije drugi uređaj ovog računa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en anden enhed på denne konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist kein anderes Gerät dieses Kontos."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not another device of this account."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es otro dispositivo de esta cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est pas un autre appareil de ce compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è un altro dispositivo di questo account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこのアカウントの他のデバイスではありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ មិនមែនជាឧបករណ៍ផ្សេងទៀតរបស់គណនីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 이 계정의 다른 기기가 아닙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ er ikke en annen enhet på denne kontoen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie jest innym urządzeniem tego konta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é outro dispositivo desta conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не является другим устройством этой учетной записи."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่ใช่อุปกรณ์อื่นของบัญชีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu hesabın başka bir cihazı değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не є іншим пристроєм цього облікового запису."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không phải là thiết bị khác của tài khoản này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不是此账户的其他设备。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不是此帳號的其他裝置。"
           }
         }
       }

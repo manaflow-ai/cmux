@@ -25,6 +25,8 @@ struct FakeHub {
     own_answer: Mutex<Option<leave::HubAnswer>>,
     /// The credentials each such revoke sent.
     own_revokes: Mutex<Vec<String>>,
+    /// The person's token's team claim; a join it mints lands there ("team" when None).
+    person_team: Option<String>,
 }
 
 impl FakeHub {
@@ -68,7 +70,7 @@ impl EnrollHub for FakeHub {
             &MachineCredential {
                 credential: "cmm_new".into(),
                 machine_id: "machine_new".into(),
-                team_id: "team".into(),
+                team_id: self.person_team.clone().unwrap_or_else(|| "team".into()),
                 name: name.to_owned(),
                 hub_origin: HUB.into(),
                 wg_public_key: key,
@@ -98,6 +100,9 @@ impl EnrollHub for FakeHub {
     }
     fn state_capabilities(&self) {
         self.statements.fetch_add(1, Ordering::SeqCst);
+    }
+    fn person_team(&self) -> Option<String> {
+        self.person_team.clone()
     }
 }
 
@@ -219,6 +224,54 @@ async fn another_persons_or_hubs_join_is_left_alone() {
     assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::OtherHub);
     assert_eq!(port.mints.load(Ordering::SeqCst), 0);
     assert_eq!(load_at(home.path()).unwrap().unwrap().credential, "cmm_old");
+}
+
+#[tokio::test]
+async fn a_sign_in_join_in_another_team_than_the_sign_ins_moves_to_that_team() {
+    // cloud-carrier-ssh-failover 2026-11-15T21:18Z: the Mac's sign-in join sat in the
+    // account's Stack sign-up team while its Cloud machines and mesh were in its personal
+    // team; every sign-in after said AlreadyJoined and the tunnel answered "no mesh".
+    let home = tempfile::tempdir().unwrap();
+    joined(home.path(), signed_in);
+    let port = FakeHub { person_team: Some("team_personal".into()), ..FakeHub::at(home.path()) };
+    assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+    // The old team's row is revoked with its own credential, then a new join is minted.
+    assert_eq!(*port.own_revokes.lock().unwrap(), vec!["cmm_old".to_owned()]);
+    assert_eq!(*port.redeems.lock().unwrap(), vec![("box".to_owned(), false)]);
+    let record = load_at(home.path()).unwrap().unwrap();
+    assert_eq!(
+        (record.machine_id.as_str(), record.team_id.as_str()),
+        ("machine_new", "team_personal")
+    );
+    assert!(!home.path().join(LEAVE_FILE).exists(), "the move leaves no leave mark");
+    // In that team now: the next sign-in keeps it.
+    assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+    assert_eq!(port.mints.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_join_in_another_team_stays_unless_signing_in_made_it_and_the_token_names_a_team() {
+    // A pasted join line's or pair code's join is the person's own choice of team.
+    let home = tempfile::tempdir().unwrap();
+    joined(home.path(), |_| {});
+    let port = FakeHub { person_team: Some("team_personal".into()), ..FakeHub::at(home.path()) };
+    assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+    // A token naming no team says nothing about where the join belongs.
+    let other = tempfile::tempdir().unwrap();
+    joined(other.path(), signed_in);
+    let port = FakeHub::at(other.path());
+    assert_eq!(enroll(other.path(), &port).await, EnrollOutcome::AlreadyJoined);
+    // Another hub's sign-in join is left alone, whatever team the token names.
+    let elsewhere = tempfile::tempdir().unwrap();
+    joined(elsewhere.path(), |r| {
+        signed_in(r);
+        r.hub_origin = "https://other.example".into();
+    });
+    let port =
+        FakeHub { person_team: Some("team_personal".into()), ..FakeHub::at(elsewhere.path()) };
+    assert_eq!(enroll(elsewhere.path(), &port).await, EnrollOutcome::OtherHub);
+    assert!(port.own_revokes.lock().unwrap().is_empty());
+    assert_eq!(port.mints.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -360,6 +413,26 @@ fn pending_join_as(home: &Path, credential: &str, joined_by: Option<&str>, finge
         true,
     )
     .unwrap();
+}
+
+#[tokio::test]
+async fn a_sign_in_sets_aside_another_accounts_pending_join_before_redeeming() {
+    // user_me's proposal is left pending (its sign-out never reached acpmux); user_other signs in.
+    let home = tempfile::tempdir().unwrap();
+    pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
+    let port = FakeHub::at(home.path());
+    let outcome =
+        enroll_at(home.path(), HUB, "box", Some("user_other"), Some("box-a"), &port).await;
+    assert_eq!(outcome, EnrollOutcome::Joined);
+    assert!(!home.path().join("machine-join.pending.json").exists());
+    assert_eq!(queued_credentials(home.path()), vec!["cmm_pending".to_owned()]);
+    // The same account's own proposal is left for its join to finish.
+    let home = tempfile::tempdir().unwrap();
+    pending_join(home.path(), Some(JOINED_BY_SIGN_IN), "box-a");
+    let port = FakeHub::at(home.path());
+    assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::Joined);
+    assert!(home.path().join("machine-join.pending.json").exists());
+    assert!(queued_credentials(home.path()).is_empty());
 }
 
 #[tokio::test]

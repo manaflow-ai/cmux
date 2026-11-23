@@ -122,6 +122,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
+    /// The Cloud machines listed: their rows draw a small muted cloud in the trailing status cluster (``WorkspaceRowContent/runsInCloud``)
+    /// and never their machine's name.
+    public var cloudMachines: Set<MachineID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?
@@ -170,6 +173,12 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// The Done fold: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
+    /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
+    /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
+    public var settled: Set<WorkspaceID> = []
+    /// Automatic sessions (`sidebar.showAutomaticSessions` off, the default; `SidebarAutomaticPlanner`): these rows fold
+    /// into an "Automatic (N)" row at the end of their list, before the Settled row. Empty draws every row in place.
+    public var automatic: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
@@ -196,7 +205,8 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
+        content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
+        content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
@@ -225,6 +235,11 @@ nonisolated extension SidebarLayoutOptions {
         // keeps its height, so rows do not grow and shrink as agents start and stop.
         if content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
+        }
+        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
+        // over a status or an expanded row's age, and never a line of its own.
+        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
+            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
         }
         return content
     }

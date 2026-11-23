@@ -14,72 +14,145 @@
   --unread-separator: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
 
-/* The static view: a hairline across the text column with a small "New" tag pinned to its end.
-   One control row tall (--ds-control-row, the 28px model.ts estimates), its
-   recap's card under it, so it sits in the message rhythm and never overlaps or moves a row. */
+/* The static view (SinceDivider.tsx; Leo, 2026-11-22: "better focus/unfocus and dissipation. and
+   probably also not layout shift this"). The row takes no height: with no recap it is 0 px and lays
+   out as if it were not there (model.ts, a row of height 0 takes no gap), its top where the row
+   above ends; with a recap only the recap (content) takes room. The mark lies over the gap, absolute,
+   one control row tall (--ds-control-row), never moving a row when it comes, fades or goes.
+   --cv-since-gap is the gap under the row, which the transcript writes (VirtualTranscript RowFrame). */
 .cv-since {
+  position: relative;
   display: grid;
-  gap: var(--ds-space-2);
 }
 .cv-since__menu {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(var(--cv-since-gap, var(--ds-space-4)) / 2);
+  height: var(--ds-control-row);
+  translate: 0 -50%;
   display: block;
+  pointer-events: none;
+}
+/* With a recap the row starts at the recap: the mark lies over the gap above it. */
+.cv-since[data-recap] .cv-since__menu {
+  top: calc(var(--ds-space-2) * -1);
 }
 .cv-since__line {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--ds-space-2);
-  height: var(--ds-control-row);
+  height: 100%;
   margin: 0;
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
+  opacity: 0;
+}
+.cv-since[data-shown] .cv-since__menu {
+  pointer-events: auto;
+}
+.cv-since[data-shown] .cv-since__line {
+  opacity: 1;
 }
 .cv-since__rule {
   flex: 1;
   min-width: 0;
   border-top: var(--cmux-hairline-ring) solid var(--unread-accent);
+  transform-origin: right center;
+}
+/* Dissipating, the rule narrows toward its end as it fades (compositor only: transform, opacity). */
+.cv-since:not([data-shown]) .cv-since__rule {
+  scale: 0.6 1;
 }
 .cv-since__tag {
+  color: var(--unread-accent-text);
+  font-weight: var(--weight-emphasis);
+}
+/* A: a thin accent hairline across the middle of the gap, no word. */
+/* B over any other next row (a background task's line, a reply, a tool row): the mark keeps the
+   static view's place, centred in the gap, and "New" sits on the rule's own centre line, so the
+   space above the rule (to the row above, its actions) equals the space under it (to the next row).
+   It once hung from the gap's top edge with "New" under it, which read as a line of its own with
+   its label below it (manaflow-ai/cmux#51747; user, 2026-11-22: "we need to make sure space top
+   and space down is the same"). With a recap the row starts at the recap: the mark lies on the
+   recap's top edge, "New" in the gap under it. */
+.cv-since[data-look="worked"][data-recap] .cv-since__menu {
+  top: 0;
+  translate: 0 -1px;
+  height: auto;
+}
+.cv-since[data-look="worked"][data-recap] .cv-since__line {
+  align-items: flex-start;
+  height: auto;
+}
+.cv-since[data-look="worked"][data-recap] .cv-since__tag {
+  margin-top: var(--ds-space-1);
+}
+/* B over the next turn's "Worked for" line (turnFoldStyle puts the line right above it, Leo
+   2026-11-10): the mark draws no rule of its own. The Worked for line's own divider
+   (conversation.css .cv-worked.has-divider::after) is lit in the accent, and "New" sits at the end
+   of that line's words, so the divider stays exactly where it always is and nothing is drawn
+   between the two. A rule of the mark's own, placed to match the divider, drifted off it whenever
+   the line's box changed: its toggle grew a foot gap under its words (.cv-worked.has-divider.is-toggle)
+   and the New rule then drew a second line above the divider (manaflow-ai/cmux#51002; Leo,
+   2026-11-22: "just put the new stuff where the divider should be in the first place").
+   The running turn's "Working for" line (WorkingFor.tsx, row .acpmux-working) has the same divider
+   and takes the same mark; one under its work (.is-below) has no divider and keeps B's plain rule.
+   With a recap the recap sits between the mark and the line, so the mark keeps its place over the
+   gap above the recap (.cv-since[data-recap] .cv-since__menu) and the divider stays plain. */
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__menu {
+  top: var(--cv-since-gap);
+  translate: none;
+  height: var(--grid-row);
+}
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider.is-toggle) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__menu {
+  height: var(--cv-tool-row-height);
+}
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__line {
+  align-items: center;
+  height: 100%;
+}
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__rule {
+  display: none;
+}
+.acpmux-row:has(+ :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider) .cv-since[data-look="worked"]:not([data-recap]) .cv-since__tag {
+  margin-top: 0;
+}
+/* The divider is outside .cv-since, so it reads the accent token itself (as --unread-accent does). */
+.acpmux-row:has(.cv-since[data-look="worked"][data-shown]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
+  background: var(--cmux-app-accent, var(--agent-text));
+}
+/* C: a small New pill at the end of the gap, no rule. */
+.cv-since[data-look="pill"] .cv-since__tag {
   padding: 0 var(--ds-space-1);
   border-radius: var(--ds-radius-sm);
   background: var(--unread-accent);
   color: var(--unread-on-accent);
-  font-weight: var(--weight-emphasis);
-}
-/* Text: "New" in the accent at the line's end, no fill. */
-.cv-since[data-look="text"] .cv-since__tag {
-  padding: 0;
-  background: none;
-  color: var(--unread-accent-text);
-}
-/* Labelled: the words lead the line where the text column starts (the first look, on tokens). */
-.cv-since__lead {
-  display: inline-flex;
-  gap: var(--ds-space-1);
-}
-.cv-since__label {
-  color: var(--unread-accent-text);
-  font-weight: var(--weight-emphasis);
-}
-.cv-since__count {
-  color: var(--agent-muted);
-}
-.cv-since__count::before {
-  content: "· ";
-}
-/* Read: the line, its tag and its words fade where they are; the row keeps its height, so nothing
-   below it moves, and the recap stays (it is content). */
-.cv-since[data-read] .cv-since__rule,
-.cv-since[data-read] .cv-since__tag,
-.cv-since[data-read] .cv-since__lead {
-  opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-since__rule,
-  .cv-since__tag,
-  .cv-since__lead {
-    transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
+  /* In on the calm step, so a line placed at a return comes in quietly; out (dissipating) on the
+     same step, the rule narrowing with it. */
+  .cv-since__line,
+  .cv-since__rule {
+    transition:
+      opacity var(--agent-motion-calm) var(--agent-ease-out),
+      scale var(--agent-motion-calm) var(--agent-ease-out);
   }
+  /* B's lit Worked for divider fades to the accent and back to the plain rule on the same step. */
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
+    transition: background-color var(--agent-motion-calm) var(--agent-ease-out);
+  }
+}
+/* The app's motion gate: with motion off or reduced the line comes and goes in one step. */
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.cv-since__line, .cv-since__rule) {
+  transition: none;
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  .acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap]))
+  + :is(.acpmux-worked, .acpmux-working)
+  .cv-worked.has-divider::after {
+  transition: none;
 }
 
 /* The moving view's zone: the transcript's top start (overlayLayout.ts "top-start"), on the text
@@ -93,7 +166,8 @@
   display: flex;
   justify-content: flex-start;
   padding-top: var(--ds-space-2);
-  padding-inline: var(--cv-inset, var(--ds-space-4)) var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
+  padding-inline: var(--cv-inset, var(--ds-space-4))
+    var(--cv-inset-end, var(--cv-inset, var(--ds-space-4)));
   pointer-events: none;
 }
 
@@ -123,8 +197,11 @@
   opacity: 0;
   pointer-events: none;
 }
+/* One level (design/glass-system.md): the popover level's tint and its blur, as Jump to latest
+   (jumpPair.css); it took the popover tint under the chrome blur. */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-since-jump {
-  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
 }
 :root[data-borders="none"] .acpmux-since-jump {
   --glass-edge: transparent;
@@ -180,7 +257,9 @@
 }
 .acpmux-since-jump .acpmux-since-jump__action {
   border-inline-start: var(--cmux-hairline) solid var(--unread-separator);
-  color: var(--unread-accent-text);
+  /* Accent words on glass take the status inks' share of their hue, the rest the text (glass.css,
+     THE STATUS INKS ON GLASS): Mark read fell to 2.4:1 on the dark pill over a white page. */
+  color: color-mix(in srgb, var(--unread-accent-text) var(--glass-ink-status-share, 100%), var(--agent-text));
   font-weight: var(--weight-emphasis);
 }
 .acpmux-since-jump .acpmux-since-jump__toggle {

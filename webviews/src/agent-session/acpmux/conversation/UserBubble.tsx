@@ -32,7 +32,8 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { PendingDelivery, usePendingShown } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
+import { ImageIcon, Pencil } from "./icons";
+import { VersionSwitcher } from "./VersionSwitcher";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
@@ -90,7 +91,7 @@ export function UserBubble({
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
-  const pendingShown = usePendingShown(row.delivery);
+  const pendingShown = usePendingShown(row.delivery, Boolean(row.steer || row.delivery?.queued));
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
@@ -129,7 +130,10 @@ export function UserBubble({
   // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
-  // to read beside its attachments, keep the legacy bands above the bubble.
+  // to read beside its attachments, keep the legacy bands above the bubble. Each attachment's box
+  // is its sent size from its first frame (SentImage, SentVideoTile), and the row's estimate flows
+  // the same boxes (model.ts `inlinePromptHeight`), so nothing on its line moves when it loads
+  // (Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send").
   const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
   // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
@@ -188,9 +192,14 @@ export function UserBubble({
       />
     );
   }
+  // An answered prompt of an agent that forks only from its latest reply keeps the control and says
+  // why, rather than drawing it on the latest prompt alone (Leo, 2026-11-11: "why are only some
+  // chats forkable").
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : fork && own !== undefined ? (
+      <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
@@ -226,18 +235,20 @@ export function UserBubble({
         </div>
       )}
       <div className="cv-user__body">
+        {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="head" />}
         {hasBubble ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
               <InlinePromptContent
                 rowId={row.id}
+                messageAt={row.at}
                 parts={shownParts!}
                 show={show}
                 renderImage={renderImage}
                 renderFile={renderFile}
               />
             ) : (
-              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
             )}
           </div>
         ) : null}
@@ -258,42 +269,9 @@ export function UserBubble({
             }
           >
             <MessageFooterRow>
-              {branch && branches && (
-                <span className="cv-user__versions">
-                  <button
-                    type="button"
-                    className="cv-iconbtn cv-iconbtn--compact"
-                    aria-label={t("message.previousVersion")}
-                    title={t("message.previousVersion")}
-                    disabled={branch.index === 0}
-                    onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
-                  >
-                    <ChevronLeft size={ROW_ICON} />
-                  </button>
-                  <span
-                    className="cv-user__version-count"
-                    aria-label={t("message.versionCount", {
-                      index: branch.index + 1,
-                      total: branch.sessions.length,
-                    })}
-                  >
-                    {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
-                    {branch.index + 1}/{branch.sessions.length}
-                  </span>
-                  <button
-                    type="button"
-                    className="cv-iconbtn cv-iconbtn--compact"
-                    aria-label={t("message.nextVersion")}
-                    title={t("message.nextVersion")}
-                    disabled={branch.index === branch.sessions.length - 1}
-                    onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
-                  >
-                    <ChevronRight size={ROW_ICON} />
-                  </button>
-                </span>
-              )}
+              {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
               {pendingShown && row.delivery ? (
-                <PendingDelivery delivery={row.delivery} queued={Boolean(row.steer || row.delivery.queued)} />
+                <PendingDelivery delivery={row.delivery} />
               ) : (
                 <MessageTime at={row.at} className="cv-user__time" />
               )}
@@ -384,8 +362,9 @@ export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
 /// re-render or a remount draws the same <img> at once). Its slot holds the thumbnail's own shape
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
-/// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
-/// has shows nothing. It fades in on its first draw only.
+/// it), and says "Couldn't load image" when the image cannot be drawn. A read that still failed
+/// after its tries again (imageEntries.ts) says so with Retry, never nothing. An image acpmux no
+/// longer has shows nothing. It fades in on its first draw only.
 export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
@@ -401,11 +380,22 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // (conversation.css), never past the bubble's edge.
   const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
-  if (shown.src !== undefined && failed === shown.src)
+  if (shown.status === "failed" || (shown.src !== undefined && failed === shown.src))
     return (
       <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
+        {/* Only a read can work a second time; bytes that do not decode never will. */}
+        {shown.status === "failed" && (
+          <button
+            type="button"
+            className="cv-user__image-retry"
+            aria-label={t("composer.retryAttachment")}
+            onClick={shown.retry}
+          >
+            {t("composer.retryAttachment")}
+          </button>
+        )}
       </span>
     );
   // Keep the thumbnail's row slot while the host reads the attachment. Without this, the

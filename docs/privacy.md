@@ -106,6 +106,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `suggestqueries.google.com` | connects | search suggestions as you type, when Google is your search engine |
 | `drive.usercontent.google.com` | connects | the Google integration, only when an agent uses it in your signed-in browser |
 | `fonts.googleapis.com` | connects | fonts an agent's rendered page may load |
+| `generativelanguage.googleapis.com` | connects | the Google AI API, when you give an agent a Google AI API key |
+| `compute.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): lists, resumes and suspends the pool's instances by name; never run by the app |
+| `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app |
+| `api.freestyle.sh` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Freestyle key): lists, starts and pauses the pool's VMs; never run by the app |
 | `lh3.googleusercontent.com` | connects | images in agent replies |
 | `fonts.gstatic.com` | connects | fonts an agent's rendered page may load |
 | `www.linkedin.com` | connects | the LinkedIn integration, only when an agent uses it in your signed-in browser |
@@ -115,6 +119,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `somafm.com` | connects | the radio player's station list and the song each station plays, only when you install it (a customize template) |
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
+| `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
@@ -134,6 +139,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `vm.cmux.dev` | connects | cmux Cloud machine API (production) |
 | `vm-staging.cmux.dev` | connects | cmux Cloud machine API on staging, only when chosen |
 | `herdr.dev` | connects | the agent-detection catalog, read by the daemon |
+| `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
 | `cmux-api-development.debussy.workers.dev` | connects | cmux API in development builds |
 | `cmux-api-staging.debussy.workers.dev` | connects | cmux API on staging, only when chosen |
 | `cmux-api-preview-*.debussy.workers.dev` | connects | cmux API of one pull request's preview, only when chosen |
@@ -179,6 +185,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `docs.anthropic.com` | opens | setup docs for an agent, opened from onboarding |
 | `apple.com` | opens | a site the address bar suggests before it is in your history |
 | `developer.apple.com` | opens | a site the address bar suggests before it is in your history |
+| `apps.apple.com` | opens | Apple's App Store subscription management page, opened from the iPhone app's Delete Account warning when StoreKit can't show its own sheet |
 | `www.baidu.com` | opens | a search engine, when you search with it |
 | `bbc.com` | opens | a site the address bar suggests before it is in your history |
 | `bing.com` | opens | a site the address bar suggests before it is in your history |
@@ -250,6 +257,18 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
 | `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
+| `community.io` | identifier | the error code `cmux community` prints when a staging folder cannot be made, not a host |
+| `live.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `microsoftonline.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `outlook.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `office.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `xbox.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `skype.com` | identifier | an email sender domain that verification-code AutoFill counts as Microsoft's; never fetched |
+| `facebookmail.com` | identifier | an email sender domain that verification-code AutoFill counts as Meta's; never fetched |
+| `meta.com` | identifier | an email sender domain that verification-code AutoFill counts as Meta's; never fetched |
+| `steampowered.com` | identifier | an email sender domain that verification-code AutoFill counts as Valve's; never fetched |
+| `steamcommunity.com` | identifier | an email sender domain that verification-code AutoFill counts as Valve's; never fetched |
+| `icloud.com` | identifier | an email sender domain that verification-code AutoFill counts as Apple's; never fetched |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -281,6 +300,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `trycloudflare.com` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vs-ssh.visualstudio.com` | identifier | a git host name, so it is not shown as one of your computers |
 | `m.youtube.com` | identifier | YouTube host names, to find captions in a page you have open |
+| `youtu.be` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
+| `youtube-nocookie.com` | identifier | a YouTube host name, so a pasted video address can be a background (read as its video id); never fetched |
 | `fly.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `pages.dev` | identifier | a shared hosting domain, so sites under it are told apart |
 | `workers.dev` | identifier | a shared hosting domain, so sites under it are told apart |
@@ -301,6 +322,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `www.ietf.org` | identifier | an RTP header extension id, never fetched |
 | `json-schema.org` | identifier | a JSON schema id, never fetched |
 | `www.w3.org` | identifier | an XML or SVG namespace, never fetched |
+| `schemas.microsoft.com` | identifier | the Task Scheduler XML namespace in acpmux's Windows logon task, never fetched |
 | `freestyle.sh` | identifier | a cloud host name the app recognizes |
 | `ac.uk` | identifier | a public suffix, so sites under it are told apart |
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
@@ -327,7 +349,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `task.ai` | not-a-host | a symbol or icon name |
 | `argument.app` | not-a-host | a localized string key |
 | `toast.detail.io` | not-a-host | a localized string key |
-| `cmux.app` | not-a-host | a file name |
+| `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |
@@ -347,9 +369,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `machine.io` | not-a-host | a method, area or resource kind name |
 | `cloud.machine.io` | not-a-host | a method, area or resource kind name |
 | `config.ru` | not-a-host | a file name |
-| `agent-auth.sh` | not-a-host | a file name |
 | `build.sh` | not-a-host | a file name |
 | `cmux-debug-cli.sh` | not-a-host | a file name |
-| `login.sh` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux-arm64.8.so` | not-a-host | a file name |
 | `libopenh264-2.6.0-linux64.8.so` | not-a-host | a file name |

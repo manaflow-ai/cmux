@@ -42,6 +42,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.first().map(String::as_str) != Some("agents") {
         return None;
     }
+    // `agents chat new --on TARGET`: the start `cmux chat --on TARGET` makes (a Cloud chat with
+    // its folder or none, harness, model, effort and mode, as the composer starts one).
+    if let Some(words) = chat_control::on_target_words(args) {
+        return Some(match words {
+            Ok(words) => super::chat_start::run_if_requested(&words).unwrap_or(2),
+            Err(error) => print_usage(&global, &error.0),
+        });
+    }
     // A local, read-only report: its human table stays the default.
     if command_args.get(1).map(String::as_str) == Some("doctor") {
         return Some(super::agents_doctor::run(&global, &command_args[2..]));
@@ -198,7 +206,7 @@ pub(super) enum AgentCommand {
         args: Vec<String>,
     },
     Wait(wait::WaitRequest),
-    Events(events::EventsRequest),
+    Events(Box<events::EventsRequest>),
     /// Prompt another agent chat or read its transcript (chat.rs).
     Chat(chat::ChatCommand),
 }
@@ -279,7 +287,9 @@ fn command_capped(args: &[String], wait_max: u64) -> Result<AgentCommand, UsageE
                 .collect(),
         }),
         ["wait", rest @ ..] => wait::parse(rest, wait_max).map(AgentCommand::Wait),
-        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
+        ["events", rest @ ..] => {
+            events::parse(rest).map(|request| AgentCommand::Events(Box::new(request)))
+        }
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }

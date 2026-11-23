@@ -73,6 +73,11 @@ pub struct Generation {
     /// Files that differ from the parent.
     pub changed: u32,
     pub parts: Vec<Part>,
+    /// The library entries that were on while this generation was current
+    /// (`None`: recorded before the library kept this). A restore to it turns
+    /// the library to match, so what the library says is on is what is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library_on: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +104,10 @@ pub struct Ask {
     pub text: String,
     pub at_ms: u64,
     pub origin: String,
+    /// A profile's own description, for the ask that used it: what the
+    /// library entry it becomes says it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// The open draft: what is live and not yet applied or discarded.
@@ -115,6 +124,10 @@ pub struct Draft {
     /// it now was edited by hand since, and the agent re-reads it first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_tree: Option<Tree>,
+    /// The folders a customization writes into that were not there when the
+    /// draft began: the library takes away the ones it leaves empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub absent_dirs: Vec<PathBuf>,
 }
 
 /// A try-on: a generation applied for a while. Unless someone keeps it, it
@@ -133,6 +146,20 @@ pub struct TryOn {
     /// What is being tried on, in one line.
     pub label: String,
     pub origin: String,
+    /// The library before the first of the try-ons in a row. A revert puts
+    /// it back: an entry a try-on added goes (nobody kept it), and one it
+    /// turned on is off again where it was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<LibraryMark>,
+}
+
+/// What the library was at one moment: every entry's name, top first, and
+/// the names of those that were on. Code entries are left out: their web
+/// part follows its own switch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LibraryMark {
+    pub names: Vec<String>,
+    pub on: Vec<String>,
 }
 
 #[derive(Debug)]

@@ -318,6 +318,74 @@ test("a reserve that failed (Cloud remembered on load, no gesture) is tried agai
   ]);
 });
 
+test("a key the platform says is over is not retried: the next intent reserves with a new key", async () => {
+  // The dev build of 2026-11-19: the first reserve got no answer in time, the platform's hold ran out, and each
+  // retry of that key was refused `reservation.terminal`.
+  const answers: (() => Promise<unknown>)[] = [
+    () => Promise.reject({ code: "unavailable" }),
+    () => Promise.reject({ code: "reservation.terminal" }),
+    async () => ({}),
+  ];
+  const h = harness(() => answers.shift()!());
+  h.reservation.selected();
+  await settle();
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("x");
+  await settle();
+  expect(await h.reservation.ready("compose-1")).toBe(false);
+  // Inside the gap after two failures in a row nothing goes out, old key or new.
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xy");
+  await settle();
+  expect(h.calls).toHaveLength(2);
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xyz");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-2" }],
+  ]);
+  // The Send binds the new key's machine, and the ended key is never released: nothing of it is left.
+  const request = { task: "xyz", reservationKey: h.reservation.handoff() };
+  expect(await h.start(request, "send-1")).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "xyz", key: "send-1", reservationKey: "compose-2", gestureTicket: "ticket-1" },
+  ]);
+  expect(h.calls.some(([method]) => method === "cloud.releaseReservation")).toBe(false);
+});
+
+test("a new key's reserve waits for a reserve of the ended key that is still out", async () => {
+  // The native pane takes one key at a time: a new key sent while the old key's reserve is out is refused.
+  const out: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = [];
+  const h = harness(() => new Promise((resolve, reject) => out.push({ resolve, reject })));
+  h.reservation.selected();
+  await settle();
+  out[0]!.reject({ code: "unavailable" });
+  await settle();
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("x");
+  await settle();
+  // A second retry of the same key is queued behind the first, which then says the key is over.
+  h.advance(RESERVATION_RETRY_MS);
+  h.reservation.typed("xy");
+  await settle();
+  expect(h.calls).toHaveLength(2);
+  out[1]!.reject({ code: "reservation.terminal" });
+  await settle();
+  expect(h.calls).toHaveLength(3);
+  h.advance(RESERVATION_RETRY_MS * 2);
+  h.reservation.typed("xyz");
+  await settle();
+  expect(h.calls).toHaveLength(3);
+  out[2]!.reject({ code: "reservation.terminal" });
+  await settle();
+  expect(h.calls.map(([, params]) => params.composeKey)).toEqual(["compose-1", "compose-1", "compose-1", "compose-2"]);
+  out[3]!.resolve({});
+  expect(await h.reservation.ready("compose-2")).toBe(true);
+});
+
 test("a renewal that failed keeps the Send off the key: it goes as an ordinary one", async () => {
   let fail = false;
   const h = harness(async () => {
@@ -394,6 +462,61 @@ test("a reserve the platform refuses for the team's plan never holds the Send: i
   const sent = h.calls.find(([method]) => method === "cloud.startChat");
   expect(sent?.[1].reservationKey).toBeUndefined();
   expect(await answer).toEqual({ ok: true });
+});
+
+// Composer journey run 43021965230: a Cloud start from a too-big folder was refused after it bound
+// the compose's reservation; the next Send from the same page (no folder) named that reservation
+// with its own start key and the platform refused it, "409 reservation.bound", in 3 s.
+test("a reservation goes with one Send: its retry gets it again, another Send after it goes without", async () => {
+  const h = harness();
+  h.reservation.selected();
+  await settle();
+  expect(h.reservation.handoff(undefined, "send-1")).toBe("compose-1");
+  // The start failed (the folder was too big); the person sends another prompt from the same page.
+  h.reservation.selected();
+  h.reservation.typed("hello");
+  await settle();
+  expect(h.reservation.handoff(undefined, "send-2")).toBeUndefined();
+  const other = h.start({ task: "hello", home: true }, "send-2");
+  expect(await other).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual(["cloud.startChat", { task: "hello", home: true, key: "send-2" }]);
+  // A retry of the first Send (the same start key) still reaches the machine it bound.
+  expect(h.reservation.handoff(undefined, "send-1")).toBe("compose-1");
+  // No second reserve and no release: the bound reservation is the first Send's, released by nobody here.
+  expect(h.calls.filter(([method]) => method === "cloud.reserve")).toHaveLength(1);
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([]);
+});
+
+test("an empty local chat's compose names the chat it replaces on every reserve, and its Send binds that machine", async () => {
+  const h = harness();
+  h.reservation.selected("chat-1");
+  h.advance(RESERVATION_RENEW_MS);
+  h.reservation.typed("hello", "chat-1");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1" }],
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1" }],
+  ]);
+  const request = { task: "hello", replacesChat: "chat-1", reservationKey: h.reservation.handoff() };
+  expect(await h.start(request, "send-1")).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "hello", replacesChat: "chat-1", key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" },
+  ]);
+});
+
+test("a compose for another chat (a harness switch) gives the first chat's machine back and reserves its own", async () => {
+  const h = harness();
+  h.reservation.selected("chat-1");
+  await settle();
+  h.reservation.typed("hello", "chat-2");
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", replacesChat: "chat-1" }],
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+    ["cloud.reserve", { composeKey: "compose-2", replacesChat: "chat-2" }],
+  ]);
+  expect(h.reservation.handoff()).toBe("compose-2");
 });
 
 test("a Send refused before its reservation was bound gives the machine back, and the next Send names none", async () => {

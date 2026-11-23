@@ -13,8 +13,9 @@ import Testing
 
 /// The Import Cookies banner in browser tabs (Lawrence 2026-10-31: "import cookies banner on browsers
 /// if user has never dismissed it yet"). A card at the bottom of the person's browser tab offers to
-/// import cookies from their most used other browser. It shows once per launch until the person
-/// imports cookies or clicks Don't Show Again; Not Now only closes it for this launch. Don't Show
+/// import cookies from their most used other browser. It shows at most once per launch, only on a
+/// page that asks to sign in, until the person imports cookies or clicks Don't Show Again; Not Now
+/// keeps it away for a week, across relaunches. Don't Show
 /// Again writes `browser.import.cookieBanner: false` to cmux.json, so the dismissal lasts across
 /// launches and Settings shows it; turning the setting on (Settings, `cmux settings`, or Show Import
 /// Cookies Banner in the palette, CLI and MCP) brings it back. The card never imports by itself.
@@ -64,7 +65,7 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
@@ -111,7 +112,7 @@ import Testing
         offer.show(on: page.chrome, browsers: [InstalledImportBrowser(browser: .chrome, icon: NSImage())])
         let card = try #require(page.chrome.currentCookieImportCard)
         let text = card.shownText
-        #expect(text.first?.localizedCaseInsensitiveContains("cookies") == true, "the title offers cookies: \(text)")
+        #expect(text.first?.localizedCaseInsensitiveContains("sign-ins") == true, "the title offers sign-ins: \(text)")
         #expect(text.first?.contains("Google Chrome") == true, "and names the browser: \(text)")
         #expect(text.contains(BrowserImportOfferStrings.dontShowAgain), "Don't Show Again is one of the answers: \(text)")
         #expect(text.contains(BrowserImportOfferStrings.importData))
@@ -176,19 +177,105 @@ import Testing
     @Test func importOpensTheImportWindowWithCookiesChecked() async throws {
         let h = try await make()
         defer { h.tearDown() }
-        #expect(!h.services.onboarding.isShowing, "the banner opens nothing by itself")
+        #expect(!(h.services.onboarding.controller != nil), "the banner opens nothing by itself")
         h.services.onboarding.browserImportOffer.answer(.importCookies, profile: nil)
         let model = try #require(h.services.onboarding.controller?.model)
         #expect(model.importer.kinds == [.cookies], "Import checks cookies only: \(model.importer.kinds)")
     }
 
-    @Test func notNowClosesItOnlyForThisLaunch() {
+    /// David Beyer, Nov 20 call: no nagging. Not Now keeps the card away across relaunches too (a
+    /// nightly relaunches every day for its update), not only for this launch.
+    @Test func notNowKeepsTheCardAwayAfterARelaunch() {
         let defaults = Self.freshDefaults()
         let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
         #expect(offer.state.offers(Self.personalPage))
         offer.answer(.notNow)
         let nextLaunch = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
-        #expect(nextLaunch.state.offers(Self.personalPage), "Not Now is not a dismissal: the next launch offers again")
+        #expect(!nextLaunch.state.offers(Self.personalPage), "Not Now is kept: the next launch does not ask again")
+    }
+
+    /// A Not Now lasts a week, then a sign-in page may offer the card once more.
+    @Test func notNowLastsAWeek() {
+        let clicked = Date(timeIntervalSince1970: 1_800_000_000)
+        var state = BrowserImportOfferState()
+        state.recordNotNow(at: clicked)
+        #expect(!state.offers(Self.personalPage, now: clicked.addingTimeInterval(6 * 24 * 3600)), "six days later: still away")
+        #expect(state.offers(Self.personalPage, now: clicked.addingTimeInterval(7 * 24 * 3600 + 1)), "a week later: offered again")
+    }
+
+    /// A record saved before Not Now was kept (only `imported`) still reads, with no Not Now in it.
+    @Test func anOlderRecordStillReads() throws {
+        let defaults = Self.freshDefaults()
+        defaults.set(Data(#"{"imported":false}"#.utf8), forKey: BrowserImportOfferState.defaultsKey)
+        let state = BrowserImportOfferState.load(from: defaults)
+        #expect(state.notNowUntil == nil)
+        #expect(state.offers(Self.personalPage))
+    }
+
+    /// A browser tab on a live page, wired to `offer` as the app wires a new page
+    /// (`TabContentCache.onBrowserEntryCreated` calls `attach`), with the keyboard.
+    struct OfferedPage {
+        let page = Page()
+        let entry: BrowserEntry
+        let offer: BrowserImportOfferService
+
+        init() {
+            entry = BrowserEntry(tab: page.tab)
+            page.chrome.bind(page.tab, state: entry.state)
+            entry.followKeyboard(focusedTab: "browser-1", key: "browser-1", window: page.window)
+            offer = BrowserImportOfferService(services: nil, defaults: BrowserCookieBannerTests.freshDefaults(),
+                                              locate: { [(browser: .chrome, app: URL(fileURLWithPath: "/System/Applications/Safari.app"))] })
+            offer.enabledOverride = true
+            offer.attach(entry)
+        }
+
+        /// Shows `html` as the page at `url`, as a site would serve it.
+        func show(_ html: String, at url: String) throws {
+            page.tab.webView.loadHTMLString(html, baseURL: try #require(URL(string: url)))
+        }
+
+        /// Waits for the card, or the deadline: the page's own script runs on its own time.
+        func waitForCard(within timeout: Duration = .seconds(10)) async -> Bool {
+            let deadline = ContinuousClock.now + timeout
+            while page.chrome.currentCookieImportCard == nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            return page.chrome.currentCookieImportCard != nil
+        }
+    }
+
+    /// David Beyer, Nov 20 call: "no prompt to import cookies". Most sign-in pages are apps that draw
+    /// their form after the page loads (Discord, Figma, Cloudflare: no sign-in field at load, one a
+    /// moment later), so a check made only when the load ends never saw a sign-in page there.
+    @Test func aSignInFormDrawnAfterTheLoadOffersTheCard() async throws {
+        let p = OfferedPage()
+        defer { p.page.tearDown() }
+        try p.show("""
+            <!doctype html><body><div id=app></div><script>
+            setTimeout(() => { document.getElementById('app').innerHTML =
+              '<form><input type=text autocomplete="username"><input type=password></form>' }, 400)
+            </script></body>
+            """, at: "https://app.example.com/")
+        #expect(await p.waitForCard(), "a sign-in form drawn after the load offers the card")
+    }
+
+    /// An email-first sign-in page (ChatGPT's /auth/login: one email field, no password yet, no
+    /// username hint) asks the person to sign in too.
+    @Test func anEmailFirstSignInPageOffersTheCard() async throws {
+        let p = OfferedPage()
+        defer { p.page.tearDown() }
+        try p.show("<!doctype html><form><input type=email name=email autocomplete=email><button>Continue</button></form>",
+                   at: "https://chat.example.com/auth/login")
+        #expect(await p.waitForCard(), "an email field on a sign-in address offers the card")
+    }
+
+    /// An ordinary page never offers it, also once its scripts ran: a newsletter's email field is no sign-in.
+    @Test func anOrdinaryPageWithAnEmailFieldDoesNotOfferTheCard() async throws {
+        let p = OfferedPage()
+        defer { p.page.tearDown() }
+        try p.show("<!doctype html><h1>News</h1><form><input type=email autocomplete=email><button>Subscribe</button></form>",
+                   at: "https://news.example.com/articles/today")
+        #expect(!(await p.waitForCard(within: .seconds(2))), "a newsletter field is not a sign-in page")
     }
 
     @Test func dontShowAgainTurnsTheSettingOffInCmuxJSON() async throws {
@@ -229,7 +316,7 @@ import Testing
         try await h.until { try h.storedBannerValue() == nil && h.settings.snapshot.browserImportCookieBanner }
         #expect(try h.storedBannerValue() == nil, "on is the default: cmux.json drops the dismissal and keeps no copy")
         #expect(h.settings.snapshot.browserImportCookieBanner, "the banner is on again")
-        #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
+        #expect(!(h.services.onboarding.controller != nil), "showing the banner opens no import")
     }
 
     /// Leo, 2026-11-07: "If someone's, like, successfully imported it" it should not ask again. After

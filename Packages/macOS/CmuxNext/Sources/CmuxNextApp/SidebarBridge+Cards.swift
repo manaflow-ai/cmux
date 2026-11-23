@@ -19,7 +19,7 @@ extension SidebarBridge {
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: QuitAgents.environment(services)))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText })
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks, restoring: { [weak services] in services?.daemon.recovery.restoringText }, additionalTopItems: { [weak self] in self?.machineSections.topItems() ?? [] })
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -44,10 +44,10 @@ enum SidebarCardFeed {
     /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
                       document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
-                      settings: SettingsController? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil) -> Task<Void, Never> {
+                      settings: SettingsController? = nil, asks: SidebarAsks? = nil, restoring: (@MainActor @Sendable () -> String?)? = nil, additionalTopItems: @escaping @MainActor @Sendable () -> [SidebarTransientItem] = { [] }) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry, asks: asks, restoring: restoring)
         guard window != nil else { return cards }
-        let whatsNew = model.followTopItems(document: document)
+        let whatsNew = model.followTopItems(document: document, additional: additionalTopItems)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
@@ -88,6 +88,8 @@ enum SidebarCardFeed {
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
         // A question waiting on the person (an agent's Cloud machine request, ``SidebarAsks``) takes its answer first.
+        case .noticeAction(UpdaterService.starCardID, let action): services.updater.starCardAction(action)
+        case .dismissNotice(UpdaterService.starCardID): services.updater.starPromptFinished(starred: false)
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card) where !services.machineAsks.answer(card, action: nil): dismissNotice(card, updater: services.updater)
@@ -164,7 +166,7 @@ enum SidebarCardFeed {
 
     /// The shared notice card (Lawrence 2026-10-09), one message at a time:
     /// the update status (a check's progress and result, a found update),
-    /// then the active test feed, then the newest announcement, then today's
+    /// then the active test feed, then the newest announcement, then the one-time GitHub star ask, then today's
     /// "Did you know" tip. Nil while the staged update card shows;
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
@@ -182,7 +184,12 @@ enum SidebarCardFeed {
             return SidebarNoticeCard(id: announcementPrefix + item.id, symbol: "megaphone", title: item.title, detail: item.detail,
                                      actions: actions, dismissLabel: UpdaterService.cardDismissLabel)
         }
-        guard let tip = updater.tip else { return nil }
+        if updater.starPrompt.isOffered {
+            return .starPrompt(id: UpdaterService.starCardID, title: StarPromptCenter.title, detail: StarPromptCenter.detail,
+                               open: SidebarNoticeCard.Action(id: UpdaterService.starOpenAction, title: StarPromptCenter.openTitle),
+                               dismissLabel: UpdaterService.cardDismissLabel, shownAction: UpdaterService.tipShownAction)
+        }
+        guard let tip = updater.shownTip else { return nil }
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,

@@ -10,6 +10,6 @@ nonisolated enum ChiefMoveStrings {
     static var notMoved: String { text("chiefMove.notMoved", "this Chief runs on this Mac: there is no move to roll back") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Remote", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Remote", bundle: .module.inAppLanguage)
     }
 }

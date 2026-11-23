@@ -12,6 +12,7 @@
 import type { AcpmuxUsageLimits } from "../../agent-session/acpmux/model";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
+import type { AccountFamily, AccountRowWire, SignInFinishWire, SignInStartWire } from "../shared/signIn/accountSignIn";
 import { OWNER_SENTENCE } from "../shared/userMessage";
 
 /** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
@@ -45,6 +46,13 @@ export type ListRow = {
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };
 
+/**
+ * A note at a row, not a problem (#44894): where its value comes from or why it does not draw.
+ * `setByThemeFile` and `overThemeFile` name the theme file (`themes/<name>.json`); `plainBackgrounds`
+ * marks the window background rows while Plain Backgrounds is on.
+ */
+export type RowNoteData = { path: string; kind: string; file?: string };
+
 /** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
 export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
 
@@ -57,6 +65,8 @@ export type SnapshotResult = {
   effective: Record<string, unknown>;
   managed: Record<string, ManagedInfo>;
   diagnostics: Diagnostic[];
+  /** Row notes; absent from an older host. */
+  notes?: RowNoteData[];
   domains?: Partial<PublishedDomains> | null;
 };
 
@@ -261,6 +271,8 @@ export type HostLists = {
     collection_title?: string;
     video?: boolean;
     downloaded?: boolean;
+    /** A macOS dynamic wallpaper (frames by sun position or clock): Switch Automatically's Sun. */
+    dynamic?: boolean;
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
@@ -408,7 +420,18 @@ export type ComputerUseState = {
   host_unverified?: boolean;
   /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
   upstream_fallback?: boolean;
+  /** The engine's version line ("cmux Computer Use 1.0"), localized by the host; absent while unknown. */
+  engine?: string | null;
+  /** The worker process: `running` (with its pid), `starting`, `stopped` or `failed`; absent while unknown. */
+  worker?: { state: "running" | "starting" | "stopped" | "failed"; pid?: number | null } | null;
+  /** Saved per-app answers (Approved apps): "Always allow" or "Never", newest first. */
+  approvals?: ComputerUseApproval[];
+  /** Apps running now, offered by the Denied Apps editor's Add menu. */
+  running_apps?: Array<{ id: string; name: string }>;
 };
+
+/** One saved Computer Use answer for an app (`computerUse.approval.*` actions change it). */
+export type ComputerUseApproval = { app_id: string; name: string; decision: "always" | "never" };
 
 /** One button of the Accounts part; the host localizes every text. */
 export type AccountsButton = {
@@ -548,17 +571,207 @@ export type GitHubConnectionState = {
   busy: boolean;
   connect: string;
   disconnect: string;
+  /** Reconfigure's title (absent from an older host, which has no Reconfigure). */
+  reconfigure?: string;
   confirm: string;
   cancel: string;
   refresh: string;
   canConnect: boolean;
-  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  connections: Array<{
+    id: string;
+    account: string;
+    status: string;
+    permissions: string[];
+    canDisconnect: boolean;
+    /** An active connection: Reconfigure opens its installation's page on GitHub (repositories, account access). */
+    canReconfigure?: boolean;
+  }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
 };
 
+/** One agent's team key as the host draws it: never the key, only whether one is set and its summary. */
+export type TeamAgentKeyRow = {
+  agent: "claude" | "codex";
+  name: string;
+  set: boolean;
+  status: string;
+  /** Kind, last four characters (admins only) and when it changed; null when unset. */
+  detail: string | null;
+  error: string | null;
+  notice: string | null;
+};
+
+/**
+ * Settings > Accounts > Team agent keys: the active team's shared Claude and Codex keys, which the
+ * team's Cloud machines use in place of members' own. Gestures: `agentKeySave` (`provider` = agent,
+ * `name` = kind, `secret` = the pasted key, sent once and cleared), `agentKeyRemove` (`provider`),
+ * `agentKeyRefresh`. Admins (`canManage`) change keys; members read `note`.
+ */
+export type TeamAgentKeysState = {
+  title: string;
+  detail: string;
+  /** Signed out, personal team, or read-only member copy; null otherwise. */
+  note: string | null;
+  signIn: string | null;
+  busy: boolean;
+  canManage: boolean;
+  error: string | null;
+  refresh: string;
+  labels: {
+    add: string;
+    replace: string;
+    remove: string;
+    confirmRemove: string;
+    cancel: string;
+    save: string;
+    kind: string;
+    secret: string;
+    placeholder: string;
+  };
+  kinds: Array<{ id: "api_key" | "oauth"; title: string }>;
+  agents: TeamAgentKeyRow[];
+};
+
+/** A member's Chief tier (Settings > Team > Compute). */
+export type ChiefTier = "standard" | "plus" | "max";
+
+/**
+ * The team's monthly Cloud allotment as the backend keeps it (Settings > Team > Compute). Micros are
+ * millionths of a US dollar. Every seat includes $25 a month of pooled usage; `commit_micros` is the
+ * extra pooled usage the admin commits to, in $25 steps at 20% off. Field names are the wire's.
+ */
+export interface TeamAllotment {
+  commit_micros: number;
+  mode: "ask" | "auto";
+  auto_max_micros: number | null;
+  tiers: Record<string, ChiefTier>;
+  snoozed_until: number | null;
+  changed_at: number;
+  changed_by: string;
+}
+
+/** One member's Cloud use over this month and the last 14 days. `spare_micros` is warm-spare time,
+ * the platform's cost, shown to the team as $0. */
+export interface MemberUse {
+  member: string;
+  tier: ChiefTier;
+  month_micros: number;
+  usd14_micros: number;
+  active_days14: number;
+  share_micros: number;
+  rank: number;
+  over_share14: number;
+  plan_limit_ms14: number;
+  spare_micros: number;
+}
+
+/** Why the scheduler proposes what it proposes. */
+export type AllotmentReason =
+  | { kind: "unused"; members: string[] }
+  | { kind: "over"; member: string; count: number }
+  | { kind: "runaway"; member: string; rate_micros_h: number }
+  | { kind: "tier"; member: string; to: ChiefTier; costs_micros: number };
+
+/** The scheduler's proposal: `position` and the commit it would set (`to_commit_micros`).
+ * `allot_micros` = included + tier credits + commit. Members are never refused by the allotment. */
+export interface AllotmentDecision {
+  allot_micros: number;
+  forecast_micros: number;
+  position: "down" | "hold" | "up";
+  to_commit_micros: number;
+  reasons: AllotmentReason[];
+  members: MemberUse[];
+  order: string[];
+  apply: boolean;
+}
+
+/** `cmux.settings.cloud.allotment.get` and `.set`'s answer. `allotment` is null before an admin
+ * ever set one. */
+export interface AllotmentView {
+  allotment: TeamAllotment | null;
+  decision: AllotmentDecision;
+  hard_cap_micros: number | null;
+  as_of: number;
+}
+
+export type AllotmentPosition = AllotmentDecision["position"];
+
+/** One gesture of the Compute card: up and down apply the decision's `to_commit_micros`; hold
+ * snoozes proposals 14 days. `auto` sets the mode. */
+/** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
+ * cloud.allotment.set does. `hold` snoozes proposals. */
+export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
+
+/** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
+export type ModelConnectionKind =
+  | "codex-login"
+  | "claude-login"
+  | "subscription"
+  | "chatgpt-plan"
+  | "claude-token"
+  | "api-key";
+
+/** A model provider a connection pays (product names, shown as they are). */
+export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "xai";
+
+/** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
+export type ModelConnection = {
+  /** The acpmux route id. */
+  id: string;
+  kind: ModelConnectionKind;
+  provider: ModelProvider;
+  families: string[];
+  label: string;
+  /** Shown on this local page only. */
+  email: string | null;
+  plan: string | null;
+  signedIn: boolean;
+  /** The routing switch: a disabled connection serves no thread. */
+  enabled: boolean;
+  defaultFor: string[];
+  /** False: only this Mac's own chats can use it (a Mac login Cloud threads cannot reach). */
+  servesCloud: boolean;
+};
+
+/** Settings > Models (`cmux.settings.models.state`): the person's connections, the organization's,
+ * the members policy, and a ChatGPT sign-in in flight. */
+export type ModelsState = {
+  /** `available`: false when this Mac's daemon does not list connections. */
+  personal: { connections: ModelConnection[]; spread: boolean; available: boolean };
+  organization: {
+    team: { id: string; name: string } | null;
+    canEdit: boolean;
+    keys: { agent: "claude" | "codex"; set: boolean; last4: string | null }[];
+  };
+  /** Null without a team. */
+  members: { ownConnections: boolean; chooseRunout: boolean; canEdit: boolean } | null;
+  /** `attempt`: a Continue with ChatGPT sign-in waiting on the browser; `error`: the last one's
+   * failure code (`access_denied`, `no_chatgpt_account`, ...). */
+  chatgpt: { attempt: string | null; error: string | null };
+};
+
+/** One Settings > Models gesture. `addKey`, `addClaudeToken` and `orgKey` carry a pasted secret once:
+ * the app moves it into the Keychain and passes acpmux or the team only a reference.
+ * `claudeSetupToken` opens a cmux terminal tab running `claude setup-token`. */
+export type ModelsRun =
+  | { action: "order"; ids: string[] }
+  | { action: "spread"; on: boolean }
+  | { action: "enable"; id: string; on: boolean }
+  | { action: "remove"; id: string }
+  | { action: "connectChatGPT"; id?: string }
+  | { action: "cancelChatGPT" }
+  | { action: "connectClaude" }
+  | { action: "claudeSetupToken" }
+  | { action: "addClaudeToken"; token: string; label?: string }
+  | { action: "addKey"; provider: ModelProvider; key: string; label?: string }
+  | { action: "orgKey"; agent: "claude" | "codex"; key: string | null }
+  | { action: "members"; ownConnections?: boolean; chooseRunout?: boolean };
+
 export type AccountsState = {
   github?: GitHubConnectionState;
+  /** Older hosts omit it. */
+  agentKeys?: TeamAgentKeysState | null;
   teams: AccountsTeams | null;
   /** Older hosts omit it. */
   teamList?: AccountsTeamList | null;
@@ -568,6 +781,10 @@ export type AccountsState = {
   cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+  /** The daemon's sign-in accounts (`account.list` rows: GitHub, ChatGPT and Claude, several each).
+   * Present only from a host that signs in in place (shared/signIn/accountSignIn.ts); without it the
+   * page keeps the terminal sign-in. */
+  signInAccounts?: AccountRowWire[] | null;
 };
 
 /**
@@ -581,6 +798,19 @@ export type AccountsRun = {
   secret?: string;
   team?: string;
   name?: string;
+  /** The in-place sign-in's gestures (ACCOUNT_ACTIONS): its login, a pasted code, a new account's family. */
+  loginId?: string;
+  code?: string;
+  family?: AccountFamily;
+};
+
+/** `cmux.settings.accounts.run`'s answer. A sign-in gesture adds the daemon's answer: `signIn` for
+ * a start, `finished` for a finish, `reason` for a refusal (SignInFailure). */
+export type AccountsRunReply = {
+  error?: string;
+  signIn?: SignInStartWire;
+  finished?: SignInFinishWire;
+  reason?: string;
 };
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
@@ -672,6 +902,10 @@ export type HarnessRow = {
   problem: string | null;
   /** From `_acpmux/harness/health` (absent from an older daemon): installed and newest versions. */
   version?: string | null;
+  /** Where acpmux found its program, and the npm package or Homebrew formula behind it: two rows
+   * with the same are one install, with one update card. */
+  path?: string | null;
+  package?: string | null;
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
@@ -768,7 +1002,9 @@ export type HarnessesRun = {
   id?: string;
   /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account; `github`
+   * (way `new` only) types gh's own `gh auth login` into a terminal tab, the in-place sign-in's
+   * fallback for a daemon without `_acpmux/account/sign_in`. */
   family?: string;
   /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
   way?: "new" | "key";
@@ -840,6 +1076,48 @@ export type TailnetState = {
   ips?: string[];
   /** acpmux's own text for the last failure. */
   error?: string;
+};
+
+/** One entry of the customize library (`cmux --json customize library`; cmux-customize
+ * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
+export type LibraryEntry = {
+  /** 1 is the top: it wins over every entry below it. */
+  position: number;
+  name: string;
+  on: boolean;
+  /** How it came in: `ask`, `profile`, `try-on`, `by hand`, `import`. */
+  source: string;
+  /** The words that asked for it, oldest first. */
+  words: string[];
+  description: string;
+  /** What it looks like at a glance: the colors it sets and the keys it sets (no capture). */
+  thumbnail: { swatches: string[]; keys: string[] };
+  settings: string[];
+  files: string[];
+  added_ms: number | null;
+  /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
+  overridden: string[];
+};
+
+/** Two or more entries that are on set the same key or file; the highest one's value is in use. */
+export type LibraryConflict = { kind: string; key: string; winner: string; losers: string[] };
+
+/** The library, top first. */
+export type LibraryListing = { entries: LibraryEntry[]; conflicts: LibraryConflict[] };
+
+/** A library verb the page runs. `order` takes `position` (`top`, `bottom` or a number from 1). */
+export type LibraryRun =
+  | { verb: "list" }
+  | { verb: "on" | "off" | "remove"; name: string }
+  | { verb: "order"; name: string; position: string };
+
+/** `cmux --json customize library …` as the host answers it: a listing (`library`), and for a
+ * change what it did; a refusal is the CLI's error envelope (`code`, `message`). */
+export type LibraryAnswer = {
+  library?: LibraryListing;
+  generation?: unknown;
+  code?: string;
+  message?: string;
 };
 
 /** A customization being tried on (`cmux customize try`; cmux-customize `try_on.rs`): applied now,
@@ -959,7 +1237,8 @@ export type DevicesState = {
   thisDevice: DevicesDevice | null;
   others: DevicesDevice[];
   /** "Allow Mac Screen on this Mac"; null until this Mac is registered. */
-  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[] } | null;
+  /** `agentsMayShare`: the account's "My agents can turn screen sharing and control on my machines" (device hub). */
+  sharing: { on: boolean; busy: boolean; permissions: DevicesPermission[]; agentsMayShare: boolean } | null;
   relays: DevicesRelay[];
   /** Newest first. */
   history: DevicesHistoryRow[];
@@ -983,6 +1262,8 @@ export type DevicesDevice = {
   sharesText: string | null;
   /** This device's Mac Screen access to THIS Mac (null for this device). */
   access: DevicesScope | null;
+  /** A compact first-class Mac Screen action; absent for phones and older hosts. */
+  screenAction?: { kind: "view" | "share"; title: string; disabled?: boolean } | null;
   /** Removal confirmation texts for this row. */
   removeConfirm: { title: string; body: string; confirm: string };
 };
@@ -1038,6 +1319,8 @@ export type DevicesLabels = {
   sharingSection: string;
   sharingToggle: string;
   sharingDetail: string;
+  agentsToggle: string;
+  agentsDetail: string;
   openSettings: string;
   allowed: string;
   relaysSection: string;
@@ -1093,11 +1376,14 @@ export type DevicesRelayDraft = {
 };
 export type DevicesRun =
   | { action: "refresh" }
+  | { action: "openScreen"; id: string }
+  | { action: "shareThisMac"; id: string }
   | { action: "signIn" }
   | { action: "rename"; id: string; name: string }
   | { action: "remove"; id: string }
   | { action: "setAccess"; id: string; scope: DevicesScope }
   | { action: "setSharing"; on: boolean }
+  | { action: "setAgentsMayShare"; on: boolean }
   | { action: "openPermission"; id: DevicesPermissionId }
   | { action: "saveRelay"; relay: DevicesRelayDraft }
   | { action: "checkRelay"; id?: string; relay?: DevicesRelayDraft }
@@ -1122,6 +1408,41 @@ export type IntegrationRow = {
   errorKind?: "noAnswer" | "notFinished" | null;
 };
 
+/** One coding agent of Settings > Agents > Agents on This Mac: whether it gets cmux's MCP server when
+ * cmux starts it (`cmux setup mcp`). The name is the product's own, never translated. */
+export type AgentToolsCardRow = {
+  id: string;
+  name: string;
+  /** `terminals`: started in cmux, it gets cmux's tools; `ready`: not (`agents.cmuxMcp` is off). */
+  state: "ready" | "terminals" | "failed";
+  /** The line that removes a `cmux` entry in the agent's own settings that runs `cmux mcp serve`, used
+   * outside cmux (not this build's own manual line); null or absent for none. Remove runs it only on
+   * the person's click. */
+  leftover?: string | null;
+};
+
+/** Agents on This Mac (`SettingsAgentTools.state`). */
+export type AgentToolsCardState = {
+  /** The first read answered (an empty list then says none was found). */
+  loaded: boolean;
+  /** Turn On (shown while `agents.cmuxMcp` is off) runs. */
+  applying: boolean;
+  /** The answer could not be saved. */
+  failed: boolean;
+  /** `agents.cmuxMcp` now (`on` unless the person turned it off). Absent from older hosts. */
+  choice?: "on" | "off";
+  rows: AgentToolsCardRow[];
+  /** The lines a person runs themselves to use cmux's tools in agents started elsewhere (cmux never
+   * runs them). Absent from older hosts. */
+  manual?: string[];
+  /** Why the last Remove kept the entry (it holds settings cmux could not put back), as the CLI
+   * says it; null or absent otherwise. */
+  note?: string | null;
+};
+
+/** One Agents on This Mac gesture; `turnOn` and `removeLeftover` run only on a click. */
+export type AgentToolsCardRun = { action: "refresh" | "turnOn" } | { action: "removeLeftover"; id: string };
+
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */
 export type IntegrationsState = {
   loading: boolean;
@@ -1131,6 +1452,303 @@ export type IntegrationsState = {
   command: string;
   providers: IntegrationRow[];
 };
+
+/** One saved MCP server (Settings > MCP Servers; optchat-chief `settings_row`). Never a secret. */
+export type McpServerRow = {
+  name: string;
+  /** `remote`: a URL; `local`: a command on this Mac. */
+  kind: "remote" | "local";
+  address: string;
+  /** The publisher's domain, or `local`. */
+  publisher: string;
+  /** The address is exactly the one cmux knows for that service. */
+  verified: boolean;
+  state: "connected" | "signInNeeded" | "failed" | "unknown";
+  /** Why the last connect failed, in the server's own words. */
+  problem: string | null;
+  /** Who has it, as the person chose on the connect card. */
+  scope: "chat" | "chief" | "allChiefs" | "agents" | "everywhere";
+  tools: number;
+  /** A sign-in waits for the person; `page` is its sign-in page. */
+  signingIn: boolean;
+  page: string | null;
+  /** The last gesture's refusal ("" when it gave no words of its own). */
+  error: string | null;
+};
+
+/** Settings > MCP Servers (`SettingsMcpServers.state`). */
+export type McpServersState = {
+  loading: boolean;
+  /** `unavailable`: this build has no Chief helper; `failed`: the list did not answer. */
+  problem: "unavailable" | "failed" | null;
+  servers: McpServerRow[];
+};
+
+/** One MCP Servers gesture; sign in and remove run only on a click. */
+export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
+
+/** A coding agent whose own settings Settings > Agents > Claude Code & Codex shows. */
+export type AgentConfigAgent = "claude" | "codex";
+
+/** One config file the agent reads (`cmux agent-config settings get`): its scope (`managed`,
+ * `user`, `project`, `local`, `profile:NAME`), whether it exists and how many keys it holds. */
+export type AgentConfigFile = {
+  scope: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  writable: boolean;
+  keys: number;
+  error: string | null;
+};
+
+/** One effective leaf setting: `display` is short and already masked for secrets (`masked`). */
+export type AgentConfigEntry = {
+  key: string;
+  display: string;
+  scope: string;
+  path: string;
+  overridden: { scope: string; display: string }[];
+  masked: boolean;
+  curated: boolean;
+};
+
+/** One setting the card edits: `choice` offers only `choices`; for `text` they are suggestions.
+ * `value` and `scope` are null when unset (the agent's default applies). */
+export type AgentConfigCurated = {
+  key: string;
+  title: string;
+  kind: "text" | "choice";
+  choices: string[];
+  value: string | null;
+  scope: string | null;
+  writableScopes: string[];
+};
+
+/** `cmux --json agent-config settings get --agent A`: the agent's settings as it sees them. */
+export type AgentConfigState = {
+  agent: AgentConfigAgent;
+  files: AgentConfigFile[];
+  entries: AgentConfigEntry[];
+  curated: AgentConfigCurated[];
+  /** Codex's NAME.config.toml files; an older cmux leaves it out for Claude Code. */
+  profiles?: { name: string; path: string; keys: number }[];
+  notes: string[];
+  keysOnDisk: number;
+  keysShown: number;
+};
+
+/** `set` / `unset`'s answer: the file written and its backup. */
+export type AgentConfigChange = {
+  ok: true;
+  agent: AgentConfigAgent;
+  key: string;
+  scope: string;
+  path: string;
+  backup: string | null;
+};
+
+/** One Claude Code & Codex settings call. `get` only reads; `set`, `unset` and `open` (a path a
+ * fresh `get` lists in `files`) run only on the person's click. */
+export type AgentConfigRun = {
+  verb: "get" | "set" | "unset" | "open";
+  agent: AgentConfigAgent;
+  key?: string;
+  value?: string;
+  scope?: string;
+  path?: string;
+};
+
+/** What the host answers: the state, a change, `{ok}` for an open, `{enabled: false}` while
+ * `labs.agentCustomization` is off, or the CLI's refusal envelope. */
+export type AgentConfigAnswer =
+  | AgentConfigState
+  | AgentConfigChange
+  | { ok: true }
+  | { enabled: false }
+  | { code: string; message: string };
+
+/** One skill or slash command an agent loads (`cmux agent-config skills list --json`). */
+export type AgentSkillRow = {
+  agent: "claude" | "codex";
+  kind: "skill" | "command";
+  scope: "user" | "project" | "plugin" | "system" | "admin";
+  /** What the person types after `/` (Claude Code) or `$` (Codex). */
+  name: string;
+  description: string;
+  /** The SKILL.md or command file: what Edit opens. */
+  path: string;
+  /** `plugin@marketplace` for a plugin's. */
+  plugin?: string;
+  enabled: boolean;
+  /** Claude Code's `skillOverrides` value, when one is set. */
+  override?: string;
+  /** The agent's own settings file the switch writes; absent: the agent has no switch for it. */
+  switchFile?: string;
+};
+
+/** Settings > Agents > Claude Code & Codex > Skills (`SettingsAgentSkills.state`); Labs `labs.agentCustomization`. */
+export type AgentSkillsState =
+  | { enabled: false }
+  | {
+      enabled: true;
+      loading: boolean;
+      /** `unavailable`: no bundled CLI; `failed`: the list did not answer. */
+      problem: "unavailable" | "failed" | null;
+      skills: AgentSkillRow[];
+      /** Files an agent skips, in its own words. */
+      problems: Array<{ agent: "claude" | "codex"; path: string; message: string }>;
+      /** `files` (cmux read the folders) or `app-server` (Codex's own list). */
+      sources: { claude: string; codex: string } | null;
+      elapsedMs: number | null;
+      /** The CLI's refusal of the last switch ("" with no words of its own); `path` is `new-command` for
+       * a New Command the CLI refused. */
+      refusal: { path: string; message: string } | null;
+      /** The command New Command last saved: what to type and its file. */
+      added?: { agent: "claude" | "codex" | "cmux"; invocation: string; path: string } | null;
+    };
+
+/** One Skills gesture; on and off run only on a click. */
+export type AgentSkillsRun =
+  | { action: "refresh" }
+  | { action: "open" | "reveal"; path: string }
+  | { action: "on" | "off"; path: string; agent: "claude" | "codex" }
+  /** New Command (`cmux agent-config commands add NAME --prompt TEXT --agent A`): a saved prompt in the
+   * agent's own folder, or cmux's (`cmux`, in every chat's `/` menu); only on a click. */
+  | { action: "add"; agent: "claude" | "codex" | "cmux"; name: string; prompt: string; description?: string };
+
+/** One MCP server Claude Code or Codex starts, from its own config files (`cmux agent-config mcp
+ * list --json`, cmux-agent-customize `mcp.rs`). Never a secret: env and header values are names only. */
+export type AgentMcpServer = {
+  agent: "claude" | "codex";
+  name: string;
+  /** `user`: every folder; `local`: Claude, this folder only; `project`: the folder's own file; `plugin`: Codex, a plugin's. */
+  scope: "user" | "local" | "project" | "plugin";
+  transport: "stdio" | "http" | "sse";
+  command: string | null;
+  /** Arguments, a secret-looking flag's value masked. */
+  args: string[];
+  /** The URL without its password. */
+  url: string | null;
+  /** Whether the agent starts it (in the shown folder, for Claude's per-folder switches). */
+  enabled: boolean;
+  /** Claude project servers: approved in Claude, or waiting for the person there. */
+  approval?: "approved" | "pending";
+  env: string[];
+  headers: string[];
+  file: string;
+  plugin?: string;
+  /** Another scope's server of the same name runs instead. */
+  shadowed: boolean;
+  removable: boolean;
+};
+
+/** Settings > MCP Servers, Claude Code and Codex (`SettingsAgentMcpServers.state`); `enabled` false
+ * while Labs `labs.agentCustomization` is off, and then nothing else. */
+export type AgentMcpState = {
+  enabled: boolean;
+  loading?: boolean;
+  /** `unavailable`: no bundled cmux CLI; `failed`: the list did not answer. */
+  problem?: "unavailable" | "failed" | null;
+  /** The folder Claude's per-folder switches and the project files are read for. */
+  project?: string;
+  servers: AgentMcpServer[];
+  problems?: { agent: string; why: string }[];
+  /** The last edit's refusal, for the row `agent:scope:name`. */
+  error?: { key: string; why: string } | null;
+  /** The last list: click to rows, and the CLI's own share (ms). */
+  listMs?: number | null;
+  cliMs?: number | null;
+};
+
+/** One Claude Code / Codex MCP gesture; all but refresh run only on a click. */
+export type AgentMcpRun =
+  | { action: "refresh" | "pickFolder" }
+  | {
+      action: "enable" | "disable" | "remove";
+      agent: AgentMcpServer["agent"];
+      name: string;
+      scope: AgentMcpServer["scope"];
+    }
+  | {
+      action: "add";
+      agent: AgentMcpServer["agent"];
+      name: string;
+      scope: "user" | "local" | "project";
+      command?: string;
+      args?: string[];
+      url?: string;
+      transport?: "http" | "sse";
+      /** `KEY=VALUE` lines. */
+      env?: string[];
+      headers?: string[];
+    };
+
+/** One Claude Code or Codex hook handler (`cmux --json agent-config hooks list`, cmux-agent-customize hooks.rs `HookEntry`). */
+export type AgentHookRow = {
+  /** Stable across Turn Off / Turn On; the CLI's handle for the row. */
+  id: string;
+  agent: "claude" | "codex";
+  /** `user` (~/.claude/settings.json, ~/.codex/hooks.json), `user-local`, `user-config`, `project`,
+   * `project-local` or `plugin`. */
+  scope: string;
+  file: string;
+  event: string;
+  matcher: string | null;
+  type: string;
+  command: string;
+  timeout: number | null;
+  enabled: boolean;
+  /** `cmux` (cmux's own, read-only), `plugin` (read-only) or `user`. */
+  owner: "user" | "cmux" | "plugin";
+  read_only: boolean;
+  /** Codex: `trusted`, `untrusted`, `modified` or `unsupported` (Codex runs only trusted hooks). */
+  trust?: string;
+  /** Codex: the hooks.state key its trust and on/off live under. */
+  state_key?: string;
+  plugin?: string;
+};
+
+/** One config file the hooks list read. */
+export type AgentHookFile = {
+  agent: "claude" | "codex";
+  scope: string;
+  path: string;
+  exists: boolean;
+  hooks: number;
+  error?: string;
+  disable_all_hooks?: boolean;
+};
+
+/** `cmux --json agent-config hooks list`. */
+export type AgentHooksListing = {
+  hooks: AgentHookRow[];
+  files: AgentHookFile[];
+  counts: { claude: number; codex: number };
+  codex_hooks_feature: boolean | null;
+  disabled_store?: string;
+  elapsed_micros: number;
+};
+
+/** Settings > Agents > Claude Code & Codex > Hooks (`SettingsAgentHooks.state`); `available` is the
+ * Labs switch `labs.agentCustomization`. */
+export type AgentHooksState =
+  | { available: false }
+  | { available: true; listing: AgentHooksListing | null; error: string | null };
+
+/** One Hooks gesture; every one but refresh runs only on a click. */
+export type AgentHooksRun =
+  | { action: "refresh" }
+  | { action: "enable" | "disable" | "remove"; id: string }
+  | {
+      action: "add";
+      agent: "claude" | "codex";
+      event: string;
+      command: string;
+      matcher?: string;
+      timeout?: number;
+      scope?: "user" | "user-local";
+    };
 
 /** One Agent integrations gesture; each runs only on a click. */
 export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
@@ -1262,6 +1880,8 @@ export type SettingsOps = {
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
+  /** Native: General > Language's Relaunch: the app relaunches so its menus take app.language (the person's gesture only). */
+  "cmux.settings.language.relaunch": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
@@ -1271,11 +1891,15 @@ export type SettingsOps = {
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
-  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  "cmux.settings.accounts.run": [AccountsRun, AccountsRunReply];
   /** Native: Settings > Agents, the harnesses acpmux knows and the last doctor answers. */
   "cmux.settings.agents.state": [Record<string, never>, AgentsState];
   /** Native: one Agents gesture; a daemon refusal rejects with `cmux.agents.<code>` and its text. */
   "cmux.settings.agents.run": [AgentsRun, unknown];
+  /** Native: Settings > Models, the person's and the organization's connections (model-connections.md). */
+  "cmux.settings.models.state": [Record<string, never>, ModelsState];
+  /** Native: one Settings > Models gesture; a refusal rejects with the host's text. */
+  "cmux.settings.models.run": [ModelsRun, unknown];
   /** Native: acpmux's harnesses (Settings > Agents). */
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
@@ -1294,10 +1918,19 @@ export type SettingsOps = {
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
   "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
+  /** Settings > Team > Compute: the team's Cloud allotment, who uses what, and the scheduler's
+   * proposal (the backend's `cloud.allotment.get`). Only the mock provider serves it today. */
+  "cmux.settings.cloud.allotment.get": [Record<string, never>, AllotmentView];
+  /** Settings > Team > Compute, an admin's one click: scale down, hold or scale up, and Auto (the
+   * backend's `cloud.allotment.set`); answers the view after it. */
+  "cmux.settings.cloud.allotment.set": [AllotmentSet, AllotmentView];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
   "cmux.settings.shares.revoke": [{ share_id: string }, unknown];
+  /** Native: one `cmux customize library` verb through the bundled CLI (Appearance >
+   * Customization Library). A change runs only on the person's click or key in the page. */
+  "cmux.settings.customize.library": [LibraryRun, LibraryAnswer];
   /** Native: Settings > Keys: this Mac's keys (`cmux keys ls`, never a value) and the waiting requests. */
   "cmux.settings.keys.list": [Record<string, never>, KeysState];
   /** Native, the person's click: the value goes to `cmux keys put` on stdin only, and the agent's
@@ -1322,6 +1955,29 @@ export type SettingsOps = {
   "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
   /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
+  /** Native: the coding agents and whether their configs hold cmux's MCP server (Settings > Agents). */
+  "cmux.settings.agentTools.state": [Record<string, never>, AgentToolsCardState];
+  /** Native: Turn On (`agents.cmuxMcp` on), Remove an agent's old cmux entry (`cmux setup mcp --remove ID`) or a refresh. */
+  "cmux.settings.agentTools.run": [AgentToolsCardRun, AgentToolsCardState];
+  /** Native: the person's saved MCP servers (Settings > MCP Servers). */
+  "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
+  /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
+  "cmux.settings.mcp.run": [McpServersRun, unknown];
+  /** Native: Settings > Agents > Claude Code & Codex, one `cmux --json agent-config settings`
+   * verb through the bundled CLI; `{enabled: false}` while labs.agentCustomization is off. */
+  "cmux.settings.agentConfig": [AgentConfigRun, AgentConfigAnswer];
+  /** Native: Claude Code's and Codex's skills and slash commands (Settings > Agents, Labs `labs.agentCustomization`). */
+  "cmux.settings.agentSkills.state": [Record<string, never>, AgentSkillsState];
+  /** Native: one Skills gesture (`cmux agent-config skills on|off FILE`, open, reveal, or a refresh). */
+  "cmux.settings.agentSkills.run": [AgentSkillsRun, AgentSkillsState];
+  /** Native: the MCP servers Claude Code and Codex start, from their own files (Labs `labs.agentCustomization`). */
+  "cmux.settings.agentMcp.state": [Record<string, never>, AgentMcpState];
+  /** Native: one Claude Code / Codex MCP gesture (`cmux agent-config mcp enable|disable|remove|add`, a folder pick or a refresh). */
+  "cmux.settings.agentMcp.run": [AgentMcpRun, unknown];
+  /** Native: every Claude Code and Codex hook (Labs labs.agentCustomization; `cmux agent-config hooks list`). */
+  "cmux.settings.agentHooks.state": [Record<string, never>, AgentHooksState];
+  /** Native: one Hooks gesture (`cmux agent-config hooks enable|disable|remove|add`, or a refresh); returns the state after it. */
+  "cmux.settings.agentHooks.run": [AgentHooksRun, AgentHooksState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -1404,6 +2060,8 @@ export type SettingsStreams = {
   "cmux.settings.harnesses.changed": HarnessesState;
   /** The Devices part changed (the event carries the new state). */
   "cmux.settings.devices.changed": DevicesState;
+  /** Settings > Models changed (a connection, the order, a ChatGPT sign-in finishing). */
+  "cmux.settings.models.changed": ModelsState;
   /** A key request arrived or ended (the page reads `cmux.settings.keys.list` again). */
   "cmux.settings.keys.changed": { revision: number };
   /** The host lists changed (the event carries the new lists). */
@@ -1481,6 +2139,7 @@ export const settingsPageActions = [
   "browserProfile.new",
   "server.addServer",
   "device.add",
+  "remote.newGroup",
   "browserProfile.rename",
   "browserProfile.setColor",
   "browserProfile.clearColor",
@@ -1494,6 +2153,10 @@ export const settingsPageActions = [
   "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
+  // Settings > Computer Use > Saved Approvals: forget an app's answer or change it (args `{app_id}`,
+  // `{app_id, decision}`); the host runs them through the worker's approvals control message.
+  "computerUse.approval.forget",
+  "computerUse.approval.set",
   "import.card",
   "importFromBrowser",
   // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).

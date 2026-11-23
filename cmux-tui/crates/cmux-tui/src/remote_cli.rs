@@ -62,6 +62,8 @@ mod exec_cp;
 mod remote_link_binding_tests;
 mod remote_link_mux;
 mod self_install;
+mod spill;
+mod spill_cloud;
 use daemon_lifecycle::*;
 use enroll::*;
 use exec_cp::{ExitWith, run_cp, run_exec};
@@ -111,7 +113,15 @@ fn run_inner(
 ) -> anyhow::Result<()> {
     let rest = args.get(1..).unwrap_or_default();
     if remote_help_requested(rest) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+        let help = remote_help(args.first().map(String::as_str));
+        // `cmux remote --help` also lists the cmux app's `remote …` verbs (cli/app_action_help.rs).
+        match args.first().map(String::as_str) {
+            Some("remote") => match crate::cli::app_action_help::append("remote", help) {
+                Some(text) => print!("{text}"),
+                None => print!("{help}"),
+            },
+            _ => print!("{help}"),
+        }
         return Ok(());
     }
     match args.first().map(String::as_str) {
@@ -123,6 +133,7 @@ fn run_inner(
         Some("rpc") => run_rpc(rest),
         Some("remote-exec") => run_exec(rest),
         Some("remote-cp") => run_cp(rest),
+        Some("spill") => spill::run_spill(rest),
         Some("enroll") => run_enroll(rest, load_config),
         Some("known-daemons") => run_known_daemons(rest),
         Some("remote-device-key") => run_device_key(rest),
@@ -232,6 +243,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("rpc") => client.rpc_help,
         Some("remote-exec") => client.exec_help,
         Some("remote-cp") => client.cp_help,
+        Some("spill") => spill::HELP,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
         Some("remote-device-key") => client.device_key_help,
@@ -750,6 +762,7 @@ fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
 fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
     let startup_started = Instant::now();
     let owner = flags.exit_with_parent.then(current_parent_process_id);
+    refuse_unusable_local_paths(&flags)?;
     let invitation = flags
         .invitation
         .take()
@@ -1120,6 +1133,42 @@ fn remaining_startup_timeout(started: Instant, total: Duration) -> anyhow::Resul
         .checked_sub(started.elapsed())
         .filter(|remaining| !remaining.is_zero())
         .ok_or_else(|| anyhow!("remote connection startup timed out after {}s", total.as_secs()))
+}
+
+/// What `connect`, `exec`, `cp` and the rest refuse before they dial, all with the same words:
+/// an explicit `--state-dir` another user could write (it holds this device's identity and the
+/// link's sockets, so it is the owner-controlled directory `connect --local-socket` already
+/// required), and a `unix://` route that is another link's local socket. That socket carries the
+/// local mux protocol, not a daemon's, so a dial to it would wait out the whole startup budget.
+fn refuse_unusable_local_paths(flags: &ConnectFlags) -> anyhow::Result<()> {
+    if let Some(path) = flags.route.as_deref().and_then(client_link_socket_route) {
+        return Err(anyhow!(
+            catalog().remote_client.route_is_link_socket(&path.display().to_string())
+        ));
+    }
+    if let Some(root) = flags.state_dir.as_deref() {
+        ensure_secure_directory(root, DirectoryAccess::OwnerControlled)?;
+    }
+    Ok(())
+}
+
+/// The socket path of a `unix://` route that is a `remote connect` local socket: one with the
+/// link's own `PATH.admin` socket beside it. A daemon's Unix route never has one (its admin
+/// socket is `admin.sock` in the session directory).
+#[cfg(unix)]
+fn client_link_socket_route(route: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::FileTypeExt;
+
+    let path = Url::parse(route).ok().filter(|url| url.scheme() == "unix")?.to_file_path().ok()?;
+    fs::symlink_metadata(cmux_remote::admin::link_admin_socket(&path))
+        .ok()
+        .filter(|metadata| metadata.file_type().is_socket())
+        .map(|_| path)
+}
+
+#[cfg(not(unix))]
+fn client_link_socket_route(_: &str) -> Option<PathBuf> {
+    None
 }
 
 fn promote_reachable_unix_routes(routes: &mut [ResolvedRouteCandidate]) {
@@ -1972,17 +2021,27 @@ async fn select_known_daemon(
     match matching.as_slice() {
         [daemon] => Ok(daemon.clone()),
         [] if daemons.len() == 1 => Ok(daemons[0].clone()),
-        [] if route.is_some() => {
-            Err(anyhow!("no known daemon matches this route; connect with an invitation"))
-        }
-        [] if daemons.len() > 1 => Err(anyhow!("multiple known daemons; use --daemon FINGERPRINT")),
-        [] => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
-        _ => Err(anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")),
+        [] if route.is_some() => Err(anyhow!(
+            "no known daemon matches this route; `cmux remote known-daemons` lists the paired ones, and `cmux remote connect ROUTE --invite-file PATH` pairs a new one"
+        )),
+        [] if daemons.len() > 1 => Err(anyhow!(
+            "multiple known daemons; name one with a route or --daemon FINGERPRINT (`cmux remote known-daemons` lists them)"
+        )),
+        [] => Err(anyhow!(
+            "no known daemons; on the host run `cmux remote enroll create`, then pair this device with `cmux remote connect ROUTE --invite-file PATH` (or --carrier for a trusted carrier)"
+        )),
+        _ => Err(anyhow!(
+            "multiple known daemons match this route; use --daemon FINGERPRINT (`cmux remote known-daemons` lists them)"
+        )),
     }
 }
 
 fn parse_route(route: &str, description: &str) -> anyhow::Result<Url> {
-    Url::parse(route).with_context(|| format!("invalid {description}"))
+    Url::parse(route).with_context(|| {
+        format!(
+            "invalid {description} (write it with a scheme, such as ws://HOST:PORT/, wss://HOST/, ssh://USER@HOST or unix:///ABSOLUTE/PATH; `cmux remote known-daemons` shows the routes already paired)"
+        )
+    })
 }
 
 fn invitation_daemon_key(invitation: &EnrollmentInvitation) -> anyhow::Result<[u8; 32]> {

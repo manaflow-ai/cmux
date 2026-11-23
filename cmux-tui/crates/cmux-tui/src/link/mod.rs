@@ -10,6 +10,7 @@ mod cloud_fs;
 mod control;
 mod daemon_entry;
 pub(crate) use daemon_entry::DaemonEntryStartup;
+mod chat_cli;
 mod dial;
 mod dial_cli;
 mod enrollment;
@@ -32,6 +33,7 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+mod spans;
 mod start_chat_cli;
 mod state;
 pub(crate) mod sync_cli;
@@ -89,7 +91,11 @@ pub(crate) fn start_link_entry(
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
-    cloud_fs::install_if_cloud_host();
+    if cloud_fs::install_file_owner() {
+        // Frees what archived, deleted and brought-back chats left in their projections on this
+        // machine, at start and on a timer (RFD 0007, hard case 8).
+        cmux_tui_core::projection::start_reaper(crate::acp::daemon_socket_path());
+    }
     mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
@@ -125,14 +131,31 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
     }
+    // `chat`: a Cloud machine's chats as the caller's role reaches them (one JSON object out).
+    if args.first().map(String::as_str) == Some("chat") {
+        return chat_cli::run(args.get(1..).unwrap_or_default());
+    }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
+    if args.first().map(String::as_str) == Some("project") {
+        return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
+    // `offload`: one local command run on a machine over this folder's view, its writes
+    // published back (sync_cli/offload.rs, RFD 0007 step 7).
+    if args.first().map(String::as_str) == Some("offload") {
+        return sync_cli::offload::run(args.get(1..).unwrap_or_default());
+    }
+    // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
+    if args.first().map(String::as_str) == Some("memory") {
+        return sync_cli::memory::run(args.get(1..).unwrap_or_default());
+    }
     if args.first().map(String::as_str) == Some("seed") {
         if matches!(
             args.get(1).map(String::as_str),
-            Some("push" | "clone" | "pull" | "move" | "copy-rest")
+            Some("push" | "clone" | "pull" | "fetch" | "move" | "copy-rest")
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
@@ -202,7 +225,9 @@ fn link_usage(message: String) -> anyhow::Error {
 }
 
 fn help_text() -> String {
-    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+    let text = format!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
+    // The cmux app's `link …` verbs too (cli/app_action_help.rs).
+    crate::cli::app_action_help::append("link", &text).unwrap_or(text)
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {

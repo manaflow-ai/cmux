@@ -54,6 +54,11 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+pub use wanted::{WAKE_ENV, WakeHook};
+#[path = "peer_controls.rs"]
+mod controls;
+#[path = "peer_list_read.rs"]
+mod list_read;
 #[path = "peer_runtime.rs"]
 mod runtime;
 #[path = "peer_runtime_io.rs"]
@@ -142,6 +147,10 @@ pub fn hidden_attach_after(id: &str, after: u64) -> Value {
 #[derive(Debug)]
 pub enum PeerNotice {
     Connected,
+    /// The link's whole list (and the changes held while it came) went just before this: a
+    /// link sends it before `Connected`, one after a far restart or a path switch after it
+    /// (`Peer::lists_after_ready`).
+    Listed,
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
@@ -169,6 +178,20 @@ pub enum PeerNotice {
 }
 
 impl PeerNotice {
+    /// What it is, for counts (`gauges.peerNotices.kinds`): the variant, and a changed row's kind
+    /// or a notification's method.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::SessionChanged { kind, .. } => format!("changed:{kind}"),
+            Self::Notification { method, .. } => format!("note:{method}"),
+            Self::SessionsPatch { .. } => "patch".into(),
+            Self::Sessions(_) => "list".into(),
+            other => {
+                format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("other").to_owned()
+            }
+        }
+    }
+
     /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
     pub(crate) fn list_bytes(&self) -> Option<u64> {
         let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
@@ -300,19 +323,19 @@ pub struct Peer {
     cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
     /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
-    /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
-    /// sessions listed): what `connected` reports. False from the moment the link drops.
+    /// The handshake finished on the live link (`initialize` answered, and the sessions listed on a
+    /// first link): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
-    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// The hub applied this link's session list (its `Listed` notice, which follows the
     /// list): until then a name missing from the rows may only not be listed yet, so a
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
-    /// hub's `Disconnected`.
+    /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
-    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
-    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
-    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    /// The links whose `Listed` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Listed` it applies, so it knows which link's list that one follows.
     listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
@@ -339,6 +362,9 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
+    /// (`Peer::wake` runs it once per wake window).
+    wake_hook: std::sync::OnceLock<WakeHook>,
     /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
     /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
     /// (`owner_slots`), which a reconnect's new peer shares with the old one.
@@ -347,6 +373,10 @@ pub struct Peer {
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
+    /// Whether this link asks for the legacy `_acpmux/watch`. Controls remain state-only while
+    /// this is true; cut E will clear it for a watchless link and publish those controls.
+    watch_active: AtomicBool,
+    controls: StdMutex<Option<controls::Open>>,
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.
     github_revoked: tokio::sync::Notify,
@@ -388,6 +418,9 @@ pub struct Peer {
     read_tokens: tokens::TokenCache,
     /// A link of this peer was connected once: a later read runs before its tunnel opens.
     linked_once: AtomicBool,
+    /// A link of this instance published a whole list, and every link since ended only for a far
+    /// restart or a path switch, which leave the rows usable (`Peer::lists_after_ready`).
+    whole_list: AtomicBool,
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
@@ -526,25 +559,23 @@ impl ReceivedBytes {
 }
 
 impl Peer {
-    /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
-    /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
-    /// not a string, is an error that ends the handshake, never a loop or a short list.
-    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
-        let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
-        while let Some(cursor) = next {
-            if !seen.insert(cursor.clone()) {
-                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
-                return Err(RpcError::internal(why));
-            }
-            let params = json!({"withTools": tools, "cursor": cursor});
-            let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
-            next = page_cursor(&page)?;
-        }
-        Ok(())
+    /// Drops the list position the hub's copy of the peer's list is current to, so the next
+    /// link reads the whole list rather than what changed after it (`hub/peer_closed_bound.rs`:
+    /// a follow cannot bring back a closed row the hub left out).
+    pub(crate) fn forget_list_cursor(&self) {
+        *self.list_cursor.lock_or_recover() = None;
     }
-}
 
-impl Peer {
+    #[cfg(test)]
+    pub(crate) fn set_list_cursor_for_test(&self, cursor: Option<(String, u64)>) {
+        *self.list_cursor.lock_or_recover() = cursor;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn list_cursor_for_test(&self) -> Option<(String, u64)> {
+        self.list_cursor.lock_or_recover().clone()
+    }
+
     /// Reads the watch list on link `link` in pages of a count of rows, without tools:
     /// `_acpmux/watch {limit}`, then `_acpmux/sessions {limit, cursor}` (the keyset pages every
     /// peer serves, those from before #28182 too). The reader gathers their rows (`watch_key`).
@@ -919,23 +950,7 @@ pub fn read_config_argv(destination: &str, connect_secs: u64) -> Vec<String> {
     .collect()
 }
 
-/// Whether a direct (not ssh) peer URL may carry the peer token: `wss://`,
-/// or `ws://` to a loopback host. Over plain `ws://` to any other host the
-/// token would cross a network in clear, and the peer serves it as Web
-/// anyway (`server/peer_auth.rs`). An `ssh://` peer connects through a
-/// tunnel to the remote's loopback, so it always may.
-pub fn carries_peer_token(url: &str) -> bool {
-    let Ok(uri) = url.parse::<tokio_tungstenite::tungstenite::http::Uri>() else { return false };
-    let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
-    match uri.scheme_str() {
-        Some("wss") => true,
-        Some("ws") => {
-            host.eq_ignore_ascii_case("localhost")
-                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())
-        }
-        _ => false,
-    }
-}
+pub use crate::ws_auth::carries_peer_token;
 
 /// The output of `read_config_argv`: the config bytes and the peer token
 /// (None when absent or not a 64-digit hex token).

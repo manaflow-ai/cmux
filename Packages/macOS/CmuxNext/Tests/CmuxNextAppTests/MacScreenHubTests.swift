@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextServer
+import CmuxNextSettings
 import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxNextTestSupport
@@ -38,6 +39,25 @@ private final class CallLog {
 
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
+nonisolated private final class MachineDevicesURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let body = url.path == "/v1/auth/stack"
+            ? #"{"session":"hub-session","userId":"u","expiresAt":4102444800000}"#
+            : request.value(forHTTPHeaderField: "X-Test-Devices") ?? #"{"devices":[]}"#
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])
+        if let response { client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 @MainActor
 private func testHub() -> DeviceHub {
     let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
@@ -47,9 +67,9 @@ private func testHub() -> DeviceHub {
 }
 
 private func ticket(_ id: String = "s1", role: SessionTicket.Role = .viewer, scope: SessionScope = .full,
-                    peer: String = hostID) -> SessionTicket {
+                    peer: String = hostID, ownerKind: String? = nil) -> SessionTicket {
     SessionTicket(sessionId: id, ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/\(id)/ws")!, ice: [],
-                  peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope)
+                  peer: .init(id: peer, name: "Studio", signingKey: "key"), role: role, scope: scope, ownerKind: ownerKind)
 }
 
 /// A signaling that is never opened.
@@ -88,6 +108,43 @@ struct MacScreenDeviceRecordTests {
     }
 
     @MainActor
+    @Test func screenRecordsRequireDeviceIDsInsteadOfMachineNames() async throws {
+        let deviceID = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"6f1c2a4e-0d3b-4c5a-9e7f-112233445566","name":"Test Studio","platform":"macos","online":true}]}"#
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "Test Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        #expect(pages.record(forDevice: deviceID.uppercased()) == MacScreenRecord(deviceID: deviceID))
+        pages.hub = hub
+        #expect(pages.record(forDevice: deviceID) == MacScreenRecord(deviceID: deviceID))
+        #expect(pages.record(forDevice: "joined:\(deviceID)").isHome)
+        #expect(pages.record(forDevice: "Test Studio").isHome)
+        #expect(pages.record(forDevice: "missing-machine").isHome)
+        #expect(pages.pendingScopes.isEmpty)
+        let requested = pages.record(forDevice: deviceID, requesting: .view)
+        // Automation/restoration does not consume a person's pending connection choice.
+        pages.prepare("restored", record: requested, byPerson: false)
+        _ = pages.makeView(for: "restored")
+        #expect(pages.tab("restored")?.pane?.model.hub?.resumeScope == nil)
+        pages.prepare("view", record: requested, byPerson: true)
+        _ = pages.makeView(for: "view")
+        #expect(pages.tab("view")?.pane?.model.hub?.resumeScope == .view)
+        #expect(pages.pendingScopes.isEmpty)
+        pages.tabClosed("restored")
+        pages.tabClosed("view")
+        pages.hub = nil
+    }
+
+    @MainActor
     @Test func explicitDeviceRecordNormalizesUUIDAndCarriesRequestedScope() throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-record-\(UUID().uuidString)/mac-screen.json")
         let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
@@ -97,6 +154,26 @@ struct MacScreenDeviceRecordTests {
         #expect(pages.pendingScopes[hostID] == .view)
         #expect(pages.record(forDevice: "Studio", requesting: .full).isHome)
         #expect(pages.pendingScopes[hostID] == .view)
+    }
+
+    /// `macScreen.open --autoconnect` into a tab that is not selected asks the hub at once,
+    /// not when the tab is first shown; a tab opened without a scope still waits.
+    @MainActor
+    @Test func anAutoconnectIntoABackgroundTabAsksTheHubBeforeItIsShown() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-bg-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.prepare("background", record: pages.record(forDevice: hostID, requesting: .view), byPerson: true)
+        pages.connectInBackground("background")
+        let viewer = try #require(pages.tab("background")?.pane?.model.hub)
+        // No hub in this test: the request ran, so it was refused as signed out rather than left idle.
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
+        #expect(viewer.resumeScope == nil)
+
+        pages.prepare("waiting", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        pages.connectInBackground("waiting")
+        #expect(pages.tab("waiting") == nil)
+        pages.tabClosed("background")
+        pages.tabClosed("waiting")
     }
 }
 
@@ -123,9 +200,39 @@ struct MacScreenHubCardTests {
         #expect(refusal("host_offline", status: 409) == .hostOffline)
         #expect(refusal("not_shared") == .notShared)
         #expect(refusal("not_found", status: 404) == .notFound)
-        #expect(refusal("internal", status: 500) == .other)
+        #expect(refusal("internal", status: 500) == .other(reason: "internal"))
         #expect(MacScreenHubRefusal(.notSignedIn) == .notSignedIn)
-        #expect(MacScreenHubRefusal(.transport("offline")) == .other)
+        #expect(MacScreenHubRefusal(.transport("offline")) == .other(reason: "offline"))
+    }
+
+    /// A refusal with no card of its own keeps the hub's words (Leo, on a gate audit: a refusal
+    /// names its reason); the card says them, and the generic text is left for a refusal with none.
+    @Test func anUnknownRefusalKeepsTheHubsReason() {
+        let rateLimited = MacScreenHubRefusal(.server(status: 429, code: .rateLimited, message: "too many requests; wait a minute"))
+        #expect(rateLimited == .other(reason: "too many requests; wait a minute"))
+        #expect(MacScreenHubRefusal(.server(status: 403, code: DeviceHubError.Code("new_code"), message: " ")) == .other(reason: "new_code"))
+        #expect(MacScreenHubRefusal(.http(status: 502)) == .other(reason: "HTTP 502"))
+        #expect(MacScreenHubRefusal(.decoding("missing session")) == .other(reason: "missing session"))
+        #expect(MacScreenHubRefusal(.transport("")) == .other(reason: nil))
+        #expect(rateLimited.canRetry)
+
+        let said = MacScreenCardView.refusedBody(rateLimited, host: "Studio")
+        #expect(said == String(format: L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@"),
+                               "too many requests; wait a minute"))
+        #expect(said.contains("too many requests; wait a minute"))
+        #expect(MacScreenCardView.refusedBody(.other(reason: nil), host: "Studio")
+            == L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again."))
+        // A known code keeps its own step.
+        #expect(MacScreenCardView.refusedBody(.notFound, host: "Studio")
+            == L.t("macScreen.hub.notFoundBody", "This device was removed from your devices."))
+        #expect(MacScreenCardView.refusedTitle(rateLimited, host: "Studio") == L.t("macScreen.card.failedTitle", "Couldn’t connect"))
+        // A Linux desktop has no cmux app or Settings: its not-shared step names its screen host.
+        #expect(MacScreenCardView.refusedBody(.notShared, host: "lane", platform: .linux).contains("linux-host share on"))
+        // Zero touch (Z7): offline asks nothing of the other machine, on every platform.
+        let waits = L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
+        for platform in [DevicePlatform.linux, .macos, nil] {
+            #expect(MacScreenCardView.refusedBody(.hostOffline, host: "Studio", platform: platform) == waits)
+        }
     }
 
     @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {
@@ -183,7 +290,7 @@ struct MacScreenHubCardTests {
     /// A device tab shows the stream's controls only while a session streams.
     @Test func deviceTabsShowStreamControlsOnlyWhileStreaming() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(pane.model.card == .hubConnect)
         #expect(!pane.model.showsStreamControls)
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
@@ -203,7 +310,7 @@ struct MacScreenViewOnlyTests {
 
     @Test func theSessionsScopeDecidesViewOnly() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
-        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences())
+        let pane = MacScreenPane(hubDevice: viewer, name: "Studio", preferences: ScreenPreferences(), viewerLook: .current)
         #expect(!pane.model.viewOnly)
         viewer.phase = .streaming(sessionID: "s1", scope: .view)
         #expect(pane.model.viewOnly)
@@ -489,6 +596,72 @@ struct MacScreenHubViewerTests {
         #expect(ends.items == ["s1 expired"])
     }
 
+    /// One Mac to another sat on Connecting forever (ask-a85f219369): an own-device session is
+    /// approved at once, and its ticket comes only as a push, which has no backlog. Past the wait the
+    /// viewer asks the hub for the ticket itself and streams.
+    @Test func anApprovedSessionWithNoTicketPushAsksTheHubForIt() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let asked = CallLog()
+        viewer.reattachSession = { _, id in
+            asked.items.append(id)
+            return ticket(id, scope: .full)
+        }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        #expect(viewer.phase == .approved(sessionID: "s1", scope: .full))
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase != .streaming(sessionID: "s1", scope: .full) { await Task.yield() }
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(asked.items == ["s1"])
+    }
+
+    /// The hub has no ticket either (the host went offline): the tab says so instead of Connecting.
+    @Test func anApprovedSessionTheHubCannotAdmitEndsWithItsReason() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.reattachSession = { _, _ in
+            throw DeviceHubError.server(status: 409, code: .hostOffline, message: "the host is not connected")
+        }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.view)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .view)), scope: .view, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where viewer.phase.isPending { await Task.yield() }
+        #expect(viewer.phase == .refused(.hostOffline, requested: .view))
+        #expect(ends.items == ["s1 failed"])
+    }
+
+    /// `/reattach` answers with the viewer ticket and also pushes it: the second copy of the ticket
+    /// for the stream already running starts nothing (a second connect would replay the ticket).
+    @Test func theReattachedTicketsPushStartsNoSecondStream() async throws {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        viewer.reattachSession = { _, id in ticket(id) }
+        viewer.makeSignaling = { _, _ in IdleSignaling() }
+        var started = 0
+        viewer.startStream = { started += 1 }
+        let clock = ManualClock()
+        viewer.ticketDeadline = DemandTimer(owner: "test.mac-screen.hub-ticket-wait", clock: clock)
+        viewer.phase = .requesting(.full)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .approved, scope: .full)), scope: .full, hub: hub)
+        try await clock.waitForSleeper()
+        clock.advance(by: viewer.ticketWait)
+        for _ in 0..<500 where started == 0 { await Task.yield() }
+        // The push of the same ticket comes after the HTTP answer.
+        viewer.accept(ticket("s1"))
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(started == 1)
+    }
+
     /// Full lowered to View: the card says the access changed and offers View Only.
     @Test func accessLoweredToViewIsNotRemoved() {
         #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .view) == .hubAccessLowered)
@@ -513,6 +686,26 @@ struct MacScreenHubViewerTests {
         viewer.request(.view)
         #expect(viewer.phase == .refused(.notSignedIn, requested: .view))
         #expect(viewer.lastScope == .view)
+    }
+
+    /// An open in the first seconds after launch, before the saved sign-in restored, asks
+    /// again once the hub comes, instead of keeping "Not Signed In".
+    @Test func aRequestRefusedForNoHubAsksAgainWhenTheHubComes() {
+        @MainActor final class Box { var hub: DeviceHub? }
+        let current = Box()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { current.hub }
+        viewer.request(.full)
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full))
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.notSignedIn, requested: .full), "still no hub: nothing to ask")
+        current.hub = testHub()
+        viewer.hubArrived()
+        #expect(viewer.phase == .requesting(.full))
+        // Any other card stays as it is when a hub comes.
+        viewer.cancel()
+        viewer.phase = .refused(.permissionNone, requested: .view)
+        viewer.hubArrived()
+        #expect(viewer.phase == .refused(.permissionNone, requested: .view))
     }
 }
 
@@ -637,6 +830,146 @@ struct MacScreenHubPushTests {
         #expect(viewer.phase == .ended(reason: MacScreenHubReason.signedOut.rawValue))
         pages.tabClosed("a")
     }
+
+    // MARK: Pushed and moved shares (P7)
+
+    private static let otherHostID = "5d1e2f3a-4b5c-4d6e-8f70-112233445566"
+
+    private func pushedTicket(_ id: String, peer: String = hostID, movedFrom: String? = nil, pushed: Bool = true) -> SessionTicket {
+        var made = ticket(id, peer: peer)
+        made.pushed = pushed
+        made.movedFrom = movedFrom
+        return made
+    }
+
+    /// Pages whose new tabs open the way the app opens them (made at once, named `p<n>`, logged), and whose
+    /// tab replacements fall back to the tab showing the record itself (logged as `replace <key>`).
+    private func pagesOpeningPushedTabs(_ opened: CallLog) -> MacScreenPages {
+        let pages = makePages()
+        pages.hub = testHub()
+        pages.makeSignaling = { _, _ in IdleSignaling() }
+        pages.events.openInNewTab = { [unowned pages] record, beside in
+            let key = "p\(opened.items.count)"
+            opened.items.append(key + (beside.isEmpty ? "" : " beside \(beside)"))
+            pages.prepare(key, record: record, byPerson: true)
+            _ = pages.makeView(for: key)
+        }
+        pages.events.replaceTab = { _, key in
+            opened.items.append("replace \(key)")
+            return false
+        }
+        return pages
+    }
+
+    /// A viewer ticket the hub pushed (a share moved here, a host pushed its screen here) opens that host's tab and
+    /// streams it with no click.
+    @Test func aPushedTicketOpensItsHostsTabAndStreams() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.handle(.sessionTicket(pushedTicket("s5")))
+        #expect(opened.items == ["p0"])
+        let viewer = try #require(pages.tab("p0")?.pane?.model.hub)
+        #expect(viewer.deviceID == hostID)
+        #expect(viewer.phase == .streaming(sessionID: "s5", scope: .full))
+        #expect(pages.pushedTickets.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("p0")
+    }
+
+    /// A tab of that host that is not busy gives its place to the pushed screen (selected): no second tab.
+    @Test func aPushedTicketReusesAnIdleTabOfItsHost() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let old = try #require(pages.tab("a")?.pane?.model.hub)
+        old.phase = .ended(reason: "host_stopped")
+        pages.handle(.sessionTicket(pushedTicket("s6")))
+        #expect(opened.items == ["replace a"])
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        #expect(viewer.phase == .streaming(sessionID: "s6", scope: .full))
+        #expect(pages.pushedTickets.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// A ticket that is not pushed and names no tab's session or request does nothing: no tab opens, an idle tab stays idle.
+    @Test func aTicketNoTabAskedForAndNotPushedDoesNothing() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        pages.handle(.sessionTicket(pushedTicket("s7", pushed: false)))
+        #expect(opened.items.isEmpty)
+        #expect(viewer.phase == .idle)
+        #expect(pages.pushedTickets.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// A session that ended because the share moved shows no failed card, also after its stream failed first,
+    /// and its replacement from the same host streams in the same tab.
+    @Test func aMovedEndShowsNoFailureAndItsReplacementTakesTheTab() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.phase = .streamFailed(sessionID: "s1", scope: .full)
+        pages.handle(.sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
+        #expect(viewer.phase == .ended(reason: "moved"))
+        #expect(MacScreenPaneModel.hubCard(viewer.phase) == .hubEnded(.moved))
+        #expect(MacScreenEndReason.moved.canReconnect && !MacScreenEndReason.moved.removesAccess)
+        #expect(viewer.movedSession == "s1")
+        pages.handle(.sessionTicket(pushedTicket("s2", movedFrom: "s1")))
+        #expect(opened.items.isEmpty)
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        #expect(viewer.movedSession == nil)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// The replacement may come before the old session's end: the streaming tab switches to it, and the late end changes nothing.
+    @Test func aMovedTicketBeforeTheEndSwitchesTheStreamingTab() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        viewer.phase = .streaming(sessionID: "s1", scope: .full)
+        pages.handle(.sessionTicket(pushedTicket("s2", movedFrom: "s1")))
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        pages.handle(.sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        #expect(opened.items.isEmpty)
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
+
+    /// A share that moved to another host: the old tab gives its place to the new host's tab, which streams.
+    @Test func aShareMovedToAnotherHostReplacesTheOldTab() throws {
+        let opened = CallLog()
+        let pages = pagesOpeningPushedTabs(opened)
+        let replaced = CallLog()
+        pages.events.replaceTab = { record, key in
+            replaced.items.append("\(key)->\(record.deviceID ?? "")")
+            return false // no pane lists it: the tab shows the record itself
+        }
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let old = try #require(pages.tab("a")?.pane?.model.hub)
+        old.phase = .streaming(sessionID: "s1", scope: .full)
+        pages.handle(.sessionEnded(sessionID: "s1", reason: "moved", movedTo: "s2"))
+        pages.handle(.sessionTicket(pushedTicket("s2", peer: Self.otherHostID, movedFrom: "s1")))
+        #expect(replaced.items == ["a->\(Self.otherHostID)"])
+        #expect(opened.items.isEmpty)
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        #expect(viewer.deviceID == Self.otherHostID)
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        pages.hub = nil
+        pages.tabClosed("a")
+    }
 }
 
 @MainActor
@@ -733,6 +1066,91 @@ struct MacScreenDevicesSettingsTests {
     }
 }
 
+@MainActor
+struct MacScreenDeviceActionTests {
+    @Test func settingsActionsUseVerifiedMacDevicesAndTheGuidedShareCallback() async throws {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let remote = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let offline = "7f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let phone = "8f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"\#(identity.id)","name":"This Mac","platform":"macos","online":true},{"id":"\#(remote)","name":"Remote Mac","platform":"macos","online":true},{"id":"\#(offline)","name":"Offline Mac","platform":"macos","online":false},{"id":"\#(phone)","name":"Phone","platform":"ios","online":true}]}"#
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "This Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hub = hub
+        let settings = MacScreenDevicesSettings(pages: pages)
+        var opened: String?
+        var shares = 0
+        settings.openScreen = { opened = $0 }
+        settings.shareThisMac = { shares += 1 }
+        func run(_ action: String, id: String? = nil, on: Bool? = nil) -> MacScreenDevicesSettings.Run {
+            .init(action: action, id: id, name: nil, scope: nil, on: on, relay: nil)
+        }
+
+        #expect((await settings.run(run("openScreen", id: remote))).error == nil)
+        #expect(opened == remote)
+        #expect((await settings.run(run("openScreen", id: identity.id))).error != nil)
+        #expect((await settings.run(run("openScreen", id: offline))).error != nil)
+        #expect((await settings.run(run("openScreen", id: phone))).error != nil)
+        #expect((await settings.run(run("openScreen", id: "unknown"))).error != nil)
+        #expect((await settings.run(run("shareThisMac", id: identity.id))).error == nil)
+        #expect(shares == 1)
+        #expect((await settings.run(run("setSharing", on: true))).error == nil)
+        #expect(shares == 2, "enabling from Settings uses the guided Share callback")
+        #expect((await settings.run(run("shareThisMac", id: remote))).error != nil)
+        #expect(shares == 2)
+    }
+
+    /// A Linux desktop (`cmux-rd linux-host`) is a screen this Mac views: Settings > Devices offers View screen and
+    /// opens it, and the sidebar's screen actions know it. An iPhone is neither.
+    @Test func aLinuxDesktopIsViewableFromSettingsAndTheSidebar() async throws {
+        let identity = DeviceIdentity(deviceID: UUID(), keys: TestDeviceKeys())
+        let linux = "9a1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let mac = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let phone = "8f1c2a4e-0d3b-4c5a-9e7f-112233445566"
+        let devicesBody = #"{"devices":[{"id":"\#(identity.id)","name":"This Mac","platform":"macos","online":true},{"id":"\#(linux)","name":"Desktop","platform":"linux","macScreenShared":1,"online":true},{"id":"\#(mac)","name":"Remote Mac","platform":"macos","online":true},{"id":"\#(phone)","name":"Phone","platform":"ios","online":true}]}"#
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MachineDevicesURLProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Test-Devices": devicesBody]
+        let client = DeviceHubClient(baseURL: URL(string: "https://hub.invalid")!, identity: identity,
+                                     tokens: DeviceHubAccountToken { "stack-token" },
+                                     session: URLSession(configuration: configuration))
+        let hub = DeviceHub(client: client, secrets: MemoryRelaySecretStore(), deviceName: "This Mac")
+        await hub.refreshDevices()
+
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        pages.hubConfigured = true
+        pages.hub = hub
+        let settings = MacScreenDevicesSettings(pages: pages)
+        var opened: String?
+        settings.openScreen = { opened = $0 }
+
+        let rows = Dictionary(uniqueKeysWithValues: settings.state.others.map { ($0.id, $0) })
+        #expect(rows[linux]?.screenAction?.kind == "view", "a Linux desktop row offers View screen")
+        #expect(rows[linux]?.screenAction?.disabled == false)
+        #expect(rows[mac]?.screenAction?.kind == "view")
+        #expect(rows[phone]?.screenAction == nil, "an iPhone hosts no screen this Mac views")
+
+        let result = await settings.run(.init(action: "openScreen", id: linux, name: nil, scope: nil, on: nil, relay: nil))
+        #expect(result.error == nil)
+        #expect(opened == linux)
+
+        let availability = hub.macScreenAvailability
+        #expect(availability[linux] == true, "the sidebar's screen action reaches a Linux desktop")
+        #expect(availability[mac] == true)
+        #expect(availability[phone] == nil)
+    }
+}
+
 /// The host's controls tell the hub the cause before anything closes here.
 @MainActor
 struct MacScreenHubHostOrderTests {
@@ -785,7 +1203,7 @@ struct MacScreenHubHostOrderTests {
         host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
         for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
         #expect(host.session == nil && made.items.isEmpty, "nothing served")
-        #expect(ends.items == ["s1 failed"])
+        #expect(ends.items == ["s1 consent_required"], "the refusal says why")
         #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
         // The same Mac with consent support and Screen sharing on serves the view (read when it arrives).
         fake.capable = true
@@ -802,8 +1220,64 @@ struct MacScreenHubHostOrderTests {
         #expect(await consent.set(.screen, on: false) == nil)
         #expect(host.session == nil)
         for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
-        #expect(ends.items == ["s1 failed", "s2 host_stopped"])
+        #expect(ends.items == ["s1 consent_required", "s2 host_stopped"])
         hubAnswers.open()
+    }
+
+    /// Leo, 2026-11-16 (ask-da398bba67): a machine joined to your account is yours to screen share onto.
+    /// A ticket the hub admitted as the person's own device (`ownerKind: user`) serves at once on a joined
+    /// Mac whose consent allows nothing: no consent read, no sheet. A consent change never stops it.
+    @Test func ownAccountTicketServesOnAJoinedMacWithNoConsentAndNoSheet() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog(), reads = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.record = JoinConsentRecord(screen: false, control: false, consentRequired: true)
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        #expect(!consent.permitsMacScreen(control: true), "joined, nothing granted")
+        host.consentGate = { ticket in
+            reads.items.append(ticket.sessionId)
+            return await consent.allowsMacScreen(control: ticket.scope == .full, requester: ticket.peer.name)
+        }
+        host.serve(ticket("s1", role: .host, scope: .full, peer: "v1", ownerKind: "user"))
+        #expect(host.session?.id == "s1" && host.session?.scope == .full && host.session?.ownAccount == true, "served at once, Full Control")
+        #expect(reads.items.isEmpty && consent.ask == nil && ends.items.isEmpty, "no consent read, no sheet")
+        host.consentChanged { consent.permitsMacScreen(control: $0 == .full) }
+        #expect(host.session?.id == "s1", "a consent change does not stop the person's own session")
+        host.sessionOver("s1")
+    }
+
+    /// The three that still go through this Mac's consent (and its sheet): a hub that does not say whose the
+    /// session is, a team owner, and shared access. Same account is only what the hub says, never assumed.
+    @Test(arguments: [nil, "team", "shared"] as [String?])
+    func aTicketTheHubDidNotAdmitAsOwnStillAsks(ownerKind: String?) async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        let made = CallLog(), ends = CallLog()
+        host.makeSignaling = { _, _ in
+            made.items.append("signaling")
+            return OpenSignaling()
+        }
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.record = JoinConsentRecord(screen: false, control: false, consentRequired: true)
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        host.consentGate = { await consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1", ownerKind: ownerKind))
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session == nil && made.items.isEmpty, "nothing served")
+        #expect(ends.items == ["s1 consent_required"])
+        #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen), "the sheet asks")
     }
 
     /// Consent reads that answer out of order: the newer ticket serves and the older one is replaced,
@@ -1024,5 +1498,44 @@ struct MacScreenRdWishTests {
         #expect(MacScreenRdDocument.wish(.auto, refresh: 60, paneWidth: 600).maxWidth == 1280, "never under 1280")
         #expect(MacScreenRdDocument.wish(.high, refresh: 60, paneWidth: 1000).maxWidth == nil, "High keeps the full size")
         #expect(MacScreenRdDocument.wish(.smooth, refresh: 120, paneWidth: 1000) == (1920, 120))
+    }
+}
+
+/// Customize's bitrate cap and cursor ride the offer; the defaults add no line (today's offer).
+struct MacScreenRdCustomizeTests {
+    @Test func customizeWishesRoundTripAndDefaultsAddNothing() throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.customize(ScreenPreferences())
+        #expect(!document.text.contains("max-kbps") && !document.text.contains("cmux-rd-cursor"))
+        document.customize(ScreenPreferences(maxKbps: 10_000, showCursorInStream: false))
+        #expect(document.text.contains("a=cmux-rd-max-kbps:10000\r\n"))
+        #expect(document.text.contains("a=cmux-rd-cursor:0\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: document.text))
+        #expect(parsed == document)
+    }
+}
+
+/// Screen Sharing Profile (`remote.screenSharingProfile`): Ultra travels in the offer as
+/// `a=cmux-rd-encode-profile:ultra` (cmux-hub-host rd_doc.rs); Balanced sends no line.
+struct MacScreenRdEncodeProfileTests {
+    private let key = String(repeating: "ab", count: 32)
+
+    @Test func anUltraOfferRoundTripsItsEncodeProfile() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.maxFps = 120
+        offer.encodeProfile = "ultra"
+        #expect(offer.text.contains("\r\na=cmux-rd-encode-profile:ultra\r\n"))
+        let parsed = try #require(MacScreenRdDocument(text: offer.text))
+        #expect(parsed == offer)
+        #expect(parsed.encodeProfile == "ultra")
+    }
+
+    @Test func aBalancedOfferSendsNoProfileLine() throws {
+        var offer = MacScreenRdDocument(key: key)
+        offer.encodeProfile = MacScreenPages.encodeProfile(ScreenSharingProfile.balanced)
+        #expect(!offer.text.contains("encode-profile"))
+        #expect(try #require(MacScreenRdDocument(text: offer.text)).encodeProfile == nil)
+        #expect(MacScreenPages.encodeProfile(ScreenSharingProfile.ultra) == "ultra")
+        #expect(RemoteSettings().screenSharingProfile == .balanced, "Balanced stays the default")
     }
 }

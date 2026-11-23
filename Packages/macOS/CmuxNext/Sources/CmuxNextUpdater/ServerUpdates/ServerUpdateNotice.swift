@@ -84,7 +84,7 @@ public nonisolated struct ServerUpdateNotice: Sendable, Equatable, Identifiable 
     public var confirmSpec: CmuxDialogSpec {
         let restart = CmuxDialogButton(id: "restart", title: UpdaterStrings.text("server.confirm.restart", "Restart"),
                                        role: impact.isDestructive ? .destructive : .default)
-        return CmuxDialogSpec(title: UpdaterStrings.format("server.confirm.title", "Restart %@?", serverLabel),
+        return CmuxDialogSpec(usesTransientMaterial: true, title: UpdaterStrings.format("server.confirm.title", "Restart %@?", serverLabel),
                               lines: impact.kept + impact.lost,
                               buttons: [.cancel(), restart],
                               identifier: "cmux.server-restart.\(kind.rawValue)")

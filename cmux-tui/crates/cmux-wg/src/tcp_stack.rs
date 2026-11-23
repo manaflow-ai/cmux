@@ -12,7 +12,7 @@
 //! whose SYN came with no key is reset, never matched by address.
 
 use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{BuildHasher, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -121,8 +121,15 @@ pub(crate) struct Conn {
     /// Head of the outbound queue not yet accepted by smoltcp.
     pub(crate) pending_write: Option<Bytes>,
     pub(crate) outbound_closed: bool,
+    /// The peer's FIN arrived: a socket that ends after this ended cleanly,
+    /// one that ends without it was reset or timed out.
+    pub(crate) remote_fin: bool,
+    /// Bytes taken from the socket after it closed, before the owner read
+    /// them (TIME-WAIT's timer would clear the socket's buffer).
+    pub(crate) drained: VecDeque<Bytes>,
     /// Set before the connection is dropped for a reason the owner must see
-    /// as an error (its peer was removed).
+    /// as an error (its peer was removed, or the socket was reset or timed
+    /// out before the peer's FIN).
     pub(crate) reset: Arc<AtomicBool>,
 }
 
@@ -321,6 +328,9 @@ impl TcpStack {
         // Under repeated loss, resend only the holes the peer's SACK blocks
         // show, several per round trip, with one window cut per episode.
         socket.set_sack_recovery(true);
+        // An underlay path smaller than the tunnel MTU that silently drops
+        // full segments: after two timeouts in a row, send 1280 byte packets.
+        socket.set_black_hole_fallback(true);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));
@@ -411,6 +421,8 @@ impl TcpStack {
             outbound: outbound_rx,
             pending_write: None,
             outbound_closed: false,
+            remote_fin: false,
+            drained: VecDeque::new(),
             reset,
         };
         (conn, stream)

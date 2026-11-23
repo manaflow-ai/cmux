@@ -4,7 +4,9 @@
 //! (`POST /v1/machines/join-tokens`) and redeems it here, the same redeem a pasted join line
 //! makes (`recovery.rs`). The pair code and the join line stay for machines with no sign-in.
 //!
-//! - Already joined to this hub (and not revoked there): nothing is minted.
+//! - Already joined to this hub (and not revoked there): nothing is minted, unless this
+//!   account's sign-in join is in another team than the person's token acts in: it leaves and
+//!   joins again in that team (the team the person's Cloud machines and mesh are in).
 //! - Revoked: never enrolled again on its own; the person rejoins (`host join --replace`).
 //! - Joined by another person, or to another hub: that join is left alone.
 //! - A home copied from another box: this box enrolls as itself (`settle_clone_at` first gives
@@ -52,8 +54,7 @@ use std::future::Future;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// `joined_by` of a join signing in made.
-pub(crate) const JOINED_BY_SIGN_IN: &str = "sign-in";
+pub(crate) use crate::machine_record::JOINED_BY_SIGN_IN;
 /// The minted token's life: the shortest the hub takes; it is redeemed at once.
 const MINT_TTL_SECS: u64 = 60;
 /// How long an enroll waits for another join or leave on this machine to finish.
@@ -155,6 +156,9 @@ pub(super) trait EnrollHub {
     /// capabilities with its own credential (`self_capabilities.rs`). It saves only after the
     /// enroll let go of the join lock.
     fn state_capabilities(&self);
+    /// The team the person's token acts in (its `team` claim, unverified), or None when it names
+    /// none: the team a join minted with it lands in.
+    fn person_team(&self) -> Option<String>;
 }
 
 /// Whose a join is to the account acting on it.
@@ -194,7 +198,7 @@ pub(super) fn owner_among(recorded: Option<&str>, accounts: &[String]) -> Owner 
 
 /// The machine's name: its host name, with a DEV build's tag after it.
 fn enroll_name(build_tag: Option<&str>) -> String {
-    let base = crate::pairing::machine_name();
+    let base = crate::pairing::host_label();
     let tag: String = build_tag
         .unwrap_or_default()
         .chars()
@@ -462,6 +466,11 @@ pub(super) async fn enroll_at(
     if let Err(e) = port.resume().await {
         tracing::debug!("sign-in enroll: no join to finish: {e:#}");
     }
+    // A proposal another account's sign-in left unfinished is set aside, so this join's mint and
+    // redeem make a proposal of their own, under this account.
+    if recovery::retire_other_account_pending_at(home, current, account).is_err() {
+        return EnrollOutcome::Unavailable;
+    }
     let Ok(mut record) = load_at(home) else { return EnrollOutcome::Unavailable };
     // The last person's sign-in join, recorded under their account, and another person signs in
     // (an account switch whose sign-out's leave acpmux never got): that person's leave is
@@ -479,6 +488,38 @@ pub(super) async fn enroll_at(
             return EnrollOutcome::Unavailable;
         }
         if !leave_locked(home, current, &last, &revoke_own).await.left {
+            return EnrollOutcome::Unavailable;
+        }
+        record = None;
+    }
+    // This account's own sign-in join in another team than the one its token acts in (a join
+    // made while the app minted for another team): left, then enrolled again in the token's
+    // team, so the join, its mesh and the person's Cloud machines are one team. Otherwise its
+    // Cloud tunnel asks a team with no mesh for good (cloud-carrier-ssh-failover row
+    // 2026-11-15T21:18Z: joined in the Stack sign-up team, machines and mesh in the personal one).
+    // A join made any other way stays in the team the person chose; a token naming no team says
+    // nothing.
+    if let (Some(mine), Some(team)) = (
+        record.as_ref().filter(|record| {
+            record.joined_by.as_deref() == Some(JOINED_BY_SIGN_IN)
+                && !record.revoked
+                && !copied_here(home, record, current)
+                && origin(Some(record.hub_origin.clone())).ok().as_deref() == Some(hub)
+                && owner_of(record.user_id.as_deref(), Some(account)) == Owner::Mine
+        }),
+        port.person_team(),
+    ) && mine.team_id != team
+    {
+        tracing::info!(
+            machine = %mine.machine_id,
+            from = %mine.team_id,
+            to = %team,
+            "sign-in enroll: the join moves to the sign-in's team"
+        );
+        if mark_leave(home, Some(account)).is_err() {
+            return EnrollOutcome::Unavailable;
+        }
+        if !leave_locked(home, current, &[account.to_owned()], &revoke_own).await.left {
             return EnrollOutcome::Unavailable;
         }
         record = None;
@@ -622,6 +663,33 @@ impl Platform {
     }
 }
 
+/// A single-use join token minted at `hub` by the person whose access token is `access`: the
+/// first half of every join, this machine's sign-in enroll and a browser's own device enroll
+/// (`server/web_device.rs`) alike.
+pub(crate) async fn mint_join_token(
+    hub: &str,
+    access: &Zeroizing<String>,
+    label: &str,
+) -> Result<Zeroizing<String>> {
+    let body: cmux_cloud_client::types::JoinTokenMint =
+        serde_json::from_value(json!({"label": label, "ttlSeconds": MINT_TTL_SECS}))?;
+    let minted = match hub_client(hub, Some(access))?.machine_join_mint(&body).await {
+        Ok(body) => serde_json::to_value(body.into_inner())?,
+        // What was sent where, never the token: the next probe row explains itself.
+        Err(error) => {
+            let sent = super::sent_credential::describe(access, now_ms() / 1000);
+            return Err(refused(error)
+                .await
+                .context(format!("POST {hub}/v1/machines/join-tokens with {sent}")));
+        }
+    };
+    let token = minted
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("the hub minted no token"))?;
+    Ok(Zeroizing::new(parse_token_text(token).map_err(|_| anyhow!("minted token malformed"))?))
+}
+
 /// A refusal's status and code only: its message may repeat what was sent.
 async fn refused(error: cmux_cloud_client::Error<cmux_cloud_client::ByteStream>) -> anyhow::Error {
     let error = cmux_cloud_client::ApiError::from_api(error).await;
@@ -675,23 +743,7 @@ impl EnrollHub for Platform {
     }
 
     async fn mint(&self, label: &str) -> Result<Zeroizing<String>> {
-        let body: cmux_cloud_client::types::JoinTokenMint =
-            serde_json::from_value(json!({"label": label, "ttlSeconds": MINT_TTL_SECS}))?;
-        let minted = match self.person()?.machine_join_mint(&body).await {
-            Ok(body) => serde_json::to_value(body.into_inner())?,
-            // What was sent where, never the token: the next probe row explains itself.
-            Err(error) => {
-                let sent = super::sent_credential::describe(&self.access, now_ms() / 1000);
-                return Err(refused(error)
-                    .await
-                    .context(format!("POST {}/v1/machines/join-tokens with {sent}", self.hub)));
-            }
-        };
-        let token = minted
-            .get("token")
-            .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("the hub minted no token"))?;
-        Ok(Zeroizing::new(parse_token_text(token).map_err(|_| anyhow!("minted token malformed"))?))
+        mint_join_token(&self.hub, &self.access, label).await
     }
 
     async fn redeem(
@@ -731,6 +783,10 @@ impl EnrollHub for Platform {
 
     fn state_capabilities(&self) {
         super::self_capabilities::state_on_sign_in();
+    }
+
+    fn person_team(&self) -> Option<String> {
+        super::sent_credential::team(&self.access)
     }
 }
 

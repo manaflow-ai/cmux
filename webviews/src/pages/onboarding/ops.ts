@@ -4,9 +4,11 @@
 // OnboardingModel and answers `state`, pushes `changed` with the whole state after every model
 // change, and runs each gesture on the model. Text the page shows is its own (Localizable.xcstrings
 // next to this file); the host sends values, never sentences.
+import type { AccountFamily, AccountRowWire, AccountRunParams, AccountRunReply } from "../shared/signIn/accountSignIn";
 
 /** The one tool a window shows; it never changes for a window. */
-export type OnboardingStep = "agents" | "importData" | "computerUse";
+/** `makeItYours` is a new person's one setup screen: how they work, the density and a background (cmux#48416). */
+export type OnboardingStep = "agents" | "importData" | "computerUse" | "makeItYours";
 
 /** What the footer's filled button says (OnboardingModel.primaryTitle). */
 export type PrimaryAction = "continue" | "done" | "detecting" | "findBrowsers" | "import" | "beginImporting";
@@ -67,12 +69,21 @@ export interface AgentsState {
 
 // MARK: Import from Browser
 
-export type ImportDataKind = "bookmarks" | "history" | "openTabs" | "cookies" | "searchEngines" | "passwords";
+export type ImportDataKind =
+  | "bookmarks"
+  | "history"
+  | "openTabs"
+  | "extensions"
+  | "cookies"
+  | "searchEngines"
+  | "passwords";
 
 export interface ImportCounts {
   bookmarks: number;
   history: number;
   openTabs: number;
+  /** Extensions read (store ones open their page in the profile, unpacked ones are copied). Older hosts leave it out. */
+  extensions?: number;
   cookies: number;
   passwords: number;
   searchEngines: number;
@@ -194,6 +205,50 @@ export interface ComputerUseState {
   comebacks: number;
 }
 
+// MARK: Make cmux Yours
+
+/** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
+ * terminal-first (Cmd-T opens a terminal). */
+export type WorkStyle = "gui" | "terminal";
+/** Three of the five `appearance.density` levels: compact, standard (the default) and comfortable. */
+export type DensityChoice = "compact" | "standard" | "comfortable";
+
+/** A background offered: Shuffle Paintings (`daily`, no name: the page names it) or a built-in work. */
+export interface MakeItYoursBackground {
+  id: string;
+  /** The work's "Title — Artist"; empty for Shuffle Paintings. */
+  name: string;
+  preview: HostImage | null;
+}
+
+export interface MakeItYoursState {
+  workStyle: WorkStyle;
+  density: DensityChoice;
+  /** The background's id; null: none. */
+  background: string | null;
+  backgrounds: MakeItYoursBackground[];
+  /** The backgrounds' previews were read. */
+  loaded: boolean;
+}
+
+// MARK: Sign-in (logins done right)
+
+/** Where one provider stands, as the daemon decides it: the page never re-derives installed or
+ * ready, it only lays its own moments over this (installing from `agents`, a sign-in in progress
+ * from the shared controller, shared/signIn/useAccountSignIn.ts). */
+export interface SignInReadinessProvider {
+  family: AccountFamily;
+  state: "notInstalled" | "signInRequired" | "ready";
+  /** Ready: the signed-in account. */
+  account?: string;
+  /** The provider's account label, when the daemon has one. */
+  label?: string;
+}
+
+export interface SignInReadiness {
+  providers: SignInReadinessProvider[];
+}
+
 // MARK: The page
 
 export interface OnboardingState {
@@ -202,6 +257,14 @@ export interface OnboardingState {
   agents: AgentsState | null;
   importer: ImportState | null;
   computerUse: ComputerUseState | null;
+  /** Make cmux Yours' state; null on the other steps (absent from older hosts). */
+  makeItYours?: MakeItYoursState | null;
+  /** The in-place sign-in's accounts, the same rows Settings reads (`accounts.signInAccounts`);
+   * absent from older hosts. */
+  signInAccounts?: AccountRowWire[] | null;
+  /** Each provider's readiness (GitHub, ChatGPT, Claude); absent from older hosts, and then the
+   * agents step is as it was. */
+  signInReadiness?: SignInReadiness | null;
 }
 
 /** Ops the page calls: [params, result]. Every gesture answers `{}` and the change comes back on
@@ -211,13 +274,16 @@ export interface OnboardingOps {
   /** The page gained focus: back from a Sign In, the host checks the sign-ins again. A read, so it
    * needs no click or key (the page engine keys its own child window, not the onboarding window). */
   "cmux.onboarding.focused": [Record<string, never>, unknown];
-  /** The footer's filled button, or Return. */
+  /** The footer's filled button, or Return (cmux Tools: Turn On, then Done). */
   "cmux.onboarding.next": [Record<string, never>, unknown];
-  /** Skip / Skip Importing / Not Now, or Escape. */
+  /** Skip / Skip Importing / Not Now, or Escape (cmux Tools' Not Now answers no). */
   "cmux.onboarding.skip": [Record<string, never>, unknown];
   "cmux.onboarding.back": [Record<string, never>, unknown];
   "cmux.onboarding.agents.signIn": [{ id: string }, unknown];
   "cmux.onboarding.agents.install": [{ id: string }, unknown];
+  /** One in-place sign-in gesture: the same actions (ACCOUNT_ACTIONS) and replies as
+   * `cmux.settings.accounts.run`. Unlike the other gestures it answers with the daemon's reply. */
+  "cmux.onboarding.accounts.run": [AccountRunParams, AccountRunReply];
   "cmux.onboarding.import.toggleProfile": [{ id: string }, unknown];
   "cmux.onboarding.import.toggleKind": [{ kind: ImportDataKind }, unknown];
   "cmux.onboarding.import.toggleKeepInSync": [Record<string, never>, unknown];
@@ -230,6 +296,11 @@ export interface OnboardingOps {
   "cmux.onboarding.import.skipPasswords": [Record<string, never>, unknown];
   "cmux.onboarding.computerUse.allow": [{ pane: ComputerUsePane }, unknown];
   "cmux.onboarding.computerUse.restart": [Record<string, never>, unknown];
+  /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
+  "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
+  "cmux.onboarding.makeItYours.density": [{ value: DensityChoice }, unknown];
+  /** `id` null: no background. */
+  "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
 }
 
 export interface OnboardingEvents {
@@ -244,6 +315,7 @@ export const OPS = {
   back: "cmux.onboarding.back",
   signIn: "cmux.onboarding.agents.signIn",
   install: "cmux.onboarding.agents.install",
+  accountsRun: "cmux.onboarding.accounts.run",
   toggleProfile: "cmux.onboarding.import.toggleProfile",
   toggleKind: "cmux.onboarding.import.toggleKind",
   toggleKeepInSync: "cmux.onboarding.import.toggleKeepInSync",
@@ -255,5 +327,8 @@ export const OPS = {
   skipPasswords: "cmux.onboarding.import.skipPasswords",
   allow: "cmux.onboarding.computerUse.allow",
   restart: "cmux.onboarding.computerUse.restart",
+  workStyle: "cmux.onboarding.makeItYours.workStyle",
+  density: "cmux.onboarding.makeItYours.density",
+  background: "cmux.onboarding.makeItYours.background",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;

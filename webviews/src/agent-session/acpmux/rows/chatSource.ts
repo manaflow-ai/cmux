@@ -6,7 +6,7 @@
 // A chat left keeps its last window here (`kept`), settled rows only, for its next select to draw
 // where v1's kept tail would be; the store's first window then replaces it in one step.
 import { type AdaptedChat, ChatAdapter, type ChatRowsContext } from "./adapter";
-import { CHAT_ROWS_OFF, ChatRowsHost, type ChatRowsPost } from "./host";
+import { CHAT_ROWS_OFF, CHAT_ROWS_OTHER_SID, CHAT_ROWS_SLOW, ChatRowsHost, type ChatRowsPost } from "./host";
 import { addChatRowsHost, listenForChatRows, receiveChatRows, removeChatRowsHost } from "./receiver";
 import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 
@@ -16,15 +16,25 @@ import { type ChatFall, ChatRowStore, type ChatRowsSnapshot } from "./store";
 export type ChatRowsState = "unknown" | "off" | "on";
 let state: ChatRowsState = "unknown";
 export const chatRowsState = (): ChatRowsState => state;
+/// Opens this document's host answered with a sid other than the one the page named
+/// (`CHAT_ROWS_OTHER_SID`): each fell that chat to v1 once, and left the switch as it was.
+let otherSids = 0;
+export const chatRowsOtherSids = (): number => otherSids;
 /// A test's fresh page.
 export function resetChatRowsState(): void {
   state = "unknown";
+  otherSids = 0;
 }
 
 /// The daemon's capability for the hold (acpmux capabilities.rs `HOLD_ATTACH`).
 export const HOLD_ATTACH_CAPABILITY = "attach-hold-v1";
 /// Chats whose last window a page keeps, as v1 keeps its tails (tailCache.ts `KEPT_TAILS`).
 export const KEPT_WINDOWS = 20;
+/// The longest a chat on the store waits on its first window after its open's answer (decision
+/// 276d): past it the chat falls to v1 (`CHAT_ROWS_SLOW`), so a quiet host never leaves the pane
+/// with no rows once the switch's hold ends. For now the switch's hold limit (direct.ts
+/// `SWITCH_HOLD_MS`); 6d's measurement of the first window sets the number.
+export const FIRST_WINDOW_MS = 1_500;
 
 export type ChatSourceHooks = {
   /// The page's context for a chat's adapter (adapter.ts `ChatRowsContext`).
@@ -35,14 +45,26 @@ export type ChatSourceHooks = {
   fell(chat: string, code: string): void;
 };
 
-type Shown = { chat: string; sid: string; adapter: ChatAdapter; stop: () => void; view?: AdaptedChat };
+type Shown = {
+  chat: string;
+  sid: string;
+  adapter: ChatAdapter;
+  stop: () => void;
+  view?: AdaptedChat;
+  /// `FIRST_WINDOW_MS` running, until the first window is in.
+  firstWindow?: ReturnType<typeof setTimeout>;
+};
+/// An open out: its answer is every choose of its chat's until it settles.
+type Opening = { chat: string; answer?: Promise<boolean> };
 type Kept = { snapshot: ChatRowsSnapshot; adapter: ChatAdapter; view?: AdaptedChat };
 
 export class ChatSource {
   readonly host: ChatRowsHost;
   private shown: Shown | undefined;
   /// The open out, if any: a later choose or close makes it stale, and its sid is closed on answer.
-  private opening: { chat: string } | undefined;
+  private opening: Opening | undefined;
+  /// `FIRST_WINDOW_MS`, set lower by a test.
+  firstWindowMs = FIRST_WINDOW_MS;
   /// The kept window drawn for the chat being opened, until its first window or its fall.
   private drawing: { chat: string; kept: Kept } | undefined;
   /// Least recently left first.
@@ -84,6 +106,10 @@ export class ChatSource {
   /// chat at a time, so any other is closed first; a chat already on it stays (a reconnect).
   async choose(chat: string, capabilities: ReadonlySet<string> | undefined): Promise<boolean> {
     if (this.shown?.chat === chat && this.asks(capabilities)) return true;
+    // This chat's open is out already (the attach asked with the list asked it): its answer is this
+    // choose's too, with no second open posted.
+    const out = this.opening;
+    if (out?.chat === chat && out.answer && this.asks(capabilities)) return out.answer;
     // Kept by `drawKept` for this chat: closing the chat before it must not drop it.
     const drawing = this.drawing?.chat === chat ? this.drawing : undefined;
     this.close();
@@ -91,10 +117,16 @@ export class ChatSource {
     // A chat that fell while shown stays v1 until another chat is chosen.
     if (!this.fallen.has(chat)) this.fallen.clear();
     if (!this.asks(capabilities) || this.fallen.has(chat)) return this.toV1(chat);
-    const ask = { chat };
+    const ask: Opening = { chat };
     this.opening = ask;
     listenForChatRows();
-    const opened = await this.host.open(chat);
+    ask.answer = this.opened(ask, this.host.open(chat));
+    return ask.answer;
+  }
+
+  private async opened(ask: Opening, opening: ReturnType<ChatRowsHost["open"]>): Promise<boolean> {
+    const chat = ask.chat;
+    const opened = await opening;
     if (this.opening !== ask) {
       if ("sid" in opened) this.host.close(opened.sid);
       return false;
@@ -102,6 +134,15 @@ export class ChatSource {
     this.opening = undefined;
     if ("fallen" in opened) {
       if (opened.fallen === CHAT_ROWS_OFF) state = "off";
+      if (opened.fallen === CHAT_ROWS_OTHER_SID) otherSids += 1;
+      return this.toV1(chat);
+    }
+    // Its sub fell while the open was out (a brand-new chat whose sub the daemon refused before the
+    // host answered, issue 44964): the store let the sid go then, with no chat shown to fall, so
+    // the fall is read here. The chat is v1's, as one that falls while shown (`onFall`).
+    if (!this.host.store.has(opened.sid)) {
+      this.host.close(opened.sid);
+      this.fallen.add(chat);
       return this.toV1(chat);
     }
     state = "on";
@@ -118,6 +159,7 @@ export class ChatSource {
     // A window that came before the answer is held already, with no one told of it.
     const first = this.host.store.snapshot(opened.sid);
     if (first?.ready) this.draw(shown, first);
+    else shown.firstWindow = setTimeout(() => this.slow(shown), this.firstWindowMs);
     return true;
   }
 
@@ -147,6 +189,7 @@ export class ChatSource {
     const shown = this.shown;
     if (!shown) return;
     this.shown = undefined;
+    clearTimeout(shown.firstWindow);
     shown.stop();
     const snapshot = this.host.store.snapshot(shown.sid);
     if (snapshot?.ready) this.keep(shown.chat, snapshot, shown.adapter);
@@ -168,6 +211,7 @@ export class ChatSource {
 
   private draw(shown: Shown, snapshot: ChatRowsSnapshot): void {
     if (this.shown !== shown || !snapshot.ready) return;
+    clearTimeout(shown.firstWindow);
     shown.view = shown.adapter.adapt(snapshot);
     if (this.drawing?.chat === shown.chat) this.drawing = undefined;
     this.hooks.rows(shown.chat);
@@ -206,10 +250,23 @@ export class ChatSource {
   private onFall(fall: ChatFall): void {
     const shown = this.shown;
     if (shown?.sid !== fall.sid) return;
+    this.fall(shown, fall.code);
+  }
+
+  /// No first window within `firstWindowMs` of the open's answer: the chat falls to v1 and its sid
+  /// is closed, so what comes for it after is dropped.
+  private slow(shown: Shown): void {
+    if (this.shown !== shown || shown.view) return;
+    this.host.close(shown.sid);
+    this.fall(shown, CHAT_ROWS_SLOW);
+  }
+
+  private fall(shown: Shown, code: string): void {
     this.shown = undefined;
+    clearTimeout(shown.firstWindow);
     shown.stop();
     this.fallen.add(shown.chat);
     this.toV1(shown.chat);
-    this.hooks.fell(shown.chat, fall.code);
+    this.hooks.fell(shown.chat, code);
   }
 }

@@ -17,7 +17,9 @@ const publicImage = (image: ApprovedImage): VmImage => Object.freeze({ id: image
 export const visibleVmImages = <C>(caller: Named<C, Principal>) => Effect.gen(function* () {
   if (keyHasScope(caller, "vm:read") === null) return yield* Effect.fail(missingScope("vm:read"));
   const catalog = yield* VmImages;
-  return catalog.images.filter((image) => visible(caller.value, image)).map(publicImage);
+  // The listing alone carries the inputs key; a creation receipt (publicImage) stays id, revision and name.
+  return catalog.images.filter((image) => visible(caller.value, image))
+    .map((image) => image.inputs_sha256 === undefined ? publicImage(image) : Object.freeze({ ...publicImage(image), inputs_sha256: image.inputs_sha256 }));
 });
 
 export interface VmImageAllowed<C> extends Proof<"VmImageAllowed", [C]> {}

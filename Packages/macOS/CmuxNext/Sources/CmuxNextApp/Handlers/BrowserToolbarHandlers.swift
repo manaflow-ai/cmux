@@ -56,13 +56,13 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.overflow.menu", run: { invocation in
             let (entry, chrome) = try context.shownPage(invocation)
-            chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry, settings: context.services.settings), from: .overflow)
+            chrome.toolbarButtons.presentGlass(overflowMenu(for: entry, registry: registry, settings: context.services.settings), from: .overflow)
         })
     }
 
     /// Wires a new browser page's buttons (`TabContentCache.onBrowserEntryCreated`).
     static func install(on entry: BrowserEntry, services: AppServices) {
-        let key = tabKey(entry)
+        let key = entry.key
         entry.state.onToolbarPress = { [weak services, weak entry] button in
             guard let services, let entry else { return }
             press(button, entry: entry, registry: services.registry)
@@ -118,14 +118,7 @@ enum BrowserToolbarHandlers {
     }
 
     private static func tabTarget(_ entry: BrowserEntry) -> ActionTargetRef {
-        ActionTargetRef(kind: .tab, id: tabKey(entry))
-    }
-
-    /// The tab id the App keys `entry` by (`TabContentCache`): the address
-    /// bar's, which an adopted page (a popup or link opened into a new tab)
-    /// keeps although its own page id differs.
-    private static func tabKey(_ entry: BrowserEntry) -> String {
-        entry.state.tabKey ?? entry.tab.id.rawValue
+        ActionTargetRef(kind: .tab, id: entry.key)
     }
 
     /// System, Light and Dark, each running `browserTheme`; the
@@ -143,16 +136,15 @@ enum BrowserToolbarHandlers {
     /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
     static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
-        let key = tabKey(entry)
+        let key = entry.key
         return services.registry.makeBrowserProfileMenu(
             tabKey: key, current: services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID,
             profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
             profileActions: !services.cache.browserTabs.isIncognitoTab(key))
     }
 
-    /// The More menu (cx-6qwm): buttons not in the toolbar (and Extensions while none is pinned), new
-    /// tab and windows, zoom, the browser's own pages, page tools, more tools, Settings, Help, then
-    /// Show in Toolbar (cx-d0d.81). Catalog rows the tab cannot run drop out; no engine prints yet.
+    /// The More menu (cx-6qwm, `ActionRegistry.makeBrowserMoreMenu`) on glass: the hidden toolbar buttons (and
+    /// Extensions while none is pinned) first, the toolbar's zoom row, then Show in Toolbar (cx-d0d.81).
     static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
         let buttons = entry.chrome?.toolbarButtons
@@ -163,28 +155,13 @@ enum BrowserToolbarHandlers {
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
             case .profile: entries.append(.action("browser.profile.choose"))
             case .theme: entries.append(.choices("browserTheme"))
-            // Zoom, Bookmark Manager and Downloads are rows of their own below.
+            // Zoom is the zoom row; Bookmark Manager and Downloads are rows of their own.
             // The media hub only while a tab has media.
             case .media: if buttons?.hasContent(.media) == true { entries.append(.action("browser.media.show")) }
             case .zoom, .favorites, .downloads, .overflow: break
             }
         }
-        if !entries.isEmpty { entries.append(.separator) }
-        entries += [
-            .action("newTab.default"), .action("newWindow"), .action("newIncognitoWindow"), .separator,
-            .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
-            .action("bookmark.manager"), .action("browserShowHistory"),
-            .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
-            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"),
-            .action("history.clear"), .separator,
-            .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,
-            .folder(.tools, [
-                .action("toggleBrowserFocusMode"), .action("palette.browserOpenDefault"),
-                .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"), .action("importFromBrowser"),
-            ]), .separator,
-            .action("openSettings"), .action("help.documentation"),
-        ]
-        let menu = registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
+        let menu = registry.makeBrowserMoreMenu(tabKey: entry.key, buttons: entries, chromium: entry.tab.engineKind == .cef) { buttons?.zoomRow($0) }
         return buttons?.addingShowInToolbar(to: menu, BrowserToolbarButtonsSetting.menuToggle(settings)) ?? menu
     }
 }

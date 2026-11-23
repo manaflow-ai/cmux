@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-design-system",
+  "name": { "en": "Design system" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: a design system of its own on top of cmux's (cmux-design.json), and a pane that shows it beside cmux's: type, spacing, colors, components and limits." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "paintpalette" },
+  "categories": ["samples", "developer-tools"],
+  "keywords": ["design system", "tokens", "type", "spacing", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderDesign",
+      "title": { "en": "Design system" },
+      "symbol": "paintpalette"
+    }
+  },
+  "activation": ["onInterface:cmux.pane/1"],
+  "files": ["dist/", "cmux-design.json"]
+}

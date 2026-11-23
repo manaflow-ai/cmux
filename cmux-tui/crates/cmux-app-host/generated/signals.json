@@ -55,8 +55,198 @@
       "pollFloorSeconds": 5,
       "staleAfterSeconds": 60
     },
+    "github.changes": {
+      "docs": "Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live.",
+      "scopes": [
+        "integration:github:read",
+        "net:api.github.com"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "show": {
+            "enum": [
+              "branch",
+              "mine",
+              "mentions",
+              "review-requested",
+              "search"
+            ],
+            "description": "branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added)."
+          },
+          "repo": {
+            "type": "string",
+            "maxLength": 140,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*/(\\.?[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.\\.[A-Za-z0-9._-]+)$",
+            "description": "owner/name: the repository for show: branch; for the others it narrows the list to that repository."
+          },
+          "branch": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "The head branch for show: branch."
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`."
+          },
+          "include": {
+            "enum": [
+              "open",
+              "open-and-merged"
+            ],
+            "description": "open (default) or open-and-merged (closed unmerged ones are left out)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "At most this many pull requests (default 10). Each costs four conditional reads."
+          },
+          "login": {
+            "type": "string",
+            "maxLength": 39,
+            "description": "The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com)."
+          }
+        }
+      },
+      "value": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "number",
+            "title",
+            "url",
+            "repo",
+            "author",
+            "draft",
+            "state",
+            "headRef",
+            "headSha",
+            "additions",
+            "deletions",
+            "checks",
+            "review",
+            "updatedAt"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "number": {
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "repo": {
+              "type": "string",
+              "description": "owner/name"
+            },
+            "author": {
+              "type": "string"
+            },
+            "draft": {
+              "type": "boolean"
+            },
+            "state": {
+              "enum": [
+                "open",
+                "merged",
+                "closed"
+              ]
+            },
+            "headRef": {
+              "type": "string",
+              "description": "The head branch."
+            },
+            "headSha": {
+              "type": "string"
+            },
+            "additions": {
+              "type": "integer",
+              "description": "Lines added."
+            },
+            "deletions": {
+              "type": "integer",
+              "description": "Lines removed."
+            },
+            "checks": {
+              "type": "object",
+              "required": [
+                "state",
+                "failing",
+                "pending",
+                "passing"
+              ],
+              "properties": {
+                "state": {
+                  "enum": [
+                    "failing",
+                    "pending",
+                    "passing",
+                    "none"
+                  ],
+                  "description": "failing when any check failed, else pending when any runs, else passing; none with no checks."
+                },
+                "failing": {
+                  "type": "integer"
+                },
+                "pending": {
+                  "type": "integer"
+                },
+                "passing": {
+                  "type": "integer"
+                }
+              },
+              "description": "The head commit's check runs and commit statuses, the latest of each."
+            },
+            "review": {
+              "enum": [
+                "approved",
+                "changes-requested",
+                "review-required",
+                "commented",
+                "none"
+              ],
+              "description": "Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came."
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "read": {
+        "reader": "github.changes",
+        "ops": [
+          {
+            "op": "integration.request",
+            "scope": "integration:github:read",
+            "docs": "GET /search/issues or /repos/{repo}/pulls, then each pull request, its reviews, and its head's check runs and status, through the person's GitHub sign-in; the gateway sends If-None-Match and replays an unchanged body."
+          },
+          {
+            "op": "net.fetch",
+            "scope": "net:api.github.com",
+            "docs": "The same reads on the public API when the gateway refuses, each with If-None-Match from the runtime's own ETag cache."
+          }
+        ]
+      },
+      "push": [
+        "github.changed"
+      ],
+      "pollFloorSeconds": 30,
+      "staleAfterSeconds": 60,
+      "safetyPollSeconds": 900
+    },
     "github.pulls": {
-      "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. Nothing pushes GitHub changes to cmux yet, so the runtime polls behind it.",
+      "docs": "The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls.",
       "scopes": [
         "integration:github:read",
         "net:api.github.com"
@@ -182,8 +372,150 @@
           }
         ]
       },
+      "push": [
+        "github.changed"
+      ],
+      "pollFloorSeconds": 60,
+      "staleAfterSeconds": 300,
+      "safetyPollSeconds": 900
+    },
+    "http.json": {
+      "docs": "A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host.",
+      "scopes": [
+        "net:<host>"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 2048,
+            "pattern": "^https://",
+            "description": "The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains)."
+          },
+          "everySeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 86400,
+            "description": "Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request."
+          }
+        }
+      },
+      "value": {
+        "description": "The response body, parsed as JSON."
+      },
+      "read": {
+        "reader": "http.json",
+        "ops": [
+          {
+            "op": "net.fetch",
+            "scope": "net:<host>",
+            "docs": "GET params.url with cache: \"shared\": the daemon's shared HTTP cache (apps/http_cache.rs) answers it, one request per URL for every app, after the egress gate checks this app's net:<host> scope."
+          }
+        ]
+      },
       "push": [],
       "pollFloorSeconds": 60,
+      "staleAfterSeconds": 300
+    },
+    "system_calendar.events": {
+      "docs": "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+      "scopes": [
+        "system_calendar:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "value": {
+        "type": "object",
+        "required": [
+          "access",
+          "events"
+        ],
+        "properties": {
+          "access": {
+            "enum": [
+              "granted",
+              "denied",
+              "restricted",
+              "notDetermined",
+              "unavailable"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "title",
+                "start",
+                "end",
+                "allDay",
+                "calendar"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number",
+                  "description": "Unix ms"
+                },
+                "end": {
+                  "type": "number",
+                  "description": "Unix ms"
+                },
+                "allDay": {
+                  "type": "boolean"
+                },
+                "calendar": {
+                  "type": "string",
+                  "description": "The calendar's title"
+                },
+                "color": {
+                  "type": "string",
+                  "description": "The calendar's color, #rrggbb"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "read": {
+        "op": "system_calendar.events"
+      },
+      "push": [
+        "system_calendar.changed"
+      ],
+      "pollFloorSeconds": 5,
       "staleAfterSeconds": 300
     },
     "workspace.list": {

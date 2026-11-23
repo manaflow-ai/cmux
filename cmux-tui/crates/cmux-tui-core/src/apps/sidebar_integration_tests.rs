@@ -52,6 +52,7 @@ impl Session {
             extra: Vec::new(),
             local: Some(self.0.join("local")),
             customize: Some(self.0.join("customize")),
+            saved_prompts: None,
             defaults: Some(Vec::new()),
         }
     }
@@ -653,6 +654,40 @@ fn a_customize_save_that_declares_a_new_read_scope_gets_it() {
         grants(&supervisor).into_iter().collect::<Vec<_>>(),
         vec!["workspace:read".to_string()]
     );
+    drop(supervisor);
+    mux.shutdown();
+}
+
+/// A customize folder that appears while cmux runs (a shared collection
+/// imported with `--on`, a profile, a first save) installs as it would at
+/// start: its read scopes and the sandbox. Write scopes and `actions:run`
+/// wait for the person's grant (base red: the live path seeded every
+/// required scope unsandboxed, so a shared link's views could write to
+/// terminals and run actions with no card).
+#[test]
+fn a_customize_folder_that_appears_while_running_gets_only_its_reads() {
+    let session = Session::new();
+    let mux = session.open();
+    let supervisor = session.supervisor(&mux);
+    let customize = session.0.join("customize");
+    write_app(&customize, "local/customize", "1.0.0");
+    let path = customize.join("cmux-app.v2.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["scopes"] = json!({
+        "workspace:read": "r", "workspace:write": "w",
+        "terminal:read": "r", "terminal:write": "w", "actions:run": "run"
+    });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    supervisor.reload_local_apps(&HashMap::new());
+    let record = supervisor.inner.lock().unwrap().mirror.apps["local/customize"].clone();
+    assert!(record.installed);
+    assert_eq!(
+        record.grants.into_iter().collect::<Vec<_>>(),
+        vec!["terminal:read".to_string(), "workspace:read".to_string()],
+        "a customize folder that appeared live was granted more than its reads"
+    );
+    assert!(record.sandboxed, "a customize folder that appeared live runs unsandboxed");
     drop(supervisor);
     mux.shutdown();
 }

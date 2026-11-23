@@ -12,11 +12,13 @@ mod cards_tests;
 mod checkpoint;
 pub use checkpoint::Saved;
 mod claude;
+mod codex;
 mod fold;
 mod input;
 mod kinds;
 #[cfg(test)]
 mod kinds_tests;
+mod narration;
 #[cfg(test)]
 mod tests;
 mod user;
@@ -24,15 +26,16 @@ mod user;
 mod user_tests;
 mod v1;
 
-use crate::row::{Row, RowKind};
+use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 10 writes the card rows, patched by their later records (decisions 253, 254); version
+/// Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
+/// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 10;
+pub const VERSION: u32 = 11;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -49,6 +52,26 @@ const MAX_KEY_BYTES: usize = 256;
 pub enum Harness {
     V1,
     Claude,
+    Codex,
+}
+
+/// The stable identity a followed native transcript gives a prompt. The actor uses the text for
+/// bounded act/echo matching and keeps the native id for diagnostics and correlation. This is a
+/// parser result only: it does not reserve a row or mutate translator state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PromptIdentity {
+    pub id: String,
+    pub text: String,
+}
+
+/// Extract a followed transcript's prompt identity without translating it. A host stream has no
+/// native transcript identity, so callers must use its own protocol's prompt fields.
+pub fn prompt_identity(harness: Harness, bytes: &[u8]) -> Result<Option<PromptIdentity>, Error> {
+    match harness {
+        Harness::V1 => Ok(None),
+        Harness::Claude => claude::prompt_identity(bytes),
+        Harness::Codex => Ok(None),
+    }
 }
 
 /// Relative to exactly the bytes supplied to `translate`, never a raw-file offset.
@@ -71,6 +94,11 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// A row taken back: a reply the harness superseded, a prompt that never ran. Its body
+    /// becomes `{"hidden":true}`, its estimate zero and its phase `leaving`; its id and place stay.
+    /// At rev 1 the row was open and settles so; past 1 it had settled and is patched. The page
+    /// plays the row's exit from this one op, never from a diff of two windows.
+    Leave(OwnedRow),
     /// Add or update one bounded prompt-queue entry, or remove it by id hash.
     Queue(QueueChange),
     /// Apply before the following settle. Input values are JSON, copied/decoded by
@@ -150,6 +178,21 @@ pub struct QueueEntry {
     pub span: u32,
     pub text_len: u32,
 }
+
+/// Apply one followed-chat action after its raw line is durable. The action
+/// line's raw `place` and `span` become the queue entry's source coordinates;
+/// the translator remains the sole owner of queue state.
+#[derive(Deserialize)]
+struct ActBody {
+    #[serde(rename = "promptId")]
+    prompt_id: String,
+    #[serde(default)]
+    at: u64,
+    #[serde(default)]
+    held: bool,
+    #[serde(rename = "textLen", default)]
+    text_len: u64,
+}
 impl QueueEntry {
     const AT_MASK: u64 = (1 << 48) - 1;
     const STATE_SHIFT: u32 = 48;
@@ -194,11 +237,29 @@ pub struct OwnedRow {
     pub group: Option<u64>,
     pub at: u64,
     pub open: bool,
+    /// Born on the line the translator read last: an open row reads `entering` until the next
+    /// line begins, then `live` ([`OwnedRow::phase`]).
+    pub entering: bool,
     pub bytes: u64,
     pub lines: u64,
     pub fields: BTreeMap<String, String>,
 }
 impl OwnedRow {
+    /// Where the row is in its life, from its own state only, so a replay writes the same text:
+    /// a row taken back ([`Change::Leave`], its body `{"hidden":true}`) is leaving, a closed row
+    /// settled, an open one entering on the line that bore it and live after.
+    pub fn phase(&self) -> Phase {
+        if !self.open {
+            if self.hidden() { Phase::Leaving } else { Phase::Settled }
+        } else if self.entering {
+            Phase::Entering
+        } else {
+            Phase::Live
+        }
+    }
+    fn hidden(&self) -> bool {
+        self.fields.get("hidden").is_some_and(|s| s == "true")
+    }
     pub fn as_row<'a>(&self, body: &'a str) -> Row<'a> {
         Row {
             id: self.id,
@@ -208,8 +269,9 @@ impl OwnedRow {
             group: self.group,
             at: self.at,
             open: self.open,
+            phase: self.phase(),
             body,
-            est: if self.fields.get("hidden").is_some_and(|s| s == "true") {
+            est: if self.hidden() {
                 0
             } else {
                 u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX)
@@ -248,6 +310,80 @@ pub fn cut(value: &str, cap: usize) -> &str {
         end = end.saturating_sub(1);
     }
     value.get(..end).unwrap_or_default()
+}
+
+/// Parse RFC3339 seconds independently of the local timezone. Fractional seconds are ignored;
+/// an absent or malformed timestamp leaves the checkpoint time unchanged.
+fn timestamp(s: &str) -> Option<u64> {
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    let y = n(0..4)?;
+    let m = n(5..7)?;
+    let d = n(8..10)?;
+    let h = n(11..13)?;
+    let min = n(14..16)?;
+    let sec = n(17..19)?;
+    if s.get(4..5)? != "-"
+        || s.get(7..8)? != "-"
+        || !matches!(s.get(10..11)?, "T" | "t")
+        || s.get(13..14)? != ":"
+        || s.get(16..17)? != ":"
+        || !(1..=12).contains(&m)
+        || !(1..=31).contains(&d)
+        || !(0..=23).contains(&h)
+        || !(0..=59).contains(&min)
+        || !(0..=59).contains(&sec)
+    {
+        return None;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let month_days = *month_days.get(usize::try_from(m - 1).ok()?)?;
+    if d > month_days {
+        return None;
+    }
+    let y = y.checked_sub(i64::from(m <= 2))?;
+    let era = y.div_euclid(400);
+    let yo = y.checked_sub(era.checked_mul(400)?)?;
+    let mp = m.checked_add(if m > 2 { -3 } else { 9 })?;
+    let doy = (153i64.checked_mul(mp)?.checked_add(2)? / 5).checked_add(d)?.checked_sub(1)?;
+    let doe = yo.checked_mul(365)?.checked_add(yo / 4)?.checked_sub(yo / 100)?.checked_add(doy)?;
+    let days = era.checked_mul(146097)?.checked_add(doe)?.checked_sub(719468)?;
+    let tail = s.get(19..)?;
+    let zone = if let Some(frac) = tail.strip_prefix('.') {
+        let pos = frac.find(|c: char| !c.is_ascii_digit())?;
+        if pos == 0 {
+            return None;
+        }
+        frac.get(pos..)?
+    } else {
+        tail
+    };
+    let offset = if matches!(zone, "Z" | "z") {
+        0
+    } else {
+        if zone.len() != 6 || zone.get(3..4)? != ":" {
+            return None;
+        }
+        let zh = zone.get(1..3)?.parse::<i64>().ok()?;
+        let zm = zone.get(4..6)?.parse::<i64>().ok()?;
+        if zh > 23 || zm > 59 {
+            return None;
+        }
+        let v = zh.checked_mul(3600)?.checked_add(zm.checked_mul(60)?)?;
+        match zone.get(..1)? {
+            "+" => v,
+            "-" => v.checked_neg()?,
+            _ => return None,
+        }
+    };
+    u64::try_from(
+        days.checked_mul(86400)?
+            .checked_add(h.checked_mul(3600)?)?
+            .checked_add(min.checked_mul(60)?)?
+            .checked_add(sec)?
+            .checked_sub(offset)?,
+    )
+    .ok()
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Stream {
@@ -472,24 +608,90 @@ pub fn translate(
     let valid = match harness {
         Harness::V1 => v1::validate(bytes),
         Harness::Claude => claude::validate(bytes),
+        Harness::Codex => codex::validate(bytes),
     };
     if valid.is_err() {
         state.invalid_records = state.invalid_records.saturating_add(1);
         return Ok(Vec::new());
     }
+    // A row born on the line before has been offered as entering: from a line that changes
+    // anything on, it is live. A line that changes nothing (a duplicate) leaves it entering.
+    let went_live = state.rows_went_live();
     let result = match harness {
         Harness::V1 => v1::line(state, place, span, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
+        Harness::Codex => codex::line(state, bytes, &mut out),
     };
     debug_assert!(result.is_ok(), "validated harness line failed during apply");
     if result.is_err() {
         state.line_errors = state.line_errors.saturating_add(1);
+        state.rows_entering(&went_live);
         return Ok(Vec::new());
     }
     state.bound_open_rows(&mut out);
+    if out.ops.is_empty() {
+        state.rows_entering(&went_live);
+    }
     // The queue is counted apart from the translator's 32 KiB segment: its records go to the
     // book's prompt section.
     Ok(out.ops)
+}
+
+impl State {
+    /// Whether an action prompt can be admitted before its raw line is written.
+    pub fn act_queue_full(&self) -> bool {
+        self.queue_len() >= MAX_QUEUE_ENTRIES
+    }
+
+    pub fn validate_act(&self, bytes: &[u8]) -> Result<(), Error> {
+        #[derive(Deserialize)]
+        struct Act<'a> {
+            op: &'a str,
+            body: ActBody,
+        }
+        let action: Act<'_> = serde_json::from_slice(bytes).map_err(|_| Error::InvalidJson)?;
+        if !matches!(action.op, "prompt" | "retract") {
+            return Err(Error::InvalidRecord("unknown act operation"));
+        }
+        if action.body.prompt_id.is_empty() {
+            return Err(Error::InvalidRecord("act promptId"));
+        }
+        Ok(())
+    }
+
+    /// Apply a durable `k:"act"` line into the translator's queue. Only
+    /// `prompt` and `retract` are action transitions in this row. For a
+    /// followed chat, `place` and `span` are offsets in `raw/acts.ndjson`;
+    /// the actor gives that file to queue readers as their `RawSource`.
+    pub fn apply_act(&mut self, bytes: &[u8], place: u64, span: u64) -> Result<Vec<Op>, Error> {
+        let mut out = input::Output::new(bytes);
+        #[derive(Deserialize)]
+        struct Act<'a> {
+            op: &'a str,
+            body: ActBody,
+        }
+        let action: Act<'_> = serde_json::from_slice(bytes).map_err(|_| Error::InvalidJson)?;
+        match action.op {
+            "prompt" => {
+                if self.act_queue_full() {
+                    self.queue_overflowed = self.queue_overflowed.saturating_add(1);
+                    return Ok(out.ops);
+                }
+                self.queue_add(
+                    &action.body.prompt_id,
+                    action.body.at,
+                    action.body.held,
+                    place,
+                    span,
+                    action.body.text_len,
+                    &mut out,
+                );
+            }
+            "retract" => self.queue_remove(&action.body.prompt_id, &mut out),
+            _ => return Err(Error::InvalidRecord("unknown act operation")),
+        }
+        Ok(out.ops)
+    }
 }
 fn bounded(s: &str) -> Result<(), Error> {
     if s.len() > MAX_KEY_BYTES {
@@ -586,6 +788,39 @@ impl State {
             .chain(self.prompts.values().map(|p| &p.row))
             .chain(self.asks.values().map(|ask| &ask.row))
     }
+    /// Every open row the translator holds, to change in place.
+    fn stored_rows_mut(&mut self) -> impl Iterator<Item = &mut OwnedRow> {
+        self.reply
+            .iter_mut()
+            .map(|s| &mut s.row)
+            .chain(self.thought.iter_mut().map(|s| &mut s.row))
+            .chain(self.tools.values_mut())
+            .chain(self.subs.values_mut())
+            .chain(self.group.iter_mut())
+            .chain(self.plan.iter_mut())
+            .chain(self.compaction.iter_mut())
+            .chain(self.prompts.values_mut().map(|p| &mut p.row))
+            .chain(self.asks.values_mut().map(|ask| &mut ask.row))
+    }
+    /// The rows born on the last line are entering no more. Costs the open rows the translator
+    /// holds, which its bounds keep under about 200.
+    fn rows_went_live(&mut self) -> Vec<u64> {
+        let mut went = Vec::new();
+        for row in self.stored_rows_mut().filter(|row| row.entering) {
+            row.entering = false;
+            went.push(row.id);
+        }
+        went
+    }
+    /// The rows `ids` are entering again: the line that made them live changed nothing.
+    fn rows_entering(&mut self, ids: &[u64]) {
+        if ids.is_empty() {
+            return;
+        }
+        for row in self.stored_rows_mut().filter(|row| ids.contains(&row.id)) {
+            row.entering = true;
+        }
+    }
     fn row(&mut self, kind: RowKind, out: &mut input::Output<'_>) -> Result<OwnedRow, Error> {
         if !matches!(kind, RowKind::User | RowKind::Group) {
             self.bound_counted_rows(63, out);
@@ -603,6 +838,7 @@ impl State {
             },
             at: self.at,
             open: true,
+            entering: true,
             bytes: 0,
             lines: 0,
             fields: BTreeMap::new(),
@@ -745,6 +981,10 @@ impl State {
         }
         let mut row = self.row(RowKind::Group, out)?;
         row.fields.insert("calls".into(), "0".into());
+        // The turn header's clock: one start, here, and `ms` at the end (step 9 of the motion
+        // model); a group born before any turn started starts at its birth.
+        let start = if self.turn.is_some() { self.turn_start_ms } else { self.at_ms };
+        row.fields.insert("startMs".into(), start.to_string());
         for (key, value) in fields {
             row.fields.insert(key.into(), value);
         }
@@ -987,7 +1227,7 @@ impl State {
                     row.open = false;
                     row.fields.clear();
                     row.fields.insert("hidden".into(), "true".into());
-                    out.emit(Change::Patch(row));
+                    out.emit(Change::Leave(row));
                 }
             }
             if stream.row.open {
@@ -996,7 +1236,7 @@ impl State {
                 stream.row.bytes = 0;
                 stream.row.lines = 0;
                 stream.row.open = false;
-                out.row(&stream.row);
+                out.emit(Change::Leave(stream.row));
             }
         }
     }
@@ -1013,8 +1253,10 @@ impl State {
             if hidden || !prompt.has_body {
                 prompt.row.fields.clear();
                 prompt.row.fields.insert("hidden".into(), "true".into());
+                out.emit(Change::Leave(prompt.row));
+            } else {
+                out.row(&prompt.row);
             }
-            out.row(&prompt.row);
             if !hidden && prompt.has_body {
                 self.settled_prompt(hash);
             }

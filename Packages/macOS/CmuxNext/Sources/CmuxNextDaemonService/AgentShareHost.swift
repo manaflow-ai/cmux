@@ -18,6 +18,10 @@ public protocol AgentShareHost: AnyObject {
     func shareConnection(holding tab: TabModel) -> DaemonConnection?
     /// Whether `tab` is on this Mac's daemon, the only one that makes and lists shares.
     func shareIsOnThisMac(_ tab: TabModel) -> Bool
+    /// For a chat on a Cloud machine: whether the signed-in person owns that machine, read from the
+    /// Cloud link's owner answer at each call (cloud multiplayer lane C). Only the owner shares a
+    /// Cloud chat; nil for a tab on no Cloud machine.
+    func shareCloudOwner(_ tab: TabModel) -> (@MainActor @Sendable () async -> Bool)?
     /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
     var shareLocalConnection: DaemonConnection? { get }
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
@@ -38,6 +42,9 @@ public protocol AgentShareHost: AnyObject {
     /// Shows the Invite People sheet of one chat over the active window (the owner's own run of
     /// Invite People… with no account named).
     func shareShowInvites(_ model: AgentShareInviteSheetModel)
+    /// Calls `changed` with the chat's acpmux session on every `agent-session-share-changed` this Mac's
+    /// daemon sends (the daemon that makes and lists shares); answers what stops it.
+    func shareChanges(_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void
     /// Opens Settings on the page `route` (the Share dialog's Manage links…).
     func shareOpenSettings(route: String)
     /// The name `tab` shows in the tab strip (an agent chat's title, never the `about:blank` its record carries).
@@ -45,10 +52,14 @@ public protocol AgentShareHost: AnyObject {
 }
 
 public extension AgentShareHost {
+    /// A host with no Cloud machines shares this Mac's chats only.
+    func shareCloudOwner(_ tab: TabModel) -> (@MainActor @Sendable () async -> Bool)? { nil }
     /// Fail closed: a host with no consent sheet never lets automation make a link.
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { false }
     /// A host with no sheet shows nothing.
     func shareShowInvites(_ model: AgentShareInviteSheetModel) {}
+    /// A host with no daemon events reports no change.
+    func shareChanges(_ changed: @escaping @MainActor (_ session: String) -> Void) -> @MainActor () -> Void { {} }
     /// A host with no Settings opens nothing.
     func shareOpenSettings(route: String) {}
     /// A host with no title resolver: the tab's own name, else its record's title.

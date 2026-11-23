@@ -7,7 +7,6 @@ import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
-import { useComposerLook } from "./composerLook";
 import { ComposerFoot } from "./ComposerFoot";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
@@ -20,9 +19,9 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
 import { useT } from "./i18n";
-import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
+import { isStartableProject, startedProjectChoices } from "./newtab/startedProject";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
@@ -198,12 +197,12 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
-  const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
+  const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
-    (isStartableProject(cwd) || !home
+    ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
+      : (firstProject(started, home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
@@ -354,27 +353,29 @@ export function NewTabPage({
     return true;
   });
   const composing = useRef(false);
-  const recent = useMemo(() => recentSessions(snapshot.sessions), [snapshot.sessions]);
   // The suggestions float over the page under the field (cx-6k6cg), so they show only while the
   // field has the keyboard and something is typed: at rest nothing covers the page below.
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
   const open = focused && query.trim() !== "" && query !== dismissed;
-  const suggestions = useMemo(
+  // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
+  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const rows = useMemo(
     () =>
-      omnibarRows(query, kind, {
-        ...omnibar,
-        sessions: recent.map((session) => ({
-          sessionId: session.sessionId,
-          title: session.displayTitle ?? session.sessionId,
-          ...(session.harness ? { harness: session.harness } : {}),
-          detail: projectLabel(session.cwd),
-        })),
-      }),
-    [query, kind, omnibar, recent],
+      open
+        ? omnibarRows(query, kind, {
+            ...omnibar,
+            sessions: recent.map((session) => ({
+              sessionId: session.sessionId,
+              title: session.displayTitle ?? session.sessionId,
+              ...(session.harness ? { harness: session.harness } : {}),
+              detail: projectLabel(session.cwd),
+            })),
+          })
+        : [],
+    [open, query, kind, omnibar, recent],
   );
-  const rows = useMemo(() => (open ? suggestions : []), [open, suggestions]);
   useEffect(() => setSelected(defaultRow(rows, kind, query)), [rows, kind, query]);
   useEffect(() => {
     // Rows past the window's edge draw in the host; the invisible list never scrolls the page.
@@ -430,7 +431,9 @@ export function NewTabPage({
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(input.focused());
     };
-    focus();
+    // Not again while the field has the keyboard: a token change after the readiness selected the keys typed so far
+    // (the screen's show-focus has the same rule).
+    if (!field.current?.focused()) focus();
     const host = fieldElement()?.ownerDocument.defaultView;
     // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
     let cancelReady = () => {};
@@ -567,14 +570,11 @@ export function NewTabPage({
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
-  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
-  const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
-  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
+  useRowFit(foot, `${kind}:${plainFooter}`);
 
   return (
-    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
+    <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>

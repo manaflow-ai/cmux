@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 725fa410d325b6f72dc8197af87afb7d4791516dc430f5cbcc939b945e0dcfc5. */
+/* cmux-tui mux protocol 12, IR cfa57e4d5ccb5c98d58ff93b3df07cdad945d66e8ab83f7b98c6da7d1fac4a5f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -34,6 +34,8 @@ export type AgentRecord = {
   /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
   "status"?: (AgentState) | null;
   "surface": Id;
+  /** The terminal's public id (`term_…`). The record's `surface` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab. */
+  "terminal_id"?: string;
   "updated_at_ms": bigint;
 };
 
@@ -566,6 +568,7 @@ export type HomeInboxRow = {
   "chief"?: string;
   "chief_state"?: HomeChiefState;
   "id": string;
+  "index"?: bigint;
   "kind": HomeInboxKind;
   "last_author"?: string;
   "marked_unread": boolean;
@@ -883,6 +886,11 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type RemoteHostAppPermissions = {
+  "accessibility"?: (boolean) | null;
+  "screen_recording"?: (boolean) | null;
 };
 
 export type RemoteHostAppResult = {
@@ -1494,6 +1502,8 @@ export type SurfaceResult = {
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: string;
+  /** The transaction of a new-tab request, when it sent one. */
+  "transaction"?: string;
   "workspace_id"?: string;
 };
 
@@ -1563,6 +1573,19 @@ export type TabGroupRun = {
   "start": bigint;
   "surfaces": Array<Id>;
   [key: string]: unknown;
+};
+
+export type TabPlace = {
+  /** Right after this tab of pane. */
+  "after"?: (Id) | null;
+  /** Right after the tab of an earlier create request of this connection for pane: the transaction of that request (1 to 128 printable ASCII). That tab does not have to be there yet. */
+  "after_creation"?: (string) | null;
+  /** Right before this tab of pane. */
+  "before"?: (Id) | null;
+  /** true: the tab joins the tab group of the tab that after, after_creation or before names. Refused with start. */
+  "joins"?: (boolean) | null;
+  /** true: the first tab after the pinned tabs. */
+  "start"?: (boolean) | null;
 };
 
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */

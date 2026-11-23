@@ -60,6 +60,10 @@ public nonisolated struct TerminalGridPolicy: Sendable {
         return grid
     }
 
+    /// The next report goes even at the grid the owner has (a new owner: `TerminalSession.init`), whichever
+    /// path makes it: a view shown while it joins a pane on a spring reports through ``finalSized(_:)``.
+    public mutating func forceNextReport() { heldForce = true }
+
     /// Whether a grid waits for ``releaseHeld()``.
     public private(set) var held = false
     private var heldForce = false

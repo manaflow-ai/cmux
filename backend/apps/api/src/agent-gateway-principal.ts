@@ -6,7 +6,7 @@ import { principalForOwner } from "./team-select.ts"
 import { withGrantClasses } from "./auth.ts"
 import { mcpScopesForGrant } from "./mcp-grant.ts"
 
-export const agentGatewayOn = (env: Env) => env.PLATFORM_AGENT_GATEWAY === "on" && (env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test")
+export const agentGatewayOn = (env: Pick<Env, "PLATFORM_AGENT_GATEWAY" | "ENVIRONMENT">) => env.PLATFORM_AGENT_GATEWAY === "on" && (env.ENVIRONMENT === "development" || env.ENVIRONMENT === "test")
 // The stored approval retains the source install/grant and original chief identity (if any).
 // MCP's agent field is an invocation identity, never a chief id to pass to UserDO.installGrant.
 type GatewayPrincipal = Principal & { readonly mcp_session: string; readonly mcp_caller_agent?: string }

@@ -115,6 +115,33 @@ impl Hub {
         reports
     }
 
+    /// SIGKILL to the process group of every agent this daemon runs as its own child, for the
+    /// stop's hard exit (`daemon/stop_watchdog.rs`): the process ends right after, and nothing
+    /// else would end them. An agent under a host stays, for the next daemon to adopt. Waits for
+    /// no lock, since the stop that holds one is the stop that did not end: a session whose lock
+    /// is held is skipped, and a child the shutdown already took to end (`end_sessions`) is not
+    /// seen here. Returns how many it signalled.
+    pub(crate) fn kill_children_at_exit(&self) -> usize {
+        let Ok(sessions) = self.sessions.try_lock() else { return 0 };
+        let mut killed = 0;
+        for session in sessions.values() {
+            let Ok(slot) = session.child.try_lock() else { continue };
+            let direct = slot.as_ref().filter(|child| child.host_record().is_none());
+            // Never group 0 or 1: those name this daemon's own group and every process.
+            let group = direct.and_then(|child| child.pid).filter(|group| *group > 1);
+            let Some(group) = group.and_then(|group| i32::try_from(group).ok()) else { continue };
+            // SAFETY: killpg takes a process group id and a signal; the group is this daemon's
+            // own child's, which it has not reaped (its `ChildAgent` is still in its slot).
+            #[cfg(unix)]
+            unsafe {
+                libc::killpg(group, libc::SIGKILL);
+            }
+            // Off Unix an agent's job ends with the daemon that holds it (`job.rs`).
+            killed += usize::from(cfg!(unix) && group > 1);
+        }
+        killed
+    }
+
     /// Fences new turns and automatic continuations before transports begin draining.
     pub(crate) fn begin_shutdown(&self) {
         self.start_shutdown();
@@ -496,8 +523,7 @@ const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 /// How long the shutdown waits for the cost ledger's writer to drain.
 const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
-pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
+pub use crate::recovery::SHUTTING_DOWN;
 
 /// The refusal of a spawn once the shutdown has begun.
 pub(crate) fn shutting_down_error() -> RpcError {

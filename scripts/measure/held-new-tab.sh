@@ -4,13 +4,31 @@
 # then, Cmd-T held alone and Cmd-W held, through `debug.key` (real key events on the app's own queue; not the HID
 # tap). Per row: each key's fate, input to next commit, frames, the daemon's requests. Runs alone on the worker
 # because it launches an app:
-#   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
+#   cmux-ci run --class exclusive --measurement --label measure [--label gui-session-v1] \
 #     --script scripts/measure/held-new-tab.sh --ref <sha> --arg=--config=bench --arg=--vdisplay=120 \
 #     [--arg=--workspaces=N] [--arg=--repeat-delay-ms=MS] [--arg=--repeat-ms=MS] [--arg=--film] [--arg=--no-gate] \
-#     --artifact held-new-tab.json [--artifact held-new-tab-film.tar]
+#     [--arg=--launch-form=auto|activate|one-key] [--arg=--allow-no-chromium] --artifact held-new-tab.tgz
+# A step brings back ONE --artifact (of 2 the client keeps the last): held-new-tab.tgz is the report, each take's
+# record and signpost stream, build-flags.json, and with --film frames.json and each fifth JPEG frame;
+# held-new-tab.json is the report alone (the bench `newtab` asks for that one).
+# The report's `build` and build-flags.json say the form of the app's build, from the reload's own log
+# (scripts/measure/build-flags.py): the reload's `bench configuration` line, the optimization settings of the build's
+# command line, and the count of the Swift compiler's command lines with -Onone, with -O and with -Osize. The step's
+# log has them in one `BUILD-FLAGS` line.
 # --config=<debug|release|bench> picks reload.sh's build configuration, --vdisplay=HZ a virtual main display at HZ
-# (as burst-bench.sh), --film one more take as JPEG frames, --no-gate exit 0 once the report is written (an artifact
-# comes back only from a passing step); every other argument goes to held-new-tab.py.
+# (as burst-bench.sh; the helper is this script's own, no label gives it), --film one more take as JPEG frames,
+# --no-gate exit 0 when a row did not measure what it names and each round still has a valid row (the tool's exit 2).
+# A failed preflight and a round with no valid row stay a failed step.
+# NO artifact comes back from a failed step. A step fails at the tool's exit 1, at its exit 2 without --no-gate (a
+# fault of the wider take or of a restore alone gives exit 2 also), and at its exit 3 (the tool writes no report
+# then). What comes back in each case is the step's log: the lines HELD-NEW-TAB-ROW (one for each row) and
+# HELD-NEW-TAB (the whole report) at exit 1 and 2, the tool's NOT RUN line at exit 3.
+# The build requires the Chromium page engine (CMUX_NEXT_REQUIRE_CEF=1): without its artifact the reload fails and no
+# row is measured. --allow-no-chromium turns that off: the build then has no Chromium, each page is a WebKit page,
+# and the tool's line `PREFLIGHT page engine:` and the report's `page_engine` say so.
+# Every other argument goes to held-new-tab.py. The label gui-session-v1 adds a console session with a screen
+# that is not locked; without it the tool's preflight says in 2 minutes for each launch form if the display link
+# gives frames and if a key makes a tab.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="heldtab"
@@ -36,24 +54,31 @@ done
 RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
 PATH="$(tail -n 1 "$out/bun-path"):$PATH"
 export PATH
-reload_config=() measure_args=() vdisplay_hz="" gate=1
+reload_config=() measure_args=() vdisplay_hz="" gate=1 require_cef=1
 for arg in "$@"; do
   case "$arg" in
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --film) measure_args+=(--film "$out/film") ;;
     --no-gate) gate=0 ;;
+    --allow-no-chromium) require_cef=0 ;;
     *) measure_args+=("$arg") ;;
   esac
 done
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+# CMUX_NEXT_REQUIRE_CEF=1: a missing CEF artifact fails the build here (embed-cef.sh otherwise builds an app without
+# Chromium and exits 0, and the rows would then measure tabs with another page engine and not say so in the build).
+CMUX_NEXT_REQUIRE_CEF="$require_cef" CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" \
+  ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "held-new-tab: the tagged reload printed no app path" >&2
   grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
   exit 1
 fi
-vdisplay_pid=""
+# The form of the build, for the report and the artifact. A fault of this read stops no measure: the report then
+# says that the build's form was not read.
+python3 scripts/measure/build-flags.py "$out/reload.log" --out "$out/build-flags.json" || true
+vdisplay_pid="" display="real"
 # shellcheck disable=SC2329 # run by the trap below
 cleanup() {
   python3 scripts/cmux-next/tag_teardown.py "$app" || true
@@ -74,19 +99,30 @@ if [[ -n "$vdisplay_hz" ]]; then
       kill -0 "$vdisplay_pid" 2>/dev/null || break
       sleep 1  # bounded wait for the helper's own ready line
     done
-    echo "held-new-tab: display: $(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
-    sleep 2  # WindowServer settles the new main display before the app opens on it
+    display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
+    echo "held-new-tab: display: $display"
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "held-new-tab: the virtual display helper did not compile; measuring on the real display"
   fi
 fi
 status=0
-python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" ${measure_args[@]+"${measure_args[@]}"} || status=$?
+python3 scripts/measure/held-new-tab.py --app "$app" --out "$out/measure" --display="$display" \
+  --build "$out/build-flags.json" --artifact "$PWD/held-new-tab.tgz" ${measure_args[@]+"${measure_args[@]}"} || status=$?
 cp "$out/measure/report.json" "$PWD/held-new-tab.json" 2>/dev/null || true
-# The film: each fifth JPEG frame of the take and frames.json (the time of each frame).
-if [ -f "$out/film/frames/frames.json" ]; then
-  (cd "$out/film/frames" && tar -cf "$OLDPWD/held-new-tab-film.tar" frames.json frame-*[05].jpg) || true
-fi
-# An artifact comes back only from a passing step: --no-gate passes once the report is written.
-if [[ "$gate" == 0 && -f held-new-tab.json ]]; then status=0; fi
+# An artifact comes back only from a passing step: --no-gate passes a run in which each round has a valid row (the
+# tool's exit 2). A failed preflight, and a round with no valid row, stay a failed step: the log's HELD-NEW-TAB
+# lines are then all that comes back (the header).
+if [[ "$gate" == 0 && "$status" == 2 && -f held-new-tab.json ]]; then status=0; fi
 exit "$status"

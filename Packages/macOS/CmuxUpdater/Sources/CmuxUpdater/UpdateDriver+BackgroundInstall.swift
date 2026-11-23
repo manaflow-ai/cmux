@@ -60,6 +60,25 @@ extension UpdateDriver {
         if !installAutomatically() { showStagedForUser() }
     }
 
+    /// The host's idle policy turned on or off with an update already staged: on, it waits on the
+    /// host's hold as a newly staged one does (and installs at once when nothing holds it); off, the
+    /// hold on it goes and it waits for a click. An install already under way is left alone.
+    func idlePolicyChanged() {
+        guard stagedInstall != nil, !installsWhenStaged else { return }
+        guard installsWhenIdle else {
+            actionDelegate?.updaterEndsAutomaticInstallHold()
+            return
+        }
+        let generation = stagedGeneration
+        if actionDelegate?.updaterDefersAutomaticInstall(until: { [weak self] in
+            self?.installDeferredAutomatically(generation)
+        }) == true {
+            log.append("background install: the idle policy turned on; the host holds the staged update until nothing would be cut off")
+            return
+        }
+        installDeferredAutomatically(generation)
+    }
+
     /// "Restart to Complete Update": the staged update waits, and a click installs it at once.
     private func showStagedForUser() {
         setState(.installing(.init(
