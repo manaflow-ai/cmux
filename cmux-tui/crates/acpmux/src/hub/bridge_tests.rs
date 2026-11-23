@@ -236,6 +236,7 @@ async fn a_resend_after_the_daemon_forgot_the_delivery_is_not_delivered_again() 
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
@@ -480,6 +481,7 @@ async fn a_registered_chat_two_processes_claim_names_the_contest() {
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     crate::hub::register::mark_registered_for_test(&session.id);
@@ -1218,6 +1220,7 @@ async fn a_desktop_chat_the_rate_limit_stopped_holds_its_messages_and_sends_them
             offset: 0,
             codex_items: false,
             open: None,
+            ..Default::default()
         });
     }
     hub.save_meta(&session);
