@@ -12,6 +12,8 @@ struct Fake {
     probes: RefCell<VecDeque<Value>>,
     calls: RefCell<Vec<String>>,
     status: RefCell<Vec<&'static str>>,
+    /// What `cloud.plan.get` answers: `None` is a failed read.
+    plan: RefCell<Option<Value>>,
 }
 
 impl Fake {
@@ -62,6 +64,9 @@ impl Cloud for Fake {
             }
             "chief.list" => Ok(json!({ "chiefs": self.chiefs.borrow().clone() })),
             "team.policy.get" => Ok(json!({ "team": "team_1" })),
+            "cloud.plan.get" => self.plan.borrow().clone().ok_or_else(|| {
+                Failure::http(503, Some("cloud.unavailable".into()), Some("plan read".into()))
+            }),
             _ => Ok(json!({})),
         }
     }
@@ -271,6 +276,24 @@ fn the_plan_gives_the_included_chief_unless_it_names_an_add_on() {
 }
 
 #[test]
+fn the_plans_chief_size_names_the_size() {
+    // cmux-platform#1685: exactly one of included, M, L, XL.
+    assert_eq!(chief_size_for(Some("included")), ChiefSize::Included);
+    assert_eq!(chief_size_for(Some("M")), ChiefSize::M);
+    assert_eq!(chief_size_for(Some("L")), ChiefSize::L);
+    assert_eq!(chief_size_for(Some("XL")), ChiefSize::Xl);
+    assert_eq!(chief_size_for(Some("XXL")), ChiefSize::Included);
+    assert_eq!(plan_chief_size(&json!({ "plan_id": "pro", "chief_size": "L" })), ChiefSize::L);
+    assert_eq!(plan_chief_size(&json!({ "plan": { "chief_size": "XL" } })), ChiefSize::Xl);
+    assert_eq!(plan_chief_size(&json!({ "chief_size": "chief_m" })), ChiefSize::M);
+    // Missing, null or not text: the included size.
+    assert_eq!(plan_chief_size(&json!({ "plan_id": "pro" })), ChiefSize::Included);
+    assert_eq!(plan_chief_size(&json!({ "chief_size": null })), ChiefSize::Included);
+    assert_eq!(plan_chief_size(&json!({ "chief_size": 3 })), ChiefSize::Included);
+    assert_eq!(plan_chief_size(&json!(null)), ChiefSize::Included);
+}
+
+#[test]
 fn the_create_asks_for_the_size_it_was_given() {
     let params = create_params(&start(false), ChiefSize::L);
     assert_eq!(
@@ -304,13 +327,49 @@ impl Cloud for Recording {
     }
 }
 
+fn included_create() -> Vec<Value> {
+    vec![json!({ "name": "chief-k1", "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 32768 } })]
+}
+
 #[tokio::test]
 async fn a_start_creates_the_included_chief() {
     let cloud = Recording::default();
+    *cloud.fake.plan.borrow_mut() = Some(json!({ "plan_id": "pro", "chief_size": "included" }));
+    run(&cloud, &start(true)).await.unwrap();
+    assert_eq!(*cloud.creates.borrow(), included_create());
+}
+
+#[tokio::test]
+async fn a_start_creates_the_size_the_plan_names() {
+    let cloud = Recording::default();
+    *cloud.fake.plan.borrow_mut() = Some(json!({ "plan_id": "max", "chief_size": "XL" }));
     run(&cloud, &start(true)).await.unwrap();
     assert_eq!(
         *cloud.creates.borrow(),
         vec![json!({ "name": "chief-k1",
-                     "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 32768 } })]
+                     "size": { "cpu": 8, "memory_mb": 32768, "disk_mb": 131_072 } })]
     );
+    // The plan is read once, before the create.
+    let calls = cloud.fake.calls();
+    let plan = calls.iter().position(|c| c == "cloud.plan.get").unwrap();
+    let create = calls.iter().position(|c| c.starts_with("cloud.machine.create")).unwrap();
+    assert!(plan < create);
+    assert_eq!(cloud.fake.count("cloud.plan.get"), 1);
+}
+
+#[tokio::test]
+async fn a_plan_that_names_no_size_starts_the_included_chief() {
+    let cloud = Recording::default();
+    *cloud.fake.plan.borrow_mut() = Some(json!({ "plan_id": "pro", "limits": {} }));
+    run(&cloud, &start(true)).await.unwrap();
+    assert_eq!(*cloud.creates.borrow(), included_create());
+}
+
+#[tokio::test]
+async fn a_failed_plan_read_still_starts_the_included_chief() {
+    let cloud = Recording::default();
+    // No plan answer: the read fails, and the start goes on at the included size.
+    let answer = run(&cloud, &start(true)).await.unwrap();
+    assert_eq!(answer["stage"], "machine");
+    assert_eq!(*cloud.creates.borrow(), included_create());
 }
