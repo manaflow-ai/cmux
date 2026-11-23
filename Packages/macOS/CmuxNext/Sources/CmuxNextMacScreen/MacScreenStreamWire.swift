@@ -10,7 +10,8 @@ import Foundation
 ///
 /// App to child: `setup` (first), `signal` (the viewer's), `ice` (the answer to `ice_request`),
 /// `exclude_windows` (the whole list, SECURITY) and `stop`. Child to app: `signal` (to the viewer),
-/// `ice_request`, `event`, `close` and `done` (the last line).
+/// `ready` (the first line: the grants macOS reads for it, the helper's), `ice_request`, `event`, `close`
+/// and `done` (the last line).
 nonisolated struct MacScreenStreamLine: Codable, Sendable, Equatable {
     struct Setup: Codable, Sendable, Equatable {
         /// The name the viewer shows for this Mac.
@@ -99,6 +100,17 @@ nonisolated struct MacScreenStreamLine: Codable, Sendable, Equatable {
         case sourceFailed = "source_failed"
     }
 
+    /// The grants macOS reports for the child (its responsible process's: the helper's).
+    struct Ready: Codable, Sendable, Equatable {
+        var screenRecording: Bool
+        var accessibility: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case screenRecording = "screen_recording"
+            case accessibility
+        }
+    }
+
     /// The session's end: nil `error` when `serve` returned.
     struct Done: Codable, Sendable, Equatable {
         var error: String?
@@ -115,16 +127,17 @@ nonisolated struct MacScreenStreamLine: Codable, Sendable, Equatable {
     var message: String?
     var close: Bool?
     var done: Done?
+    var ready: Ready?
 
     enum CodingKeys: String, CodingKey {
-        case setup, signal, ice, stop, event, message, close, done
+        case setup, signal, ice, stop, event, message, close, done, ready
         case excludeWindows = "exclude_windows"
         case iceRequest = "ice_request"
     }
 
     init(setup: Setup? = nil, signal: Signal? = nil, ice: ICE? = nil, excludeWindows: [CGWindowID]? = nil,
          stop: Bool? = nil, iceRequest: Int? = nil, event: Event? = nil, message: String? = nil,
-         close: Bool? = nil, done: Done? = nil) {
+         close: Bool? = nil, done: Done? = nil, ready: Ready? = nil) {
         self.setup = setup
         self.signal = signal
         self.ice = ice
@@ -135,6 +148,7 @@ nonisolated struct MacScreenStreamLine: Codable, Sendable, Equatable {
         self.message = message
         self.close = close
         self.done = done
+        self.ready = ready
     }
 
     /// The line's JSON with its newline.

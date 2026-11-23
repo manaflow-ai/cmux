@@ -162,6 +162,9 @@ nonisolated final class MacScreenStreamProcess: Sendable {
                     self?.send(MacScreenStreamLine(ice: ice))
                 }
             }
+            if let ready = line.ready {
+                logger.info("WebRTC host ready; the helper's grants: screen recording \(ready.screenRecording, privacy: .public), accessibility \(ready.accessibility, privacy: .public)")
+            }
             if let event = line.event { events(event, line.message) }
             if line.close == true { signaling.close() }
             if let done = line.done {

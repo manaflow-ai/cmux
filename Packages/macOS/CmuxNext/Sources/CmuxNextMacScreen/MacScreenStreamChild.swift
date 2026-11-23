@@ -1,3 +1,4 @@
+import ApplicationServices
 import CmuxNextCompat
 import CmuxNextWakeups
 import CmuxScreenKit
@@ -223,6 +224,8 @@ public struct MacScreenStreamChild: Sendable, Equatable {
             writes.blockingSync {}
             exit(0)
         })
+        // What macOS checks for this process: the helper's grants (the fleet proof reads this line).
+        write(MacScreenStreamLine(ready: .init(screenRecording: CGPreflightScreenCaptureAccess(), accessibility: AXIsProcessTrusted())))
         let reader = Thread {
             var splitter = MacScreenStreamLineSplitter()
             let input = FileHandle.standardInput
