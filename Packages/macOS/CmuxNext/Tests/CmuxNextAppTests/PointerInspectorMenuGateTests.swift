@@ -6,9 +6,8 @@ import CmuxNextDesign
 import Testing
 
 /// Inspect Element (#24707, the UI pointer inspector) is a feature Leo asked for (ask-5077a4ec48),
-/// so it ships on, for web content only: the agent chat page's menu offers it (in Tools), and
-/// leaves it out once Debug Settings' "UI pointer inspector" is turned off. Native menus such as
-/// the tab bar's + never offer it.
+/// so it ships on: the agent chat page's menu offers it (in Tools), and leaves it out once Debug
+/// Settings' "UI pointer inspector" is turned off. The tab bar's + names no object and never offers it.
 @MainActor @Suite(.serialized) struct PointerInspectorMenuGateTests {
     private static let inspector: ActionID = "agentPane.togglePointerInspector"
 

@@ -16,7 +16,11 @@
 # cmux-linux-release-aliases.sh) mark-tree-commits in
 # .github/workflows/cmux-tui-artifacts.yml.
 #
-# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree]
+# usage: scripts/ci/cmux-machine-channel-point.sh PAYLOAD DIR [--same-tree | --commit-only]
+#
+# --commit-only (a payload with a per-commit file): write that file and leave the channel alone. A PR
+# head's Mac live update file (`cmux app try PR`) is published this way; only feat-cmux-next moves
+# the nightly-live channel.
 #
 # --same-tree (the Cloud machine channel only): keep the channel when the commit it names has the
 # same source tree key (scripts/ci/cmux_tui_tree_key.py --version v2, both keys computed here by
@@ -29,8 +33,13 @@
 # credentials (AWS_*) from the environment. A compare-and-swap on the bytes compared (as
 # cmux-tui-point-channel.sh): a run that finds the channel moved under it reads and compares again.
 set -euo pipefail
-payload=$1 dir=$2 same_tree=${3:-}
-[[ -z "$same_tree" || "$same_tree" == --same-tree ]] || { echo "::error::unknown option $same_tree"; exit 1; }
+payload=$1 dir=$2 same_tree="" commit_only=""
+case "${3:-}" in
+  "") ;;
+  --same-tree) same_tree=--same-tree ;;
+  --commit-only) commit_only=1 ;;
+  *) echo "::error::unknown option $3"; exit 1 ;;
+esac
 ptr=scripts/cmux-next/web-ota-pointer.py
 keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
 read -r purpose channel commit release_tree < <(python3 -c '
@@ -52,6 +61,10 @@ case "$purpose" in
 esac
 if [[ -n "$same_tree" && "$purpose" != cmux-cloud-machine-update ]]; then
   echo "::error::--same-tree is for the Cloud machine channel, not $purpose"
+  exit 1
+fi
+if [[ -n "$commit_only" && -z "${once:-}" ]]; then
+  echo "::error::--commit-only needs a per-commit file; $purpose has none"
   exit 1
 fi
 tree_key_of() { # COMMIT: its v2 tree key, fetching the commit when this checkout lacks it; empty when unknown
@@ -104,6 +117,14 @@ write_once() { # OBJECT LABEL [SAME-BUILD-ARGS...]
           echo "::error title=immutable-r2-conflict::$release already holds another build; it is never replaced"
           exit 1
         }
+        # A Linux release file's sequence and version are the signing run's (same-build ignores them):
+        # the channel gets the kept file's bytes, so it never names a version the commit's file lacks.
+        # Not for a kept tree file (SAME-BUILD-ARGS given): it may be another commit's, and this commit
+        # still writes and points at its own.
+        if [[ "$purpose" == cmux-linux-release && $# == 0 ]]; then
+          cp "$dir/release-current.json" "$signed"
+          echo "kept $release; the channel gets its bytes"
+        fi
         break ;;
       404)
         rc=0
@@ -127,6 +148,7 @@ if [[ -n "$release_tree" ]]; then
 fi
 if [[ -n "${once:-}" ]]; then
   write_once "$once" "$once_label"
+  [[ -z "$commit_only" ]] || exit 0
 fi
 
 for attempt in 1 2 3 4 5; do

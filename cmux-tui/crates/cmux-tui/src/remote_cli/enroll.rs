@@ -255,7 +255,110 @@ pub(super) fn run_enroll(
     if parsed.device_key.is_some() {
         require_bound_invitation(&response)?;
     }
+    if !parsed.json && response.ok {
+        let result = response.result.as_ref().unwrap_or(&Value::Null);
+        match parsed.action {
+            EnrollAdminAction::Create => return print_created_invitation(&parsed, result),
+            EnrollAdminAction::Revoke => {
+                let device_id = parsed.positionals.first().map_or("", String::as_str);
+                println!("{}", revoked_device_summary(device_id, result));
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
     print_admin_response(parsed.action.name(), response, parsed.json)
+}
+
+/// `enroll create` prints the URI as stdout's only line, for scripts that
+/// capture it, and what an owner needs next on stderr.
+fn print_created_invitation(parsed: &EnrollAdminArgs, result: &Value) -> anyhow::Result<()> {
+    let uri = result
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing invitation URI"))?;
+    println!("{uri}");
+    let invitation = EnrollmentInvitation::from_uri(uri)?;
+    let bound = parsed
+        .device_key
+        .as_deref()
+        .map(|key| BoundDevice::parse(key, parsed.device_name.clone()))
+        .transpose()?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    for line in invitation_summary(&invitation, parsed.ttl_seconds, bound.as_ref(), now) {
+        eprintln!("{line}");
+    }
+    Ok(())
+}
+
+pub(super) fn invitation_summary(
+    invitation: &EnrollmentInvitation,
+    requested_ttl_seconds: u64,
+    bound: Option<&BoundDevice>,
+    now_unix: u64,
+) -> Vec<String> {
+    let remaining = invitation.expires_at_unix.saturating_sub(now_unix);
+    let mut lines = vec![format!(
+        "expires in {}, at {} UTC",
+        human_duration(remaining),
+        utc_clock(invitation.expires_at_unix)
+    )];
+    // The daemon caps an invitation's lifetime; a second of slack covers the
+    // clock ticking between its reply and this line.
+    if requested_ttl_seconds > remaining.saturating_add(1) {
+        lines.push(format!(
+            "asked for {}; the daemon caps an invitation at {}",
+            human_duration(requested_ttl_seconds),
+            human_duration(remaining)
+        ));
+    }
+    match bound {
+        Some(device) => lines.push(match &device.name {
+            Some(name) => format!(
+                "bound to device {name} ({}); it enrolls with no approval step",
+                device.fingerprint()
+            ),
+            None => format!(
+                "bound to device {}; it enrolls with no approval step",
+                device.fingerprint()
+            ),
+        }),
+        None => lines.push(format!(
+            "not bound to a device: when it connects, approve it with `cmux remote enroll approve {}`",
+            invitation.id
+        )),
+    }
+    let route = invitation.route_hints.first().map_or("ROUTE", String::as_str);
+    lines.push(
+        "on the device, save the line above to an owner-only file (chmod 600) and run:".into(),
+    );
+    lines.push(format!("  cmux remote connect {route} --invite-file PATH"));
+    lines
+}
+
+/// Seconds as "5 min", "4 min 30 s" or "45 s".
+fn human_duration(seconds: u64) -> String {
+    match (seconds / 60, seconds % 60) {
+        (0, seconds) => format!("{seconds} s"),
+        (minutes, 0) => format!("{minutes} min"),
+        (minutes, seconds) => format!("{minutes} min {seconds} s"),
+    }
+}
+
+/// A Unix time's time of day in UTC, as HH:MM:SS.
+fn utc_clock(unix: u64) -> String {
+    let seconds = unix % 86_400;
+    format!("{:02}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
+}
+
+/// What `enroll revoke` revoked. A daemon older than this reply sends `{}`;
+/// then only the id the owner passed is known.
+pub(super) fn revoked_device_summary(device_id: &str, result: &Value) -> String {
+    let fingerprint = result.get("fingerprint").and_then(Value::as_str).unwrap_or(device_id);
+    match result.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
+        Some(name) => format!("revoked device {name} ({fingerprint}); it can no longer connect"),
+        None => format!("revoked device {fingerprint}; it can no longer connect"),
+    }
 }
 
 /// A daemon older than bound invitations ignores `--device-key` and makes an

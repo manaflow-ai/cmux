@@ -59,6 +59,8 @@ fn the_offer_goes_out_as_action_with_route_or_reason() {
         (NoScreen::Offline, "offline"),
         (NoScreen::NoDesktop, "no-desktop"),
         (NoScreen::Phone, "phone"),
+        (NoScreen::NoScreenHost, "no-screen-host"),
+        (NoScreen::SharingOff, "sharing-off"),
         (NoScreen::Unknown, "unknown"),
     ] {
         assert_eq!(
