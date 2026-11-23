@@ -419,6 +419,20 @@ HEAD_ARTIFACT = "react-apps-head-results-shard{}"
 HEAD_RESULTS = "webviews-head-results.json"
 
 
+def head_shard_dir(shards: Path, shard: int, picked: int) -> Path:
+    """Where SHARD's downloaded artifact is: its own folder, named after it, except that actions/download-artifact
+    extracts a lone artifact into the download root itself (`isSingleArtifactDownload || mergeMultiple ||
+    artifacts.length === 1` in its download-artifact.ts, pinned 37930b1c). A pull request web-subarea-scope gave one
+    shard downloads exactly one artifact, so it has no such folder: #48267 and #50979, both Swift-only, were refused
+    on 2026-11-22 with "react-apps-head-results-shard1 has no webviews-head-results.json" while shard 1 had uploaded
+    its 165 files and the download verified its digest. A folder of the shard's own name still wins wherever one
+    exists, so nothing a run with several shards reads changes."""
+    here = shards / HEAD_ARTIFACT.format(shard)
+    if picked == 1 and not (here / HEAD_RESULTS).is_file() and (shards / HEAD_RESULTS).is_file():
+        return shards
+    return here
+
+
 def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     """Join the COUNT head shards' artifacts under SHARDS into OUT, for the one react-apps-base-check that judges them
     all (it was one job a head shard, 12 jobs for what run 43409592440 answered in 0.3 to 0.9 min each). Their result
@@ -429,13 +443,9 @@ def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    ran = list(range(1, count + 1) if isinstance(count, int) else count)
-    for shard in ran:
-        here = shards / HEAD_ARTIFACT.format(shard)
-        # One matching artifact is extracted straight into SHARDS, not into a folder of its name (download-artifact
-        # with a pattern that matches one; cmux#49577's lone shard 1, run 45107771882), so read it from there.
-        if len(ran) == 1 and not (here / HEAD_RESULTS).is_file() and (shards / HEAD_RESULTS).is_file():
-            here = shards
+    picked = list(range(1, count + 1) if isinstance(count, int) else count)
+    for shard in picked:
+        here = head_shard_dir(shards, shard, len(picked))
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
         try:
