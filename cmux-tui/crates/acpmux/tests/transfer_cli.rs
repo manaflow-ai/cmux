@@ -66,18 +66,42 @@ impl Daemon {
 
     /// The same, with the test agent under the harness name `harness`.
     async fn with_harness(tag: &str, target: Option<&Daemon>, harness: &str) -> Self {
+        let peer = target.map(|target| (target.home.clone(), target.socket.clone()));
+        Self::spawn_as(tag, peer, json!({}), harness).await
+    }
+
+    /// Where the daemon tagged `tag` lives, known before it starts (two daemons that are each
+    /// other's peer name each other's socket first).
+    fn place(tag: &str) -> (PathBuf, PathBuf) {
         // Short, under /tmp: the socket path must stay under the macOS limit.
         let home = PathBuf::from("/tmp").join(format!("amx-{tag}-{}", std::process::id()));
+        let socket = home.join("s.sock");
+        (home, socket)
+    }
+
+    /// A daemon whose peer `target` is the daemon at `peer` (home, socket), its agent started
+    /// with `agent_env`.
+    async fn spawn(tag: &str, peer: Option<(PathBuf, PathBuf)>, agent_env: Value) -> Self {
+        Self::spawn_as(tag, peer, agent_env, "fake").await
+    }
+
+    /// [`Self::spawn`], with the test agent under the harness name `harness`.
+    async fn spawn_as(
+        tag: &str,
+        peer: Option<(PathBuf, PathBuf)>,
+        agent_env: Value,
+        harness: &str,
+    ) -> Self {
+        let (home, socket) = Self::place(tag);
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(&home).expect("home");
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let mut config = json!({"harnesses": {harness: {"argv": ["python3", fake]}}, "defaultHarness": harness, "permissionPolicy": "approve-all"});
-        let path = target.map(|target| {
+        let mut config = json!({"harnesses": {harness: {"argv": ["python3", fake], "env": agent_env}}, "defaultHarness": harness, "permissionPolicy": "approve-all"});
+        let path = peer.map(|(peer_home, peer_socket)| {
             config["peers"] = json!({"target": {"url": "ssh://target"}});
-            session_move::fake_ssh(&home, target)
+            session_move::fake_ssh(&home, &peer_home, &peer_socket)
         });
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
-        let socket = home.join("s.sock");
         let mut command = daemon_env::command(&home, daemon_env::Agents::StandIn, &[]);
         if let Some(path) = path {
             command.env("PATH", path);
@@ -145,5 +169,7 @@ async fn a_chat_whose_folder_is_missing_on_the_target_is_refused_with_a_reason_t
 
 #[path = "transfer_cli/session_move.rs"]
 mod session_move;
+#[path = "transfer_cli/session_move_live.rs"]
+mod session_move_live;
 #[path = "transfer_cli/session_move_target_ask.rs"]
 mod session_move_target_ask;
