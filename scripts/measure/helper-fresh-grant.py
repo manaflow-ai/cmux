@@ -29,10 +29,11 @@ import os
 import plistlib
 import re
 import secrets
-import select
+import queue
 import signal
 import struct
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
@@ -447,12 +448,19 @@ class Run:
         self.started.append(p)
         lines: list[str] = []
         deadline = now() + 30
+        # One reader thread per child: select() on a buffered text pipe misses lines already in its buffer.
+        got_lines: queue.Queue = queue.Queue()
+        def pump() -> None:
+            for raw in p.stdout:
+                got_lines.put(raw)
+            got_lines.put("")
+        threading.Thread(target=pump, daemon=True).start()
         def read_until(pred) -> dict | None:
             while now() < deadline:
-                readable, _, _ = select.select([p.stdout], [], [], max(0.0, deadline - now()))
-                if not readable:
+                try:
+                    raw = got_lines.get(timeout=max(0.0, deadline - now()))
+                except queue.Empty:
                     break
-                raw = p.stdout.readline()
                 if not raw:
                     break
                 lines.append(raw.rstrip())
