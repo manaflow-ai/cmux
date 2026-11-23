@@ -737,7 +737,15 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|\.[A-Za-z_][A-Za-z0-9_-]*|[A-Za-z_][A-Za-z0-9_.-]*)")
+
+
+DECLARED_POOL_LEADS = {
+    name: spec["members"][0]
+    for name, spec in json.loads((Path(__file__).resolve().parents[1] / ".github" / "runners.json")
+                                 .read_text(encoding="utf-8"))["pools"].items()
+    if isinstance(spec, dict)
+}
 
 
 def evaluate(expression, context):
@@ -775,7 +783,12 @@ def evaluate(expression, context):
 
     def primary():
         value = atom()
-        while peek() == "[":
+        while peek() == "[" or (peek() or "").startswith("."):
+            if peek().startswith("."):
+                # `fromJSON(x).name`: a property of the parsed object.
+                name = take()[1:]
+                value = value.get(name) if isinstance(value, dict) else None
+                continue
             take()
             index = either()
             if take() != "]":
@@ -840,6 +853,10 @@ def evaluate(expression, context):
         value = context
         for part in token.split("."):
             value = value.get(part) if isinstance(value, dict) else None
+        if value is None and token == "vars.RUNNER_POOLS":
+            # Unset in the test's context: what scripts/ci/runner_pools.py writes while no member stalls,
+            # each declared pool's first member (.github/runners.json).
+            return json.dumps(DECLARED_POOL_LEADS)
         return value
 
     def number(value):
@@ -1068,7 +1085,7 @@ class Wiring(unittest.TestCase):
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
         # Any other pool value is admission's pull-request pool, unchanged.
-        fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
+        fallback = "vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)

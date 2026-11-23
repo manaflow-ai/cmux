@@ -986,7 +986,12 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
 
 
 def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback() -> None:
+    import re
     import yaml
+
+    def two_vcpu(runner: str) -> bool:
+        # The Blacksmith 2 vCPU label, or its size's pool (linux_2, or linux_2_ephemeral for a job holding a secret).
+        return bool(re.search(r"blacksmith-2vcpu-ubuntu-2404|fromJSON\(vars\.RUNNER_POOLS\)\.linux_2(?:_ephemeral)?\b", runner))
 
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     for name in (
@@ -999,16 +1004,16 @@ def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallba
         "report-nightly-failure",
     ):
         runner = str(jobs[name]["runs-on"])
-        assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
+        assert two_vcpu(runner), name
         assert runner != "ubuntu-24.04", name
     probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
-    assert "blacksmith-2vcpu-ubuntu-2404" in str(probe["jobs"]["probe"]["runs-on"])
+    assert two_vcpu(str(probe["jobs"]["probe"]["runs-on"]))
     for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
         document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
         for name, job in document["jobs"].items():
             runner = str(job.get("runs-on", ""))
             if runner:
-                assert "blacksmith-2vcpu-ubuntu-2404" in runner, f"{workflow}:{name}"
+                assert two_vcpu(runner), f"{workflow}:{name}"
 
 
 def test_only_the_wait_for_the_approval_is_cancellable() -> None:

@@ -42,7 +42,7 @@ jobs:
     if: github.repository_owner == 'manaflow-ai'
     # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
     # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CONTROL_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 5
     permissions:
       actions: write # read runs and dispatch continuation/starvation builds

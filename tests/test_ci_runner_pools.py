@@ -112,7 +112,8 @@ class Declared(unittest.TestCase):
         # Review of #30340: a member a bounded selector refuses (contains([...], vars.LINUX_RUNNER) && ... || '<4 vCPU>')
         # sends its readers back to the stalled size when the pool steps onto it.
         selector = re.compile(r"contains\(fromJSON\('(\[[^']*\])'\), (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux)\)"
-                              r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| '(blacksmith-4vcpu-ubuntu-2404)'")
+                              r" && (?:vars\.LINUX_RUNNER|fromJSON\(vars\.RUNNER_POOLS[^)]*\)\.linux) \|\| "
+                              r"(?:'blacksmith-4vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_4)")
         members = [m for m in runner_pools.load_pools()["linux"]["members"] if not runner_pools.owned_lead(m)]
         found = 0
         for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):

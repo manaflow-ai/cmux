@@ -2409,6 +2409,10 @@ path = "tests/test_ci_api_call_log_bootstrap.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_no_single_size_pins.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_media_lint.py"
 lane = "linux-guard"
 

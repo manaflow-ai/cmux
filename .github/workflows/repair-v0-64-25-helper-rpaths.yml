@@ -29,7 +29,7 @@ jobs:
       contents: read
     outputs:
       dmg_sha256: ${{ steps.verify.outputs.dmg_sha256 }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
     env:
       TARGET_TAG: v0.64.25

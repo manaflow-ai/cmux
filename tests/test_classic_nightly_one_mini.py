@@ -31,7 +31,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from test_ci_fork_runner_routing import parse_expression  # noqa: E402
+from test_ci_fork_runner_routing import declared_pools, parse_expression  # noqa: E402
 
 JOBS = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8"))["jobs"]
 MINI, SIGN = "glaeda-nightly-mini", "glaeda-trusted-next-signing"
@@ -95,6 +95,9 @@ def evaluate(node, context):
     if kind == "prop":
         value = evaluate(node[1], context)
         return value.get(node[2], "") if isinstance(value, dict) else ""
+    if kind == "pool":
+        # `fromJSON(vars.RUNNER_POOLS).<pool>`: the context's live member, else the pool's first declared one.
+        return context.get(f"vars.RUNNER_POOLS.{node[1]}") or declared_pools()[node[1]][0]
     raise ValueError(node)
 
 

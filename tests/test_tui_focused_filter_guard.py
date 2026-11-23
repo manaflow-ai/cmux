@@ -124,8 +124,8 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert [row["os"] for row in rows] == ["macos", "linux"]
     assert all(set(row) == {"os", "runner"} for row in rows), rows
     assert "vars.CI_SIDE_LANE_RUNNER" in rows[0]["runner"], rows[0]
-    assert rows[0]["runner"].endswith("'blacksmith-6vcpu-macos-15' }}"), rows[0]
-    assert "ubuntu-2404" in rows[1]["runner"], rows[1]
+    assert rows[0]["runner"].endswith("fromJSON(vars.RUNNER_POOLS).macos_15 }}"), rows[0]
+    assert "fromJSON(vars.RUNNER_POOLS).linux_" in rows[1]["runner"], rows[1]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
     assert "cargo fmt --check" not in test_commands
@@ -152,10 +152,11 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         ]
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
+        # Each row reads its size's pool (.github/runners.json).
         if runner_os == "Linux":
-            assert "ubuntu-2404" in entry["runner"]
+            assert "fromJSON(vars.RUNNER_POOLS).linux_" in entry["runner"]
         else:
-            assert "macos-15" in entry["runner"]
+            assert "fromJSON(vars.RUNNER_POOLS).macos_15" in entry["runner"]
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1

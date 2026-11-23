@@ -60,6 +60,12 @@ class Expressions(unittest.TestCase):
             "needs.pick-nightly-app-runner.outputs.trusted != 'false' && "
             "fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || "
             "needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26'"), [])
+        # A pool read after the pick always names a runner too (runner_pools.py writes every declared pool).
+        self.assertEqual(self.bad(
+            "github.run_attempt == 1 && needs.p.outputs.trusted != 'false' && vars.CI_NIGHTLY_TRUSTED_RUNNER || "
+            "fromJSON(vars.RUNNER_POOLS).macos_26_large"), [])
+        self.assertEqual(self.bad("needs.p.outputs.ok == 'true' && vars.CI_IOS_INTERNAL_RUNNER || "
+                                  "fromJSON(vars.RUNNER_POOLS).macos_26.x"), ["CI_IOS_INTERNAL_RUNNER"])
         # A pick with nothing that always names a runner after it is no fallback.
         self.assertEqual(self.bad("needs.p.outputs.ok == 'true' && vars.CI_IOS_INTERNAL_RUNNER || vars.MACOS_RUNNER_26"),
                          ["CI_IOS_INTERNAL_RUNNER"])

@@ -10,7 +10,7 @@ Every macOS runs-on in these workflows (bar EXEMPT) must:
   literal it falls back to, and
 - on a re-run (attempt 2 on) read the picker's `alternate`, the other label, so a re-run never
   queues again on the label that stalled after the pick,
-- and end in a literal Blacksmith label, so an empty pick still runs.
+- and end in a literal Blacksmith label or a macOS 26 pool, so an empty pick still runs.
 The picker is scripts/ci/classic_nightly_build_runner.py (Blacksmith macOS 26 only: both its
 candidates are blacksmith-* labels).
 """
@@ -42,7 +42,9 @@ EXEMPT = {
 MOVING = re.compile(r"needs\.([a-z0-9-]+)\.outputs\.(cloud|runner)\b")
 ALTERNATE = re.compile(r"github\.run_attempt > 1 && needs\.([a-z0-9-]+)\.outputs\.attempt != github\.run_attempt"
                        r" && needs\.\1\.outputs\.alternate \|\|")
-LAST_LITERAL = re.compile(r"\|\| '(blacksmith-[0-9]+vcpu-macos-26)'\)?\s*\}\}$")
+# Or the macOS 26 pools (.github/runners.json: every member a Blacksmith macOS 26 label).
+LAST_LITERAL = re.compile(r"\|\| (?:'(blacksmith-[0-9]+vcpu-macos-26)'|fromJSON\(vars\.RUNNER_POOLS\)\.macos_26(?:_large)?)"
+                          r"\)?\s*\}\}$")
 
 
 def mac_jobs() -> list[tuple[str, str, dict, dict]]:
@@ -72,7 +74,7 @@ def problems(workflow: str, name: str, job: dict, jobs: dict) -> list[str]:
         out.append("has no `github.run_attempt > 1 && needs.<picker>.outputs.attempt != github.run_attempt && "
                    "needs.<picker>.outputs.alternate ||` for a re-run")
     if not literal:
-        out.append("does not end in a literal blacksmith-<n>vcpu-macos-26 label")
+        out.append("does not end in a literal blacksmith-<n>vcpu-macos-26 label or a macOS 26 pool")
     for source in {job_name for job_name, _ in moving} | set(alternate):
         if source not in needs(job):
             out.append(f"reads {source} without needing it")
@@ -107,6 +109,13 @@ class PublisherMacJobsMove(unittest.TestCase):
         bad = [problem for workflow, name, job, all_jobs in jobs if (workflow, name) not in EXEMPT
                for problem in problems(workflow, name, job, all_jobs)]
         self.assertEqual(bad, [], "\n".join(bad))
+
+    def test_the_macos_26_pools_hold_only_blacksmith_macos_26(self) -> None:
+        import json
+        pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
+        for name in ("macos_26", "macos_26_large"):
+            self.assertTrue(all(re.fullmatch(r"blacksmith-[0-9]+vcpu-macos-26", member)
+                                for member in pools[name]["members"]), name)
 
     def test_the_exemptions_name_real_jobs(self) -> None:
         checked = {(workflow, name) for workflow, name, _, _ in mac_jobs()}

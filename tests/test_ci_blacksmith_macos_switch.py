@@ -228,6 +228,10 @@ def evaluate(node: tuple, context: Context) -> object:
         else:
             raise _Unreadable(f"{name}()")
         return _index(value, node[3]) if len(node) > 3 else value
+    if kind == "pool":
+        # `fromJSON(vars.RUNNER_POOLS).<pool>`: the pool's live member in the variable the context holds.
+        text = str(context.ref("vars.RUNNER_POOLS") or "")
+        return (json.loads(text) if text else {}).get(node[1])
     raise _Unreadable(repr(node))
 
 

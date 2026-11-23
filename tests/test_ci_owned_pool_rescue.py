@@ -2182,7 +2182,15 @@ class BlacksmithStall(unittest.TestCase):
     """A queue rescue never moves a job onto a Blacksmith label the pickers call stalled (run 40466780519)."""
 
     def test_the_dev_daily_retry_label_comes_from_its_workflow(self):
+        # The dev daily's signing jobs keep their literal label (tests/test_ci_no_single_size_pins.py).
         self.assertEqual(rescue.retry_labels(DEV_WORKFLOW), {BLACKSMITH})
+        # A pool read may take any of the pool's members.
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_26 }}\n"),
+                         {BLACKSMITH, "blacksmith-12vcpu-macos-26"})
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).macos_15 }}\n"),
+                         {"blacksmith-6vcpu-macos-15"})
+        self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).nope }}\n"),
+                         set(rescue.simple_pool_picker.BLACKSMITH))
         every = set(rescue.simple_pool_picker.BLACKSMITH)
         # A workflow that names no picker label, calls a reusable workflow or cannot be read may go anywhere.
         self.assertEqual(rescue.retry_labels("jobs:\n  a:\n    runs-on: ${{ needs.x.outputs.retry }}\n"), every)
@@ -2286,7 +2294,7 @@ class BlacksmithStall(unittest.TestCase):
     def test_a_stall_on_another_label_does_not_hold_the_run(self):
         clock = Clock()
         api = FakeAPI(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW,
-                      snapshot=blacksmith_snapshot(queued=40, oldest=300, label="blacksmith-12vcpu-macos-26"))
+                      snapshot=blacksmith_snapshot(queued=40, oldest=300, label="blacksmith-6vcpu-macos-15"))
         code, summary = run_main(api, clock, payload=dev_event())
         self.assertIn("cancel", api.calls)
         self.assertLess(api.first_cancel, rescue.OWNED_WAIT_FLOOR_SECONDS)
@@ -7614,8 +7622,9 @@ class BotRerunRouteTests(unittest.TestCase):
         self.assertTrue(legs)
         for line in legs:
             with self.subTest(line=line.strip()[:60]):
-                self.assertIn("github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-", line)
-                self.assertIn("macos", line.rsplit("||", 1)[1])
+                self.assertIn("github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_", line)
+                pool = line.rsplit("||", 1)[1].strip().removeprefix("fromJSON(vars.RUNNER_POOLS).").removesuffix("}}").strip()
+                self.assertTrue(rescue.pool_members(pool) <= set(rescue.simple_pool_picker.BLACKSMITH), pool)
 
 
 class OpenHeadNeverCancelled(unittest.TestCase):

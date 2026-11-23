@@ -160,7 +160,7 @@ check_macos_runner() {
   if ! without_mac_grant_clause "$file" | awk -v job="$job" '
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
+    in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|RUNNER_POOLS\)\.macos_|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     # A product consumer inherits the compile admission pool, which this
     # check covers on its own, or, on a re-run or when the picker did not
     # place this shard on the owned pool, the Blacksmith pool the pull
@@ -170,7 +170,7 @@ check_macos_runner() {
     # It may first take the label late-placement chose in this attempt (an owned
     # root runner found idle once admission finished; late_placement.py).
     in_job && /runs-on:[[:space:]]*\$\{\{ (needs\.late-placement\.outputs\.attempt == github\.run_attempt && fromJSON\(needs\.late-placement\.outputs\.runners \|\| .\{\}.\)\[format\(.shard-\{0\}., matrix\.shard\)\] \|\| )?(\(github\.run_attempt > 2 && \(github\.triggering_actor == .github-actions\[bot\]. \|\| github\.event_name != .pull_request.\) \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?(inputs\.pr_gui_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
-    in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
+    in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|RUNNER_POOLS\)\.macos_|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   '; then
     echo "FAIL: $job in $(basename "$file") must run on a paid macOS runner (vars.MACOS_RUNNER_* or a Blacksmith/Warp/Depot label), not a GitHub-hosted runner"
@@ -421,7 +421,7 @@ check_release_helper_artifact_from_package_lane() {
   # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
   # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
   # The opt-in build-fleet gateway (hq#794) likewise takes only a run without the helper.
-  if ! without_mac_grant_clause "$CI_MACOS_FILE" | awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  if ! without_mac_grant_clause "$CI_MACOS_FILE" | awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' swift-package ') && (inputs.pr_side_runner || inputs.pr_runner) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || fromJSON(vars.RUNNER_POOLS).macos_15) }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -1873,6 +1873,8 @@ classic_mini = selector.replace(
 jit_arm = "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}"
 accepted = [selector, classic_mini]
 accepted += [s.replace("'blacksmith-2vcpu-ubuntu-2404' }}", jit_arm) for s in accepted]
+# The fallback may read its size's pool instead of the literal (tests/test_ci_no_single_size_pins.py).
+accepted += [s.replace("'blacksmith-2vcpu-ubuntu-2404' }}", "fromJSON(vars.RUNNER_POOLS).linux_2 }}") for s in accepted]
 if job.get("runs-on") not in accepted or "environment" in job:
     sys.exit(0)
 if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",
@@ -2016,6 +2018,11 @@ GUARDED = (
     " && contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
     " || needs.changes.outputs.macos_pr_runner)",
 )
+# A same-repository branch's Blacksmith fallback may read its size's pool (tests/test_ci_no_single_size_pins.py);
+# the fork branch keeps its quoted label.
+GUARDED += tuple(branch.replace(" || 'blacksmith-6vcpu-macos-15')", " || fromJSON(vars.RUNNER_POOLS).macos_15)")
+                 for branch in GUARDED
+                 if "head.repo.full_name != github.repository" not in branch and "'blacksmith-6vcpu-macos-15'" in branch)
 
 
 def strings(node, path):
@@ -2534,6 +2541,8 @@ check_background_macos_lane() {
   # one variable edit. GitHub-hosted macOS labels appear only in the fork
   # branch and the exact compatibility-leg exceptions below.
   local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15'"
+  # The same fallback read from its size's pool (tests/test_ci_no_single_size_pins.py).
+  local lane_pool_expr="vars.MACOS_RUNNER_BACKGROUND || fromJSON(vars.RUNNER_POOLS).macos_15"
   local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
   # No exceptions: no job runs on a GitHub-hosted Mac
   # (tests/test_ci_no_github_hosted_macos.py). Exact lines only if one returns.
@@ -2589,9 +2598,9 @@ check_background_macos_lane() {
   while IFS= read -r file; do
     [ -n "$file" ] || continue
     ref_count="$({ grep -o 'vars\.MACOS_RUNNER_BACKGROUND' "$file" || true; } | wc -l | tr -d ' ')"
-    expr_count="$({ grep -oF "$lane_expr" "$file" || true; } | wc -l | tr -d ' ')"
+    expr_count="$({ grep -oF -e "$lane_expr" -e "$lane_pool_expr" "$file" || true; } | wc -l | tr -d ' ')"
     if [[ "$ref_count" != "$expr_count" ]]; then
-      echo "FAIL: $(basename "$file") references vars.MACOS_RUNNER_BACKGROUND without the fallback || 'blacksmith-6vcpu-macos-15'"
+      echo "FAIL: $(basename "$file") references vars.MACOS_RUNNER_BACKGROUND without the fallback || 'blacksmith-6vcpu-macos-15' (or its pool, fromJSON(vars.RUNNER_POOLS).macos_15)"
       failed=1
     fi
     if ! grep -qE '^["\047]?on["\047]?:' "$file"; then
