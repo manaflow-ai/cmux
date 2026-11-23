@@ -911,7 +911,13 @@ impl fmt::Display for CryptoError {
             Self::DaemonKeyMismatch { expected, actual } => {
                 write!(formatter, "daemon key mismatch: expected {expected}, got {actual}")
             }
-            Self::Unauthorized(message) => write!(formatter, "authorization failed: {message}"),
+            Self::Unauthorized(message) => {
+                write!(formatter, "authorization failed: {message}")?;
+                match unauthorized_next_step(message) {
+                    Some(step) => write!(formatter, "; {step}"),
+                    None => Ok(()),
+                }
+            }
             Self::HandshakeTimeout { timeout } => write!(
                 formatter,
                 "secure link handshake timed out after {}ms: the endpoint accepted the \
@@ -922,4 +928,40 @@ impl fmt::Display for CryptoError {
     }
 }
 
+/// What a person does next after the host refused this device, from the host's words.
+fn unauthorized_next_step(message: &str) -> Option<&'static str> {
+    if message.contains("revoked") {
+        Some(
+            "the host's owner removed this device; ask for a new invitation (on the host: `cmux remote enroll create`), then join with `cmux remote connect --invite-file PATH`",
+        )
+    } else if message.contains("expired") || message.contains("already claimed") {
+        Some(
+            "ask for a new invitation (on the host: `cmux remote enroll create`), then join with `cmux remote connect --invite-file PATH`",
+        )
+    } else {
+        None
+    }
+}
+
 impl std::error::Error for CryptoError {}
+
+#[cfg(test)]
+mod next_step_tests {
+    use super::*;
+
+    #[test]
+    fn a_refused_device_is_told_what_to_do_next() {
+        for message in [
+            "device has been revoked",
+            "invitation is expired",
+            "invitation was already claimed by another device",
+        ] {
+            let text = CryptoError::Unauthorized(message.into()).to_string();
+            assert!(text.starts_with(&format!("authorization failed: {message}; ")), "{text}");
+            assert!(text.contains("cmux remote enroll create"), "{text}");
+            assert!(text.contains("cmux remote connect --invite-file"), "{text}");
+        }
+        let other = CryptoError::Unauthorized("no such invitation".into()).to_string();
+        assert_eq!(other, "authorization failed: no such invitation");
+    }
+}

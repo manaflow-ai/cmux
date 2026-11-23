@@ -263,7 +263,7 @@ public final class CloudRefreshGate {
     private final class Batch {
         var task: Task<Bool, Never>?
         var queued = true
-        var waiters: Set<UUID> = []
+        var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     }
 
     private var tail: Batch?
@@ -285,26 +285,31 @@ public final class CloudRefreshGate {
             tail = batch
             // task-owner: batches; cancel() stops every read during service teardown.
             batch.task = Task { @MainActor in
+                var result = false
                 defer {
                     self.batches.removeValue(forKey: batchID)
                     if self.tail === batch { self.tail = nil }
+                    let waiters = batch.waiters.values
+                    batch.waiters.removeAll()
+                    for waiter in waiters { waiter.resume(returning: result) }
                 }
                 if let previous { _ = await previous.value }
                 batch.queued = false
                 guard !Task.isCancelled else { return false }
-                return await operation()
+                result = await operation()
+                return result
             }
         }
         let ticket = UUID()
-        batch.waiters.insert(ticket)
-        guard let task = batch.task else { return false }
-        defer { batch.waiters.remove(ticket) }
         let result = await withTaskCancellationHandler {
-            await task.value
+            await withCheckedContinuation { continuation in
+                // Registration cannot suspend: completion and cancellation remove each ticket once.
+                batch.waiters[ticket] = continuation
+            }
         } onCancel: {
             // task-owner: one main-actor cancellation handoff; no recurring work.
             Task { @MainActor in
-                batch.waiters.remove(ticket)
+                batch.waiters.removeValue(forKey: ticket)?.resume(returning: false)
                 if batch.waiters.isEmpty { batch.task?.cancel() }
             }
         }

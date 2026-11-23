@@ -45,8 +45,26 @@ import CmuxNextCompat
     /// Runs right before anything reaches the page: a push here, a script call or a picture
     /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
-    /// page that runs no script (a push's completion paces the next one).
-    public var beforePageWork: (@MainActor () -> Void)?
+    /// page that runs no script (a push's completion paces the next one). Set exactly while the page is
+    /// frozen: meanwhile other chats' rows are left out, not queued (``AcpmuxPaneSocket/setAsleep(_:)``).
+    public var beforePageWork: (@MainActor () -> Void)? {
+        didSet { syncSight() }
+    }
+    /// How much of the pane anyone can see (its pacer's probe, ``AgentPaneFramePacer/onSightChange``). Unseen: other
+    /// chats' rows are left out until it shows, as for a frozen page. Hidden: its chat's stream is left out too.
+    public var pageSight = AgentPaneSight.seen {
+        didSet { if pageSight != oldValue { syncSight() } }
+    }
+    /// Whether nobody can see the pane (``pageSight``).
+    public var pageUnseen: Bool { pageSight.unseen }
+
+    /// What the page hears now: other chats' rows (``AcpmuxPaneSocket/setAsleep(_:)``) and its chat's stream
+    /// (``AcpmuxPaneSocket/setHidden(_:)``). A frozen page hears neither: any push would thaw it.
+    func syncSight() {
+        let frozen = beforePageWork != nil
+        socket?.setAsleep(frozen || pageSight.unseen)
+        socket?.setHidden(frozen || pageSight.hidden)
+    }
     /// Tests: runs on the main actor after a pass's frames were read off it and before the main
     /// actor decides the next one, where a reconnect can land. Nil in the app.
     var afterAnalyze: (@MainActor () async -> Void)?
@@ -336,6 +354,8 @@ import CmuxNextCompat
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        // A page hidden or frozen before this connection opened: its list notices wait for its show too.
+        syncSight()
         onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,

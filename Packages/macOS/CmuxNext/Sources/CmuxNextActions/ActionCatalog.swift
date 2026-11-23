@@ -56,8 +56,6 @@ extension ActionRegistry {
     ///
     /// - Parameter runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
     public static func standard(runTiming: any ActionRunTiming) -> ActionRegistry {
-        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
-        DiffViewerZoomRows.seed(into: registry) // rows the pinned app FFI may not carry yet
-        return registry
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
 }

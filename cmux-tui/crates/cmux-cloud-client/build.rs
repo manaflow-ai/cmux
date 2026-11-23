@@ -8,12 +8,16 @@
 // The file follows its own workspace's formatting (workers/cmux-vm/cli).
 #[rustfmt::skip]
 #[path = "../../../workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs"]
+#[cfg(feature = "http")]
 mod normalize;
 
+#[cfg(feature = "http")]
 use std::path::PathBuf;
 
+#[cfg(feature = "http")]
 const NORMALIZE: &str = "../../../workers/cmux-vm/cli/crates/cmux-vm-codegen/src/normalize.rs";
 
+#[cfg(feature = "http")]
 fn main() -> Result<(), String> {
     println!("cargo::rerun-if-changed=openapi.json");
     println!("cargo::rerun-if-changed={NORMALIZE}");
@@ -36,8 +40,10 @@ fn main() -> Result<(), String> {
 /// reads a missing list as a machine joined before it took one (cmux-platform#1015), and an
 /// optional list would be left out when empty. Required here only, so the generated field is a
 /// plain list; every body the platform takes still has one.
+#[cfg(feature = "http")]
 const SEND_CAPABILITIES: &[&str] = &["JoinRedeem", "MachineCredentialRotate"];
 
+#[cfg(feature = "http")]
 fn always_send_capabilities(doc: &mut serde_json::Value) {
     for name in SEND_CAPABILITIES {
         let Some(schema) = doc.pointer_mut(&format!("/components/schemas/{name}")) else {
@@ -56,3 +62,6 @@ fn always_send_capabilities(doc: &mut serde_json::Value) {
         }
     }
 }
+
+#[cfg(not(feature = "http"))]
+fn main() {}

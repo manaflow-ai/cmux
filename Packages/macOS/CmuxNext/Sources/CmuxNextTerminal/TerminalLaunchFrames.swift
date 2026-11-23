@@ -413,6 +413,10 @@ public final class TerminalLaunchFrames {
     var keepChecks: Int { keeper?.checks ?? 0 }
     /// The size of `key`'s last kept save (tests).
     func keepSavedSize(_ key: String) -> CGSize? { keeper?.savedSize(key) }
+    /// What the keeper's writer did so far (tests, the keeper bench).
+    var keepWrites: TerminalLaunchFrameWriter.Stats { keeper?.writes ?? .init() }
+    /// The keeper's jobs on the files lane and the CPU lane, and their thread CPU time (the keeper bench).
+    var keepLaneCost: (files: LaneCost, cpu: LaneCost) { keeper?.laneCost ?? (.init(), .init()) }
 
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed. The keeper stops first: no save of its may land after these.
@@ -509,11 +513,12 @@ public final class TerminalLaunchFrames {
         }
     }
 
-    /// The frame's file data: a PNG with clear pixels, else a JPEG; nil when it does not encode or is larger than the read
-    /// takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
+    /// The frame's file data: a PNG with clear pixels (unfiltered: cheaper to write and to read for a terminal's flat
+    /// colors and text, ``CGImage/unfilteredPNGData()``), else a JPEG; nil when it does not encode or is larger than the
+    /// read takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
     nonisolated static func encoded(_ frame: CGImage, maximumBytes: Int = maximumBytes) -> Data? {
-        guard let data = frame.pageImageData(png: frame.showsClearPixels, jpegQuality: jpegQuality), data.count <= maximumBytes
-        else { return nil }
+        let data = frame.showsClearPixels ? frame.unfilteredPNGData() : frame.pageImageData(png: false, jpegQuality: jpegQuality)
+        guard let data, data.count <= maximumBytes else { return nil }
         return data
     }
 
@@ -523,32 +528,88 @@ public final class TerminalLaunchFrames {
     /// frame itself, so a write that started before it neither lands over those frames nor prunes them.
     nonisolated static func writeOne(_ frame: CGImage, key: String, scale: Int, to directory: URL, keeping: Set<String>?,
                                      maximumBytes: Int = maximumBytes, stillWanted: () -> Bool = { true }) {
+        writeOne(data: encoded(frame, maximumBytes: maximumBytes), key: key, scale: scale, to: directory, keeping: keeping,
+                 stillWanted: stillWanted)
+    }
+
+    /// ``writeOne(_:key:scale:to:keeping:maximumBytes:stillWanted:)`` of a frame already encoded (nil: none that fits
+    /// the read's cap, so the key's files stay); true when it was written. The key's parked file goes with its old ones.
+    @discardableResult
+    nonisolated static func writeOne(data: Data?, key: String, scale: Int, to directory: URL, keeping: Set<String>?,
+                                     stillWanted: () -> Bool = { true }) -> Bool {
         let manager = FileManager.checked
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let name = "\(key)@\(scale)x.jpg"
         let url = directory.appending(path: name)
         var saved = false
-        if let data = encoded(frame, maximumBytes: maximumBytes),
-           stillWanted(),
-           (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
+        if let data, stillWanted(), (try? data.blockingWrite(to: url, options: [.atomic])) != nil {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             saved = true
         }
-        guard stillWanted() else { return }
+        guard stillWanted() else { return saved }
         for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where old != name {
             // Only saved frames: another write's file before its rename (the quit's, beside this one) is left alone. The
             // key's frames at other scales go only once its new one is written.
-            guard let tab = owner(of: old), tab == key ? saved : keeping.map({ !$0.contains(tab) }) == true else { continue }
+            guard let tab = owner(of: old) ?? owner(ofParked: old),
+                  tab == key ? saved : keeping.map({ !$0.contains(tab) }) == true else { continue }
+            try? manager.removeItem(at: directory.appending(path: old))
+        }
+        return saved
+    }
+
+    /// Removes the frames, parked or not, of every key not in `keeping` but `key` (a keeper save that wrote nothing).
+    nonisolated static func prune(_ directory: URL, keeping: Set<String>, except key: String) {
+        let manager = FileManager.checked
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] {
+            guard let tab = owner(of: old) ?? owner(ofParked: old), tab != key, !keeping.contains(tab) else { continue }
             try? manager.removeItem(at: directory.appending(path: old))
         }
     }
 
-    /// Removes every saved frame of `key` (the keeper: a terminal hidden or closed).
+    /// Removes every saved frame of `key`, parked or not (the keeper: a terminal closed).
     nonisolated static func removeAll(of key: String, in directory: URL) {
         let manager = FileManager.checked
-        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: old) == key {
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? []
+        where owner(of: old) == key || owner(ofParked: old) == key {
             try? manager.removeItem(at: directory.appending(path: old))
         }
+    }
+
+    /// A hidden terminal's frame (the keeper): its file at `scale` becomes its parked file, which no launch reads, and its
+    /// files at any other scale go. True when a parked file holds it now. With no `scale` (nothing known on disk) every
+    /// file of the key goes.
+    nonisolated static func park(_ key: String, scale: Int?, in directory: URL) -> Bool {
+        let live = scale.map { "\(key)@\($0)x.jpg" }
+        var parked = false
+        if let live {
+            let from = directory.appending(path: live), to = directory.appending(path: live + parkedSuffix)
+            parked = rename(from.path, to.path) == 0 // replaces an older parked file of the key at this scale
+        }
+        let manager = FileManager.checked
+        for old in (try? manager.contentsOfDirectory(atPath: directory.path)) ?? [] {
+            let keep = parked && old == live.map { $0 + parkedSuffix }
+            guard !keep, owner(of: old) == key || owner(ofParked: old) == key else { continue }
+            try? manager.removeItem(at: directory.appending(path: old))
+        }
+        return parked
+    }
+
+    /// A terminal shown again with the pixels it was hidden with (the keeper): its parked file at `scale` is its saved
+    /// frame again. With `keeping`, the frames of keys not in it go too. False when there was no parked file.
+    nonisolated static func restore(_ key: String, scale: Int, in directory: URL, keeping: Set<String>?) -> Bool {
+        let live = directory.appending(path: "\(key)@\(scale)x.jpg")
+        guard rename(live.path + parkedSuffix, live.path) == 0 else { return false }
+        if let keeping { prune(directory, keeping: keeping, except: key) }
+        return true
+    }
+
+    /// A parked frame's name ends in this after the saved frame's own (`<key>@<scale>x.jpg.parked`).
+    nonisolated static let parkedSuffix = ".parked"
+
+    /// The tab key of a parked frame (`<key>@<scale>x.jpg.parked`); nil for any other file.
+    nonisolated static func owner(ofParked file: String) -> String? {
+        guard file.hasSuffix(parkedSuffix) else { return nil }
+        return owner(of: String(file.dropLast(parkedSuffix.count)))
     }
 
     /// The quality of a frame saved as a JPEG (an opaque frame).

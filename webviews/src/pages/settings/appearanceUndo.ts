@@ -9,11 +9,11 @@ import { rowsByKey, type LocalizedText } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
 
-/** The Settings pages whose rows the stack records and that show its Undo bar: Appearance,
- * Personalization (which draws the old Theme page's cards) and Sidebar (every row of it was
+/** The Settings pages whose rows the stack records and that show its Undo bar: Appearance (which
+ * draws the theme studio, the background picker and density) and Sidebar (every row of it was
  * Appearance's before the pages split). */
-// Theme is no category: Personalization holds it (an unknown id would read as General).
-export const APPEARANCE_CATEGORIES: readonly string[] = ["personalization", "appearance", "sidebar"];
+// Theme and Personalization are no categories: Appearance holds both (an unknown id would read as General).
+export const APPEARANCE_CATEGORIES: readonly string[] = ["appearance", "sidebar"];
 
 /** The look rows that left Appearance for a page of mixed rows (Tabs and Panes, Terminal): the stack
  * still records them and Reset to Defaults still resets them, as before the split, while the
@@ -41,11 +41,16 @@ const MOVED_LOOK_KEYS: readonly string[] = [
  * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */
 const RETIRED_APPEARANCE_KEYS: readonly string[] = ["appearance.glassTransparency", "appearance.backdropArt"];
 
+/** Appearance keys that are no look of their own: what each background mode last showed and the
+ * backgrounds shown before, kept so switching can go back. Undo, Restore How It Was and Reset to Defaults leave it alone, and a
+ * write to it is no step of the stack. */
+const UNTRACKED_KEYS: ReadonlySet<string> = new Set(["appearance.backgroundMemory", "appearance.backgroundRecents"]);
+
 let tracked: ReadonlySet<string> | null = null;
 function trackedKeys(): ReadonlySet<string> {
   tracked ??= new Set([
     ...APPEARANCE_CATEGORIES.flatMap((id) => categoryRows(id))
-      .filter((row) => !row.page_hidden)
+      .filter((row) => !row.page_hidden && !UNTRACKED_KEYS.has(row.key))
       .map((row) => row.key),
     ...MOVED_LOOK_KEYS,
     ...RETIRED_APPEARANCE_KEYS,

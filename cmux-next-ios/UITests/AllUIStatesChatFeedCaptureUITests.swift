@@ -95,7 +95,7 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
                 return C.tap(app.buttons["Select Text"].firstMatch, "Select Text")
             },
-            Scene(group: g, id: "voice-mode", args: ["-cmux-mobile-demo", "voice-chat"],
+            Scene(group: g, id: "voice-mode", args: ["-cmux-mobile-demo", "voice-chat", "-composer.voiceButton", "sendButton"],
                   env: ["CMUX_MOBILE_VOICE_MODE_DEMO": "1", "CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT": "what changed today"], settle: 6) { app in
                 C.steps([{ C.tap(app.buttons["agentChat.composer.voice"], "voice button") }, { C.wait(app.otherElements["voiceMode.bar"].firstMatch, "voice bar", timeout: 10) }])
             },

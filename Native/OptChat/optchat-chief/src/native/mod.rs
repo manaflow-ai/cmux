@@ -445,6 +445,8 @@ impl Native {
         TurnOutcome {
             reply,
             error,
+            // The native engine has no per-request cost limit yet.
+            budget_stopped: None,
             orphan: None,
             cancelled: false,
             unstarted: false,

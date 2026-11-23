@@ -24,8 +24,11 @@ and render-server field animation, blurred header and native scrolling.
     Messages' key-window glass rims over the system glass; dark, 2x, macOS 27
     only), LabGlass (system glass on macOS 26
     and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
-    HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
-    owner can take a reply: `ChatIntents.canReply`; Home sends the reply as
+    HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (its own pin, 5946526; installed only when the
+    owner can take a reply: `ChatIntents.canReply`; cmux's patch holds a gesture that starts on a message
+    until 3 pt of motion show its direction, claims only a near-horizontal swipe to the right and hands
+    anything else back to the window in order, fits the row's travel and arrow to the swipe-full reference,
+    and opens the reply on a flick; `HomeSwipeReplyTests`; Home sends the reply as
     `HomeOp.sendMessage(threadRoot:)`, the thread view's Esc and clicks are `Cmux/PaneHost+Thread.swift`),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
@@ -159,6 +162,7 @@ remove the loops. `MessagesLabHomeTests/TypingDotsTests` exercises the actual na
 | Compose | no `emptyAfterSend`: an empty field is always the one-line height, also after a send (user 2026-11-16: "when imessage chat text input is empty, then i type into, and height of the input increases by just slightly"). Messages on macOS 27 keeps a field emptied by a send at 30 pt and grows it to 31 pt on the first character; Home draws no 1 pt step (`HomeComposerEmptyHeightTests`; the macOS 27 motion golden records the send without its 31 to 30 pt shrink) |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Compose | `pasteTextBesideAttachments`: the words a taken paste carries beside its attachments go in at the caret; `writeSelection(to:types:)` with `draftAttachmentFile`: Copy, Cut and a drag of a selection holding attachments write the words without U+FFFC marks, then the files (`Cmux/ComposeSelectionCopy.swift`) |
+| Compose, TranscriptAccess | the app's language, live (`app.language`): the placeholders are kept per strings bundle, not once, and `stringsChanged()` draws the shown one again; TranscriptAccess and every `Cmux/` string read `MessagesLabLocalization.bundle`, not `.module`. The host hands `MessagesLabHomeView.useStrings(_:)` the `.lproj` of `packageStrings` (CmuxNext: `HomeNativeTranscriptView.followLanguage`) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |

@@ -9,7 +9,7 @@
 //! transaction: the writer's SAVEPOINT, or a request-side transaction when
 //! the writer does not run or the caller still holds the connection.
 
-use super::public_fold::workspace_value_stated;
+use super::public_fold::{StatedDigests, workspace_value_stated};
 use super::*;
 use cmux_json::JsonGet as _;
 
@@ -37,7 +37,7 @@ pub(crate) struct WorkspaceCommitIntent {
     /// journals only the workspace upserts the fold does not state already (#32408). A fold that was lost
     /// and started again (a daemon start) holds no workspace: of the ones it does not hold, the commit
     /// journals only the ones it changes.
-    stated_workspaces: Option<(u64, HashMap<String, Value>)>,
+    stated_workspaces: Option<(u64, HashMap<String, StatedDigests>)>,
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
     extra: Option<ExtraRows>,
@@ -489,7 +489,7 @@ pub(super) fn push_focus_move_upserts(
 fn prune_stated_workspace_upserts(
     tx: &Transaction<'_>,
     deltas: &Value,
-    stated: &HashMap<String, Value>,
+    stated: &HashMap<String, StatedDigests>,
     changed: &HashSet<&str>,
     keep: Option<&str>,
 ) -> anyhow::Result<Value> {
@@ -541,7 +541,7 @@ fn is_workspace_upsert(change: &Value) -> bool {
 /// did not change: the commit does not owe its value (see the caller).
 fn raw_upsert_not_owed(
     change: &Value,
-    stated: &HashMap<String, Value>,
+    stated: &HashMap<String, StatedDigests>,
     changed: &HashSet<&str>,
 ) -> bool {
     change.get_str("id").is_some_and(|id| !stated.contains_key(id) && !changed.contains(id))
@@ -550,18 +550,17 @@ fn raw_upsert_not_owed(
 /// Whether `stated` holds every field of this raw (undecorated) workspace upsert, its
 /// `extra` fields included, so the upsert decorated would equal what the journal states.
 /// The upsert of the workspace keyed `keep` is never dropped here.
-fn raw_upsert_stated(change: &Value, stated: &HashMap<String, Value>, keep: Option<&str>) -> bool {
+fn raw_upsert_stated(
+    change: &Value,
+    stated: &HashMap<String, StatedDigests>,
+    keep: Option<&str>,
+) -> bool {
     let Some(value) = change.get("value").and_then(Value::as_object) else { return false };
     let Some(stated) = change.get_str("id").and_then(|id| stated.get(id)) else {
         return false;
     };
-    if keep.is_some_and(|key| stated.pointer("/extra/key").and_then(Value::as_str) == Some(key)) {
+    if keep.is_some_and(|key| stated.has_workspace_key(key)) {
         return false;
     }
-    value.iter().all(|(field, raw)| match (field.as_str(), raw) {
-        ("extra", Value::Object(extra)) => extra.iter().all(|(name, raw)| {
-            stated.get("extra").and_then(|stated| stated.get(name)) == Some(raw)
-        }),
-        _ => stated.get(field) == Some(raw),
-    })
+    stated.holds_fields(value)
 }

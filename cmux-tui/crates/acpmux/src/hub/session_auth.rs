@@ -604,7 +604,7 @@ impl Hub {
             .and_then(|(id, _)| self.resolve(id).ok())
             .map(|s| s.meta())
             .or_else(|| meta.clone());
-        let model = evidence_meta.as_ref().and_then(|m| super::current_model(m));
+        let model = evidence_meta.as_ref().and_then(super::current_model);
         facts.provider = provider_of(model.as_deref(), &family);
         // A provider route does not use the CLI's own subscription login. Its probe/turn
         // evidence answers for it; a local file token expiring cannot block that route.

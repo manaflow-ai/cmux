@@ -128,7 +128,7 @@ for r in $(seq 1 "$rounds"); do
   driver_pid=$!
   wait "$driver_pid" || rs=$?
   driver_pid=""
-  grep -E '\] probe ' "$out.log" | sed "s/^/CHIEF-RESP-ROUND $r /" || true
+  grep -E '\] probe[ -]' "$out.log" | sed "s/^/CHIEF-RESP-ROUND $r /" || true
   if ! grep -q "acpmux cleanup: .*no process holds its locks" "$out.log"; then
     echo "CHIEF-RESP round $r: acpmux cleanup not confirmed" >&2
     rs=1
