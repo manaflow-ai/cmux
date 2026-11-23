@@ -60,10 +60,20 @@ public struct TerminalGridSizing: Equatable, Sendable {
     /// header while the grid fits, while the lift already shows the grid's
     /// top (the cursor is near it), or when the cursor is in the header rows
     /// (the grid's top is shown as it is).
-    public func keyboardPlacement(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?) -> KeyboardPlacement {
-        guard cellHeight > 0, gridRows > 0 else { return KeyboardPlacement(lift: 0, headerRows: 0) }
+    ///
+    /// `pinnedHeaderRows`: header rows already pinned because the Mac's taller
+    /// grid is shifted (`TerminalHostGridLayout.rowPlacement`); they stay with
+    /// the keyboard up or down, and the body under them keeps the cursor.
+    public func keyboardPlacement(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?,
+                                  pinnedHeaderRows: Int = 0) -> KeyboardPlacement {
+        let pinned = max(0, pinnedHeaderRows)
+        guard cellHeight > 0, gridRows > 0 else { return KeyboardPlacement(lift: 0, headerRows: pinned) }
         let clipped = CGFloat(gridRows) * cellHeight - max(0, visibleHeight)
-        guard clipped > 0.5 else { return KeyboardPlacement(lift: 0, headerRows: 0) }
+        guard clipped > 0.5 else { return KeyboardPlacement(lift: 0, headerRows: pinned) }
+        if pinned > 0 {
+            let lift = keyboardLift(gridRows: gridRows, visibleHeight: visibleHeight - CGFloat(pinned) * cellHeight, cursorRow: cursorRow)
+            return KeyboardPlacement(lift: min(clipped, lift), headerRows: pinned)
+        }
         let header = max(0, min(headerRows, Int(floor(max(0, visibleHeight) / cellHeight)) / 3))
         if let cursorRow, cursorRow < header { return KeyboardPlacement(lift: clipped, headerRows: 0) }
         // The header covers the area's first rows: the body is that much shorter.

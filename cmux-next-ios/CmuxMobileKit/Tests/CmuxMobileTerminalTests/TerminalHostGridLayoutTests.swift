@@ -123,6 +123,36 @@ import Testing
         #expect(layout(host: (50, 30), rows: 40).rowShift(keeping: 29, from: 3) == 0)
     }
 
+    /// Leo, 2026-11-23: "at the bottom of the terminal when im there the
+    /// header of the claude code thing disappears ... when im not at the
+    /// bottom it's fine". A Mac grid of 60 rows on a 40-row area: following
+    /// the cursor to the bottom used to shift Claude Code's header box off
+    /// the top; it now stays pinned while the body keeps the cursor.
+    @Test func aShiftedTallerTUIKeepsItsHeaderPinned() {
+        typealias Placement = TerminalHostGridLayout.RowPlacement
+        let tall = layout(host: (50, 60), rows: 40)
+        // At the bottom (Claude Code's input box on the last row): the last
+        // 40 rows, with the first 3 pinned over the top of the area.
+        #expect(tall.rowPlacement(keeping: 59, from: 0) == Placement(shift: 20, headerRows: 3))
+        // Not at the bottom: the grid's top shows as it is, nothing pinned.
+        #expect(tall.rowPlacement(keeping: 10, from: 0) == Placement(shift: 0, headerRows: 0))
+        // Shifted, the cursor moves up under the header: the body follows it
+        // just far enough to keep it below the header.
+        #expect(tall.rowPlacement(keeping: 21, from: 20) == Placement(shift: 18, headerRows: 3))
+        #expect(tall.rowPlacement(keeping: 30, from: 20) == Placement(shift: 20, headerRows: 3))
+        // Close enough to the top that no shift is left: no header.
+        #expect(tall.rowPlacement(keeping: 3, from: 20) == Placement(shift: 0, headerRows: 0))
+        // The cursor in the header rows: the grid's top as it is.
+        #expect(tall.rowPlacement(keeping: 1, from: 20) == Placement(shift: 1, headerRows: 0))
+        // Unknown cursor keeps the shift and the header.
+        #expect(tall.rowPlacement(keeping: nil, from: 20) == Placement(shift: 20, headerRows: 3))
+        // A grid that fits, or the phone's own: nothing pinned.
+        #expect(layout(host: (50, 40), rows: 40).rowPlacement(keeping: 39, from: 0) == Placement(shift: 0, headerRows: 0))
+        #expect(layout(host: nil).rowPlacement(keeping: 39, from: 0) == Placement(shift: 0, headerRows: 0))
+        // A short area keeps two thirds for the body.
+        #expect(layout(host: (50, 60), rows: 6).rowPlacement(keeping: 59, from: 0) == Placement(shift: 54, headerRows: 2))
+    }
+
     /// Review finding 6: a Mac grid wider than the widest surface the phone
     /// draws is not silently rewrapped: the layout says it is capped and the
     /// note names it.

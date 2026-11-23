@@ -15,7 +15,9 @@ import CoreGraphics
 /// - Fewer rows than the phone's TUI area: the grid is pinned to the top and
 ///   the rest is letterboxed (`letterbox`).
 /// - More rows than the TUI area: the TUI is clipped and shifted only far
-///   enough to keep the cursor row on screen (`rowShift(keeping:from:)`).
+///   enough to keep the cursor row on screen (`rowShift(keeping:from:)`),
+///   and while it is shifted its first rows (Claude Code's header box) stay
+///   pinned at the top of the area (`rowPlacement(keeping:from:headerRows:)`).
 ///
 /// The phone still claims its own grid (`resize-surface`); only the
 /// rendering follows the Mac's. Pure geometry; the controller applies it.
@@ -137,6 +139,47 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
             shift = cursorRow - visibleRows + 1
         }
         return min(max(0, shift), most)
+    }
+
+    /// Where a TUI taller than the phone's area sits: its shift, and how many
+    /// of its first rows stay pinned at the top of the area while shifted.
+    public struct RowPlacement: Equatable, Sendable {
+        /// Rows the grid is shifted up (``rowShift(keeping:from:)``).
+        public var shift: Int
+        /// The grid's first rows drawn over the top of the area (0: none).
+        public var headerRows: Int
+
+        public init(shift: Int, headerRows: Int) {
+            self.shift = shift
+            self.headerRows = headerRows
+        }
+    }
+
+    /// The top exception for a Mac grid taller than the phone's area (Leo,
+    /// 2026-11-23: "at the bottom of the terminal when im there the header of
+    /// the claude code thing disappears ... when im not at the bottom it's
+    /// fine"). Following the cursor to the bottom shifts the grid's top off
+    /// the area; its first `headerRows` rows (Claude Code's and Codex's
+    /// header box, htop's meters) then stay pinned there, as they do while the
+    /// keyboard clips the top (`TerminalGridSizing.keyboardPlacement`), over
+    /// a body that still keeps the cursor's row in view. No header while the
+    /// grid's top shows (no shift) or the cursor is in the header rows.
+    /// Capped at a third of the visible rows, as the keyboard's.
+    public func rowPlacement(keeping cursorRow: Int?, from current: Int,
+                             headerRows: Int = TerminalGridSizing.defaultHeaderRows) -> RowPlacement {
+        let plain = rowShift(keeping: cursorRow, from: current)
+        guard plain > 0, let hostRows else { return RowPlacement(shift: plain, headerRows: 0) }
+        let header = max(0, min(headerRows, visibleRows / 3))
+        guard header > 0 else { return RowPlacement(shift: plain, headerRows: 0) }
+        var shift = plain
+        if let cursorRow {
+            // The cursor is in the header rows: the grid's top as it is.
+            if cursorRow < header { return RowPlacement(shift: plain, headerRows: 0) }
+            // The header covers the body's first rows: keep the cursor under it.
+            if cursorRow < shift + header { shift = cursorRow - header }
+        }
+        shift = min(max(0, shift), hostRows - visibleRows)
+        return RowPlacement(shift: shift, headerRows: shift > 0 ? header : 0)
     }
 
     /// Whether the Mac's grid differs from what the phone would show (the note shows).

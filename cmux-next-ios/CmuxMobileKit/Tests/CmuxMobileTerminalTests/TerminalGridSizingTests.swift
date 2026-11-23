@@ -109,6 +109,22 @@ import Testing
         #expect(sizing.keyboardPlacement(gridRows: 37, visibleHeight: 6 * 16, cursorRow: 36) == Placement(lift: 0, headerRows: 2))
     }
 
+    /// A header already pinned for the Mac's taller grid stays with the
+    /// keyboard up or down, and the body under it still keeps the cursor.
+    @Test func aPinnedHeaderStaysWithTheKeyboard() {
+        typealias Placement = TerminalGridSizing.KeyboardPlacement
+        let sizing = TerminalGridSizing(cellHeight: 16)
+        // Keyboard down (the area fits): the pinned rows stay.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 40 * 16, cursorRow: 39, pinnedHeaderRows: 3) == Placement(lift: 0, headerRows: 3))
+        // Keyboard up, cursor at the bottom: no lift, header kept.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 20 * 16, cursorRow: 39, pinnedHeaderRows: 3) == Placement(lift: 0, headerRows: 3))
+        // Cursor just under the header: the body moves down to keep it under the header.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 20 * 16, cursorRow: 3, pinnedHeaderRows: 3) == Placement(lift: 20 * 16, headerRows: 3))
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 20 * 16, cursorRow: 10, pinnedHeaderRows: 3) == Placement(lift: 13 * 16, headerRows: 3))
+        // Without a pinned header the old rule holds.
+        #expect(sizing.keyboardPlacement(gridRows: 40, visibleHeight: 40 * 16, cursorRow: 39) == Placement(lift: 0, headerRows: 0))
+    }
+
     @Test func aCursorUnderTheToolbarLiftsTheGridByWholeRows() {
         let sizing = TerminalGridSizing(cellHeight: 16)
         // vim on line 1 with the keyboard up: 17 rows clipped at the top.

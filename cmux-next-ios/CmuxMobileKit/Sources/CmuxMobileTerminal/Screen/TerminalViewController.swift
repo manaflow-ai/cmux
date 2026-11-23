@@ -4488,7 +4488,10 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         }
         let layout = hostLayout
         tuiPanX = layout.clampPan(tuiPanX)
-        tuiRowShift = layout.rowShift(keeping: surface.cursorViewportRow, from: tuiRowShift)
+        // A Mac grid taller than the area is shifted to the cursor; its first
+        // rows (Claude Code's header) stay pinned at the top meanwhile.
+        let rowPlacement = layout.rowPlacement(keeping: surface.cursorViewportRow, from: tuiRowShift)
+        tuiRowShift = rowPlacement.shift
         let origin = CGPoint(x: -tuiPanX, y: -CGFloat(tuiRowShift) * cell.height)
         if surface.frame.origin != origin {
             UIView.performWithoutAnimation { surface.frame.origin = origin }
@@ -4499,7 +4502,8 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         // needs. Set in the layout pass, so inside the keyboard's own animation.
         let placement = TerminalGridSizing(cellHeight: cell.height)
             .keyboardPlacement(gridRows: tuiGridHold.rows(page: tuiRows), visibleHeight: tuiClip.bounds.height,
-                               cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
+                               cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift },
+                               pinnedHeaderRows: rowPlacement.headerRows)
         if placement.lift != tuiKeyboardLift {
             tuiKeyboardLift = placement.lift
             tuiClip.bounds.origin.y = -placement.lift
