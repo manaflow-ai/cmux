@@ -227,7 +227,7 @@ impl LocalStore {
             .filter(|(_, path)| super::cold_segments::is_cold(path))
             .map(|(index, _)| *index)
             .collect();
-        let segments = hot_segments(segments, cut)?;
+        let segments = hot_segments(segments.to_vec(), cut)?;
         if segments.is_empty() {
             return Ok(None);
         }

@@ -1215,8 +1215,9 @@ impl Store for JournalStore {
         max: usize,
         level: i32,
     ) -> Result<Option<StagedColdSegments>> {
-        let staged =
-            self.inner.fenced(|| Store::stage_cold_segments(&self.inner.local, id, max, level))?;
+        let staged = self
+            .inner
+            .fenced(id, || Store::stage_cold_segments(&self.inner.local, id, max, level))?;
         let lsn = self.inner.order.lock_or_recover().log_lsn.get(id).copied();
         Ok(staged.map(|mut staged| {
             staged.lsn = lsn;
