@@ -433,7 +433,7 @@ def tick(rules: ModuleType, api: Api, *, dry_run: bool = False, settle: bool = F
     if settle and later is not None and len(done) < MAX_CANCELS:
         pause = min(later, SETTLE_MAX).total_seconds() + 5
         log(f"nightly-next supersede: judging again in {int(pause)} s")
-        sleep(pause)
+        sleep(pause)  # sleep-ok: waits to the computed time the next run becomes judgeable
         waits.clear()
         sweep(rules, api, dry_run=dry_run, log=log, clock=clock, done=done, waits=waits)
     if chain is not None and waits and len(done) < MAX_CANCELS:

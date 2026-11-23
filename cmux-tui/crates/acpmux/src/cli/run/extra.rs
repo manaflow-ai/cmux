@@ -194,6 +194,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::RouteDeath { facts } => {
+            let text = if facts.as_os_str() == "-" {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                buf
+            } else {
+                std::fs::read_to_string(&facts)
+                    .with_context(|| format!("reading {}", facts.display()))?
+            };
+            let f: crate::death_route::Facts =
+                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
+            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
+            Ok(())
+        }
         Command::RestartAgent { session } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -576,6 +590,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             cwd,
             dry_run,
             from,
+            from_snapshot,
         }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -590,6 +605,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 dry_run,
                 resume_there: false,
                 from,
+                from_snapshot,
             };
             super::session_move::run(args, json_out).await
         }

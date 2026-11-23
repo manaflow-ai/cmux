@@ -272,7 +272,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
-    case toastAvoidance(CGRect?)
+    case toastAvoidance(AgentPaneSessionInfoOverlay?)
     /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
     /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
     case toast(message: String, isError: Bool, group: String?)

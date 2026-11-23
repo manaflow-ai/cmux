@@ -84,6 +84,22 @@ struct MacScreenActionRoutingTests {
         #expect(opened.items.count == 4)
     }
 
+    /// Only Your Click Starts Viewing a Screen wins over `autoconnect`: with it on, an automation open that asked for
+    /// it still waits at Connect, and asks nothing of the hub.
+    @Test func onlyYourClickHoldsAnAutoconnectOpen() throws {
+        let pages = pages()
+        var invocation = ActionInvocation(arguments: ["device": .string(device), "autoconnect": .bool(true)], origin: .cli)
+        invocation.viaControlSocket = true
+        pages.onlyPersonStartsViewing = true
+        _ = try MacScreenActions.record(invocation, pages: pages)
+        #expect(pages.pendingScopes.isEmpty)
+        #expect(pages.pendingStarters.isEmpty)
+        pages.onlyPersonStartsViewing = false
+        _ = try MacScreenActions.record(invocation, pages: pages)
+        #expect(pages.pendingScopes[device] == .view)
+        #expect(pages.pendingStarters[device] != nil, "an autoconnect start says an agent started it")
+    }
+
     @Test func aMalformedDeviceDoesNotBecomeTheHomePage() {
         let pages = pages()
         for value: ActionValue in [.string(""), .string("ssh:studio"), .int(1)] {

@@ -563,7 +563,7 @@ extension AgentPaneRequest {
             if let pinch = AgentPaneSessionInfoPinch.decode(params) { self = .sessionInfoPinch(pinch) }
             else { self = .unsupported(method) }
         case "pane.toastAvoidance":
-            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first) }
             else { self = .unsupported(method) }
         case "pane.toast":
             if let message = params?["message"] as? String, !message.isEmpty {
@@ -713,7 +713,8 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove":
+        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove",
+             "git.worktree.setup.run":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
         case "transport.gesture":

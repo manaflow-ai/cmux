@@ -401,6 +401,73 @@ async fn a_failing_journal_asks_the_daemon_to_stop() {
     assert!(why.contains("failing"), "{why}");
 }
 
+/// RFD 0049 R6, leg `disk`: a full disk never stops the daemon. The writer's first `ENOSPC`
+/// removes the store's reserve, so the change already appended becomes durable and is answered;
+/// then every change is refused at once with a `disk.full` error while reads answer; once the
+/// disk has room the store writes its reserve again and changes are stored again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_full_disk_refuses_changes_at_once_answers_reads_and_never_stops_the_daemon() {
+    use std::sync::atomic::Ordering;
+    super::TEST_STALL_MS.store(300, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let reserve = home.path().join(crate::store::DISK_RESERVE);
+    let journal = SimStorage::new(64);
+    let hub = hub(home.path(), &journal);
+    assert!(reserve.exists(), "the store wrote no disk reserve at open");
+    let (input, mut outgoing) = connect(&hub).await;
+    let stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    // The disk fills: the journal's writes fail, and the home has no room left.
+    crate::store::set_test_free(home.path(), Some(0));
+    journal.fail_all_appends(Some(std::io::ErrorKind::StorageFull));
+    // The reserve's removal is the room the writer's retry writes into.
+    let freed = {
+        let (journal, reserve) = (journal.clone(), reserve.clone());
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while reserve.exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            journal.fail_all_appends(None);
+            !reserve.exists()
+        })
+    };
+    let unread = json!({"sessionId": CHAT});
+    send(&input, Message::request(2, method::MUX_MARK_UNREAD, unread)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    assert!(freed.join().unwrap_or(false), "the full disk did not remove the reserve");
+    assert!(reply.get("error").is_none(), "the change appended before the failure: {reply}");
+    // Full now: a change (the other chat's mark) is refused at once, typed, and stores nothing.
+    let other = json!({"sessionId": OTHER});
+    let started = Instant::now();
+    send(&input, Message::request(3, method::MUX_MARK_UNREAD, other.clone())).await;
+    let refused = until(&mut outgoing, |line| line["id"] == 3).await;
+    let took = started.elapsed();
+    assert_eq!(refused["error"]["data"]["errorKind"], "disk.full", "{refused}");
+    assert!(refused["error"]["data"]["details"]["freeBytes"].is_u64(), "{refused}");
+    assert!(took < Duration::from_millis(250), "the refusal took {took:?}");
+    // A read answers at once.
+    let started = Instant::now();
+    send(&input, Message::request(4, method::SESSION_LIST, json!({}))).await;
+    let listed = until(&mut outgoing, |line| line["id"] == 4).await;
+    let took = started.elapsed();
+    assert!(listed.get("error").is_none(), "session/list: {listed}");
+    assert!(took < Duration::from_millis(250), "the read took {took:?}");
+    // Past the stall limit too, the daemon was never asked to stop.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(*stop.borrow(), None, "a full disk asked the daemon to stop");
+    // Room again: the reserve comes back and changes are stored.
+    crate::store::set_test_free(home.path(), None);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !reserve.exists() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(reserve.exists(), "the store never left the full state");
+    send(&input, Message::request(5, method::MUX_MARK_UNREAD, other)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 5).await;
+    assert!(reply.get("error").is_none(), "a change once the disk has room: {reply}");
+    assert_eq!(*stop.borrow(), None);
+}
+
 /// F1, the streaming read: `session/load`'s replay sends each record as it reads it
 /// (`Hub::scan_events`). It must stop at the records whose journal record was appended when it
 /// started: a line the log holds while its record is not appended is not sent.

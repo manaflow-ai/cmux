@@ -13,6 +13,9 @@ import CmuxNextSettings
 ///   are the hub's own; `error` is the text the tab's card says for a failure, refusal or end (null otherwise);
 /// - `phase` (`connecting`, `connected`, `failed`, `ended`; null with no session), `connected`,
 ///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
+/// - `started_by`: who started the view without a person's click (the agent session's title or the
+///   calling app, else `agent`), null for a tab a person opened or one waiting at the Connect card;
+/// - `waits_to_show` (a scope is held until the tab is shown, so nothing was asked of the hub yet);
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
@@ -116,13 +119,18 @@ extension MacScreenPages {
         ]
         guard let pane = tab.pane else { return .object(row) }
         row["has_frame"] = .bool(pane.model.hasFrame)
+        row["started_by"] = pane.model.startedBy.map { .string($0.stateValue) } ?? .null
         let hubPhase = pane.model.hub?.phase
         row["state"] = .string(stateName(hub: hubPhase, session: pane.session?.phase, hasFrame: pane.model.hasFrame))
         row["hub_phase"] = hubPhase.map { .string(hubPhaseName($0)) } ?? .null
         row["scope"] = hubPhase.flatMap(Self.scope).map { .string($0.rawValue) } ?? .null
         row["error"] = errorText(pane.model).map(JSONValue.string) ?? .null
+        // Waiting for Connect to show: the hub holds a scope to resume.
+        row["waits_to_show"] = .bool(pane.model.hub?.resumeScope != nil)
         guard let session = pane.session else { return .object(row) }
-        row["phase"] = .string(phaseName(session.phase))
+        // A session that never connected sits in its initial `.ended`: no stream, not one that ended.
+        let started = session.timings.startedAt != nil || session.phase != .ended
+        row["phase"] = started ? .string(phaseName(session.phase)) : .null
         row["connected"] = .bool(session.phase == .connected)
         // Where a connect is (no_answer, no_link, no_frame, shown), and where one that timed out stopped.
         row["connect_stage"] = .string(session.connectStage.name)

@@ -20,11 +20,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cmux_app_manifest::hidden;
+use cmux_config::migrations::{Notice, NoticeKind};
 use cmux_config::{Schema, jsonc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::profile::Profile;
+use crate::profile::{Profile, Settled, Skipped};
 use crate::redact::find_secret;
 use crate::store::Kind;
 use crate::tree::{self, MAX_FILE_BYTES, MAX_FILES_PER_PART, Part, SETTINGS, STYLE_SURFACES};
@@ -352,6 +353,12 @@ pub struct Plan {
     pub extensions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<String>,
+    /// Settings it names by an older name, or set to a choice a row renamed:
+    /// they install under the new name and value (`settings` lists those).
+    pub renamed: Vec<Notice>,
+    /// Settings it sets that this cmux leaves out, and why: a key cmux
+    /// removed, or one this cmux has no setting for (a newer cmux may).
+    pub skipped: Vec<Skipped>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -565,13 +572,13 @@ impl Customize {
         for extension in &manifest.extensions {
             Reference::parse(extension)?;
         }
-        self.check_setup(setup)?;
+        let settled = self.check_setup(setup)?;
 
         let live = tree::read(self.roots(), SETTINGS)?
             .map(|bytes| jsonc::parse(&String::from_utf8_lossy(&bytes)).unwrap_or(Value::Null))
             .unwrap_or(Value::Null);
         let schema = Schema::embedded();
-        let settings = setup
+        let settings = settled
             .profile
             .settings
             .iter()
@@ -628,7 +635,7 @@ impl Customize {
             name: manifest.name.clone(),
             description: manifest.description.clone(),
             version: manifest.version.clone(),
-            theme: setup
+            theme: settled
                 .profile
                 .settings
                 .get("appearance.themeFile")
@@ -640,6 +647,19 @@ impl Customize {
             actions,
             extensions: manifest.extensions.clone(),
             requires: manifest.engines.cmux.clone(),
+            renamed: settled
+                .notices
+                .iter()
+                .filter(|notice| notice.kind != NoticeKind::Removed)
+                .cloned()
+                .collect(),
+            skipped: settled
+                .notices
+                .iter()
+                .filter(|notice| notice.kind == NoticeKind::Removed)
+                .map(|notice| Skipped { key: notice.from.clone(), reason: notice.message() })
+                .chain(settled.skipped)
+                .collect(),
         })
     }
 
@@ -655,11 +675,11 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
-        self.check_setup(setup)?;
+        let settled = self.check_setup(setup)?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
         let before = self.current_generation()?;
-        let installed = self.install_setup_locked(setup, label, origin, now_ms);
+        let installed = self.install_setup_locked(setup, &settled.profile, label, origin, now_ms);
         if installed.is_err()
             && let Some(n) = before
         {
@@ -684,7 +704,7 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
-        self.check_setup(setup)?;
+        let settled = self.check_setup(setup)?;
         self.no_preview_open()?;
         self.ensure_baseline(now_ms)?;
         let _lock = self.store().lock()?;
@@ -692,7 +712,8 @@ impl Customize {
         let library = self.library_snapshot()?;
         let replaced = self.remove_setup_locked(old, origin, now_ms).and_then(|_| {
             let between = self.current_generation()?;
-            let installed = self.install_setup_locked(setup, label, origin, now_ms)?;
+            let installed =
+                self.install_setup_locked(setup, &settled.profile, label, origin, now_ms)?;
             Ok(Installed { before: between, ..installed })
         });
         if replaced.is_err() {
@@ -706,10 +727,18 @@ impl Customize {
         replaced
     }
 
-    pub(crate) fn check_setup(&self, setup: &Setup) -> Result<(), Error> {
-        self.check_profile(&setup.profile)?;
+    /// Checks `setup` whole and says what of its profile installs here: its
+    /// settings migrated, and those this cmux has no setting for left out
+    /// ([`crate::profile::settle_lenient`]). Everything else is all or
+    /// nothing, as before: a bad value for a known setting, a setting only
+    /// the person may change, a file or an action that does not check out
+    /// refuses the whole setup.
+    pub(crate) fn check_setup(&self, setup: &Setup) -> Result<Settled, Error> {
+        let settled = crate::profile::settle_lenient(&setup.profile);
+        self.check_profile(&settled.profile)?;
         check_actions(setup.actions())?;
-        secrets::check_secrets(setup)
+        secrets::check_secrets(setup)?;
+        Ok(settled)
     }
 
     fn no_preview_open(&self) -> Result<(), Error> {
@@ -721,15 +750,17 @@ impl Customize {
         Ok(())
     }
 
+    /// `profile` is `setup`'s as [`Customize::check_setup`] settled it.
     fn install_setup_locked(
         &self,
         setup: &Setup,
+        profile: &Profile,
         label: &str,
         origin: &str,
         now_ms: u64,
     ) -> Result<Installed, Error> {
         let had = self.library_names()?;
-        self.preview_profile_locked(&setup.profile, origin, now_ms)?;
+        self.preview_profile_locked(profile, origin, now_ms)?;
         let mut prior_actions = BTreeMap::new();
         if !setup.actions().is_empty() {
             let mut text = settings_text(self)?;

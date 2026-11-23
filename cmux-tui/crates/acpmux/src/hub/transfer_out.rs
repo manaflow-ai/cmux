@@ -448,20 +448,10 @@ impl Hub {
             e
         };
         // No turn may run while the bundle is made: one that runs stops only if asked.
-        if let Some(turn) = session.turn() {
-            let running = turn.turn_id.clone();
+        if let Some(running) = session.turn().map(|t| t.turn_id) {
             match cut {
                 TurnCut::Refuse => {
                     return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
-                }
-                TurnCut::AtToolBoundary
-                    if tool_runs(&turn.doing, &session.pending_permissions()) =>
-                {
-                    let e = transfer_error(
-                        TOOL_IN_FLIGHT,
-                        "a tool call of the running turn is in flight; the move cuts the turn once it ends",
-                    );
-                    return Err(unfreeze(e, None));
                 }
                 TurnCut::AtToolBoundary | TurnCut::Now => {}
             }
@@ -472,6 +462,22 @@ impl Hub {
                 || child.is_some_and(|c| c.translator.as_ref().is_some_and(|t| t.is_compacting()));
             if compacting {
                 let e = transfer_error("busy", "the chat is compacting; move it once that ends");
+                return Err(unfreeze(e, None));
+            }
+            // `TurnCut::AtToolBoundary`: the turn's tool calls are read fresh here, after the
+            // last await before the Stop is sent, so the window is the agent's own step from
+            // here to the Stop. A call it starts in that window is cut with the turn, as
+            // `interrupt` cuts it, and the continuation names it (`restart_resume.rs`); only a
+            // harness that stops at a boundary on its own could close it.
+            if cut == TurnCut::AtToolBoundary
+                && session
+                    .turn()
+                    .is_some_and(|t| tool_runs(&t.doing, &session.pending_permissions()))
+            {
+                let e = transfer_error(
+                    TOOL_IN_FLIGHT,
+                    "a tool call of the running turn is in flight; the move cuts the turn once it ends",
+                );
                 return Err(unfreeze(e, None));
             }
             carried = self.log_continuation(session, &running, super::auto_resume::Cut::Move);

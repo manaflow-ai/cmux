@@ -794,6 +794,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
         &args,
         &acpmux_home,
         &env,
+        &[],
         Duration::from_secs(30),
         &AtomicBool::new(false),
     );
@@ -810,6 +811,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         ),
@@ -824,12 +826,58 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         )
         .state(),
         "enable_failed"
     );
+}
+
+/// The join puts cmux's own virtual display in the user environment (DISPLAY=:99); a cmux-rd
+/// before 0.2.8 read it as a desktop and installed a host unit that never starts. The enable runs
+/// without it, so the next daemon start heals that host; a real desktop's DISPLAY stays.
+#[test]
+fn the_enable_runs_without_the_virtual_display_cmux_owns() {
+    use super::linux;
+    let dir = tempfile::tempdir().unwrap();
+    let units = dir.path().join("systemd/user");
+    std::fs::create_dir_all(&units).unwrap();
+    assert_eq!(linux::own_virtual_display(dir.path()), None);
+    std::fs::write(
+        units.join("cmux-screen-display.service"),
+        "[Service]\nExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp\n",
+    )
+    .unwrap();
+    let own = linux::own_virtual_display(dir.path());
+    assert_eq!(own, Some(99));
+    let os = |s: &str| std::ffi::OsString::from(s);
+    assert_eq!(linux::enable_unset(Some(&os(":99")), own), ["DISPLAY"]);
+    assert_eq!(linux::enable_unset(Some(&os(":99.0")), own), ["DISPLAY"]);
+    assert_eq!(linux::enable_unset(Some(&os("unix:99")), own), ["DISPLAY"]);
+    assert!(linux::enable_unset(Some(&os(":0")), own).is_empty());
+    assert!(linux::enable_unset(Some(&os(":99")), None).is_empty());
+    assert!(linux::enable_unset(None, own).is_empty());
+
+    // The cmux-rd it runs does not see the unset DISPLAY.
+    let rd = fake_cmux_rd(
+        dir.path(),
+        &format!("printf '%s\\n' \"${{DISPLAY-unset}}\" > '{}/display'", dir.path().display()),
+    );
+    // SAFETY: this test only sets a variable no other test in the crate reads.
+    unsafe { std::env::set_var("DISPLAY", ":99") };
+    let _ = linux::run_enable(
+        &rd,
+        &linux::enable_args("https://hub.example"),
+        dir.path(),
+        &[],
+        &["DISPLAY"],
+        Duration::from_secs(30),
+        &AtomicBool::new(false),
+    );
+    let seen = std::fs::read_to_string(dir.path().join("display")).unwrap();
+    assert_eq!(seen.trim_end(), "unset");
 }
 
 #[test]
@@ -844,6 +892,7 @@ fn an_enable_past_its_wait_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_millis(500),
         &AtomicBool::new(false),
@@ -880,6 +929,7 @@ fn a_cancelled_enable_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_secs(60),
         &cancel,

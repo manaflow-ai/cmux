@@ -108,6 +108,7 @@ impl Drop for Ended {
         let panicked = std::thread::panicking();
         self.0.listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         self.0.written_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        self.0.space_listeners.lock().unwrap_or_else(PoisonError::into_inner).clear();
         {
             let mut state = self.0.lock();
             state.ended = true;
@@ -498,6 +499,7 @@ impl Writer {
                 SyncLevel::Full => stats.full_syncs = stats.full_syncs.saturating_add(1),
             }
             stats.failing = None;
+            stats.out_of_space = false;
             advanced
         });
         self.shared.durable.notify_all();
@@ -580,16 +582,39 @@ impl Writer {
         self.retry_at = Instant::now().checked_add(self.backoff);
         self.backoff = self.backoff.saturating_mul(2).min(self.shared.config.retry_max);
         let text = error.to_string();
-        self.publish(|stats| {
+        let full = out_of_space(&error);
+        let began = self.publish(|stats| {
             stats.failures = stats.failures.saturating_add(1);
             stats.failing = Some(text);
+            let began = full && !stats.out_of_space;
+            stats.out_of_space = full;
+            began
         });
         self.shared.durable.notify_all();
+        if began {
+            let listeners =
+                self.shared.space_listeners.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            for listener in listeners {
+                listener();
+            }
+        }
     }
 
     fn publish<T>(&self, change: impl FnOnce(&mut crate::JournalStats) -> T) -> T {
         change(&mut self.shared.lock().stats)
     }
+}
+
+/// A full disk or quota.
+fn out_of_space(error: &io::Error) -> bool {
+    if matches!(error.kind(), io::ErrorKind::StorageFull | io::ErrorKind::QuotaExceeded) {
+        return true;
+    }
+    #[cfg(unix)]
+    if matches!(error.raw_os_error(), Some(code) if code == libc::ENOSPC || code == libc::EDQUOT) {
+        return true;
+    }
+    false
 }
 
 /// A failed append: the segment is cut back to its size before it. A failed cut ends the

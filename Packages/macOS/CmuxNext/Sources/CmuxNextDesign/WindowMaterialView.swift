@@ -130,6 +130,9 @@ public final class WindowMaterialView: NSView {
     private(set) var hidesArt = false
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
     private(set) var artBlurRadius = 0
+    /// The art's blurred copy under Frosted (``artContents(for:)``), and the job making the next one.
+    var blurredArt: ArtBlur.Copy?
+    var artBlurJob: Task<Void, Never>?
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -427,18 +430,21 @@ public final class WindowMaterialView: NSView {
 
     func showArt(_ image: NSImage?) {
         artImage = image
-        artView.layer?.contents = artImage
+        artView.layer?.contents = artContents(for: image)
         artView.isHidden = hidesArt || artImage == nil
         applyPlacement()
         noteGlassSourceChange()
     }
 
     /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
-    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    /// 0 clears the blur. The picture takes a blurred copy (``ArtBlur``): a filter on its
+    /// aspect-filled layer drew it in the bottom-left. Filters are made for each view: they are
+    /// mutable objects.
     private func applyArtBlur(_ radius: Int) {
         guard radius != artBlurRadius else { return }
         artBlurRadius = radius
-        for view in [artView, videoView as NSView, shaderView as NSView] {
+        if artImage != nil { artView.layer?.contents = artContents(for: artImage) }
+        for view in [videoView as NSView, shaderView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
             // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
             // so the picture keeps no translucent rim.

@@ -80,12 +80,28 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 }
 
 fn usage(global: &GlobalArgs, args: &[String]) -> i32 {
-    super::scope_usage_failure(
-        global.output,
-        "remote-host",
-        &super::unknown_words("remote-host", args),
-        HELP,
-    )
+    super::scope_usage_failure(global.output, "remote-host", &refusal(args), HELP)
+}
+
+/// Each verb's argument shapes, as HELP writes them.
+const VERB_USAGE: &[(&str, &str)] = &[
+    ("request", "request accessibility|screen-recording"),
+    ("open-settings", "open-settings accessibility|screen-recording"),
+    ("restart", "restart computer-use|screen-sharing [--force]"),
+    ("share", "share on|off, or share on --device DEVICE"),
+    ("grants", "grants [--device DEVICE] [--open]"),
+    ("access", "access DEVICE none|ask|view|full"),
+];
+
+/// What the refusal says: a known verb with the wrong arguments names that
+/// verb's usage (a bare `access` is not an unknown command); anything else
+/// names the first word the scope does not take.
+fn refusal(args: &[String]) -> String {
+    let verb = args.first().map(String::as_str).unwrap_or_default();
+    match VERB_USAGE.iter().find(|(name, _)| *name == verb) {
+        Some((_, shape)) => format!("usage: cmux remote-host {shape}"),
+        None => super::unknown_words("remote-host", args),
+    }
 }
 
 fn permission_name(word: &str) -> Option<&'static str> {

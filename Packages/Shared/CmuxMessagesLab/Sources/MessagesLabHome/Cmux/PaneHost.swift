@@ -364,6 +364,8 @@ extension FieldChrome {
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
+    /// cmux: the rows' scroll position changed (``MessagesLabHomeView/onScrolled``).
+    var onScrolled: (() -> Void)?
     /// The projection, nil until `install` (crash program: no longer an IUO that trapped
     /// when read early).
     private(set) var store: Store?
@@ -621,6 +623,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             self?.host.updateTopFadeScrollEdge()
             self?.scrolledForSaveHover()
             self?.intents?.scrolled()
+            self?.onScrolled?()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()

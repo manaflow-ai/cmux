@@ -49,6 +49,8 @@ OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
 GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
 GCP_NIGHTLY_LINUX = "cmux-gcp-nightly-x64"
+# The persistent Linux pool's label: same-repository jobs name it past their fork branch.
+PERSISTENT_LINUX = "cmux-linux"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])|(?P<prop>\.[A-Za-z_][A-Za-z0-9_]*)"

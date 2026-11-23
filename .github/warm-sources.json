@@ -84,7 +84,7 @@
     "cmux-mobile-ffi.yml:apple": {"class": "mac-test", "warm": ["actions-cache"]},
     "cmux-mobile-ffi.yml:rust": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-next-base-autofix.yml:action-exports": {"class": "mac-build", "warm": ["actions-cache"]},
-    "cmux-next-base-autofix.yml:autofix": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo from an empty target directory; no warm source wired yet"},
+    "cmux-next-base-autofix.yml:autofix": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-next-base-autofix.yml:webviews-fmt": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cmux-next-batch.yml:build": {"class": "mac-build", "warm": ["deriveddata-reuse"]},
     "cmux-next-batch.yml:regen": {"class": "mac-build", "warm": [], "exempt": "cold: regenerate-swift-exports.sh runs swift build --build-tests into a fresh .build; no warm source wired yet"},

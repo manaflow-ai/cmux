@@ -7,6 +7,8 @@ nonisolated enum AppsStrings {
     }
 
     static var windowTitle: String { t("store.window.title", "App Store") }
+    /// Undo Look Change (`customize.revert`) could not run: no bundled `cmux` CLI.
+    static var customizeNoCLI: String { t("customize.revert.noCLI", "This build does not include the cmux CLI.") }
     /// An app mount failed and the supervisor gave no reason.
     static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
     /// A failed app view's error card: runs the app's script again from its saved files.

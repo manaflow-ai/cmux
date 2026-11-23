@@ -33,10 +33,11 @@ pub(super) fn command(
     if args.first().map(String::as_str) != Some("docs") {
         return Ok(None);
     }
-    if args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+    let rest = args.get(1..).unwrap_or_default();
+    if rest.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
         return Ok(Some(super::command::ParsedCommand::Help(Some("docs".to_owned()))));
     }
-    Ok(Some(super::command::ParsedCommand::Docs(parse(&args[1..], global.output)?)))
+    Ok(Some(super::command::ParsedCommand::Docs(parse(rest, global.output)?)))
 }
 
 pub(super) fn append_scope_help(scope: &str, text: Cow<'static, str>) -> Cow<'static, str> {
@@ -146,9 +147,9 @@ pub(super) const GUIDES: &[Guide] = &[
         whether each harness (default: every configured or found one) is installed, signed in \
         and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
         harness login ID`. `cmux setup mcp [claude|codex ...]` gives Claude Code and Codex \
-        started outside cmux the cmux MCP server through their own `mcp add`; until the \
-        person answers yes to cmux's tools in their agents (`agents.cmuxMcp` on: the cmux \
-        Tools step or Settings > Agents), it writes nothing and says so (needs_user). `cmux setup computer-use` turns Computer Use \
+        started outside cmux the cmux MCP server through their own `mcp add`; agents started \
+        in cmux get cmux's tools unless the person turns `agents.cmuxMcp` off (Settings > \
+        Agents). `cmux setup computer-use` turns Computer Use \
         on once the person allows it on the sheet cmux shows, and names each missing macOS \
         grant with the command that opens its System Settings pane. `cmux setup \
         cloud-machine` is ok when cmux shows a Cloud machine; otherwise, once the person is \
@@ -392,15 +393,16 @@ fn catalog() -> &'static Value {
 }
 
 pub(super) fn parse(args: &[String], output: OutputMode) -> Result<Plan, UsageError> {
+    let rest = args.get(1..).unwrap_or_default();
     match args.first().map(String::as_str) {
         Some("search") => {
-            let query = args[1..].join(" ").trim().to_owned();
+            let query = rest.join(" ").trim().to_owned();
             if query.is_empty() {
                 return Err(UsageError::new("docs search needs a query"));
             }
             Ok(Plan { request: Request::Search(query), output })
         }
-        Some("guide") => Ok(Plan { request: Request::Guide(guide::parse(&args[1..])?), output }),
+        Some("guide") => Ok(Plan { request: Request::Guide(guide::parse(rest)?), output }),
         Some(other) => Err(UsageError::new(format!(
             "unknown docs command {other}; use `cmux docs guide` or `cmux docs search <query>`"
         ))),

@@ -481,6 +481,26 @@ pub(super) fn card_text(card: &Value) -> String {
         }
         lines.push(line);
     }
+    // Written for another cmux: what it calls by an older name, and what
+    // this cmux leaves out (the rest installs).
+    for notice in setup["renamed"].as_array().into_iter().flatten() {
+        let from = notice["from"].as_str().unwrap_or_default();
+        lines.push(if notice["kind"] == json!("renamed_value") {
+            format!(
+                "  ({from}: {} is the older name of {})",
+                notice["old_value"], notice["new_value"]
+            )
+        } else {
+            format!("  ({from} is the older name of {})", notice["to"].as_str().unwrap_or_default())
+        });
+    }
+    for skipped in setup["skipped"].as_array().into_iter().flatten() {
+        lines.push(format!(
+            "  left out: setting {} ({})",
+            skipped["key"].as_str().unwrap_or_default(),
+            skipped["reason"].as_str().unwrap_or_default()
+        ));
+    }
     for file in setup["files"].as_array().into_iter().flatten() {
         let path = file["path"].as_str().unwrap_or_default();
         let what = match file["part"].as_str().unwrap_or_default() {
