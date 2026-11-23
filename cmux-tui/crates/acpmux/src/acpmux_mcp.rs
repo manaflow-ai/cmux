@@ -78,7 +78,7 @@ mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
 #[path = "acpmux_mcp_pr.rs"]
-mod pr;
+pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_send.rs"]

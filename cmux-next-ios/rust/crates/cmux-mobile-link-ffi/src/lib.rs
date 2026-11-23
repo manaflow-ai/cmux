@@ -478,6 +478,35 @@ impl LinkHandle {
         Ok(rtt.map(|rtt| u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX)))
     }
 
+    /// Before the OS suspends the app: ask the Mac to hold this link for up
+    /// to `hold_ms` (at most 10 minutes) while the phone is silent, waiting
+    /// at most `timeout_ms` for the answer (PROTOCOL.md "Parked link").
+    /// `true`: parked, and nothing on the link wakes the phone until
+    /// `resume`. `false`: an older Mac, no answer in time, or a WebRTC link,
+    /// which cannot be held; the link closes on silence as before.
+    pub async fn park(&self, hold_ms: u32, timeout_ms: u32) -> Result<bool, CmuxMobileError> {
+        if self.transport != Transport::WireGuard {
+            return Ok(false);
+        }
+        let link = self.link.clone();
+        let hold = Duration::from_millis(u64::from(hold_ms));
+        let timeout = Duration::from_millis(u64::from(timeout_ms));
+        Ok(on_runtime(async move { link.park(hold, timeout).await }).await?)
+    }
+
+    /// Back from the background: the link expects the Mac again. `true` when
+    /// it was parked and its hold has not passed. The tunnel then moves onto
+    /// a fresh socket (as on a network change) and the caller probes; the
+    /// first frame back ends the park on both sides.
+    pub fn resume(&self) -> bool {
+        if !self.link.resume() {
+            return false;
+        }
+        let _runtime = runtime().enter();
+        cmux_mobile_link::dial::wireguard::resume_session(&self.session_id);
+        true
+    }
+
     /// How long a probe may wait for its pong on this link: `floor_ms`, or
     /// three smoothed round trips when longer (at most 5 s). The standby loop
     /// uses it, so a 1 s round trip does not time out every probe.
@@ -984,6 +1013,36 @@ struct Warm {
     /// opening one waits for it instead of opening a second (the service
     /// keeps one socket per device and would close the first).
     opening: tokio::sync::Mutex<()>,
+    /// Keys whose socket a network change is replacing ([`Replacing`]), one entry per change in
+    /// flight. A dial for one of them waits for that open instead of taking the pooled socket,
+    /// which is on the old path.
+    replacing: tokio::sync::watch::Sender<Vec<SocketKey>>,
+}
+
+/// A network change replacing the socket for `key`: from before its call returns until its new
+/// socket is pooled (or, when that open fails, the old one is probed and kept or evicted). While
+/// it lives, `pooled_or_open` and `prewarm` wait for it, so a redial gets the new socket
+/// without opening a second one. Dropped with the task, also when that task panics.
+struct Replacing {
+    pool: Arc<Warm>,
+    key: SocketKey,
+}
+
+impl Replacing {
+    fn start(pool: &Arc<Warm>, key: &SocketKey) -> Self {
+        pool.replacing.send_modify(|keys| keys.push(key.clone()));
+        Self { pool: Arc::clone(pool), key: key.clone() }
+    }
+}
+
+impl Drop for Replacing {
+    fn drop(&mut self) {
+        self.pool.replacing.send_modify(|keys| {
+            if let Some(at) = keys.iter().position(|key| *key == self.key) {
+                keys.swap_remove(at);
+            }
+        });
+    }
 }
 
 /// How many warm sockets are kept (the oldest goes first).
@@ -1011,6 +1070,7 @@ impl WarmPool {
             ice: Mutex::new(Vec::new()),
             sockets: tokio::sync::Mutex::new(Vec::new()),
             opening: tokio::sync::Mutex::new(()),
+            replacing: tokio::sync::watch::Sender::new(Vec::new()),
         }))
     }
 
@@ -1058,7 +1118,28 @@ impl WarmPool {
         device_id: String,
     ) -> Vec<TimingMark> {
         let pool = Arc::clone(&self.0);
-        on_runtime(async move { network_changed_on(&pool, base_url, token, team_id, device_id).await }).await
+        on_runtime(async move { network_changed_on(pool, base_url, token, team_id, device_id).await }).await
+    }
+
+    /// Measurement support: the signaling step of a dial on this pool (`dial`'s
+    /// `pooled_or_open`), without the dial. Returns the steps, whether the socket was a pooled
+    /// one, and the socket's identity (its address while it lives), so a test can tell
+    /// whether a redial got the new socket or the old one.
+    pub async fn dial_socket(
+        &self,
+        base_url: String,
+        token: String,
+        team_id: String,
+        device_id: String,
+    ) -> Result<(Vec<TimingMark>, bool, usize), CmuxMobileError> {
+        let pool = Arc::clone(&self.0);
+        on_runtime(async move {
+            let timeline = Timeline::new();
+            let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
+            let (socket, reused) = pool.pooled_or_open(&key, &token, &timeline).await?;
+            Ok((timing_marks(&timeline), reused, Arc::as_ptr(&socket) as usize))
+        })
+        .await
     }
 
     /// `reset_warm_state` on this pool.
@@ -1084,6 +1165,7 @@ async fn prewarm_on(
     let timeline = Timeline::new();
     let key = SocketKey { base_url: base_url.clone(), team_id, device_id, build_space: build_space() };
     let socket = async {
+        pool.replaced(&key, &timeline).await;
         if let Some(socket) = pool.reusable(&key, &timeline).await {
             if socket.client.probe(STALE_PROBE).await {
                 timeline.mark("signaling_alive");
@@ -1101,7 +1183,7 @@ async fn prewarm_on(
 }
 
 async fn network_changed_on(
-    pool: &Warm,
+    pool: Arc<Warm>,
     base_url: String,
     token: String,
     team_id: String,
@@ -1115,22 +1197,35 @@ async fn network_changed_on(
     // (`ERR_NETWORK_CHANGED`, no probe): a new socket opens at once, and every session moves onto
     // it (`open` rehomes them). Waiting first on the old socket was four of its round trips, half
     // of a roam's reconnect (ask-48f698fc26). The old one is kept only when no new one opens.
-    let old = pool.pooled(&key).await;
-    if pool.open(&key, &token, &timeline).await.is_err() {
-        match old {
-            Some(socket) if socket.client.probe(network_probe(socket.client.rtt())).await => {
-                timeline.mark("alive");
-                if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
-                    timeline.mark("rehomed");
+    //
+    // The open runs on the library's runtime without the call waiting for it: the app redials
+    // when the call returns (`LinkController.networkChanged`), and that dial joins this open
+    // (`Replacing`, registered before the call can return) instead of waiting for the call to
+    // see it through first: one signaling handshake on the new path sooner (mobile-speed, 107 ms
+    // at LTE, 1.7 s at 10% loss).
+    let replacing = Replacing::start(&pool, &key);
+    let signaling = tokio::spawn({
+        let timeline = timeline.clone();
+        async move {
+            let _replacing = replacing;
+            let old = pool.pooled(&key).await;
+            if pool.open(&key, &token, &timeline).await.is_err() {
+                match old {
+                    Some(socket) if socket.client.probe(network_probe(socket.client.rtt())).await => {
+                        timeline.mark("alive");
+                        if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
+                            timeline.mark("rehomed");
+                        }
+                    }
+                    Some(socket) => {
+                        timeline.mark("failed");
+                        pool.evict(&socket).await;
+                    }
+                    None => timeline.mark("failed"),
                 }
             }
-            Some(socket) => {
-                timeline.mark("failed");
-                pool.evict(&socket).await;
-            }
-            None => timeline.mark("failed"),
         }
-    }
+    });
     let roamed = roam.await.unwrap_or_default();
     let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
     marks.extend(
@@ -1138,6 +1233,11 @@ async fn network_changed_on(
             .into_iter()
             .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
     );
+    if !signaling.is_finished() {
+        // The open goes on after the call: its marks are not in what it returns.
+        let millis = (timeline.start().elapsed().as_secs_f64() * 10_000.0).round() / 10.0;
+        marks.push(TimingMark { name: "signaling:pending".to_owned(), millis });
+    }
     marks
 }
 
@@ -1186,23 +1286,42 @@ impl Warm {
         None
     }
 
+    /// Wait until no network change is replacing the socket for `key` ([`Replacing`]).
+    async fn replaced(&self, key: &SocketKey, timeline: &Timeline) {
+        let mut keys = self.replacing.subscribe();
+        if !keys.borrow_and_update().contains(key) {
+            return;
+        }
+        // The sender lives in `self`, so this cannot fail.
+        let _ = keys.wait_for(|keys| !keys.contains(key)).await;
+        timeline.mark("signaling_awaited");
+    }
+
     /// The pooled socket for `key` (true), else a new one (false), waiting
-    /// for one already opening.
+    /// for one already opening, and for a network change's new one.
     async fn pooled_or_open(
         &self,
         key: &SocketKey,
         token: &str,
         timeline: &Timeline,
     ) -> Result<(Arc<WarmSocket>, bool), CmuxMobileError> {
-        if let Some(socket) = self.reusable(key, timeline).await {
-            return Ok((socket, true));
+        loop {
+            self.replaced(key, timeline).await;
+            if let Some(socket) = self.reusable(key, timeline).await {
+                return Ok((socket, true));
+            }
+            let _opening = self.opening.lock().await;
+            // A network change that began meanwhile opens the socket: wait for it, never with
+            // `opening` held (its open takes that lock).
+            if self.replacing.borrow().contains(key) {
+                continue;
+            }
+            if let Some(socket) = self.reusable(key, timeline).await {
+                timeline.mark("signaling_joined");
+                return Ok((socket, true));
+            }
+            return Ok((self.open_locked(key, token, timeline).await?, false));
         }
-        let _opening = self.opening.lock().await;
-        if let Some(socket) = self.reusable(key, timeline).await {
-            timeline.mark("signaling_joined");
-            return Ok((socket, true));
-        }
-        Ok((self.open_locked(key, token, timeline).await?, false))
     }
 
     /// A new socket for `key`, now the pooled one.
@@ -1353,9 +1472,13 @@ mod network_probe_tests {
 
 /// The device's network changed or came back (iOS `NWPathMonitor`): every
 /// WireGuard link moves onto the new network at once without a redial, and
-/// the signaling socket is checked (and replaced when dead) so signaling
-/// works again. Returns the steps: the first link's roam marks, then the
-/// signaling ones prefixed `signaling:`.
+/// a new signaling socket opens (the old one is probed, and kept or dropped,
+/// only when that fails). Returns once the roam is done, without waiting for
+/// the new socket: a dial that starts meanwhile waits for that open and gets
+/// the new socket. Returns the steps: the first link's roam marks, then the
+/// signaling ones prefixed `signaling:` recorded so far; while the open is
+/// still running (the usual case) its marks are missing and the last one is
+/// `signaling:pending`, at the time the call returned.
 #[uniffi::export]
 pub async fn network_changed(
     base_url: String,
