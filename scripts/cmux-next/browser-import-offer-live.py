@@ -20,11 +20,12 @@ and dark over a backdrop painting through the one agent capture helper (its
 daemon must run: scripts/agent-capture-helper.sh start). GUI host only.
 Quits the app by PID and stops the tag's daemons at the end.
 """
-import argparse, glob, json, os, plistlib, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, os, plistlib, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -164,12 +165,43 @@ def prompt(action="state", **params):
     return rpc("debug.browser_import_offer", {"action": action, **params})
 
 
+def window_hash():
+    """A hash of the main window's pixels (debug.window_snapshot), or None where the build cannot snapshot."""
+    path = os.path.join(SCRATCH, "settle.png")
+    if os.path.exists(path):
+        os.remove(path)
+    rpc("debug.window_snapshot", {"path": path})
+    if not os.path.exists(path):
+        return None
+    with open(path, "rb") as f:
+        return hashlib.sha1(f.read()).hexdigest()
+
+
+def drawn_state():
+    """The app's windows (frames, visibility, alpha) and the main window's pixels: what a capture records."""
+    listed = rpc("debug.window_list").get("windows") or []
+    shapes = sorted(json.dumps({k: w.get(k) for k in ("id", "kind", "visible", "alpha", "frame")}, sort_keys=True)
+                    for w in listed if isinstance(w, dict))
+    return shapes, window_hash()
+
+
 def settle(seconds=1.0):
-    time.sleep(seconds)  # let the window redraw (and the glass settle) before a capture (screenshot only)
+    """Until the windows and the main window's pixels stop changing (redraw, glass); screenshot only, so a timeout
+    is logged. `seconds` was the old fixed wait; the deadline is well above it."""
+    limit = max(10.0, 5 * seconds)
+    try:
+        wait_stable(drawn_state, "the windows before a capture", timeout=limit, interval=0.1, reads=4)
+    except StateWaitTimeout as error:
+        safe_print(f"note: {error}", flush=True)
 
 
 def config(background=None):
+    before = window_hash()
     write(CONFIG, json.dumps({"appearance": {"background": background}} if background else {}) + "\n")
+    # The app reloaded cmux.json once the window's pixels changed (the background is drawn), then they settle.
+    if before is not None and not wait_until(lambda: window_hash() != before, f"the background {background} drawn",
+                                             timeout=10, interval=0.1, raise_on_timeout=False):
+        safe_print(f"note: the window did not redraw for background {background} within 10 s", flush=True)
     settle(2.0)
 
 
@@ -255,7 +287,8 @@ try:
     state = prompt("answer", choice="not_now")
     check(state.get("dismissed") is False and state.get("shown_on") == [], f"Not Now closes it and is not a dismissal: {state}")
     rpc("debug.omnibar_type", {"text": "https://example.org/"})
-    settle(5.0)
+    # sleep-ok: the observation window in which a second card must not appear (a card that never comes has no event)
+    time.sleep(5.0)
     check(prompt().get("shown_on") == [], "once per launch: no second card")
 
     # Don't Show Again: browser.import.cookieBanner false in cmux.json, kept across launches.
