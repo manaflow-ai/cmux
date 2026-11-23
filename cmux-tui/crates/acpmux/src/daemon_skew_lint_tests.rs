@@ -32,6 +32,12 @@ const OPENERS: &[(&str, &str)] = &[
          beside `CMUX_TUI_SOCKET`), never the daemon's: the daemon's path only locates it",
     ),
     (
+        "hub/terminal_input.rs",
+        "writes a chat's input into the terminal its exec names (`CMUX_TUI_SOCKET`) over the \
+         session daemon's JSON-line protocol (#50782); an older daemon's refusal fails that one \
+         write with its error, as with no daemon",
+    ),
+    (
         "launch_credential.rs",
         "credential.mint in the cmux.protocol/2 envelope; an older daemon only means the \
          agent starts with no credential, as with no daemon",
