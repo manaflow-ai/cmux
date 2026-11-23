@@ -1,6 +1,2094 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "apps.overlay.gesture" : {
+      "comment" : "Why an app's overlay did not open: only the person's own click or palette pick in cmux opens one.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا تُفتح الطبقة العائمة للتطبيق إلا عندما تفتحها بنفسك في cmux"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein App-Overlay öffnet sich nur, wenn du es in cmux öffnest"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An app overlay opens only when you open it in cmux"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una superposición de app solo se abre cuando la abres en cmux"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une superposition d'app ne s'ouvre que lorsque vous l'ouvrez dans cmux"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリのオーバーレイは cmux で自分で開いたときだけ開きます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "앱 오버레이는 cmux에서 직접 열 때만 열립니다"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 浮层只会在你在 cmux 中打开时打开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App 浮層只會在你於 cmux 中開啟時開啟"
+          }
+        }
+      }
+    },
+    "apps.overlay.undeclared" : {
+      "comment" : "Why an app's overlay did not open: the app declares no overlay.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يحتوي هذا التطبيق على طبقة عائمة"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese App hat kein Overlay"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This app has no overlay"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta app no tiene superposición"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette app n'a pas de superposition"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このアプリにはオーバーレイがありません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 앱에는 오버레이가 없습니다"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 App 没有浮层"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 App 沒有浮層"
+          }
+        }
+      }
+    },
+    "apps.overlay.noWindow" : {
+      "comment" : "Why an app's overlay did not open: no cmux window is open.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا توجد نافذة لعرض الطبقة العائمة فيها"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Fenster, in dem das Overlay angezeigt werden kann"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No window to show the overlay in"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ninguna ventana para mostrar la superposición"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune fenêtre pour afficher la superposition"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オーバーレイを表示するウインドウがありません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "오버레이를 표시할 창이 없습니다"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有可显示浮层的窗口"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有可顯示浮層的視窗"
+          }
+        }
+      }
+    },
+    "apps.overlay.open" : {
+      "comment" : "Command palette row that opens an app's floating overlay. %@ is the app's name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "فتح الطبقة العائمة لـ %@"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@-Overlay öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open %@ Overlay"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir superposición de %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir la superposition %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ のオーバーレイを開く"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 오버레이 열기"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 %@ 浮层"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟 %@ 浮層"
+          }
+        }
+      }
+    },
+    "customize.revert.noCLI" : {
+      "comment" : "Undo Look Change (customize.revert) could not run: the app has no bundled cmux command line tool.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يتضمن هذا الإصدار واجهة سطر أوامر cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ova verzija ne uključuje cmux CLI."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne build indeholder ikke cmux CLI."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Build enthält die cmux-CLI nicht."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build does not include the cmux CLI."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta compilación no incluye la CLI de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette version n’inclut pas la CLI cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa build non include la CLI di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このビルドには cmux CLI が含まれていません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណែនេះមិនមាន cmux CLI ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 빌드에는 cmux CLI가 포함되어 있지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne versjonen inneholder ikke cmux CLI."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta kompilacja nie zawiera CLI cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta versão não inclui a CLI do cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эта сборка не содержит CLI cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บิลด์นี้ไม่มี cmux CLI"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu derleme cmux CLI'yi içermiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ця збірка не містить CLI cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bản dựng này không có cmux CLI."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本不包含 cmux CLI。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此版本不包含 cmux CLI。"
+          }
+        }
+      }
+    },
+    "store.customize.title" : {
+      "comment" : "Discover: title of the card that opens Settings > Customize, where every customization is one switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "خصّص cmux…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prilagodi cmux…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilpas cmux…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux anpassen…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Customize cmux…"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Personalizar cmux…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Personnaliser cmux…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Personalizza cmux…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux をカスタマイズ…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្ដូរ cmux តាមបំណង…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 사용자화…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tilpass cmux…"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dostosuj cmux…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Personalizar o cmux…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Настроить cmux…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปรับแต่ง cmux…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux’u özelleştir…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Налаштувати cmux…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tùy chỉnh cmux…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自定义 cmux…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自訂 cmux…"
+          }
+        }
+      }
+    },
+    "store.customize.body" : {
+      "comment" : "Discover: the Customize cmux… card's line saying what it opens.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التجارب والمختبرات وتخصيصاتك المحفوظة والمظاهر الموثّقة، بنقرة واحدة لكل منها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperimenti, laboratorija, vaše sačuvane prilagodbe i provjereni izgledi, svaki jednim klikom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperimenter, Labs, dine gemte tilpasninger og verificerede looks, ét klik hver."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Experimente, Labs, deine gespeicherten Anpassungen und geprüfte Looks, je ein Klick."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Experiments, Labs, your saved customizations and verified looks, one click each."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Experimentos, Labs, tus personalizaciones guardadas y estilos verificados, con un clic cada uno."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Expériences, Labs, vos personnalisations enregistrées et styles vérifiés, un clic chacun."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esperimenti, Labs, le tue personalizzazioni salvate e gli stili verificati, un clic ciascuno."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "実験、Labs、保存したカスタマイズ、検証済みのルックを、それぞれワンクリックで。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការពិសោធន៍ Labs ការប្ដូរដែលបានរក្សាទុក និងរូបរាងដែលបានផ្ទៀងផ្ទាត់ ចុចម្ដងសម្រាប់នីមួយៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "실험, Labs, 저장한 사용자화와 검증된 룩을 각각 한 번의 클릭으로."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperimenter, Labs, dine lagrede tilpasninger og verifiserte utseender, ett klikk hver."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperymenty, Labs, zapisane dostosowania i sprawdzone wyglądy, każde jednym kliknięciem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Experimentos, Labs, suas personalizações salvas e visuais verificados, com um clique cada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эксперименты, Лаборатория, сохранённые настройки и проверенные стили — по одному щелчку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การทดลอง Labs การปรับแต่งที่บันทึกไว้ และลุคที่ตรวจสอบแล้ว คลิกเดียวต่อรายการ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deneyler, Labs, kayıtlı özelleştirmelerin ve doğrulanmış görünümler; her biri tek tıkla."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Експерименти, Лабораторія, збережені налаштування й перевірені стилі — кожне одним клацанням."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thử nghiệm, Labs, tùy chỉnh đã lưu và giao diện đã xác minh, mỗi thứ một cú nhấp."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "实验、实验室、你保存的自定义和已验证的外观，每项一键切换。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "實驗、實驗室、你儲存的自訂和已驗證的外觀，每項一鍵切換。"
+          }
+        }
+      }
+    },
+    "store.customize.looks" : {
+      "comment" : "Discover: accessibility label of the Customize cmux… card's list of verified look names.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مظاهر موثّقة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Provjereni izgledi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Verificerede looks"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Geprüfte Looks"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verified looks"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Estilos verificados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Styles vérifiés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stili verificati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "検証済みのルック"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបរាងដែលបានផ្ទៀងផ្ទាត់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "검증된 룩"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Verifiserte utseender"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sprawdzone wyglądy"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Visuais verificados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Проверенные стили"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ลุคที่ตรวจสอบแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Doğrulanmış görünümler"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перевірені стилі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Giao diện đã xác minh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已验证的外观"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已驗證的外觀"
+          }
+        }
+      }
+    },
+    "store.customize.more" : {
+      "comment" : "Discover: after the first verified look names on the Customize cmux… card. %@ is how many more looks there are.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "و%@ أخرى"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "i još %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "og %@ mere"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "und %@ weitere"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "and %@ more"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "y %@ más"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "et %@ de plus"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "e altri %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ほか %@ 件"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "និង %@ ទៀត"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "외 %@개"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "og %@ til"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "i %@ więcej"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "e mais %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "и ещё %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "และอีก %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ve %@ tane daha"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "і ще %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "và %@ khác"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "还有 %@ 个"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "還有 %@ 個"
+          }
+        }
+      }
+    },
+    "store.customize.open" : {
+      "comment" : "Discover: the Customize cmux… card's button; opens Settings > Customize.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فتح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvori"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開く"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打開"
+          }
+        }
+      }
+    },
+    "store.customize.show" : {
+      "comment" : "Discover: the Customize cmux… card's button; one click opens the card in place to every customization.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عرض الكل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži sve"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis alle"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle zeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show All"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar todo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tout afficher"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra tutto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべて表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញទាំងអស់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모두 보기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis alle"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokaż wszystko"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar tudo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показать всё"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงทั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tümünü göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показати все"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện tất cả"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示全部"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示全部"
+          }
+        }
+      }
+    },
+    "store.customize.hide" : {
+      "comment" : "Discover: the Customize cmux… card's button while the card is open; closes it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إخفاء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sakrij"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjul"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ausblenden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ocultar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Masquer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nascondi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隠す"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លាក់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "숨기기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjul"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukryj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ocultar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скрыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ซ่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сховати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ẩn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隐藏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隱藏"
+          }
+        }
+      }
+    },
+    "store.customize.switches" : {
+      "comment" : "Discover: heading over the Customize cmux… card's open list of switch groups, each opening Settings > Customize.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المفاتيح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prekidači"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kontakter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Schalter"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switches"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Interruptores"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Interrupteurs"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Interruttori"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スイッチ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កុងតាក់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스위치"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Brytere"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przełączniki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chaves"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Переключатели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สวิตช์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Anahtarlar"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемикачі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Công tắc"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "开关"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開關"
+          }
+        }
+      }
+    },
+    "store.customize.experiments" : {
+      "comment" : "Discover: Customize cmux… card chip; opens Settings > Customize at its Experiments group.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التجارب"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperimenti"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperimenter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Experimente"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Experiments"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Experimentos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Expériences"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esperimenti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "実験"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការពិសោធន៍"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "실험"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperimenter"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eksperymenty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Experimentos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эксперименты"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การทดลอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deneyler"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Експерименти"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thử nghiệm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "实验"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "實驗"
+          }
+        }
+      }
+    },
+    "store.customize.labs" : {
+      "comment" : "Discover: Customize cmux… card chip; opens Settings > Customize at its Labs group. Labs is the product name of cmux's preview switches.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Labs"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Labs"
+          }
+        }
+      }
+    },
+    "store.customize.library" : {
+      "comment" : "Discover: Customize cmux… card chip; opens Settings > Customize at the person's own customization library.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تخصيصاتك"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaša prilagođavanja"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dine tilpasninger"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine Anpassungen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your customizations"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tus personalizaciones"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vos personnalisations"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le tue personalizzazioni"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "あなたのカスタマイズ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការប្ដូររបស់អ្នក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "내 사용자화"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dine tilpasninger"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twoje dostosowania"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Suas personalizações"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваши настройки"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การปรับแต่งของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Özelleştirmeleriniz"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваші налаштування"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tùy chỉnh của bạn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的自定义"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的自訂"
+          }
+        }
+      }
+    },
+    "store.customize.all" : {
+      "comment" : "Discover: Customize cmux… card chip; opens Settings > Customize, where every other switch is listed and searchable.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "كل المفاتيح"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svi prekidači"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle kontakter"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Schalter"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All switches"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos los interruptores"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tous les interrupteurs"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tutti gli interruttori"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべてのスイッチ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កុងតាក់ទាំងអស់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 스위치"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle brytere"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystkie przełączniki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todas as chaves"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все переключатели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สวิตช์ทั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm anahtarlar"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі перемикачі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tất cả công tắc"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有开关"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "所有開關"
+          }
+        }
+      }
+    },
+    "store.customize.settingsLink" : {
+      "comment" : "Discover: link at the foot of the open Customize cmux… card; opens Settings > Customize, where each customization is a switch.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "فتح الإعدادات > التخصيص"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otvori Postavke > Prilagodi"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åbn Indstillinger > Tilpas"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Einstellungen > Anpassen öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Settings > Customize"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir Ajustes > Personalizar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ouvrir Réglages > Personnaliser"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apri Impostazioni > Personalizza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "設定 > カスタマイズを開く"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បើក ការកំណត់ > ប្ដូរ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "설정 > 사용자화 열기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Åpne Innstillinger > Tilpass"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Otwórz Ustawienia > Dostosuj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Abrir Ajustes > Personalizar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Открыть Настройки > Настройка"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปิด การตั้งค่า > ปรับแต่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ayarlar > Özelleştir'i aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Відкрити Налаштування > Налаштувати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mở Cài đặt > Tùy chỉnh"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打开 设置 > 自定义"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "打開 設定 > 自訂"
+          }
+        }
+      }
+    },
     "apps.mount.reloadFailed" : {
       "comment" : "Marker under a custom sidebar view or chat widget whose last saved script did not load; the view keeps the last script that did. The file and line follow it.",
       "extractionState" : "manual",
@@ -129,6 +2217,270 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "未重新載入"
+          }
+        }
+      }
+    },
+    "apps.menu.unknownRow" : {
+      "comment" : "An app menu row that no visible app has any more (the app was removed, hidden or saved without it).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يحتوي أي تطبيق مثبت على عنصر القائمة هذا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nijedna instalirana aplikacija nema ovu stavku menija."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen installeret app har dette menupunkt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Keine installierte App hat diesen Menüeintrag."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No installed app has this menu item."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ninguna app instalada tiene este elemento de menú."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aucune app installée n’a cet élément de menu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nessuna app installata ha questa voce di menu."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このメニュー項目を持つインストール済みのAppはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានកម្មវិធីដែលបានដំឡើងណាមួយមានធាតុម៉ឺនុយនេះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 메뉴 항목이 있는 설치된 앱이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingen installert app har dette menyelementet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Żadna zainstalowana aplikacja nie ma tego elementu menu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nenhum app instalado tem este item de menu."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ни у одного установленного приложения нет этого пункта меню."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีแอปที่ติดตั้งไว้ใดมีรายการเมนูนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yüklü hiçbir uygulamada bu menü öğesi yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Жоден встановлений застосунок не має цього пункту меню."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không ứng dụng đã cài đặt nào có mục menu này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "没有已安装的 App 包含此菜单项。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "沒有已安裝的 App 包含此選單項目。"
+          }
+        }
+      }
+    },
+    "apps.menu.noTarget" : {
+      "comment" : "A script ran an app menu row without naming the workspace or tab it acts on.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اختر مساحة عمل أو علامة تبويب لعنصر القائمة هذا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Odaberite radni prostor ili karticu za ovu stavku menija."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vælg et arbejdsområde eller en fane til dette menupunkt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wähle einen Workspace oder Tab für diesen Menüeintrag."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a workspace or tab for this menu item."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Elige un espacio de trabajo o una pestaña para este elemento de menú."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Choisissez un espace de travail ou un onglet pour cet élément de menu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Scegli uno spazio di lavoro o una scheda per questa voce di menu."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このメニュー項目のワークスペースまたはタブを選択してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជ្រើសរើសកន្លែងធ្វើការ ឬផ្ទាំងសម្រាប់ធាតុម៉ឺនុយនេះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 메뉴 항목의 워크스페이스나 탭을 선택하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Velg et arbeidsområde eller en fane for dette menyelementet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wybierz obszar roboczy lub kartę dla tego elementu menu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escolha um espaço de trabalho ou uma aba para este item de menu."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выберите рабочее пространство или вкладку для этого пункта меню."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เลือกเวิร์กสเปซหรือแท็บสำหรับรายการเมนูนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu menü öğesi için bir çalışma alanı veya sekme seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Виберіть робочий простір або вкладку для цього пункту меню."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chọn một không gian làm việc hoặc tab cho mục menu này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "为此菜单项选择一个工作区或标签页。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "為此選單項目選擇一個工作區或分頁。"
           }
         }
       }
@@ -35517,7 +37869,33 @@
           }
         }
       }
-    }
+    },
+    "store.tab.today" : {"comment":"Native App Store tab: the day's featured apps and what is new.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اليوم"}},"bs":{"stringUnit":{"state":"needs_review","value":"Danas"}},"da":{"stringUnit":{"state":"needs_review","value":"I dag"}},"de":{"stringUnit":{"state":"needs_review","value":"Heute"}},"en":{"stringUnit":{"state":"translated","value":"Today"}},"es":{"stringUnit":{"state":"needs_review","value":"Hoy"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aujourd’hui"}},"it":{"stringUnit":{"state":"needs_review","value":"Oggi"}},"ja":{"stringUnit":{"state":"needs_review","value":"Today"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្ងៃនេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"투데이"}},"nb":{"stringUnit":{"state":"needs_review","value":"I dag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dziś"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Hoje"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сегодня"}},"th":{"stringUnit":{"state":"needs_review","value":"วันนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bugün"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сьогодні"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hôm nay"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"今天"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"今日"}}}},
+    "store.tab.categories" : {"comment":"Native App Store tab: apps grouped by category.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الفئات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kategorije"}},"da":{"stringUnit":{"state":"needs_review","value":"Kategorier"}},"de":{"stringUnit":{"state":"needs_review","value":"Kategorien"}},"en":{"stringUnit":{"state":"translated","value":"Categories"}},"es":{"stringUnit":{"state":"needs_review","value":"Categorías"}},"fr":{"stringUnit":{"state":"needs_review","value":"Catégories"}},"it":{"stringUnit":{"state":"needs_review","value":"Categorie"}},"ja":{"stringUnit":{"state":"needs_review","value":"カテゴリ"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រភេទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"카테고리"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kategorier"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kategorie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Categorias"}},"ru":{"stringUnit":{"state":"needs_review","value":"Категории"}},"th":{"stringUnit":{"state":"needs_review","value":"หมวดหมู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kategoriler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Категорії"}},"vi":{"stringUnit":{"state":"needs_review","value":"Danh mục"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"类别"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"類別"}}}},
+    "store.today.newAndUpdated" : {"comment":"Native App Store shelf title: apps with the newest versions.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الجديد والمحدَّث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Novo i ažurirano"}},"da":{"stringUnit":{"state":"needs_review","value":"Nyt og opdateret"}},"de":{"stringUnit":{"state":"needs_review","value":"Neu und aktualisiert"}},"en":{"stringUnit":{"state":"translated","value":"New and Updated"}},"es":{"stringUnit":{"state":"needs_review","value":"Novedades y actualizaciones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveautés et mises à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Novità e aggiornamenti"}},"ja":{"stringUnit":{"state":"needs_review","value":"新着とアップデート"}},"km":{"stringUnit":{"state":"needs_review","value":"ថ្មី និងបានធ្វើបច្ចុប្បន្នភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"새로운 앱 및 업데이트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nytt og oppdatert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nowe i zaktualizowane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novos e atualizados"}},"ru":{"stringUnit":{"state":"needs_review","value":"Новое и обновлённое"}},"th":{"stringUnit":{"state":"needs_review","value":"ใหม่และอัปเดต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeni ve Güncellenen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нове й оновлене"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mới và đã cập nhật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新品与更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新品與更新"}}}},
+    "store.section.top" : {"comment":"Native App Store shelf title: the most installed apps.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أفضل التطبيقات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Najpopularnije aplikacije"}},"da":{"stringUnit":{"state":"needs_review","value":"Topapps"}},"de":{"stringUnit":{"state":"needs_review","value":"Top-Apps"}},"en":{"stringUnit":{"state":"translated","value":"Top Apps"}},"es":{"stringUnit":{"state":"needs_review","value":"Apps destacadas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Apps populaires"}},"it":{"stringUnit":{"state":"needs_review","value":"App più popolari"}},"ja":{"stringUnit":{"state":"needs_review","value":"トップApp"}},"km":{"stringUnit":{"state":"needs_review","value":"កម្មវិធីកំពូល"}},"ko":{"stringUnit":{"state":"needs_review","value":"인기 앱"}},"nb":{"stringUnit":{"state":"needs_review","value":"Toppapper"}},"pl":{"stringUnit":{"state":"needs_review","value":"Najpopularniejsze aplikacje"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Apps mais populares"}},"ru":{"stringUnit":{"state":"needs_review","value":"Популярные приложения"}},"th":{"stringUnit":{"state":"needs_review","value":"แอปยอดนิยม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Popüler Uygulamalar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Популярні застосунки"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ứng dụng hàng đầu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"热门 App"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"熱門 App"}}}},
+    "store.detail.whatsNew" : {"comment":"App Store listing section: what the newest version changed.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الجديد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Šta je novo"}},"da":{"stringUnit":{"state":"needs_review","value":"Nyheder"}},"de":{"stringUnit":{"state":"needs_review","value":"Neue Funktionen"}},"en":{"stringUnit":{"state":"translated","value":"What's New"}},"es":{"stringUnit":{"state":"needs_review","value":"Novedades"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nouveautés"}},"it":{"stringUnit":{"state":"needs_review","value":"Novità"}},"ja":{"stringUnit":{"state":"needs_review","value":"新機能"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្វីដែលថ្មី"}},"ko":{"stringUnit":{"state":"needs_review","value":"새로운 기능"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nytt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Co nowego"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Novidades"}},"ru":{"stringUnit":{"state":"needs_review","value":"Что нового"}},"th":{"stringUnit":{"state":"needs_review","value":"มีอะไรใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yenilikler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Що нового"}},"vi":{"stringUnit":{"state":"needs_review","value":"Có gì mới"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"新功能"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"新功能"}}}},
+    "store.detail.versionHistory" : {"comment":"App Store listing section: every published version of the app.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"سجل الإصدارات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Historija verzija"}},"da":{"stringUnit":{"state":"needs_review","value":"Versionshistorik"}},"de":{"stringUnit":{"state":"needs_review","value":"Versionsverlauf"}},"en":{"stringUnit":{"state":"translated","value":"Version History"}},"es":{"stringUnit":{"state":"needs_review","value":"Historial de versiones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Historique des versions"}},"it":{"stringUnit":{"state":"needs_review","value":"Cronologia versioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"バージョン履歴"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រវត្តិកំណែ"}},"ko":{"stringUnit":{"state":"needs_review","value":"버전 기록"}},"nb":{"stringUnit":{"state":"needs_review","value":"Versjonshistorikk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Historia wersji"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Histórico de versões"}},"ru":{"stringUnit":{"state":"needs_review","value":"История версий"}},"th":{"stringUnit":{"state":"needs_review","value":"ประวัติเวอร์ชัน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sürüm Geçmişi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Історія версій"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lịch sử phiên bản"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"版本历史记录"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"版本記錄"}}}},
+    "store.updates.updateAll" : {"comment":"App Store Updates tab button: updates every app that has an update.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تحديث الكل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažuriraj sve"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdater alle"}},"de":{"stringUnit":{"state":"needs_review","value":"Alle aktualisieren"}},"en":{"stringUnit":{"state":"translated","value":"Update All"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizar todo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Tout mettre à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiorna tutto"}},"ja":{"stringUnit":{"state":"needs_review","value":"すべてアップデート"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើបច្ចុប្បន្នភាពទាំងអស់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모두 업데이트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdater alle"}},"pl":{"stringUnit":{"state":"needs_review","value":"Uaktualnij wszystko"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizar tudo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновить все"}},"th":{"stringUnit":{"state":"needs_review","value":"อัปเดตทั้งหมด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tümünü Güncelle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновити все"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cập nhật tất cả"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"全部更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"全部更新"}}}},
+    "store.tab.community" : {"comment":"Native App Store tab: extensions and setups people publish.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المجتمع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zajednica"}},"da":{"stringUnit":{"state":"needs_review","value":"Fællesskab"}},"de":{"stringUnit":{"state":"needs_review","value":"Community"}},"en":{"stringUnit":{"state":"translated","value":"Community"}},"es":{"stringUnit":{"state":"needs_review","value":"Comunidad"}},"fr":{"stringUnit":{"state":"needs_review","value":"Communauté"}},"it":{"stringUnit":{"state":"needs_review","value":"Community"}},"ja":{"stringUnit":{"state":"needs_review","value":"コミュニティ"}},"km":{"stringUnit":{"state":"needs_review","value":"សហគមន៍"}},"ko":{"stringUnit":{"state":"needs_review","value":"커뮤니티"}},"nb":{"stringUnit":{"state":"needs_review","value":"Fellesskap"}},"pl":{"stringUnit":{"state":"needs_review","value":"Społeczność"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Comunidade"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сообщество"}},"th":{"stringUnit":{"state":"needs_review","value":"ชุมชน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Topluluk"}},"uk":{"stringUnit":{"state":"needs_review","value":"Спільнота"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cộng đồng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"社区"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"社群"}}}},
+    "store.community.updating" : {"comment":"App Store Community tab: a quiet line while the list refreshes.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"جارٍ التحديث…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažuriranje…"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdaterer…"}},"de":{"stringUnit":{"state":"needs_review","value":"Wird aktualisiert …"}},"en":{"stringUnit":{"state":"translated","value":"Updating…"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizando…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mise à jour…"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiornamento…"}},"ja":{"stringUnit":{"state":"needs_review","value":"更新中…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងធ្វើបច្ចុប្បន្នភាព…"}},"ko":{"stringUnit":{"state":"needs_review","value":"업데이트 중…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdaterer …"}},"pl":{"stringUnit":{"state":"needs_review","value":"Aktualizowanie…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizando…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновление…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังอัปเดต…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncelleniyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновлення…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang cập nhật…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在更新…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在更新…"}}}},
+    "store.community.onOtherDevices" : {"comment":"App Store Community tab: extensions installed on the person's other devices but not this Mac.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"على أجهزتك الأخرى"}},"bs":{"stringUnit":{"state":"needs_review","value":"Na vašim drugim uređajima"}},"da":{"stringUnit":{"state":"needs_review","value":"På dine andre enheder"}},"de":{"stringUnit":{"state":"needs_review","value":"Auf deinen anderen Geräten"}},"en":{"stringUnit":{"state":"translated","value":"On Your Other Devices"}},"es":{"stringUnit":{"state":"needs_review","value":"En tus otros dispositivos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Sur vos autres appareils"}},"it":{"stringUnit":{"state":"needs_review","value":"Sugli altri tuoi dispositivi"}},"ja":{"stringUnit":{"state":"needs_review","value":"ほかのデバイス"}},"km":{"stringUnit":{"state":"needs_review","value":"នៅលើឧបករណ៍ផ្សេងទៀតរបស់អ្នក"}},"ko":{"stringUnit":{"state":"needs_review","value":"다른 기기에 있음"}},"nb":{"stringUnit":{"state":"needs_review","value":"På de andre enhetene dine"}},"pl":{"stringUnit":{"state":"needs_review","value":"Na innych urządzeniach"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nos seus outros dispositivos"}},"ru":{"stringUnit":{"state":"needs_review","value":"На других ваших устройствах"}},"th":{"stringUnit":{"state":"needs_review","value":"บนอุปกรณ์อื่นของคุณ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Diğer Aygıtlarınızda"}},"uk":{"stringUnit":{"state":"needs_review","value":"На інших ваших пристроях"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trên các thiết bị khác của bạn"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在你的其他设备上"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在你的其他裝置上"}}}},
+    "store.community.installOnThisMac" : {"comment":"App Store Community button: install on this Mac an extension the person has on another device.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تثبيت على هذا الـ Mac"}},"bs":{"stringUnit":{"state":"needs_review","value":"Instaliraj na ovaj Mac"}},"da":{"stringUnit":{"state":"needs_review","value":"Installer på denne Mac"}},"de":{"stringUnit":{"state":"needs_review","value":"Auf diesem Mac installieren"}},"en":{"stringUnit":{"state":"translated","value":"Install on This Mac"}},"es":{"stringUnit":{"state":"needs_review","value":"Instalar en este Mac"}},"fr":{"stringUnit":{"state":"needs_review","value":"Installer sur ce Mac"}},"it":{"stringUnit":{"state":"needs_review","value":"Installa su questo Mac"}},"ja":{"stringUnit":{"state":"needs_review","value":"このMacにインストール"}},"km":{"stringUnit":{"state":"needs_review","value":"ដំឡើងនៅលើ Mac នេះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이 Mac에 설치"}},"nb":{"stringUnit":{"state":"needs_review","value":"Installer på denne Macen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zainstaluj na tym Macu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Instalar neste Mac"}},"ru":{"stringUnit":{"state":"needs_review","value":"Установить на этот Mac"}},"th":{"stringUnit":{"state":"needs_review","value":"ติดตั้งบน Mac เครื่องนี้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu Mac’e Yükle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Інсталювати на цей Mac"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cài đặt trên máy Mac này"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"安装到这台 Mac"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"安裝到這部 Mac"}}}},
+    "store.community.kind.extensions" : {"comment":"App Store Community filter: only extensions.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الإضافات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Proširenja"}},"da":{"stringUnit":{"state":"needs_review","value":"Udvidelser"}},"de":{"stringUnit":{"state":"needs_review","value":"Erweiterungen"}},"en":{"stringUnit":{"state":"translated","value":"Extensions"}},"es":{"stringUnit":{"state":"needs_review","value":"Extensiones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Extensions"}},"it":{"stringUnit":{"state":"needs_review","value":"Estensioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"機能拡張"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្នែកបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"확장 프로그램"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utvidelser"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozszerzenia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Extensões"}},"ru":{"stringUnit":{"state":"needs_review","value":"Расширения"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่วนขยาย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uzantılar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Розширення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiện ích mở rộng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"扩展"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延伸功能"}}}},
+    "store.community.kind.setups" : {"comment":"App Store Community filter: only setups (shared configurations).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الإعدادات الجاهزة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Postavke"}},"da":{"stringUnit":{"state":"needs_review","value":"Opsætninger"}},"de":{"stringUnit":{"state":"needs_review","value":"Setups"}},"en":{"stringUnit":{"state":"translated","value":"Setups"}},"es":{"stringUnit":{"state":"needs_review","value":"Configuraciones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Configurations"}},"it":{"stringUnit":{"state":"needs_review","value":"Configurazioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"セットアップ"}},"km":{"stringUnit":{"state":"needs_review","value":"ការរៀបចំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"설정 묶음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppsett"}},"pl":{"stringUnit":{"state":"needs_review","value":"Konfiguracje"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Configurações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Конфигурации"}},"th":{"stringUnit":{"state":"needs_review","value":"ชุดการตั้งค่า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kurulumlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Конфігурації"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bộ thiết lập"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"配置"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"配置"}}}},
+    "store.community.kind.extension" : {"comment":"App Store Community listing fact: this listing is an extension.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إضافة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Proširenje"}},"da":{"stringUnit":{"state":"needs_review","value":"Udvidelse"}},"de":{"stringUnit":{"state":"needs_review","value":"Erweiterung"}},"en":{"stringUnit":{"state":"translated","value":"Extension"}},"es":{"stringUnit":{"state":"needs_review","value":"Extensión"}},"fr":{"stringUnit":{"state":"needs_review","value":"Extension"}},"it":{"stringUnit":{"state":"needs_review","value":"Estensione"}},"ja":{"stringUnit":{"state":"needs_review","value":"機能拡張"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្នែកបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"확장 프로그램"}},"nb":{"stringUnit":{"state":"needs_review","value":"Utvidelse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rozszerzenie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Extensão"}},"ru":{"stringUnit":{"state":"needs_review","value":"Расширение"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่วนขยาย"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uzantı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Розширення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tiện ích mở rộng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"扩展"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"延伸功能"}}}},
+    "store.community.kind.setup" : {"comment":"App Store Community listing fact: this listing is a setup (a shared configuration).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعداد جاهز"}},"bs":{"stringUnit":{"state":"needs_review","value":"Postavka"}},"da":{"stringUnit":{"state":"needs_review","value":"Opsætning"}},"de":{"stringUnit":{"state":"needs_review","value":"Setup"}},"en":{"stringUnit":{"state":"translated","value":"Setup"}},"es":{"stringUnit":{"state":"needs_review","value":"Configuración"}},"fr":{"stringUnit":{"state":"needs_review","value":"Configuration"}},"it":{"stringUnit":{"state":"needs_review","value":"Configurazione"}},"ja":{"stringUnit":{"state":"needs_review","value":"セットアップ"}},"km":{"stringUnit":{"state":"needs_review","value":"ការរៀបចំ"}},"ko":{"stringUnit":{"state":"needs_review","value":"설정 묶음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppsett"}},"pl":{"stringUnit":{"state":"needs_review","value":"Konfiguracja"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Configuração"}},"ru":{"stringUnit":{"state":"needs_review","value":"Конфигурация"}},"th":{"stringUnit":{"state":"needs_review","value":"ชุดการตั้งค่า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kurulum"}},"uk":{"stringUnit":{"state":"needs_review","value":"Конфігурація"}},"vi":{"stringUnit":{"state":"needs_review","value":"Bộ thiết lập"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"配置"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"配置"}}}},
+    "store.community.kind" : {"comment":"App Store Community listing fact label: whether it is an extension or a setup.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"النوع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Vrsta"}},"da":{"stringUnit":{"state":"needs_review","value":"Type"}},"de":{"stringUnit":{"state":"needs_review","value":"Art"}},"en":{"stringUnit":{"state":"translated","value":"Kind"}},"es":{"stringUnit":{"state":"needs_review","value":"Tipo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Type"}},"it":{"stringUnit":{"state":"needs_review","value":"Tipo"}},"ja":{"stringUnit":{"state":"needs_review","value":"種類"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រភេទ"}},"ko":{"stringUnit":{"state":"needs_review","value":"종류"}},"nb":{"stringUnit":{"state":"needs_review","value":"Type"}},"pl":{"stringUnit":{"state":"needs_review","value":"Rodzaj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tipo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Тип"}},"th":{"stringUnit":{"state":"needs_review","value":"ชนิด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tür"}},"uk":{"stringUnit":{"state":"needs_review","value":"Тип"}},"vi":{"stringUnit":{"state":"needs_review","value":"Loại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"类型"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"類型"}}}},
+    "store.community.sortBy" : {"comment":"App Store Community: label before the sort choices.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الترتيب حسب"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sortiraj po"}},"da":{"stringUnit":{"state":"needs_review","value":"Sorter efter"}},"de":{"stringUnit":{"state":"needs_review","value":"Sortieren nach"}},"en":{"stringUnit":{"state":"translated","value":"Sort by"}},"es":{"stringUnit":{"state":"needs_review","value":"Ordenar por"}},"fr":{"stringUnit":{"state":"needs_review","value":"Trier par"}},"it":{"stringUnit":{"state":"needs_review","value":"Ordina per"}},"ja":{"stringUnit":{"state":"needs_review","value":"並べ替え"}},"km":{"stringUnit":{"state":"needs_review","value":"តម្រៀបតាម"}},"ko":{"stringUnit":{"state":"needs_review","value":"정렬 기준"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sorter etter"}},"pl":{"stringUnit":{"state":"needs_review","value":"Sortuj według"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ordenar por"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сортировка"}},"th":{"stringUnit":{"state":"needs_review","value":"เรียงตาม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sırala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сортувати за"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sắp xếp theo"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"排序方式"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"排序方式"}}}},
+    "store.community.downloads" : {"comment":"App Store Community listing fact label: how many times it was installed.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التنزيلات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Preuzimanja"}},"da":{"stringUnit":{"state":"needs_review","value":"Downloads"}},"de":{"stringUnit":{"state":"needs_review","value":"Downloads"}},"en":{"stringUnit":{"state":"translated","value":"Downloads"}},"es":{"stringUnit":{"state":"needs_review","value":"Descargas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Téléchargements"}},"it":{"stringUnit":{"state":"needs_review","value":"Download"}},"ja":{"stringUnit":{"state":"needs_review","value":"ダウンロード数"}},"km":{"stringUnit":{"state":"needs_review","value":"ការទាញយក"}},"ko":{"stringUnit":{"state":"needs_review","value":"다운로드"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nedlastinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobrania"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Downloads"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузки"}},"th":{"stringUnit":{"state":"needs_review","value":"การดาวน์โหลด"}},"tr":{"stringUnit":{"state":"needs_review","value":"İndirmeler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантаження"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lượt tải về"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"下载次数"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"下載次數"}}}},
+    "store.community.lastUpdated" : {"comment":"App Store Community listing fact label: when the listing last changed.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"آخر تحديث"}},"bs":{"stringUnit":{"state":"needs_review","value":"Posljednje ažuriranje"}},"da":{"stringUnit":{"state":"needs_review","value":"Senest opdateret"}},"de":{"stringUnit":{"state":"needs_review","value":"Zuletzt aktualisiert"}},"en":{"stringUnit":{"state":"translated","value":"Last Updated"}},"es":{"stringUnit":{"state":"needs_review","value":"Última actualización"}},"fr":{"stringUnit":{"state":"needs_review","value":"Dernière mise à jour"}},"it":{"stringUnit":{"state":"needs_review","value":"Ultimo aggiornamento"}},"ja":{"stringUnit":{"state":"needs_review","value":"最終更新"}},"km":{"stringUnit":{"state":"needs_review","value":"ធ្វើបច្ចុប្បន្នភាពចុងក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"마지막 업데이트"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sist oppdatert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ostatnia aktualizacja"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Última atualização"}},"ru":{"stringUnit":{"state":"needs_review","value":"Последнее обновление"}},"th":{"stringUnit":{"state":"needs_review","value":"อัปเดตล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Son Güncelleme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Останнє оновлення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cập nhật lần cuối"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"上次更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"上次更新"}}}},
+    "store.community.license" : {"comment":"App Store Community listing fact label: the code's license.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الترخيص"}},"bs":{"stringUnit":{"state":"needs_review","value":"Licenca"}},"da":{"stringUnit":{"state":"needs_review","value":"Licens"}},"de":{"stringUnit":{"state":"needs_review","value":"Lizenz"}},"en":{"stringUnit":{"state":"translated","value":"License"}},"es":{"stringUnit":{"state":"needs_review","value":"Licencia"}},"fr":{"stringUnit":{"state":"needs_review","value":"Licence"}},"it":{"stringUnit":{"state":"needs_review","value":"Licenza"}},"ja":{"stringUnit":{"state":"needs_review","value":"ライセンス"}},"km":{"stringUnit":{"state":"needs_review","value":"អាជ្ញាប័ណ្ណ"}},"ko":{"stringUnit":{"state":"needs_review","value":"라이선스"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lisens"}},"pl":{"stringUnit":{"state":"needs_review","value":"Licencja"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Licença"}},"ru":{"stringUnit":{"state":"needs_review","value":"Лицензия"}},"th":{"stringUnit":{"state":"needs_review","value":"สัญญาอนุญาต"}},"tr":{"stringUnit":{"state":"needs_review","value":"Lisans"}},"uk":{"stringUnit":{"state":"needs_review","value":"Ліцензія"}},"vi":{"stringUnit":{"state":"needs_review","value":"Giấy phép"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"许可证"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"授權條款"}}}},
+    "store.community.downloadCount" : {"comment":"App Store Community row: how many times it was installed; %@ is the number.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"%@ تنزيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"%@ preuzimanja"}},"da":{"stringUnit":{"state":"needs_review","value":"%@ downloads"}},"de":{"stringUnit":{"state":"needs_review","value":"%@ Downloads"}},"en":{"stringUnit":{"state":"translated","value":"%@ downloads"}},"es":{"stringUnit":{"state":"needs_review","value":"%@ descargas"}},"fr":{"stringUnit":{"state":"needs_review","value":"%@ téléchargements"}},"it":{"stringUnit":{"state":"needs_review","value":"%@ download"}},"ja":{"stringUnit":{"state":"needs_review","value":"%@ ダウンロード"}},"km":{"stringUnit":{"state":"needs_review","value":"ការទាញយក %@"}},"ko":{"stringUnit":{"state":"needs_review","value":"%@회 다운로드"}},"nb":{"stringUnit":{"state":"needs_review","value":"%@ nedlastinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pobrania: %@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"%@ downloads"}},"ru":{"stringUnit":{"state":"needs_review","value":"Загрузок: %@"}},"th":{"stringUnit":{"state":"needs_review","value":"ดาวน์โหลด %@ ครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"%@ indirme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завантажень: %@"}},"vi":{"stringUnit":{"state":"needs_review","value":"%@ lượt tải"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"%@ 次下载"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"%@ 次下載"}}}},
+    "store.community.updatedOn" : {"comment":"App Store Community row: when it last changed; %@ is the date.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"حُدِّث في %@"}},"bs":{"stringUnit":{"state":"needs_review","value":"Ažurirano %@"}},"da":{"stringUnit":{"state":"needs_review","value":"Opdateret %@"}},"de":{"stringUnit":{"state":"needs_review","value":"Aktualisiert am %@"}},"en":{"stringUnit":{"state":"translated","value":"Updated %@"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizado el %@"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mis à jour le %@"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiornato il %@"}},"ja":{"stringUnit":{"state":"needs_review","value":"%@に更新"}},"km":{"stringUnit":{"state":"needs_review","value":"បានធ្វើបច្ចុប្បន្នភាព %@"}},"ko":{"stringUnit":{"state":"needs_review","value":"%@ 업데이트됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Oppdatert %@"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zaktualizowano %@"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizado em %@"}},"ru":{"stringUnit":{"state":"needs_review","value":"Обновлено %@"}},"th":{"stringUnit":{"state":"needs_review","value":"อัปเดตเมื่อ %@"}},"tr":{"stringUnit":{"state":"needs_review","value":"Güncellenme: %@"}},"uk":{"stringUnit":{"state":"needs_review","value":"Оновлено %@"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cập nhật %@"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"更新于 %@"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"更新於 %@"}}}},
+    "store.community.sort.downloads" : {"comment":"App Store Community sort: most installed first.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الأكثر تنزيلًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Najviše preuzimanja"}},"da":{"stringUnit":{"state":"needs_review","value":"Mest downloadede"}},"de":{"stringUnit":{"state":"needs_review","value":"Meiste Downloads"}},"en":{"stringUnit":{"state":"translated","value":"Most Downloaded"}},"es":{"stringUnit":{"state":"needs_review","value":"Más descargadas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Les plus téléchargées"}},"it":{"stringUnit":{"state":"needs_review","value":"Più scaricate"}},"ja":{"stringUnit":{"state":"needs_review","value":"ダウンロード数順"}},"km":{"stringUnit":{"state":"needs_review","value":"ទាញយកច្រើនបំផុត"}},"ko":{"stringUnit":{"state":"needs_review","value":"다운로드 순"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mest nedlastet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Najczęściej pobierane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mais baixados"}},"ru":{"stringUnit":{"state":"needs_review","value":"Самые загружаемые"}},"th":{"stringUnit":{"state":"needs_review","value":"ดาวน์โหลดมากที่สุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"En Çok İndirilen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Найбільше завантажень"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tải nhiều nhất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"下载最多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"下載最多"}}}},
+    "store.community.sort.updated" : {"comment":"App Store Community sort: most recently changed first.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"المحدَّثة مؤخرًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nedavno ažurirano"}},"da":{"stringUnit":{"state":"needs_review","value":"Senest opdateret"}},"de":{"stringUnit":{"state":"needs_review","value":"Kürzlich aktualisiert"}},"en":{"stringUnit":{"state":"translated","value":"Recently Updated"}},"es":{"stringUnit":{"state":"needs_review","value":"Actualizadas recientemente"}},"fr":{"stringUnit":{"state":"needs_review","value":"Mises à jour récemment"}},"it":{"stringUnit":{"state":"needs_review","value":"Aggiornate di recente"}},"ja":{"stringUnit":{"state":"needs_review","value":"最近の更新順"}},"km":{"stringUnit":{"state":"needs_review","value":"បានធ្វើបច្ចុប្បន្នភាពថ្មីៗ"}},"ko":{"stringUnit":{"state":"needs_review","value":"최근 업데이트 순"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nylig oppdatert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ostatnio zaktualizowane"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atualizados recentemente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Недавно обновлённые"}},"th":{"stringUnit":{"state":"needs_review","value":"อัปเดตล่าสุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yakında Güncellenen"}},"uk":{"stringUnit":{"state":"needs_review","value":"Нещодавно оновлені"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mới cập nhật"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"最近更新"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"最近更新"}}}},
+    "store.community.sort.stars" : {"comment":"App Store Community sort: most starred on GitHub first.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الأكثر نجومًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Najviše zvjezdica"}},"da":{"stringUnit":{"state":"needs_review","value":"Flest stjerner"}},"de":{"stringUnit":{"state":"needs_review","value":"Meiste Sterne"}},"en":{"stringUnit":{"state":"translated","value":"Most Stars"}},"es":{"stringUnit":{"state":"needs_review","value":"Más estrellas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le plus d’étoiles"}},"it":{"stringUnit":{"state":"needs_review","value":"Più stelle"}},"ja":{"stringUnit":{"state":"needs_review","value":"スター数順"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្កាយច្រើនបំផុត"}},"ko":{"stringUnit":{"state":"needs_review","value":"별표 순"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flest stjerner"}},"pl":{"stringUnit":{"state":"needs_review","value":"Najwięcej gwiazdek"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mais estrelas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Больше всего звёзд"}},"th":{"stringUnit":{"state":"needs_review","value":"ดาวมากที่สุด"}},"tr":{"stringUnit":{"state":"needs_review","value":"En Çok Yıldız"}},"uk":{"stringUnit":{"state":"needs_review","value":"Найбільше зірок"}},"vi":{"stringUnit":{"state":"needs_review","value":"Nhiều sao nhất"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"星标最多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"星號最多"}}}},
+    "store.community.sort.name" : {"comment":"App Store Community sort: alphabetical by name.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الاسم"}},"bs":{"stringUnit":{"state":"needs_review","value":"Naziv"}},"da":{"stringUnit":{"state":"needs_review","value":"Navn"}},"de":{"stringUnit":{"state":"needs_review","value":"Name"}},"en":{"stringUnit":{"state":"translated","value":"Name"}},"es":{"stringUnit":{"state":"needs_review","value":"Nombre"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nom"}},"it":{"stringUnit":{"state":"needs_review","value":"Nome"}},"ja":{"stringUnit":{"state":"needs_review","value":"名前"}},"km":{"stringUnit":{"state":"needs_review","value":"ឈ្មោះ"}},"ko":{"stringUnit":{"state":"needs_review","value":"이름"}},"nb":{"stringUnit":{"state":"needs_review","value":"Navn"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nazwa"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nome"}},"ru":{"stringUnit":{"state":"needs_review","value":"Название"}},"th":{"stringUnit":{"state":"needs_review","value":"ชื่อ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ad"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назва"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tên"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"名称"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"名稱"}}}}
   },
   "version" : "1.0"
 }

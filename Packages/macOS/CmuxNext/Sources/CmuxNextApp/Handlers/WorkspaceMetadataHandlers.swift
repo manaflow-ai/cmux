@@ -58,12 +58,6 @@ enum WorkspaceMetadataHandlers {
                 try acknowledge([try context.workspace(invocation).model], context)
             })
         }
-        registry.bind("revealWorkspaceInFinder", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceHasNoDirectory) }
-            NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: cwd)])
-        })
-
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapability.notificationMarkUnread.rawValue, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapability.notificationMarkUnread.rawValue)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)
@@ -116,11 +110,5 @@ enum WorkspaceMetadataHandlers {
                 daemon.readNotification(of: tab)
             }
         }
-    }
-
-    /// Working directory of the focused tab when the workspace is shown, else of its first tab that
-    /// reports one (any tab kind: `workspaces::directory`).
-    private static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
-        WorkspaceVerbHandlers.directory(of: workspace, context, terminalsOnly: false)
     }
 }

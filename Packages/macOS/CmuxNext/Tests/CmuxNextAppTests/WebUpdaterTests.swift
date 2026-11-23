@@ -205,6 +205,44 @@ import Testing
         #expect(server.downloads == 0)
     }
 
+    /// The switch file of web pieces refuses the update (`cmux app web-pieces refused`): it is
+    /// never downloaded or made active, so no page serves it before a pieces read rolls it back.
+    @Test func anUpdateTheSwitchFileRefusesIsNeverDownloadedOrMadeActive() async throws {
+        let root = try WebUpdateStoreTests.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
+        let server = Server()
+        server.archive = archive
+        server.pointer = try Self.pointerData(pointer)
+        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
+        let updater = Self.updater(server, store: store)
+        var ready: [URL?] = []
+        var asked: [WebUpdatePointer] = []
+        updater.onReady = { tree, _ in ready.append(tree) }
+        updater.refuses = { pointer in
+            asked.append(pointer)
+            return true
+        }
+        await updater.check()
+        #expect(asked == [pointer])
+        #expect(updater.state.active == nil)
+        #expect(store.readState().active == nil)
+        #expect(ready.isEmpty)
+        #expect(server.downloads == 0)
+        #expect(updater.lastRefusal == .refusedBySwitchFile)
+        #expect(updater.phase == .idle)
+        // The same pointer: not asked again until it changes.
+        await updater.check()
+        #expect(asked.count == 1)
+        // A later switch file allows it: taken when the pointer is read again.
+        updater.refuses = { _ in false }
+        server.etag = "\"2\""
+        await updater.check()
+        #expect(updater.state.active == pointer)
+        #expect(server.downloads == 1)
+        #expect(ready == [store.tree(for: pointer.key).root])
+    }
+
     @Test func aRollBackServesThePreviousUpdateAndRefusesTheRolledBackOne() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -8,11 +8,15 @@
 //! takes back at most the last second, always a suffix). Readers, segments and every file format
 //! stay as they are: the logs are the journal's projection, read as before.
 //!
-//! - Order: one lock holds from the journal's check to its append, with the log write between,
-//!   so for each chat the log's lines are in LSN order. The journal's refusals (closed, behind)
-//!   come before the log write and a log's refusal comes before the record, so every record's
+//! - Order: the chat's lock (one of a fixed set of stripes, `Inner::chat`) holds from the
+//!   journal's reservation to its append, with the log write between, so for each chat the log's
+//!   lines are in LSN order. Different chats' appends go on side by side (#47421: under one
+//!   store-wide lock, 20 coordinators streaming at once put an update 11 s behind at p95). The
+//!   journal's refusals (closed, behind) come before the log write (the reservation holds the
+//!   record's room in its queue) and a log's refusal comes before the record, so every record's
 //!   line went to the log. A log line may lack its record: a crash between the two, or a record
-//!   still in memory at a kill.
+//!   still in memory at a kill. What must see no append half done (the checkpoint's start, the
+//!   seal) waits them out (`Inner::quiet`).
 //! - Checkpoint (`<home>/journal-projected.json`, the journal's compaction point): every 30 s while
 //!   the journal grew, past 64 MiB of it, at `flush` (shutdown) and before a retention rewrite. It
 //!   syncs every log written since the last one and the sessions folder, then writes, durably, an
@@ -66,8 +70,12 @@ use std::time::{Duration, Instant};
 
 mod checkpoint;
 mod fenced;
+mod log_lsns;
 mod meta;
 mod new_folders;
+mod space;
+#[cfg(test)]
+pub(crate) use space::{RESERVE as DISK_RESERVE, set_test_free};
 pub(super) mod repair;
 #[cfg(all(test, unix))]
 mod seal_tests;
@@ -200,6 +208,10 @@ thread_local! {
     /// Tests: a read on this thread says so, once, when it has read and waits for an append
     /// under way (`Inner::fenced`).
     pub(crate) static NOTE_AT_READ_FENCE: log_sync::Note = const { std::cell::RefCell::new(None) };
+    /// Tests: a read on this thread stops once at the read fence, before it waits for its
+    /// chat's append under way (`Inner::fenced`).
+    pub(crate) static HOLD_AT_READ_FENCE: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
     /// Tests: the next `frozen` record a freeze on this thread appends is refused, as when the
     /// journal's writer stopped (`AppendError::Closed`).
     pub(crate) static FAIL_FROZEN_RECORD: std::cell::Cell<bool> =
@@ -246,17 +258,57 @@ pub(crate) fn pause_next_log_write_on_this_thread(
     PAUSE_AFTER_LOG_WRITE.with(|slot| *slot.borrow_mut() = Some((arrived, release)));
 }
 
+/// Tests: the next read on this thread stops once at the read fence (after its read, before it
+/// waits for its chat's append under way), says so on `arrived` and waits for `release`.
+#[cfg(test)]
+pub(crate) fn hold_next_read_fence_on_this_thread(
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) {
+    HOLD_AT_READ_FENCE.with(|slot| *slot.borrow_mut() = Some((arrived, release)));
+}
+
 impl Inner {
-    /// Runs `read`, then waits for an append under way to end (`order` taken and let go): every
-    /// line `read` saw has its record appended by the time this returns.
-    fn fenced<T>(&self, read: impl FnOnce() -> T) -> T {
+    /// Runs `read` of chat `id`, then waits for an append of that chat under way to end (its
+    /// stripe's lock taken and let go, [`Inner::chat`]): every line `read` saw has its record
+    /// appended by the time this returns. Another chat's append is not waited for (#47421: with
+    /// 20 coordinators streaming, every page read waited behind every chat's append), unless
+    /// the two chats share a stripe, and then only for that one append.
+    fn fenced<T>(&self, id: &str, read: impl FnOnce() -> T) -> T {
         let out = read();
         #[cfg(test)]
         log_sync::note(&NOTE_AT_READ_FENCE, "waits at the read fence");
-        drop(self.order.lock_or_recover());
+        #[cfg(test)]
+        log_sync::hold(&HOLD_AT_READ_FENCE);
+        drop(self.chat(id).lock_or_recover());
         out
     }
+
+    /// The lock of chat `id`'s stripe: held by its append from the journal's reservation to the
+    /// record, so the chat's log lines are in LSN order. A fixed set of locks, not one per chat:
+    /// it never grows with the chats, and an append takes no store-wide lock to find it.
+    fn chat(&self, id: &str) -> &Mutex<()> {
+        use std::hash::{Hash, Hasher};
+        // `DefaultHasher::new` has fixed keys: a chat keeps its stripe for the process's life.
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut hasher);
+        let stripes = u64::try_from(APPEND_STRIPES).unwrap_or(1);
+        let stripe = usize::try_from(hasher.finish() % stripes).unwrap_or(0);
+        self.chats.get(stripe).unwrap_or(&self.chats_fallback)
+    }
+
+    /// Waits for every log append under way to end and holds new ones off its log write (they
+    /// wait before their journal reservation): for what must see no append half done, between
+    /// its line and its record, or between its record and `order` (the checkpoint's read of
+    /// `applied` and `dirty`, the seal).
+    fn quiet(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.appending.write().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
+
+/// The chats' append locks ([`Inner::chat`]): enough that the chats streaming at once rarely
+/// share one (20 chats over 1,024 stripes: about one pair in five runs).
+const APPEND_STRIPES: usize = 1024;
 
 /// Tests: the stop of [`PAUSE_AFTER_LOG_WRITE`].
 #[cfg(test)]
@@ -278,7 +330,17 @@ struct Inner {
     local: LocalStore,
     journal: Journal,
     home: PathBuf,
+    /// The store's bookkeeping. A log append takes it only after its line and record, for a
+    /// moment: the appends of different chats go on side by side ([`Inner::chat`],
+    /// [`Inner::quiet`]).
     order: Mutex<Order>,
+    /// Each stripe of chats' append lock ([`Inner::chat`]).
+    chats: Box<[Mutex<()>]>,
+    /// Never taken: `chats` has every stripe [`Inner::chat`] computes.
+    chats_fallback: Mutex<()>,
+    /// Read-held by every log append from its journal reservation to its note in `order`
+    /// ([`Inner::quiet`]).
+    appending: std::sync::RwLock<()>,
     /// One checkpoint at a time.
     checkpointing: Mutex<()>,
     timer: Mutex<Timer>,
@@ -308,6 +370,8 @@ struct Inner {
     /// Held while a chat's folder is removed or its `session.json` written from the overlay
     /// (`journal_store/meta.rs`).
     folders: Mutex<()>,
+    /// The full disk's state: while full, every change is refused at once ([`space`]).
+    space: Arc<space::Space>,
 }
 
 /// Owned by the journal's durable listener, which the writer drops when it ends: a writer that
@@ -384,6 +448,9 @@ struct Order {
     /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
     /// checkpoint of its own (`Store::commit_compaction`).
     log_lsn: HashMap<String, Lsn>,
+    /// Each chat's log records not yet known durable, by seq: what `Store::sync_log_through`
+    /// waits for ([`log_lsns`]).
+    log_lsns: HashMap<String, log_lsns::LogLsns>,
     /// The shutdown's last checkpoint ran (`Inner::last_checkpoint`): the home is the next
     /// daemon's, so no checkpoint, metadata image or retirement is written from here on.
     sealed: bool,
@@ -456,6 +523,11 @@ impl JournalStore {
                 moved
             });
         });
+        let space = space::Space::open(home, Arc::clone(&ending));
+        let full = Arc::clone(&space);
+        journal.on_out_of_space(move || {
+            full.enter("the event journal's writer got no space");
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -468,6 +540,9 @@ impl JournalStore {
                 held_left: repair::held_cap(),
                 ..Order::default()
             }),
+            chats: (0..APPEND_STRIPES).map(|_| Mutex::new(())).collect(),
+            chats_fallback: Mutex::new(()),
+            appending: std::sync::RwLock::new(()),
             checkpointing: Mutex::new(()),
             timer: Mutex::new(Timer::default()),
             wake: Condvar::new(),
@@ -481,6 +556,7 @@ impl JournalStore {
             syncs: checkpoint::SyncsUnderWay::default(),
             folders: Mutex::new(()),
             idle: AtomicBool::new(false),
+            space,
         });
         // The lines of chats whose repair failed at an earlier open, journaled again first.
         inner.take_repairs(&mut replay);
@@ -669,7 +745,9 @@ impl Store for JournalStore {
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
         self.inner.save_meta(meta, ShowAfter::Written)
     }
-    /// The line to the log first, then its record ([module docs](self)).
+    /// The line to the log first, then its record ([module docs](self)). Under the chat's
+    /// stripe lock, not a store-wide one: the journal's room is reserved first (so the record
+    /// is taken once its line is written), and `order` is taken only for the bookkeeping after.
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
@@ -678,38 +756,53 @@ impl Store for JournalStore {
         let class = if kind == RecordClass::Acked { Class::Ack } else { Class::Stream };
         let payload = encode_log(id, line.as_bytes());
         let inner = &self.inner;
-        let mut order = inner.order.lock_or_recover();
-        // Every append is under this lock, and only the writer empties the journal's queue, so
-        // the append below is taken unless the writer stops in between.
-        inner.journal.check_append(payload.len()).map_err(JournalStore::journal_error)?;
-        // Refused once the store is sealed (under the same lock, so exact).
+        let _chat = inner.chat(id).lock_or_recover();
+        let _appending = inner.appending.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // A full disk: refused before anything is written ([`space`]).
+        inner.space.refuse()?;
+        // The record's room in the journal's queue, held until its append: refused here, before
+        // the log write, never after it unless the writer stops in between.
+        let room = inner.journal.reserve(payload.len()).map_err(JournalStore::journal_error)?;
+        // Refused once the store is sealed (the seal waits out this append: `Inner::quiet`).
         inner.local.append_line(id, line.as_bytes())?;
         #[cfg(test)]
         pause_after_log_write();
+        // Refused only if the writer stopped since the reservation: the line is in the log
+        // without its record, as after a crash between the two.
+        // A kept change's line is synced in the journal's idle time (`cmux_journal` crate docs).
+        let lsn = if kind == RecordClass::Kept {
+            room.append_kept(KIND_LOG, &payload)
+        } else {
+            room.append(KIND_LOG, class, &payload)
+        }
+        .map_err(JournalStore::journal_error)?;
+        // Raised, never lowered: another chat's append may have taken a later LSN and noted it
+        // first.
+        match kind {
+            RecordClass::Acked => {
+                inner.acked.fetch_max(lsn, std::sync::atomic::Ordering::SeqCst);
+            }
+            RecordClass::Kept => {
+                inner.kept.fetch_max(lsn, std::sync::atomic::Ordering::SeqCst);
+            }
+            RecordClass::Stream => {}
+        }
+        let mut order = inner.order.lock_or_recover();
         if !order.dirty.contains(id) {
             order.dirty.insert(id.to_owned());
         }
-        // Refused only if the writer stopped since the check: the line is in the log without its
-        // record, as after a crash between the two.
-        // A kept change's line is synced in the journal's idle time (`cmux_journal` crate docs).
-        let lsn = if kind == RecordClass::Kept {
-            inner.journal.append_kept(KIND_LOG, &payload)
-        } else {
-            inner.journal.append(KIND_LOG, class, &payload)
-        }
-        .map_err(JournalStore::journal_error)?;
-        match kind {
-            RecordClass::Acked => inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst),
-            RecordClass::Kept => inner.kept.store(lsn, std::sync::atomic::Ordering::SeqCst),
-            RecordClass::Stream => {}
-        }
-        order.applied = lsn;
+        order.applied = order.applied.max(lsn);
         // A chat's first line in this process allocates its entry; every later one reuses it.
         match order.log_lsn.get_mut(id) {
             Some(newest) => *newest = lsn,
             None => {
                 order.log_lsn.insert(id.to_owned(), lsn);
             }
+        }
+        let durable = inner.journal.durable_lsn();
+        match order.log_lsns.get_mut(id) {
+            Some(held) => held.note(record.seq, lsn, durable),
+            None => order.log_lsns.entry(id.to_owned()).or_default().note(record.seq, lsn, durable),
         }
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
@@ -735,7 +828,7 @@ impl Store for JournalStore {
     // #35400, F1). A read that sends as it reads stops at the chat's `last_seq` instead
     // (`Hub::scan_events`).
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
-        self.inner.fenced(|| Store::events(&self.inner.local, id, after, limit))
+        self.inner.fenced(id, || Store::events(&self.inner.local, id, after, limit))
     }
     fn read_log(
         &self,
@@ -747,7 +840,7 @@ impl Store for JournalStore {
         out: &mut Vec<u8>,
     ) -> Result<LogChunk> {
         self.inner
-            .fenced(|| Store::read_log(&self.inner.local, id, from, filter, stamp, marks, out))
+            .fenced(id, || Store::read_log(&self.inner.local, id, from, filter, stamp, marks, out))
     }
     fn read_log_part(
         &self,
@@ -759,7 +852,7 @@ impl Store for JournalStore {
         marks: &mut LogMarks,
         out: &mut Vec<u8>,
     ) -> Result<LogPart> {
-        self.inner.fenced(|| {
+        self.inner.fenced(id, || {
             Store::read_log_part(&self.inner.local, id, seq, offset, max, stamp, marks, out)
         })
     }
@@ -771,15 +864,41 @@ impl Store for JournalStore {
     }
     /// A line is durable once its journal record is: a power loss's replay writes it into the
     /// log again. So a sync through a seq waits for the journal, never syncs the log itself.
-    fn sync_log_through(&self, _id: &str, _seq: u64) -> Result<()> {
-        if self.wait_durable(Duration::from_secs(30))? {
-            Ok(())
-        } else {
-            anyhow::bail!("the event journal did not sync within 30 s")
+    /// Waits for the record that holds `id`'s line `seq`, not for the lines appended after it
+    /// ([`log_lsns`]).
+    fn sync_log_through(&self, id: &str, seq: u64) -> Result<()> {
+        let durable = self.inner.journal.durable_lsn();
+        let lsn = {
+            let mut order = self.inner.order.lock_or_recover();
+            let Some(held) = order.log_lsns.get_mut(id) else { return Ok(()) };
+            let lsn = held.through(seq, durable);
+            if held.done(durable) {
+                order.log_lsns.remove(id);
+            }
+            lsn
+        };
+        let Some(lsn) = lsn else { return Ok(()) };
+        // In slices of [`FULL_WAIT`]: while the disk is full, a record the writer did not write
+        // within one may never be, and the caller gets the store's `disk.full` refusal at once
+        // instead of waiting out the 30 s (the gate's lines are answered the same way).
+        let limit = Duration::from_secs(30);
+        let started = Instant::now();
+        loop {
+            let left = limit.saturating_sub(started.elapsed());
+            match self.inner.journal.wait_durable(lsn, left.min(FULL_WAIT)) {
+                Ok(()) => return Ok(()),
+                Err(cmux_journal::WaitError::Timeout) => {
+                    self.inner.space.refuse()?;
+                    if started.elapsed() >= limit {
+                        anyhow::bail!("the event journal did not sync within 30 s");
+                    }
+                }
+                Err(error) => return Err(anyhow::anyhow!("the event journal: {error}")),
+            }
         }
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
+        self.inner.fenced(id, || Store::scan(&self.inner.local, id, after, visit))
     }
     fn scan_matching(
         &self,
@@ -788,7 +907,8 @@ impl Store for JournalStore {
         may_match: &dyn Fn(&[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_matching(&self.inner.local, id, after, may_match, visit))
+        self.inner
+            .fenced(id, || Store::scan_matching(&self.inner.local, id, after, may_match, visit))
     }
     fn scan_strict(
         &self,
@@ -796,7 +916,7 @@ impl Store for JournalStore {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_strict(&self.inner.local, id, after, visit))
+        self.inner.fenced(id, || Store::scan_strict(&self.inner.local, id, after, visit))
     }
     fn scan_back(
         &self,
@@ -806,7 +926,8 @@ impl Store for JournalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_back(&self.inner.local, id, after, before, skip, visit))
+        self.inner
+            .fenced(id, || Store::scan_back(&self.inner.local, id, after, before, skip, visit))
     }
     fn scan_back_indexed(
         &self,
@@ -816,11 +937,15 @@ impl Store for JournalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner
-            .fenced(|| Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit))
+        self.inner.fenced(id, || {
+            Store::scan_back_indexed(&self.inner.local, id, after, before, skip, visit)
+        })
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
-        self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
+        self.inner.fenced(id, || Store::tail_after(&self.inner.local, id, after))
+    }
+    fn newest_window(&self, id: &str, before: u64, n: u64) -> Result<NewestWindow> {
+        self.inner.fenced(id, || Store::newest_window(&self.inner.local, id, before, n))
     }
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
         Store::restore_point(&self.inner.local, id)
@@ -834,7 +959,7 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_kinds(&self.inner.local, id, kinds, visit))
+        self.inner.fenced(id, || Store::scan_kinds(&self.inner.local, id, kinds, visit))
     }
     fn scan_kinds_strict(
         &self,
@@ -842,12 +967,12 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_kinds_strict(&self.inner.local, id, kinds, visit))
+        self.inner.fenced(id, || Store::scan_kinds_strict(&self.inner.local, id, kinds, visit))
     }
     // The local store reads these from its kind and text copies; the trait's defaults would
     // scan the log (`journal_store_forwards_every_local_store_override`).
     fn search_records(&self, id: &str, visit: &mut dyn FnMut(EventRecord)) -> Result<()> {
-        self.inner.fenced(|| self.inner.local.search_records(id, visit))
+        self.inner.fenced(id, || self.inner.local.search_records(id, visit))
     }
 
     fn text_entries(
@@ -855,7 +980,7 @@ impl Store for JournalStore {
         id: &str,
         visit: &mut dyn FnMut(crate::session_search::Entry),
     ) -> Result<()> {
-        self.inner.fenced(|| Store::text_entries(&self.inner.local, id, visit))
+        self.inner.fenced(id, || Store::text_entries(&self.inner.local, id, visit))
     }
     fn scan_kinds_after(
         &self,
@@ -864,7 +989,8 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_kinds_after(&self.inner.local, id, after, kinds, visit))
+        self.inner
+            .fenced(id, || Store::scan_kinds_after(&self.inner.local, id, after, kinds, visit))
     }
     fn scan_kinds_after_strict(
         &self,
@@ -873,8 +999,9 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner
-            .fenced(|| Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit))
+        self.inner.fenced(id, || {
+            Store::scan_kinds_after_strict(&self.inner.local, id, after, kinds, visit)
+        })
     }
     fn scan_kinds_keyed(
         &self,
@@ -883,10 +1010,25 @@ impl Store for JournalStore {
         keep: &mut dyn FnMut(&super::KindHead<'_>) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.inner.fenced(|| Store::scan_kinds_keyed(&self.inner.local, id, kinds, keep, visit))
+        self.inner.fenced(id, || Store::scan_kinds_keyed(&self.inner.local, id, kinds, keep, visit))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
-        self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
+        self.inner.fenced(id, || Store::scan_heads(&self.inner.local, id, visit))
+    }
+    fn scan_heads_from(
+        &self,
+        id: &str,
+        from: u64,
+        hint: Option<LinePos>,
+        visit: &mut dyn FnMut(&RecordHead<'_>, Option<LinePos>) -> bool,
+    ) -> Result<()> {
+        self.inner.fenced(id, || Store::scan_heads_from(&self.inner.local, id, from, hint, visit))
+    }
+    fn adoption_checkpoint(&self, id: &str) -> Option<Vec<u8>> {
+        Store::adoption_checkpoint(&self.inner.local, id)
+    }
+    fn save_adoption_checkpoint(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_adoption_checkpoint(&self.inner.local, id, bytes)
     }
     /// A checkpoint: every log written so far is synced and the journal before it retired.
     fn flush(&self) -> Result<()> {
@@ -908,14 +1050,27 @@ impl Store for JournalStore {
     }
     fn durability(&self) -> Option<Durability> {
         let inner = Arc::downgrade(&self.inner);
+        let asker = Arc::downgrade(&self.inner);
+        let full = Arc::downgrade(&self.inner);
         Some(Durability {
             acked: Arc::clone(&self.inner.acked),
             durable: self.inner.durable.clone(),
             kept: Arc::clone(&self.inner.kept),
             written: self.inner.written.clone(),
+            ask: Arc::new(move |lsn| {
+                if let Some(inner) = asker.upgrade() {
+                    inner.journal.ask_durable(lsn);
+                }
+            }),
             stalled: Arc::new(move |waited: Duration| {
                 let Some(inner) = inner.upgrade() else { return false };
                 let stats = inner.journal.stats();
+                // A full disk: no restart (it would find the disk as full); the reply waits
+                // for the writer's retry, which the freed reserve lets write ([`space`]), at
+                // most [`FULL_WAIT`] (`full` below answers it then).
+                if stats.out_of_space || inner.space.is_full() {
+                    return false;
+                }
                 match stats.failing {
                     Some(failing) => {
                         inner.ask_to_stop(format!(
@@ -933,6 +1088,10 @@ impl Store for JournalStore {
                     }
                 }
             }),
+            full: Arc::new(move || {
+                let inner = full.upgrade()?;
+                inner.space.refuse().err().map(|refusal| refusal.to_string())
+            }),
         })
     }
     /// No write lands after this returns; then the shutdown's last checkpoint, while the journal is
@@ -947,7 +1106,9 @@ impl Store for JournalStore {
     /// fail closed, a later open writes the logs again.
     fn seal(&self) {
         {
-            // Under the appends' lock: an append lands in the log and the journal, or in neither.
+            // With no append under way (`quiet`) and no delete or meta save (`order`, which they
+            // hold across their record): a write lands in the log and the journal, or in neither.
+            let _quiet = self.inner.quiet();
             let _order = self.inner.order.lock_or_recover();
             Store::seal(&self.inner.local);
         }
@@ -1032,7 +1193,7 @@ impl Store for JournalStore {
         })
     }
     fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
-        self.inner.fenced(|| Store::stage_cold(&self.inner.local, id))
+        self.inner.fenced(id, || Store::stage_cold(&self.inner.local, id))
     }
     /// As `commit_compaction`: no journal record of the chat may be past the checkpoint, or a
     /// replay would write its lines into an `events/` beside the archive. The caller holds the
@@ -1052,7 +1213,7 @@ impl Store for JournalStore {
         })
     }
     fn rehydrate(&self, id: &str) -> Result<bool> {
-        self.inner.fenced(|| Store::rehydrate(&self.inner.local, id))
+        self.inner.fenced(id, || Store::rehydrate(&self.inner.local, id))
     }
     fn is_cold(&self, id: &str) -> bool {
         Store::is_cold(&self.inner.local, id)
@@ -1070,14 +1231,17 @@ impl Store for JournalStore {
     fn delete(&self, id: &str) -> Result<()> {
         let inner = &self.inner;
         let repair = {
+            // After the chat's append under way, and before its next one.
+            let _chat = inner.chat(id).lock_or_recover();
             let mut order = inner.order.lock_or_recover();
             drop(inner.local.writable()?);
+            inner.space.refuse()?;
             let lsn = inner
                 .journal
                 .append(KIND_FORGET, Class::Ack, id.as_bytes())
                 .map_err(JournalStore::journal_error)?;
-            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
-            order.applied = lsn;
+            inner.acked.fetch_max(lsn, std::sync::atomic::Ordering::SeqCst);
+            order.applied = order.applied.max(lsn);
             order.metas.remove(id);
             order.images.remove(id);
             order.repairs.get(id).cloned()
