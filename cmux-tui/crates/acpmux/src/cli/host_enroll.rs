@@ -204,6 +204,18 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Opt
         .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
 }
 
+/// A line for `doctor NAME` when the hub already carries NAME: its chats work over the hub, and
+/// the ssh steps that follow test a direct route from this machine, which the hub makes optional.
+pub(crate) fn hub_route_note(peers: &[Value], name: &str) -> Option<String> {
+    let row = peers.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(name))?;
+    let connected = row.get("state").and_then(Value::as_str) == Some("connected");
+    (connected && row.get("via").and_then(Value::as_str) == Some("hub")).then(|| {
+        format!(
+            "note   route     {name} is connected through the hub (cmux Remote), so its chats work without ssh from here. The steps below test a direct ssh route from this machine; a failure there does not mean the hub link is down."
+        )
+    })
+}
+
 /// How a running daemon stays current: [`update_step::update`], given the
 /// path of cmux's own acpmux when that is what runs there.
 type UpdateStep<'a> = &'a dyn Fn(&dyn Remote, bool, Option<&str>) -> StepResult;
@@ -492,7 +504,7 @@ fn reach(r: &dyn Remote, accept_new_host_key: bool) -> StepResult {
 }
 
 /// The build in a `--version` line: `acpmux 0.1.0 (BUILD)`.
-fn build_of(line: &str) -> Option<&str> {
+pub(super) fn build_of(line: &str) -> Option<&str> {
     let (_, rest) = line.split_once('(')?;
     rest.trim_end().strip_suffix(')').map(str::trim).filter(|b| !b.is_empty())
 }

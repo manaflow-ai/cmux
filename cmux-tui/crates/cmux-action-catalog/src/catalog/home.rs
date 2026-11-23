@@ -46,6 +46,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "sparkles",
         surfaces: PALETTE,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-meet-chief",
         focuses: true,
         ..Action::DEFAULT
     },
@@ -301,6 +302,20 @@ pub static ACTIONS: &[Action] = &[
         waits_for_result: true,
         ..Action::DEFAULT
     },
+    // Set My Picture: the person's own conversation picture (`user_local`), as
+    // `cmux avatar set me FILE` (`participant.avatar.set`); the app asks for the image.
+    Action {
+        id: "home.setMyAvatar",
+        group: GROUP,
+        title: t("HomeActions", "action.home.setMyAvatar", "Set My Picture…"),
+        keywords: &["avatar", "picture", "photo", "profile", "image", "me", "channels", "conversation"],
+        category: "window",
+        symbol: "person.crop.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "avatar set",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
     Action {
         id: "home.archiveChief",
         group: GROUP,
@@ -356,6 +371,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "pencil",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-edit-chief",
         arguments: &[args::LOCAL_CHIEF],
         ..Action::DEFAULT
     },
@@ -368,6 +384,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "cpu",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-set-chief-model",
         arguments: &[args::LOCAL_CHIEF, args::CHIEF_MODEL],
         is_person_only: true,
         ..Action::DEFAULT
@@ -381,6 +398,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "gauge.with.dots.needle.50percent",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-set-chief-effort",
         arguments: &[args::LOCAL_CHIEF, args::CHIEF_EFFORT],
         is_person_only: true,
         ..Action::DEFAULT
@@ -394,6 +412,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "person.badge.plus",
         surfaces: PALETTE | KEYBOARD,
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        cli_name: "action home-adopt-chief",
         arguments: &[args::ADOPT_AGENT],
         is_person_only: true,
         ..Action::DEFAULT
