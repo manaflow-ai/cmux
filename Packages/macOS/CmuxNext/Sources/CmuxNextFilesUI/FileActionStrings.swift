@@ -3,7 +3,7 @@ import Foundation
 /// The shared file menu's text (table `Files`, 21 languages).
 nonisolated enum FileActionStrings {
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "Files", bundle: .module)
+        String(localized: key, defaultValue: english, table: "Files", bundle: .localizedModule)
     }
 
     static var openInRightPane: String { t("files.menu.openInRightPane", "Open in Right Pane") }

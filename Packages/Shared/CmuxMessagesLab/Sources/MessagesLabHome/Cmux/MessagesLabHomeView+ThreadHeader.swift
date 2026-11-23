@@ -94,7 +94,7 @@ extension MessagesLabHomeView {
                                    duration: num("duration", 0.35), hold: num("hold", 0), window: window) { [weak self, weak window] e in
             if let window, e.window === window { NSApp.sendEvent(e); return "app" }
             let left = swipe.monitored(e, at: hostPoint)
-            self?.debugSwipeTrail.append("\(Self.phaseName(e)) \(Int(e.scrollingDeltaX)),\(Int(e.scrollingDeltaY)) \(left == nil ? "taken" : "scroll") \(Int(swipe.rowOffset))")
+            self?.debugSwipeTrail.append("\(Self.phaseName(e)) \(CrashGuard.int(e.scrollingDeltaX)),\(CrashGuard.int(e.scrollingDeltaY)) \(left == nil ? "taken" : "scroll") \(CrashGuard.int(swipe.rowOffset))")
             if let left, let flat = Self.unphased(left) { scroll.scrollWheel(with: flat) }
             return "monitor"
         }

@@ -137,6 +137,8 @@ pub struct FakeDesktop {
     pub type_calls: Mutex<usize>,
     /// Windows moved or resized since the fake was made: id -> frame now.
     pub reframed: Mutex<Vec<(String, Rect)>>,
+    /// The screen is locked ([`Desktop::screen_locked`]).
+    pub locked: Mutex<bool>,
 }
 
 /// A fake watch: the signals the desktop's `signals` holds when read.
@@ -222,6 +224,7 @@ impl FakeDesktop {
             trees_from_walk: Mutex::new(Vec::new()),
             last_max_nodes: Mutex::new(0),
             reframed: Mutex::new(Vec::new()),
+            locked: Mutex::new(false),
             shows: Mutex::new(None),
             signals: std::sync::Arc::new(Mutex::new(None)),
             pasteboard: Mutex::new(0),
@@ -479,6 +482,9 @@ impl Desktop for FakeDesktop {
     fn info(&self) -> PlatformInfo {
         PlatformInfo { os: "fake".into(), display_server: "fake".into(), detail: String::new() }
     }
+    fn screen_locked(&self) -> bool {
+        *lock(&self.locked)
+    }
     fn permissions(&self) -> Permissions {
         Permissions {
             accessibility: Grant::Granted,
@@ -549,6 +555,15 @@ impl Desktop for FakeDesktop {
 
     fn excludes_apps_from_display_capture(&self) -> bool {
         self.excludes_apps
+    }
+
+    fn frame_encoder(
+        &self,
+        width: u32,
+        height: u32,
+        _fps: u32,
+    ) -> DResult<Box<dyn crate::record::FrameEncoder>> {
+        Ok(Box::new(crate::record::synthetic::SyntheticEncoder::new(width, height)))
     }
 
     fn capture_apps(&self) -> DResult<Vec<App>> {
@@ -859,5 +874,17 @@ impl Desktop for FakeDesktop {
                 Some(prior.clone());
         }
         Ok(self.restore_works)
+    }
+
+    /// The one display `capture(Display(_))` returns.
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Ok(vec![crate::displays::Display {
+            id: "0".into(),
+            frame: Rect { x: 0.0, y: 0.0, width: 1000.0, height: 800.0 },
+            scale: self.scale,
+            main: true,
+            builtin: Some(false),
+            is_virtual: Some(true),
+        }])
     }
 }

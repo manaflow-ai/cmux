@@ -110,6 +110,27 @@ public struct MessagePreview: Sendable, Hashable {
 
 /// `s` with every run of white space as one space, trimmed.
 private func folded(_ s: String) -> String {
+    // ASCII text folds byte by byte, as most previews are: its only white space is 0x09-0x0D and the space
+    // (what `Character.isWhitespace` says of ASCII; a "\r\n" pair folds to one space either way). Any other
+    // text takes the character path below.
+    var bytes: [UInt8] = []
+    bytes.reserveCapacity(s.utf8.count)
+    var gap = false
+    for b in s.utf8 {
+        if b >= 0x80 { return foldedCharacters(s) }
+        if b == 0x20 || (b >= 0x09 && b <= 0x0D) {
+            gap = !bytes.isEmpty
+        } else {
+            if gap { bytes.append(0x20) }
+            gap = false
+            bytes.append(b)
+        }
+    }
+    return String(decoding: bytes, as: UTF8.self)
+}
+
+/// ``folded(_:)`` for text with non-ASCII characters (Unicode white space such as a no-break space folds too).
+private func foldedCharacters(_ s: String) -> String {
     var out = ""
     out.reserveCapacity(s.utf8.count)
     var space = false
@@ -198,8 +219,11 @@ private struct PreviewParser {
     static func blockBody(_ line: Substring) -> Substring {
         var s = line
         while s.first == ">" { s = s.dropFirst().drop { $0 == " " } }
-        let bare = s.filter { $0 != " " }
-        if bare.count >= 3, let c = bare.first, "-*_=".contains(c), bare.allSatisfy({ $0 == c }) { return "" }
+        // A rule's first mark decides before the whole line is copied without its spaces.
+        if let c = s.first(where: { $0 != " " }), "-*_=".contains(c) {
+            let bare = s.filter { $0 != " " }
+            if bare.count >= 3, bare.allSatisfy({ $0 == c }) { return "" }
+        }
         let hashes = s.prefix { $0 == "#" }.count
         if (1...6).contains(hashes), s.dropFirst(hashes).first == " " || s.count == hashes {
             s = s.dropFirst(hashes).drop { $0 == " " }
@@ -269,6 +293,16 @@ private struct PreviewParser {
         func isSpace(_ c: Character?) -> Bool { c.map { $0.isWhitespace } ?? true }
         while i < chars.count {
             let ch = chars[i]
+            // A run of characters that cannot start inline Markdown is copied whole: the rules below only ever
+            // act on one of `\ ` ! [ < * _ ~`, and testing each character against all of them is what made a
+            // Home list slow in Debug.
+            guard Self.mayStartInline(ch) else {
+                var end = i + 1
+                while end < chars.count, !Self.mayStartInline(chars[end]) { end += 1 }
+                out.append(contentsOf: chars[i..<end])
+                i = end
+                continue
+            }
             switch ch {
             case "\\" where chars[safe: i + 1].map { $0.isASCII && ($0.isPunctuation || $0.isSymbol) } ?? false:
                 out.append(chars[i + 1])
@@ -341,6 +375,16 @@ private struct PreviewParser {
             i += 1
         }
         return out
+    }
+
+    /// Whether `ch` is one of the characters `inline` acts on (`\ ` ! [ < * _ ~`). One ASCII value and one integer
+    /// switch: a character with a combining mark or a non-ASCII character never is one.
+    static func mayStartInline(_ ch: Character) -> Bool {
+        guard let ascii = ch.asciiValue else { return false }
+        switch ascii {
+        case 0x5C, 0x60, 0x21, 0x5B, 0x3C, 0x2A, 0x5F, 0x7E: return true
+        default: return false
+        }
     }
 
     /// `[label](target)` at `i` (the `[`): the label, the target and the index after the `)`; nil when not a link.

@@ -196,6 +196,10 @@ export const github: ProviderImpl = {
     const inst = list.find((i) => i.id === installation)
     if (!inst) throw new ProviderError("integration.state_invalid", "this GitHub user cannot access that installation")
     const login = inst.account?.login ?? ""
+    // The linking user's GitHub account (GET /user), read at most once per link.
+    let me: Promise<{ ok: boolean; body: Record<string, unknown> }> | undefined
+    const linkingUser = () =>
+      (me ??= http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })).then(async (r) => ({ ok: r.ok, body: await json(r) })))
 
     if (p.policy.requireOrgAdmin) {
       if (inst.account?.type === "Organization") {
@@ -204,8 +208,8 @@ export const github: ProviderImpl = {
         const mb = await json(m)
         if (!m.ok || mb.state !== "active" || mb.role !== "admin") throw new ProviderError("integration.state_invalid", `the team policy requires a ${login} organization admin to link GitHub`)
       } else {
-        const me = await json(await http(new Request(`${GH_API}/user`, { headers: ghHeaders(userToken) })))
-        if (String(me.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
+        const { body: user } = await linkingUser()
+        if (String(user.login ?? "").toLowerCase() !== login.toLowerCase()) throw new ProviderError("integration.state_invalid", "the team policy requires the account owner to link GitHub")
       }
     }
 
@@ -224,11 +228,20 @@ export const github: ProviderImpl = {
       }
       repos.sort()
     }
+    // Who linked, so a repository this same GitHub user later adds to the installation joins the recorded
+    // list (connection-do.ts githubInstallationEvent). Unreadable: the connection records no id and an
+    // added repository waits for a relink, as before.
+    let linkedBy: number | undefined
+    if (repos !== null) {
+      const user = await linkingUser().catch(() => undefined)
+      const id = user?.ok ? user.body.id : undefined
+      if (typeof id === "number" && Number.isSafeInteger(id) && id > 0) linkedBy = id
+    }
     return {
       account: { key: `github:installation:${installation}`, name: login || String(installation), ...(inst.account?.html_url ? { url: inst.account.html_url } : {}) },
       scopes_granted: githubScopesOf(inst.permissions ?? {}),
       credential: { kind: "github_installation", installation_id: installation },
-      resources: { repos }
+      resources: { repos, ...(linkedBy !== undefined ? { linked_by_github_id: linkedBy } : {}) }
     }
   },
   call: async (env, http, credential, op, params, beforeEffect) => {

@@ -87,6 +87,17 @@ export function settledAttachFailed(error: unknown): boolean {
   );
 }
 
+/// Whether a reconnect's forward attach (`afterSeq`) failed because the host or acpmux did not take the
+/// key: a params rule that refuses it as malformed (`transport.intent_invalid`, the app's relay before Leo's
+/// 2026-11-22 report), or an error that names it. The pane then asks the newest page, as before #47119.
+export function forwardAttachRefused(error: unknown): boolean {
+  const failure = error as { message?: unknown; code?: unknown; reason?: unknown } | undefined;
+  if (failure?.code === "transport.intent_invalid") return true;
+  return [failure?.message, failure?.code, failure?.reason].some(
+    (said) => typeof said === "string" && /afterSeq/.test(said),
+  );
+}
+
 /// The chat's detail an attach reply carries, naming the machine it runs on. A reply acpmux forwarded
 /// from a peer names that peer at its top level only (`server/peer_forward.rs`): its `session` is the
 /// peer daemon's own detail, with no `peer`, so the detail alone read as this Mac's chat and Session

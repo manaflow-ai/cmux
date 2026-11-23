@@ -495,6 +495,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -503,10 +507,12 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cmux-build-space",
+ "cmux-message-preview",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-transport",
  "flate2",
  "futures-util",
  "hkdf",

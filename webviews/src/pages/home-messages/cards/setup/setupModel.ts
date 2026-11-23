@@ -28,6 +28,10 @@ export interface SetupState {
   tools?: { agents: readonly string[]; choice: "ask" | "on" | "off"; applying: boolean } | null;
   /** Classic's saved session, when one was found and not answered yet; null: none (the row does not show). */
   classic: { workspaces: number; saved: string; answered?: "imported" | "declined" } | null;
+  /** The app's text size and density (Set Up cmux's Text Size and Density row; David Beyer, Nov 20): `textSize` is
+   * appearance.metrics.chromeFontSize in points or null (the density's own), `density` the density's id, `body` its
+   * chrome body text in points. Null or absent: an app that has no such row (the row does not show). */
+  look?: { textSize: number | null; density: string; body: number } | null;
   /** The card's Chief form (first-run findings rows 1 and 4): shown in Chief's chat because the agent Chief
    * answers through (Claude Code) is missing or signed out. Only the agents row, under a title that says why. */
   forChief?: boolean;
@@ -39,7 +43,7 @@ export function setupTitle(state: SetupState, { t, format }: Strings): string {
   return agent ? format("home.setup.chiefNeeds", agent.name) : t("home.setup.title");
 }
 
-export type SetupStepID = "agents" | "tools" | "account" | "cli" | "classic";
+export type SetupStepID = "agents" | "tools" | "account" | "cli" | "classic" | "look";
 
 /** What a row's button asks the host to do. */
 export type SetupAction =
@@ -50,6 +54,8 @@ export type SetupAction =
   | { kind: "installCLI" }
   | { kind: "addTools" }
   | { kind: "declineTools" }
+  | { kind: "setTextSize"; points: number | null }
+  | { kind: "setDensity"; id: string }
   | { kind: "importClassic" }
   | { kind: "declineClassic" };
 
@@ -68,6 +74,9 @@ export interface SetupStep {
   tertiary?: { label: string; run: SetupAction };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
+  /** A choice, not a to-do (Text Size and Density): never counted in the progress, never the next step, and its
+   * controls sit under its words instead of in the slot. */
+  optional?: boolean;
 }
 
 /** The agent a person is closest to talking to: signed in, else signed out, else the first. */
@@ -198,15 +207,25 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
       },
     }),
   });
+  // Text Size and Density: a choice offered at the first run, never a to-do (its controls are the row's own).
+  if (state.look)
+    steps.push({
+      id: "look",
+      done: true,
+      optional: true,
+      title: t("home.setup.look"),
+      detail: t("home.setup.look.detail"),
+    });
   return steps;
 }
 
 /** The first row not done; undefined when every row is. */
 export function nextStep(steps: readonly SetupStep[]): SetupStep | undefined {
-  return steps.find((step) => !step.done);
+  return steps.find((step) => !step.done && !step.optional);
 }
 
 /** Rows done of rows shown. */
 export function setupProgress(steps: readonly SetupStep[]): { done: number; total: number } {
-  return { done: steps.filter((step) => step.done).length, total: steps.length };
+  const todos = steps.filter((step) => !step.optional);
+  return { done: todos.filter((step) => step.done).length, total: todos.length };
 }

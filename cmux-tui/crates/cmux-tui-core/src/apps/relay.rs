@@ -269,6 +269,7 @@ impl Supervisor {
                 op: op.to_string(),
                 target: Target::Relay { app: app.to_string(), generation, id, session },
                 timer,
+                cache_key: None,
             },
         );
         let mut event = json!({

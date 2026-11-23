@@ -23,7 +23,7 @@ Two detectors:
   statement, so a script's closing `try: ... finally:` that kills is one cleanup path. A three-statement window
   (cmux#41855) missed a log nested under an `if` and longer cleanup paths; this rule has nothing to miss by distance.
 
-Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
+Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18): run
 `python3 -I tests/test_python_guard_logs_survive_closed_pipe.py` after adding or changing a script that prints right
 before it stops a process (about 20 s; needs python3 and ps).
 """
