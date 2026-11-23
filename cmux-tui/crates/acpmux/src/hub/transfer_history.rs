@@ -21,12 +21,12 @@
 //!    is awaited (`transfer-history-pending.json`: that seq and the digest of its record).
 //! 4. target `_acpmux/transfer_history_have {sessionId}`: the pack chunks it holds of the chat.
 //!    source `_acpmux/transfer_history_export {sessionId, throughSeq, have}` (the chat has moved
-//!    away; its copy keeps the log): the lines through `throughSeq` packed into this daemon's
-//!    pack store (`<home>/session-packs`; a chat packed before keeps its sealed segments) and
+//!    away; its copy keeps the log): the lines through `throughSeq` packed into the chat's
+//!    pack store (`history-pack` in its folder; a chat packed before keeps its sealed segments) and
 //!    bundled without the chunks in `have`. The answer is a prefix manifest with `packed`, read
 //!    with `transfer_read`.
 //! 5. target `transfer_stage {manifest}`, `transfer_write`, `transfer_stage_finish`: the bundle
-//!    is unpacked into the target's pack store and read back as lines, each record then checked
+//!    is unpacked into the chat's pack store there and read back as lines, each record then checked
 //!    and written as for any staged prefix.
 //! 6. target `_acpmux/transfer_history {sessionId, stageId}`: the staged records become the
 //!    live chat's segment `000000` (`Store::history_writer`, as a fork's history does), the
@@ -71,41 +71,48 @@ fn pack_error(e: pack::Error) -> anyhow::Error {
     anyhow::anyhow!("session pack: {e}")
 }
 
-/// This daemon's pack store: every chat's packed history, content-addressed, so a chat packed
-/// again keeps what it had and a chat that comes back is sent only what is new.
-fn pack_store() -> anyhow::Result<pack::Store> {
-    let dir = crate::config::home().join("session-packs");
-    crate::config::private_state_dir(&dir)?;
-    Ok(pack::Store::new(dir))
-}
+/// The folder of a chat's pack store, in the chat's own folder.
+const PACK_DIR: &str = "history-pack";
 
 /// Whether a staged manifest's files are a history export's bundle, to be unpacked first.
 pub(in crate::hub) fn is_packed(manifest: &Value) -> bool {
     manifest.get("packed").is_some_and(|p| !p.is_null())
 }
 
-/// Unpacks a staged history bundle (`bundle/events/history.cspb`) into this daemon's pack store
-/// and writes its lines to `bundle/events/000001.ndjson`, where `transfer_stage_finish` reads a
+/// `Hub::unpack_staged` unpacks a staged history bundle (`bundle/events/history.cspb`) into the
+/// chat's pack store here and writes its lines to `bundle/events/000001.ndjson`, where `transfer_stage_finish` reads a
 /// prefix's records. The bundle names every chunk by its hash, and a chunk that is not what its
 /// name says is refused.
-pub(in crate::hub) fn unpack_staged(bundle: &Path, chat: &str) -> anyhow::Result<()> {
-    use std::io::Write as _;
-    let file = inside(bundle, HISTORY_FILE).map_err(|e| anyhow::anyhow!("{}", e.message))?;
-    let store = pack_store()?;
-    let mut input = std::io::BufReader::new(std::fs::File::open(&file)?);
-    let manifest = pack::ship::unbundle(&store, &mut input, pack::ship::Lacking::Refuse)
-        .map_err(pack_error)?
-        .ok_or_else(|| anyhow::anyhow!("the history bundle names no session"))?;
-    anyhow::ensure!(manifest.name == chat, "the history bundle is of another chat");
-    let lines = file.with_file_name("000001.ndjson");
-    let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&lines)?);
-    pack::Pack::with_manifest(&store, manifest).cat(&mut out).map_err(pack_error)?;
-    out.flush()?;
-    crate::home_fs::remove_file(&file)?;
-    Ok(())
-}
-
 impl Hub {
+    /// Chat `id`'s pack store, in its folder here (it goes when the chat does): its packed
+    /// history, content-addressed, so a chat packed again keeps what it had and a chat that
+    /// comes back is sent only what is new.
+    fn pack_store(&self, id: &str) -> anyhow::Result<pack::Store> {
+        let chat = self.store.session_dir(id);
+        let dir = chat.ok_or_else(|| anyhow::anyhow!("this store keeps no packs"))?.join(PACK_DIR);
+        // In the chat's folder, which the store made owner-only; made through the held home.
+        crate::home_fs::create_dir_all(&dir, 0o700)?;
+        Ok(pack::Store::new(dir))
+    }
+
+    /// Unpacks chat `chat`'s staged history bundle (the module's step 5).
+    pub(in crate::hub) fn unpack_staged(&self, bundle: &Path, chat: &str) -> anyhow::Result<()> {
+        use std::io::Write as _;
+        let file = inside(bundle, HISTORY_FILE).map_err(|e| anyhow::anyhow!("{}", e.message))?;
+        let store = self.pack_store(chat)?;
+        let mut input = std::io::BufReader::new(std::fs::File::open(&file)?);
+        let manifest = pack::ship::unbundle(&store, &mut input, pack::ship::Lacking::Refuse)
+            .map_err(pack_error)?
+            .ok_or_else(|| anyhow::anyhow!("the history bundle names no session"))?;
+        anyhow::ensure!(manifest.name == chat, "the history bundle is of another chat");
+        let lines = file.with_file_name("000001.ndjson");
+        let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&lines)?);
+        pack::Pack::with_manifest(&store, manifest).cat(&mut out).map_err(pack_error)?;
+        out.flush()?;
+        crate::home_fs::remove_file(&file)?;
+        Ok(())
+    }
+
     /// The last seq of the history a move leaves to follow when it keeps the chat's last
     /// `keep_turns` turns in its freeze: the seq before the first of them began (its
     /// `user_message`, or its `turn_started` when none came with it), and before the `queued`
@@ -225,7 +232,7 @@ impl Hub {
             return Err(RpcError::invalid_params("transfer: history_have needs a sessionId"));
         }
         let held = || -> anyhow::Result<Vec<String>> {
-            let store = pack_store()?;
+            let store = self.pack_store(id)?;
             let Some(manifest) = pack::Manifest::load(&store, id).map_err(pack_error)? else {
                 return Ok(Vec::new());
             };
@@ -307,7 +314,7 @@ impl Hub {
         out.flush()?;
         drop(out);
         anyhow::ensure!(last == through, "the log here holds no record at seq {through}");
-        let store = pack_store()?;
+        let store = self.pack_store(&session.id)?;
         let params = pack::Params::default();
         let (manifest, stats) = pack::pack(&store, &session.id, &[lines.clone()], &params, false)
             .map_err(pack_error)?;
