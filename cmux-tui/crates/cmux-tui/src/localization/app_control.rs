@@ -136,6 +136,8 @@ pub(crate) struct LiveMessages {
     pub cannot_run_swift: &'static str,
     pub chromium_not_watching: &'static str,
     pub chromium_no_checkout: &'static str,
+    /// `start` refused: the checkout's web ABI is not a target app's. `{tree_abi}`, `{app}`, `{app_abi}`.
+    pub abi_mismatch: &'static str,
 }
 
 /// `cmux app try`: run another commit's cmux in this app, live or as a whole build. `{name}`
@@ -462,6 +464,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         cannot_run_swift: "could not run the checkout's live-mode.py: {error}",
         chromium_not_watching: "Chromium live: not watching (`cmux live start --chromium` in a cmux checkout starts it)",
         chromium_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/chromium-live.py)",
+        abi_mismatch: "nothing started or written: this checkout's web UI needs web ABI {tree_abi}, {app} has web ABI {app_abi} (it would refuse it and reload every page); try it in a side copy instead: `cmux app try .`, or use a checkout at web ABI {app_abi}",
     },
     chat_perf: ChatPerfMessages {
         usage: "usage: cmux app chat perf --tab <tab> [--seconds <1-60>]\n  Measures the chat in <tab> as it runs, without focusing or showing it: frames, long tasks, layout\n  shift, and how long each record the chat receives takes to reach a painted frame, by kind. Default\n  5 seconds. A hidden or covered chat draws no frames, and the result says so. --json prints the report.",
@@ -680,6 +683,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         cannot_run_swift: "チェックアウトの live-mode.py を実行できませんでした: {error}",
         chromium_not_watching: "Chromium ライブ: 監視していません (cmux のチェックアウトで `cmux live start --chromium` を実行すると開始します)",
         chromium_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/chromium-live.py が必要です)",
+        abi_mismatch: "何も起動・書き込みしていません: このチェックアウトの Web UI は Web ABI {tree_abi} が必要ですが、{app} は Web ABI {app_abi} です (アプリはそれを拒否し、すべてのページを再読み込みします)。代わりに別のコピーで試してください: `cmux app try .`、または Web ABI {app_abi} のチェックアウトを使ってください",
     },
     chat_perf: ChatPerfMessages {
         usage: "使い方: cmux app chat perf --tab <タブ> [--seconds <1-60>]\n  <タブ> のチャットを、フォーカスも表示もせずに動作中のまま計測します: フレーム、長いタスク、レイアウトシフト、\n  チャットが受け取る各レコードが描画済みフレームに届くまでの時間 (種類別)。既定は 5 秒。非表示や\n  隠れたチャットはフレームを描かず、結果にそう示されます。--json でレポートを表示します。",

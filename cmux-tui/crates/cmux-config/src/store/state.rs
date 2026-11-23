@@ -225,8 +225,9 @@ impl State {
         effective.root = sidebar_look::filled(&effective.root, self.schema, &self.domains);
         diagnostics.append(&mut effective.diagnostics);
         for row in &self.schema.rows {
+            // An old choice value (a row's alias) reads as its replacement, without a diagnostic.
             if let Some(stored) = value_at(&effective.root, &row.path)
-                && accepts(row, stored, &self.domains).is_err()
+                && accepts(row, &crate::schema::aliased(row, stored), &self.domains).is_err()
             {
                 let message = format!("{} does not accept {}", row.key, compact(stored));
                 diagnostics.push(Diagnostic::new(DiagnosticKind::InvalidValue, &row.key, &message));
