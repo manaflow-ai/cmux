@@ -88,6 +88,8 @@ on:
       - "ghostty-next"
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
+      - "schemas/composer-delivery/table.json"
+      - "schemas/composer-delivery/vectors.json"
       - "schemas/ghostty-shell-features/vectors.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
