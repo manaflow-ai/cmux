@@ -33,7 +33,9 @@ import { stripe as defaultStripe } from "./stripe";
  * 2. The card's funding and fingerprint come from the PaymentIntent's charge.
  * 3. `settle` decides the pass once, under the store's lock, against the
  *    once-per-account, once-per-card and once-per-team rules and the caps.
- * 4. A refusal refunds the payment (one idempotency key per PaymentIntent).
+ * 4. A refusal refunds the payment (one idempotency key per PaymentIntent)
+ *    and, for a buyer who chose to continue on Plus, detaches the card the
+ *    checkout saved, so no card stays on file for a pass that never ran.
  * 5. A grant writes `cmuxNextPlan` and its dates, only while the pass runs,
  *    so a replay after the pass ended never grants it again.
  */
@@ -45,6 +47,7 @@ export type CloudIntroFulfillmentResult =
 type CloudIntroStripe = {
   readonly checkout: { readonly sessions: Pick<Stripe["checkout"]["sessions"], "retrieve"> };
   readonly refunds: Pick<Stripe["refunds"], "create">;
+  readonly paymentMethods: Pick<Stripe["paymentMethods"], "detach">;
 };
 
 export type CloudIntroFulfillmentDependencies = {
@@ -138,7 +141,7 @@ export async function fulfillCloudIntroCheckout(
     (facts) => cloudIntroRefusal({ ...facts, ...account, cardFunding: verified.cardFunding }, "payment"),
   );
   if (pass.status === "refused") {
-    await refundRefusedPass(pass, dependencies);
+    await refundRefusedPass(pass, verified.renewOnPlus ? verified.paymentMethodId : null, dependencies);
     return { status: "refused", pass };
   }
   if (pass.status !== "granted" || !pass.startedAt || !pass.endsAt) {
@@ -151,7 +154,11 @@ export async function fulfillCloudIntroCheckout(
   return { status: "granted", pass };
 }
 
-async function refundRefusedPass(pass: CloudIntroPass, dependencies: CloudIntroFulfillmentDependencies): Promise<void> {
+async function refundRefusedPass(
+  pass: CloudIntroPass,
+  savedPaymentMethodId: string | null,
+  dependencies: CloudIntroFulfillmentDependencies,
+): Promise<void> {
   if (pass.refundId || !pass.paymentIntentId) return;
   const refund = await dependencies.stripe().refunds.create(
     {
@@ -161,6 +168,18 @@ async function refundRefusedPass(pass: CloudIntroPass, dependencies: CloudIntroF
     },
     { idempotencyKey: `cmux-cloud-intro-refund-${pass.paymentIntentId}` },
   );
+  if (savedPaymentMethodId) {
+    // Before markRefunded, so a crash here detaches on the replay; a failed detach (already
+    // detached, say) never blocks the refund being recorded.
+    try {
+      await dependencies.stripe().paymentMethods.detach(savedPaymentMethodId);
+    } catch (error) {
+      console.warn("[billing] cmux Cloud pass: saved card not detached after refusal", {
+        checkoutSessionId: pass.checkoutSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   await dependencies.store.markRefunded(pass.checkoutSessionId, refund.id);
 }
 

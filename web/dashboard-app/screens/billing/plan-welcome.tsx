@@ -11,6 +11,9 @@ import {
   type CloudIntroStatementNotice as CloudIntroStatementNoticeJson,
 } from "@/services/billing/cloudIntroStatements";
 
+/** The turn-off POST (services/billing/cloudIntroRenewRoute.ts); kept here so the client bundle does not pull in the route. */
+const CLOUD_INTRO_RENEW_OFF_ACTION = "/api/billing/cloud-pass/renew";
+
 export type WelcomePlan = "go" | "pro" | "max";
 
 /** `?welcome=` after a personal checkout; anything else is no welcome. */
@@ -75,7 +78,8 @@ export function CloudTasteWelcome() {
 /**
  * The latest $1 pass statement on Plan & billing: the same lines as the
  * email, built on the server. `?pass=not-now` (the statement's "Not now")
- * confirms what happens when the pass ends.
+ * confirms what happens when the pass ends; the later Plus charge is turned
+ * off with a form post, and `?pass=renew-off` / `renew-too-late` report it.
  */
 export function CloudIntroStatementNotice({
   notice,
@@ -92,6 +96,19 @@ export function CloudIntroStatementNotice({
       <ul className="mt-1 space-y-1 text-xs text-muted">
         {notice.lines.map((line) => <li key={line}>{line}</li>)}
       </ul>
+      {notice.turnOff ? (
+        <form method="post" action={CLOUD_INTRO_RENEW_OFF_ACTION} className="mt-2">
+          <button type="submit" data-testid="cloud-intro-statement-turn-off" className={settingsButtonClass("secondary", "sm")}>
+            {notice.turnOff.label}
+          </button>
+        </form>
+      ) : null}
+      {pass === "renew-off" ? (
+        <p data-testid="cloud-intro-statement-renew-off" className="mt-2 text-xs">{t("passStatement.turnedOff")}</p>
+      ) : null}
+      {pass === "renew-too-late" ? (
+        <p data-testid="cloud-intro-statement-renew-too-late" className="mt-2 text-xs">{t("passStatement.tooLate")}</p>
+      ) : null}
       {notNow ? (
         <div data-testid="cloud-intro-statement-not-now" className="mt-3 text-xs">
           <p className="font-medium">{t("passStatement.notNowTitle")}</p>

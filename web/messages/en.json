@@ -956,7 +956,9 @@
       "passStatement": {
         "label": "cmux Cloud pass statement",
         "notNowTitle": "Not now, noted",
-        "notNowBody": "Nothing will be charged. When the pass ends your machines pause and messages are held. Everything is kept for {keepDays} days, and we will write before anything is deleted. You can pick Plus or Pro here any time."
+        "notNowBody": "Nothing will be charged. When the pass ends your machines pause and messages are held. Everything is kept for {keepDays} days, and we will write before anything is deleted. You can pick Plus or Pro here any time.",
+        "turnedOff": "Turned off. You will not be charged, and the saved card was removed.",
+        "tooLate": "The Plus charge has already been made. Manage or cancel Plus here on Plan & billing."
       },
       "appStore": {
         "title": "Billed through the App Store",

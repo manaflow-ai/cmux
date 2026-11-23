@@ -1,7 +1,8 @@
-import { isCloudIntroEnabled } from "./cloudIntro";
+import { isCloudIntroEnabled, isCloudIntroRenewChargeEnabled } from "./cloudIntro";
 import {
   buildCloudIntroStatement,
   buildCloudIntroStatementEmail,
+  cloudIntroRenewalView,
   cloudIntroStatementLinks,
   type CloudIntroRenewalView,
   type CloudIntroStatementCopy,
@@ -34,8 +35,8 @@ export type CloudIntroStatementJobDependencies = {
   readonly replyTo: string;
   /** The site origin for links in the email. */
   readonly origin: string;
-  /** How the statement shows the buyer's Plus choice; the later charge sets it. */
-  readonly renewalView?: (pass: CloudIntroStatementRow) => CloudIntroRenewalView;
+  /** How the statement shows the buyer's Plus choice; null holds the statement. Defaults to cloudIntroRenewalView. */
+  readonly renewalView?: (pass: CloudIntroStatementRow) => CloudIntroRenewalView | null;
 };
 
 export type CloudIntroStatementJobResult = {
@@ -48,11 +49,6 @@ export type CloudIntroStatementJobResult = {
 
 export const cloudIntroStatementCopy: CloudIntroStatementCopy = en.emails.cloudPassStatement;
 
-/** Without the later Plus charge, a renew buyer's statement says the choice is saved and we ask first. */
-export function cloudIntroRenewalViewWithoutCharge(pass: Pick<CloudIntroStatementRow, "renewOnPlus">): CloudIntroRenewalView {
-  return pass.renewOnPlus ? "saved_ask_first" : "none";
-}
-
 export function cloudIntroStatementIdempotencyKey(checkoutSessionId: string, day: number): string {
   return `cmux-cloud-pass-statement/${checkoutSessionId}/${day}`;
 }
@@ -61,7 +57,9 @@ export async function runCloudIntroStatements(
   deps: CloudIntroStatementJobDependencies,
 ): Promise<CloudIntroStatementJobResult> {
   if (!isCloudIntroEnabled(deps.env)) return { skipped: true, considered: 0, sent: 0, noEmail: 0, failed: 0 };
-  const renewalView = deps.renewalView ?? cloudIntroRenewalViewWithoutCharge;
+  const chargeEnabled = isCloudIntroRenewChargeEnabled(deps.env);
+  const renewalView = deps.renewalView ??
+    ((pass: CloudIntroStatementRow) => cloudIntroRenewalView(pass, chargeEnabled, deps.now));
   const candidates = await deps.store.listCandidates(deps.now);
   let sent = 0;
   let noEmail = 0;
@@ -86,7 +84,7 @@ export async function runCloudIntroStatements(
 async function statementForPass(
   candidate: CloudIntroStatementRow,
   deps: CloudIntroStatementJobDependencies,
-  renewalView: (pass: CloudIntroStatementRow) => CloudIntroRenewalView,
+  renewalView: (pass: CloudIntroStatementRow) => CloudIntroRenewalView | null,
 ): Promise<"emailed" | "no_email" | "email_failed" | "none"> {
   if (!candidate.startedAt || !candidate.endsAt) return "none";
   // Read before the claim, outside the lock; the claim decides whether it is used.
@@ -95,8 +93,11 @@ async function statementForPass(
     from: candidate.startedAt,
     to: new Date(Math.min(deps.now.getTime(), candidate.endsAt.getTime())),
   });
-  const claim = await deps.store.claim(candidate.checkoutSessionId, deps.now, (pass, due) =>
-    buildCloudIntroStatement({ pass, day: due.day, usage, now: deps.now, renewal: renewalView(pass) }));
+  // The view is decided on the locked row, so a charge recorded a moment ago is what the statement says.
+  const claim = await deps.store.claim(candidate.checkoutSessionId, deps.now, (pass, due) => {
+    const renewal = renewalView(pass);
+    return renewal ? buildCloudIntroStatement({ pass, day: due.day, usage, now: deps.now, renewal }) : null;
+  });
   if (!claim) return "none";
   const to = await deps.recipientEmail(claim.pass.stackUserId).catch(() => null);
   if (!to) {

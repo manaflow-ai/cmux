@@ -15,6 +15,7 @@ import {
   type CloudIntroStatementLog,
   type CloudIntroStatementPass,
   type CloudIntroStatementRecord,
+  type CloudIntroRenewalStatus,
 } from "./cloudIntroStatements";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -23,6 +24,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export type CloudIntroStatementRow = CloudIntroStatementPass & {
   readonly stripeCustomerId: string | null;
   readonly paymentMethodId: string | null;
+  readonly renewalStatus?: CloudIntroRenewalStatus | null;
 };
 
 export type CloudIntroStatementClaim = {
@@ -47,7 +49,8 @@ export type CloudIntroStatementStore = {
   claim(
     checkoutSessionId: string,
     now: Date,
-    build: (pass: CloudIntroStatementRow, due: CloudIntroStatementDue) => CloudIntroStatement,
+    /** Null holds the statement: nothing is recorded and a later run decides again. */
+    build: (pass: CloudIntroStatementRow, due: CloudIntroStatementDue) => CloudIntroStatement | null,
   ): Promise<CloudIntroStatementClaim | null>;
   markDelivery(checkoutSessionId: string, day: CloudIntroStatementDay, delivery: CloudIntroStatementDelivery): Promise<void>;
   /** The buyer's most recent granted pass, for the dashboard notice. */
@@ -79,6 +82,7 @@ export function statementRowFromPass(row: typeof passes.$inferSelect): CloudIntr
     statements: cloudIntroStatementLog(row.statements),
     stripeCustomerId: row.stripeCustomerId,
     paymentMethodId: row.paymentMethodId,
+    renewalStatus: (row.renewalStatus as CloudIntroRenewalStatus | null) ?? null,
   };
 }
 
@@ -113,6 +117,7 @@ export function createDrizzleCloudIntroStatementStore(
         const due = dueCloudIntroStatement(pass, now);
         if (!due) return null;
         const statement = build(pass, due);
+        if (!statement) return null;
         await tx
           .update(passes)
           .set({

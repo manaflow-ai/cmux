@@ -683,6 +683,46 @@ describe("dashboard billing screen", () => {
     }
   });
 
+  test("a renew buyer's notice offers turning the Plus charge off, and shows it off once it is", async () => {
+    const previous = { intro: process.env.CMUX_CLOUD_INTRO, charge: process.env.CMUX_CLOUD_INTRO_RENEW_CHARGE };
+    const { buildCloudIntroStatement } = await import("../services/billing/cloudIntroStatements");
+    const day = 24 * 60 * 60 * 1000;
+    const startedAt = new Date(Date.now() - 26.5 * day);
+    const endsAt = new Date(startedAt.getTime() + 30 * day);
+    const passRow = {
+      checkoutSessionId: "cs_pass", stackUserId: proUser.id, status: "granted", renewOnPlus: true,
+      startedAt, endsAt, stripeCustomerId: "cus_1", paymentMethodId: "pm_1", statements: {},
+    };
+    const statement = buildCloudIntroStatement({
+      pass: { ...passRow, status: "granted" },
+      day: 27,
+      usage: { status: "read", chiefAwakeMinutes: null, machineMinutes: 600, machinesStarted: 1 },
+      now: new Date(),
+      renewal: "will_charge",
+    });
+    const statements = { "27": { at: new Date().toISOString(), delivery: "emailed", statement } };
+    try {
+      process.env.CMUX_CLOUD_INTRO = "1";
+      process.env.CMUX_CLOUD_INTRO_RENEW_CHARGE = "1";
+      passRows = [{ ...passRow, statements }];
+      const html = await renderBillingPage();
+      expect(html).toContain("your card will be charged");
+      expect(html).toContain('action="/api/billing/cloud-pass/renew"');
+      expect(html).toContain('data-testid="cloud-intro-statement-turn-off"');
+
+      passRows = [{ ...passRow, renewOnPlus: false, paymentMethodId: null, statements }];
+      const off = await renderBillingPage({ pass: "renew-off" });
+      expect(off).toContain("You will not be charged.");
+      expect(off).not.toContain('data-testid="cloud-intro-statement-turn-off"');
+      expect(off).toContain('data-testid="cloud-intro-statement-renew-off"');
+    } finally {
+      for (const [key, value] of [["CMUX_CLOUD_INTRO", previous.intro], ["CMUX_CLOUD_INTRO_RENEW_CHARGE", previous.charge]] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   for (const [billing, message] of [
     ["cancelled", "Your plan will cancel at the end of the current billing period."],
     ["resumed", "Your plan has been resumed and will renew normally."],
