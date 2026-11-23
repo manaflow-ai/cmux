@@ -19,9 +19,18 @@
 //!
 //! Each catalog entry lists its [`catalog::Capability`]s: `dictationBatch` for all,
 //! `dictationStreaming` for a provider with the streaming wire ([`stream::stream_url`]), and
-//! `realtimeVoice` reserved. A caller asks [`catalog::Provider::supports`] before it offers a
-//! mode. Real-time voice is a separate session beside these (a duplex conversation), picked by
-//! the same capability list.
+//! `realtimeVoice` for voice mode. A caller asks [`catalog::Provider::supports`] before it offers
+//! a mode.
+//!
+//! Voice mode (a spoken line to the chat's agent, behind `realtimeVoice`):
+//!
+//! - [`voice_mode`]: its providers (a cascade of the dictation engine and a reading voice, or the
+//!   speech-to-speech service the iPhone uses) and settings.
+//! - [`relay`]: the session as a pure reducer, the iPhone's `AgentVoiceSession` moved here.
+//! - [`speech`]: what of an agent's Markdown is read aloud, and what a transcript of noise is.
+//! - [`vad`]: local voice detection for the cascade's barge-in.
+//! - [`realtime`]: the speech-to-speech wire's relay session and events.
+//! - [`speak`]: the cascade's OpenAI-style `/audio/speech` reading voice.
 
 pub mod audio;
 pub mod catalog;
@@ -29,9 +38,15 @@ pub mod endpoint;
 pub mod error;
 pub mod multipart;
 pub mod provider;
+pub mod realtime;
+pub mod relay;
 pub mod session;
+pub mod speak;
+pub mod speech;
 pub mod state;
 pub mod stream;
+pub mod vad;
+pub mod voice_mode;
 
 pub use audio::{Audio, AudioError, MAX_AUDIO_BYTES};
 pub use catalog::{Capability, KeyUse, Kind, PROVIDERS, Provider, Wire};

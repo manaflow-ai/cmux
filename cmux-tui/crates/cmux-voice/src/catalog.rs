@@ -33,8 +33,7 @@ pub enum KeyUse {
     Required,
 }
 
-/// What a provider can do. `RealtimeVoice` is reserved so a real-time provider can be added
-/// without changing callers (see the crate doc).
+/// What a provider can do. `RealtimeVoice` is voice mode's ([`crate::voice_mode`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Capability {
@@ -42,7 +41,7 @@ pub enum Capability {
     DictationBatch,
     /// Words arrive while the person speaks ([`crate::stream`]).
     DictationStreaming,
-    /// Reserved: a spoken conversation with a model.
+    /// A spoken line to the chat's agent (voice mode, [`crate::voice_mode::VOICE_PROVIDERS`]).
     RealtimeVoice,
 }
 

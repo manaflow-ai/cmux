@@ -233,7 +233,7 @@ impl DictationProvider for HttpBatch {
 
 /// A failed request (no status): `timeout`, else `offline`. The detail is the error's causes,
 /// without the URL.
-fn transport_error(e: &reqwest::Error, key: Option<&str>) -> VoiceError {
+pub(crate) fn transport_error(e: &reqwest::Error, key: Option<&str>) -> VoiceError {
     let code = if e.is_timeout() { ErrorCode::Timeout } else { ErrorCode::Offline };
     let mut causes = Vec::new();
     let mut source = std::error::Error::source(e);
