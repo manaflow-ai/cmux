@@ -160,6 +160,21 @@ public nonisolated enum JoinedDialAnswer: Equatable, Sendable {
         }
     }
 
+    /// As ``init(refusal:)``, for a machine that reported `platform` at join. Only a Mac has the consent
+    /// card that answers `consent_required`; a Linux box whose acpmux still asks predates its join counting
+    /// as the consent (#51683), so it reads as `service.outdated`: the row's "Update cmux on …".
+    public init(refusal reason: String?, platform: String?) {
+        let mac = ["macos", "darwin"].contains(platform?.lowercased() ?? "")
+        if reason == "consent_required", !mac {
+            self = .unavailable(Self.outdated)
+        } else {
+            self.init(refusal: reason)
+        }
+    }
+
+    /// The reason a machine that cannot answer the ask gives (the page's update phase).
+    public static let outdated = "service.outdated"
+
     /// The page's form: `{state, reason?}`.
     public var json: JSONValue {
         switch self {
