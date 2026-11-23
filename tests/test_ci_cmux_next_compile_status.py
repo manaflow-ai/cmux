@@ -87,6 +87,12 @@ def step_script() -> str:
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+def without_no_state(text):
+    """The step always writes `state=` (note-519: `none` when no read answered); these tests judge the handoff
+    lines, so drop the `state=none` line. Tests of a real state read it unfiltered through their own assertions."""
+    return "".join(l for l in text.splitlines(True) if l.strip() != "state=none")
+
+
 class StatusMapping(unittest.TestCase):
     def run_step(self, reply: dict | None, **env: str) -> tuple[int, list[dict], list[str]]:
         if reply is None or reply.get("state") == "running":
@@ -107,8 +113,8 @@ class StatusMapping(unittest.TestCase):
                      "RESULTS": "https://results/v1", "REPLY": str(Path(tmp, "reply.json")),
                      "POSTS": str(Path(tmp, "posts")), "READS": str(Path(tmp, "reads")),
                      "GITHUB_OUTPUT": str(Path(tmp, "output")), **env})
-            self.stdout, self.output = done.stdout, (Path(tmp, "output").read_text()
-                                                     if Path(tmp, "output").exists() else "")
+            self.stdout, self.output = done.stdout, without_no_state(Path(tmp, "output").read_text()
+                                                                     if Path(tmp, "output").exists() else "")
             self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
                 if Path(tmp, "posts.tries").exists() else []
             posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
@@ -580,7 +586,7 @@ class ResultsServiceDown(unittest.TestCase):
                 env={"PATH": os.environ["PATH"], "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output), "GH_TOKEN": "t",
                      "SHA": SHA, "REPO": REPO, "API": f"{self.server.url}/repos/{REPO}",
                      "RUN_URL": "https://github.com/run/1", "RESULTS": f"{self.server.url}/v1", **env})
-            return done.returncode, done.stdout, output.read_text() if output.exists() else ""
+            return done.returncode, done.stdout, without_no_state(output.read_text() if output.exists() else "")
 
     def compile_status(self, **env: str) -> tuple[int, str, str]:
         return self.bash(step_script(), PROBE_GAP="1", READ_GAP="1", **env)
