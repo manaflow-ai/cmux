@@ -468,6 +468,8 @@ struct App {
     generation: Arc<AtomicU64>,
     connected: Arc<Mutex<Option<Arc<cmux_mobile_link_ffi::LinkHandle>>>>,
     tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// The dial in flight (`dialTask`).
+    dial: Mutex<Option<tokio::task::AbortHandle>>,
     ffi: Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     /// Each send(.networkChanged) that ran: (time, the change it ran for, the redial it started
     /// with that redial's socket time, if any).
@@ -530,6 +532,12 @@ impl App {
         let ready = Arc::new(Mutex::new(None));
         self.sends.lock().unwrap().push(Sent { change, redial: Some(Arc::clone(&ready)), probe: None });
         let app = Arc::clone(self);
+        // `LinkController`'s `dialTask?.cancel()`: the dial before this one is dropped (uniffi drops
+        // the Rust future of a cancelled Swift task), so a link it was about to get is released.
+        // What `connect` spawned itself on the library runtime is not dropped with it.
+        if let Some(previous) = self.dial.lock().unwrap().take() {
+            previous.abort();
+        }
         let dial = tokio::spawn(async move {
             let began = ms(app.started.elapsed());
             let request = cmux_mobile_link_ffi::ConnectRequest {
@@ -546,8 +554,13 @@ impl App {
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::default(),
             };
-            match app.pool.connect(request, None).await {
-                Ok(link) => {
+            // `connect_with_options` runs on the library runtime (`on_runtime`): a detached task.
+            let connect = {
+                let pool = app.pool.clone();
+                tokio::spawn(async move { pool.connect(request, None).await })
+            };
+            match connect.await {
+                Ok(Ok(link)) => {
                     let socket = link
                         .timings()
                         .into_iter()
@@ -558,12 +571,15 @@ impl App {
                     let mut connected = app.connected.lock().unwrap();
                     if app.generation.load(Ordering::SeqCst) == generation && connected.is_none() {
                         *connected = Some(link);
-                    } else {
-                        link.close(); // superseded: Swift closes the link it no longer wants
                     }
                 }
+                Ok(Err(error)) => println!("SETTLE_DIAL_FAILED generation={generation} {error}"),
                 Err(error) => println!("SETTLE_DIAL_FAILED generation={generation} {error}"),
             }
+        });
+        *self.dial.lock().unwrap() = Some(dial.abort_handle());
+        let dial = tokio::spawn(async move {
+            let _ = dial.await;
         });
         self.tasks.lock().unwrap().push(dial);
     }
@@ -694,6 +710,7 @@ async fn settle_cell(settle_ms: u64, name: &str, samples: usize) {
             generation: Arc::new(AtomicU64::new(0)),
             connected: Arc::new(Mutex::new(None)),
             tasks: Mutex::new(Vec::new()),
+            dial: Mutex::new(None),
             ffi: Arc::new(Mutex::new(Vec::new())),
             sends: Arc::new(Mutex::new(Vec::new())),
             started: Instant::now(),

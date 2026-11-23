@@ -185,7 +185,7 @@ public final class LinkController {
 
     /// Path updates come in bursts (one interface goes, another comes);
     /// the roam waits this long for the burst to end.
-    nonisolated static let networkSettle: Duration = .milliseconds(150)
+    nonisolated static let networkSettle: Duration = .milliseconds(0)
     @ObservationIgnored private var networkTask: Task<Void, Never>?
 
     /// The phone's network changed or came back: the live link moves onto it

@@ -3,6 +3,7 @@
 //! Every async function runs on one shared Tokio runtime owned by this
 //! library, so Swift may await them from any executor.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -775,15 +776,154 @@ pub async fn connect_inner(
     WarmPool::shared().connect(request, observer).await
 }
 
+/// A dial in flight for one (socket, Mac, transport), so a second `connect` for it (the app's
+/// redial after a network change) can join it instead of starting a second Mac session.
+struct InflightDial {
+    key: DialKey,
+    /// `Warm::epoch` when the dial began.
+    began_epoch: u64,
+    /// `Warm::epoch` read before the dial took its signaling socket; `NO_SOCKET` until it has one.
+    socket_epoch: AtomicU64,
+    observers: Arc<Fanout>,
+    result: tokio::sync::watch::Sender<Option<Result<Arc<LinkHandle>, CmuxMobileError>>>,
+    task: Mutex<Option<tokio::task::AbortHandle>>,
+}
+
+const NO_SOCKET: u64 = u64::MAX;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DialKey {
+    socket: SocketKey,
+    mac: String,
+    transport: Transport,
+}
+
+/// The observers of every caller that joined one dial.
+#[derive(Default)]
+struct Fanout(Mutex<Vec<Arc<dyn LinkObserver>>>);
+
+impl LinkObserver for Fanout {
+    fn on_event(&self, event: LinkEvent) {
+        let observers = self.0.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        for observer in observers {
+            observer.on_event(event.clone());
+        }
+    }
+}
+
+impl InflightDial {
+    /// A path change began since this dial did, and its socket is (or will be) the one the change
+    /// opened: the dial is on the current path, so a second dial would only add a Mac session.
+    fn joinable(&self, epoch: u64) -> bool {
+        let socket = self.socket_epoch.load(Ordering::SeqCst);
+        self.began_epoch < epoch && (socket == NO_SOCKET || socket == epoch)
+    }
+}
+
+/// `connect` on `pool`. A dial already in flight for the same socket, Mac and transport is joined
+/// when a network change came after it began and it is on the new path; otherwise it is cancelled
+/// (its caller, the app, no longer wants it) and this one starts. Either way one dial reaches the
+/// Mac per path change, not one per redial.
 async fn connect_on(
     pool: &Arc<Warm>,
     request: ConnectRequest,
     observer: Option<Arc<dyn LinkObserver>>,
 ) -> Result<Arc<LinkHandle>, CmuxMobileError> {
+    let key = DialKey {
+        socket: SocketKey {
+            base_url: request.base_url.clone(),
+            team_id: request.team_id.clone(),
+            device_id: request.device_id.clone(),
+            build_space: build_space(),
+        },
+        mac: request.mac_device_id.clone(),
+        transport: request.transport,
+    };
+    let transport = request.transport;
+    let (dial, mut result, joined) = {
+        let mut dials = pool.dials.lock().unwrap_or_else(PoisonError::into_inner);
+        let epoch = pool.epoch.load(Ordering::SeqCst);
+        let at = dials.iter().position(|dial| dial.key == key);
+        match at.map(|at| (at, dials[at].joinable(epoch))) {
+            Some((at, true)) => {
+                let dial = Arc::clone(&dials[at]);
+                if let Some(observer) = &observer {
+                    dial.observers
+                        .0
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push(Arc::clone(observer));
+                }
+                let result = dial.result.subscribe();
+                (dial, result, true)
+            }
+            superseded => {
+                if let Some((at, _)) = superseded {
+                    let old = dials.swap_remove(at);
+                    // Its callers (the app cancelled them) stop waiting.
+                    old.result.send_replace(Some(Err(CmuxMobileError::Signaling {
+                        message: "the dial was replaced by a newer one".to_owned(),
+                    })));
+                    if let Some(task) = old.task.lock().unwrap_or_else(PoisonError::into_inner).take() {
+                        task.abort();
+                    }
+                }
+                let observers = Arc::new(Fanout::default());
+                if let Some(observer) = &observer {
+                    observers.0.lock().unwrap_or_else(PoisonError::into_inner).push(Arc::clone(observer));
+                }
+                let (sender, result) = tokio::sync::watch::channel(None);
+                let dial = Arc::new(InflightDial {
+                    key: key.clone(),
+                    began_epoch: epoch,
+                    socket_epoch: AtomicU64::new(NO_SOCKET),
+                    observers,
+                    result: sender,
+                    task: Mutex::new(None),
+                });
+                dials.push(Arc::clone(&dial));
+                (dial, result, false)
+            }
+        }
+    };
+    if joined {
+        emit(&observer, LinkEvent::Connecting { transport });
+    } else {
+        // Detached from the caller: a dial the app cancels (its task dropped) still ends here,
+        // for a later `connect` to join, or is aborted by the one that supersedes it.
+        let task = tokio::spawn({
+            let (pool, dial) = (Arc::clone(pool), Arc::clone(&dial));
+            async move {
+                let observers: Arc<dyn LinkObserver> = dial.observers.clone();
+                let outcome = connect_dial(&pool, request, Some(observers), &dial.socket_epoch).await;
+                // Out of the list first: a `connect` after this starts its own dial.
+                pool.dials
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .retain(|other| !Arc::ptr_eq(other, &dial));
+                dial.result.send_replace(Some(outcome));
+            }
+        });
+        *dial.task.lock().unwrap_or_else(PoisonError::into_inner) = Some(task.abort_handle());
+    }
+    match result.wait_for(Option::is_some).await {
+        Ok(outcome) => outcome.clone().unwrap_or_else(|| unreachable!("waited for Some")),
+        Err(_) => {
+            Err(CmuxMobileError::Signaling { message: "the dial was replaced by a newer one".to_owned() })
+        }
+    }
+}
+
+async fn connect_dial(
+    pool: &Arc<Warm>,
+    request: ConnectRequest,
+    observer: Option<Arc<dyn LinkObserver>>,
+    socket_epoch: &AtomicU64,
+) -> Result<Arc<LinkHandle>, CmuxMobileError> {
     let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(pool, &request, &timeline).await;
+    let result = dial(pool, &request, &timeline, socket_epoch).await;
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -980,6 +1120,11 @@ struct Warm {
     /// flight. A dial for one of them waits for that open instead of taking the pooled socket,
     /// which is on the old path.
     replacing: tokio::sync::watch::Sender<Vec<SocketKey>>,
+    /// Network changes begun on this pool; a dial in flight is compared against it
+    /// ([`InflightDial`]).
+    epoch: AtomicU64,
+    /// The dials in flight ([`connect_on`]).
+    dials: Mutex<Vec<Arc<InflightDial>>>,
 }
 
 /// A network change replacing the socket for `key`: from before its call returns until its new
@@ -1034,6 +1179,8 @@ impl WarmPool {
             sockets: tokio::sync::Mutex::new(Vec::new()),
             opening: tokio::sync::Mutex::new(()),
             replacing: tokio::sync::watch::Sender::new(Vec::new()),
+            epoch: AtomicU64::new(0),
+            dials: Mutex::new(Vec::new()),
         }))
     }
 
@@ -1167,6 +1314,7 @@ async fn network_changed_on(
     // see it through first: one signaling handshake on the new path sooner (mobile-speed, 107 ms
     // at LTE, 1.7 s at 10% loss).
     let replacing = Replacing::start(&pool, &key);
+    pool.epoch.fetch_add(1, Ordering::SeqCst);
     let signaling = tokio::spawn({
         let timeline = timeline.clone();
         async move {
@@ -1462,6 +1610,7 @@ async fn dial(
     pool: &Arc<Warm>,
     request: &ConnectRequest,
     timeline: &Timeline,
+    socket_epoch: &AtomicU64,
 ) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
     for (name, value) in [
         ("base_url", &request.base_url),
@@ -1481,7 +1630,10 @@ async fn dial(
     };
     // ICE servers and the signaling socket are independent: get both at once.
     let socket = async {
+        // Read before the socket is taken: a change that begins meanwhile makes it stale.
+        let epoch = pool.epoch.load(Ordering::SeqCst);
         let (socket, reused) = pool.pooled_or_open(&key, &request.token, timeline).await?;
+        socket_epoch.store(epoch, Ordering::SeqCst);
         if reused {
             timeline.mark("signaling_reused");
         }
@@ -1516,7 +1668,9 @@ async fn dial(
             // that forgot it): redial on a fresh one, once.
             timeline.mark("signaling_stale");
             pool.evict(&socket).await;
+            let epoch = pool.epoch.load(Ordering::SeqCst);
             let socket = pool.open(&key, &request.token, timeline).await?;
+            socket_epoch.store(epoch, Ordering::SeqCst);
             match dial_on(&socket, request, &options, false).await {
                 Ok(connected) => Ok((connected, socket)),
                 Err(Attempt::Stale) => unreachable!("only a reused socket is probed"),
