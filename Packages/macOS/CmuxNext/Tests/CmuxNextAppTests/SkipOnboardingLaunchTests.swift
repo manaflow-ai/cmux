@@ -51,25 +51,6 @@ struct SkipOnboardingLaunchTests {
         #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: plain.launchSteps.skipsFirstRun).shows)
     }
 
-    @Test func theFirstRunHistoryPageNeverRunsUnderTheFlag() throws {
-        _ = NSApplication.shared
-        let key = "home.firstRun.historyImportShown"
-        let suite = "SkipOnboardingLaunchTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(testSuiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-
-        let optedIn = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_ONBOARDING": "1"], arguments: ["cmux"]))
-        optedIn.onboarding.showHistoryAtFirstRun(isFirstRun: false, defaults: defaults)
-        #expect(defaults.bool(forKey: key))
-
-        for environment in [["CMUX_NEXT_SKIP_ONBOARDING": "1"], [:]] {
-            defaults.removeObject(forKey: key)
-            let skipping = AppServices(environment: AppEnvironment.current(environment, arguments: ["cmux"]))
-            skipping.onboarding.showHistoryAtFirstRun(isFirstRun: true, defaults: defaults)
-            #expect(!defaults.bool(forKey: key))
-        }
-    }
-
     /// A new person's first launch opens a new agent chat once (cmux#48416): a plain launch and the onboarding
     /// opt-in do, a capture build or the showcase never does, a relaunch (no first run) never does, and an
     /// install that already opened it never opens it again.

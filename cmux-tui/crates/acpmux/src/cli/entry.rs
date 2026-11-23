@@ -95,9 +95,17 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
+    // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
+    if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
+        return crate::god_fixture::seed_chat_main(args.get(1..).unwrap_or_default());
+    }
     // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
+    }
+    // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
+    if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
+        return crate::codex_repo_gate::main();
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
@@ -152,6 +160,12 @@ const TOOLS_MCP_WORKERS: usize = 1;
 /// that takes no bytes must not keep a stopped daemon from exiting.
 // timeout: a hang breaker on a local log write at exit, not a wait for a slow path; lines not written in time are dropped
 const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+/// How long a lowered `--take-over` start that moved to a login-session job waits for that job's
+/// daemon to take the home, so the update swap that started it sees the hand-over: the swap's own
+/// wait for a take-over start to ask (`daemon/exe_swap.rs` `HANDOVER_WITHIN`).
+#[cfg(target_os = "macos")]
+// timeout: a stop condition on a wait for launchd's job, not a correctness decision; the job serves the home either way
+const HANDOVER_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
@@ -333,6 +347,27 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                     tracing::warn!(
                         "no log writer thread, lines are written where they are logged: {e}"
                     );
+                }
+            }
+            // A daemon that starts below its CPU tier (a clamp or nice it inherited, as an update's
+            // `--take-over` successor inherits its lowered predecessor's) starts again as a
+            // login-session job, where launchd runs it at `Interactive`: every pane's connect waits
+            // on this daemon (`daemon/login_session.rs` `leave_lowered_run`). A start that carries a
+            // descriptor (the app's, a command's) was placed by its starter and stays.
+            #[cfg(target_os = "macos")]
+            if ready_fd.is_none() && person_key_fd.is_none() && !memory && !dev {
+                let home = crate::config::home();
+                // timeout: no wait unless a take-over swap waits on this start (HANDOVER_WAIT says why)
+                let wait = if take_over { HANDOVER_WAIT } else { std::time::Duration::ZERO };
+                if crate::daemon::login_session::leave_lowered_run(
+                    &home,
+                    &home.join("daemon.log"),
+                    wait,
+                )
+                .await
+                {
+                    crate::log_sink::flush(LOG_FLUSH_BUDGET);
+                    return Ok(());
                 }
             }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier
@@ -526,6 +561,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::GithubMcp) => crate::github_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
+        Some(Command::InboxRelay) => crate::claude_inbox_relay::serve().await,
         Some(Command::ToolsMcp) => crate::cli::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;

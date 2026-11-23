@@ -32,6 +32,8 @@ extension AgentPaneTransport {
         /// held anything else (R1).
         var ticket: String?
         var otherMeta = false
+        /// The names of those other `_meta` keys, for the refusal's log line (never their values).
+        var otherMetaKeys: [String] = []
         var pick: AgentPaneGesturePick?
         var sessionId: String?
         var needsGesture = false
@@ -272,7 +274,7 @@ extension AgentPaneTransport {
     ///
     /// No key, or a proof the daemon refused, leaves the pane unproven: allows from it are refused.
     /// The transport gets the key to the daemon again (``recoverPersonProof``) without a word to
-    /// the person, and says so (``onPersonProofFailed``) only when that recovery gives up (https://github.com/manaflow-ai/cmux/issues/48636).
+    /// the person (https://github.com/manaflow-ai/cmux/issues/48636); a refused allow says why in the approval.
     /// Another install's daemon never takes this app's key: no proof goes there (the person line's
     /// rule too), and nothing is recovered, so the pane does not reconnect to it in a loop.
     private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
@@ -426,7 +428,9 @@ extension AgentPaneTransport {
             if let ticket = facts.ticket {
                 if facts.otherMeta {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
-                    return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
+                    let decision = Self.intentInvalid(.gestureMeta, method: facts.method, requestID: facts.pageID, session: facts.sessionId,
+                                                      cause: "gesture ticket with other _meta keys \(AgentPaneRefusalLog.names(facts.otherMetaKeys))")
+                    return Self.refuse(decision, socket: socket)
                 }
                 // B2: only set_mode, set_config_option, a prompt held for the trust answer (its
                 // promptId) and a permission answer (its session, prompt and option) redeem a

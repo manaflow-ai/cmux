@@ -3,11 +3,10 @@ import Testing
 @testable import CmuxNextAgentPane
 
 /// https://github.com/manaflow-ai/cmux/issues/48636: "Not verified as you. Reconnecting your
-/// identity to the agent service…" stood above the composer. The pane showed it at the first
-/// refused person proof, before the recovery that usually fixes it had started, and kept it up
-/// for good on a NIGHTLY whose daemon was another install's (one that never takes this app's key),
-/// reconnecting every chat three times there for nothing. Now recovery is silent, the pane hears
-/// of a failure only when recovery gave up, and another install's daemon gets no proof at all.
+/// identity to the agent service…" stood above the composer, kept up for good on a NIGHTLY whose
+/// daemon was another install's (one that never takes this app's key), which reconnected every
+/// chat three times there for nothing. Now the pane shows no identity line; recovery is silent and
+/// bounded, and another install's daemon gets no proof and no reconnects.
 /// These run the real transport against a stand-in acpmux WebSocket.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct AgentPanePersonProofNoticeTests {
@@ -32,9 +31,8 @@ struct AgentPanePersonProofNoticeTests {
         return condition()
     }
 
-    /// What the transport told the pane, and the host lookups it asked for.
+    /// The host lookups the transport asked for.
     @MainActor final class Record {
-        var told: [Bool] = []
         var lookups = 0
     }
 
@@ -55,7 +53,6 @@ struct AgentPanePersonProofNoticeTests {
         transport.deliver = { _, done in done() }
         transport.personRecoveryDelays = [.milliseconds(1)]
         let record = Record()
-        transport.onPersonProofFailed = { record.told.append($0) }
         transport.recoverPersonProof = {
             // The host's lookup gave the daemon the key again: the next connection's proof counts.
             record.lookups += 1
@@ -68,17 +65,16 @@ struct AgentPanePersonProofNoticeTests {
         #expect(await transport.send(connection: first, frames: [Self.initialize]) == nil)
         // Refused, recovered, and the connection closed for a new one that proves.
         #expect(await Self.until { record.lookups == 1 && transport.connection == nil }, "the transport never recovered the proof")
-        #expect(record.told.isEmpty, "the pane was told of a refusal its recovery fixes: \(record.told)")
+        #expect(!transport.personProofGaveUp)
 
         let second = try await transport.open(connection)
         #expect(await transport.send(connection: second, frames: [Self.initialize]) == nil)
-        #expect(await Self.until { !record.told.isEmpty }, "the proven connection never cleared the notice")
-        #expect(record.told == [false], "a refusal reached the pane: \(record.told)")
-        #expect(Self.proofs(server) == 2)
+        #expect(await Self.until { Self.proofs(server) == 2 }, "the new connection never proved the person")
+        #expect(!transport.personProofGaveUp)
         #expect(record.lookups == 1)
     }
 
-    @Test func thePaneHearsOfItOnlyWhenRecoveryGivesUp() async throws {
+    @Test func recoveryGivesUpAfterItsLookupsAndKeepsTheChatConnected() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
@@ -88,15 +84,13 @@ struct AgentPanePersonProofNoticeTests {
         transport.deliver = { _, done in done() }
         transport.personRecoveryDelays = [.milliseconds(1), .milliseconds(1)]
         let record = Record()
-        transport.onPersonProofFailed = { record.told.append($0) }
         // Every lookup fails: the key never reaches the daemon again.
         transport.recoverPersonProof = { record.lookups += 1; return false }
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil,
                                                            socketPath: Self.keyedSocketPath()))
         #expect(await transport.send(connection: id, frames: [Self.initialize]) == nil)
-        #expect(await Self.until { !record.told.isEmpty }, "a recovery that gave up never told the pane")
-        #expect(record.told == [true])
-        #expect(record.lookups == 2, "the pane heard of it before every lookup was tried")
+        #expect(await Self.until { transport.personProofGaveUp }, "the recovery never gave up")
+        #expect(record.lookups == 2, "it gave up before every lookup was tried")
         #expect(transport.connection == id, "a recovery that gave up closed the chat's connection")
     }
 
@@ -110,7 +104,6 @@ struct AgentPanePersonProofNoticeTests {
         transport.deliver = { _, done in done() }
         transport.personRecoveryDelays = [.milliseconds(1)]
         let record = Record()
-        transport.onPersonProofFailed = { record.told.append($0) }
         transport.recoverPersonProof = { record.lookups += 1; return true }
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil,
                                                            socketPath: Self.keyedSocketPath()))
@@ -118,9 +111,11 @@ struct AgentPanePersonProofNoticeTests {
         // .foreign); the stand-in has no executable for that check to read.
         transport.daemonIsForeign = true
         #expect(await transport.send(connection: id, frames: [Self.initialize]) == nil)
-        #expect(await Self.until { !record.told.isEmpty })
-        #expect(record.told == [false], "another install's daemon raised the identity notice: \(record.told)")
+        // The proof is the connection's second request: an empty initialize round-trip shows it went by.
+        #expect(await transport.send(connection: id, frames: [#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/info","params":{}}"#]) == nil)
+        #expect(await Self.until { server.peers.first?.frames.contains { $0.contains("_acpmux\\/info") || $0.contains("_acpmux/info") } == true })
         #expect(Self.proofs(server) == 0, "a person proof went to another install's daemon")
+        #expect(!transport.personProofGaveUp)
         #expect(record.lookups == 0)
         #expect(transport.connection == id, "the pane reconnected to another install's daemon")
     }

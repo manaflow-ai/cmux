@@ -278,13 +278,6 @@ impl<B, C> Core<B, C> {
         self.waiting_resume = None;
     }
 
-    /// The machine is bound (again) with no ticket of its own (the seeded
-    /// sweep's binds): [`Core::bind_with`].
-    #[cfg(test)]
-    pub(super) fn bind(&mut self, next: B) {
-        self.bind_with(next, None);
-    }
-
     /// The bind answer's seed, checked in the same transition that installs
     /// the bind. `before` was captured before the HTTP request: a resume or
     /// another bind since then invalidates the answer even if it is unexpired.

@@ -31,19 +31,12 @@ extension AgentPaneView {
     }
 }
 
-/// One compact line above the composer when this pane's connection could not prove the person
-/// to its acpmux (`hub/person.rs`) and the transport's recovery gave up
-/// (``AgentPaneTransport/personProofSettled``): allows from this pane are refused then. A proof the
-/// recovery is still fixing shows nothing (https://github.com/manaflow-ai/cmux/issues/48636: "Not verified as you. Reconnecting your
-/// identity…" stood over every chat of an app whose daemon could never take its key). The line
-/// goes when a connection proves the person, or reaches another install's daemon.
+/// The pane's person proof is recovered without a word (https://github.com/manaflow-ai/cmux/issues/48636).
+/// Typing and sending never need it: the daemon records the composer's prompts as the person's
+/// either way (acpmux `app_pane_unproven`). Only an allow needs it, and an allow the daemon
+/// refuses is said in the approval itself (the permission panel's `transport.personRequired`),
+/// so no standing line above the composer says it ahead of time.
 extension AgentPaneView {
-    func showPersonProofFailed(_ failed: Bool) {
-        guard failed != (personProofFailedNotice != nil) else { return }
-        personProofFailedNotice = failed ? AgentPaneNotice(id: "personProofFailed", title: Self.personProofFailedMessage) : nil
-        pushPaneNotices()
-    }
-
     /// The host's full lookup for this chat: it hands off a daemon an update replaced and gives
     /// the daemon this launch's person key. True when it finished.
     func recoverPersonProof() async -> Bool {

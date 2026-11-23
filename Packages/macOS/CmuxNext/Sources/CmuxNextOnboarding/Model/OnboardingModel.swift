@@ -11,9 +11,7 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        // Agents comes first: at first run it opens over Bring your history.
-        // The app may host importData as Bring your history (web); the standalone browser
-        // importer remains this model's native import tool.
+        // Agents comes first at a first run. importData is the browser importer (Import from Browser).
         // agentTools asks whether cmux may add its MCP server to the person's coding agents.
         // makeItYours: a new person's one setup screen (how they work, density, background), cmux#48416.
         case agents, importData, computerUse, agentTools, makeItYours

@@ -214,6 +214,8 @@ pub(crate) struct MessageHit {
     pub role: Role,
     pub snippet: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_started_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_time: Option<String>,
 }
 
@@ -267,6 +269,7 @@ pub(crate) fn search_messages(
                 at: entry.at,
                 role: entry.role,
                 snippet: snippet(&flat, at),
+                turn_started_at: if query.with_turn_time { turn_at } else { None },
                 turn_time: (view != TextView::Session || query.with_turn_time)
                     .then(|| crate::clock_text::iso(turn_at.unwrap_or(entry.at))),
             });

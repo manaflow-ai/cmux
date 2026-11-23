@@ -21,6 +21,8 @@ use super::*;
 
 /// A persistent map: `clone` is O(1), its nodes shared until one side writes.
 type PMap<K, V> = imbl::HashMap<K, V>;
+/// A persistent sorted map, used where prefix lookup needs ordered keys.
+type POrdMap<K, V> = imbl::OrdMap<K, V>;
 /// A persistent sorted set, likewise.
 type PSet<A> = imbl::OrdSet<A>;
 
@@ -220,6 +222,7 @@ impl RemoteRows {
         let mut keys: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
         keys.extend(n.by_name.get(key).into_iter().flatten());
         keys.extend(n.by_bare_name.get(key).into_iter().flatten());
+        keys.extend(n.by_alias.get(key).into_iter().flatten());
         keys.extend(
             n.keys
                 .range::<_, str>((std::ops::Bound::Included(key), std::ops::Bound::Unbounded))
@@ -230,6 +233,12 @@ impl RemoteRows {
                 .range::<_, (String, String)>((key.to_owned(), String::new())..)
                 .take_while(|(mux, _)| mux.starts_with(key))
                 .map(|(_, k)| k),
+        );
+        keys.extend(
+            n.by_alias
+                .range::<_, str>((std::ops::Bound::Included(key), std::ops::Bound::Unbounded))
+                .take_while(|(alias, _)| alias.starts_with(key))
+                .flat_map(|(_, rows)| rows.iter()),
         );
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
@@ -264,6 +273,7 @@ impl RemoteRows {
 struct Names {
     by_name: PMap<String, PSet<String>>,
     by_bare_name: PMap<String, PSet<String>>,
+    by_alias: POrdMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
@@ -292,6 +302,9 @@ impl Names {
                 self.map(which).entry(value).or_default().insert(key.to_owned());
             }
         }
+        if let Some(alias) = row.summary.alias() {
+            self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
+        }
         self.keys.insert(key.to_owned());
         self.muxes.insert((row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -307,6 +320,14 @@ impl Names {
                 }
             }
         }
+        if let Some(alias) = row.summary.alias()
+            && let Some(keys) = self.by_alias.get_mut(alias)
+        {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.by_alias.remove(alias);
+            }
+        }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -315,6 +336,7 @@ impl Names {
     fn is_empty(&self) -> bool {
         self.by_name.is_empty()
             && self.by_bare_name.is_empty()
+            && self.by_alias.is_empty()
             && self.by_last_segment.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()

@@ -72,16 +72,15 @@ extension AgentPaneTransport {
 /// connection only, so recovery gets the key to the daemon (``recoverPersonProof``) and then
 /// reconnects, and the new connection proves. It used to show "Not verified as you. Reconnecting
 /// your identity…" at the first refusal, while the recovery that usually fixes it had not even
-/// started, and kept it up for good when the daemon could never take the key (https://github.com/manaflow-ai/cmux/issues/48636). The pane
-/// hears of it (``onPersonProofFailed``) only once the recovery gave up.
+/// started, and kept it up for good when the daemon could never take the key (https://github.com/manaflow-ai/cmux/issues/48636). No
+/// line says it now: sending never needs the proof, and a refused allow says why in the approval.
 extension AgentPaneTransport {
-    /// A connection that runs no proof: any recovery stops, its budget resets, and the pane's
-    /// line goes.
+    /// A connection that runs no proof: any recovery stops and its budget resets.
     func personProofNotNeeded() {
         personRecovery?.cancel()
         personRecovery = nil
         personRecoveries = 0
-        onPersonProofFailed?(false)
+        personProofGaveUp = false
     }
 
     /// The pane closed: a recovery still waiting must not look up or reconnect for it.
@@ -96,12 +95,12 @@ extension AgentPaneTransport {
         personRecovery = nil
         if proven {
             personRecoveries = 0
-            onPersonProofFailed?(false)
+            personProofGaveUp = false
             return
         }
         guard let recover = recoverPersonProof, personRecoveries < Self.personRecoveryReconnects else {
             Self.logger.error("agent pane transport: the person proof did not recover; allows here stay refused")
-            onPersonProofFailed?(true)
+            personProofGaveUp = true
             return
         }
         let delays = personRecoveryDelays
@@ -123,7 +122,7 @@ extension AgentPaneTransport {
             // Every lookup failed: the key never reached the daemon again.
             guard let self, !Task.isCancelled, connection == self.current else { return }
             Self.logger.error("agent pane transport: the person key did not reach the daemon again; allows here stay refused")
-            self.onPersonProofFailed?(true)
+            self.personProofGaveUp = true
         }
     }
 }

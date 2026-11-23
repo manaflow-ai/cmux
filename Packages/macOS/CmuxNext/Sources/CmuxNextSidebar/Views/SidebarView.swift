@@ -156,6 +156,7 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
     /// The sections the list showed at the last render (for the provisional check).
@@ -301,7 +302,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.newButton) }
         newWorkspaceOptionsButton.longPressOpensMenu = false
         newWorkspaceOptionsButton.symbolPointSize = { SidebarStyle.toolbarMenuChevronPointSize }
         // The chooser opens under the whole split button, from the +'s leading edge, as a
@@ -310,7 +311,7 @@ public final class SidebarView: NSView {
             let anchor: NSView = self?.newButton ?? button
             menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: anchor, gap: Metrics.space1), in: anchor)
         }
-        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.newButton) }
         newWorkspaceOptionsButton.target = self
         newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
         newButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
