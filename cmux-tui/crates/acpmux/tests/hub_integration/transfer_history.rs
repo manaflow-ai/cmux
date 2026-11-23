@@ -163,3 +163,110 @@ async fn a_50_mb_chat_starts_on_a_second_daemon_from_its_tail_and_its_history_fo
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+/// The steps of one history-later move's freeze, in ms, and the log's size.
+struct Freeze {
+    prompts: usize,
+    log_bytes: u64,
+    prepare_ms: u128,
+    begin_ms: u128,
+    receive_ms: u128,
+    finish_ms: u128,
+    commit_ms: u128,
+    export_ms: u128,
+}
+
+impl Freeze {
+    fn total(&self) -> u128 {
+        self.begin_ms + self.receive_ms + self.finish_ms + self.commit_ms
+    }
+}
+
+/// A chat of `prompts` large turns moved with its history left to follow; each step from begin
+/// to commit is timed, then the history is exported (as the client does after commit).
+async fn timed_freeze(prompts: usize) -> Freeze {
+    let (dirs, mut src, mut dst) = two_local().await;
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for n in 0..prompts {
+        src.request(method::SESSION_PROMPT, prompt(&id, &format!("p-{n}"), "chunks: 2500"))
+            .await
+            .unwrap();
+    }
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-last", "last")).await.unwrap();
+    let ask = json!({"sessionId": id, "historyLater": {"keepTurns": 1}});
+    let at = std::time::Instant::now();
+    let prepared = src.request("_acpmux/transfer_prepare", ask).await.unwrap();
+    let prepare_ms = at.elapsed().as_millis();
+    let through = prepared["afterSeq"].clone();
+    let staged =
+        dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.unwrap();
+    let stage_id = staged["stageId"].as_str().unwrap().to_owned();
+    page(&mut src, &mut dst, &prepared, &stage_id).await;
+    dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.unwrap();
+
+    let at = std::time::Instant::now();
+    let begin_ask = json!({"sessionId": id, "interrupt": false, "prepareId": prepared["prepareId"],
+                           "afterSeq": prepared["afterSeq"]});
+    let begin = src.request("_acpmux/transfer_begin", begin_ask).await.unwrap();
+    let begin_ms = at.elapsed().as_millis();
+    let at = std::time::Instant::now();
+    let receive = json!({"manifest": begin, "stageId": stage_id});
+    let received = dst.request("_acpmux/transfer_receive", receive).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    let receive_ms = at.elapsed().as_millis();
+    let at = std::time::Instant::now();
+    let finish = json!({"receiveId": receive_id, "epoch": begin["epoch"]});
+    dst.request("_acpmux/transfer_finish", finish).await.unwrap();
+    let finish_ms = at.elapsed().as_millis();
+    let at = std::time::Instant::now();
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"],
+                        "to": {"sessionId": id}, "epoch": begin["epoch"]});
+    src.request("_acpmux/transfer_commit", commit).await.unwrap();
+    let commit_ms = at.elapsed().as_millis();
+
+    let at = std::time::Instant::now();
+    let (export, _) = stage_history(&mut src, &mut dst, &id, &through).await;
+    let export_ms = at.elapsed().as_millis();
+    let log_bytes = export["packed"]["rawBytes"].as_u64().unwrap();
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    Freeze { prompts, log_bytes, prepare_ms, begin_ms, receive_ms, finish_ms, commit_ms, export_ms }
+}
+
+/// The freeze (begin to commit) of a history-later move does not grow with the log: a log 20
+/// times larger freezes for about as long. Prints both.
+#[tokio::test]
+async fn the_freeze_of_a_history_later_move_does_not_grow_with_the_log() {
+    let small = timed_freeze(4).await;
+    let large = timed_freeze(80).await;
+    for f in [&small, &large] {
+        eprintln!(
+            "freeze of a {:.1} MB log ({} prompts): begin {} ms, receive {} ms, finish {} ms, \
+             commit {} ms, total {} ms; prepare {} ms, history export through its follow {} ms",
+            f.log_bytes as f64 / 1048576.0,
+            f.prompts,
+            f.begin_ms,
+            f.receive_ms,
+            f.finish_ms,
+            f.commit_ms,
+            f.total(),
+            f.prepare_ms,
+            f.export_ms,
+        );
+    }
+    assert!(large.log_bytes > 20 * small.log_bytes, "the large log is not much larger");
+    // A constant cost with room for a busy machine: a few times the small freeze and a floor.
+    let bound = (small.total() * 4).max(small.total() + 150);
+    assert!(
+        large.total() <= bound,
+        "the freeze grew with the log: {} ms for {} bytes, {} ms for {} bytes",
+        small.total(),
+        small.log_bytes,
+        large.total(),
+        large.log_bytes,
+    );
+}
