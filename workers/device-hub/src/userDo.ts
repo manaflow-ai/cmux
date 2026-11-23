@@ -96,8 +96,13 @@ interface RelayRow {
 }
 
 export const PENDING_TTL_MS = 5 * 60 * 1000;
-/** How long a device may stay disconnected before its sessions end (reason peer_offline). */
-export const OFFLINE_GRACE_MS = 30_000;
+/**
+ * How long a device may stay disconnected before its sessions end (reason peer_offline), counted from when it was
+ * last heard. A screen share comes back by itself after a 60 s network drop (goal screen-share-fast): a drop can
+ * start up to one ping (30 s) after the last frame, so the grace covers that ping, the drop and the reconnect. The
+ * rd host keeps its side of the session for 90 s of viewer silence (cmux-rd-host stream.rs REATTACH_GRACE_NS).
+ */
+export const OFFLINE_GRACE_MS = 120_000;
 /**
  * A socket close reported by the Session DO is provisional for this long: an
  * authoritative end (/end, revoke, removal, sharing off, sign-out) that arrives

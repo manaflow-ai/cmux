@@ -83,6 +83,22 @@ impl ChiefSize {
             _ => None,
         }
     }
+    /// A size the person names: `included` or a bigger Chief ([`Self::add_on`]'s spellings).
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "included" => Some(Self::Included),
+            other => Self::add_on(other),
+        }
+    }
+    /// The size's name, as [`Self::named`] reads it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Included => "included",
+            Self::M => "M",
+            Self::L => "L",
+            Self::Xl => "XL",
+        }
+    }
 }
 
 /// The size the person's plan gives a new Chief, from the Chief size the plan names: the
@@ -102,7 +118,7 @@ pub fn plan_chief_size(plan: &Value) -> ChiefSize {
 
 /// The person's Chief size, from `cloud.plan.get`. A read that fails, or a plan that names no
 /// size, is the included size: the plan read never stops a Chief from starting.
-async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
+pub(crate) async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
     match cloud.read("cloud.plan.get", json!({})).await {
         Ok(plan) => plan_chief_size(&plan),
         Err(_) => ChiefSize::Included,
@@ -269,10 +285,10 @@ pub struct Probe {
 pub fn probe_command() -> String {
     let script = format!(
         r#"import json, os, re, shutil, subprocess
-d = {dir:?}
+d = {STATE_DIR:?}
 out = {{}}
 try:
-    f = json.load(open({file:?}))
+    f = json.load(open({INSTALL_FILE:?}))
     for k in ("install", "host", "chief", "conversation"):
         if isinstance(f.get(k), str) and f[k]:
             out[k] = f[k]
@@ -297,12 +313,9 @@ except Exception:
 b = shutil.which("optchat-chief") or (os.path.expanduser("~/.local/bin/optchat-chief") if os.access(os.path.expanduser("~/.local/bin/optchat-chief"), os.X_OK) else None)
 if b:
     out["binary"] = b
-out["unit"] = os.path.exists("/etc/systemd/system/{unit}")
-out["active"] = subprocess.run(["systemctl", "is-active", "--quiet", "{unit}"]).returncode == 0
+out["unit"] = os.path.exists("/etc/systemd/system/{HOST_UNIT}")
+out["active"] = subprocess.run(["systemctl", "is-active", "--quiet", "{HOST_UNIT}"]).returncode == 0
 print(json.dumps(out))"#,
-        dir = STATE_DIR,
-        file = INSTALL_FILE,
-        unit = HOST_UNIT,
     );
     as_user(&format!("python3 -I -c {}", shq(&script)))
 }
@@ -330,24 +343,23 @@ pub fn fallback_unit(binary: &str) -> String {
          Description=cmux Cloud Chief host (optchat-chief host --conversation-source cloud)\n\
          After=network-online.target cmux-host.service\n\
          Wants=network-online.target\n\
-         ConditionPathExists={file}\n\
+         ConditionPathExists={INSTALL_FILE}\n\
          StartLimitIntervalSec=0\n\n\
          [Service]\n\
          Type=simple\n\
          User=cmux\n\
          Group=cmux\n\
          Environment=HOME=/home/cmux\n\
-         Environment=OPTCHAT_CLOUD_INSTALL={file}\n\
+         Environment=OPTCHAT_CLOUD_INSTALL={INSTALL_FILE}\n\
          Environment=ACPMUX_BIN={ACPMUX_BIN}\n\
          Environment=ACPMUX_HOME={ACPMUX_HOME}\n\
          EnvironmentFile=-/etc/cmux/chief.env\n\
-         ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {file} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
+         ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {INSTALL_FILE} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
          Restart=always\n\
          RestartSec=5\n\
          RestartPreventExitStatus=2\n\n\
          [Install]\n\
          WantedBy=multi-user.target\n",
-        file = INSTALL_FILE,
     )
 }
 
