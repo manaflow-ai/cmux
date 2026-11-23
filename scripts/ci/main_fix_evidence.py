@@ -95,8 +95,8 @@ def check_runs_at(repo: str, sha: str, github: GitHub) -> dict:
     startup_failure ran no jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt
     is no result: the newest check run of a name is the last attempt that ran it, red or green.
     A name is several check runs whenever several workflows have a job of that name -- three were named `tests` at
-    hq#17005's head -- so they are kept apart by check suite, the run each belongs to (spelled_check tells them
-    apart by its workflow). Keying by name alone kept the highest id and read the name as that one check run, so a
+    hq#17005's head -- so they are kept apart by check suite, the run each belongs to (base_red_excuse's named_check
+    tells them apart by its workflow). Keying by name alone kept the highest id and read the name as that one check run, so a
     caller naming another of them was answered about a check it had not asked about (2026-11-21)."""
     newest: dict[tuple, dict] = {}
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):

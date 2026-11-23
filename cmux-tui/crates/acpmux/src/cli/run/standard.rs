@@ -44,6 +44,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Gc { .. }
             | Command::Worktree(..)
             | Command::Group(..)
+            | Command::Account(..)
             | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
@@ -302,6 +303,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let folder_named = args.cwd.is_some() || launch.worktree.is_some();
             let target =
                 crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let placed = matches!(target, crate::cli::place::Target::Place(_));
             let host = match target {
                 crate::cli::place::Target::Place(work) => {
                     before_deadline(
@@ -348,6 +350,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(n) = &launch.name {
                 meta.set("name", json!(n));
+                // Placed or started on another machine, it keeps its name: a taken one gets a
+                // `-N` suffix there, never the agent's name. `--reuse` finds the one running.
+                if keeps_name_suffixed(placed, host.as_deref(), launch.reuse) {
+                    meta.set("ifNameTaken", json!(crate::hub::SUFFIX_TAKEN_NAME));
+                }
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
@@ -482,6 +489,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(session_id)
                 .to_owned();
+            // Its name was taken there: it runs under the suffixed one (`ifNameTaken`).
+            if let Some(asked) = v.pointer("/_meta/acpmux/requestedName").and_then(Value::as_str) {
+                eprintln!("{asked:?} is taken there, so the session is named {name:?}");
+            }
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
             let daemon_cli_path = client.daemon_cli_path();
@@ -1167,6 +1178,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
@@ -1289,6 +1301,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+/// Whether a named `new` asks the creating daemon to keep a taken name with a `-N` suffix
+/// (`ifNameTaken`): a start placed (`--machine auto`) or sent to another machine, unless it
+/// is `--reuse`, which finds the running session by that name instead.
+fn keeps_name_suffixed(placed: bool, host: Option<&str>, reuse: bool) -> bool {
+    !reuse && (placed || host.is_some())
 }
 
 /// How many times a named `new --reuse` reconnects after the daemon closed its
@@ -1692,6 +1711,10 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
     prompt.from_agent =
         args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    // A named first prompt proves its sender as `send --from` does (`sender_token.rs`).
+    if prompt.from_agent.is_some() {
+        prompt.sender_token = crate::sender_token::of_this_send(None).ok().flatten();
+    }
     prompt
 }
 
@@ -1712,6 +1735,17 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
+        // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.
+        assert!(super::keeps_name_suffixed(false, Some("far-host"), false));
+        assert!(super::keeps_name_suffixed(true, None, false));
+        assert!(super::keeps_name_suffixed(true, Some("far-host"), false));
+        // `--reuse` finds the running session by that name; a start here is refused as before.
+        assert!(!super::keeps_name_suffixed(true, Some("far-host"), true));
+        assert!(!super::keeps_name_suffixed(false, None, false));
+    }
+
     #[test]
     fn relay_flags_are_the_relay_record_the_daemon_reads() {
         use crate::cli::command::{Cli, Command};

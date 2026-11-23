@@ -3285,6 +3285,48 @@ class WebShardBaseVerdict(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "refused at setup: re-run"):
                     excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
 
+    def test_a_web_status_whose_need_was_cancelled_names_the_job_state_and_the_rerun(self):
+        """Run 45093415114: 'web / Web status' red, 'web / web-subarea-scope' cancelled, nothing failed under it.
+
+        The gate went red because a dependency holds no verdict. That is an inability to compare, not a verdict on
+        this PR's red, and a lander may not judge the red itself: the refusal must name the job, its state and the
+        call that resolves it, never only "no failed job under its needs" (which the lander read as the PR's own and
+        parked with no step on it).
+        """
+        scope = "web / web-subarea-scope"
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.jobs[6] = dict(failed_job(6, 10, HEAD, name=scope), conclusion="cancelled")
+                with self.assertRaises(excuse.Refused) as caught:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+                said = str(caught.exception)
+                self.assertIn(scope, said)
+                self.assertIn("cancelled", said)
+                self.assertIn("holds no verdict", said)
+                self.assertIn(f"run-requeue {REPO} 10", said)
+                self.assertIn(f"gh run rerun 10 -R {REPO} --failed", said)
+                self.assertNotIn("no failed job under its needs", said)
+
+    def test_a_web_status_whose_gate_says_no_verdict_is_refused_with_the_rerun(self):
+        """A required dependency GitHub shows `skipped` is never listed as a child at all (head_jobs drops skipped),
+        so only the gate's own `no verdict: ` annotation (scripts/ci/needs_verdict.py) names it. It must read as an
+        inability with a step, like a cancelled one."""
+        no_verdict = ("no verdict: web: web-subarea-scope skipped; nothing it summarizes was judged: "
+                      "re-run the run")
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.logs[5] = log(WEB_STATUS, "Check routed web jobs", "##[error]" + no_verdict,
+                                 "##[error]Process completed with exit code 3.")
+                with self.assertRaises(excuse.Refused) as caught:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
+                said = str(caught.exception)
+                self.assertIn("gave no verdict", said)
+                self.assertIn("web-subarea-scope skipped", said)
+                self.assertIn(f"run-requeue {REPO} 10", said)
+                self.assertNotIn("no failed job under its needs", said)
+
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
         gh.jobs[4].update(conclusion="success",
@@ -3845,6 +3887,14 @@ class CancelledWebShardPerFile(unittest.TestCase):
     def test_a_cancelled_shard_whose_log_names_no_red_file_still_has_no_verdict(self):
         with self.assertRaisesRegex(excuse.Refused, "is cancelled: it has no verdict to compare with the base"):
             self.judge(self.gh(cut_short_log((FOOTER, "PASS"), (CAPSULES, "PASS"))))
+
+    def test_a_red_file_that_only_timed_out_on_the_base_is_its_own(self):
+        # Review of #39840, F1: the base's TIMEOUT says nothing of how the file fares, so it matches no head red.
+        gh = self.gh(cut_short_log((CAPSULES, "FAIL")))
+        gh.logs[5] = web_log(timeouts=[CAPSULES])
+        with self.assertRaisesRegex(excuse.Refused, re.escape(f"1 red file(s) pass or do not run on feat-cmux-next "
+                                                              f"run 40: {CAPSULES}")):
+            self.judge(gh)
 
     def test_a_file_that_timed_out_on_the_head_is_its_own(self):
         with self.assertRaisesRegex(excuse.Refused, "timed out \\(a cut-short file is never a base red\\)"):
@@ -12078,7 +12128,7 @@ RAW_LOG_READERS = {
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
 LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "unplaced_head_evidence", "compile_base_evidence", "shared_generated_host", "shared_catalog_host", "pr_only_step_verdict", "other_pr_setup_verdict", "passed_on_base_verdict", "guard_routes_view", "guard_group_report",
-                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
+                          "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "rollup_no_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
 # unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
@@ -15791,6 +15841,9 @@ SCANNERS = {
     "test_reds.unjudged": lambda f: TR.unjudged(f.log),
     "test_reds.red_steps": lambda f: TR.red_steps(f.log),
     "test_reds.red_lines": lambda f: TR.red_lines(f.log),
+    "test_reds.cargo_captured": lambda f: TR.cargo_captured(f.lines),
+    "test_reds._cargo_closing_lists": lambda f: TR._cargo_closing_lists(f.lines),
+    "test_reds.outer_lines": lambda f: TR.outer_lines(f.lines),
     "test_reds.failed_in": lambda f: TR.failed_in(f.log, []),
     "test_reds.step_lines": lambda f: TR.step_lines(f.log),
     "test_reds.crash_rule_failure": lambda f: TR.crash_rule_failure(f.log),
@@ -15844,6 +15897,10 @@ NOT_SWEPT = {
     "test_reds._kept": "the parse cache: it calls the reader it is given",
     "base_red_excuse.ws_check_step": "counted, not timed (WsCheckStepIsLinear): on HostileLog it reads no section, so "
                                      "the sweep timed only a list copy, whose CPU time grows past 8x on a runner",
+    "base_red_excuse.validate_run_rollup": "reads no log: `said` is the one `no verdict: ` line its caller already "
+                                           "read for it (rollup_no_verdict, a fetcher, swept through "
+                                           "summary_no_verdict), and all it does with it is put said[:300] in a "
+                                           "refusal",
 }
 
 
@@ -16750,150 +16807,146 @@ class HeadCheckNamedAnotherWay(unittest.TestCase):
             self.found("Web tests (2/4)", statuses=[status])
 
 
-class SameNamedChecksTellApartByWorkflow(unittest.TestCase):
-    """Several workflows each have a job of one name, so one name is several check runs at one head (2026-11-21,
-    hq#17005 at 7d52c802): `--check 'lane-gh-broker tests / tests'` came back "not excused: 'tests' is success ...
-    re-run it", a verdict about a *different* check run of another workflow. latest_checks kept one check run per
-    name, the highest id, so the rest were invisible: the name was read as whichever of them GitHub listed last, and
-    spelled_check's refusal for a name two check runs answer to could never fire for them. The checks page's
-    '<workflow> / <check>' form names one of them, and the workflow of each one's run is in the one
-    `actions/runs?head_sha=` read the head already makes (head_runs); where it cannot tell them apart, none is judged.
-    Two runs of one workflow at one head are not ambiguous: the newest is the verdict, as everywhere else here."""
+class OneJobNameAtThreeCheckRuns(unittest.TestCase):
+    """2026-11-22, manaflow-ai/cmuxterm-hq at eb73df0c: three check runs are named exactly 'tests' -- two success
+    (137452469910, 137452467955) and the red one the caller was asking about (137452467640, run 45101284995 of
+    'fleet-reconcilers tests'). latest_checks keeps one check run per name, so
+    `--check 'fleet-reconcilers tests / tests'` read the newest id and answered "'tests' is success: it has no
+    verdict to compare with the base; re-run it": a verdict about a check run nobody asked about, and the caller's
+    next step was to re-run a check that had passed while the red one was never read. The name's own
+    'WORKFLOW / JOB' prefix is the disambiguator the caller already gave: it is read as the workflow of the run each
+    candidate belongs to. With no prefix that names one, the red candidate is what a caller asking why a head is red
+    can mean; two reds, or two of a workflow, are refused naming every candidate, never picked."""
 
-    SHA = "7d52c80222b041a35c8b4b42e9f1746d9dc1cb5e"
-    # run id -> (workflow name, check run and job id, conclusion). All three red, so no green path is in the way of
-    # the question asked here: which check run a name names.
-    BROKER, SKILLS, RECONCILERS = 44918143341, 44916267116, 44918143439
-    WORKFLOWS = {BROKER: "lane-gh-broker tests", SKILLS: "Skills tests", RECONCILERS: "fleet-reconcilers tests"}
-    JOBS = {BROKER: 131000000001, SKILLS: 131000000002, RECONCILERS: 131000000003}
+    SHA = "eb73df0c6535fb535091e2c36a56de8735b3eb35"
+    RUNS = {45101285663: "lane-gh-broker tests", 45101285056: "fleet alert registry",
+            45101284995: "fleet-reconcilers tests"}
+    CHECKS = {137452469910: (45101285663, "success"), 137452467955: (45101285056, "success"),
+              137452467640: (45101284995, "failure")}
 
     class Fake:
-        def __init__(self, runs, check_name="tests"):
-            # runs: run id -> workflow name, one check run of CHECK_NAME each. A check run's own name carries the
-            # caller job of a reusable workflow ahead of the job's name ('web / Web tests (2/4)'), which is the
-            # spelling cmux#38644 is about, so it is a parameter here rather than always the plain job name.
-            self.runs, self.check_name, self.routes = runs, check_name, []
+        def __init__(self, outer, conclusions):
+            self.outer, self.conclusions, self.routes = outer, conclusions, []
 
         def json(self, route, *, paginate=False):
             self.routes.append(route)
-            outer = SameNamedChecksTellApartByWorkflow
+            outer = self.outer
             if route.endswith("/check-runs?filter=all&per_page=100"):
-                return [{"check_runs": [outer.check_run(run, self.check_name) for run in self.runs]}]
+                return [{"check_runs": [outer.check(check) for check in outer.CHECKS]}]
             if "/actions/jobs/" in route:
-                return outer.job(int(route.rsplit("/", 1)[1]), self.check_name)
+                return outer.job(int(route.rsplit("/", 1)[1]))
+            if "/actions/runs/" in route:
+                run = int(route.rsplit("/", 1)[1])
+                return {"id": run, "name": outer.RUNS[run], "workflow_id": run % 1000, "head_sha": outer.SHA,
+                        "path": f".github/workflows/{outer.RUNS[run].replace(' ', '-')}.yml"}
             if route.endswith("/status?per_page=100"):
                 return {"statuses": []}
             if "/actions/runs?head_sha=" in route:
-                return [{"workflow_runs": [{"id": run, "name": name, "head_sha": outer.SHA, "path":
-                                            f".github/workflows/{run}.yml", "event": "push", "workflow_id": run,
-                                            "status": "completed", "conclusion": "failure"}
-                                           for run, name in self.runs.items()]}]
+                return {"workflow_runs": []}
             raise AssertionError(route)
 
-    @classmethod
-    def check_run(cls, run, check_name="tests"):
-        job = cls.JOBS[run]
-        return {"app": {"slug": "github-actions"}, "check_suite": {"id": 900000 + run}, "id": job, "name": check_name,
-                "status": "completed", "conclusion": "failure", "head_sha": cls.SHA,
-                "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{job}"}
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.conclusions = {}
 
-    @classmethod
-    def job(cls, job_id, check_name="tests"):
-        run = next(run for run, found in cls.JOBS.items() if found == job_id)
-        return {"id": job_id, "run_id": run, "name": check_name, "status": "completed", "conclusion": "failure",
-                "head_sha": cls.SHA, "steps": [{"name": "Run tests", "status": "completed", "conclusion": "failure"}]}
+    def check(self, check_id):
+        run, conclusion = self.CHECKS[check_id]
+        return {"id": check_id, "name": "tests", "status": "completed",
+                "conclusion": self.conclusions.get(check_id, conclusion), "head_sha": self.SHA,
+                "app": {"slug": "github-actions"},
+                "details_url": f"https://github.com/{REPO}/actions/runs/{run}/job/{check_id}"}
 
-    def found(self, name, runs=None, check_name="tests"):
-        gh = self.Fake(runs if runs is not None else dict(self.WORKFLOWS), check_name)
+    def job(self, job_id):
+        run, conclusion = self.CHECKS[job_id]
+        return {"id": job_id, "run_id": run, "name": "tests", "status": "completed", "head_sha": self.SHA,
+                "conclusion": self.conclusions.get(job_id, conclusion), "steps": []}
+
+    def found(self, name, conclusions=None):
+        self.conclusions = conclusions or {}
+        self.gh = gh = self.Fake(self, self.conclusions)
         audit: list[str] = []
-        jobs = excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit)
-        return [job["id"] for job in jobs], audit, gh
+        return excuse.head_jobs(REPO, self.SHA, [], [name], gh, excused=audit), audit
 
-    def test_the_newest_check_run_of_the_name_is_not_every_check_run_of_it(self):
-        """What collapsed: three check runs named 'tests', and the highest id answered for all three."""
-        gh = self.Fake(dict(self.WORKFLOWS))
-        at_head = excuse.check_runs_at(REPO, self.SHA, gh)
-        self.assertEqual(sorted(check["id"] for check in at_head["tests"]), sorted(self.JOBS.values()))
-        # latest_checks keeps its own meaning, the newest of the name, for every caller that asks only that.
-        self.assertEqual(excuse.latest_checks(REPO, self.SHA, gh)["tests"]["id"], max(self.JOBS.values()))
+    def test_the_workflow_prefix_names_the_red_check_run_the_caller_asked_about(self):
+        jobs, audit = self.found("fleet-reconcilers tests / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+        self.assertTrue(any("'fleet-reconcilers tests'" in line and "137452467640" in line for line in audit), audit)
 
-    def test_the_name_is_read_as_its_own_workflows_check_run_not_the_newest_of_the_name(self):
-        for run, workflow in self.WORKFLOWS.items():
-            with self.subTest(workflow=workflow):
-                jobs, audit, _ = self.found(f"{workflow} / tests")
-                self.assertEqual(jobs, [self.JOBS[run]])
-                # The audit says *why* this check run, not only which name was asked for: an echo of the request
-                # would read the same under the old code, which had no workflow to name.
-                said = [line for line in audit if f"in workflow '{workflow}'" in line]
-                self.assertEqual(len(said), 1, audit)
-                self.assertIn(f"(job {self.JOBS[run]})", said[0])
+    def test_the_workflow_prefix_names_a_green_check_run_too(self):
+        # The prefix is read before the reds: it names one check run, whatever its conclusion. head_jobs hands that
+        # job back; judging it as a green check with no base verdict ("'tests' is success: re-run it") is downstream.
+        jobs, audit = self.found("lane-gh-broker tests / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452469910])
+        self.assertTrue(any("'lane-gh-broker tests'" in line and "137452469910" in line for line in audit), audit)
 
-    def test_the_workflow_comes_from_the_read_the_head_already_makes(self):
-        _, _, gh = self.found("Skills tests / tests")
-        heads = [route for route in gh.routes if "/actions/runs?head_sha=" in route]
-        self.assertEqual(len(heads), 1, gh.routes)  # one read for every candidate, shared through SEEN
+    def test_the_bare_name_is_the_one_check_run_of_it_that_failed(self):
+        jobs, audit = self.found("tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
+        self.assertTrue(any("that failed" in line and "137452467640" in line for line in audit), audit)
 
-    def test_the_name_as_written_names_three_check_runs_so_none_is_judged(self):
-        """'tests' alone cannot mean one of them; answering about the newest judged a check nobody asked about."""
-        with self.assertRaisesRegex(excuse.Refused, r"3 check runs.*lane-gh-broker tests / tests") as caught:
-            self.found("tests")
-        self.assertIn("name it in full", str(caught.exception))
+    def test_two_reds_of_one_name_are_refused_naming_every_candidate(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.found("tests", conclusions={137452469910: "failure"})
+        gh = self.gh
+        said = str(caught.exception)
+        self.assertIn("names 3 check runs at exact head", said)
+        for check_id, (run, _) in self.CHECKS.items():
+            self.assertIn(str(check_id), said)
+            # The run each candidate links, from its details URL: naming the workflow instead would be a REST read
+            # per candidate on a path that is already refusing (the bare name resolved no prefix, so none was read).
+            self.assertIn(str(run), said)
+        self.assertEqual([route for route in gh.routes if "/actions/runs/4510" in route], [], gh.routes)
 
-    def test_a_workflow_that_is_not_at_the_head_has_not_run_rather_than_the_wrong_check(self):
-        with self.assertRaisesRegex(excuse.Refused, "names 3 check runs|has not run on exact head"):
-            self.found("web / tests")
+    def test_a_prefix_no_workflow_answers_to_falls_back_to_the_red(self):
+        jobs, _ = self.found("some other workflow / tests")
+        self.assertEqual([job["id"] for job in jobs], [137452467640])
 
-    def test_two_runs_of_one_workflow_at_one_head_are_the_newest_of_them(self):
-        """Not ambiguity: a name's newest completed run is its verdict everywhere else here, and stays so."""
-        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
-        jobs, _, _ = self.found("lane-gh-broker tests / tests", runs=runs)
-        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
+class CheckoutNarrowingIsNotAFailure(unittest.TestCase):
+    """A step that did not fail printed 54 error annotations, and they refused a red the base was failing too.
 
-    def test_the_bare_name_of_two_runs_of_one_workflow_is_still_the_newest_of_them(self):
-        """The one-group fallback, which the test above reaches through the named branch instead. A bare 'tests' with
-        every candidate in one workflow must keep answering, as it did before this change: refusing here would be the
-        regression, since the only thing the name leaves open is which run, and the newest run is the verdict."""
-        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
-        jobs, audit, _ = self.found("tests", runs=runs)
-        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
-        # Nothing is disclosed here, and that is right: this name named a check run as written, so nothing was read
-        # as another name. The audit line above belongs to spelled_check's path, where the name given and the check
-        # name differ. Asserting it here would demand a disclosure for a name that needed no interpreting.
-        self.assertEqual(audit, [])
+    2026-11-22, cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531): actions/checkout narrowed a sparse
+    checkout in a reused self-hosted workspace and annotated every path it kept, `##[error]error: Path '<path>' not
+    uptodate; will not remove from working tree.`, its own step green. The job ran five more minutes and ended in
+    `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, the failure main's own 'build-fleet Go tests' was failing at
+    three consecutive heads -- but the 54 paths are that workspace's history, printed by no base run, so compared
+    whole the head had 54 error lines the base did not and the red was refused. They are the workspace's, never the
+    change's: a base can never print them, so a verdict that reads them is a verdict no base can earn.
+    """
 
-    def test_a_named_workflow_that_is_none_of_the_only_groups_has_not_run(self):
-        """The one-group fallback must not answer a name whose workflow it can read and contradicts. With every
-        candidate in 'lane-gh-broker tests', a caller naming 'web / tests' is asking about a check that is not there;
-        handing back the broker's run would be this PR's own bug, committed by the code that fixes it. Refusing on
-        ambiguity needs more than one group, so this case can only be told by the prefix."""
-        runs = {self.BROKER: "lane-gh-broker tests", self.RECONCILERS: "lane-gh-broker tests"}
-        with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
-            self.found("web / tests", runs=runs)
+    STAMP = "2026-11-22T02:37:42.1234567Z "
+    PATHS = ("docs/handbook/stalled-work-nobody-moves.md", "docs/handbook/alert-filed-as-fyi.md",
+             "docs/handbook/blobless-mirror-reads.md")
+    TAIL = ("FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+            "##[error]Process completed with exit code 1.")
 
-    def test_the_caller_job_spelling_still_answers_when_its_workflow_ran_twice(self):
-        """cmux#38644's spelling, at a head where the workflow ran more than once -- the ordinary shape, 20 of the 92
-        names at 8375182a4233. A reusable workflow's check run carries its caller job first ('web / Web tests (2/4)')
-        and a caller names the inner part, so spelled_check feeds one_check a name that is deliberately not the check
-        run's own name. Telling a contradicted workflow apart by the prefix must not swallow that: the group's
-        workflow is readable and is not what this name spells either, but the name is the tail of the check name, so
-        the part the caller left off is a caller job, not a workflow that says no. Refusing here would answer 'has
-        not run on exact head' for a check that did run, which is the complaint this class exists for."""
-        runs = {self.BROKER: "CI", self.RECONCILERS: "CI"}
-        jobs, audit, _ = self.found("Web tests (2/4)", runs=runs, check_name="web / Web tests (2/4)")
-        self.assertEqual(jobs, [max(self.JOBS[run] for run in runs)])
-        self.assertTrue(any("read 'Web tests (2/4)' as check run 'web / Web tests (2/4)'" in line for line in audit),
-                        audit)
+    def log(self, *, narrowed: bool) -> str:
+        said = [f"##[group]Run actions/checkout@v5", "Syncing repository: manaflow-ai/cmuxterm-hq"]
+        if narrowed:
+            said += [f"##[error]error: Path '{path}' not uptodate; will not remove from working tree."
+                     for path in self.PATHS]
+        said += ["##[endgroup]", *self.TAIL]
+        return "".join(f"{self.STAMP}{line}\n" for line in said)
 
-    def test_a_workflow_no_run_list_names_degrades_to_the_newest_rather_than_refusing(self):
-        """When the run list cannot name the workflows, every candidate of one check name groups as one: the answer is
-        the newest, exactly what this file did before. Refusing instead would break judging a plain rerun, which is
-        indistinguishable from this without the workflow name."""
-        gh = self.Fake(dict(self.WORKFLOWS))
-        gh.json = lambda route, *, paginate=False: ([{"workflow_runs": []}]
-                                                    if "/actions/runs?head_sha=" in route
-                                                    else type(gh).json(gh, route, paginate=paginate))
-        jobs = [job["id"] for job in excuse.head_jobs(REPO, self.SHA, [], ["tests"], gh)]
-        self.assertEqual(jobs, [max(self.JOBS.values())])
+    def signature(self, *, narrowed: bool):
+        return excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"),
+                                         self.log(narrowed=narrowed))
+
+    def test_the_narrowing_annotations_are_no_error_lines_of_the_job(self):
+        said = [error for error in self.signature(narrowed=True).errors if "not uptodate" in error]
+        self.assertEqual(said, [], said)
+
+    def test_a_narrowed_checkout_reads_as_the_same_red_as_a_clean_one(self):
+        # What a base run of the same red prints: the Go failure, and none of this workspace's paths.
+        self.assertEqual(self.signature(narrowed=True), self.signature(narrowed=False))
+
+    def test_the_go_failure_is_still_read(self):
+        whole = self.signature(narrowed=True)
+        self.assertTrue(whole.errors or whole.tests, whole)
+
+    def test_another_error_line_still_counts(self):
+        text = self.log(narrowed=True) + f"{self.STAMP}##[error]error: the controller never came up\n"
+        whole = excuse.unplaced_signature(failed_job(1, 10, HEAD, "go vet + go test", "go test (every package)"), text)
+        self.assertTrue([error for error in whole.errors if "never came up" in error], whole.errors)
 
 
 OTHER_PR_SETUP_FIXTURES = ROOT / "tests/fixtures/base_red_excuse_other_pr_setup"

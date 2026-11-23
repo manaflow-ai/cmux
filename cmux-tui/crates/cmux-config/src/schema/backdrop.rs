@@ -36,6 +36,30 @@ pub(crate) const PATH_PATTERN: &str = "^(system|file):/";
 pub(crate) const LOCATION_PATTERN: &str =
     "^[ \\t]*[+-]?[0-9.]+([eE][+-]?[0-9]+)?[ \\t]*,[ \\t]*[+-]?[0-9.]+([eE][+-]?[0-9]+)?[ \\t]*$";
 
+/// JSON Schema pattern of a live wallpaper (see [`is_live`]).
+pub(crate) const LIVE_PATTERN: &str =
+    "^live:([a-z][a-z0-9]*(-[a-z0-9]+)*/)?[a-z][a-z0-9]*(-[a-z0-9]+)*$";
+
+/// A live wallpaper (plans/cmux-next/live-wallpapers.md): `live:<id>` for a
+/// first-party one, `live:<extension>/<id>` for an extension's. Each part is a
+/// cmux-wallpaper id: lowercase words joined by `-`, at most 48 bytes. An id
+/// no wallpaper has falls back in the app like a missing picture.
+pub(crate) fn is_live(text: &str) -> bool {
+    let is_id = |s: &str| {
+        s.len() <= 48
+            && s.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+            && s.split('-').all(|part| {
+                !part.is_empty()
+                    && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            })
+    };
+    let Some(rest) = text.strip_prefix("live:") else { return false };
+    match rest.split_once('/') {
+        Some((extension, id)) => is_id(extension) && is_id(id),
+        None => is_id(rest),
+    }
+}
+
 /// The living wallpapers, drawn live by a shader (Swift `BackdropShader`'s
 /// raw values; `shader:` plus one is a background id). The test
 /// `shader_names_match_swift` holds this list to the Swift enum, so a new
@@ -347,6 +371,30 @@ mod tests {
         ] {
             assert!(!is_when(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn live_wallpapers_are_live_ids() {
+        let pattern = regex::Regex::new(LIVE_PATTERN).expect("pattern");
+        for good in ["live:orbits", "live:grain-silk", "live:my-ext/neon-2"] {
+            assert!(is_live(good), "{good}");
+            assert!(pattern.is_match(good), "{good}");
+        }
+        for bad in [
+            "live:",
+            "live:Orbits",
+            "live:-orbits",
+            "live:grain--silk",
+            "live:2d",
+            "live:a/b/c",
+            "live:/orbits",
+            "orbits",
+            "file:/live:orbits",
+        ] {
+            assert!(!is_live(bad), "{bad}");
+            assert!(!pattern.is_match(bad), "{bad}");
+        }
+        assert!(!is_live(&format!("live:{}", "a".repeat(49))));
     }
 
     #[test]
