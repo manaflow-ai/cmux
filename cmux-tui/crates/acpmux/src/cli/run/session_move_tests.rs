@@ -758,7 +758,7 @@ async fn a_move_ends_once_the_chat_is_listed_reachable_where_it_went() {
             {"sessionId": "s1", "peer": "t", "stale": stale, "peerState": state},
         ]})
     };
-    let replies = vec![
+    let replies = [
         json!({"rows": []}),
         row(true, "reconnecting"),
         row(false, "reconnecting"),

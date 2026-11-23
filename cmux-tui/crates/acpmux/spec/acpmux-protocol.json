@@ -223,6 +223,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -2411,6 +2417,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/machine_join_ssh",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_candidates",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_leave_if_auto",
       "params": true,
       "result": true
@@ -2580,6 +2598,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/lagged",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/machine_join_progress",
       "params": true
     },
     {
