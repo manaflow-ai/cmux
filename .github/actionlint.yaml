@@ -21,6 +21,9 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - cmux-fleet-linux-x64
+    # The one own-branch Linux label (Leo, 2026-11-20): runs-on reads
+    # vars.CI_OVERFLOW_LINUX || 'cmux-linux'; every persistent pool runner carries it.
+    - cmux-linux
     # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
     # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
     # cmux-gcp-*-jit-x64 labels appear only inside expressions, which

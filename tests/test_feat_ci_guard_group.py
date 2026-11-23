@@ -264,7 +264,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
 
     def test_the_job_runs_on_the_persistent_linux_pool(self):
         # Linux only, never a mini (24 of its steps went red there: no python3.9 or node, temp-cwd scripts). Linux CI
-        # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches.
+        # is one persistent pool (hq decisions/junctions.md 2026-11-20): cmux-linux past the fork branches, Blacksmith only via the CI_OVERFLOW_LINUX switch.
         # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
@@ -276,7 +276,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
-            " || 'cmux-linux' }}",
+            " || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):

@@ -338,6 +338,11 @@ path = "tests/test_ci_linux_single_size.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_overflow_switch_routes.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_overflow_switch_routes.py"
+
+[[test]]
 path = "tests/test_ci_macho_parity.py"
 lane = "linux-guard"
 
