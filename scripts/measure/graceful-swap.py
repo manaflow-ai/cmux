@@ -59,6 +59,13 @@ PIXEL_DELTA = 24
 # a spinner or a cursor stay under it).
 FRAME_DIFF = 0.004
 MAX_SHIFT = 48  # samples
+# A change confined to a few samples (a word added to a composer's foot: about 60 samples, 0.3% of a pane
+# at 1x) stays under FRAME_DIFF, so a region whose end picture differs from its before picture in at
+# least this share of samples is also timed by where it changed: the first frame in which most of
+# those samples (ARRIVED) show their end value counts as its first change. cmux#50535's fleet run saw
+# the save's "GSW" on screen in 19 of 20 films and timed none of them.
+LOCAL_DIFF = 0.001
+ARRIVED = 0.8
 
 RUNNER = r'''
 import json, os, subprocess, sys, time
@@ -137,6 +144,17 @@ def frames(movie: Path, rect: tuple[int, int, int, int]) -> tuple[list[bytes], l
     return out, times, sw, sh
 
 
+def changed_samples(a: bytes, b: bytes) -> list[int]:
+    return [i for i, (p, q) in enumerate(zip(a, b)) if abs(p - q) > PIXEL_DELTA]
+
+
+def arrived_share(frame: bytes, after: bytes, where: list[int]) -> float:
+    """The share of samples `where` (those the change touched) at which `frame` already shows the end picture."""
+    if not where:
+        return 0.0
+    return sum(1 for i in where if abs(frame[i] - after[i]) <= PIXEL_DELTA) / len(where)
+
+
 def changed_share(a: bytes, b: bytes) -> float:
     if not a:
         return 0.0
@@ -196,6 +214,13 @@ def analyze_region(movie: Path, name: str, rect, trigger: float, frames_dir: Pat
             blank.append(i)
     unsettled = [i for i in after_idx if changed_share(samples[i], after) > FRAME_DIFF]
     end_diff = changed_share(before, after)
+    # A small change (under FRAME_DIFF): its first frame is the first that shows it.
+    where = changed_samples(before, after)
+    if not changed and len(where) >= max(1, LOCAL_DIFF * len(before)):
+        arrived = [i for i in after_idx if arrived_share(samples[i], after, where) >= ARRIVED]
+        if arrived:
+            changed = [i for i in after_idx if i >= arrived[0]]
+            unsettled = unsettled or [arrived[0]]
     if frames_dir:
         frames_dir.mkdir(parents=True, exist_ok=True)
         write_png(frames_dir / f"{name}-before.png", before, w, h)
