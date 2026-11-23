@@ -44,6 +44,7 @@ function Block({ block }: { block: DocBlock }) {
   if ("h2" in block) return <DocsHeading level={2} id={headingId(block.h2)}>{block.h2}</DocsHeading>;
   if ("p" in block) return <p>{block.p}</p>;
   if ("ul" in block) return <ul>{block.ul.map((item) => <li key={item}>{item}</li>)}</ul>;
+  if ("ol" in block) return <ol>{block.ol.map((item) => <li key={item}>{item}</li>)}</ol>;
   if ("code" in block) return <CodeBlock lang={block.lang ?? "bash"}>{block.code}</CodeBlock>;
   if ("diagram" in block) return <ArchitectureDiagram caption={block.caption} />;
   if ("files" in block) {

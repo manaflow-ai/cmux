@@ -197,6 +197,7 @@ export const navItems: NavEntry[] = [
     children: [
       { titleKey: "nextGettingStarted", href: "/docs/next", locales: baseDocsLocales },
       { titleKey: "nextArchitecture", href: "/docs/next/architecture", locales: baseDocsLocales },
+      { titleKey: "nextStart", href: "/docs/next/start", locales: baseDocsLocales },
       { titleKey: "nextUpdates", href: "/docs/next/updates", locales: baseDocsLocales },
       { titleKey: "nextHome", href: "/docs/next/home-and-chief", locales: baseDocsLocales },
       { titleKey: "nextAgents", href: "/docs/next/agents", locales: baseDocsLocales },

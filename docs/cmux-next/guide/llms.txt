@@ -5,6 +5,7 @@
 ## Pages
 
 - [Getting started with cmux-next](getting-started.md): What cmux-next is, how to install it, and how to update it.
+- [Start here](start.md): From nothing to a working agent on cmux Cloud, five ways: in the app, from the CLI, by pointing an agent at one URL, through Chief, and from your phone.
 - [How cmux NEXT fits together](architecture.md): The app, the daemons that run your terminals and agents, your machines, and cmux Cloud: what each part does and where its code is.
 - [Install, update, and nightly](updates.md): How cmux-next updates and how to check your build.
 - [Home and Chief](home-and-chief.md): The Home screen, Chief, and group chats.

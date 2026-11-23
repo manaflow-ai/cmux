@@ -31,6 +31,7 @@ function pageMarkdown(page: NextDocPage, links: Links): string {
     else if ("p" in block) lines.push(block.p, "");
     else if ("note" in block) lines.push(`> ${block.note}`, "");
     else if ("ul" in block) lines.push(...block.ul.map((item) => `- ${item}`), "");
+    else if ("ol" in block) lines.push(...block.ol.map((item, i) => `${i + 1}. ${item}`), "");
     else if ("code" in block) lines.push(`\`\`\`${block.lang ?? "bash"}`, block.code, "```", "");
     else if ("diagram" in block) lines.push(block.caption, "");
     else lines.push("| Where | What |", "| --- | --- |", ...block.files.map((file) => `| [\`${file.path}\`](${repoSourceHref(file.path, file.kind)}) | ${file.what} |`), "");

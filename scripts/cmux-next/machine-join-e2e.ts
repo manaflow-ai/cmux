@@ -21,6 +21,9 @@
  * revoke run in `finally` and on SIGINT/SIGTERM, so every path after the mint revokes.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
  *
+ * `--scenario own-machine-parity` runs a different scenario (own-machine-parity.ts: a second Mac joined by sign-in, a chat
+ * in a picked folder, a dev server's port, a file, 3 runs, a JSON report); it reads no secret and joins nothing.
+ *
  * Share (--share-cmux-rd): while joined, proves a joined headless Linux machine is shared with no
  * step on it (Leo, 2026-11-16: "if you've connected to a headlessly running mini why... would it
  * need anything?"). Nothing runs on the host after the join but its daemon (step 4, as the join
@@ -1503,6 +1506,31 @@ export function realDeps(): Deps {
       }),
     timeout: (ms) => AbortSignal.timeout(ms)
   }
+}
+
+if (import.meta.main && process.argv.includes("--scenario")) {
+  // Scenarios other than the join: no stack secret is read or needed (the Macs are signed in by the person).
+  const argv = process.argv.slice(2)
+  const scenario = argv[argv.indexOf("--scenario") + 1]
+  if (scenario !== "own-machine-parity") {
+    console.error(`machine-join-e2e: refused: unknown scenario ${scenario}`)
+    process.exit(2)
+  }
+  const m = await import("./own-machine-parity")
+  const o = m.parseOptions(argv, process.env)
+  if (typeof o === "string") {
+    console.error(`machine-join-e2e: refused: ${o}`)
+    process.exit(2)
+  }
+  const real = realDeps()
+  const deps: import("./own-machine-parity").Deps = {
+    exec: (argv, timeoutMs) => real.run(argv, { env: { PATH: process.env.PATH ?? CHILD_PATH, HOME: process.env.HOME ?? "/" }, timeoutMs }),
+    now: real.now,
+    sleep: (ms) => real.sleep(ms),
+    write: real.write,
+    writeFile: real.writeFile
+  }
+  process.exit(m.exitCode(await m.runScenario(o, deps)))
 }
 
 if (import.meta.main) {

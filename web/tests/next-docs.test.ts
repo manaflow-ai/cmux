@@ -114,6 +114,25 @@ describe("cmux-next docs", () => {
     expect(blocks).toEqual([prompt!]);
   });
 
+  // Start here repeats two of cmux setup's prompts, and its one-line agent entry names its own
+  // Markdown URL, which llms.txt sends an agent to first.
+  test("the Start here page's prompts are cmux setup's, and llms.txt points an agent at it", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const promptOf = (heading: string) =>
+      generated.split("\n## ").find((part) => part.startsWith(heading))?.match(/```text\n([^\n]+)\n```/)?.[1];
+    const body = nextDocPage("start")!.body;
+    const blocks = body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    const url = `https://cmux.com${nextDocPublicPath("start")}.md`;
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toContain(url);
+    expect(blocks.slice(1)).toEqual([promptOf("Start a chat on cmux Cloud")!, promptOf("Use cmux from an iPhone")!]);
+    // The heading the entry line and llms.txt both name.
+    expect(body).toContainEqual({ h2: "If you are an agent" });
+    const llms = buildLlmsText("https://cmux.com");
+    expect(llms.indexOf(url)).toBeGreaterThan(-1);
+    expect(llms.indexOf(url)).toBeLessThan(llms.indexOf("## What cmux is"));
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
@@ -131,6 +150,9 @@ describe("cmux-next docs", () => {
       // and `cmux device` (src/devices/mod.rs).
       "cmux acp ls", "cmux acp new", "cmux acp send", "cmux acp wait", "cmux acp last", "cmux acp daemon",
       "cmux device list", "cmux device doctor", "cmux device revoke",
+      // The Rust CLI's sign-in and chat commands, as cmux setup's cloud_chat prompt writes them
+      // (docs/chief-setup-prompts.md), and classic's machine verbs.
+      "cmux login", "cmux whoami", "cmux chat --on", "cmux vm pause",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {
@@ -203,7 +225,7 @@ describe("cmux-next docs", () => {
     expect(readdirSync(dir).sort()).toEqual(Object.keys(expected).sort());
     for (const [name, text] of Object.entries(expected)) expect([name, readFileSync(join(dir, name), "utf8")]).toEqual([name, text]);
     expect(expected["architecture.md"]).toContain("](acpmux.md)");
-    expect(expected["llms-full.txt"]).not.toContain("https://cmux.com/docs");
+    expect(expected["llms-full.txt"]).not.toContain("](https://cmux.com/docs");
   });
 
   test("Markdown variants resolve on cmux.com and in the nightly zone", () => {

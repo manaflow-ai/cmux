@@ -58,6 +58,7 @@ cmux workspace import-classic
 
 ## Next
 
+- [Start here](start.md)
 - [Home and Chief](home-and-chief.md)
 - [Workspaces, panes, tabs, and groups](workspaces.md)
 - [Command palette](command-palette.md)
