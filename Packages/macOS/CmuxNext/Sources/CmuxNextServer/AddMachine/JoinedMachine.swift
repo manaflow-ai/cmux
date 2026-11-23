@@ -119,9 +119,14 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
 }
 
 extension JoinedMachine {
-    /// Whether it reported a Mac at join: only a Mac shows the consent card that answers New Workspace's
-    /// ask (``JoinedDialAnswer``), so only a Mac's row asks.
+    /// Whether it reported a Mac at join.
     public var isMac: Bool { ["macos", "darwin"].contains(platform?.lowercased() ?? "") }
+
+    /// Whether New Workspace on its row dials it over the hub (``SignedInMachineDial``): online, any
+    /// platform. A Mac signed in on itself answers with its consent card; a Mac or Linux box joined by a
+    /// line or a pair code from another device admits on that join (acpmux `session_service.rs`), and one
+    /// whose acpmux predates that answers `service.off` (the row's "Update cmux on …").
+    public var opensOverHub: Bool { state == .online }
 
     /// Its route among acpmux's (`_acpmux/machine_routes`' `machines`): the one whose hub `daemonId` is
     /// its `meshPeerId`; with no `meshPeerId`, the only one whose host is its host name or name. Nil: none,
