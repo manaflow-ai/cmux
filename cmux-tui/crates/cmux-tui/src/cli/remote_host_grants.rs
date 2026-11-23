@@ -37,6 +37,8 @@ pub(super) struct Grant {
     pub needed_for: &'static str,
     /// The pane's URL.
     pub pane: &'static str,
+    /// The list it is in under System Settings > Privacy & Security on current macOS.
+    pub settings: &'static str,
 }
 
 pub(super) const GRANTS: [Grant; 2] = [
@@ -46,6 +48,7 @@ pub(super) const GRANTS: [Grant; 2] = [
         name: "Screen Recording",
         needed_for: "Screen Sharing and Computer Use screenshots",
         pane: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        settings: "Screen & System Audio Recording",
     },
     Grant {
         key: "accessibility",
@@ -53,6 +56,7 @@ pub(super) const GRANTS: [Grant; 2] = [
         name: "Accessibility",
         needed_for: "control over Screen Sharing and Computer Use clicks and typing",
         pane: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        settings: "Accessibility",
     },
 ];
 
@@ -62,6 +66,9 @@ pub(super) const GRANTS: [Grant; 2] = [
 pub(super) enum Holder {
     Remote,
     App,
+    /// The Screen Sharing helper a share runs (`cmux-screen-sharing serve`, its own responsible
+    /// process): what captures a device hub share, so its own reading counts before the app's.
+    Helper,
 }
 
 impl Holder {
@@ -70,20 +77,28 @@ impl Holder {
         match self {
             Self::Remote => "cmux Remote",
             Self::App => "cmux app",
+            Self::Helper => "Screen Sharing helper",
         }
     }
 
-    /// The name System Settings lists it under.
-    fn listed_as(self) -> &'static str {
+    /// The name System Settings lists it under: the helper's own item where it reported one
+    /// (`cmux NIGHTLY Screen Sharing`, `cmux Computer Use`).
+    fn listed_as(self, status: Option<&Value>) -> String {
         match self {
-            Self::Remote => "cmux Remote",
-            Self::App => "cmux",
+            Self::Remote => "cmux Remote".into(),
+            Self::App => "cmux".into(),
+            Self::Helper => status
+                .map(|status| status.get("data").unwrap_or(status))
+                .and_then(|status| status.pointer("/share_host/helper/permissions/listed_as"))
+                .and_then(Value::as_str)
+                .unwrap_or("cmux Computer Use")
+                .to_owned(),
         }
     }
 }
 
 /// A grant's state on the Mac and who holds it: `Some(true)` given, `Some(false)` missing,
-/// `None` unknown (neither cmux Remote nor the cmux app reported it).
+/// `None` unknown (neither cmux Remote, the Screen Sharing helper nor the cmux app reported it).
 pub(super) fn reading(status: &Value, grant: &Grant) -> (Option<bool>, Holder) {
     let status = status.get("data").unwrap_or(status);
     let remote = status
@@ -98,6 +113,13 @@ pub(super) fn reading(status: &Value, grant: &Grant) -> (Option<bool>, Holder) {
     let bundled = status.get("bundled").and_then(Value::as_bool);
     if bundled == Some(true) {
         return (None, Holder::Remote);
+    }
+    // The helper read its grants itself when a share started it (`share-host status`).
+    let helper = status
+        .pointer(&format!("/share_host/helper/permissions/{}", grant.field))
+        .and_then(Value::as_bool);
+    if helper.is_some() {
+        return (helper, Holder::Helper);
     }
     let app = status.pointer(&format!("/app/permissions/{}", grant.field)).and_then(Value::as_bool);
     let holder = if app.is_some() || bundled == Some(false) { Holder::App } else { Holder::Remote };
@@ -141,6 +163,12 @@ for b in /Applications/cmux*.app/Contents/Resources/bin/cmux "$(command -v cmux 
   break
 done
 [ -n "$cmux" ] || printf 'status\t\n'
+acp=
+[ -n "$cmux" ] && [ -x "$(dirname "$cmux")/acpmux" ] && acp=$(dirname "$cmux")/acpmux
+[ -n "$acp" ] || acp=$(command -v acpmux 2>/dev/null)
+if [ -n "$acp" ] && out=$("$acp" --json share-host status 2>/dev/null); then
+  printf 'sharehost\t%s\n' "$(printf '%s' "$out" | tr -d '\n')"
+fi
 printf 'screensharing\t%s\n' "$(launchctl print-disabled system 2>/dev/null | grep '"com.apple.screensharing"' | head -n 1)"
 if pgrep -x ARDAgent >/dev/null 2>&1; then printf 'ard\ton\n'; else printf 'ard\toff\n'; fi
 if command -v nc >/dev/null 2>&1; then
@@ -181,6 +209,23 @@ pub(super) fn parse_probe(stdout: &str) -> Probe {
         let value = value.trim();
         match tag {
             "status" => probe.status = serde_json::from_str(value).ok(),
+            // After `status`: the share host's status (its helper's own grant reading) joins
+            // it as `share_host`.
+            "sharehost" => {
+                if let (Ok(share_host), Some(Value::Object(map))) =
+                    (serde_json::from_str::<Value>(value), probe.status.as_mut())
+                {
+                    let wrapped = matches!(map.get("data"), Some(Value::Object(_)));
+                    let map = if wrapped {
+                        map.get_mut("data").and_then(Value::as_object_mut)
+                    } else {
+                        Some(map)
+                    };
+                    if let Some(map) = map {
+                        map.insert("share_host".into(), share_host);
+                    }
+                }
+            }
             "screensharing" => {
                 // `"com.apple.screensharing" => disabled|enabled` (older) or `=> true|false`
                 // (newer, true meaning disabled); no line: launchd has no record.
@@ -233,15 +278,20 @@ pub(super) fn report(device: Option<&str>, probe: &Probe) -> Value {
                     (Some(device), _) => format!("cmux remote-host grants --device {} --open", super::fix_command::quote_arg(device)),
                     (None, Holder::Remote) => format!("cmux remote-host open-settings {}", grant.key),
                     // No cmux Remote to open it: the pane itself.
-                    (None, Holder::App) => format!("open '{}'", grant.pane),
+                    (None, Holder::App | Holder::Helper) => format!("open '{}'", grant.pane),
                 };
+                let listed = holder.listed_as(probe.status.as_ref());
                 let words = match (state, holder) {
+                    (Some(false), Holder::Helper) => format!(
+                        "{} not granted on {on}: on {on}, open System Settings > Privacy & Security > {} and turn on \"{listed}\" ({}).",
+                        grant.name, grant.settings, grant.needed_for
+                    ),
                     (Some(false), _) => format!(
-                        "Missing on {on}: {} for {} ({}). Turn on {} in System Settings > Privacy & Security > {} on {on}.",
-                        grant.name, holder.listed_as(), grant.needed_for, holder.listed_as(), grant.name
+                        "Missing on {on}: {} for {listed} ({}). Turn on {listed} in System Settings > Privacy & Security > {} on {on}.",
+                        grant.name, grant.needed_for, grant.name
                     ),
                     (_, Holder::Remote) => format!("Unknown on {on}: cmux Remote is not running there, so {} was not read.", grant.name),
-                    (_, Holder::App) => format!(
+                    (_, Holder::App | Holder::Helper) => format!(
                         "Unknown on {on}: the cmux app there has not reported {} yet (it does when it connects and when it becomes active).",
                         grant.name
                     ),

@@ -20,7 +20,7 @@
     renderSection: () => renderSection
   });
   var events_default = {
-    $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again. The daemon delivers a stream only to an app that may call its `reads` op (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
+    $comment: "The event streams an extension can subscribe to (cmux.events.on, cmux.live). An event is an invalidation with no payload: the app reads again (a stream fed from outside this machine, github.changed, may say {\"live\": bool} about its push channel). The daemon delivers a stream only to an app that may call its `reads` op with its optional `readsParams` (apps/subscriptions.rs stream_readable), so that op's scope is the stream's scope; a `reads` op whose catalog scope has a <placeholder> (integration.request) names the narrowed scope in `scope`. tools/gen-cmux-global.ts checks each `reads` against the catalog and writes the SDKs' table (cmux-extension-sdk/api.json); cmux-tui-core's routing tests check that every stream the daemon publishes is listed here.",
     version: 1,
     events: {
       "workspace.changed": {
@@ -58,6 +58,12 @@
       "settings.changed": {
         docs: "A cmux setting changed (cmux-next.json, a managed layer, Settings, the CLI or an agent). Read the keys you use again with settings.get; the event names none and carries no values.",
         reads: "settings.get"
+      },
+      "github.changed": {
+        docs: `GitHub data the person can read changed: a pull request, a review, a check run or suite, or a commit status, on a repository a GitHub connection covers. The Cloud turns the GitHub App's verified webhook into this invalidation within seconds; read GitHub again through integration.request. The body is {} for a change, or {"live": bool} when the push channel goes up or down (signed out, offline, no GitHub connection): a new subscriber hears {"live": ...} first. While it is not live, keep a slow re-read.`,
+        reads: "integration.request",
+        readsParams: { provider: "github", method: "GET" },
+        scope: "integration:github:read"
       },
       "theme.changed": {
         docs: "The theme changed: the theme, app theme, theme file, theme edits, accent, hue, saturation or highlight color. Theme tones (cmux.theme) repaint on their own; read settings.get again for anything you derive from them.",
@@ -896,6 +902,18 @@
         scope: "group:read",
         class: "read"
       },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
+      },
       "group.rename": {
         scope: "group:write",
         class: "mutation"
@@ -1142,6 +1160,18 @@
       },
       "notification.list": {
         scope: "notification:read",
+        class: "read"
+      },
+      "page.follow": {
+        scope: "page:write",
+        class: "mutation"
+      },
+      "page.hints": {
+        scope: "page:write",
+        class: "mutation"
+      },
+      "page.read": {
+        scope: "page:read",
         class: "read"
       },
       "palette_usage.forget": {
@@ -1812,6 +1842,38 @@
         scope: "team:read",
         class: "read"
       },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
+      },
       "team.device.compliance": {
         scope: "team:read",
         class: "read"
@@ -2277,6 +2339,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2285,6 +2350,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2313,6 +2380,23 @@
       "workspace.close",
       "workspace.open_url"
     ]
+  };
+  var TYPE_ROLES = {
+    numeral: { size: 34, weight: "semibold" },
+    heading: { size: 20, weight: "semibold" },
+    title: { size: 15, weight: "semibold" },
+    label: { size: 13, weight: "semibold" },
+    body: { size: 13, weight: "regular" },
+    caption: { size: 12, weight: "regular" },
+    footnote: { size: 11, weight: "regular" }
+  };
+  var WIDGET_TYPE = {
+    bigNumber: TYPE_ROLES.numeral.size,
+    title: TYPE_ROLES.title.size,
+    label: TYPE_ROLES.label.size,
+    body: TYPE_ROLES.body.size,
+    caption: TYPE_ROLES.caption.size,
+    footnote: TYPE_ROLES.footnote.size
   };
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
@@ -2351,14 +2435,37 @@
     return render;
   }
   var EVENT_STREAMS = Object.keys(events_default.events);
-  var [count, setCount] = signal(0);
+  var [tasks, setTasks] = signal([
+    { id: 1, title: "Review pull requests", note: "3 waiting on you", done: true },
+    { id: 2, title: "Answer the design thread", note: "Since this morning", done: false },
+    { id: 3, title: "Write the release notes", note: "Due Friday", done: false }
+  ]);
+  var done = computed(() => tasks().filter((t) => t.done).length);
+  var left = computed(() => tasks().length - done());
+  var flip = (id) => setTasks((list) => list.map((t) => t.id === id ? { ...t, done: !t.done } : t));
   var renderSection = section(() => VStack([
-    Panel({ title: "Hello" }, [
-      Text(() => `Clicked ${count()} times`),
+    Panel({ title: "{{TITLE}}" }, [
       HStack([
-        Button("Click", () => setCount((n) => n + 1)),
+        VStack({ alignment: "leading" }, [
+          Text(() => left() === 0 ? "All done" : `${left()} left today`).font("headline"),
+          Text(() => `${done()} of ${tasks().length} done`).font("caption").color("secondary")
+        ]),
         Spacer(),
-        Button("Say hi", () => cmux.toast({ title: "Hi from my extension", tone: "success" }))
+        Menu("More", [
+          Button("Clear done", () => setTasks((list) => list.filter((t) => !t.done))),
+          Divider(),
+          Button("Say hi", () => cmux.toast({ title: "Hi from {{TITLE}}", tone: "success" }))
+        ])
+      ]),
+      ProgressView(() => done() / Math.max(1, tasks().length)),
+      VStack([
+        ForEach({ items: tasks, key: (t) => t.id }, (t) => Row({
+          title: () => t().title,
+          subtitle: () => t().note,
+          symbol: () => t().done ? "checkmark.circle.fill" : "circle",
+          tint: () => t().done ? cmux.theme.success : cmux.theme.text.tertiary
+        }).onTap(() => flip(t().id))),
+        () => tasks().length === 0 ? EmptyState({ title: "Nothing left", symbol: "checkmark.circle" }) : null
       ])
     ])
   ]));

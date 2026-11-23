@@ -299,6 +299,7 @@ impl SurfaceSessionScope {
             | MuxEvent::GitHubChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
+            | MuxEvent::AgentSessionShareChanged { .. }
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }

@@ -1,4 +1,4 @@
-use super::{MAX_EVENT_PAGES, Transcript, load};
+use super::{MAX_EVENT_PAGES, Transcript, load, sender_name_of};
 use serde_json::{Value, json};
 
 fn update(seq: u64, update: Value) -> Value {
@@ -237,4 +237,75 @@ fn a_read_masks_a_secret_split_across_chunks_and_holds_back_a_half_written_one()
     assert_eq!(page["items"][0]["text"], "use [AWS access key] now", "{page}");
     assert_eq!(page["items"][0]["from_name"], "bot [AWS access key]", "{page}");
     assert_eq!(page["items"][1]["text"], "set [AWS access key] done", "{page}");
+}
+
+/// manaflow-ai/cmux#51004: a Chief turn's send names the Chief (its `mux.label`), never its
+/// session name (`optchat-<home>-<n>`); any other chat names itself; a name is one line of at
+/// most 64 characters, and a chat with no shown name names none.
+#[test]
+fn a_chat_send_names_the_chief_or_the_sending_chat() {
+    let chief = json!({"name": "optchat-b902d10e-10474",
+                       "tags": {"mux.label": "Chief", "cmux.chief.participant": "agent_mux"}});
+    assert_eq!(sender_name_of(&chief).as_deref(), Some("Chief"));
+    let lane = json!({"name": "45953: Cloud first-token speed", "tags": {}});
+    assert_eq!(sender_name_of(&lane).as_deref(), Some("45953: Cloud first-token speed"));
+    let messy = json!({"name": "x", "tags": {"mux.label": "  Night\nshift\u{200B}  Chief "}});
+    assert_eq!(sender_name_of(&messy).as_deref(), Some("Night shift Chief"));
+    let long = json!({"name": "n".repeat(100)});
+    assert_eq!(sender_name_of(&long).map(|name| name.chars().count()), Some(64));
+    assert_eq!(sender_name_of(&json!({"name": "  ", "tags": {"mux.label": ""}})), None);
+    assert_eq!(sender_name_of(&json!({})), None);
+}
+
+/// `cmux chat --wait`'s reads after its wait (the wait, the turn's start, the turn) reach acpmux
+/// on one connection: before, each built a runtime and dialed again, hello and all.
+#[cfg(unix)]
+#[test]
+fn reads_of_one_acpmux_share_one_connection() {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::os::unix::net::UnixListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let requests = Arc::new(AtomicUsize::new(0));
+    {
+        let (accepted, requests) = (accepted.clone(), requests.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                accepted.fetch_add(1, Ordering::SeqCst);
+                let requests = requests.clone();
+                std::thread::spawn(move || {
+                    let mut writer = stream.try_clone().unwrap();
+                    for line in BufReader::new(stream).lines() {
+                        let Ok(line) = line else { return };
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        requests.fetch_add(1, Ordering::SeqCst);
+                        let result = match request["method"].as_str() {
+                            Some("_acpmux/wait") => json!({"sessions": [{"status": "ready"}],
+                                "resolved": [{"status": "ready"}], "timedOut": false}),
+                            Some("_acpmux/events") => json!({"events": [], "hasMore": false}),
+                            _ => json!({}),
+                        };
+                        let answer =
+                            json!({"jsonrpc": "2.0", "id": request["id"], "result": result});
+                        writeln!(writer, "{answer}").unwrap();
+                    }
+                });
+            }
+        });
+    }
+    let socket = Some(path.as_path());
+    let waited = super::acp::wait_turn("chat", std::time::Duration::from_secs(5), socket).unwrap();
+    assert_eq!(waited["timedOut"], false);
+    super::acp::events_before("chat", u64::MAX, 1000, socket).unwrap();
+    super::acp::events("chat", 0, 100, socket).unwrap();
+    super::acp::events("chat", 1, 100, socket).unwrap();
+    assert_eq!(accepted.load(Ordering::SeqCst), 1, "one connection for every read");
+    // The hello, then one request per read.
+    assert_eq!(requests.load(Ordering::SeqCst), 5);
 }
