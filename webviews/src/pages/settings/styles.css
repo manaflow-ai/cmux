@@ -3059,7 +3059,7 @@ button.menu-disclosure {
    classes each, so a one-class rule here lost to them. The button stayed 24px tall at control size
    and the sidebar cut the second line in half. Every rule here is scoped under `.doctor-chip` to
    outrank them. The button grows with its text at every density and text size; at most three whole
-   lines show, the last ending in an ellipsis, and the full line is the button's tooltip. */
+   lines show, the last ending in an ellipsis; Review opens the full list. */
 .doctor-chip {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

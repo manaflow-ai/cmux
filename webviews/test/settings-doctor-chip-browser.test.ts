@@ -78,7 +78,6 @@ await requireBrowserLane("settings-doctor-chip-browser.test.ts", async () => {
           line: { top: l.top, bottom: l.bottom, height: l.height, scroll: line.scrollHeight },
           dotCenter: d.top + d.height / 2,
           dotSize: d.height,
-          tooltip: button.title,
           text: line.textContent ?? "",
         };
       },
@@ -102,7 +101,8 @@ await requireBrowserLane("settings-doctor-chip-browser.test.ts", async () => {
               expect(m.lineHeight, at).toBeCloseTo(m.want.lineHeight, 1);
               // Whole lines only: two or three of them (17 long findings), never a half line.
               const lines = m.line.height / m.lineHeight;
-              expect(Math.abs(lines - Math.round(lines)), at).toBeLessThan(0.05);
+              // Within 1.5px of whole lines: an engine may round a fractional line height per line.
+              expect(Math.abs(m.line.height - Math.round(lines) * m.lineHeight), at).toBeLessThan(1.5);
               expect(Math.round(lines), at).toBeGreaterThanOrEqual(2);
               expect(Math.round(lines), at).toBeLessThanOrEqual(3);
               // The button holds its text, and the sidebar holds the button.
@@ -112,8 +112,7 @@ await requireBrowserLane("settings-doctor-chip-browser.test.ts", async () => {
               // The 6px dot is centered on the first line.
               expect(m.dotSize, at).toBeCloseTo(6, 0);
               expect(Math.abs(m.dotCenter - (m.line.top + m.lineHeight / 2)), at).toBeLessThan(1);
-              // The full line is the tooltip, and it reads naturally.
-              expect(m.tooltip, at).toBe(m.text);
+              // The line reads naturally.
               expect(m.text, at).toStartWith("17 customization problems: ");
             }
         }
