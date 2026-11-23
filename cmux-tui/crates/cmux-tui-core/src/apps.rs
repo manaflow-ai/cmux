@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod activation;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -71,11 +73,15 @@ pub(crate) fn person_locale() -> &'static str {
 #[cfg(unix)]
 mod mcp_tools;
 #[cfg(unix)]
+mod meters;
+#[cfg(unix)]
 mod mirror;
 #[cfg(unix)]
 mod open_tokens;
 #[cfg(unix)]
 mod openers;
+#[cfg(unix)]
+mod overlay;
 #[cfg(unix)]
 // The `render: web` page bridge: `page_calls` runs each page's calls through it
 // (`allowed_ops` and the rate-limited count are read only by tests).
@@ -96,6 +102,8 @@ mod runs;
 #[cfg(unix)]
 mod safe_mode;
 #[cfg(unix)]
+mod scene_nodes;
+#[cfg(unix)]
 mod server_external;
 #[cfg(unix)]
 mod server_tmp;
@@ -107,6 +115,8 @@ mod serves;
 mod sidebar;
 #[cfg(all(test, unix))]
 mod sidebar_integration_tests;
+#[cfg(unix)]
+mod signal_sources;
 #[cfg(unix)]
 mod status_items;
 #[cfg(unix)]
@@ -137,6 +147,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod toolbar;
 #[cfg(unix)]
 mod widgets;
 

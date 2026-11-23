@@ -398,7 +398,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         on = resolve_labels(mac, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD]})
         self.assertIn("blacksmith-6vcpu-macos-26", on - resolve_labels(mac, variables=SWITCH_OFF))
 
-    def test_the_canary_takes_the_owned_side_label_then_blacksmith(self) -> None:
+    def test_the_canary_takes_the_owned_side_label_then_the_linux_label(self) -> None:
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-canary.yml").read_text(encoding="utf-8"))["jobs"]
         self.assertIn("vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_PR_POOL_OWNED == '1' && "
@@ -407,7 +407,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                       "fromJSON(vars.RUNNER_POOLS).macos_26) }}", runs_on_text(jobs["canary"], "canary"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
-                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
+                self.assertRegex(runs_on_text(jobs[name], name), r"'cmux-linux' }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.
