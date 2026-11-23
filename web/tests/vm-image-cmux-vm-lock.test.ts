@@ -560,7 +560,8 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
   test("0.2.8 is pinned from release cmux-rd-v0.2.8 (#49894, run 45005880299) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
     expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.8"), sha256: "cb62708f01683dc5b18da85f98c2dc8dc5e847598ab957c1d4f3b49cff5d230b", size: 9785324 });
-    expect(pinned.pendingRelease).toBeUndefined();
+    // 0.2.9 (the own-display fix, #50463) is the release after it; the 0.2.9 pin PR clears this, as #50100 did for 0.2.8.
+    expect(pinned.pendingRelease).toBe("0.2.9");
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });

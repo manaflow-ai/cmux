@@ -6,7 +6,8 @@ public import Foundation
 import os
 
 /// The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the signed app
-/// `<app> Screen Sharing.app` in `Contents/Library`, whose executable is the cmux.rd/1 host
+/// `<app> Helper.app` in `Contents/Library` (`<app> Screen Sharing.app` in builds before
+/// 2026-11-22; bundle id `<app id>.screen-sharing` in both), whose executable is the cmux.rd/1 host
 /// (`cmux-rd`, cmux-tui/crates/cmux-rd-host). It holds this Mac's Screen Recording and
 /// Accessibility grants for screen sharing, so macOS prompts for, lists and restarts the
 /// helper, never cmux: a grant never relaunches this app. Each use is a fresh helper process
@@ -16,8 +17,11 @@ import os
 public nonisolated final class MacScreenHelper: Sendable {
     /// The helper's executable inside its bundle.
     static let executableName = "cmux-screen-sharing"
-    /// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-    static let bundleSuffix = " Screen Sharing.app"
+    /// Every channel's helper bundle ends with one of these, preferred first: `cmux NIGHTLY
+    /// Helper.app` (the name macOS permission alerts show), or `cmux NIGHTLY Screen Sharing.app`
+    /// in an app built before the rename. Another bundle may end in " Helper.app": the helper is
+    /// the one carrying ``executableName``.
+    static let bundleSuffixes = [" Helper.app", " Screen Sharing.app"]
 
     /// The bundled helper app (`CMUX_NEXT_SCREEN_HELPER_APP` in development), its name without
     /// `.app` (what System Settings lists), and the launch that stages and starts it.
@@ -31,10 +35,12 @@ public nonisolated final class MacScreenHelper: Sendable {
     /// How long a short command (a probe, a request) may take before it is ended.
     private let clock: any Clock<Duration>
 
-    init(app: URL, launch: SignedHelperLaunch = .screenSharing(), clock: any Clock<Duration> = ContinuousClock()) {
+    /// `launch` defaults to the copy named by the helper's own bundle id (one per channel: a
+    /// NIGHTLY side build carries NIGHTLY's helper, every DEV build the one DEV helper).
+    init(app: URL, launch: SignedHelperLaunch? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.app = app
         name = String(app.deletingPathExtension().lastPathComponent)
-        self.launch = launch
+        self.launch = launch ?? .screenSharing(helperBundleID: SignedHelperLaunch.bundleIdentifier(of: app))
         self.clock = clock
     }
 
@@ -46,11 +52,17 @@ public nonisolated final class MacScreenHelper: Sendable {
             return MacScreenHelper(app: URL(fileURLWithPath: path))
         }
         let library = bundle.bundleURL.appending(path: "Contents/Library", directoryHint: .isDirectory)
-        guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path),
-              let found = names.sorted().first(where: { $0.hasSuffix(bundleSuffix) }) else { return nil }
-        let app = library.appending(path: found, directoryHint: .isDirectory)
-        guard FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) else { return nil }
-        return MacScreenHelper(app: app)
+        guard let names = try? FileManager.checked.contentsOfDirectory(atPath: library.path) else { return nil }
+        let sorted = names.sorted()
+        for suffix in bundleSuffixes {
+            for found in sorted where found.hasSuffix(suffix) {
+                let app = library.appending(path: found, directoryHint: .isDirectory)
+                if FileManager.checked.isExecutableFile(atPath: app.appending(path: "Contents/MacOS/\(executableName)").path) {
+                    return MacScreenHelper(app: app)
+                }
+            }
+        }
+        return nil
     }
 
     /// The helper did not start because its verified copy could not be made: the copy out of
@@ -101,6 +113,33 @@ public nonisolated final class MacScreenHelper: Sendable {
         }
     }
 
+    /// Why a short helper command gave no grants: each its own cause, so a helper that would not
+    /// start, one that was ended at the deadline and one that exited without a reading never all
+    /// read as the same "no answer" (and never as a grant that is off).
+    enum NoAnswer: Equatable, Sendable {
+        /// Its verified copy could not be made, or the spawn failed.
+        case didNotStart(String)
+        /// It gave no answer within the deadline and was ended.
+        case timedOut
+        /// It exited (`status`, the raw `waitpid` status) without a grants line.
+        case exited(status: Int32)
+
+        /// The words `mac_screen` reports for it.
+        var reason: String {
+            switch self {
+            case let .didNotStart(why): "the Screen Sharing helper did not start: \(why)"
+            case .timedOut: "the Screen Sharing helper gave no answer within 10 seconds and was ended"
+            case let .exited(status):
+                (status & 0x7f) == 0 ? "the Screen Sharing helper exited (status \((status >> 8) & 0xff)) without reading its grants"
+                    : "the Screen Sharing helper was ended by signal \(status & 0x7f) before reading its grants"
+            }
+        }
+    }
+
+    /// Why the last short command gave no grants; nil after one that answered.
+    var lastNoAnswer: NoAnswer? { noAnswer.withLock { $0 } }
+    private let noAnswer = Mutex<NoAnswer?>(nil)
+
     /// `permissions`: a fresh helper reads its own grants and exits (no prompt).
     @concurrent package func permissions() async -> Permissions? {
         await answer(["permissions"])
@@ -117,12 +156,18 @@ public nonisolated final class MacScreenHelper: Sendable {
     }
 
     /// Runs one short helper command and decodes its one JSON line. Bounded: a helper that does
-    /// not answer within 10 s is ended and reads as no answer.
+    /// not answer within 10 s is ended. No answer is nil, its cause kept in ``lastNoAnswer``.
     @concurrent private func answer(_ arguments: [String]) async -> Permissions? {
-        guard let executable = await executable() else { return nil }
+        let outcome = await run(arguments)
+        noAnswer.withLock { $0 = outcome.failure }
+        return try? outcome.get()
+    }
+
+    @concurrent private func run(_ arguments: [String]) async -> Result<Permissions, NoAnswerError> {
+        guard let executable = await executable() else { return .failure(.init(.didNotStart(NotStaged(helper: name).localizedDescription))) }
         // Its stdin and stderr are /dev/null: nothing to send, and nothing of its diagnostics to keep.
         let null = FileHandle(forUpdatingAtPath: "/dev/null")
-        guard let null else { return nil }
+        guard let null else { return .failure(.init(.didNotStart("/dev/null could not be opened"))) }
         defer { try? null.close() }
         let stdout = Pipe()
         let pid: pid_t
@@ -131,7 +176,7 @@ public nonisolated final class MacScreenHelper: Sendable {
                                                stdout: stdout.fileHandleForWriting.fileDescriptor, stderr: null.fileDescriptor)
         } catch {
             logger.error("the Screen Sharing helper did not start: \(String(describing: error), privacy: .public)")
-            return nil
+            return .failure(.init(.didNotStart(String(describing: error))))
         }
         try? stdout.fileHandleForWriting.close()
         let reader = stdout.fileHandleForReading
@@ -151,10 +196,24 @@ public nonisolated final class MacScreenHelper: Sendable {
         while waitpid(pid, &status, 0) < 0, errno == EINTR {}
         guard let line = data?.split(separator: UInt8(ascii: "\n")).first,
               let permissions = try? JSONDecoder().decode(Permissions.self, from: Data(line)) else {
-            logger.error("the Screen Sharing helper gave no answer to \(arguments.first ?? "", privacy: .public)")
-            return nil
+            let cause: NoAnswer = gate.killed ? .timedOut : .exited(status: status)
+            logger.error("the Screen Sharing helper gave no answer to \(arguments.first ?? "", privacy: .public): \(cause.reason, privacy: .public)")
+            return .failure(.init(cause))
         }
-        return permissions
+        return .success(permissions)
+    }
+
+    /// ``NoAnswer`` as a `Result` failure.
+    struct NoAnswerError: Error {
+        var cause: NoAnswer
+        init(_ cause: NoAnswer) { self.cause = cause }
+    }
+}
+
+private nonisolated extension Result where Failure == MacScreenHelper.NoAnswerError {
+    var failure: MacScreenHelper.NoAnswer? {
+        if case let .failure(error) = self { return error.cause }
+        return nil
     }
 }
 
@@ -162,14 +221,23 @@ public nonisolated final class MacScreenHelper: Sendable {
 /// ``close()`` ran (before the reap), so it never reaches a pid the system has handed on.
 private nonisolated final class ReapGate: Sendable {
     private let pid: pid_t
+    // carve-out: a deadline thread and the reaper read these synchronously; an actor hop would race the reap.
     private let reaped = Mutex(false)
+    private let ended = Mutex(false)
 
     init(pid: pid_t) {
         self.pid = pid
     }
 
+    /// The deadline ended the helper.
+    var killed: Bool { ended.withLock { $0 } }
+
     func kill() {
-        reaped.withLock { if !$0 { _ = Darwin.kill(pid, SIGKILL) } }
+        reaped.withLock {
+            guard !$0 else { return }
+            _ = Darwin.kill(pid, SIGKILL)
+            ended.withLock { $0 = true }
+        }
     }
 
     func close() {

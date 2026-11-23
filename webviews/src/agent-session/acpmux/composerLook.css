@@ -49,7 +49,7 @@
    `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
    this leaves it alone. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
+  :root:not([data-cmux-see-through], [data-reduce-transparency], [data-glass="off"], [data-top-strip="plain"])
     .acpmux-composer[data-composer-look="codex"]
     > .acpmux-composer-strip {
     background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
@@ -124,10 +124,6 @@
   align-self: end;
   margin-top: 0;
   margin-bottom: var(--acpmux-codex-row-bottom);
-}
-/* A capped draft's leading controls keep the capped bottom inset (composerLocation.css). */
-.acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > :not(.acpmux-composer-actions) {
-  margin-bottom: var(--acpmux-lead-bottom, var(--acpmux-codex-row-bottom));
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
   grid-column: 2;

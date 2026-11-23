@@ -2,13 +2,3 @@
 #   <control> | <enabled|disabled> | <floor>
 # A failing reading passes while it reads at least the floor; raise or drop a line as fixes land.
 # Each run prints its worst reading per control as 'native-control-contrast baseline:' lines.
-# Popover glass over a white or a black page (a1275, 2026-11-22: the grounds batch 7's dialog-button fix fits to). The
-# icon buttons, the press fill and the checkbox fit their inks to the opaque page, not to the menu glass over it.
-OverflowButton | disabled | 2.47
-OverflowButton | enabled | 1.71
-PlusButton | disabled | 1.80
-PlusButton | enabled | 1.80
-SwiftUI Button (cmuxPressFill) | enabled | 2.55
-ThemedCheckbox | enabled | 2.84
-TitlebarBandButton | disabled | 1.35
-TitlebarBandButton | enabled | 2.01

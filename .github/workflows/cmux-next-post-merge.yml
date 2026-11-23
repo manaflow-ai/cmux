@@ -218,8 +218,18 @@ jobs:
       contents: read
       issues: write
 
+  gallery-health:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' gallery-health ')
+    uses: ./.github/workflows/gallery-health.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -366,9 +376,26 @@ jobs:
       # Creating a branch based on feat-cmux-next needs workflows write: its workflow files differ from
       # main's, and GitHub refuses or times out a token without it (drill-5, -6 and -7). Minted on every
       # branch, so a drill proves the same push; the pull request itself still opens with GH_TOKEN.
+      # The workflows token below creates and pushes every swap-out, probe and revert branch: a ref at a
+      # feat-cmux-next commit needs workflows write whatever the diff (drill 9 run 45096141472: HTTP 403 with
+      # the contents token). Its mint may fail (the App had no Workflows permission, hq#18499); then the
+      # contents-only push token takes over and only a diff touching .github/workflows/** stops, with the
+      # command to do it by hand.
       - name: Mint the revert push token
         id: push-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Mint the workflows push token
+        id: workflows-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -383,13 +410,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
           PUSH_TOKEN: ${{ steps.push-token.outputs.token || steps.app-token.outputs.token || github.token }}
+          WORKFLOWS_TOKEN: ${{ steps.workflows-token.outputs.token }}
           CULPRIT: ${{ needs.judge.outputs.culprit }}
           RED_JOB: ${{ needs.judge.outputs.job }}
           GOOD: ${{ needs.judge.outputs.good }}
           ORIGIN: ${{ needs.judge.outputs.origin }}
           BRANCH: ${{ github.ref_name }}
           DISPATCH_TOKEN: ${{ github.token }}
-          # Hot swap out first, for classes .github/piece-swap.json lists (only drill ships); 0 turns it off.
+          # Hot swap out first, for classes .github/piece-swap.json lists (drill, web-ui, rust-core); 0 turns it off.
           NEXT_PIECE_SWAP: ${{ vars.NEXT_PIECE_SWAP }}
           PIECES: ${{ needs.judge.outputs.pieces }}
           PIECE: ${{ needs.judge.outputs.piece }}
@@ -398,4 +426,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           python3 scripts/ci/post_merge_batch.py revert --branch "$BRANCH" --culprit "$CULPRIT" --job "$RED_JOB" \
             --good "$GOOD" --origin "$ORIGIN" --pieces "$PIECES" --piece "$PIECE" \
-            --push-url "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            --push-url "https://x-access-token:{token}@github.com/${GITHUB_REPOSITORY}.git"

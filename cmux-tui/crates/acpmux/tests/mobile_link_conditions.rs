@@ -28,6 +28,7 @@ mod daemon_env;
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_PROFILES",
     "NETCOND_PROFILES_FILE",
+    "NETCOND_RELAY",
     "NETCOND_SCALES",
     "NETCOND_RUNS",
     "NETCOND_SEED_BASE",
@@ -408,7 +409,11 @@ impl Control {
     /// Turns of ~1 KB answers (the fake agent echoes the prompt) until the chat holds `turns`.
     async fn seed(&mut self, session: &str, from: u64, turns: u64) {
         let pad = "lorem ipsum dolor sit amet ".repeat(37);
+        let started = Instant::now();
         for n in from..turns {
+            if n > from && n % 500 == 0 {
+                eprintln!("netcond: seeding turn {n}/{turns}, {:?} so far", started.elapsed());
+            }
             let id = self.prompt(session, &format!("turn {n}: {pad}")).await;
             let v = self.answer(id, BOUND).await.unwrap_or_else(|| panic!("seed turn {n} hung"));
             assert!(v.get("error").is_none(), "seed turn {n}: {v}");
@@ -426,6 +431,18 @@ fn env_list(name: &str, default: &[&str]) -> Vec<String> {
         }
         _ => default.iter().map(|s| (*s).to_owned()).collect(),
     }
+}
+
+/// The Cloud machine peer's second hop: `NETCOND_RELAY=<profile>` puts that shaped link between
+/// the phone's link and the hub, which then stands for the one a Cloud machine runs (the phone
+/// reaches it through the signed-in Mac's relay link). Rows name both hops: `lte@1+relay-80@1`.
+fn relay_hop(file: &ProfileFile) -> Option<LinkProfile> {
+    let name = std::env::var("NETCOND_RELAY").ok().filter(|name| !name.trim().is_empty())?;
+    Some(
+        file.get(name.trim())
+            .unwrap_or_else(|| panic!("no link profile {name} for NETCOND_RELAY"))
+            .clone(),
+    )
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -670,6 +687,7 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
         Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
         _ => ProfileFile::builtin(),
     };
+    let relay = relay_hop(&file);
     let all: Vec<&str> = file.profiles.iter().map(|p| p.name.as_str()).collect();
     let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", &all)
         .iter()
@@ -700,10 +718,12 @@ async fn chat_open_and_reconnect_under_mobile_link_profiles() {
         turns = turns.max(BASE_TURNS * x);
         eprintln!("netcond: {scale} = {turns} turns, seeded in {:?}", seeded.elapsed());
         for profile in &profiles {
-            let name = format!("{}@{}", profile.name, profile.version);
+            let name = profile.label(relay.as_ref());
             for run in 0..runs {
                 let seed = run + seed_base;
-                let shaper = match Shaper::start(upstream, profile.clone(), seed, &trace).await {
+                let started =
+                    Shaper::start_through(upstream, profile.clone(), relay.as_ref(), seed, &trace);
+                let (shaper, _hop) = match started.await {
                     Ok(s) => s,
                     Err(e) => {
                         let k = Key { profile: &name, phase: "cold", scale, run, seed };
@@ -985,7 +1005,8 @@ async fn chat_bytes_per_minute() {
     let file = ProfileFile::builtin();
     let profile_name = std::env::var("NETCOND_BW_PROFILE").unwrap_or_else(|_| "lte".to_owned());
     let profile = file.get(&profile_name).unwrap_or_else(|| panic!("no profile {profile_name}"));
-    let name = format!("{}@{}", profile.name, profile.version);
+    let relay = relay_hop(&file);
+    let name = profile.label(relay.as_ref());
     let turns = env_u64("NETCOND_BW_TURNS", 10_000);
     let secs = env_u64("NETCOND_BW_SECS", 60);
     let window_len = Duration::from_secs(secs);
@@ -1014,7 +1035,10 @@ async fn chat_bytes_per_minute() {
         let app = if base == "macos" { App::Macos } else { App::Ios };
         let scale = if delta { app_name.as_str() } else { app.name() };
         let key = |phase| Key { profile: &name, phase, scale, run: 0, seed: 0 };
-        let shaper = Shaper::start(upstream, profile.clone(), 0, &trace).await.unwrap();
+        let (shaper, _hop) =
+            Shaper::start_through(upstream, profile.clone(), relay.as_ref(), 0, &trace)
+                .await
+                .unwrap();
         let start = Instant::now();
         let deadline = start + BOUND;
         let mut link =
