@@ -24,6 +24,10 @@ use crate::substitute::{Policy, dns_name};
 const HEADER_TIMEOUT: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const TLS_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long one upstream connect attempt runs alone before the next starts
+/// beside it. A lost first SYN is resent by the kernel only after 1 s; a
+/// second attempt at 250 ms (RFC 8305's delay) answers in a quarter of that.
+const HEDGE: Duration = Duration::from_millis(250);
 /// Most client connections served at once; more wait for a slot.
 const MAX_CONNECTIONS: usize = 512;
 
@@ -266,15 +270,75 @@ async fn open(
             allowed
         }
     };
-    for addr in addrs {
-        if let Ok(Ok(stream)) =
-            tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await
-        {
-            let _ = stream.set_nodelay(true);
-            return Ok(stream);
+    let addrs = dial_order(addrs);
+    let stream = race(&addrs, HEDGE, CONNECT_TIMEOUT, TcpStream::connect)
+        .await
+        .ok_or(Refused::Unreachable)?;
+    let _ = stream.set_nodelay(true);
+    Ok(stream)
+}
+
+/// The order addresses are dialed in: the resolver's first family first,
+/// then the families alternate, each in the resolver's order (RFC 8305), so
+/// the second attempt tries the other family when the host has both.
+fn dial_order(addrs: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    let first_v6 = addrs.first().is_some_and(SocketAddr::is_ipv6);
+    let (lead, other): (Vec<_>, Vec<_>) =
+        addrs.into_iter().partition(|addr| addr.is_ipv6() == first_v6);
+    let mut out = Vec::with_capacity(lead.len() + other.len());
+    let (mut lead, mut other) = (lead.into_iter(), other.into_iter());
+    loop {
+        let (a, b) = (lead.next(), other.next());
+        if a.is_none() && b.is_none() {
+            return out;
+        }
+        out.extend(a);
+        out.extend(b);
+    }
+}
+
+/// The first connection `dial` makes to one of `addrs`, or None when none
+/// answers within `limit`. Each attempt runs alone for `hedge`; then the next
+/// address is dialed beside it, and an attempt that fails starts the next at
+/// once. The list is dialed twice, so a host with one address gets a second
+/// SYN when its first is lost. The attempts that lose are dropped.
+async fn race<T, F, Fut>(
+    addrs: &[SocketAddr],
+    hedge: Duration,
+    limit: Duration,
+    dial: F,
+) -> Option<T>
+where
+    T: Send + 'static,
+    F: Fn(SocketAddr) -> Fut,
+    Fut: Future<Output = io::Result<T>> + Send + 'static,
+{
+    let mut rest = addrs.iter().chain(addrs).copied().peekable();
+    let mut running = tokio::task::JoinSet::new();
+    let stop = tokio::time::sleep(limit);
+    tokio::pin!(stop);
+    loop {
+        if running.is_empty() {
+            running.spawn(dial(rest.next()?));
+        }
+        let alone = tokio::time::sleep(hedge);
+        tokio::select! {
+            () = &mut stop => return None,
+            done = running.join_next() => match done {
+                Some(Ok(Ok(stream))) => return Some(stream),
+                _ => {
+                    if let Some(addr) = rest.next() {
+                        running.spawn(dial(addr));
+                    }
+                }
+            },
+            () = alone, if rest.peek().is_some() => {
+                if let Some(addr) = rest.next() {
+                    running.spawn(dial(addr));
+                }
+            }
         }
     }
-    Err(Refused::Unreachable)
 }
 
 /// The intercepted connection: upstream TLS first (a failure closes the
@@ -449,5 +513,125 @@ mod tests {
         assert!(!same_authority("api.github.com:8443", "api.github.com", 443));
         assert!(!same_authority("evil.test", "api.github.com", 443));
         assert!(!same_authority("evil.test@api.github.com", "api.github.com", 443));
+    }
+
+    type Calls = Arc<std::sync::Mutex<Vec<(SocketAddr, Duration)>>>;
+
+    /// A dial whose nth call (from 0) behaves as `plan[n]`: Some(true) connects,
+    /// Some(false) is refused, None never answers. Every call is recorded with
+    /// the time since `race` began.
+    fn planned(
+        plan: Vec<Option<bool>>,
+    ) -> (
+        Calls,
+        impl Fn(SocketAddr) -> std::pin::Pin<Box<dyn Future<Output = io::Result<SocketAddr>> + Send>>,
+    ) {
+        let calls: Calls = Arc::default();
+        let began = tokio::time::Instant::now();
+        let seen = calls.clone();
+        let dial = move |addr: SocketAddr| {
+            let nth = {
+                let mut seen = seen.lock().unwrap();
+                seen.push((addr, began.elapsed()));
+                seen.len() - 1
+            };
+            let outcome = plan.get(nth).copied().flatten();
+            Box::pin(async move {
+                match outcome {
+                    Some(true) => Ok(addr),
+                    Some(false) => Err(io::Error::from(io::ErrorKind::ConnectionRefused)),
+                    None => std::future::pending().await,
+                }
+            }) as std::pin::Pin<Box<dyn Future<Output = io::Result<SocketAddr>> + Send>>
+        };
+        (calls, dial)
+    }
+
+    fn addrs(list: &[&str]) -> Vec<SocketAddr> {
+        list.iter().map(|a| a.parse().unwrap()).collect()
+    }
+
+    const LIMIT: Duration = Duration::from_secs(10);
+
+    #[tokio::test(start_paused = true)]
+    async fn an_attempt_that_answers_in_time_is_the_only_one() {
+        let list = addrs(&["140.82.112.6:443", "140.82.113.6:443"]);
+        let (calls, dial) = planned(vec![Some(true)]);
+        let began = tokio::time::Instant::now();
+        assert_eq!(race(&list, HEDGE, LIMIT, dial).await, list.first().copied());
+        assert_eq!(began.elapsed(), Duration::ZERO);
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lost_first_syn_costs_the_hedge_not_the_kernel_resend() {
+        // One address, the first attempt never answers: the second, 250 ms
+        // later to the same address, is the connection.
+        let list = addrs(&["140.82.112.6:443"]);
+        let (calls, dial) = planned(vec![None, Some(true)]);
+        let began = tokio::time::Instant::now();
+        assert_eq!(race(&list, HEDGE, LIMIT, dial).await, list.first().copied());
+        assert_eq!(began.elapsed(), HEDGE);
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.iter().map(|(_, at)| *at).collect::<Vec<_>>(), [Duration::ZERO, HEDGE]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_next_address_is_dialed_beside_a_silent_one() {
+        let list = addrs(&["[2606:4700::1111]:443", "140.82.112.6:443"]);
+        let (calls, dial) = planned(vec![None, Some(true)]);
+        let began = tokio::time::Instant::now();
+        assert_eq!(race(&list, HEDGE, LIMIT, dial).await, list.get(1).copied());
+        assert_eq!(began.elapsed(), HEDGE);
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_attempt_starts_the_next_at_once() {
+        let list = addrs(&["[2606:4700::1111]:443", "140.82.112.6:443"]);
+        let (calls, dial) = planned(vec![Some(false), Some(true)]);
+        let began = tokio::time::Instant::now();
+        assert_eq!(race(&list, HEDGE, LIMIT, dial).await, list.get(1).copied());
+        assert_eq!(began.elapsed(), Duration::ZERO);
+        assert_eq!(calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn every_address_refusing_twice_is_unreachable() {
+        let list = addrs(&["140.82.112.6:443", "140.82.113.6:443"]);
+        let (calls, dial) = planned(vec![Some(false); 4]);
+        assert_eq!(race(&list, HEDGE, LIMIT, dial).await, None);
+        let dialed: Vec<SocketAddr> = calls.lock().unwrap().iter().map(|(a, _)| *a).collect();
+        assert_eq!(dialed, [list.clone(), list].concat());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn silence_from_every_address_ends_at_the_limit() {
+        let list = addrs(&["140.82.112.6:443", "140.82.113.6:443"]);
+        let (calls, dial) = planned(vec![]);
+        let began = tokio::time::Instant::now();
+        assert_eq!(race(&list, HEDGE, LIMIT, dial).await, None);
+        assert_eq!(began.elapsed(), LIMIT);
+        // Two passes over the list, one new attempt per hedge, then no more.
+        let calls = calls.lock().unwrap();
+        assert_eq!(
+            calls.iter().map(|(_, at)| *at).collect::<Vec<_>>(),
+            [Duration::ZERO, HEDGE, HEDGE * 2, HEDGE * 3]
+        );
+    }
+
+    #[test]
+    fn dial_order_alternates_families_from_the_resolvers_first() {
+        let order = |list: &[&str]| dial_order(addrs(list));
+        assert_eq!(
+            order(&["[2606::1]:443", "[2606::2]:443", "1.1.1.1:443", "1.0.0.1:443", "9.9.9.9:443"]),
+            addrs(&["[2606::1]:443", "1.1.1.1:443", "[2606::2]:443", "1.0.0.1:443", "9.9.9.9:443"])
+        );
+        assert_eq!(
+            order(&["1.1.1.1:443", "[2606::1]:443", "1.0.0.1:443"]),
+            addrs(&["1.1.1.1:443", "[2606::1]:443", "1.0.0.1:443"])
+        );
+        assert_eq!(order(&["1.1.1.1:443"]), addrs(&["1.1.1.1:443"]));
+        assert!(order(&[]).is_empty());
     }
 }
