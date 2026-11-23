@@ -489,7 +489,8 @@ pub(super) fn routes_line(
 /// Why a failed attempt or resume failed, as fixed codes only (never the
 /// failure's own text): one per distinct route failure in it, comma-joined,
 /// in the order the routes failed. A carrier ssh failure says which of its
-/// steps stopped it (`ssh_refused`: the platform dropped the route;
+/// steps stopped it (`ssh_refused[_<why>]`: the platform dropped the route,
+/// and which refusal it gave when it said ([`ssh_refusal_code`]);
 /// `ssh_key_timeout`/`ssh_key`: the key was not authorized; `killed`: the
 /// route was killed); anything else is its [`detail_code`]. A captured ssh
 /// stderr tail is left out: it has its own quoted field.
@@ -508,22 +509,49 @@ pub(super) fn why_codes(detail: &str) -> Option<String> {
     let mut codes: Vec<String> = Vec::new();
     for part in text.split("; ") {
         let lower = part.to_ascii_lowercase();
-        let code = [
-            ("carrier ssh route dropped", "ssh_refused"),
-            ("carrier ssh key: no authorization within", "ssh_key_timeout"),
-            ("carrier ssh key:", "ssh_key"),
-            ("the carrier route was killed", "killed"),
-        ]
-        .into_iter()
-        .find(|(marker, _)| lower.contains(marker))
-        .map(|(_, code)| code.to_string())
-        .or_else(|| detail_code(part));
+        let code = ssh_refusal_code(part)
+            .or_else(|| {
+                [
+                    ("carrier ssh route dropped", "ssh_refused"),
+                    ("carrier ssh key: no authorization within", "ssh_key_timeout"),
+                    ("carrier ssh key:", "ssh_key"),
+                    ("the carrier route was killed", "killed"),
+                ]
+                .into_iter()
+                .find(|(marker, _)| lower.contains(marker))
+                .map(|(_, code)| code.to_string())
+            })
+            .or_else(|| detail_code(part));
         if let Some(code) = code.filter(|code| !codes.contains(code)) {
             codes.push(code);
         }
     }
     codes.truncate(MAX_WHY_CODES);
     (!codes.is_empty()).then(|| codes.join(","))
+}
+
+/// A dropped ssh route's platform refusal as one fixed code:
+/// `ssh_refused_<why>` for a refusal cmux-platform names
+/// (`SshEndpointRoute.ts` SSH_REFUSAL), `ssh_refused_<status>` for any other
+/// answer it gave, `None` when `part` is no platform refusal. Only the
+/// platform's fixed words are matched, never echoed, so nothing the answer
+/// carries reaches the line.
+fn ssh_refusal_code(part: &str) -> Option<String> {
+    const REFUSALS: [(&str, &str); 6] = [
+        ("auth.forbidden", "forbidden"),
+        ("cloud.machine.not_found", "not_found"),
+        ("cloud.plan.required", "plan_required"),
+        ("cloud.machine.ssh_unsupported", "unsupported"),
+        ("cloud.machine.ssh_not_listening", "not_listening"),
+        ("validation.invalid", "bad_request"),
+    ];
+    let (_, answer) = part.split_once("carrier ssh route dropped: cmux-platform answered ")?;
+    let (status, code) = answer.split_once(' ').unwrap_or((answer, ""));
+    if status.len() != 3 || !status.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let why = REFUSALS.iter().find(|(name, _)| *name == code.trim()).map_or(status, |(_, why)| why);
+    Some(format!("ssh_refused_{why}"))
 }
 
 /// The most of a captured ssh stderr line a `carrier.routes` line keeps:

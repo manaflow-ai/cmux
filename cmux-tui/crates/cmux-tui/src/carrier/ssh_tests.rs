@@ -915,6 +915,17 @@ fn a_failed_routes_line_says_why_in_fixed_codes_only() {
                carrier ssh route dropped: vm-secret-501";
     assert_eq!(why_codes(all).as_deref(), Some("closed,ssh_key_timeout,ssh_refused"));
     assert_eq!(why_codes("carrier ssh key: token=abc").as_deref(), Some("ssh_key"));
+    // A platform refusal names which one, in the platform's fixed words only.
+    let refused = |answer: &str| {
+        why_codes(&format!("carrier ssh route dropped: cmux-platform answered {answer}"))
+    };
+    assert_eq!(
+        refused("501 cloud.machine.ssh_not_listening").as_deref(),
+        Some("ssh_refused_not_listening")
+    );
+    assert_eq!(refused("403 auth.forbidden").as_deref(), Some("ssh_refused_forbidden"));
+    assert_eq!(refused("418 vm-secret").as_deref(), Some("ssh_refused_418"));
+    assert_eq!(refused("4x8 vm-secret").as_deref(), Some("ssh_refused"));
     assert_eq!(
         why_codes("the carrier route was killed; the carrier route was killed").as_deref(),
         Some("killed")
