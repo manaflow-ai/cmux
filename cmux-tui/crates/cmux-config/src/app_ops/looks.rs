@@ -425,10 +425,9 @@ fn managed_guard_set(request: &Value) -> Result<Value, OpError> {
         let value = request.get("value")?;
         if managed_path.starts_with(&path)
             && let Some(rest) = managed_path.get(path.len()..)
+            && crate::value::value_at(value, rest).is_some()
         {
-            if crate::value::value_at(value, rest).is_some() {
-                return Some((key.as_str(), source));
-            }
+            return Some((key.as_str(), source));
         }
         None
     });
