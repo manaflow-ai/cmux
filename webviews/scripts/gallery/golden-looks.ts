@@ -5,8 +5,10 @@
 // from the base and its head.
 //
 //   bun run golden:looks [--looks cmux,claude] [--schemes light,dark] [--out DIR] [--window 1280x2000]
-//     [--setup DIR ...] [--native DIR]
+//     [--setup DIR ...] [--native DIR] [--video DIR]
 //
+// --video also records DIR/looks.webm: every look and scheme in turn, its name over the window, the chat
+// scrolled from the first prompt to the composer (a demo of the looks to post or send).
 // --setup adds a look from any setup folder (a look's own repo, ~/src/my-look), beside the built-in ones.
 // --native adds the native sidebar and tab bar captures (Swift AAGoldenLookGalleryTests, its
 // golden-look-gallery/<look>-<scheme>.png) as a column beside each look's window.
@@ -28,6 +30,7 @@ const { values } = parseArgs({
     setup: { type: "string", multiple: true, default: [] },
     native: { type: "string" },
     scale: { type: "string", default: "1" },
+    video: { type: "string" },
   },
 });
 const webviews = path.resolve(import.meta.dir, "../..");
@@ -45,6 +48,8 @@ const [width, height] = values.window!.split("x").map(Number) as [number, number
 const deviceScaleFactor = Number(values.scale) || 1;
 /** The tallest window the capture grows to. */
 const MAX_HEIGHT = 4000;
+/** The video's window height: a laptop-sized window the chat scrolls through. */
+const VIDEO_HEIGHT = 820;
 
 const { createServer } = await import("vite");
 const vite = await createServer({
@@ -82,7 +87,12 @@ const shots: { look: string; title: string; note: string; scheme: string; file: 
 const page = await browser.newPage({ viewport: { width: width + 64, height: height + 96 }, deviceScaleFactor });
 
 /** Loads one look in a window `tall` px high; answers how much taller the chat is than its pane. */
-async function load(look: (typeof looks)[number], scheme: "light" | "dark", tall: number): Promise<number> {
+async function load(
+  look: (typeof looks)[number],
+  scheme: "light" | "dark",
+  tall: number,
+  on: Page = page,
+): Promise<number> {
   const query = new URLSearchParams({
     fixture: `looks.golden/${look.id}`,
     colorScheme: scheme,
@@ -92,19 +102,19 @@ async function load(look: (typeof looks)[number], scheme: "light" | "dark", tall
   // The look's density (its theme file's appearance.density): the window's metrics and the pane's.
   const density = look.schemes[scheme].density;
   if (density) query.set("density", density);
-  await page.setViewportSize({ width: width + 64, height: tall + 96 });
+  await on.setViewportSize({ width: width + 64, height: tall + 96 });
   // The dev server's first loads may reload the page as its dependency optimizer settles: load again.
   for (let attempt = 1; ; attempt += 1) {
     try {
-      await page.goto(`http://127.0.0.1:${port}/gallery/mock-app.html?${query}`);
-      await settled(page);
+      await on.goto(`http://127.0.0.1:${port}/gallery/mock-app.html?${query}`);
+      await settled(on);
       break;
     } catch (error) {
       if (attempt >= 4) throw error;
       console.log(`golden: ${look.id} ${scheme} loads again (${String(error).split("\n")[0]})`);
     }
   }
-  const frame = page.frames().find((candidate) => candidate.url().includes("frame.html"))!;
+  const frame = on.frames().find((candidate) => candidate.url().includes("frame.html"))!;
   return frame.evaluate(() => {
     const scroll = document.querySelector(".acpmux-scroll");
     return scroll ? Math.max(0, scroll.scrollHeight - scroll.clientHeight) : 0;
@@ -170,5 +180,72 @@ const sheetPage = await browser.newPage({ viewport: { width: 1200, height: 800 }
 await sheetPage.setContent(sheet, { waitUntil: "load" });
 await sheetPage.screenshot({ path: path.join(out, "sheet.png"), fullPage: true });
 console.log(`golden: ${path.join(out, "sheet.png")} (${looks.length} looks, ${schemes.join(" and ")})`);
+
+// --video: one walkthrough, every look and scheme in turn in a window VIDEO_HEIGHT high, its name over the
+// window, the chat scrolled from the first prompt down to the composer.
+if (values.video) {
+  const videoDir = path.resolve(values.video);
+  mkdirSync(videoDir, { recursive: true });
+  const size = { width: width + 64, height: VIDEO_HEIGHT + 96 };
+  const context = await browser.newContext({ viewport: size, recordVideo: { dir: videoDir, size } });
+  const tour = await context.newPage();
+  // While a look loads, a title card with its name covers the half-drawn window; once it settles the card
+  // shrinks to a tag at the top right. The name rides in window.name, which outlives the navigation.
+  await tour.addInitScript(() => {
+    if (window !== window.top || !window.name.startsWith("golden:")) return;
+    const label = window.name.slice("golden:".length);
+    document.addEventListener("DOMContentLoaded", () => {
+      const tag = document.createElement("div");
+      tag.id = "golden-video-tag";
+      tag.textContent = label;
+      tag.style.cssText =
+        "position:fixed;inset:0;z-index:99999;display:grid;place-items:center;font:600 44px system-ui,sans-serif;" +
+        "color:#fff;background:#111";
+      document.body.append(tag);
+    });
+  });
+  for (const look of looks)
+    for (const scheme of schemes) {
+      await tour.evaluate((label) => (window.name = `golden:${label}`), `${look.title}, ${scheme}`);
+      await load(look, scheme, VIDEO_HEIGHT, tour);
+      await tour.evaluate(() => {
+        const tag = document.getElementById("golden-video-tag");
+        if (!tag) return;
+        tag.style.cssText =
+          "position:fixed;right:32px;top:8px;z-index:99999;font:600 22px system-ui,sans-serif;color:#fff;" +
+          "background:rgba(0,0,0,.72);padding:6px 14px;border-radius:8px";
+      });
+      const frame = tour.frames().find((candidate) => candidate.url().includes("frame.html"))!;
+      await frame.evaluate(async () => {
+        const scroll = document.querySelector(".acpmux-scroll");
+        if (!scroll) return;
+        const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        scroll.scrollTop = 0;
+        await pause(1200);
+        const end = scroll.scrollHeight - scroll.clientHeight;
+        const start = performance.now();
+        const span = Math.min(5000, Math.max(1500, end * 4));
+        await new Promise<void>((resolve) => {
+          const step = (now: number) => {
+            const t = Math.min(1, (now - start) / span);
+            scroll.scrollTop = end * (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
+            if (t < 1) requestAnimationFrame(step);
+            else resolve();
+          };
+          requestAnimationFrame(step);
+        });
+        await pause(1200);
+      });
+      console.log(`golden: video ${look.id} ${scheme}`);
+    }
+  const recording = tour.video();
+  await context.close();
+  if (recording) {
+    const file = path.join(videoDir, "looks.webm");
+    await recording.saveAs(file);
+    await recording.delete();
+    console.log(`golden: ${file} (${looks.length} looks, ${schemes.join(" and ")})`);
+  }
+}
 await browser.close();
 await vite.close();

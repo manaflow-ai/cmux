@@ -56,6 +56,17 @@ impl Coordinator {
         fx.push(Effect::CheckOnline(flow));
     }
 
+    /// Whether `flow` is still registered exactly as it began: a finished or
+    /// failed flow is not, nor one whose fields differ from the registered one.
+    pub(super) fn flow_is_active(&self, flow: SignInFlow) -> bool {
+        self.active_sign_in_flows.get(&flow.attempt) == Some(&flow)
+    }
+
+    /// Whether no sign-out or newer session has landed since `flow` began.
+    pub(super) fn flow_is_current(&self, flow: SignInFlow) -> bool {
+        flow.generation == self.session_generation && flow.sign_out_epoch == self.sign_out_epoch
+    }
+
     pub(super) fn complete_sign_in(&mut self, flow: SignInFlow, fx: &mut Vec<Effect>) {
         if self.token_store_write_high_water < flow.attempt {
             fx.push(Effect::RecordLatestSignInRefreshToken);

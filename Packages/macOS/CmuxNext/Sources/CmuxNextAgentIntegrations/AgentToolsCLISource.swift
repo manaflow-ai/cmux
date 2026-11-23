@@ -41,15 +41,25 @@ public final class AgentToolsCLISource: AgentToolsSource {
     }
 
     public func agentToolsReport() async -> AgentToolsReport? {
-        guard let cli = await cli(), let report = await Self.setupMCP(cli, []),
-              let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
+        guard let cli = await cli(), let report = await Self.setupMCP(cli, []) else { return nil }
+        return await Self.parseReport(report)
+    }
+
+    /// The setup report's agents and manual lines, parsed off the main actor.
+    @concurrent nonisolated static func parseReport(_ report: Data) async -> AgentToolsReport? {
+        guard let agents = AgentToolsAgent.agents(setupReport: report) else { return nil }
         return AgentToolsReport(agents: agents, manual: AgentToolsAgent.manualCommands(setupReport: report))
+    }
+
+    /// A `--remove` report, parsed off the main actor.
+    @concurrent nonisolated static func parseRemoval(_ data: Data) async -> AgentToolsRemoval {
+        AgentToolsRemoval(removeReport: data)
     }
 
     public func removeLeftoverEntry(_ id: String) async -> AgentToolsRemoval {
         guard ["claude", "codex"].contains(id), let cli = await cli(),
               let data = await Self.setupMCP(cli, ["--remove", id, "--confirm"]) else { return .failed }
-        return AgentToolsRemoval(removeReport: data)
+        return await Self.parseRemoval(data)
     }
 
     /// `cmux --json setup mcp <arguments>` off the main thread; its stdout (a failed run prints its

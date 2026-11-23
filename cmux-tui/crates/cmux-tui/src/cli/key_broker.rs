@@ -430,9 +430,26 @@ pub(super) struct Paths {
     audit: PathBuf,
 }
 
+/// Names this build's audit: a DEV app sets it for its terminals (Swift `BuildStatePaths`), so a dev
+/// build never reads or changes nightly's or another tag's list.
+pub(super) const AUDIT_OVERRIDE: &str = "CMUX_NEXT_KEYS_AUDIT_FILE";
+
 impl Paths {
     pub(super) fn home() -> Result<Self, String> {
-        let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+        let other_app = crate::app_identity::this_process_in_other_apps_terminal();
+        Self::from_env(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
+    }
+
+    /// `$CMUX_NEXT_KEYS_AUDIT_FILE`, else `$HOME/.config/cmux/keys.json`. A `cmux` bundled in another
+    /// app than the terminal's (`other_app`) ignores the variable: it is that app's audit.
+    pub(super) fn from_env(
+        env: impl Fn(&str) -> Option<std::ffi::OsString>,
+        other_app: bool,
+    ) -> Result<Self, String> {
+        if !other_app && let Some(path) = env(AUDIT_OVERRIDE) {
+            return Ok(Self { audit: PathBuf::from(path) });
+        }
+        let home = env("HOME").ok_or("HOME is not set")?;
         Ok(Self { audit: PathBuf::from(home).join(".config/cmux/keys.json") })
     }
 }

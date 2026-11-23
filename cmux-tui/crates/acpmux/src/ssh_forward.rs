@@ -65,10 +65,34 @@ impl Forward {
     }
 }
 
+impl Forward {
+    /// Ends the forward and waits for its ssh to exit, so it leaves no zombie behind while the
+    /// caller goes on (a move of several chats waits minutes on the next one's turn).
+    pub(crate) async fn close(mut self) {
+        let _ = self.ssh.kill().await;
+    }
+}
+
 impl Drop for Forward {
     fn drop(&mut self) {
-        let _ = self.ssh.start_kill();
+        reap(&mut self.ssh);
         let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Kills `child` and reaps it (bounded, 2 s): `kill_on_drop` alone signals it but leaves it
+/// unwaited, a defunct child of the move until its process ends.
+pub(crate) fn reap(child: &mut tokio::process::Child) {
+    if matches!(child.try_wait(), Ok(Some(_))) {
+        return;
+    }
+    let _ = child.start_kill();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        match child.try_wait() {
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(5)),
+            _ => return,
+        }
     }
 }
 
@@ -95,4 +119,21 @@ pub(crate) fn forward_argv(host: &str, local: &Path, remote: &str) -> Vec<String
     argv.push("--".into());
     argv.push(host.to_owned());
     argv
+}
+
+#[cfg(test)]
+mod tests {
+    /// Item C: a forward's ssh, once dropped, is killed and reaped: no defunct child stays
+    /// behind while the move goes on (`kill(pid, 0)` still finds a zombie).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_dropped_child_is_reaped_not_left_defunct() {
+        let mut child =
+            tokio::process::Command::new("sleep").arg("60").kill_on_drop(true).spawn().unwrap();
+        let pid = child.id().unwrap() as libc::pid_t;
+        super::reap(&mut child);
+        // SAFETY: signal 0 only checks that the pid exists.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        assert!(!alive, "the killed child {pid} is still in the process table");
+    }
 }

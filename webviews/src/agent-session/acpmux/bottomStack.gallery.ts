@@ -177,7 +177,8 @@ const trusted: Play = async (ctx) => {
     role: "button",
     name: ctx.document.querySelector(".acpmux-permission-ask") ? "Always allow" : "Allow for this chat",
   });
-  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
+  // It folds out on the fold's clock (App.tsx `trustFold`), then goes.
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-trust-ask"));
   geometry(ctx);
 };
 // The chat's folder is a repository: the pane offers Trust repo first (one answer for every
@@ -190,7 +191,7 @@ const trustedRepo: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
   await ctx.click({ role: "button", name: "Trust repo" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
-  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-trust-ask"));
 };
 // A short pane (Leo 2026-10-22: "the access to the composer got fucked"): the question, the
 // queue and a long draft over the composer still leave the card and the quiet row under it whole,
@@ -229,6 +230,30 @@ export default agentPaneEntry({
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },
     "trust-then-individual": { snapshot: individual, native, play: trustThenPermission },
+    // The trust question's fold out once answered (App.tsx `trustFold`), the three looks over the
+    // permission card: `slide`, shipped, is trust-then-permission itself (the shared fold: its text
+    // fades over the exit lead, then the card slides down under the card below as its box closes);
+    // `wipe` holds the card still and cuts it from its top (bottomStack.css `data-trust-fold`);
+    // `fade` gives the text a whole quick step of exit lead before the box moves (exitLead.ts
+    // `quick`); `jump`, before, drops the card in one frame.
+    "trust-fold-wipe": {
+      snapshot: grouped,
+      native,
+      documentAttributes: { "trust-fold": "wipe" },
+      play: trustThenPermission,
+    },
+    "trust-fold-fade": {
+      snapshot: grouped,
+      native,
+      documentAttributes: { "exit-lead": "quick" },
+      play: trustThenPermission,
+    },
+    "trust-fold-jump": {
+      snapshot: grouped,
+      native,
+      documentAttributes: { "fold-look": "jump" },
+      play: trustThenPermission,
+    },
     "trusted-permission-queue": { snapshot: grouped, native, play: trusted },
     "trusted-individual-queue": { snapshot: individual, native, play: trusted },
     "trusted-individual-waiting": {

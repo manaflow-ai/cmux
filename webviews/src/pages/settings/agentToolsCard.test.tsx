@@ -111,8 +111,7 @@ test("an old cmux entry in an agent's own settings shows its remove line, and on
 });
 
 test("when Remove keeps an entry with settings cmux could not put back, the card says why", async () => {
-  const why =
-    "Claude Code's cmux entry has settings cmux would not put back (env API_TOKEN), so it is left as it is.";
+  const why = "Claude Code's cmux entry has settings cmux would not put back (env API_TOKEN), so it is left as it is.";
   const page = await renderPage({
     path: "/settings/agents",
     setup: (provider) => {

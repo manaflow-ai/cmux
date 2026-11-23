@@ -1,6 +1,8 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSidebar
 
@@ -11,7 +13,8 @@ extension AgentPriorityChats {
     // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
     private static func makeApp() -> AgentPriorityChats {
         AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
-                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
+                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) },
+                           unarchive: { try await AcpmuxChatArchive(socketPath: $0).unarchive(sessionId: $1) })
     }
 }
 
@@ -30,6 +33,10 @@ struct SidebarPriorityRowActions {
     let chats: AgentPriorityChats
     /// Why the row actions cannot run now (the view is off); nil while they can.
     var unavailable: @MainActor () -> String? = { nil }
+    /// Where an archive's Undo toast shows (toasts v2): the app's active window. Nil: no toast.
+    var toastWindow: @MainActor () -> NSWindow? = { nil }
+    /// The presenter; its ``CmuxToastCenter/v2`` decides whether an archive offers Undo (tests pass their own).
+    var toasts: CmuxToastCenter = .shared
 
     /// Why the row actions cannot run in the app: the Priority view is off (`SidebarPriorityFeed`
     /// binds the other three with the same check).
@@ -86,10 +93,12 @@ struct SidebarPriorityRowActions {
     /// and, like the other row actions, not while `unavailable` gives a reason; any other run is the
     /// focused chat's own Archive (`otherwise`), which the Priority view's setting does not touch.
     func bindArchive(into registry: ActionRegistry, otherwise: @escaping @MainActor (ActionInvocation) throws -> Void) {
-        let chats = chats, unavailable = unavailable
+        let chats = chats, unavailable = unavailable, toasts = toasts, toastWindow = toastWindow
         registry.bind(Self.archive, run: { invocation in
             guard invocation.target?.kind == .agentChat else { return try otherwise(invocation) }
-            try Self.run(chats.archive, invocation)
+            // Toasts v2: the archive offers Undo, which unarchives the chat. Off: the archive alone.
+            try Self.run({ toasts.v2 ? chats.archive($0, undo: toasts, in: toastWindow(), message: SidebarSectionStrings.archivedChat) : chats.archive($0) },
+                         invocation)
         })
         ActionTargetReasons.set(Self.archive, in: registry) { invocation in
             invocation.target?.kind == .agentChat ? unavailable() : nil

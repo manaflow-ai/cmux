@@ -20,8 +20,12 @@ server's composite, no Screen Recording grant needed) in the same frame, and wri
 STEM names the scenario: backdrop[-color|-oOPACITY][-sOFFSET]-mode-active|inactive[-hover|-pressed]-appearance[-rt][-ic]-Sx.
 
 THE SCENARIO MATRIX IS THE REGRESSION GATE (SCENARIOS below): every host-mode cell (a surface in one engine in
-one scenario) must match the native glass within GATE (mean and p99 of the per-pixel worst-channel error over
-the whole surface box, text included). The script exits 1 when a cell is past it or a scenario could not be
+one scenario) must match the native GLASS within GATE: mean and p99 of the per-pixel worst-channel error over the
+surface's box with its margin (rim, shadow, the highlighted row), only its text box left out. The text is the
+fixture's two lines, which AppKit, WebKit and Chromium each rasterize with their own text stack (Core Text in the
+first two, Skia in Chromium; each snaps the baseline to the pixel grid its own way), so it never matches to the pixel
+and is not glass: it is measured over the whole box too (TEXT_TOLERANCE, `text ok` in the summary), reported and
+not gated. The script exits 1 when a cell is past it or a scenario could not be
 measured, and writes results.json and summary.md (the matrix). `css` scenarios measure the page's own glass
 without the App's (the path a web surface takes when no host glass is under it): reported, not gated.
 
@@ -58,7 +62,10 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--matrix", default="full", choices=["full", "quick", "none"])
 parser.add_argument("--vdisplay", default="")
-parser.add_argument("--vdisplay-hidpi", action="store_true")
+parser.add_argument("--vdisplay-hidpi", nargs="?", const="hidpi", default="", choices=["hidpi", "hidpi-points"])
+# The virtual display's size in points (the 900 x 600 test window fits any): a 2x display of 1920x1200 points
+# is 3840x2400 pixels, over what some hosts' virtual displays take (scripts/measure/vdisplay-hidpi-probe.sh).
+parser.add_argument("--vdisplay-size", default="1920x1200")
 parser.add_argument("--hz", type=float, default=60)
 parser.add_argument("--activate", action="store_true")
 parser.add_argument("--frames", action="store_true")
@@ -69,8 +76,10 @@ os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"glass-parity-{opts.tag}-")
 
-# The gate: per-pixel worst-channel error over a surface's box (8-bit steps), text included.
-GATE = {"mean": 1.0, "p99": 8}
+# The gate: per-pixel worst-channel error over a surface's box (8-bit steps), its text box left out.
+GATE = {"mean": 0.25, "p99": 2}
+# The whole box, text included: reported per cell, not gated (the text stacks differ; see above).
+TEXT_TOLERANCE = {"mean": 1.0, "p99": 8}
 
 # One scenario: what the playground sets (backdrop, color, opacity, offset, active, mode) and what the App sets
 # (reduce transparency). Appearances and scales multiply every scenario.
@@ -93,6 +102,11 @@ BASE = [
     {"backdrop": "wallpaper", "row": "pressed"},
     {"backdrop": "plain", "ic": True},                    # Increase Contrast (the Mac's setting)
     {"backdrop": "wallpaper", "ic": True},
+    # The text axis (GlassParityPlayground.TextRendering): which rasterization pairing matches the text.
+    {"backdrop": "plain", "text": "flat"},
+    {"backdrop": "wallpaper", "text": "flat"},
+    {"backdrop": "plain", "text": "smooth"},
+    {"backdrop": "wallpaper", "text": "smooth"},
 ]
 CSS = [{"backdrop": "plain", "mode": "css"}, {"backdrop": "wallpaper", "mode": "css"}]
 QUICK = [{"backdrop": "plain"}, {"backdrop": "wallpaper"}, {"backdrop": "terminal", "opacity": 0.6}]
@@ -160,17 +174,20 @@ def wait(predicate, seconds):
     return None
 
 
-def passes(diff):
-    return diff is not None and diff.get("mean", 1e9) <= GATE["mean"] and diff.get("p99", 1e9) <= GATE["p99"]
+def passes(diff, gate=GATE):
+    return bool(diff) and diff.get("mean", 1e9) <= gate["mean"] and diff.get("p99", 1e9) <= gate["p99"]
 
 
 display = None
 if opts.vdisplay:
     out_path = os.path.join(opts.out, "vdisplay.out")
-    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "-", "1920x1200"]
-                               + (["hidpi"] if opts.vdisplay_hidpi else []),
+    display = subprocess.Popen([os.path.join(opts.vdisplay, "Contents/MacOS/VDisplay"), f"{opts.hz:g}", "7200", "main",
+                                opts.vdisplay_size] + ([opts.vdisplay_hidpi] if opts.vdisplay_hidpi else []),
                                stdout=open(out_path, "w"), stderr=subprocess.STDOUT)
-    wait(lambda: open(out_path).read().startswith(("ready", "error")), 20)
+    # A 2x display can take 20 s to list and 15 s more for its modes (vdisplay.m): wait for its "ready" line, not
+    # for the first line, which is a diagnostic while it comes up (runs 4-10 printed an empty "vdisplay:").
+    wait(lambda: any(line.startswith(("ready", "error")) for line in open(out_path).read().splitlines()),
+         60 if opts.vdisplay_hidpi else 20)
     print("vdisplay:", open(out_path).read().strip(), flush=True)
 
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
@@ -194,6 +211,7 @@ app = subprocess.Popen([BINARY], env=ENV,
 print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 
 results, rows, failures, skipped, frames = [], [], [], [], []
+app_inactive = True  # the app launches in the background until the first active cell opens it
 
 
 def pct(values, q):
@@ -255,7 +273,18 @@ try:
                 params.setdefault("active", True)
                 params.setdefault("opacity", 1)
                 params.setdefault("row", "rest")
+                params.setdefault("text", "standard")
                 params.update({"scale": scale, "measure": True, "dir": opts.out})
+                if opts.activate:
+                    # Activation is the system's to give: an app started by a process that is no app (this harness) is
+                    # never made active by its own request (fleet run b44f5987: every active cell came back with the app
+                    # inactive). LaunchServices activates the running app at this bundle path, as a Dock click would,
+                    # and the playground then makes its window key; an inactive cell gives activation to the Finder
+                    # (it opens no window).
+                    # Only when activation is elsewhere: reopening an active app lets its main window take key.
+                    if not params["active"] or app_inactive:
+                        subprocess.run(["open", "-a", opts.app if params["active"] else "Finder"], capture_output=True)
+                    app_inactive = not params["active"]
                 reply = rpc("debug.glass_parity", params) or {}
                 status = reply.get("status") or {}
                 if status.get("scale") is not None and abs(float(status["scale"]) - scale) > 0.01:
@@ -263,18 +292,33 @@ try:
                     print("skip", skipped[-1], flush=True)
                     continue
                 active = params["active"]
-                real = status.get("key") is True if active else status.get("app_active") is False
+                # Active: the window key at every capture of the cell (the measure's snapshots say so per renderer).
+                shots_key = [v.get("key_at_capture") for v in (reply.get("snapshots") or {}).values()]
+                real = (status.get("key") is True and all(k is not False for k in shots_key)) if active \
+                    else status.get("app_active") is False
                 if opts.activate and not real:
                     failures.append(f"{label}: the window is not {'key' if active else 'inactive'} (key={status.get('key')}, "
                                     f"app_active={status.get('app_active')})")
                     print("error", failures[-1], flush=True)
                 if want_ic and status.get("increase_contrast") is not True:
-                    failures.append(f"{label}: the App does not see Increase Contrast after the Mac's setting changed")
-                    print("error", failures[-1], flush=True)
+                    # `defaults write` lands in the preferences, but no supported call tells the running system it
+                    # changed (System Settings does that through a private path): the App and its Liquid Glass keep
+                    # the old setting. Skipped with the reason, never passed; later Increase Contrast cells too.
+                    ic_refused = "the Mac's setting changed, but the running App did not see it (no supported way to apply it from a script)"
+                    skipped.append(f"{label}: Increase Contrast not applied ({ic_refused})")
+                    print("skip", skipped[-1], flush=True)
                     continue
                 results.append({"scenario": scenario, "appearance": appearance, "scale": scale, "reply": reply})
                 if reply.get("error") or not reply.get("cells"):
                     failures.append(f"{label}: {reply.get('error') or 'no cells'}")
+                    print("error", failures[-1], flush=True)
+                    continue
+                # The Chromium column's capture is the window server's composite alone (`chromium_pages: false`): it
+                # must hold the page's child window, else that column shows only the App's glass and would pass blank.
+                shot = (reply.get("snapshots") or {}).get("chromium") or {}
+                if shot and (shot.get("method") != "composited" or (shot.get("child_windows") or 0) < 1):
+                    failures.append(f"{label}: the Chromium page is not in its capture (method {shot.get('method')}, "
+                                    f"child windows {shot.get('child_windows')})")
                     print("error", failures[-1], flush=True)
                     continue
                 gated = scenario.get("mode", "host") == "host"
@@ -287,13 +331,24 @@ try:
                                 failures.append(f"{reply['stem']} {kind} {engine}: not measured")
                             continue
                         full, material = diff.get("full") or {}, diff.get("material") or {}
-                        ok = passes(full)
-                        worst = max(worst, full.get("mean", 0))
+                        ok = passes(material)
+                        worst = max(worst, material.get("mean", 0))
                         rows.append({"stem": reply["stem"], "kind": kind, "engine": engine, "gated": gated, "pass": ok,
-                                     "exact": full.get("max") == 0, "full": full, "material": material})
+                                     "exact": material.get("max") == 0, "text_ok": passes(full, TEXT_TOLERANCE),
+                                     "full": full, "material": material})
                         if gated and not ok:
-                            failures.append(f"{reply['stem']} {kind} {engine}: mean {full.get('mean')} p99 {full.get('p99')}")
-                print(f"{reply['stem']}: worst mean {worst:.3f} rt={status.get('reduce_transparency')} "
+                            failures.append(f"{reply['stem']} {kind} {engine}: glass mean {material.get('mean')} "
+                                            f"p99 {material.get('p99')} max {material.get('max')}")
+                        # WebKit text is gated on every text axis: the pages draw with the native text's smoothing
+                        # (appearance.fontSmoothing `auto`, WebTheme.pageSmoothing; `flat` and `smooth` pin both
+                        # sides), which run c2c44e1f measured exact (mean 0.005, p99 0). Chromium shapes with
+                        # HarfBuzz and rasterizes with Skia (other subpixel glyph positions, about 16% less ink),
+                        # so its text stays reported, not gated.
+                        if gated and engine == "webkit" and scenario.get("text", "standard") in ("standard", "flat", "smooth") \
+                                and not passes(full, TEXT_TOLERANCE):
+                            failures.append(f"{reply['stem']} {kind} {engine}: text mean {full.get('mean')} "
+                                            f"p99 {full.get('p99')} (same smoothing on both sides)")
+                print(f"{reply['stem']}: worst glass mean {worst:.3f} rt={status.get('reduce_transparency')} "
                       f"key={status.get('key')} host_glass={status.get('host_glass')}", flush=True)
             if opts.frames:
                 rpc("debug.reduce_transparency", {"enabled": False})
@@ -317,17 +372,32 @@ finally:
         display.wait()
 
 with open(os.path.join(opts.out, "results.json"), "w") as f:
-    json.dump({"gate": GATE, "rows": rows, "failures": failures, "skipped": skipped, "results": results, "frames": frames}, f, indent=1)
+    json.dump({"gate": GATE, "text_tolerance": TEXT_TOLERANCE, "rows": rows, "failures": failures, "skipped": skipped, "results": results, "frames": frames}, f, indent=1)
 with open(os.path.join(opts.out, "frames.json"), "w") as f:
     json.dump(frames, f, indent=1)
 gated = [r for r in rows if r["gated"]]
 with open(os.path.join(opts.out, "summary.md"), "w") as f:
-    f.write(f"Gate: mean <= {GATE['mean']}, p99 <= {GATE['p99']} (8-bit worst-channel error, text included). "
-            f"{sum(r['pass'] for r in gated)}/{len(gated)} gated cells pass, {sum(r['exact'] for r in gated)} exact.\n\n")
-    f.write("| scenario | surface | engine | pass | mean | p99 | max | material mean |\n|---|---|---|---|---|---|---|---|\n")
+    f.write(f"Gate (glass: the box and its margin, text box left out): mean <= {GATE['mean']}, p99 <= {GATE['p99']} "
+            f"(8-bit worst-channel error). {sum(r['pass'] for r in gated)}/{len(gated)} gated cells pass, "
+            f"{sum(r['exact'] for r in gated)} exact (max 0). Text included (not gated; mean <= {TEXT_TOLERANCE['mean']}, "
+            f"p99 <= {TEXT_TOLERANCE['p99']}): {sum(r['text_ok'] for r in gated)}/{len(gated)}.\n")
+    # Text, per rasterization pairing and engine: the mean of the cells' with-text mean and p99.
+    by = {}
+    for r in gated:
+        after = r["stem"].split("-text-")
+        axis = after[1].split("-")[0] if len(after) > 1 else "standard"
+        by.setdefault((axis, r["engine"]), []).append(r["full"])
+    for (axis, engine), fulls in sorted(by.items()):
+        mean = sum(full.get("mean") or 0 for full in fulls) / len(fulls)
+        p99 = sum(full.get("p99") or 0 for full in fulls) / len(fulls)
+        f.write(f"Text {axis} {engine}: {len(fulls)} cells, with-text mean {mean:.3f}, p99 {p99:.1f}.\n")
+    f.write("\n")
+    f.write("| scenario | surface | engine | glass pass | glass mean | glass p99 | glass max | text ok | with text mean | with text p99 |\n"
+            "|---|---|---|---|---|---|---|---|---|---|\n")
     for r in rows:
         f.write(f"| {r['stem']} | {r['kind']} | {r['engine']} | {'yes' if r['pass'] else ('NO' if r['gated'] else 'n/a (css)')} | "
-                f"{r['full'].get('mean')} | {r['full'].get('p99')} | {r['full'].get('max')} | {r['material'].get('mean')} |\n")
+                f"{r['material'].get('mean')} | {r['material'].get('p99')} | {r['material'].get('max')} | "
+                f"{'yes' if r['text_ok'] else 'no'} | {r['full'].get('mean')} | {r['full'].get('p99')} |\n")
     if frames:
         f.write("\nFrame time over a moving backdrop (ms; host: the App's glass under the page, css: the page's own glass):\n\n"
                 "| appearance | scale | mode | renderer | frames | missed | interval p50 | p95 | p99 | max | main p95 |\n"

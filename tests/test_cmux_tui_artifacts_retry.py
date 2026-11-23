@@ -77,6 +77,21 @@ class RetryPolicyTests(unittest.TestCase):
                 self.assertEqual(decision.action, "skip")
                 self.assertIn("published", decision.reason)
 
+    def test_missing_mac_live_delivery_is_retried_after_tree_publication(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "failure"}
+        jobs = tree_jobs(published, delivery)
+        self.assertEqual(retry.decide(run(), jobs, {}).action, "rerun-failed-jobs")
+        self.assertEqual(retry.decide(run(run_attempt=3), jobs, {}).action, "skip")
+        self.assertEqual(retry.decide(run(), jobs, {8: [{"title": "immutable-r2-conflict"}]}).action,
+                         "refuse")
+
+    def test_successful_mac_delivery_does_not_retry_a_recovered_build(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "success"}
+        self.assertEqual(retry.decide(run(), tree_jobs(published, delivery, job(1, "failure")), {}).action,
+                         "skip")
+
     def test_only_feat_pushes_are_retried(self):
         # The runs nightly-next promotes from; a lane branch or PR red is usually a real failure.
         for overrides, action in (
@@ -102,6 +117,29 @@ class RetryPolicyTests(unittest.TestCase):
         # A run that someone cancelled ends `cancelled` and stays as it is.
         cancelled = retry.decide(run(conclusion="cancelled"), tree_jobs(job(2, "cancelled")), {})
         self.assertEqual(cancelled.action, "skip")
+
+    def test_a_build_leg_that_failed_on_a_rerun_is_not_retried_again(self):
+        # 2026-11-19: 58 of 67 build legs that failed on a rerun were rustc killed by SIGKILL; the third
+        # attempt rebuilt on the same kind of runner and failed again.
+        leg = {"id": 5, "name": "build / build aarch64-unknown-linux-musl", "conclusion": "failure"}
+        publish = {"id": 6, "name": "publish tree-addressed cmux-tui", "conclusion": "skipped"}
+        jobs = tree_jobs(leg, publish)
+        self.assertEqual(retry.decide(run(), jobs, {5: []}).action, "rerun-failed-jobs")
+        decision = retry.decide(run(run_attempt=2), jobs, {5: []})
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("build / build aarch64-unknown-linux-musl", decision.reason)
+        linux = {"id": 5, "name": "build-linux / build x86_64-unknown-linux-musl", "conclusion": "failure"}
+        self.assertEqual(retry.decide(run(run_attempt=2), tree_jobs(linux, job(7, "failure")), {5: [], 7: []}).action,
+                         "skip")
+
+    def test_a_rerun_build_leg_that_timed_out_and_other_rerun_reds_are_still_retried(self):
+        # #42380: a timed-out build leg is retried, or a nightly waits for a tree nobody builds.
+        for conclusion in ("cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                leg = {"id": 5, "name": "build / build aarch64-apple-darwin", "conclusion": conclusion}
+                self.assertEqual(retry.decide(run(run_attempt=2), tree_jobs(leg), {}).action, "rerun-failed-jobs")
+        verify = {"id": 8, "name": "verify the CDN publication", "conclusion": "failure"}
+        self.assertEqual(retry.decide(run(run_attempt=2), tree_jobs(verify), {8: []}).action, "rerun-failed-jobs")
 
 
 if __name__ == "__main__":

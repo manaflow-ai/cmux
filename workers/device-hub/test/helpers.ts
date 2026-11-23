@@ -255,10 +255,10 @@ export class Device {
   private constructor(
     readonly account: { userId: string; session: string },
     readonly name: string,
-    readonly platform: "macos" | "ios" | "linux",
+    readonly platform: "macos" | "ios" | "linux" | "windows",
   ) {}
 
-  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" | "linux" = "macos") {
+  static async create(account: { userId: string; session: string }, name = "Mac", platform: "macos" | "ios" | "linux" | "windows" = "macos") {
     const d = new Device(account, name, platform);
     d.signing = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     d.signingKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.signing.publicKey)) as ArrayBuffer));

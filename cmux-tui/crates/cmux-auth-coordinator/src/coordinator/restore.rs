@@ -73,7 +73,10 @@ impl Coordinator {
             return;
         }
         self.is_revalidating_session = true;
+        self.restore_counter = self.restore_counter.wrapping_add(1);
+        self.active_restore_id = Some(self.restore_counter);
         fx.push(Effect::ProbeStoredTokens(RestoreTicket {
+            id: self.restore_counter,
             generation: self.session_generation,
             store_write_high_water: self.token_store_write_high_water,
             retry_on_storage_available: true,
@@ -110,7 +113,8 @@ impl Coordinator {
             self.is_authenticated = true;
             self.publish_session_identity(fx);
             if self.launch.fixture_teams_requested {
-                return self.begin_team_refresh(ticket.generation, false, AfterTeams::Restore, fx);
+                let after = AfterTeams::Restore { id: ticket.id };
+                return self.begin_team_refresh(ticket.generation, false, after, fx);
             }
             return self.finish_restore(fx);
         }
@@ -171,7 +175,10 @@ impl Coordinator {
             return self.finish_restore(fx);
         }
         match result {
-            Ok(Some(user)) => self.apply_signed_in_user(user, false, AfterTeams::Restore, fx),
+            Ok(Some(user)) => {
+                let after = AfterTeams::Restore { id: ticket.id };
+                self.apply_signed_in_user(user, false, after, fx);
+            }
             Ok(None) => fx.push(Effect::ReadSurvivingRefreshToken { ticket, after_error: None }),
             Err(AuthFailure::Cancelled) => self.finish_restore(fx),
             Err(AuthFailure::TimedOut) => {
@@ -268,6 +275,7 @@ impl Coordinator {
             self.cancel_team_scope_recovery(fx);
         }
         self.is_revalidating_session = false;
+        self.active_restore_id = None;
         fx.push(Effect::RestoreFinished);
     }
 

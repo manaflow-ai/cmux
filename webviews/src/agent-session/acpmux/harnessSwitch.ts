@@ -1,5 +1,5 @@
 import { errorMessage, isHostRefusal, startCancelled, switchFailedText, startErrorMessage } from "./transportErrors";
-import { logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
+import { isConnectionLoss, logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -207,6 +207,9 @@ type Intent = {
   tickets: Map<string, Promise<string | undefined>>;
   /// The port a run is in flight on; a reconnect runs again on the new one.
   running?: SwitchPort;
+  /// A start again after a connection loss on a port no reconnect has replaced yet
+  /// (`retryAfterLoss`); cleared by any new run.
+  lossRetry?: { timer: ReturnType<typeof setTimeout>; delay: number };
   done: { resolve(sessionId: string | undefined): void; promise: Promise<string | undefined> };
   /// The switch started in this turn of the event loop: a send in the same turn (the New Tab
   /// page's agent pick and Send) leaves its gesture to the session/new it just sent (#23031).
@@ -781,9 +784,33 @@ export class HarnessSwitch {
     intent.done.resolve(undefined);
   }
 
+  /// A step answered on a client the switch no longer runs on (its connection dropped, or a
+  /// reconnect replaced it): the client connected now, if any, runs the start again; with none yet,
+  /// `connect` runs it when one comes. A reconnect that came while the old step was out found the
+  /// intent still running and left it to that step.
+  private runOnNextClient(intent: Intent): void {
+    if (this.port && !intent.running && intent.phase !== "failed" && intent.phase !== "trust") void this.run(intent);
+  }
+
+  /// A start whose connection to acpmux was lost before the pane replaced it: no failure and no
+  /// card. The prompts stay held and the switch stays starting; a reconnect runs it on the next
+  /// client (`connect`), and until one comes it asks this client again, 1 s, 2 s, ... up to 15 s
+  /// apart, for as long as this switch is the current one.
+  private retryAfterLoss(intent: Intent, port: SwitchPort, error: unknown): void {
+    // The app's log still says what failed, as a failed start's does (#44964).
+    logStartFailure(intent.harness, intent.sessionId, startFailureCause(error));
+    const delay = Math.min((intent.lossRetry?.delay ?? 500) * 2, 15_000);
+    if (intent.lossRetry) clearTimeout(intent.lossRetry.timer);
+    const timer = setTimeout(() => {
+      if (this.intent === intent && this.port === port) this.runOnNextClient(intent);
+    }, delay);
+    intent.lossRetry = { timer, delay };
+  }
+
   private async run(intent: Intent): Promise<void> {
     const port = this.port;
     if (!port || intent.running) return;
+    if (intent.lossRetry) clearTimeout(intent.lossRetry.timer);
     let sessionId = intent.sessionId;
     // A chat on another machine starts with the first send, never with a pick (cx-k21v).
     if (!sessionId && intent.queued.length === 0 && port.startsOnSend?.()) return;
@@ -794,7 +821,9 @@ export class HarnessSwitch {
       } catch (error) {
         if (intent.running === port) intent.running = undefined;
         // A dropped connection is not a failure: the next client runs it again.
-        if (this.intent !== intent || this.port !== port) return;
+        if (this.intent !== intent) return;
+        if (this.port !== port) return this.runOnNextClient(intent);
+        if (isConnectionLoss(error)) return this.retryAfterLoss(intent, port, error);
         this.fail(intent, error);
         return;
       }
@@ -803,7 +832,13 @@ export class HarnessSwitch {
         return;
       }
       if (!sessionId) {
-        intent.running = undefined;
+        if (intent.running === port) intent.running = undefined;
+        // A client whose connection dropped or was replaced while `session/new` was out answers no
+        // session (direct.ts startSession on a closed client): no failure either, the next client
+        // runs the start again. Failing here showed "cmux did not start a session" on a new chat
+        // whose session acpmux had started (Leo, 2026-11-17: "i also ran into this error jsut now
+        // when starting a chat!").
+        if (this.port !== port) return this.runOnNextClient(intent);
         this.fail(intent, new Error(t("switch.noSession")));
         return;
       }
@@ -820,7 +855,9 @@ export class HarnessSwitch {
       opened = await port.open(sessionId);
     } catch (error) {
       if (intent.running === port) intent.running = undefined;
-      if (this.intent !== intent || this.port !== port) return;
+      if (this.intent !== intent) return;
+      if (this.port !== port) return this.runOnNextClient(intent);
+      if (isConnectionLoss(error)) return this.retryAfterLoss(intent, port, error);
       this.fail(intent, error);
       return;
     }
@@ -833,8 +870,9 @@ export class HarnessSwitch {
       if (attached && port.shown()?.sessionId === sessionId) opened = sessionId;
     }
     if (!opened) {
-      intent.running = undefined;
-      if (this.port === port) this.fail(intent, new Error(t("switch.noSession")));
+      if (intent.running === port) intent.running = undefined;
+      if (this.port !== port) return this.runOnNextClient(intent);
+      this.fail(intent, new Error(t("switch.noSession")));
       return;
     }
     this.left = undefined;

@@ -41,7 +41,7 @@ done
 [[ ${#arms[@]} -gt 0 ]] || { echo "hover-card-press: pass --arm=NAME@SHA at least once" >&2; exit 2; }
 
 names=() apps=()
-for arm in "${arms[@]}"; do
+for arm in ${arms[@]+"${arms[@]}"}; do
   name="${arm%%@*}" sha="${arm#*@}"
   app="$(measure_app_at_commit "$sha" "hcp-$name" "$out/at-$name")" || { echo "HCP-FAIL $name build at $sha"; exit 1; }
   names+=("$name") apps+=("$app")
@@ -93,7 +93,7 @@ for ((round = 1; round <= rounds; round++)); do
   done
   reversed=()
   for ((k = ${#order[@]} - 1; k >= 0; k--)); do reversed+=("${order[$k]}"); done
-  order=("${reversed[@]}")
+  order=(${reversed[@]+"${reversed[@]}"})
 done
 
 [[ -n "$trace" ]] || exit 0

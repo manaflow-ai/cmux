@@ -87,6 +87,20 @@ pub enum State {
     Failed,
 }
 
+/// `_meta.acpmux.after` of a queued `session/prompt`: the delivery id this one waits behind. The
+/// outbox holds it until that delivery settles (`server/outbox.rs` `deliver`), so two messages a
+/// batch sends one session arrive in its order without the sender sending the second again.
+pub const AFTER_KEY: &str = "after";
+
+impl Delivery {
+    /// The delivery this one waits behind, while that one is in this outbox and not settled.
+    pub fn waits_behind(&self, outbox: &Outbox) -> Option<String> {
+        let after = self.request.pointer("/_meta/acpmux/after").and_then(Value::as_str)?;
+        (after != self.id && outbox.get(after).is_some_and(|d| !d.settled()))
+            .then(|| after.to_owned())
+    }
+}
+
 /// One message to deliver.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,6 +148,16 @@ pub struct Delivery {
     /// (`server/outbox.rs` `redeliver_open`, `open_delivery.rs`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub open_on_peer: bool,
+    /// How many times a link's redelivery sent this open delivery again (`server/outbox.rs`
+    /// `redeliver_one`), and when it last did: each resend waits twice as long as the one before
+    /// (`open_delivery::resend_due`), so a delivery open for its whole 30 days is sent again at
+    /// most `open_delivery::MAX_RESENDS` times however often its peer's link comes back. Before
+    /// them, a link that came back every few minutes under load sent the same prompt id again on
+    /// every one (2026-11-23, on a loaded host: one prompt sent 38 times, 102,825 sends in 3 h).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub resends: u32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub resent_at: u64,
     /// The peer's session it was sent to, read when its attempt started (never after, so a link
     /// replaced meanwhile changes nothing): every attempt names that generation
     /// (`sessionCreatedAt`), and a session purged and made again under the same id refuses it as
@@ -193,9 +217,21 @@ fn is_zero(n: &u64) -> bool {
     *n == 0
 }
 
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
 impl Delivery {
+    /// Whether it is the record of a message this daemon posted to the mesh hub, a team one or
+    /// a direct `HOST/NAME` send (`record_mesh_origin`): bookkeeping, never a delivery.
     fn is_team_receipt(&self) -> bool {
-        self.id.starts_with("mesh:") && self.request.get("teamOrigin") == Some(&Value::Bool(true))
+        self.id.starts_with("mesh:")
+            && self.request.get("teamOrigin").is_some_and(Value::is_boolean)
+    }
+
+    /// Whether it is the record of a team message (`record_team_receipt`).
+    pub(crate) fn team_origin(&self) -> bool {
+        self.is_team_receipt() && self.request.get("teamOrigin") == Some(&Value::Bool(true))
     }
 
     pub fn prompt_id(&self) -> &str {
@@ -483,19 +519,34 @@ impl Outbox {
         address: &str,
         caller: Option<&str>,
     ) -> bool {
+        self.record_mesh_origin(id, address, caller, true)
+    }
+
+    /// Who posted hub message `id` from here, and to whom: a team address (`team`), or a
+    /// direct `HOST/NAME` send (`server/mesh_send.rs`), whose sender reads its status though the
+    /// hub stamps every receipt with its start-work decision. Kept as long as a team record.
+    pub(crate) fn record_mesh_origin(
+        &self,
+        id: &str,
+        address: &str,
+        caller: Option<&str>,
+        team: bool,
+    ) -> bool {
         let key = format!("mesh:{id}");
         let mut book = self.book();
         let now = crate::store::now_ms();
         book.deliveries.entry(key.clone()).or_insert_with(|| Delivery {
             id: key.clone(),
             target: address.to_owned(),
-            request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
+            request: json!({"teamOrigin": team, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
             unproven_caller: None,
             not_terminal: false,
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -513,7 +564,8 @@ impl Outbox {
         in_memory || self.disk.lock().unwrap_or_else(|e| e.into_inner()).saved >= change
     }
 
-    pub(crate) fn team_receipt(&self, id: &str) -> Option<Delivery> {
+    /// The record of hub message `id` this daemon posted, team or direct.
+    pub(crate) fn mesh_origin(&self, id: &str) -> Option<Delivery> {
         self.book().deliveries.get(&format!("mesh:{id}")).filter(|d| d.is_team_receipt()).cloned()
     }
 
@@ -1027,6 +1079,8 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
@@ -1036,6 +1090,29 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
+    }
+
+    /// cmuxterm-hq#17418: a message queued behind another to the same session waits in the
+    /// outbox until that one settles (delivered or failed), never as an error to its sender; one
+    /// naming a delivery this outbox does not hold, or itself, goes at once.
+    #[test]
+    fn a_delivery_after_another_waits_until_that_one_settles() {
+        let outbox = Outbox::default();
+        outbox.add(delivery(1)).unwrap();
+        let mut second = delivery(2);
+        second.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-1");
+        outbox.add(second).unwrap();
+        let second = outbox.get("d-2").unwrap();
+        assert_eq!(second.waits_behind(&outbox).as_deref(), Some("d-1"));
+        outbox.update("d-1", |d| d.state = State::Delivered);
+        assert_eq!(second.waits_behind(&outbox), None);
+        outbox.update("d-1", |d| d.state = State::Failed);
+        assert_eq!(second.waits_behind(&outbox), None);
+        let mut stray = delivery(3);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("mesh:elsewhere");
+        assert_eq!(stray.waits_behind(&outbox), None);
+        stray.request["_meta"]["acpmux"][AFTER_KEY] = json!("d-3");
+        assert_eq!(stray.waits_behind(&outbox), None);
     }
 
     /// An open delivery past [`OPEN_ON_PEER_FOR_MS`] is not dropped: it fails, saying why, and
@@ -1574,6 +1651,8 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            resends: 0,
+            resent_at: 0,
             relay_post: None,
             open_on_peer: false,
             pin: None,
