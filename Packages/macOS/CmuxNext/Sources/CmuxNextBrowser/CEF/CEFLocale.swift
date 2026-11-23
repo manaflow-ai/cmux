@@ -27,9 +27,10 @@ nonisolated struct CEFLocale: Equatable, Sendable {
         let resources = frameworkDirectory.appending(path: "Resources")
         var names = (try? FileManager.default.contentsOfDirectory(atPath: resources.path)) ?? []
         if let downloadedDirectory {
+            // blocking-allow: like the framework's listing above, read when the library is opened, off the main thread
             let downloaded = (try? FileManager.default.contentsOfDirectory(atPath: downloadedDirectory.path)) ?? []
             names += downloaded.filter {
-                FileManager.default.fileExists(atPath: downloadedDirectory.appending(path: "\($0)/locale.pak").path)
+                FileManager.checked.fileExists(atPath: downloadedDirectory.appending(path: "\($0)/locale.pak").path)
             }
         }
         return resolve(preferredLanguages: preferredLanguages, available: available(lprojNames: names))

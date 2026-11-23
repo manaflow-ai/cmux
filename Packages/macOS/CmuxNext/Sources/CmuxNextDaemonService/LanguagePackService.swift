@@ -83,7 +83,8 @@ public final class LanguagePackService {
             case .ready(let root, let chromiumPak):
                 // Chromium reads the language's pak from outside the signed app, the next time it
                 // starts (`ChromiumLocalePaks`); the copy needs no activation, so it comes first.
-                if let chromiumPak, let folder = ChromiumLocalePaks.directory(bundleID: bundleID) {
+                if let chromiumPak {
+                    let folder = ChromiumLocalePaks.directory(bundleID: bundleID)
                     // task-owner: awaited here; one file copy off the main thread
                     let copied = await Task.detached(priority: .utility) { ChromiumLocalePaks.install(pak: chromiumPak, into: folder) }.value
                     if copied == nil { logger.error("Chromium locale pak for \(language, privacy: .public) was not installed") }

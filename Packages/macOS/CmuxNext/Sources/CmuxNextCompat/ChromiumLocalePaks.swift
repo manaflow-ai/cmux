@@ -10,8 +10,8 @@ public import Foundation
 public enum ChromiumLocalePaks {
     /// The folder of `<catalog>.lproj/locale.pak` files for the app `bundleID`, in Application Support
     /// (beside, not inside, the daemon's `LanguagePacks` cache, which it may prune).
-    public static func directory(bundleID: String, fileManager: FileManager = .default) -> URL? {
-        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+    public static func directory(bundleID: String) -> URL {
+        NextSupport.applicationSupportDirectory()
             .appending(path: bundleID, directoryHint: .isDirectory)
             .appending(path: "ChromiumLocales", directoryHint: .isDirectory)
     }
