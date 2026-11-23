@@ -135,6 +135,10 @@ import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
+import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "../savedPrompts";
+import { NEW_TAB_STASH } from "../composer/draftStash";
+import { StashedChip } from "../composer/StashedChip";
+import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import {
   applyCommand,
@@ -355,6 +359,9 @@ type Props = NewTabScreenActions & {
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
+  /// What draws over the composer: an extension's slot (NewTabAppSlot.tsx, `tabs.newTabApp`). It sits
+  /// in its own room (screen.css `.nt-above-room`) and can never replace or cover the composer.
+  above?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
@@ -374,6 +381,10 @@ type Props = NewTabScreenActions & {
   upload?(files: File[]): Promise<UploadResult>;
   /// A fix-from-link request failed while the New Tab remains mounted.
   fixError?: string;
+  /// A start this page made failed after the page had become the chat (a queued harness start,
+  /// screenActions.ts): the page came back, and says the failure in place with Retry, as it does for
+  /// a start that fails while it shows (App.tsx `startLeftNewTab`).
+  startFailure?: Omit<NewTabStartFailure, "retry">;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -600,6 +611,7 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     originalFailures,
+    originalUploads,
     unsettled,
     cancel,
     retry,
@@ -653,6 +665,51 @@ export function NewTabScreen(props: Props) {
       cancelHeldSend: holdForAttachments.cancel,
     },
   );
+  // Stash (composer/useDraftStash.ts), as in a chat's composer: ⌃S puts the draft aside, and on
+  // an empty prompt brings the newest back. Every New Tab page shares one stack, which never moves
+  // into a chat: a draft put aside here comes back on any New Tab, never in a chat it was not
+  // written for. The location the page opens with is a suggestion, not a draft: never stashed.
+  const stashChat = NEW_TAB_STASH;
+  const readingRef = useRef(reading);
+  const originalUploadsRef = useRef(originalUploads);
+  const touchedRef = useRef(touched);
+  // The committed render's, for the stash's callbacks (a ref written in render could hold one React discards).
+  useLayoutEffect(() => {
+    readingRef.current = reading;
+    originalUploadsRef.current = originalUploads;
+    touchedRef.current = touched;
+  });
+  const {
+    stashed,
+    unstash,
+    toggle: toggleStash,
+  } = useDraftStash(stashChat, {
+    held: () => {
+      const value = field.current?.value() ?? text;
+      return { text: touchedRef.current ? value : "", attachments: attachmentsRef.current };
+    },
+    // A chip still loading, or an image's original still uploading under its preview.
+    loading: () => readingRef.current.length > 0 || originalUploadsRef.current.size > 0,
+    clear: () => {
+      if (!field.current?.type("")) setText("");
+      attachmentsRef.current = [];
+      setAttachments([]);
+    },
+    restore: (restoredText, restoredAttachments) => {
+      touch();
+      setTouched(true);
+      const typed = field.current?.value() ?? text;
+      const next = !typed.trim() || !touchedRef.current ? restoredText : `${restoredText}\n\n${typed}`;
+      // The editor parses tokens as it takes the text: their chips are known first.
+      attachmentsRef.current = [
+        ...restoredAttachments,
+        ...attachmentsRef.current.filter((chip) => !restoredAttachments.some((back) => back.id === chip.id)),
+      ];
+      setAttachments(attachmentsRef.current);
+      if (!field.current?.type(next)) setText(next);
+    },
+    takeKeys: () => focusRoute(field.current, "person", "a stashed draft came back: the new chat field"),
+  });
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -803,7 +860,13 @@ export function NewTabScreen(props: Props) {
     setRefusedPick(refusalPick);
     setSandboxRefusal(undefined);
   }
-  const [startError, setStartError] = useState<NewTabStartFailure>();
+  const [startError, setStartError] = useState<NewTabStartFailure | undefined>(() => {
+    const failure = props.startFailure;
+    if (!failure) return undefined;
+    const harness = failure.harness;
+    // Retry asks the same agent again with the draft as it is now, as a failure here does.
+    return harness ? { ...failure, retry: () => continueAfterSetup.current(harness) } : failure;
+  });
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
   const asking = useRef(0);
@@ -1013,9 +1076,19 @@ export function NewTabScreen(props: Props) {
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;
   const commandQuery = commandAt?.query;
+  // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
+  const savedPrompts = useSavedPrompts();
+  const menuCommands = useMemo(
+    () => [...savedPromptCommands(savedPrompts), ...(snapshot.commands ?? [])],
+    [savedPrompts, snapshot.commands],
+  );
+  const commandOpening = commandAt !== undefined;
+  useEffect(() => {
+    if (commandOpening) void refreshSavedPrompts();
+  }, [commandOpening]);
   const commandMatches = useMemo(
-    () => (commandAt ? slashMatches(snapshot.commands ?? [], commandAt) : []),
-    [commandAt, snapshot.commands],
+    () => (commandAt ? slashMatches(menuCommands, commandAt) : []),
+    [commandAt, menuCommands],
   );
   // An Escape (the person's, or the one the host sends as its list closes, ui/popupHost.ts) hides the
   // list for the text it was pressed on only: any edit forgets it, a cleared draft too, so the same
@@ -1031,6 +1104,24 @@ export function NewTabScreen(props: Props) {
   const onCommands = props.onCommands;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
+    // A saved prompt's text, its variables filled, goes over the typed `/word`; the first one left
+    // open is selected for the person to type.
+    if (command.source === "saved") {
+      const filled = fillPrompt(command.body ?? "", { cwd: chatFolder });
+      const plain = field.current?.text();
+      if (plain && commandAt) {
+        const start = Math.max(0, plain.selectionStart - commandAt.length);
+        const end = wordEnd(plain.value, plain.selectionStart);
+        const [from, to] = filled.open ?? [filled.text.length, filled.text.length];
+        field.current?.writeText(
+          plain.value.slice(0, start) + filled.text + plain.value.slice(end),
+          start + from,
+          start + to,
+        );
+      } else setText(filled.text);
+      requestAnimationFrame(() => focusRoute(field.current, "person", "a saved prompt was picked: the field"));
+      return;
+    }
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
     if (command.name.length > 1 && command.name.startsWith("$")) pickedSkills.current.add(shownName(command));
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
@@ -1736,6 +1827,11 @@ export function NewTabScreen(props: Props) {
         return;
       }
     }
+    if (isStashKey(event) && !shell) {
+      event.preventDefault();
+      toggleStash();
+      return;
+    }
     if (shell) {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2244,6 +2340,7 @@ export function NewTabScreen(props: Props) {
           />
         )}
         <span className="acpmux-composer-actions">
+          {!shell && <StashedChip drafts={stashed} onRestore={unstash} chat={stashChat} />}
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
               none, as Aside's New Tab: Return sends. Its glyph is Return's: the arrow for a prompt,
@@ -2680,6 +2777,7 @@ export function NewTabScreen(props: Props) {
             {stageCards}
             {playerAndLists}
           </div>
+          {props.above !== undefined && <div className="nt-above-room">{props.above}</div>}
           {composerCard}
           {props.notice}
           {environmentPanel}
@@ -2687,8 +2785,13 @@ export function NewTabScreen(props: Props) {
       ) : (
         <>
           {/* Minimal keeps the old greeting's room over the composer, empty, so the composer sits
-                where it always sat (screen.css .nt-composer-room). */}
-          {minimal && <div className="nt-composer-room" />}
+                where it always sat (screen.css .nt-composer-room). Something over the composer (an
+                extension's slot) takes that room instead, and keeps it after the slot gives up. */}
+          {props.above !== undefined ? (
+            <div className="nt-above-room">{props.above}</div>
+          ) : (
+            minimal && <div className="nt-composer-room" />
+          )}
           {composerCard}
           {props.notice}
           {environmentPanel}
