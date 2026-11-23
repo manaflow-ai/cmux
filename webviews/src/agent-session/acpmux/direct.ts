@@ -222,7 +222,7 @@ import { liveModes, permissionModes } from "./permissionModes";
 import { handoffPromptId, namesHandoffTurn, TURN_WAIT_MS } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
-import { bridgedWatch } from "./watchBannerModel";
+import { bridgedWatch, terminalWatch } from "./watchBannerModel";
 import type { PlanBuildReply, PlanBuildTarget, PlanCompareReply } from "./permissions/planBuild";
 import {
   MEMORY_OFFER,
@@ -8282,7 +8282,12 @@ export class AcpmuxDirectClient {
     // A reply acpmux stamped with its segment is cut by the segment itself: the background turn's
     // words carry another one ("-", hub/stream.rs), so they start their own row, and a prompt's
     // reply a record split goes on in its row, never as a second row the background turn owns.
-    const stamped = this.streamingAssistant !== undefined && this.streamingSegment?.row === this.streamingAssistant;
+    // A background turn's own row never goes on past its end (it stayed streaming, which held its
+    // footer back until the next prompt).
+    const stamped =
+      this.streamingAssistant !== undefined &&
+      this.streamingSegment?.row === this.streamingAssistant &&
+      this.rows.get(this.streamingAssistant)?.inBackground === undefined;
     if (!stamped) this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
@@ -10502,6 +10507,7 @@ export class AcpmuxDirectClient {
           // The harness's own session id: Move to Terminal resumes it (header/terminalMoveRow.ts).
           ...(text(summary.agentSessionId) ? { agentSessionId: text(summary.agentSessionId) } : {}),
           ...(bridgedWatch(summary) ? { bridged: true } : {}),
+          ...(terminalWatch(summary) ? { terminal: true } : {}),
           ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
           ...(limits ? { subsessionLimits: limits } : {}),
           status: summary.status,
@@ -12614,6 +12620,20 @@ export class AcpmuxDirectClient {
   agentLoginCancel(loginId: string, sessionId: string | undefined): Promise<unknown> {
     return this.request("_acpmux/agent_login/cancel", { loginId, ...(sessionId ? { sessionId } : {}) });
   }
+  /// Starts a GitHub sign-in on chat `sessionId`'s machine (`_acpmux/account/sign_in`; acpmux
+  /// forwards it there and only that machine's owner may run it): the device page to open and the
+  /// one-time code, which the page shows on its card only.
+  accountSignInStart(family: "github", sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/account/sign_in", { family, sessionId });
+  }
+  /// Waits for sign-in `loginId` on chat `sessionId`'s machine (`_acpmux/account/sign_in.finish`).
+  accountSignInFinish(loginId: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/account/sign_in.finish", { loginId, sessionId });
+  }
+  /// Stops sign-in `loginId` on chat `sessionId`'s machine (`_acpmux/account/sign_in.cancel`).
+  accountSignInCancel(loginId: string, sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/account/sign_in.cancel", { loginId, sessionId });
+  }
   async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
     if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
     try {
@@ -12699,11 +12719,17 @@ export class AcpmuxDirectClient {
   /// in this chat; `worktree` and `compare` start it in new worktrees as sub-sessions (one, or one
   /// per harness) and answer the ask so this chat stays free. Takes a gesture ticket for that
   /// exact build, as an answer does.
-  async planBuild(permissionId: string, target: PlanBuildTarget, session?: string): Promise<PlanBuildReply> {
+  /// `plan` is the person's edit of the plan: the agent, or the builds, get it instead.
+  async planBuild(
+    permissionId: string,
+    target: PlanBuildTarget,
+    session?: string,
+    plan?: string,
+  ): Promise<PlanBuildReply> {
     const sessionId = session ?? this.actingSessionId;
     // l10n-allow: refuses the card's answer so it stays answerable; never shown.
     if (!sessionId) throw new Error("no chat to build in");
-    const params = { sessionId, permissionId, target };
+    const params = { sessionId, permissionId, target, ...(plan === undefined ? {} : { plan }) };
     const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
       intent: { method: "_acpmux/plan/build", params },
     }).then(
