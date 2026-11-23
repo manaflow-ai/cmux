@@ -160,7 +160,7 @@ impl BlobStore for HttpStore {
                 match sent {
                     Ok(r) if r.status().is_success() => return Ok(()),
                     Ok(r) if r.status().is_server_error() => {
-                        last = anyhow!("the store answered {}", r.status().as_u16())
+                        last = anyhow!("the store answered {}", r.status().as_u16());
                     }
                     Ok(r) => bail!("the store refused a blob: {}", r.status().as_u16()),
                     Err(e) => last = anyhow!("the store did not answer: {}", e.without_url()),
@@ -187,7 +187,7 @@ impl BlobStore for HttpStore {
                             .to_vec());
                     }
                     Ok(r) if r.status().is_server_error() => {
-                        last = anyhow!("the store answered {}", r.status().as_u16())
+                        last = anyhow!("the store answered {}", r.status().as_u16());
                     }
                     Ok(r) => bail!("the store refused {sha256}: {}", r.status().as_u16()),
                     Err(e) => last = anyhow!("the store did not answer: {}", e.without_url()),
