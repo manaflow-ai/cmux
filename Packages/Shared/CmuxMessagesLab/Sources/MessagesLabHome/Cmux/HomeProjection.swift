@@ -869,7 +869,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func draftChanged() {
-        if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
+        // The user moved on. (No notice, no localized lookup: this runs on every key.)
+        if let notice = sendNotice, notice == CmuxStrings.threadRootNotReady { sendNotice = nil }
         // The text with its marks, and the attachments (Delete or a cut can take a chip with the text).
         saveDraft()
         // My typing dots for the other members (HomeStore+Typing); off once the field is empty.

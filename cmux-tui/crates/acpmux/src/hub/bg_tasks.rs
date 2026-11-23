@@ -415,16 +415,42 @@ impl Hub {
     /// `_acpmux/bg/output`: up to `max` bytes from `from` (`None`: the last `max`).
     pub fn bg_output(
         &self,
-        session: &Session,
+        session: &Arc<Session>,
         id: &str,
         from: Option<u64>,
         max: Option<u64>,
+    ) -> Result<Value, RpcError> {
+        self.bg_output_as(session, id, from, max, &BgScope::Every)
+    }
+
+    /// `_acpmux/bg/output` for `scope`. A read by the chat's own agent of a task its caller
+    /// started, once the task ended, through to its last byte, tells that agent its end: the
+    /// end's notice counts as sent, and one already waiting behind the agent's turn leaves the
+    /// queue. Such a notice only woke the chat to say again what the read showed (hq#15820:
+    /// "Those notices are things I'd already acted on"). A read by the person, a workflow or
+    /// another caller, or of part of the output, still leaves the end to come.
+    pub fn bg_output_as(
+        &self,
+        session: &Arc<Session>,
+        id: &str,
+        from: Option<u64>,
+        max: Option<u64>,
+        scope: &BgScope,
     ) -> Result<Value, RpcError> {
         use base64::Engine;
         let (dir, record) = self.bg_record(session, id)?;
         let max = max.unwrap_or(OUTPUT_DEFAULT).min(OUTPUT_MAX);
         let read = bg_run::read_output(&dir, id, from, max).map_err(internal)?;
         let mut view = bg_view(&dir, &record, 0);
+        let to_the_end = read.start + read.data.len() as u64 >= read.total;
+        if scope.told_by_its_answer()
+            && scope.covers(&record)
+            && record.notify
+            && to_the_end
+            && view["state"] != "running"
+        {
+            self.bg_end_told(session, &dir, id);
+        }
         // The bytes exactly (`data`), and as text for an agent to read (`text`).
         view.set("data", json!(base64::engine::general_purpose::STANDARD.encode(&read.data)));
         view.set("text", json!(String::from_utf8_lossy(&read.data)));
@@ -475,6 +501,20 @@ impl Hub {
             let _ = crate::home_fs::remove_file(&mark);
         }
         Ok(bg_view(&dir, &record, LIST_TAIL))
+    }
+
+    /// Task `id`'s end reached the chat's own agent in an answer ([`Self::bg_output_as`]): its
+    /// notice counts as sent (`bg_notify.rs` finds the mark and sends none), and one already
+    /// queued behind the agent's turn, alone or to join a digest, is taken out.
+    fn bg_end_told(&self, session: &Arc<Session>, dir: &std::path::Path, id: &str) {
+        let mark = bg_run::notified_path(dir, id);
+        if !mark.exists()
+            && let Err(e) = crate::home_fs::write(&mark, b"")
+        {
+            tracing::warn!(task = %id, "a task end its agent read was not marked told: {e}");
+        }
+        let prompt_id = format!("{}{id}", super::bg_notify::PROMPT_PREFIX);
+        self.remove_queued_because(session, &prompt_id, Some("its agent read the task's end"));
     }
 
     /// A purged chat's tasks are stopped at once and its folder goes at once, moved to

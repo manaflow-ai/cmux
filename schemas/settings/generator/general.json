@@ -3,6 +3,7 @@
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+General.generated.swift",
   "type": "GeneralSettingsSchema",
   "lists": {
+    "language": ["language", null],
     "history": ["history", null],
     "window": ["window", null],
     "quitting": ["quitting", null],

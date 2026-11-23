@@ -18,9 +18,9 @@
 #   - puts scripts/ci/api_call_log/gh first on PATH, a shim that logs one line and execs the real gh with the same
 #     argv; the first call on each token also logs that token's hour (GET /rate_limit, which costs no quota);
 #   - puts sitecustomize.py on PYTHONPATH, which wraps http.client to log requests to api.github.com;
-#   - defines python3/python, which give `-I`/`-E` programs (they ignore PYTHONPATH) the same hook (isolated.py),
-#     and curl, which names a request to api.github.com with its X-RateLimit headers (it adds -D, unless the
-#     caller already reads its own headers);
+#   - defines python3/python in the step's own shell, which give `-I`/`-E` programs (they ignore PYTHONPATH) the
+#     same hook (isolated.py), and curl, which names a request to api.github.com with its X-RateLimit headers (it
+#     adds -D, unless the caller already reads its own headers);
 #   - points the lines at the step shell's own stderr (the runner's pipe), so a child that captures
 #     or redirects its own stderr never sees them; on macOS (no /proc) they wait in a file and are
 #     printed when the next bash step starts.
@@ -65,9 +65,16 @@ if [ -n "$_api_call_log_flush" ]; then
   # macOS: the lines earlier steps wrote, printed to this step's stderr (the only line this file prints).
   cat "$_api_call_log_flush" >&2 2>/dev/null && : >"$_api_call_log_flush" 2>/dev/null || true
 fi
-# The step shell's own functions (BASH_ENV defines them again in every bash a step starts). Each runs with xtrace
-# off and returns the wrapped command's own status; a trace still shows the step's own `python3 ...` or `curl ...`.
-if [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; then
+# The step shell's own functions, only in the shell the runner starts on the step's file ($RUNNER_TEMP/<guid>.sh):
+# a script the step runs keeps python3 and curl as PATH has them, since `command -v python3` names a function by
+# its bare name (scripts/install-git-hooks.sh refuses that, and tests keep `real_curl=$(command -v curl)`). Each
+# runs with xtrace off and returns the wrapped command's own status; a trace still shows the step's own
+# `python3 ...` or `curl ...`.
+case $0 in
+  "${RUNNER_TEMP:-/nonexistent}"/????????-????-????-????-????????????.sh) _api_call_log_step=1 ;;
+  *) _api_call_log_step="" ;;
+esac
+if [ -n "$_api_call_log_step" ] && [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; then
   _api_call_log_write() {
     local sink=${API_CALL_LOG_SINK:-}
     [ -n "$sink" ] || return 0
@@ -105,23 +112,25 @@ if [ -n "${API_CALL_LOG_DIR:-}" ] && [ -f "$API_CALL_LOG_DIR/py/isolated.py" ]; 
     fi
     return 0
   }
-  python3() {
+  # Each wrapper exists only where its program does: a function named curl would make `command -v curl` true on a
+  # PATH with no curl (workers/iroh-v2's deploy guard checks exactly that).
+  if type -P python3 >/dev/null 2>&1; then python3() {
     { local _x=$-; set +x; } 2>/dev/null
     local rc
     _api_call_log_python python3 "$@" && rc=0 || rc=$?
     if [ "$_api_call_log_ran" != 1 ]; then command python3 "$@" && rc=0 || rc=$?; fi
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
-  python() {
+  }; fi
+  if type -P python >/dev/null 2>&1; then python() {
     { local _x=$-; set +x; } 2>/dev/null
     local rc
     _api_call_log_python python "$@" && rc=0 || rc=$?
     if [ "$_api_call_log_ran" != 1 ]; then command python "$@" && rc=0 || rc=$?; fi
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
-  curl() {
+  }; fi
+  if type -P curl >/dev/null 2>&1; then curl() {
     { local _x=$-; set +x; } 2>/dev/null
     local a prev="" url="" meth="" auth="" own="" data="" tmp="" rc
     for a in "$@"; do
@@ -182,8 +191,8 @@ EOF_API_CALL_LOG
     } >/dev/null 2>&1 </dev/null || true
     case $_x in *x*) set -x ;; esac
     return $rc
-  }
+  }; fi
 fi
 unset -f _api_call_log_setup 2>/dev/null || true
-unset _api_call_log_fd2 _api_call_log_flush 2>/dev/null || true
+unset _api_call_log_fd2 _api_call_log_flush _api_call_log_step 2>/dev/null || true
 if [ -n "$_api_call_log_x" ]; then unset _api_call_log_x; set -x; else unset _api_call_log_x; fi

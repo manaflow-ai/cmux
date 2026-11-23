@@ -19,6 +19,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "archive",
+        &[
+            ("Take two finished chats off the lists", "acpmux archive docs-cleanup api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json archive docs-cleanup"),
+        ],
+    ),
+    (
+        "unarchive",
+        &[
+            ("Bring a chat back to the lists", "acpmux unarchive api-review"),
+            ("The same, with each outcome as JSON", "acpmux --json unarchive api-review"),
+        ],
+    ),
+    (
         "machine-auth",
         &[
             (
@@ -354,7 +368,15 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),
+            ("Open the NEXT agent pane in the browser", "acpmux web --app"),
             ("Only print the dashboard URL", "acpmux web --no-open"),
+        ],
+    ),
+    (
+        "board",
+        &[
+            ("Show this device's branch board (Labs > Show Preview Features)", "acpmux board"),
+            ("The same board as JSON", "acpmux --json board"),
         ],
     ),
 ];

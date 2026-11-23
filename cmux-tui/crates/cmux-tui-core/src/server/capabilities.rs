@@ -62,6 +62,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
         capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
@@ -308,6 +309,7 @@ pub(super) fn advertised_capabilities(
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        TERMINAL_RESUME_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
@@ -331,6 +333,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
+        DAEMON_STOP_IF_IDLE_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         TERMINAL_TAIL_PIN_CAPABILITY,
@@ -356,6 +359,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
         WORKSPACE_CREATED_BY_CAPABILITY,
+        CREATED_BY_DETAIL_CAPABILITY,
         TERMINAL_READ_UNWRAP_CAPABILITY,
         TERMINAL_WAIT_NEW_CAPABILITY,
         TERMINAL_EXIT_STATUS_CAPABILITY,
@@ -526,6 +530,8 @@ pub(super) fn advertised_capabilities(
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::shell_runs::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::language_packs::CAPABILITY);
     capabilities
 }
 
