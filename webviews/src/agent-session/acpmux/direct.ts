@@ -8,6 +8,7 @@ import {
   type BrowserDeviceIdentity,
 } from "./browserDevice";
 import { pageAttention } from "./attention";
+import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
@@ -5325,6 +5326,48 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
   }
 
+  /// The saved prompts acpmux keeps and cmux-next.json names (`{prompts: [...]}`, savedPrompts.ts).
+  listPrompts(): Promise<unknown> {
+    return this.request("_acpmux/prompts_list", {});
+  }
+
+  /// Saves `text` as the prompt `name`, replacing one of that name; acpmux answers with the row.
+  savePrompt(name: string, text: string): Promise<unknown> {
+    return this.request("_acpmux/prompts_save", { name, text });
+  }
+
+  /// Deletes the saved prompt `name`.
+  deletePrompt(name: string): Promise<unknown> {
+    return this.request("_acpmux/prompts_delete", { name });
+  }
+
+  /// Chat `chat`'s stashed drafts, newest first, their chips without contents (`{drafts}`,
+  /// composer/draftStash.ts).
+  listStash(chat: string): Promise<unknown> {
+    return this.request("_acpmux/stash_list", { chat });
+  }
+
+  /// Stashes a draft on top of `chat`'s stack, in place of draft `replaces` when given; acpmux
+  /// answers with its row (`{draft}`).
+  pushStash(chat: string, text: string, attachments: readonly unknown[], replaces?: string): Promise<unknown> {
+    return this.request("_acpmux/stash_push", { chat, text, attachments, ...(replaces ? { replaces } : {}) });
+  }
+
+  /// Stashed draft `id` of `chat`, whole (`{draft}`).
+  getStash(chat: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/stash_get", { chat, id });
+  }
+
+  /// Drops stashed draft `id` of `chat`.
+  dropStash(chat: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/stash_drop", { chat, id });
+  }
+
+  /// Moves `chat`'s stashed drafts onto `to`'s stack in one write (a new chat's, once it has a session).
+  moveStash(chat: string, to: string): Promise<unknown> {
+    return this.request("_acpmux/stash_move", { chat, to });
+  }
+
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
   /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
   /// session host as `git.files.search`, and mock mode's in-page daemon answers it.
@@ -9373,9 +9416,16 @@ export class AcpmuxDirectClient {
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
-          // at the same size (imageEntries.ts withSentShapes).
+          // at the same size (imageEntries.ts withSentShapes). A prompt that waited in the queue has
+          // no row of its own: its attachments are the shape source.
           ...(promptImages(msg.images).length > 0 && {
-            images: withSentShapes(promptImages(msg.images), optimisticRow?.images),
+            images: withSentShapes(
+              promptImages(msg.images),
+              optimisticRow?.images ??
+                (fallbackPromptId
+                  ? attachedImages(this.optimisticPromptAttachments.get(fallbackPromptId) ?? [])
+                  : undefined),
+            ),
           }),
           ...(inlineParts?.length ? { inlineParts } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
@@ -9572,13 +9622,36 @@ export class AcpmuxDirectClient {
                 backgroundsWork: this.summary?.backgroundsWork,
               })
             : undefined;
-        if (event.kind === "turn_result")
-          this.rows.set(summaryId, {
-            id: summaryId,
+        // acpmux logs a named turn's `turn_end` and then its `turn_result`, with the turn's git
+        // stats read between them (hub/turns.rs `write_turn_result`). A pane that drew the end alone
+        // drew the turn's work as it came, then folded it under "Worked for" a frame or more later,
+        // after the turn's end fold had played: the reply jumped up by the fold's height. The end
+        // draws the turn as its result will, under the summary its result then fills in.
+        const endTurnId =
+          event.kind === "turn_end" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        if (endTurnId !== undefined && this.interrupting === undefined && !this.rows.has(`summary-${endTurnId}`)) {
+          const ending = `summary-${endTurnId}`;
+          this.rows.set(ending, {
+            id: ending,
             version: 1,
             at: event.at,
             kind: "turnSummary",
             ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
+            turnId: endTurnId,
+            ...this.turnTotals(event.at, endedTurnStartedAt),
+            status: msg.stopReason === "cancelled" ? "cancelled" : "completed",
+          });
+        }
+        // The summary the turn's end drew, if it drew one: the result takes its place and its start.
+        const endDrawn = event.kind === "turn_result" ? this.rows.get(summaryId) : undefined;
+        const resultStartedAtMs = turnStartedAtMs ?? endDrawn?.turnStartedAtMs;
+        if (event.kind === "turn_result")
+          this.rows.set(summaryId, {
+            id: summaryId,
+            version: (endDrawn?.version ?? 0) + 1,
+            at: event.at,
+            kind: "turnSummary",
+            ...(resultStartedAtMs !== undefined && { turnStartedAtMs: resultStartedAtMs }),
             // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
@@ -9658,7 +9731,8 @@ export class AcpmuxDirectClient {
       // acpmux ends a reply's segment where the pane cuts its row (hub/stream.rs `cuts_reply`): a
       // chunk of another segment starts its own row, even under the same messageId, so a page that
       // lacks the record the cut was at (a thought, a call) still draws the two rows.
-      const stamped = replySegment(event);
+      const stampedSegment = replySegment(event);
+      const stamped = stampedSegment === undefined ? undefined : replyRowKey(stampedSegment, messageId);
       const segment = this.streamingSegment;
       if (
         stamped !== undefined &&
@@ -14669,8 +14743,9 @@ export class AcpmuxDirectClient {
   /// The chat's every prompt older than its open page, read from acpmux's prompt index
   /// (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): each bounded reply is
   /// newest-first by page but oldest-first within it, so older pages prepend until `hasMore` ends.
-  /// Today's daemon returns the whole index with `hasMore: false`; a daemon without the index
-  /// reads the bounded `user_message` page the request also names, which covers what it holds.
+  /// The daemon bounds each page by `limit` and `maxBytes` (one older daemon returned the whole
+  /// index with `hasMore: false`); a daemon without the index reads the bounded `user_message`
+  /// page the request also names, which covers what it holds.
   private promptIndex?: PromptIndexRead;
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { heads: PromptHeads; before: number; list: PromptHeads; shed: number };
