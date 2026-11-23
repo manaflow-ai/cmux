@@ -217,10 +217,3 @@ describe("the open running tray lists what runs newest first", () => {
     expect(items.map((item) => item.id)).toEqual(["c-new", "mid", "c-old", "old", "child"]);
   });
 });
-
-// This suite checks the headers from before the `tally` arm (trayFoldHead.experiment.ts, the default since
-// Leo's 2026-11-23 ask); subagent-tray-tally.test.tsx checks `tally`. Read when each tray mounts.
-{
-  const host = globalThis as { cmuxExperiments?: Record<string, string> };
-  host.cmuxExperiments = { ...host.cmuxExperiments, "subagent-tray-fold-head": "kinds" };
-}
