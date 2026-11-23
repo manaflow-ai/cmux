@@ -570,11 +570,16 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
-          {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
+          {/* A Drive invite can also stop the active turn. */}
           {role === "talk" || role === "drive" ? (
             <GuestComposer
               initialText={prompts.draft()}
               onSend={send}
+              onStop={
+                role === "drive" && snapshot?.isWorking && connection === "live"
+                  ? () => socket.current?.send({ t: "cancel" })
+                  : undefined
+              }
               onDraft={(draft) => {
                 prompts.keepDraft(draft);
                 typing.input(draft);

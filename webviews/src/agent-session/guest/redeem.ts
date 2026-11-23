@@ -146,7 +146,7 @@ export const joinedName = (shareId: string, storage: Storage) => storage.getItem
 export const joinedRole = (shareId: string, storage: Storage, invite = false): GuestRole | undefined => {
   const via = joinedVia(shareId, storage);
   if (invite && via !== "invite") return undefined;
-  const kept = role(storage.getItem(key(shareId, "role")), via === "invite");
+  const kept = role(storage.getItem(key(shareId, "role")), storage.getItem(key(shareId, "via")) === "invite");
   // A link guest watches unless the redeem named `talk` (a signed-in account on a talk link); the
   // daemon refuses an anonymous guest's messages whatever this tab kept.
   if (via === "link" && storage.getItem(key(shareId, "joined")) !== null) return kept ?? "view";

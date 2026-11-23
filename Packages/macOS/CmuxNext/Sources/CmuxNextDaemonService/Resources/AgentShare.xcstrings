@@ -3937,127 +3937,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role takes view or talk."
+            "value": "--role takes view, talk or drive."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role nimmt view oder talk."
+            "value": "--role nimmt view, talk oder drive."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role accepte view ou talk."
+            "value": "--role accepte view, talk ou drive."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يقبل ‎--role القيمة view أو talk."
+            "value": "يقبل ‎--role القيمة view، talk أو drive."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role admite view o talk."
+            "value": "--role admite view, talk o drive."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role 只接受 view 或 talk。"
+            "value": "--role 只接受 view、talk 或 drive。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role 只接受 view 或 talk。"
+            "value": "--role 只接受 view、talk 或 drive。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role에는 view 또는 talk를 지정하세요."
+            "value": "--role에는 view, talk 또는 drive를 지정하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role には view か talk を指定します。"
+            "value": "--role には view、talk か drive を指定します。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role prima view ili talk."
+            "value": "--role prima view, talk ili drive."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role tager view eller talk."
+            "value": "--role tager view, talk eller drive."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role accetta view o talk."
+            "value": "--role accetta view, talk o drive."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role ទទួល view ឬ talk។"
+            "value": "--role ទទួល view, talk ឬ drive។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role tar view eller talk."
+            "value": "--role tar view, talk eller drive."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role przyjmuje view lub talk."
+            "value": "--role przyjmuje view, talk lub drive."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role aceita view ou talk."
+            "value": "--role aceita view, talk ou drive."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role принимает view или talk."
+            "value": "--role принимает view, talk или drive."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role รับค่า view หรือ talk"
+            "value": "--role รับค่า view, talk หรือ drive"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role view ya da talk alır."
+            "value": "--role view, talk ya da drive alır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role приймає view або talk."
+            "value": "--role приймає view, talk або drive."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "--role nhận view hoặc talk."
+            "value": "--role nhận view, talk hoặc drive."
           }
         }
       }
@@ -4189,6 +4189,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Đã mời %@. Sau khi đăng nhập, họ có thể xem cuộc trò chuyện này."
+          }
+        }
+      }
+    },
+    "agentShare.invite.invitedDrive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invited %@. They can run the agent as you, on your plan and your machine."
           }
         }
       }
@@ -4975,6 +4986,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Họ có thể xem nhưng không gửi được tin nhắn."
+          }
+        }
+      }
+    },
+    "agentShare.invite.consent.drive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They can run the agent as you, on your plan and your machine."
           }
         }
       }
@@ -5892,6 +5914,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Email hoặc @tên người dùng"
+          }
+        }
+      }
+    },
+    "agentShare.sheet.canDrive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can drive"
           }
         }
       }

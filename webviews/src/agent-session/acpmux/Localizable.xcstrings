@@ -420547,6 +420547,18 @@
         }
       }
     },
+    "share.role.driveDetail": {
+      "comment": "Share dialog: what the owner authorizes by granting Can drive to one named account",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "They can run the agent as you, on your plan and your machine."
+          }
+        }
+      }
+    },
     "share.invite": {
       "comment": "Agent pane: Share dialog button that invites the typed account",
       "extractionState": "manual",

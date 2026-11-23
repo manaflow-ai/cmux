@@ -154,6 +154,23 @@ test("a join remembers the invite's role for a reload; a link join watches only"
   expect(joinedRole(SHARE, kept)).toBe("view");
 });
 
+test("only a named invite accepts and remembers Drive", async () => {
+  const reply = async () => new Response(JSON.stringify({ guest_id: "driver", role: "drive" }));
+  const attempt = { attempt_id: "a".repeat(32) };
+  expect(await acceptOverFetch(reply)(SHARE, attempt)).toEqual({ ok: true, guestId: "driver", role: "drive" });
+  expect(await redeemOverFetch(reply)(SHARE, { ...attempt, secret: "secret", name: "Ana" })).toEqual({
+    ok: true,
+    guestId: "driver",
+  });
+  const kept = storage();
+  rememberJoined(SHARE, "driver", kept, undefined, "drive", "invite");
+  expect(joinedRole(SHARE, kept, true)).toBe("drive");
+  kept.removeItem(`cmux.guest.${SHARE}.via`);
+  expect(joinedRole(SHARE, kept, true)).toBeUndefined();
+  rememberJoined(SHARE, "driver", kept, "Ana", "drive", "link");
+  expect(joinedRole(SHARE, kept)).toBe("view");
+});
+
 test("accept posts only the attempt, same origin with credentials, and maps the room's role and errors", async () => {
   const calls: [string, RequestInit][] = [];
   const answer = (status: number, body: unknown) =>

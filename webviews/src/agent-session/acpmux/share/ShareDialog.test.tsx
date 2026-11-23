@@ -165,7 +165,7 @@ test("Can drive is offered to named people and never to General access", async (
   const drive = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
     item.textContent?.includes(translate("share.role.drive")),
   );
-  expect(drive).toBeDefined();
+  expect(drive?.textContent).toContain(translate("share.role.driveDetail"));
   await act(async () => drive!.click());
   await settle();
   expect(calls).toEqual(["role @sam drive"]);

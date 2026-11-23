@@ -79,15 +79,31 @@ export default componentEntry<ShareDemoProps>({
     },
     "dialog-drive-invite": {
       note: "Named invite with Can drive selected. Drive is available for this person only and is absent from General access.",
-      props: { viewing, shares: [drivePerson], open: true },
+      props: { viewing: [], shares: [], open: true },
+      play: async (ctx) => {
+        await ctx.type("@ana", { selector: ".share-dialog__field" });
+        await ctx.click({ selector: ".share-dialog__role button" });
+        await ctx.click({ role: "menuitemradio", name: "Can drive" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".share-dialog__status")?.textContent?.includes("your plan"),
+        );
+      },
     },
     "dialog-drive-person": {
       note: "A named person's role menu includes Can drive alongside Viewer and Can send.",
       props: { viewing, shares: [drivePerson], open: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".share-dialog__person-pick" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]'));
+      },
     },
     "dialog-link-no-drive": {
       note: "Anyone with the link keeps its fixed Can send role. Can drive is not offered in the link section.",
       props: { viewing: [], shares: [link], open: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".share-dialog__general" });
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]'));
+      },
     },
     "rows-restricted-back": {
       note: "Shipped: General access and each person are one button the size of their row, edged at rest like a sign-in choice, with the hover and press fills on the whole block; pressing General access offers Restricted, which turns the link back off.",

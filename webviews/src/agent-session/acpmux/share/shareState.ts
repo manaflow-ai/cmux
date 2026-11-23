@@ -31,7 +31,7 @@ export interface ChatShare {
   url: string | null;
   inviteUrl: string | null;
   /** The role every link guest gets: `view` or `talk`; Drive is never a link role. */
-  role: ShareRole | null;
+  role: Exclude<ShareRole, "drive"> | null;
   createdAt: number;
   expiresAt: number;
   usesLeft: number;
