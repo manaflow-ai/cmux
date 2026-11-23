@@ -54,6 +54,11 @@ nonisolated struct LiveWallpaperFrame: Sendable {
     var presence: Float = 0
     var sinceMoved: Float = 10_000
     var buttonDown = false
+    /// The agents' activity (`Frame.activity`): the eased level 0...1, seconds since the newest
+    /// agent event and the events counted so far (``BackdropLiveView``'s `CmuxWallpaperActivity`).
+    var activity: Float = 0
+    var sinceAgentEvent: Float = 10_000
+    var agentEvents: Float = 0
     var still = false
     var colors: LiveWallpaperColors
     var params: [Float] = []
@@ -77,6 +82,9 @@ nonisolated struct LiveWallpaperFrame: Sendable {
         input.velocity_y = velocity.y
         input.presence = presence
         input.since_moved = sinceMoved
+        input.activity = activity
+        input.since_agent_event = sinceAgentEvent
+        input.agent_events = agentEvents
         input.ink = (colors.ink.x, colors.ink.y, colors.ink.z)
         input.paper = (colors.paper.x, colors.paper.y, colors.paper.z)
         input.accent = (colors.accent.x, colors.accent.y, colors.accent.z)
