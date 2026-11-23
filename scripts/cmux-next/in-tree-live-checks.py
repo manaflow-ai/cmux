@@ -640,8 +640,9 @@ try:
                 x = y = None
                 click = {"error": repr(error)}
             time.sleep(0.3)  # test harness: the click focuses the field
+            # Off, the page is a child window that a never-active app never makes key: its keys go to it by name.
             for ch in "full":
-                rpc("debug.key", {"key": ch})
+                rpc("debug.key", {"key": ch, **({} if opts.in_tree == "on" else {"target": "page"})})
             value = wait(lambda: (lambda v: v if v == "full" else None)(page_eval("document.getElementById('field').value", page_tab).get("value")), 3)
             row(value == "full", "fullscreen.input", dict(state, click=click, value=value or page_eval("document.getElementById('field').value", page_tab).get("value")))
             # Real input as the verifier posted it: to the app's pid, the app never active, its window on its own Space.

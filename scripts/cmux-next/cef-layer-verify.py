@@ -130,7 +130,8 @@ button,input,select{flex:1;font-size:20px}#tall{height:4000px}</style>
 <div id=tall></div>
 <script>window.__events=[];for(const t of ['mousedown','mousemove','mouseup','contextmenu'])
 addEventListener(t,e=>{if(t!=='mousemove'||e.buttons)window.__events.push(t)},true)
-addEventListener('message',e=>{if(e.data==='popup-click')window.__popupClicks=(window.__popupClicks||0)+1})</script>"""
+addEventListener('message',e=>{if(e.data==='popup-click')window.__popupClicks=(window.__popupClicks||0)+1})
+Object.defineProperty(window,'zz',{get(){window.__dtHit=(window.__dtHit||0)+1;return 1}})</script>"""
 # The window.open popup (popup.html beside the probe): the same bars, and a button that tells the opener it was clicked
 # (file pages are cross-origin to each other, so a message, not a shared global).
 POPUP_PAGE = """<!doctype html><meta charset=utf-8><title>layer popup</title>
@@ -208,7 +209,7 @@ CG.CGMainDisplayID.restype = ctypes.c_uint32
 CG.CGDisplayBounds.restype = CGRect
 CG.CGDisplayBounds.argtypes = [ctypes.c_uint32]
 CF.CFRelease.argtypes = [ctypes.c_void_p]
-KEYCODES = {"a": 0, "b": 11, "c": 8, "escape": 53, "return": 36}
+KEYCODES = {"a": 0, "b": 11, "c": 8, "z": 6, "escape": 53, "return": 36}
 
 
 def post(event):
@@ -824,14 +825,28 @@ def check_devtools():
     hid_click(point)
     key = wait(devtools_key, 2)
     focus_after = rpc("debug.focus") or {}
+    key_window = [{k: w.get(k) for k in ("kind", "class", "visible")} for w in ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("key")]
+    # The keys, after that one click: Escape opens DevTools' console drawer and focuses its prompt, and `zz` Return
+    # evaluates in the page (its getter counts). Keys that missed DevTools go to the page or nowhere: no hit.
+    page("window.__dtHit = 0")
+    typed_keys = None
+    if opts.input in ("cua", "hid"):
+        for name in ("escape", "z", "z", "return"):
+            hid_key(name)
+            time.sleep(0.25 if name == "escape" else 0.05)  # test harness: the drawer opens before the keys
+        typed_keys = wait(lambda: page("window.__dtHit || 0"), 3) or 0
     focus_log_first = [json.dumps(c)[:260] for c in ((rpc("debug.focus_log", {"limit": 12}) or {}).get("changes") or [])]
     second = None
     if not key:
         hid_click(point)
         second = bool(wait(devtools_key, 2))
     final = key or devtools_entry() or {}
+    if typed_keys is not None:
+        row("devtools.keys", typed_keys >= 1, {"console_evaluations": typed_keys, "key_window": key_window,
+                                                "first_responder": [(w.get("appkit") or {}).get("first_responder")
+                                                                    for w in (focus_after.get("windows") or []) if isinstance(w, dict)][:2]})
     row("devtools.click", bool(key) and not key_before,
-        {"at": [round(v) for v in point], "key_before_click": key_before, "second_click_gave_keys": second,
+        {"at": [round(v) for v in point], "key_before_click": key_before, "second_click_gave_keys": second, "key_window": key_window,
          "child_windows": (final.get("child_windows") or [])[:4],
          "gate_before": gate_before, "gate_after_first": focus_after.get("in_tree"), "focus_log_after_first": focus_log_first,
          "appkit_after_first": [(w.get("appkit") or {}) for w in (focus_after.get("windows") or []) if isinstance(w, dict)][:2],
@@ -849,7 +864,7 @@ def check_prompt_keys():
     time.sleep(1.5)  # test harness: the prompt shows
     dialog_before = rpc("debug.dialog") or {}
     focus_before = rpc("debug.focus") or {}
-    windows_before = [{k: w.get(k) for k in ("kind", "class", "key", "visible", "title")} for w in
+    windows_before = [{k: w.get(k) for k in ("kind", "class", "key", "visible", "title", "frame", "parent")} for w in
                       ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("visible")]
     for key in "abc":
         hid_key(key)
@@ -888,6 +903,9 @@ def check_fullscreen():
     """fullscreen.*: after toggleFullScreen the page still takes clicks and keys. `fullscreen.input` real input (cua: a
     click on the page's field, then keys to the frontmost app); `fullscreen.input_debug` the app's own path
     (debug.mouse target page, then debug.key). Compared in mode intree and off."""
+    if TAB.get("tab"):
+        rpc("action.run", {"action": "tab.focus", "target": f"tab:{TAB['tab']}", "focus": True, "origin": "script"})
+        time.sleep(0.3)  # test harness: focus lands on the page
     frame_before = ((rpc("debug.layers") or {}).get("windows") or [{}])[0].get("frame")
     action("toggleFullScreen")
     full = wait(lambda: (lambda f: f if f and f != frame_before else None)(((rpc("debug.layers") or {}).get("windows") or [{}])[0].get("frame")), 10, 0.5)
@@ -913,7 +931,7 @@ def check_fullscreen():
         click = rpc("debug.mouse", {"target": "page", "x": point[2], "y": point[3]})
         time.sleep(0.3)  # test harness: the click focuses the field
         for key in "xyz":
-            rpc("debug.key", {"key": key})
+            rpc("debug.key", {"key": key, **({} if IN_TREE else {"target": "page"})})
         value = wait(lambda: page("document.getElementById('t').value"), 3)
         row("fullscreen.input_debug", value == "xyz", dict(state, value=value, click=click))
     else:
