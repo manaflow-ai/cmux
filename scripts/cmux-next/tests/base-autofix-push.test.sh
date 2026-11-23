@@ -315,9 +315,10 @@ git update-ref refs/heads/feat "$moved"
 exit 1
 HOOK
 chmod +x "$tmp/remote.git/hooks/pre-receive"
-if (cd "$tmp/bot" && CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 timeout 60 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1; then
-  fail "a refused push passed the run"
-fi
+rc=0
+(cd "$tmp/bot" && CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS=2 timeout 60 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1 || rc=$?
+# 75: kept moving, which base-autofix-land.sh passes (the newest push's run repairs it).
+[[ "$rc" == 75 ]] || fail "a branch that kept moving exited $rc, not 75: $(cat "$tmp/out")"
 grep -q "attempt 2 of 2" "$tmp/out" || fail "the run did not stop after its attempts: $(cat "$tmp/out")"
 grep -q "kept moving" "$tmp/out" || fail "the run does not say the branch kept moving: $(cat "$tmp/out")"
 
@@ -334,7 +335,8 @@ setup_next
 lane_commit "lane edits a doc" README.md "lane"
 moved="$(remote_tip)"
 mkdir -p "$tmp/fakebin"
-real_git="$(command -v git)"
+# The git binary, never a wrapper on PATH that would exec this fake again (tests/real_git.py).
+real_git="$(python3 "$here/../../../tests/real_git.py")" || exit 2
 printf '#!/bin/sh\n[ "$1" = log ] && [ -n "$FAIL_GIT_LOG" ] && exit 128\nexec "%s" "$@"\n' "$real_git" > "$tmp/fakebin/git"
 chmod +x "$tmp/fakebin/git"
 if (cd "$tmp/bot" && PATH="$tmp/fakebin:$PATH" FAIL_GIT_LOG=1 bash "$script" "$tmp/remote.git" feat "$base") > "$tmp/out" 2>&1; then
