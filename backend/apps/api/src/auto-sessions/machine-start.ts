@@ -8,9 +8,17 @@ import { GIVE_UP_MS, POLL_MS, RUNNING_GRACE_MS, wakeBackoffMs, wakeStep, type Wa
  * read the machine as its owner, start it when paused (`cloud.machine.start`), read again every POLL_MS while it
  * starts, and on a failed read or start wait 1 s doubling to 60 s, for up to GIVE_UP_MS.
  *
+ * A start lasts as long as the machine has something it has not acked. A machine that runs reads its assignments
+ * itself, so the start only looks again every RECHECK_MS: a machine paused before its daemon got to them (the idle
+ * pause can win that race) is started again rather than left holding a chat nobody runs.
+ *
  * A start never owns an assignment. Each stays on its chat until the machine acks it, so a start that fails or
- * gives up loses nothing: the next assignment for the machine opens a new one.
+ * gives up loses nothing: the next assignment for the machine, or the owner setting the machine again, opens a
+ * new one.
  */
+/** How often a machine that runs and has not acked is read again. */
+export const RECHECK_MS = 60_000
+
 export type StartRow = {
   readonly machine: string
   readonly team: string
@@ -49,8 +57,6 @@ export const stepStart = async (sql: SqlStorage, cloud: (team: string) => WakeCl
     console.error(JSON.stringify({ msg: "auto_sessions.start_gave_up", machine: row.machine, tries: row.tries }))
     return closeStart(sql, row.machine)
   }
-  // Running and still no ack: the machine's daemon is late, not the machine. The assignments wait for it.
-  if (row.running_at > 0 && now - row.running_at >= RUNNING_GRACE_MS) return closeStart(sql, row.machine)
   const principal: Principal = { identity: `session:${row.owner}`, kind: "session", user: row.owner, team: row.team }
   let step: WakeStep
   try {
@@ -74,8 +80,11 @@ export const stepStart = async (sql: SqlStorage, cloud: (team: string) => WakeCl
     sql.exec(`UPDATE starts SET tries = ?, next_at = ?, asked = 1 WHERE machine = ?`, tries, now + wakeBackoffMs(tries), row.machine)
     return
   }
-  // Running at the first look: its daemon is up and reads its assignments itself.
-  if (step.act === "running" && row.asked === 0) return closeStart(sql, row.machine)
   if (step.act === "start") console.log(JSON.stringify({ msg: "auto_sessions.start", machine: row.machine }))
-  sql.exec(`UPDATE starts SET tries = 0, asked = 1, next_at = ?, running_at = ? WHERE machine = ?`, now + POLL_MS, step.act === "running" ? row.running_at || now : 0, row.machine)
+  const running = step.act === "running"
+  const runningAt = running ? row.running_at || now : 0
+  // Running at the first look, or running for a while with no ack: its daemon reads its assignments itself, so
+  // there is nothing to do but look again later, in case the machine is paused before the daemon gets to them.
+  const settled = running && (row.asked === 0 || now - runningAt >= RUNNING_GRACE_MS)
+  sql.exec(`UPDATE starts SET tries = 0, asked = ?, next_at = ?, running_at = ? WHERE machine = ?`, running ? row.asked : 1, now + (settled ? RECHECK_MS : POLL_MS), runningAt, row.machine)
 }

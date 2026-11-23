@@ -239,8 +239,17 @@ const machineSetting = async (request: Request, env: Env): Promise<Response> => 
   if (typeof b.machine !== "string" || !MACHINE.test(b.machine)) return invalid("machine: the Cloud machine id (letters, digits, _ -, at most 64)")
   if (!(await mayUseTeam(env, by.owner, b.team))) return fail(403, "auth.forbidden", "no access to this team's machines")
   const machine = { team: b.team, machine: b.machine }
-  const { blocked } = await index.setMachine(machine)
-  await Promise.allSettled(blocked.map((id) => stub(env, by.owner, id).unblock(by.owner, machine)))
+  await index.setMachine(by.owner, machine)
+  // The chats that waited for a machine, or were given to another that never picked them up, go to this one. A
+  // page at a time, until a page comes back the same (a chat that could not be reached is told by its own index
+  // write later).
+  let last = ""
+  for (let page = 0; page < 10; page++) {
+    const ids = await index.waitingFor(machine.machine)
+    if (ids.length === 0 || ids.join() === last) break
+    last = ids.join()
+    await Promise.allSettled(ids.map((id) => stub(env, by.owner, id).machineSet(by.owner, machine)))
+  }
   return json(machine)
 }
 

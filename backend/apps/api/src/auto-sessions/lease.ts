@@ -15,7 +15,9 @@ import { isDevice, isVm, LEASE_MS, liveStandby, MAX_STANDBY, PARKED, pendingInbo
  * - A laptop renewing on a parked chat takes it: as it is when it was the last to hold it (nobody ran it since),
  *   else by renewing as standby, the path on which it imports the Cloud copy first.
  * - A laptop renewing as standby while a machine holds the chat is remembered. When the machine releases, or renews
- *   with nothing left to run, the chat goes to that laptop unless it is kept in the Cloud.
+ *   with nothing left to run, the chat goes to that laptop unless it is kept in the Cloud. A machine that had
+ *   nothing left to run and stopped renewing (it is paused) gives the chat to the standby at the standby's renewal.
+ * - A chat waiting for an Auto machine, or given to one that never picked it up, goes to the machine the owner sets.
  *
  * Every move keeps one rule: the epoch grows by exactly one when the holder changes, and never otherwise
  * (test/auto-sessions-lease.test.ts walks every move to check it).
@@ -123,10 +125,15 @@ export const edit = (r: AutoRecord, input: OpenInput, now: number): Step<null> =
   return same ? { out: null } : { out: null, loud: true, rec: { ...r, ...named } }
 }
 
-/** Auto off: the chat closes and its Cloud copy goes. Refused while a machine holds it, since the laptop has not got it back. */
+/**
+ * Auto off: the chat closes and its Cloud copy goes. Refused while the Cloud has something no laptop has: a machine
+ * holds the chat, a machine was the last to run a parked one, or a parked one has a message nobody read. A laptop
+ * takes the chat first (a standby's renewal), then turns Auto off.
+ */
 export const close = (r: AutoRecord): Step<null> => {
   if (!r.auto) return { out: null }
   if (isVm(r.holder)) return refuse("auto.held_in_cloud", "the chat is running in the Cloud; bring it back before turning Auto off")
+  if (r.holder === PARKED && (r.parkedFrom === null || pendingInbox(r))) return refuse("auto.held_in_cloud", "the Cloud has the only copy of this chat; bring it back to a laptop before turning Auto off")
   const parked = r.holder === PARKED ? r : park(r, null)
   return { out: null, loud: true, rec: { ...parked, auto: false, parkedFrom: null, standby: [], blocked: null, lastSeq: 0, snapshot: 0, snapshotSeq: 0, inboxAcked: r.inbox, eventBytes: 0 } }
 }
@@ -172,6 +179,10 @@ export const renew = (r: AutoRecord, by: AutoCaller, input: RenewInput, now: num
     if (input.standby && !r.keepInCloud) return { out: { role: "holder" }, loud: true, rec: takenBy(r, holder, false, now) }
   }
   if (!input.standby) return { out: { role: "lost" } }
+  // A machine that said it had nothing left to run, has all it did in the Cloud copy and then stopped renewing is
+  // paused. It has no turn end left to hand the chat back at, so the chat goes home to this laptop now. A machine
+  // at work renews, and one that is idle and awake hands the chat back at its own next renewal.
+  if (isVm(r.holder) && !r.keepInCloud && r.leaseExpiresAt > 0 && r.leaseExpiresAt <= now && idleForHandback(r)) return { out: { role: "holder" }, loud: true, rec: takenBy(r, holder, false, now) }
   const live = liveStandby(r, now)
   const at = live.findIndex((s) => s.holder === holder)
   const mine: Standby = { holder, expiresAt: now + LEASE_MS }
@@ -240,9 +251,17 @@ export const tick = (r: AutoRecord, machine: AutoMachine | null, now: number): A
   return next === r ? null : next
 }
 
-/** The owner now has an Auto machine: a chat that was waiting for one goes to it. */
-export const unblock = (r: AutoRecord, machine: AutoMachine): AutoRecord | null =>
-  r.auto && r.holder === PARKED && r.blocked === "no_machine" ? assign(r, machine, "takeover") : null
+/**
+ * The owner set their Auto machine: a chat that was waiting for one goes to it. So does a chat given to another
+ * machine that never picked it up (nothing ran there, so nothing is lost): a machine that was deleted or cannot
+ * start does not keep the chat for good. Null when the chat stays as it is.
+ */
+export const machineSet = (r: AutoRecord, machine: AutoMachine): AutoRecord | null => {
+  if (!r.auto) return null
+  if (r.holder === PARKED) return r.blocked === "no_machine" ? assign(r, machine, "takeover") : null
+  if (isVm(r.holder) && r.holder !== vmHolder(machine.machine) && (r.assignment === "takeover" || r.assignment === "create")) return assign(r, machine, r.assignment)
+  return null
+}
 
 /** When the alarm has to look again: a laptop's lease end, or the first standby to lapse. */
 export const nextDue = (r: AutoRecord): number | null => {

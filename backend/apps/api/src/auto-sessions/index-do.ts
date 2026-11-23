@@ -54,16 +54,20 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(at)
   }
 
-  /** A chat's row after its change. A new assignment opens its machine's start and wakes the machine's wait. */
-  async put(e: AutoIndexEntry): Promise<void> {
+  /**
+   * A chat's row after its change. A new assignment opens its machine's start and wakes the machine's wait. To a
+   * chat that waits for an Auto machine it answers the one the owner has, if any: the chat was parked while the
+   * machine was being set, and goes to it now.
+   */
+  async put(e: AutoIndexEntry): Promise<AutoMachine | null> {
     const old = this.sql.exec<Row>(`SELECT id, view, assign_kind, epoch, version FROM sessions WHERE id = ?`, e.id).toArray()[0]
-    if (old && old.version >= e.view.version) return
+    if (old && old.version >= e.view.version) return null
     this.sql.exec(
       `INSERT INTO sessions (id, view, auto, blocked, assign_kind, assign_machine, epoch, created_at, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET view = excluded.view, auto = excluded.auto, blocked = excluded.blocked, assign_kind = excluded.assign_kind, assign_machine = excluded.assign_machine, epoch = excluded.epoch, version = excluded.version`,
       e.id, JSON.stringify(e.view), e.view.auto ? 1 : 0, e.view.blocked === "no_machine" ? 1 : 0, e.assignment?.kind ?? null, e.assignment?.machine ?? null, e.view.epoch, e.view.createdAt, e.view.version
     )
-    if (!e.assignment) return
+    if (!e.assignment) return e.view.blocked === "no_machine" ? this.machine() : null
     // Open the machine's start for an assignment it has not seen, or when none is open (an earlier one ended).
     const fresh = !old || old.assign_kind !== e.assignment.kind || old.epoch !== e.view.epoch
     if (fresh || !hasStart(this.sql, e.assignment.machine)) {
@@ -71,6 +75,7 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
       await this.arm()
     }
     for (const wake of [...this.waiters]) wake()
+    return null
   }
 
   /** Newest first; `before` is the last row of the previous page. Closed chats are not listed. */
@@ -89,10 +94,23 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
     return row ? { team: row.team, machine: row.machine } : null
   }
 
-  /** Sets the owner's Auto machine; answers the chats that were waiting for one, for the caller to send to it. */
-  async setMachine(m: AutoMachine): Promise<{ readonly blocked: ReadonlyArray<string> }> {
+  /** Sets the owner's Auto machine. Setting it again is also how the owner asks for another try: a start that gave up while the machine still has something to pick up opens again. */
+  async setMachine(owner: string, m: AutoMachine): Promise<void> {
     this.sql.exec(`INSERT INTO machine (k, team, machine) VALUES (1, ?, ?) ON CONFLICT (k) DO UPDATE SET team = excluded.team, machine = excluded.machine`, m.team, m.machine)
-    return { blocked: this.sql.exec<{ id: string }>(`SELECT id FROM sessions WHERE auto = 1 AND blocked = 1 ORDER BY created_at LIMIT 100`).toArray().map((r) => r.id) }
+    if (this.assigned(m.machine).length === 0 || hasStart(this.sql, m.machine)) return
+    openStart(this.sql, { machine: m.machine, team: m.team, owner }, Date.now())
+    await this.arm()
+  }
+
+  /**
+   * The chats that go to the owner's Auto machine once it is set (at most 100 a call): those that waited for one,
+   * and those given to another machine that has not picked them up. Read only when the owner sets the machine.
+   */
+  async waitingFor(machine: string): Promise<ReadonlyArray<string>> {
+    return this.sql
+      .exec<{ id: string }>(`SELECT id FROM sessions WHERE auto = 1 AND (blocked = 1 OR (assign_kind IN ('takeover', 'create') AND assign_machine != ?)) ORDER BY created_at, id LIMIT 100`, machine)
+      .toArray()
+      .map((r) => r.id)
   }
 
   private assigned(machine: string): ReadonlyArray<AutoAssignment> {

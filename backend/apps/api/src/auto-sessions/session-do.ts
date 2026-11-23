@@ -3,7 +3,7 @@ import { DurableObject } from "cloudflare:workers"
 import type { Env, RawEnv } from "../env.ts"
 import { appendEvents, dropEvents, EVENTS_TABLE, planAppend, readEvents, type EventIn, type EventOut } from "./events.ts"
 import { ackInbox, addMessage, dropInbox, INBOX_TABLE, readInbox, sentState, type InboxMessage } from "./inbox.ts"
-import { ackAssignment, close, cloudRecord, deliver, edit, fence, keep, leaseDue, nextDue, openRecord, release, renew, tick, unblock, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
+import { ackAssignment, close, cloudRecord, deliver, edit, fence, keep, leaseDue, machineSet, nextDue, openRecord, release, renew, tick, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
 import { isVm, LEASE_MS, MAX_CHAT_BYTES, MAX_CHUNK_BYTES, MAX_INBOX_PENDING, MAX_WAIT_MS, viewOf, vmHolder, type AutoCaller, type AutoIndexEntry, type AutoMachine, type AutoRecord, type AutoRefusal, type AutoRepo, type AutoResult, type AutoSessionView, type InboxState } from "./model.ts"
 import { armIndexRetry, indexState, insertRecord, loadRecord, markIndexed, saveRecord } from "./record-store.ts"
 import { acceptSnapshot, chunkNames, CHUNKS_TABLE, dropSnapshots, getChunk, hasChunk, putChunk, readSnapshot, roomForChunk, sha256Hex, SNAPSHOTS_TABLE, weighChunks } from "./snapshots.ts"
@@ -81,15 +81,19 @@ export class AutoSessionDO extends DurableObject<Env> {
     for (const wake of [...this.waiters]) wake()
     const r = loadRecord(this.sql)!
     if (indexState(this.sql).indexed >= r.version) return
+    let set: AutoMachine | null = null
     try {
       const ns = this.env.AUTO_SESSION_INDEX_DO!
-      await ns.get(ns.idFromName(r.owner)).put(indexEntry(r, Date.now()))
+      set = await ns.get(ns.idFromName(r.owner)).put(indexEntry(r, Date.now()))
       markIndexed(this.sql, r.version)
     } catch (e) {
       console.warn(JSON.stringify({ msg: "auto_sessions.index_put_failed", error: String(e).slice(0, 200) }))
       armIndexRetry(this.sql, Date.now() + INDEX_RETRY_MS)
     }
     await this.schedule()
+    // To a chat that waits for an Auto machine the index answers the one the owner has. So a machine set while
+    // this chat was being parked, or whose word did not reach this chat, is not missed.
+    if (set) await this.machineSet(r.owner, set)
   }
 
   /**
@@ -235,11 +239,11 @@ export class AutoSessionDO extends DurableObject<Env> {
     return r.ok ? ok(r.value.session) : r
   }
 
-  /** The owner set an Auto machine: a chat that was waiting for one goes to it. */
-  async unblock(owner: string, machine: AutoMachine): Promise<void> {
+  /** The owner set their Auto machine: a chat that was waiting for one, or was given to another that never picked it up, goes to it. */
+  async machineSet(owner: string, machine: AutoMachine): Promise<void> {
     if (!this.admitted({ kind: "owner", owner }, true)) return
     await this.apply<null>((current) => {
-      const next = unblock(current, machine)
+      const next = machineSet(current, machine)
       return next ? { out: null, rec: next, loud: true } : { out: null }
     })
   }
@@ -293,7 +297,9 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   /**
    * `POST snapshot`: the manifest (its JSON text, and the `lastSeq` it names) becomes the chat's snapshot only when
-   * every chunk it names is stored; the one before it and the chunks it does not name are dropped.
+   * every chunk it names is stored; the one before it and the chunks it does not name are dropped. It counts as
+   * covering the chat only through the events that are stored: a manifest that names a later `lastSeq` than the
+   * chat's must not let a machine's hand-back skip events the machine stores after it.
    */
   async putSnapshot(by: AutoCaller, holder: string, epoch: number, manifest: string, lastSeq: number): Promise<AutoResult<{ readonly snapshot: number }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
@@ -307,7 +313,7 @@ export class AutoSessionDO extends DurableObject<Env> {
       if (bytes > MAX_CHAT_BYTES) return TOO_LARGE
       const n = current.snapshot + 1
       acceptSnapshot(this.sql, n, manifest, names, now)
-      return { out: n, loud: true, rec: { ...current, snapshot: n, snapshotSeq: lastSeq } }
+      return { out: n, loud: true, rec: { ...current, snapshot: n, snapshotSeq: Math.min(lastSeq, current.lastSeq) } }
     })
     return r.ok ? ok({ snapshot: r.value.out }) : r
   }

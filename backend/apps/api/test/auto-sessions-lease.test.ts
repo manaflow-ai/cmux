@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { ackAssignment, close, deliver, edit, fence, keep, openRecord, release, renew, tick, unblock, type Step } from "../src/auto-sessions/lease.ts"
+import { ackAssignment, close, deliver, edit, fence, keep, machineSet, openRecord, release, renew, tick, type Step } from "../src/auto-sessions/lease.ts"
 import { isVm, LEASE_MS, PARKED, stateOf, type AutoCaller, type AutoMachine, type AutoRecord } from "../src/auto-sessions/model.ts"
 
 /** The pure rules of an Auto chat's lease (src/auto-sessions/lease.ts): no storage, no clock but the one passed in. */
 const OWNER = "user_1"
 const MACHINE: AutoMachine = { team: "team_1", machine: "vm_1" }
+const OTHER: AutoMachine = { team: "team_1", machine: "vm_2" }
 const VM = "vm:vm_1"
 const A = "device:a"
 const B = "device:b"
@@ -42,7 +43,7 @@ describe("auto sessions: the lease rules", () => {
       else if (move === 7) r = next(r, keep(r, rand(2) === 0))
       else if (move === 8) r = rand(6) === 0 ? next(r, close(r)) : r
       else if (move === 9) r = next(r, edit(r, { title: "t", harness: "claude", device: pick(["a", "b"]) }, now))
-      else if (move === 10) r = unblock(r, MACHINE) ?? r
+      else if (move === 10) r = machineSet(r, rand(4) === 0 ? OTHER : MACHINE) ?? r
       else r = fence(r, r.holder === VM ? machine : owner, r.holder, r.epoch) ? r : { ...r, lastSeq: r.lastSeq + 1, snapshotSeq: rand(2) === 0 ? r.lastSeq + 1 : r.snapshotSeq }
       expect(r.epoch - before.epoch, `move ${move} at step ${i}: ${before.holder} -> ${r.holder}`).toBe(r.holder === before.holder ? 0 : 1)
       // Only a machine has something to pick up, and only a parked chat waits for a machine.
@@ -64,10 +65,39 @@ describe("auto sessions: the lease rules", () => {
     expect(tick({ ...fresh(), inbox: 1 }, MACHINE, LEASE_MS)!.holder).toBe(VM)
     const blocked = tick({ ...fresh(), needsRun: true }, null, LEASE_MS)!
     expect([blocked.holder, blocked.epoch, blocked.blocked, blocked.needsRun]).toEqual([PARKED, 2, "no_machine", true])
-    expect(unblock(blocked, MACHINE)).toMatchObject({ holder: VM, epoch: 3, assignment: "takeover", blocked: null })
-    expect(unblock(idle, MACHINE)).toBeNull()
+    expect(machineSet(blocked, MACHINE)).toMatchObject({ holder: VM, epoch: 3, assignment: "takeover", blocked: null })
+    expect(machineSet(idle, MACHINE)).toBeNull()
     expect(tick(fresh(), MACHINE, LEASE_MS - 1)).toBeNull()
     expect(tick(busy, MACHINE, 10 * LEASE_MS)).toBeNull()
+    // A chat given to a machine that never picked it up goes to the machine the owner sets next; one a machine
+    // picked up stays with it.
+    expect(machineSet(busy, OTHER)).toMatchObject({ holder: "vm:vm_2", epoch: 3, assignment: "takeover", machine: "vm_2", needsRun: true })
+    expect(machineSet({ ...busy, assignment: "create" }, OTHER)).toMatchObject({ holder: "vm:vm_2", epoch: 3, assignment: "create" })
+    expect(machineSet(busy, MACHINE)).toBeNull()
+    expect(machineSet({ ...busy, assignment: null }, OTHER)).toBeNull()
+    expect(machineSet({ ...busy, assignment: "deliver" }, OTHER)).toBeNull()
+  })
+
+  it("Auto off is refused while the Cloud has what no laptop has", () => {
+    const parked = tick(fresh(), MACHINE, LEASE_MS)!
+    // Parked from its own laptop, which still has the chat: it closes.
+    expect(close(parked)).toMatchObject({ rec: { auto: false, holder: PARKED, epoch: 2 } })
+    expect(close({ ...fresh(), inbox: 1 })).toMatchObject({ rec: { auto: false, holder: PARKED, epoch: 2 } })
+    // A machine was the last to run it, or a message waits that nobody read.
+    expect(close({ ...parked, parkedFrom: null })).toMatchObject({ fail: "auto.held_in_cloud" })
+    expect(close({ ...parked, inbox: 1 })).toMatchObject({ fail: "auto.held_in_cloud" })
+    expect(close({ ...parked, holder: VM })).toMatchObject({ fail: "auto.held_in_cloud" })
+  })
+
+  it("a machine that went quiet with nothing left to run gives the chat to a laptop that waits; one at work, or one told to keep the chat, does not", () => {
+    const held: AutoRecord = { ...fresh(), holder: VM, epoch: 2, machine: "vm_1", lastSeq: 5, snapshotSeq: 5, leaseExpiresAt: 50_000 }
+    const wait = { holder: A, epoch: 1, needsRun: false, standby: true }
+    // While the machine renews it hands the chat back itself, at its own renewal.
+    expect(renew(held, owner, wait, 49_999)).toMatchObject({ out: { role: "standby" }, rec: { holder: VM, epoch: 2 } })
+    expect(renew(held, owner, wait, 50_000)).toMatchObject({ out: { role: "holder" }, rec: { holder: A, epoch: 3, needsRun: false, standby: [] } })
+    for (const not of [{ needsRun: true }, { assignment: "deliver" as const }, { inbox: 1 }, { snapshotSeq: 4 }, { keepInCloud: true }, { leaseExpiresAt: 0 }]) {
+      expect(renew({ ...held, ...not }, owner, wait, 50_000), JSON.stringify(not)).toMatchObject({ out: { role: "standby" }, rec: { holder: VM, epoch: 2 } })
+    }
   })
 
   it("a laptop takes back only a chat nobody ran since it held it; after a machine ran it, it has to come back as a standby", () => {

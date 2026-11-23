@@ -167,6 +167,24 @@ describe("auto sessions: the lease", { timeout: 60_000 }, () => {
     await lapse(a.user, "gone")
     expect((await get(a.session, "gone")).body.session).toMatchObject({ holder: VM, standby: [], state: "cloud" })
     expect((await post(vm, "gone", "release", { holder: VM, epoch: 2 })).body.session).toMatchObject({ holder: "parked", epoch: 3, state: "parked" })
+
+    // A snapshot counts only through the events that are stored, whatever its manifest names: events the machine
+    // stores after it still keep the chat from going home.
+    await takenOver(a, "ahead")
+    await post(vm, "ahead", "assignment/ack", { holder: VM, epoch: 2 })
+    await lease(a.session, "ahead", LAPTOP, 1, { standby: true })
+    expect((await post(vm, "ahead", "snapshot", { holder: VM, epoch: 2, manifest: { v: 1, at: 1, lastSeq: 9, harness: "claude", cwd: { kind: "folder", tar: [] }, queue: [] } })).body).toEqual({ snapshot: 1 })
+    await post(vm, "ahead", "events", { holder: VM, epoch: 2, events: [{ seq: 1, record: {} }] })
+    expect((await lease(vm, "ahead", VM, 2)).body).toMatchObject({ role: "holder", session: { holder: VM, epoch: 2 } })
+
+    // A machine that had nothing left to run and stopped renewing is paused, with no turn end left to hand the
+    // chat back at: a laptop that comes back gets it at its own renewal.
+    await takenOver(a, "quiet")
+    await post(vm, "quiet", "assignment/ack", { holder: VM, epoch: 2 })
+    expect((await lease(vm, "quiet", VM, 2)).body).toMatchObject({ role: "holder", session: { holder: VM, needsRun: false, state: "cloud" } })
+    advance(46_000)
+    expect((await lease(a.session, "quiet", LAPTOP, 1, { standby: true })).body).toMatchObject({ role: "holder", session: { holder: LAPTOP, epoch: 3, state: "local" } })
+    expect((await lease(vm, "quiet", VM, 2)).body.role).toBe("lost")
   })
 
   it("a chat kept in the Cloud is not handed back, at a release or to a standby, until the owner lets it go", async () => {
@@ -210,6 +228,55 @@ describe("auto sessions: the lease", { timeout: 60_000 }, () => {
     await takenOver(a, "busy")
     const held = await call("PUT", "/v1/auto-sessions/busy", as(a.session), { auto: false })
     expect([held.status, held.body.error.code, held.body.session.holder]).toEqual([409, "auto.held_in_cloud", VM])
+    // A chat the machine ran and let go is in the Cloud only: Auto off waits until a laptop has taken it.
+    const vm = await vmBearer(a, M)
+    await post(vm, "busy", "assignment/ack", { holder: VM, epoch: 2 })
+    expect((await post(vm, "busy", "release", { holder: VM, epoch: 2 })).body.session).toMatchObject({ holder: "parked", epoch: 3 })
+    const only = await call("PUT", "/v1/auto-sessions/busy", as(a.session), { auto: false })
+    expect([only.status, only.body.error.code, only.body.session.holder]).toEqual([409, "auto.held_in_cloud", "parked"])
+    expect((await lease(a.session, "busy", LAPTOP, 1, { standby: true })).body).toMatchObject({ role: "holder", session: { holder: LAPTOP, epoch: 4 } })
+    expect((await call("PUT", "/v1/auto-sessions/busy", as(a.session), { auto: false })).body.session).toMatchObject({ auto: false, epoch: 5 })
+  })
+
+  it("a chat given to a machine that never picks it up goes to the machine the owner sets next; a machine paused before it acked is started again", async () => {
+    const a = await person("reroute")
+    const m = await fakeCloud(a.user)
+    await setMachine(a)
+    const vm = await vmBearer(a, M)
+    await takenOver(a, "picked")
+    await post(vm, "picked", "assignment/ack", { holder: VM, epoch: 2 })
+    await takenOver(a, "stuck")
+    // The machine runs when the store first looks, so nothing is started. Then it is paused before its daemon
+    // read the assignment: the store looks again and starts it.
+    m.status = "running"
+    await fireAlarm(indexStub(a.user))
+    expect([m.starts, (await starts(a.user)).length]).toEqual([[], 1])
+    m.status = "paused"
+    advance(60_000)
+    await fireAlarm(indexStub(a.user))
+    expect(m.starts).toHaveLength(1)
+    // The owner points Auto at another machine: the chat nobody picked up moves there at the next epoch, and the
+    // one the first machine runs stays with it.
+    expect((await setMachine(a, M2)).body).toEqual({ team: a.team, machine: M2 })
+    expect((await get(a.session, "stuck")).body.session).toMatchObject({ holder: `vm:${M2}`, epoch: 3, state: "resuming", needsRun: true })
+    expect((await get(a.session, "picked")).body.session).toMatchObject({ holder: VM, epoch: 2, state: "cloud" })
+    const vm2 = await vmBearer(a, M2)
+    expect((await call("GET", "/v1/auto-sessions/assignments?timeoutMs=0", as(vm2))).body.assignments).toMatchObject([{ kind: "takeover", session: { id: "stuck", epoch: 3 } }])
+    expect((await call("GET", "/v1/auto-sessions/assignments?timeoutMs=0", as(vm))).body.assignments).toEqual([])
+    expect((await post(vm, "stuck", "assignment/ack", { holder: VM, epoch: 2 })).status).toBe(404)
+    expect((await post(vm2, "stuck", "assignment/ack", { holder: `vm:${M2}`, epoch: 3 })).body.session.state).toBe("cloud")
+
+    // A chat parked for want of a machine just as the machine was set, so that the word never reached it, learns
+    // it from its own next write to the owner's index.
+    const b = await person("late-machine")
+    await fakeCloud(b.user)
+    await open(b.session, "late")
+    await lease(b.session, "late", LAPTOP, 1, { needsRun: true })
+    await lapse(b.user, "late")
+    expect((await get(b.session, "late")).body.session).toMatchObject({ holder: "parked", blocked: "no_machine" })
+    await runIn(indexStub(b.user), async (i) => void (await i.setMachine(b.user, { team: b.team, machine: M })))
+    expect((await post(b.session, "late", "keep", { keepInCloud: true })).status).toBe(200)
+    expect((await get(b.session, "late")).body.session).toMatchObject({ holder: VM, epoch: 3, state: "resuming", blocked: null, keepInCloud: true })
   })
 
   it("a wait answers past its version and wakes on the next change a viewer can see, not on a plain renewal", async () => {
