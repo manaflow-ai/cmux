@@ -869,5 +869,85 @@ class ClockRetryTest(unittest.TestCase):
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
 
 
+class HostTestLossTest(unittest.TestCase):
+    def orchestrator(self, pct):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.host_test_loss = pct
+        o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.root = "/r"
+        o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
+        return o
+
+    def test_the_value_is_checked(self):
+        self.assertEqual(vs.test_loss_pct(1.0), "1")
+        self.assertEqual(vs.test_loss_pct("0.5"), "0.5")
+        for bad in (0, -1, 100.5, "x"):
+            with self.assertRaises(ValueError):
+                vs.test_loss_pct(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-test-loss", "1"))
+        self.assertEqual(a.host_test_loss, 1.0)
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_test_loss)
+
+    def test_synthetic_serve_sets_the_env(self):
+        self.assertIn("CMUX_RD_TEST_LOSS_PCT=1 ", self.orchestrator("1").synthetic_serve("fps"))
+        self.assertNotIn("CMUX_RD_TEST_LOSS_PCT", self.orchestrator(None).synthetic_serve("fps"))
+
+    def test_rows_record_it_only_when_set(self):
+        for pct, want in (("1", {"host_test_loss_pct": 1.0}), (None, {})):
+            o = self.orchestrator(pct)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                o.log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
+class RemoteRunStdin(unittest.TestCase):
+    """Remote.run with no input gives the remote command /dev/null, not the orchestrator's stdin."""
+
+    def test_no_input_reads_dev_null(self):
+        r = vs.Remote("here", "local")
+        r_fd, w_fd = os.pipe()  # an open stdin that never ends: inherited, `cat` would block
+        saved = os.dup(0)
+        try:
+            os.dup2(r_fd, 0)
+            self.assertEqual(r.run("cat; echo done", timeout=10), "done\n")
+        finally:
+            os.dup2(saved, 0)
+            for fd in (saved, r_fd, w_fd):
+                os.close(fd)
+
+    def test_input_is_still_passed(self):
+        self.assertEqual(vs.Remote("here", "local").run("cat", timeout=10, stdin="hi"), "hi")
+
+
+class ClockProbeDeadline(unittest.TestCase):
+    """A clock probe at a silent-but-for-one-reply peer stops at --max-seconds, not after count misses."""
+
+    def test_probe_stops_at_its_deadline(self):
+        import threading
+        import time
+        srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        srv.bind(("127.0.0.1", 0))
+        port = srv.getsockname()[1]
+
+        def answer_once():  # one reply, then a lossy link drops everything
+            data, peer = srv.recvfrom(64)
+            srv.sendto(data[:8] + (0).to_bytes(8, "big"), peer)
+        t = threading.Thread(target=answer_once, daemon=True)
+        t.start()
+        args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=200, gap_ms=0, max_seconds=1.5)
+        out = io.StringIO()
+        t0 = time.time()
+        try:
+            with contextlib.redirect_stdout(out):
+                vs.cmd_clock_probe(args)
+        finally:
+            srv.close()
+        self.assertLess(time.time() - t0, 3.0)
+        self.assertEqual(json.loads(out.getvalue())["replies"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

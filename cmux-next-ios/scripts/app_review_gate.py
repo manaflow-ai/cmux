@@ -40,7 +40,7 @@ Usage:
   cmux-next-ios/scripts/app_review_gate.py lint --source-root . --lane appstore \
       [--app path/CmuxMobileApp.app | --ipa path/CmuxMobileApp.ipa] [--check-urls] [--json out.json]
   cmux-next-ios/scripts/app_review_gate.py report --lint lint.json \
-      [--xcresult-json tests.json ...] [--asc-validate asc.json] [--out report.md]
+      [--xcresult-json tests.json ...] [--asc-validate asc.json] [--asc-versions versions.json] [--out report.md]
   cmux-next-ios/scripts/app_review_gate.py version --source-root .   # the version asc validates
 
 Lanes: appstore (the AppStore configuration, com.cmux.app), internal (cmux
@@ -377,6 +377,8 @@ class Lint:
         limits = {"name": 30, "subtitle": 30, "promotionalText": 170, "keywords": 100, "description": 4000}
         placeholder = re.compile(r"\b(TODO|TBD|FIXME|lorem ipsum|coming soon)\b|<[A-Z][A-Z0-9_]{2,}>", re.I)
         other_platforms = re.compile(r"\b(Android|Google Play|Windows Phone)\b")
+        decoration = re.compile(r"(?i:\b(best|#1|number one|top[- ]rated|free)\b)|[\U0001F300-\U0001FAFF\u2600-\u27BF]")
+        others_apps = re.compile(r"(?i:\b(ChatGPT|Claude|Codex|Copilot|Cursor|Gemini|Termius|Blink|iTerm|Warp|Apple|iPhone)\b)")
         has_support = has_privacy = False
         for rel, body in meta.items():
             if not isinstance(body, dict):
@@ -390,6 +392,12 @@ class Lint:
                 if placeholder.search(value):
                     self.add("metadata.placeholder", "2.1", "blocker",
                              f"{key} contains placeholder text: {placeholder.search(value).group(0)!r}", rel)
+                if key in ("name", "subtitle") and decoration.search(value):
+                    self.add("metadata.decoration", "2.3.7", "blocker",
+                             f"{key} carries a ranking, price or emoji claim: {decoration.search(value).group(0)!r}", rel)
+                if key == "keywords" and others_apps.search(value):
+                    self.add("metadata.competitor-terms", "2.3.7", "blocker",
+                             f"keywords name another app or trademark: {others_apps.search(value).group(0)!r}", rel)
                 if other_platforms.search(value):
                     self.add("metadata.other-platform", "2.3.10", "blocker",
                              f"{key} names another platform: {other_platforms.search(value).group(0)!r}", rel)
@@ -542,6 +550,8 @@ class Lint:
                          "an error shown as String(describing:) reads as a Swift dump; use UserFacingError.message(_:)",
                          f"{self.rel(path)}:{lineno}")
 
+        self.check_ai_and_copy(texts, joined)
+
         # URLs the app opens.
         url_literal = re.compile(r"\"(https://[^\"\\\s]+)\"")
         for path, text in texts.items():
@@ -552,6 +562,56 @@ class Lint:
                 lineno = text.count("\n", 0, match.start()) + 1
                 urls.append((url, "source", f"{self.rel(path)}:{lineno}"))
         return urls
+
+    def check_ai_and_copy(self, texts: dict[Path, str], joined: str) -> None:
+        """Classes mapped from the public rejection lists (hq docs/handbook/app-review-rejections.md,
+        "Public rejection lists mapped"): third-party AI consent, reporting AI or user content,
+        unfinished copy, IPv4-only name lookups and permission pre-prompts."""
+        # 5.1.2(i) (2025-11): personal data goes to a third-party AI only after the app names the
+        # provider and the person agrees. Chief's replies come from third-party models (cmux
+        # Cloud, or the Mac's), and Chief calls go to OpenAI.
+        ai = re.search(r"\bChiefSession\b|\bChiefCloudBackend\b|api\.openai\.com|api\.anthropic\.com", joined)
+        if ai:
+            if not re.search(r"aiSharingConsent", joined):
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the app sends messages to third-party AI models with no consent asked first "
+                         "(ChiefAIConsent: name the providers, Agree before the first send, a way to withdraw)", APP_DIR)
+            elif not re.search(r"defaultValue: \"[^\"\n]*Anthropic[^\"\n]*OpenAI", joined):
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the AI sharing question does not name the providers (Anthropic, OpenAI)", APP_DIR)
+            elif not re.search(r"\.sendGate\s*=\s*\{[^}]*ChiefAIConsent\.isGranted", joined):
+                # The Send button is one of several send paths (Return, the effect picker, voice,
+                # polls, Send Now); the conversation's sendGate sees them all.
+                self.add("ai.consent", "5.1.2(i)", "blocker",
+                         "the AI sharing question is not asked on every send path "
+                         "(set ConversationViewController.sendGate to check ChiefAIConsent.isGranted)", APP_DIR)
+            # 1.2 / 4.7.1: chatbots and user-generated content need a way to report content.
+            if not re.search(r"ChiefReport\.open\(", joined):
+                self.add("ugc.report", "1.2", "blocker",
+                         "no way to report an AI reply or a message (ChiefReport in Chief's menu and info page)", APP_DIR)
+        # 2.1 / 2.3.1: user-facing copy that says a feature is unfinished.
+        unfinished = re.compile(r"(?:Text\(|Label\(|Button\(|defaultValue: )\"[^\"\n]*"
+                                r"(?i:still in progress|coming soon|not yet implemented|under construction|work in progress)")
+        # 2.5.5: App Review runs on an IPv6-only network; IPv4-only lookups fail there.
+        ipv4_only = re.compile(r"\b(gethostbyname|inet_addr)\(|\"https?://\d{1,3}(?:\.\d{1,3}){3}[:/\"]")
+        # 5.1.1(iv): a pre-permission screen whose button says Allow reads as forcing consent.
+        pre_prompt = re.compile(r"Button\(\"Allow(?: [A-Z][a-z]+)?\"")
+        for path, text in texts.items():
+            for lineno, line in enumerate(text.splitlines(), 1):
+                if line.lstrip().startswith("//"):
+                    continue
+                if unfinished.search(line):
+                    self.add("copy.unfinished", "2.1", "blocker",
+                             "user-facing copy says the feature is unfinished; ship it finished or leave it out",
+                             f"{self.rel(path)}:{lineno}")
+                if ipv4_only.search(line):
+                    self.add("net.ipv4-only", "2.5.5", "warning",
+                             "an IPv4-only lookup or address; App Review's network is IPv6-only (NAT64)",
+                             f"{self.rel(path)}:{lineno}")
+                if pre_prompt.search(line):
+                    self.add("privacy.pre-prompt", "5.1.1(iv)", "warning",
+                             "a button titled Allow before a permission prompt; let the system prompt ask",
+                             f"{self.rel(path)}:{lineno}")
 
     @staticmethod
     def ignorable_url(url: str) -> bool:
@@ -1419,18 +1479,73 @@ def asc_findings(path: Path) -> list[dict]:
 
     collect(body)
     out = []
+    seen: set[tuple[str, str, str]] = set()
     for c in checks:
         sev = str(c.get("severity", "")).lower()
         blocking = c.get("blocking") in (True, "true") or sev in ("error", "warning")
-        out.append({
-            "rule": f"asc.{c.get('code') or c.get('id') or c.get('check') or 'check'}",
-            "guideline": guideline_for_asc(str(c.get("code") or c.get("id") or c.get("check") or "")),
+        code = str(c.get("code") or c.get("id") or c.get("checkId") or c.get("check") or "")
+        finding = {
+            "rule": f"asc.{code or 'check'}",
+            "guideline": guideline_for_asc(code),
             "severity": "blocker" if blocking else "info",
             "source": f"asc ({path.stem})",
             "message": c.get("message") or c.get("title") or json.dumps(c)[:200],
             "where": c.get("resource") or c.get("resourceId") or "",
-        })
+        }
+        # asc prints each check under both remediation.steps and checks.
+        key = (finding["rule"], str(finding["where"]), str(finding["message"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(finding)
     return out
+
+
+# An App Store version in one of these states has been on sale: after it,
+# App Store Connect asks every new version for What's New.
+ON_SALE_STATES = frozenset({
+    "READY_FOR_SALE", "READY_FOR_DISTRIBUTION", "REPLACED_WITH_NEW_VERSION",
+    "REMOVED_FROM_SALE", "DEVELOPER_REMOVED_FROM_SALE",
+})
+ASC_WHATS_NEW = "asc.metadata.required.whats_new"
+
+
+def is_first_app_store_version(path: Path | None, version: str) -> bool:
+    """Whether `version` is the app's first App Store version, from `asc
+    versions list --paginate --output json`: the list names it and no other
+    version has ever been on sale. Unknown (no list, unreadable, an error
+    body) is False, so the gate fails closed."""
+    if path is None or not version:
+        return False
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return False
+    data = body.get("data") if isinstance(body, dict) else body
+    if not isinstance(data, list) or not data:
+        return False
+    listed = False
+    for item in data:
+        if not isinstance(item, dict):
+            return False
+        attrs = item.get("attributes", item)
+        if not isinstance(attrs, dict):
+            return False
+        if (attrs.get("versionString") or attrs.get("version")) == version:
+            listed = True
+            continue
+        states = {attrs.get("appStoreState"), attrs.get("appVersionState"), attrs.get("state")}
+        if states & ON_SALE_STATES:
+            return False
+    return listed
+
+
+def asc_validated_version(path: Path) -> str:
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return ""
+    return str(body.get("versionString") or "") if isinstance(body, dict) else ""
 
 
 def guideline_for_asc(code: str) -> str:
@@ -1608,9 +1723,22 @@ def cmd_report(args: argparse.Namespace) -> int:
     # --asc-skipped (a pull request has no release secrets) does not excuse it.
     submission = any(body.get("lane") == "internal-submission" for body in lints)
     asc = None
+    validated_version = ""
     for item in args.asc_validate or []:
         if Path(item).is_file():
             asc = (asc or []) + asc_findings(Path(item))
+            validated_version = validated_version or asc_validated_version(Path(item))
+    versions = Path(args.asc_versions) if args.asc_versions else None
+    if asc and any(f["rule"] == ASC_WHATS_NEW for f in asc) and is_first_app_store_version(versions, validated_version):
+        # App Store Connect refuses What's New on an app's first App Store
+        # version: run 45102744374 failed "STATE_ERROR: Attribute 'whatsNew'
+        # cannot be edited at this time" on cmux INTERNAL 1.2.0.
+        asc = [f for f in asc if f["rule"] != ASC_WHATS_NEW]
+        asc.append({"rule": "asc.whats_new.first-version", "guideline": "2.3", "severity": "info",
+                    "source": "asc versions",
+                    "message": f"{validated_version} is the app's first App Store version, which takes no What's New "
+                               "(App Store Connect refuses it: run 45102744374), so asc's empty What's New is not a blocker",
+                    "where": validated_version})
     if asc:
         findings += asc
     if asc is None and (not args.asc_skipped or submission):
@@ -1715,6 +1843,8 @@ def main(argv: list[str] | None = None) -> int:
     report = sub.add_parser("report")
     report.add_argument("--lint", action="append")
     report.add_argument("--asc-validate", action="append")
+    report.add_argument("--asc-versions",
+                        help="`asc versions list --paginate --output json`: an app's first App Store version takes no What's New")
     report.add_argument("--asc-skipped", action="store_true",
                         help="asc validate cannot run for this event (a PR has no release secrets)")
     report.add_argument("--xcresult-json", action="append")
