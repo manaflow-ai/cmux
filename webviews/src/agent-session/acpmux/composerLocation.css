@@ -1488,7 +1488,7 @@
      Default (layout-grid.json composer-radius; ask-2351b8cf41, Leo 2026-11-22: "we should consider
      rounding off our composer and its hat a bit more maybe see chatgpt too"). The hat over it (the
      running tray), the queue and the trust bar take this corner too. */
-  --grid-composer-radius: calc(var(--grid-composer-control) / 2 + var(--grid-composer-inset));
+  --grid-composer-radius: calc(12px * var(--acpmux-density));
   --grid-composer-quiet-row-gap: calc(4px * var(--acpmux-density));
   --grid-composer-quiet-row-height: calc(28px * var(--acpmux-density));
   --grid-composer-quiet-row-text: calc(14px * var(--acpmux-density));
