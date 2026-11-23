@@ -763,3 +763,42 @@ async fn a_team_members_steer_goes_in_and_a_guests_waits_for_the_owner() {
     assert_eq!(provenance["fromName"], "Ana", "{steered:?}");
     hub.cancel(&session).await.unwrap();
 }
+
+/// An edit of a waiting prompt keeps no client context, but the tools note follows its words
+/// (`tool_mentions.rs`): an edit that writes `@browser-use` gets it, one that drops it loses it,
+/// and the queue's preview never shows it.
+#[tokio::test]
+async fn tool_mention_note_follows_a_queue_edits_words() {
+    let hub = memory_hub();
+    let req = crate::hub::NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() };
+    let session = hub.new_session(req).await.unwrap();
+    insert(&hub, &session, "q-1", None);
+    let edit = |text: &str| json!({"sessionId": session.id, "promptId": "q-1", "op": "update", "text": text});
+    let notes = || {
+        let queue = session.queue();
+        let blocks = &queue[0].run.blocks;
+        let notes: Vec<Value> =
+            blocks.iter().filter(|b| crate::prompt_context::is_context(b)).cloned().collect();
+        (notes, queue[0].preview.clone())
+    };
+
+    hub.queue_edit(&session, &edit("open it with @browser-use"), Control::Local, false, None)
+        .await
+        .unwrap();
+    let (found, preview) = notes();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0]["text"].as_str(),
+        crate::tool_mentions::note(&["browser-use"]).as_deref(),
+        "{found:?}"
+    );
+    assert_eq!(preview, "open it with @browser-use");
+
+    hub.queue_edit(&session, &edit("open it in Safari"), Control::Local, false, None)
+        .await
+        .unwrap();
+    let (found, preview) = notes();
+    assert!(found.is_empty(), "{found:?}");
+    assert_eq!(preview, "open it in Safari");
+    hub.shutdown_all().await;
+}

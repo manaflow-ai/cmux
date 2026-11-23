@@ -1966,6 +1966,9 @@ async fn dispatch_request_with_identity(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
+            // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
+            // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
+            crate::tool_mentions::add_note(&mut blocks);
             let provenance =
                 crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
             // The caller's own provenance: a `cmux agent message`, never an inbox item.

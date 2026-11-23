@@ -330,6 +330,7 @@ mod test_stack;
 pub mod test_support;
 pub(crate) mod time_breakdown;
 pub(crate) mod tool_env;
+pub mod tool_mentions;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;

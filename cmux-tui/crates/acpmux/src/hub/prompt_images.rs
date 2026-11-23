@@ -578,16 +578,18 @@ impl Hub {
         set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
-        // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
+        // by turns.rs. Only unrecorded client context prevents Retry/restart replay; the tools
+        // note follows from the words, and a rebuild adds it again (`tool_mentions.rs`).
         let mut saved_context = Vec::new();
         crate::context_inventory::append_snapshot(
             session.meta().cmux_context.as_deref(),
             &mut saved_context,
         );
-        if blocks
-            .iter()
-            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
-        {
+        if blocks.iter().any(|block| {
+            crate::prompt_context::is_context(block)
+                && !saved_context.contains(block)
+                && !crate::tool_mentions::is_own_note(block, blocks)
+        }) {
             msg.set("hiddenContext", Value::Bool(true));
         }
         // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).

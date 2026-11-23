@@ -524,6 +524,8 @@ impl Hub {
                 json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}),
             );
         }
+        // An `@computer-use` / `@browser-use` in the question gets its note (`tool_mentions.rs`).
+        crate::tool_mentions::add_note(&mut blocks);
         // Answer once the prompt is recorded; the turn runs on.
         let (accepted_tx, accepted) = oneshot::channel();
         let mut opts = opts;
