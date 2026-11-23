@@ -30,7 +30,7 @@ const SCENARIOS: Record<string, () => SimBuilder> = {
   "a-reply-streams": () => {
     const b = sim("steer-a", "steer sent while a reply streams").prompt("Fix the relay");
     b.say("Looking at the relay first, then the queue it feeds and the retry", { chunks: 3 });
-    b.steer(STEER, { after: 100, readAfter: false });
+    b.steer(STEER, { after: 100, readMs: false });
     b.say(" path behind it.", { chunks: 2, after: 80 })
       .think("Checking the lane broker")
       .tool("git status --short", { ms: 400 });
@@ -39,7 +39,7 @@ const SCENARIOS: Record<string, () => SimBuilder> = {
   // (b) A tool runs when the person sends: its end, and what comes after it.
   "b-tool-runs": () => {
     const b = sim("steer-b", "steer sent while a tool runs").prompt("Run the tests").say("Running the suite.");
-    b.tool("bun test", { open: true }).steer(STEER, { after: 300, readAfter: false });
+    b.tool("bun test", { open: true }).steer(STEER, { after: 300, readMs: false });
     b.toolEnd("call-1", { ms: 700 }).say("Tests pass.").tool("git push", { ms: 300 });
     return read(b).say("Off huge-blue now.").turnEnd();
   },
@@ -47,7 +47,7 @@ const SCENARIOS: Record<string, () => SimBuilder> = {
   "c-send-message-runs": () => {
     const b = sim("steer-c", "steer sent while a SendMessage call runs").prompt("Tell the lanes");
     b.say("Telling interim-coord.").tool("SendMessage", { kind: "other", tool: "SendMessage", open: true });
-    b.steer(STEER, { after: 300, readAfter: false });
+    b.steer(STEER, { after: 300, readMs: false });
     b.toolEnd("call-1", { ms: 600, output: "Message sent" }).say("Sent. Now the others.");
     b.tool("SendMessage", { kind: "other", tool: "SendMessage", ms: 400 });
     return read(b).say("Done.").turnEnd();
@@ -55,7 +55,7 @@ const SCENARIOS: Record<string, () => SimBuilder> = {
   // (d) Nothing has drawn yet in the turn when the person sends.
   "d-nothing-yet": () => {
     const b = sim("steer-d", "steer sent before the turn drew anything").prompt("Fix the relay");
-    b.steer(STEER, { after: 200, readAfter: false }).think("Reading both").say("On it.").tool("ls", { ms: 300 });
+    b.steer(STEER, { after: 200, readMs: false }).think("Reading both").say("On it.").tool("ls", { ms: 300 });
     return read(b).say("Moved.").turnEnd();
   },
 };
@@ -63,8 +63,13 @@ const SCENARIOS: Record<string, () => SimBuilder> = {
 const isSteer = (row: { kind: string; text?: string }) => row.kind === "user" && row.text === STEER;
 /// Rows the steer's place does not decide: the footer of the stretch the steer closed (it comes with
 /// the steer), and the turn's own "Working for" header, which heads the prompt's turn from its first
-/// work on, whenever that comes (the header's lane, not the steer's).
-const ownRow = (row: { id: string; kind: string }) => row.id.startsWith(`${SUPERSEDED}-`) || row.kind === "working";
+/// work on, whenever that comes (the header's lane, not the steer's). The running header is a
+/// "worked" row in its running phase (turns.ts `turnHeaderId`; the simulator's probe marks it `head`, and
+/// these checks skip the traces after the turn ended), or the older "working" row.
+const ownRow = (row: { id: string; kind: string; turnPhase?: string; head?: boolean }) =>
+  row.id.startsWith(`${SUPERSEDED}-`) ||
+  row.kind === "working" ||
+  (row.kind === "worked" && (row.turnPhase === "running" || row.head === true));
 
 for (const [name, make] of Object.entries(SCENARIOS)) {
   describe(`steer by send time (sim): ${name}`, () => {
