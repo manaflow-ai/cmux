@@ -7,7 +7,7 @@
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/grid",
-  "screenshots": [],
+  "screenshots": ["screenshots/grid-dark.png", "screenshots/grid-light.png", "screenshots/grid-signal.png"],
 
   "cmuxProfile": 1,
   "settings": {
