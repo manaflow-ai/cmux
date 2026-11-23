@@ -30,6 +30,8 @@ final class EventInspectorEdgeUITests: XCTestCase {
         }
         if let live { app.launchEnvironment["CMUX_MOBILE_LIST_LIVE_HZ"] = "\(live)" }
         if giant { app.launchEnvironment["CMUX_MOBILE_LIST_GIANT"] = "1" }
+        // The rig's frame-interval windows (the burst's summary, `list.burst.frames`).
+        app.launchEnvironment["CMUX_MOBILE_FRAMELOG"] = "1"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         XCTAssertTrue(app.navigationBars["Event Inspector"].waitForExistence(timeout: 40), "the inspector opens\n\(app.debugDescription)")
@@ -106,6 +108,65 @@ final class EventInspectorEdgeUITests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         edgeNote("online from '\(moving)', offline '\(count)', rows \(settled.keys.sorted())", "evt14-offline")
         edgeShot(app, "evt14-offline")
+    }
+
+    /// EVT-7/EVT-12 (cmux#13742): a reader scrolled into the list when 2000 records arrive in
+    /// a burst (about 40 a frame). The list holds still under them: the row being read moves at
+    /// most 0.5 pt in every sample, through the burst and after it, though every record it shows
+    /// drops from the journal. A pill counts the new records; tapped, it shows the newest.
+    @MainActor
+    func testABurstHoldsStillUnderAScrolledReader() throws {
+        let (app, window) = launch(count: 500, edge: "burst")
+        defer { app.terminate() }
+        for _ in 0..<3 { app.swipeUp() }
+        let before = RowFrames.settled(window, key: RowFrames.inspectorSeq)
+        let reader = try XCTUnwrap(RowFrames.reader(before, in: window), "a row being read")
+        var lines = ["reader \(reader) at \(before[reader]!)"]
+        edgeShot(app, "burst-1-reader")
+        let pill = app.buttons["chat.inspector.newEvents"].firstMatch
+        XCTAssertTrue(pill.waitForExistence(timeout: 20), "the burst's records wait behind the pill\n\(app.debugDescription)")
+        // Through the burst (about a second) and after it.
+        var worst: CGFloat = 0
+        for sample in 0..<12 {
+            let frames = RowFrames.read(window, key: RowFrames.inspectorSeq)
+            let now = try XCTUnwrap(frames[reader], "the row being read stays on screen (sample \(sample))")
+            worst = max(worst, abs(now.minY - before[reader]!.minY))
+            lines.append("sample \(sample): \(now.minY - before[reader]!.minY) pt, pill '\(pill.exists ? pill.label : "")'")
+            _ = XCTWaiter().wait(for: [XCTestExpectation(description: "the burst goes on")], timeout: 0.25)
+        }
+        edgeShot(app, "burst-2-held")
+        edgeNote(lines.joined(separator: "\n"), "burst-frames")
+        XCTAssertLessThanOrEqual(worst, RowFrames.shiftBar, "the row being read moved \(worst) pt during the burst")
+        XCTAssertTrue(pill.label.contains("2,000") || pill.label.contains("2000"),
+                      "the pill counts the 2000 new records: '\(pill.label)'")
+        pill.tap()
+        let newest = seqRow(app, 2500)
+        XCTAssertTrue(newest.waitForExistence(timeout: 10) && pill.waitForNonExistence(timeout: 10),
+                      "the pill lands the burst and shows the newest record\n\(app.debugDescription)")
+        edgeShot(app, "burst-3-newest")
+    }
+
+    /// EVT-7 at the top (the common path: the inspector opens there): a reader at the top when
+    /// 2000 records arrive in a burst sees them land live, once a frame, with no pill. The rig's
+    /// frame-interval summary of the burst window (worst frame, hitch ms/s, main-thread CPU) is
+    /// attached; no timing is asserted on an unleased host (ListPerfProfileUITests measures it
+    /// under a lease).
+    @MainActor
+    func testABurstAtTheTopStaysSmooth() {
+        let (app, _) = launch(count: 500, edge: "burst")
+        defer { app.terminate() }
+        let probe = app.staticTexts["list.burst.frames"].firstMatch
+        XCTAssertTrue(probe.waitForExistence(timeout: 10), "the rig's burst probe\n\(app.debugDescription)")
+        edgeShot(app, "burst-top-1-before")
+        let done = NSPredicate(format: "label BEGINSWITH %@", "inspector-burst ")
+        XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: done, object: probe)], timeout: 40), .completed,
+                       "the burst window ends ('\(probe.label)')")
+        let summary = probe.label
+        print("CMUX_INSPECTOR_BURST_TOP \(summary)")
+        edgeNote(summary, "burst-top-frames")
+        XCTAssertFalse(app.buttons["chat.inspector.newEvents"].exists, "at the top nothing is held: no pill")
+        XCTAssertTrue(seqRow(app, 2500).waitForExistence(timeout: 10), "the newest record shows at the top\n\(app.debugDescription)")
+        edgeShot(app, "burst-top-2-after")
     }
 
     /// EVT-15, landscape.

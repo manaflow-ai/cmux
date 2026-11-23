@@ -94,6 +94,25 @@ enum ListStressChatScreens {
                         try? await Task.sleep(for: .seconds(settings.edgeAfter))
                         for n in settings.count..<(settings.count + 60) { journal.record(record(n)) }
                     }
+                } else if settings.edge == "burst" {
+                    // 2000 records over about 50 frames (the `events-burst` burst), at a set time,
+                    // in a frame-interval window ("inspector-burst", with `CMUX_MOBILE_FRAMELOG=1`)
+                    // whose summary a UI test reads ("list.burst.frames").
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                        FrameIntervalLog.shared.begin("inspector-burst")
+                        var seq = settings.count
+                        for _ in 0..<50 {
+                            for _ in 0..<40 {
+                                journal.record(record(seq))
+                                seq += 1
+                            }
+                            try? await Task.sleep(for: .milliseconds(20))
+                        }
+                        // The last frames' publish and layout.
+                        try? await Task.sleep(for: .milliseconds(500))
+                        if let stats = FrameIntervalLog.shared.end() { BurstFrames.shared.line = BurstFrames.describe(stats) }
+                    }
                 } else if settings.edge == "offline" {
                     // The Mac goes away mid-scroll: no more records arrive.
                     Task { @MainActor in
@@ -103,7 +122,8 @@ enum ListStressChatScreens {
                     }
                 }
             }
-            root = AnyView(NavigationStack { EventInspectorScreen(journal: journal, sessionID: "rig") })
+            root = AnyView(NavigationStack { EventInspectorScreen(journal: journal, sessionID: "rig") }
+                .overlay(alignment: .bottomLeading) { BurstFramesProbe() })
         default:
             return nil
         }
@@ -350,5 +370,34 @@ final class RigSource: AgentSessionSource {
                                       workspaceTitle: "cmux", macName: "Studio")
     func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
     func send(_ intent: AgentClientIntent) {}
+}
+
+/// The rig's burst window summary (`LIST_EDGE=burst` on the inspector), for UI tests.
+@MainActor @Observable
+final class BurstFrames {
+    static let shared = BurstFrames()
+    var line = ""
+
+    static func describe(_ stats: FrameIntervalStats) -> String {
+        var line = stats.line
+        if let cpu = stats.mainThreadCPUPerFrameMs, !cpu.isEmpty {
+            let sorted = cpu.sorted()
+            let p99 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.99))]
+            line += String(format: " cpu_p99=%.1fms cpu_max=%.1fms", p99, sorted.last ?? 0)
+        }
+        return line
+    }
+}
+
+/// An invisible element with the burst window's summary ("list.burst.frames").
+private struct BurstFramesProbe: View {
+    var body: some View {
+        Text(BurstFrames.shared.line.isEmpty ? "pending" : BurstFrames.shared.line)
+            .font(.system(size: 1))
+            .foregroundStyle(.clear)
+            .frame(width: 2, height: 2)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("list.burst.frames")
+    }
 }
 #endif

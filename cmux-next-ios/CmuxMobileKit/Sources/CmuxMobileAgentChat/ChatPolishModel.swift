@@ -90,6 +90,39 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
         update = (msg?["params"]?["update"] ?? msg?["update"])?["sessionUpdate"]?.stringValue
     }
 
+    private init(id: Int, seq: Int, at: Date, dir: String, kind: String, method: String?, update: String?, record: JSONValue, line: String) {
+        self.id = id
+        self.seq = seq
+        self.at = at
+        self.dir = dir
+        self.kind = kind
+        self.method = method
+        self.update = update
+        self.record = record
+        self.line = line
+    }
+
+    /// Why a dropped record's body is gone (its detail shows this, as a cut record's shows its cut).
+    nonisolated static let droppedNote = "dropped from the newest 500 on iPhone; only its kind and seq are kept"
+
+    /// The row without its body: what a list showing a record the journal dropped keeps (the
+    /// same row; its detail says it was dropped).
+    var stub: AgentInspectorEvent {
+        var kept: [String: JSONValue] = ["cut": .string(Self.droppedNote), "seq": .number(Double(seq)),
+                                         "dir": .string(dir), "kind": .string(kind)]
+        if let method { kept["method"] = .string(method) }
+        if let update { kept["sessionUpdate"] = .string(update) }
+        let record = JSONValue.object(kept)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let line = (try? encoder.encode(record)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return AgentInspectorEvent(id: id, seq: seq, at: at, dir: dir, kind: kind, method: method, update: update,
+                                   record: record, line: line)
+    }
+
+    /// Whether this is a dropped record's row (`stub`).
+    var isStub: Bool { record["cut"]?.stringValue == Self.droppedNote }
+
     /// The row's title, as the Mac's inspector names a record.
     public var title: String {
         var name = method ?? kind
@@ -278,6 +311,51 @@ final class EventInspectorRows {
     @ObservationIgnored private(set) var builds = 0
     /// The queries whose results were shown, in order.
     @ObservationIgnored private(set) var shownQueries: [String] = []
+    /// The reader is away from the top (the screen's "N new events" pill): new records stay out
+    /// of the rows, and rows the journal drops stay in, so nothing in the list moves while they
+    /// read. They land together when the hold ends (the pill, or the reader back at the top).
+    @ObservationIgnored private(set) var holding = false
+    /// Records that came while holding and match the shown query, oldest first, from `heldHead`.
+    @ObservationIgnored private var held: [AgentInspectorEvent] = []
+    @ObservationIgnored private var heldHead = 0
+    /// While holding: rows of `matched` before this one the journal dropped, kept as stubs.
+    @ObservationIgnored private var stubHead = 0
+    /// Rows turned into stubs while holding (tests: a body is let go when its record drops).
+    @ObservationIgnored private(set) var stubbed = 0
+    /// Bumped when a hold ends: the screen draws the held records.
+    private var released = 0
+    /// Held records (the pill's count; read after `rows`, which brings it up to date).
+    var heldCount: Int { held.count - heldHead }
+    /// The newest held record's id (where the pill scrolls to).
+    var newestHeldID: Int? { heldCount > 0 ? held.last?.id : nil }
+
+    /// The reader left the top (`on`) or came back to it.
+    func setHolding(_ on: Bool, journal: AgentEventJournal) {
+        guard on != holding else { return }
+        if on {
+            sync(journal)
+            holding = true
+            held = []
+            heldHead = 0
+            stubHead = head
+            return
+        }
+        holding = false
+        let first = journal.firstID
+        if generation == journal.generation {
+            matched += held[heldHead...].filter { $0.id >= first }
+        }
+        held = []
+        heldHead = 0
+        released &+= 1
+    }
+
+    /// A new query's rows include every record: nothing is held any more.
+    private func dropHeld() {
+        held = []
+        heldHead = 0
+        stubHead = 0
+    }
 
     init(offMainAbove: Int = 64 << 10) {
         self.offMainAbove = offMainAbove
@@ -304,6 +382,7 @@ final class EventInspectorRows {
             }
             head = 0
             nextID = journal.nextID
+            dropHeld()
             shownQuery = query
             shownQueries.append(query)
             return
@@ -348,6 +427,7 @@ final class EventInspectorRows {
             matched = rows
             head = 0
             nextID = journal.nextID
+            dropHeld()
             self.generation = generation
         } else {
             // Cleared while it ran: the records since are matched against this query.
@@ -360,7 +440,7 @@ final class EventInspectorRows {
     /// The rows matching the query, brought up to the journal (what changed since the last read).
     func rows(_ journal: AgentEventJournal) -> ArraySlice<AgentInspectorEvent> {
         // A new query (set after this read, from the screen's onChange) and a landed filter redraw.
-        _ = (query, shownQuery, isFiltering)
+        _ = (query, shownQuery, isFiltering, released)
         sync(journal)
         return matched[head...]
     }
@@ -377,6 +457,29 @@ final class EventInspectorRows {
             matched = []
             head = 0
             nextID = journal.firstID
+            dropHeld()
+        }
+        if holding {
+            // Only counted (each record matched once, as it comes); the rows stay as they are.
+            let first = journal.firstID
+            while heldHead < held.count, held[heldHead].id < first { heldHead += 1 }
+            // A dropped record's row stays (nothing moves under the reader), its body let go.
+            while stubHead < matched.count, matched[stubHead].id < first {
+                matched[stubHead] = matched[stubHead].stub
+                stubHead += 1
+                stubbed += 1
+            }
+            guard nextID < journal.nextID, count > 0 else { return }
+            for event in journal.events(from: nextID) {
+                if shownQuery.isEmpty {
+                    held.append(event)
+                } else {
+                    matchCalls += 1
+                    if event.matches(shownQuery) { held.append(event) }
+                }
+            }
+            nextID = journal.nextID
+            return
         }
         // Dropped from the journal: their slots empty at once, reclaimed in bulk.
         let first = journal.firstID
