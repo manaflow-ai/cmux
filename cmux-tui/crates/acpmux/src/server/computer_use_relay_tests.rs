@@ -112,3 +112,37 @@ fn a_lost_link_is_retryable_and_a_peer_refusal_keeps_its_code() {
     );
     assert_eq!(refused.data.unwrap()["code"], "computer_use_remote_denied");
 }
+
+#[test]
+fn a_state_read_says_why_computer_use_is_not_on() {
+    use crate::computer_use::client::DaemonError;
+    // The app's daemon was not where this one looked (`main`, which no app runs).
+    let lost = state_reply(Err(DaemonError::Unreachable("No such file or directory".into())));
+    assert_eq!(lost["state"], "unavailable");
+    assert!(lost["reason"].as_str().unwrap().contains("No such file"), "{lost}");
+    let off = state_reply(Ok(json!({"state": "off", "reason": "Computer Use is off"})));
+    assert_eq!(off, json!({"state": "off", "reason": "Computer Use is off"}));
+    // A ready worker's socket and secret never cross the link.
+    let ready = state_reply(Ok(json!({"state": "ready", "socket": "/tmp/w", "secret": "s"})));
+    assert_eq!(ready, json!({"state": "ready"}));
+}
+
+#[test]
+fn a_machine_row_carries_the_reason_it_is_not_usable() {
+    let row = machine_row(
+        "studio",
+        Some(Ok(json!({"state": "unavailable", "reason": "no permission to record the screen"}))),
+    );
+    assert_eq!(row["computer_use"], "unavailable");
+    assert_eq!(row["reason"], "no permission to record the screen");
+    let row = machine_row("studio", Some(Err(RpcError::invalid_params("only a client"))));
+    assert_eq!(
+        (row["computer_use"].as_str(), row["reason"].as_str()),
+        (Some("refused"), Some("only a client"))
+    );
+    let row = machine_row("studio", None);
+    assert_eq!(row["computer_use"], "unknown");
+    assert!(row["reason"].as_str().unwrap().contains("did not answer"));
+    let row = machine_row("studio", Some(Ok(json!({"state": "ready"}))));
+    assert_eq!(row, json!({"name": "studio", "reachable": true, "computer_use": "ready"}));
+}

@@ -178,6 +178,18 @@ impl SocketDaemon {
         DaemonError::Unreachable(why)
     }
 
+    /// The cmux-tui daemon of the app this acpmux daemon belongs to, for the calls it runs
+    /// itself (another machine's call or state read, `server/computer_use_relay.rs`):
+    /// `CMUX_TUI_SOCKET`, else the app's own daemon (`agent_tools::app_daemon_socket`), else
+    /// `main`. A daemon with no app env asked `main`, which no app runs, so every other
+    /// machine saw this one's Computer Use as unavailable.
+    pub fn for_app() -> Self {
+        let path = cmux::raw::env_socket_path()
+            .or_else(crate::agent_tools::app_daemon_socket)
+            .unwrap_or_else(|| cmux::raw::default_socket_path("main"));
+        Self { path }
+    }
+
     #[cfg(unix)]
     fn connect(&self) -> io::Result<std::os::unix::net::UnixStream> {
         let stream = std::os::unix::net::UnixStream::connect(&self.path)?;

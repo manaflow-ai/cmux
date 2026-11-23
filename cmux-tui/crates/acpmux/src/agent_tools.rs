@@ -1836,15 +1836,46 @@ pub(crate) mod tests_support {
 /// (`cmux-app`, `cmux-app-<tag>`, ...), or the old shared `cmux-app` once the
 /// build adopted it (its legacy marker), in cmux-tui's default runtime folder.
 /// Without it the bridge asked the `main` session, which no app runs, so an
-/// agent chat's Computer Use never reached the worker. `None` outside an app.
-fn app_daemon_socket() -> Option<std::path::PathBuf> {
+/// agent chat's Computer Use never reached the worker. A daemon started with
+/// neither (`acpmux daemon run --take-over` from a shell or launchd) reads the
+/// app bundle its executable runs from: it asked `main` too, so another
+/// machine's Computer Use calls and state reads here all failed. `None`
+/// outside an app.
+pub(crate) fn app_daemon_socket() -> Option<std::path::PathBuf> {
     let var = |key: &str| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
-    let build = cmux_agent_pane_policy::build_identity::BuildIdentity::new(
-        var("CMUX_BUNDLE_ID").as_deref(),
-        var("CMUX_TAG").as_deref(),
-    );
+    let build = match var("CMUX_BUNDLE_ID") {
+        Some(id) => cmux_agent_pane_policy::build_identity::BuildIdentity::new(
+            Some(&id),
+            var("CMUX_TAG").as_deref(),
+        ),
+        None => bundle_build(&std::env::current_exe().ok()?)?,
+    };
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     app_daemon_socket_for(&build, home.as_deref())
+}
+
+/// The build of the cmux app bundle around `exe` (`<X>.app/Contents/...`): its
+/// `CFBundleIdentifier` and the `CMUX_TAG` its `LSEnvironment` ships. None
+/// outside a cmux app.
+fn bundle_build(
+    exe: &std::path::Path,
+) -> Option<cmux_agent_pane_policy::build_identity::BuildIdentity> {
+    let bundle = exe
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .filter(|bundle| exe.starts_with(bundle.join("Contents")))?;
+    let info = plist::Value::from_file(bundle.join("Contents/Info.plist")).ok()?;
+    let info = info.as_dictionary()?;
+    let id = info.get("CFBundleIdentifier")?.as_string()?;
+    if !id.starts_with("com.cmuxterm.app") {
+        return None;
+    }
+    let tag = info
+        .get("LSEnvironment")
+        .and_then(plist::Value::as_dictionary)
+        .and_then(|environment| environment.get("CMUX_TAG"))
+        .and_then(plist::Value::as_string);
+    Some(cmux_agent_pane_policy::build_identity::BuildIdentity::new(Some(id), tag))
 }
 
 fn app_daemon_socket_for(
@@ -1872,5 +1903,22 @@ mod app_daemon_socket_tests {
         let path = app_daemon_socket_for(&release, None).expect("release has a daemon");
         assert!(path.ends_with("cmux-app.sock"), "{}", path.display());
         assert!(app_daemon_socket_for(&BuildIdentity::new(None, None), None).is_none());
+    }
+
+    /// A daemon started with no app env (`acpmux daemon run --take-over`) finds its app's
+    /// daemon from the bundle it runs in, never `main`.
+    #[test]
+    fn a_daemon_without_app_env_reads_its_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("cmux NIGHTLY.app");
+        let bin = app.join("Contents/Resources/bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let mut info = plist::Dictionary::new();
+        info.insert("CFBundleIdentifier".into(), "com.cmuxterm.app.nightly".into());
+        plist::Value::Dictionary(info).to_file_xml(app.join("Contents/Info.plist")).unwrap();
+        let build = super::bundle_build(&bin.join("acpmux")).expect("a cmux app");
+        let path = app_daemon_socket_for(&build, None).expect("NIGHTLY has a daemon");
+        assert!(path.ends_with("cmux-app-nightly.sock"), "{}", path.display());
+        assert!(super::bundle_build(&dir.path().join("acpmux")).is_none());
     }
 }
