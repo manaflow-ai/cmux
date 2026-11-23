@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -24,8 +23,6 @@ spec = importlib.util.spec_from_file_location("publisher_testing", SCRIPT)
 publisher = importlib.util.module_from_spec(spec)
 sys.modules["publisher_testing"] = publisher
 spec.loader.exec_module(publisher)
-sys.path.insert(0, str(ROOT / "tests"))
-from runs_on_labels import disallowed_labels  # noqa: E402
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
 POOL = "glaeda-side-light-xcode-26.6"
@@ -73,7 +70,6 @@ class VerdictTests(unittest.TestCase):
         self.assertTrue(testing([job("queued", minutes_ago=5, labels=("anything",))], pool=""))
 
     def test_a_pool_list_counts_each_label(self):
-        # The publisher's attempt 1 on the owned label and its attempt 2 on the spill pool both defer.
         pools = "cmux-gcp-lane-build-x64,blacksmith-8vcpu-ubuntu-2404"
         for label in ("cmux-gcp-lane-build-x64", "blacksmith-8vcpu-ubuntu-2404"):
             with self.subTest(label=label):
@@ -97,22 +93,6 @@ class WiringTests(unittest.TestCase):
     def test_both_deferrals_ask_the_script(self):
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
-        # DAEMON_POOL is the gate's Blacksmith route. A publisher job placed on the live fleet Linux label
-        # reads as off-pool, so a deferring run tests the tree itself instead of waiting on it.
-        fleet = "contains(needs.tree-preflight.outputs.linux_jobs, ' cmux-next-daemon-tests ') && needs.tree-preflight.outputs.linux_runner || "
-        gate = gate_runs_on(self.WORKFLOW)
-        self.assertIn(fleet, gate)
-        # The publisher is a feat-cmux-next push. Its attempt 1 queues on the owned build-lane label, its
-        # attempt 2+ on the spill pool; DAEMON_POOL names both, so a publisher freshly queued on either is waited
-        # for (up to the cutoff) and a later same-tree run does not queue a second daemon job.
-        owned = re.search(r"github\.run_attempt == 1 && github\.ref == 'refs/heads/feat-cmux-next' && '([^']+)' \|\| ",
-                          gate)
-        self.assertIsNotNone(owned, gate)
-        spill = gate[owned.end():-len(" }}")]
-        pool = ("DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                f"format('{owned.group(1)},{{0}}', {spill}) }}}}")
-        self.assertEqual(self.WORKFLOW.count(pool), 2, pool)
-        self.assertEqual(self.WORKFLOW.count("DAEMON_POOL: "), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
@@ -135,10 +115,10 @@ class WiringTests(unittest.TestCase):
         self.assertFalse(publisher.is_daemon_job(None))
 
     def test_the_pool_matches_the_daemon_test_job(self):
-        # DAEMON_POOL names the gate job's own runs-on label.
-        # Which Blacksmith Linux size it picks is the workflow's call; it is never anything else.
         runs_on = gate_runs_on(self.WORKFLOW)
-        self.assertEqual(disallowed_labels(runs_on), {}, runs_on)
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}")
+        pools = [line.strip() for line in self.WORKFLOW.splitlines() if line.lstrip().startswith("DAEMON_POOL: ")]
+        self.assertEqual(pools, [f"DAEMON_POOL: {runs_on}"] * 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -18,6 +18,7 @@ import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 
 import { AgentMark } from "../NewTabPage";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { ageLabel, nextAgeLabel } from "../newTabModel";
 import { useNt } from "./strings";
 import { useLabelClock } from "../clock";
@@ -35,12 +36,15 @@ import {
   watchable,
 } from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
+import { WithFacts } from "../chips/FactsHoverCard";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
 export type ActiveChat = {
   id: string;
   title: string;
   harness?: string;
+  /// The icon the chat set (acpmux `icon`), drawn over its harness mark.
+  icon?: HarnessIconSpec;
   state: "input" | "running" | "failed" | "error" | "unread" | "idle";
   label: string;
 };
@@ -212,9 +216,13 @@ const ChatRow = memo(function ChatRow({
         </span>
         <span className="nt-all-title">{title}</span>
         {project && showProject && (
-          <span className="nt-all-project" aria-description={cwd}>
-            {project}
-          </span>
+          <WithFacts facts={[{ value: cwd ?? "", code: true }]}>
+            {(facts) => (
+              <span {...facts} className="nt-all-project">
+                {project}
+              </span>
+            )}
+          </WithFacts>
         )}
         {age && <span className="nt-all-meta">{age}</span>}
         {showAge && now === undefined && updatedAt ? <ChatAge at={updatedAt} /> : null}
@@ -276,6 +284,7 @@ const LiveChatRow = memo(function LiveChatRow({
   id,
   title,
   harness,
+  icon,
   state,
   label,
   onOpen,
@@ -283,6 +292,7 @@ const LiveChatRow = memo(function LiveChatRow({
   id: string;
   title: string;
   harness: string | undefined;
+  icon?: HarnessIconSpec | undefined;
   state: ActiveChat["state"];
   label: string;
   onOpen(id: string): void;
@@ -299,7 +309,7 @@ const LiveChatRow = memo(function LiveChatRow({
           {...pressToOpen(() => onOpen(id))}
         >
           <span className="nt-all-glyph">
-            <AgentMark harness={harness} />
+            <AgentMark harness={harness} icon={icon} />
           </span>
           <span className="nt-all-title">{title}</span>
           <span className="nt-all-state">{label}</span>
@@ -378,6 +388,7 @@ export function AllChatsList({
       id={chat.id}
       title={chat.title}
       harness={chat.harness}
+      icon={chat.icon}
       state={chat.state}
       label={chat.label}
       onOpen={openActive}

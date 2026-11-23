@@ -346,6 +346,56 @@
           ]
         },
         {
+          "key": "appearance.selection",
+          "note": "Off by default: accent is today's rule (the accent's tint when appearance.accent or the theme names one). neutral keeps the gray card whatever the accent (ThemeInput.selection).",
+          "title": {
+            "key": "settings.appearance.selection",
+            "text": "Selection"
+          },
+          "help": {
+            "key": "settings.appearance.selection.help",
+            "text": "Accent tints the selected row and tab with the accent. Neutral keeps them gray."
+          },
+          "summary": {
+            "key": "settings.appearance.selection.summary",
+            "text": "Color of the selected row and tab"
+          },
+          "kind": "choice",
+          "swift_owner": "SelectionSetting",
+          "swift_enum": {
+            "name": "ThemeSelection",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "accent",
+              "title": {
+                "key": "settings.choice.selection.accent",
+                "text": "Accent"
+              }
+            },
+            {
+              "value": "neutral",
+              "title": {
+                "key": "settings.choice.selection.neutral",
+                "text": "Neutral"
+              }
+            }
+          ],
+          "default": "accent",
+          "keywords": [
+            "selection",
+            "selected",
+            "row",
+            "highlight",
+            "accent",
+            "gray",
+            "neutral",
+            "sidebar"
+          ]
+        },
+        {
           "key": "appearance.themeFile",
           "title": {
             "key": "settings.appearance.themeFile",
@@ -428,6 +478,36 @@
             "color",
             "colour",
             "theme"
+          ]
+        },
+        {
+          "key": "customize.doctorNotice",
+          "name": "customizeDoctorNotice",
+          "note": "The app's quiet notice (a toast) at launch and when customization changes, naming a file or layer that changes the person's setup (`cmux customize doctor --announce`, cmux-customize library/doctor.rs). Informational: it changes nothing. Off: no toast; Settings' doctor card and the CLI still list findings. Leo 2026-11-19: \"if there's errant files etc that affect customizations it should be able to automatically tell the user and inform them\".",
+          "title": {
+            "key": "settings.customize.doctorNotice",
+            "text": "Customization notices"
+          },
+          "summary": {
+            "key": "settings.customize.doctorNotice.summary",
+            "text": "Tell me when a file or layer changes my setup"
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "CmuxConfigSnapshot",
+            "prefixed": true
+          },
+          "default": true,
+          "keywords": [
+            "customize",
+            "customization",
+            "doctor",
+            "notice",
+            "toast",
+            "theme",
+            "layer",
+            "broken",
+            "file"
           ]
         }
       ]
@@ -817,6 +897,61 @@
             "folder",
             "rotate",
             "restore"
+          ]
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "name": "placement",
+          "note": "Where each picture lies in its window or pane (Leo, 2026-11-22: \"we also want people to be able to reposition the images easily\"): picture id (the id the background shows, a listed painting, file:, system: or a folder's file:) to a placement text, the mode (fill, fit, center or stretch), then optionally the anchor X Y (0 to 1 from the top-left, like CSS object-position) and a zoom (1 to 4). Unset, or a picture with no entry, is today's centered fill. Adjust Background\u2026 and the Settings page's Background preview write it; cmux-config backdrop_placement is the math the app mirrors.",
+          "title": {
+            "key": "settings.appearance.backgroundPlacement",
+            "text": "Background Placement"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundPlacement.help",
+            "text": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          },
+          "kind": "string_map",
+          "swift_owner": {
+            "type": "BackdropPlacementSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "position",
+            "fit",
+            "fill",
+            "zoom",
+            "crop"
+          ]
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "name": "recents",
+          "note": "The backgrounds shown before, newest first (Leo, 2026-11-22: \"it was cumbersome back then to switch back\"): each an appearance.background value (a rotating folder, daily, desktop, a picture or a mode), at most 8, each once. The daemon's settings write (cmux-config) puts the replaced value first whenever appearance.background changes, from every surface; Switch to Previous Background, Recent Backgrounds\u2026, cmux wallpaper back|recent and the Settings page's Recent strip read it.",
+          "title": {
+            "key": "settings.appearance.backgroundRecents",
+            "text": "Recent Backgrounds"
+          },
+          "help": {
+            "key": "settings.appearance.backgroundRecents.help",
+            "text": "The backgrounds shown before, newest first, so one click goes back."
+          },
+          "kind": "string_list",
+          "swift_owner": {
+            "type": "BackdropSelectionSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "keywords": [
+            "wallpaper",
+            "background",
+            "recent",
+            "previous",
+            "history",
+            "folder"
           ]
         },
         {
@@ -1827,6 +1962,32 @@
             "separator",
             "outline",
             "line"
+          ]
+        },
+        {
+          "key": "appearance.liquidGlass",
+          "note": "Web pages only: off sends data-glass=\"off\" with the web theme (WebTheme), and every web glass surface draws the solid look of Reduce Transparency (webviews ui/glass/glass.css). Scroll fades stay; native surfaces keep their material. Off by default: CMUX-653, Lawrence decided it at standup 2026-11-19.",
+          "title": {
+            "key": "settings.appearance.liquidGlass",
+            "text": "Liquid Glass"
+          },
+          "help": {
+            "key": "settings.appearance.liquidGlass.help",
+            "text": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+          },
+          "kind": "toggle",
+          "swift_owner": "LiquidGlassSetting",
+          "default": false,
+          "keywords": [
+            "glass",
+            "liquid glass",
+            "blur",
+            "frost",
+            "translucent",
+            "transparency",
+            "solid",
+            "plain",
+            "material"
           ]
         },
         {

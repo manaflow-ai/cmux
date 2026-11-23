@@ -1,0 +1,106 @@
+{
+  "family": "git",
+  "ops": {
+    "git.branches": {
+      "source": "local",
+      "class": "read",
+      "digest": "a22250a237eca3f7"
+    },
+    "git.checkpoint.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2f6762765096b93c"
+    },
+    "git.checkpoint.diff": {
+      "source": "local",
+      "class": "read",
+      "digest": "520627878fe60d98"
+    },
+    "git.checkpoint.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "95c0ab3bf5f4b15f"
+    },
+    "git.checkpoint.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "1349c28368d5d44a"
+    },
+    "git.checkpoint.pin": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "5d6781b37efb14e7"
+    },
+    "git.checkpoint.unpin": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "a090c4158f57081d"
+    },
+    "git.commit": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "7cf5abd5cba7b095"
+    },
+    "git.diff": {
+      "source": "local",
+      "class": "read",
+      "digest": "e7ce415ffc99ce3e"
+    },
+    "git.files.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "6c00ead14a8e0eb3"
+    },
+    "git.files.search": {
+      "source": "local",
+      "class": "read",
+      "digest": "99109b269bff56d0"
+    },
+    "git.fingerprint": {
+      "source": "local",
+      "class": "read",
+      "digest": "7fa3a013390a50df"
+    },
+    "git.push": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "send-external",
+      "digest": "67b1e8892e209f60"
+    },
+    "git.status": {
+      "source": "local",
+      "class": "read",
+      "digest": "e0eb393c8cac1c30"
+    },
+    "git.worktree.apply": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "40d4753f7e55c364"
+    },
+    "git.worktree.create": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "bd308dc3ba20440a"
+    },
+    "git.worktree.remove": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "ebb9646c6556a677"
+    },
+    "git.worktree.setup": {
+      "source": "local",
+      "class": "read",
+      "digest": "99f7056e2577a447"
+    },
+    "git.worktree.setup.run": {
+      "source": "local",
+      "class": "mutation",
+      "risk": "execute",
+      "digest": "e9e56df69334262e"
+    }
+  }
+}

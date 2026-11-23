@@ -8,6 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use serde_json::{Value, json};
+use tokio::io::AsyncReadExt as _;
+use tokio::net::UnixListener;
 use tokio::sync::mpsc;
 
 use super::super::serve_machine::{self, TokenRead};
@@ -446,6 +448,16 @@ fn the_apps_lines_are_read() {
         app_line(r#"{"token":5,"env":{"A":"b"}}"#),
         Some(AppLine::Token { read: 5, result: TokenRead::Ok(env) })
     );
+    assert_eq!(
+        app_line(r#"{"ahead":7,"keep_ms":480000}"#),
+        Some(AppLine::Ahead { dial: 7, keep: Duration::from_secs(480) })
+    );
+    assert_eq!(
+        app_line(r#"{"ahead":8,"keep_ms":99999999999}"#),
+        Some(AppLine::Ahead { dial: 8, keep: Duration::from_secs(3600) }),
+        "a keep is at most an hour"
+    );
+    assert_eq!(app_line(r#"{"ahead":9}"#), None, "an ahead names its keep");
     assert_eq!(app_line("not json"), None);
     assert_eq!(app_line(r#"{"other":1}"#), None);
 }
@@ -584,4 +596,173 @@ fn a_log_line_is_one_bounded_line_with_no_credential() {
         serde_json::from_str::<Value>(&wire::log_line("stop")).expect("JSON"),
         json!({"log": "stop"})
     );
+}
+
+/// A scratch directory whose path is short: these tests listen on the
+/// serving socket, and a Unix socket's path must fit its address.
+fn short_scratch(name: &str) -> PathBuf {
+    let dir = PathBuf::from("/tmp").join(format!("cmux-sv-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    dir
+}
+
+/// A supervisor whose child is ready, with the test listening on the
+/// serving socket in the serve's place.
+async fn ready_with_listener(name: &str) -> (PathBuf, Harness, UnixListener) {
+    let dir = short_scratch(name);
+    let config = config(&dir, &format!("{READY}\ncat >/dev/null"));
+    let listener = UnixListener::bind(&config.socket).expect("the test listens on the socket");
+    let mut serve = Harness::start(config);
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, "t-1");
+    serve.expect("resume").await;
+    (dir, serve, listener)
+}
+
+async fn accepted(listener: &UnixListener) -> UnixStream {
+    tokio::time::timeout(LINE_WAIT, listener.accept())
+        .await
+        .expect("a connection comes")
+        .expect("accepted")
+        .0
+}
+
+/// Whether the peer closes `stream` within the line wait.
+async fn closed(stream: &mut UnixStream) -> bool {
+    let mut byte = [0_u8; 1];
+    matches!(tokio::time::timeout(LINE_WAIT, stream.read(&mut byte)).await, Ok(Ok(0)))
+}
+
+/// Whether `stream` is still open after `wait`.
+async fn open_after(stream: &mut UnixStream, wait: Duration) -> bool {
+    let mut byte = [0_u8; 1];
+    tokio::time::timeout(wait, stream.read(&mut byte)).await.is_err()
+}
+
+#[tokio::test]
+async fn an_ahead_holds_one_connection_until_the_next_connect() {
+    let (dir, mut serve, listener) = ready_with_listener("held").await;
+    serve.send(json!({"ahead": 7, "keep_ms": 60_000}));
+    let mut held = accepted(&listener).await;
+    assert!(open_after(&mut held, Duration::from_millis(200)).await, "held open after its dial");
+    serve.none("ahead", Duration::from_millis(100)).await;
+    // A second ask while one is held holds nothing, and leaves the first.
+    serve.send(json!({"ahead": 8, "keep_ms": 60_000}));
+    assert_eq!(serve.expect("ahead").await, json!({"ahead": 8, "held": false}));
+    assert!(open_after(&mut held, Duration::from_millis(100)).await);
+    serve.connect(2);
+    assert!(closed(&mut held).await, "dropped at the session's connect");
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_ahead_is_dropped_at_the_end_of_its_keep_and_another_can_follow() {
+    let (dir, mut serve, listener) = ready_with_listener("keep").await;
+    serve.send(json!({"ahead": 7, "keep_ms": 50}));
+    let mut held = accepted(&listener).await;
+    assert!(closed(&mut held).await, "dropped at the end of its keep");
+    serve.log("ahead 7: its connection ended").await;
+    serve.send(json!({"ahead": 8, "keep_ms": 60_000}));
+    let mut next = accepted(&listener).await;
+    assert!(open_after(&mut next, Duration::from_millis(100)).await);
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_ahead_the_serve_closed_holds_nothing_and_another_can_follow() {
+    let (dir, mut serve, listener) = ready_with_listener("shut").await;
+    serve.send(json!({"ahead": 7, "keep_ms": 60_000}));
+    // The serve closes its end: a refused dial.
+    drop(accepted(&listener).await);
+    serve.log("ahead 7: its connection ended").await;
+    serve.send(json!({"ahead": 8, "keep_ms": 60_000}));
+    let mut next = accepted(&listener).await;
+    assert!(open_after(&mut next, Duration::from_millis(100)).await);
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_park_and_a_stop_drop_the_connection_held_ahead() {
+    let (dir, mut serve, listener) = ready_with_listener("park").await;
+    serve.send(json!({"ahead": 7, "keep_ms": 60_000}));
+    let mut held = accepted(&listener).await;
+    serve.send(json!({"park": true}));
+    assert!(closed(&mut held).await, "dropped at the park");
+    serve.connect(2);
+    let read = serve.read().await;
+    serve.token(read, "t-2");
+    serve.expect("resume").await;
+    serve.send(json!({"ahead": 8, "keep_ms": 60_000}));
+    let mut held = accepted(&listener).await;
+    serve.send(json!({"stop": true}));
+    assert!(closed(&mut held).await, "dropped at the stop");
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_child_that_exits_under_a_hold_answers_its_ask() {
+    let dir = short_scratch("exit");
+    // The child serves until its `die` pipe is closed.
+    let config = config(&dir, &format!("mkfifo \"$1.die\"\n{READY}\ncat \"$1.die\" >/dev/null"));
+    let die = format!("{}.die", config.socket);
+    let listener = UnixListener::bind(&config.socket).expect("the test listens on the socket");
+    let mut serve = Harness::start(config);
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, "t-1");
+    serve.expect("resume").await;
+    serve.send(json!({"ahead": 7, "keep_ms": 60_000}));
+    let mut held = accepted(&listener).await;
+    // Opened and closed: the child's read ends, and the child exits. The
+    // open is asked again, without waiting, until the child reads its pipe.
+    let deadline = tokio::time::Instant::now() + LINE_WAIT;
+    loop {
+        match pipe::OpenOptions::new().open_sender(&die) {
+            Ok(sender) => {
+                drop(sender);
+                break;
+            }
+            Err(error) => {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the child reads its pipe: {error}"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
+    }
+    // The ask may still wait for the serve's answer: it is told at once.
+    assert_eq!(serve.expect("ahead").await, json!({"ahead": 7, "held": false}));
+    assert!(closed(&mut held).await, "dropped at the child's exit");
+    let _ = serve.end().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_ahead_with_no_serve_ready_or_no_listener_holds_nothing() {
+    let dir = short_scratch("unready");
+    let mut serve = Harness::start(config(&dir, &format!("{READY}\ncat >/dev/null")));
+    // No connect asked for the serve yet: no child, nothing to dial.
+    serve.send(json!({"ahead": 3, "keep_ms": 60_000}));
+    assert_eq!(serve.expect("ahead").await, json!({"ahead": 3, "held": false}));
+    assert_eq!(launches(&dir), 0, "an ahead starts no child");
+    serve.connect(1);
+    let read = serve.read().await;
+    serve.token(read, "t-1");
+    serve.expect("resume").await;
+    // Ready, but nothing accepts on the socket (the stand-in never binds it).
+    serve.send(json!({"ahead": 4, "keep_ms": 60_000}));
+    assert_eq!(serve.expect("ahead").await, json!({"ahead": 4, "held": false}));
+    // The slot is free again: a later ask is tried, not refused as held.
+    serve.send(json!({"ahead": 5, "keep_ms": 60_000}));
+    assert_eq!(serve.expect("ahead").await, json!({"ahead": 5, "held": false}));
+    assert!(serve.logs.iter().any(|text| text == "ahead 4: the serving socket took no connection"));
+    assert_eq!(serve.end().await, 0);
+    let _ = std::fs::remove_dir_all(&dir);
 }

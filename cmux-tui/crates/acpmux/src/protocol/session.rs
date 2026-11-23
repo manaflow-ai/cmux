@@ -51,10 +51,23 @@ pub struct SessionSummary {
     /// The session's spoken handle, independent of its task name and ids. Older peers omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
+    /// The name every human-visible surface shows for it (tab, sidebar row, lists, chat header,
+    /// notices, a message's sender): its handle when one was given (`acpmux rename @ Mango
+    /// --handle`), absent otherwise (a derived handle is no name a person chose; show `name`).
+    /// Its former names and handles are `formerNames` ("Mango (fka claude-sr2-coord-old)").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub display_name: Option<String>,
+    /// The icon it set (`session_icon.rs`), drawn like a harness `iconSpec`; absent draws the
+    /// harness mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub icon: Option<crate::session_icon::SessionIcon>,
     /// Someone gave `name` (at the start, a fork's or a rename), not the daemon's `HARNESS-N`
     /// default. Absent otherwise, from a session named before it was kept, and from a peer on an
     /// older acpmux.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    // Listed even when false, so every row lists the same keys (`hub/mesh_book.rs` `ROW_KEYS`).
+    #[serde(default)]
     #[schemars(default)]
     pub name_given: bool,
     /// The names it had before its renames, oldest first: each still names it where no session
@@ -122,6 +135,14 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// Whether the chat forks, and edits, through any completed turn, not only its latest: its
+    /// harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+    /// family name its profile carries. Absent when unknown (the configuration was being written
+    /// as the summary was built) and from a peer on an older acpmux: a client then falls back to
+    /// the family, never reads absence as false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub forks_any_turn: Option<bool>,
     /// The session whose agent started this one, kept only while that parent
     /// is listed and is a root itself: one level, for lists that fold one level.
     /// `parent` without those rules, else an older client's `spawnedBy` tag.
@@ -393,6 +414,10 @@ pub struct UsageStats {
     /// read and cache write.
     #[serde(rename = "tokens24h")]
     pub tokens24h: Option<u64>,
+    #[serde(rename = "tokensByModel1h")]
+    pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
+    /// Tokens per call model in the completed UTC hour preceding the hour of updatedAt.
+    pub tokens_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
