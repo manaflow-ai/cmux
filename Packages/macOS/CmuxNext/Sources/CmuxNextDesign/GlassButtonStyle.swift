@@ -1,5 +1,6 @@
 public import SwiftUI
-public import CmuxNextDesignTokens
+import CmuxNextWakeups
+import CmuxTheme
 
 extension View {
     /// The Liquid Glass button style (`.glass`, macOS 26 and later), or
@@ -24,13 +25,11 @@ extension View {
 /// style instead; `scripts/cmux-next/check-pressed-state.py` refuses them. AppKit chrome gets the same look from
 /// ``ChromeHover`` (`ChromeHover.State(pressed:)` picks `Palette.pressedFill`).
 ///
-/// On a menu or popover's glass (`cmuxOnMenuGlass(_:)` on the content) a label that takes its ink from the button draws
-/// the theme's text fit to that glass (``GlassMenuMaterial/ink(_:tokens:minimum:)``), not the ink fit to the opaque page:
-/// Hot Dog Stand's Rename read 4.16:1 over a black page. A label that sets its own ink keeps it.
+/// On a menu panel's glass (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``) a label that takes its ink from
+/// the button draws the theme's text fit to that glass (``GlassMenuMaterial/ink(_:tokens:minimum:)``), not the ink fit to
+/// the opaque page: Hot Dog Stand's Rename read 4.16:1 over a black page. The button finds the panel in the view tree
+/// (``MenuGlassProbeView``), so content a menu panel hosts sets no mark. A label that sets its own ink keeps it.
 public struct CmuxPressFillButtonStyle: ButtonStyle {
-    /// The theme of the menu glass the button sits on (`cmuxOnMenuGlass(_:)`), else nil.
-    @Environment(\.cmuxMenuGlass) private var menuGlass
-
     /// The fill at rest (and under the pointer); nil draws none.
     public var rest: Color?
     /// The fill while held; nil is `Palette.pressedFill`.
@@ -47,21 +46,55 @@ public struct CmuxPressFillButtonStyle: ButtonStyle {
         self.shape = shape
     }
 
-    @ViewBuilder
     public func makeBody(configuration: Configuration) -> some View {
-        let fill = configuration.isPressed ? (pressed ?? Color(nsColor: Palette.pressedFill)) : rest
-        switch shape {
+        PressFillBody(configuration: configuration, style: self)
+    }
+}
+
+/// ``CmuxPressFillButtonStyle``'s button: the label on its fill, in the menu glass ink while it sits on a menu panel.
+private struct PressFillBody: View {
+    let configuration: ButtonStyleConfiguration
+    let style: CmuxPressFillButtonStyle
+    /// The theme of the menu panel's glass the button sits on, read from the view tree; nil off menu glass.
+    @State private var menuGlass: ThemeTokens?
+
+    var body: some View {
+        shaped.background(MenuGlassProbe(menuGlass: $menuGlass))
+    }
+
+    @ViewBuilder
+    private var shaped: some View {
+        let label = configuration.label.modifier(MenuGlassInk(tokens: menuGlass))
+        let fill = configuration.isPressed ? (style.pressed ?? Color(nsColor: Palette.pressedFill)) : style.rest
+        switch style.shape {
         case .rounded:
-            configuration.label.modifier(MenuGlassInk(tokens: menuGlass))
-                .cmuxPressFill(configuration.isPressed, rest: rest, pressed: pressed, cornerRadius: cornerRadius)
+            label.cmuxPressFill(configuration.isPressed, rest: style.rest, pressed: style.pressed, cornerRadius: style.cornerRadius)
         case .circle:
-            configuration.label.modifier(MenuGlassInk(tokens: menuGlass)).background(fill ?? Color.clear, in: Circle()).contentShape(Circle())
+            label.background(fill ?? Color.clear, in: Circle()).contentShape(Circle())
         case .capsule:
-            configuration.label.modifier(MenuGlassInk(tokens: menuGlass)).background(fill ?? Color.clear, in: Capsule()).contentShape(Capsule())
+            label.background(fill ?? Color.clear, in: Capsule()).contentShape(Capsule())
         case .glass:
             // Interactive Liquid Glass answers the press itself; only the rest fill is drawn.
-            configuration.label.modifier(MenuGlassInk(tokens: menuGlass)).background(rest ?? Color.clear, in: Circle())
+            label.background(style.rest ?? Color.clear, in: Circle())
         }
+    }
+}
+
+/// Hosts a ``MenuGlassProbeView`` behind the button and keeps `menuGlass` to what it finds.
+private struct MenuGlassProbe: NSViewRepresentable {
+    let menuGlass: Binding<ThemeTokens?>
+
+    func makeNSView(context: Context) -> MenuGlassProbeView {
+        let probe = MenuGlassProbeView(frame: .zero)
+        updateNSView(probe, context: context)
+        return probe
+    }
+
+    func updateNSView(_ probe: MenuGlassProbeView, context: Context) {
+        let menuGlass = menuGlass
+        // The probe reports from AppKit's view-tree callbacks, which can run inside SwiftUI's own update (a probe made
+        // in a window moves to it there): the state is written once that pass committed its frame, never during it.
+        probe.onChange = { tokens in AfterFrameCommit().run { menuGlass.wrappedValue = tokens } }
     }
 }
 
@@ -75,24 +108,6 @@ private struct MenuGlassInk: ViewModifier {
         } else {
             content
         }
-    }
-}
-
-extension EnvironmentValues {
-    /// The theme of the menu or popover glass this content sits on (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``),
-    /// set with `cmuxOnMenuGlass(_:)`; nil on a window or a sheet. ``CmuxPressFillButtonStyle`` fits its ink to it.
-    @Entry public var cmuxMenuGlass: ThemeTokens?
-}
-
-extension View {
-    /// Marks this content as drawn on a menu or popover's glass in the theme `tokens`, so its buttons fit their inks to
-    /// that glass over any page (``CmuxPressFillButtonStyle``). Set it on the root of SwiftUI content a menu panel hosts.
-    ///
-    /// ```swift
-    /// FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model).cmuxOnMenuGlass(tokens))
-    /// ```
-    public func cmuxOnMenuGlass(_ tokens: ThemeTokens?) -> some View {
-        environment(\.cmuxMenuGlass, tokens)
     }
 }
 
