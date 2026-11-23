@@ -726,20 +726,35 @@ export function aptDownloadBatches(
 export const APT_FETCH_ATTEMPTS = 3;
 
 /**
- * One download batch, run again when it fails: a slow mirror can push a batch past the guest's 5-minute exec cap
- * (image roll 44263286356, status 124), and aptDebFetchCommand keeps every .deb it verified, so each run only fetches
- * what is still missing. A .deb no mirror serves fails every run and still fails the bake.
+ * Runs of one store download before the bake fails: each resumes the last (programInstallCommand), so five tries
+ * carry codex's 109 MB at about 80 KB/s, the slowest GitHub release rate seen (image roll 45113664312).
  */
-export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+export const STORE_FETCH_ATTEMPTS = 5;
+
+/**
+ * One step run again when it fails, for a download that keeps what it fetched: a slow mirror can push it past the
+ * guest's 5-minute exec cap (status 124), and each run only fetches what is still missing. A file no mirror serves
+ * fails every run and still fails the bake.
+ */
+export async function stepWithTries(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts: number, kept: string): Promise<string> {
   for (let attempt = 1; ; attempt++) {
     try {
-      await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
-      return;
+      return await L.step(vm, attempt === 1 ? label : `${label}-try-${attempt}`, command);
     } catch (error) {
       if (attempt >= attempts) throw error;
-      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping the .debs it verified`);
+      L.log(`${label} failed (try ${attempt} of ${attempts}); running it again, keeping ${kept}`);
     }
   }
+}
+
+/** One apt download batch (image roll 44263286356, status 124): aptDebFetchCommand keeps every .deb it verified. */
+export async function fetchAptBatch(L: Pick<StepLog, "step" | "log">, vm: Vm, label: string, command: string, attempts = APT_FETCH_ATTEMPTS): Promise<void> {
+  await stepWithTries(L, vm, label, command, attempts, "the .debs it verified");
+}
+
+/** One store program's install: its partial download stays and the next try resumes it. */
+function storeStep(L: StepLog, vm: Vm, label: string, command: string): Promise<string> {
+  return stepWithTries(L, vm, label, command, STORE_FETCH_ATTEMPTS, "the bytes it downloaded");
 }
 
 /**
@@ -789,7 +804,7 @@ async function installApt(ctx: Ctx): Promise<void> {
 
 async function installStore(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
-  await parallelSteps(bakedPrograms(lock).map((p) => () => L.step(vm, `store-${p.name}`, programInstallCommand(p))));
+  await parallelSteps(bakedPrograms(lock).map((p) => () => storeStep(L, vm, `store-${p.name}`, programInstallCommand(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
@@ -1211,7 +1226,7 @@ async function overlaySteps(ctx: Ctx, layer: "agents" | "app"): Promise<void> {
   const { vm, L, lock } = ctx;
   const programs = bakedPrograms(lock).filter((p) => isAppProgram(p.name) === (layer === "app"));
   await L.step(vm, `${layer}-prepare`, overlayPrepareCommand(programs.flatMap((p) => Object.keys(p.bin))));
-  await parallelSteps(programs.map((p) => () => L.step(vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
+  await parallelSteps(programs.map((p) => () => storeStep(L, vm, `store-${p.name}`, cachedInstallCommand(storeEntry(p.sha256), programInstallCommand(p), p.name))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await L.step(vm, `${layer}-prune`, overlayPruneCommand());
   if (layer === "agents") {

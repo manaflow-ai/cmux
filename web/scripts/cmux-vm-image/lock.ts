@@ -725,7 +725,15 @@ export function storeEntry(sha256: string): string {
 /** What an install needs from a lock program or a roles.json first-use program. */
 export type InstallableProgram = Pick<LockedProgram, "name" | "version" | "url" | "sha256" | "size" | "format" | "bin" | "fileName" | "checksumsUrl" | "checksumsName" | "notices">;
 
-/** Download, verify (sha256 and size) and unpack one program into its immutable store entry. */
+/**
+ * Seconds one store download may run inside a step: under the guest agent's 5-minute exec cap (STEP_TIMEOUT_MS), so
+ * curl stops itself, the partial file stays, and the next try (bake.ts, STORE_FETCH_ATTEMPTS) resumes it. Image roll
+ * 45113664312 (2026-11-23): GitHub release downloads slowed to about 55 KB/s, and codex (109 MB) and juicefs (40 MB)
+ * hit the cap with every byte lost to the restart.
+ */
+export const STORE_DOWNLOAD_SECONDS = 270;
+
+/** Download (resuming a partial file), verify (sha256 and size) and unpack one program into its immutable store entry. */
 export function programInstallCommand(program: InstallableProgram): string {
   const entry = storeEntry(program.sha256);
   const dl = `/tmp/cmux-dl/${program.sha256}`;
@@ -742,8 +750,11 @@ export function programInstallCommand(program: InstallableProgram): string {
   return [
     `mkdir -p /tmp/cmux-dl ${STORE_DIR}`,
     `rm -rf ${stage} && mkdir -p ${stage}`,
-    `curl -fsSL --retry 3 -o ${dl} ${sq(program.url)}`,
-    `${checksums}printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet -`,
+    // A file larger than the lock's size is not a prefix of it; curl exit 33 is a server that refuses ranges.
+    `{ have=$(stat -c %s ${dl} 2>/dev/null || echo 0); if [ "$have" -gt ${program.size} ]; then rm -f ${dl}; have=0; fi; ` +
+      `if [ "$have" -lt ${program.size} ]; then timeout ${STORE_DOWNLOAD_SECONDS} curl -fsSL --retry 3 -C - -o ${dl} ${sq(program.url)} || ` +
+      `{ rc=$?; [ "$rc" = 33 ] && rm -f ${dl}; echo "store ${program.name}: download stopped (exit $rc) at $(stat -c %s ${dl} 2>/dev/null || echo 0) of ${program.size} bytes; the next try resumes it" >&2; exit 1; }; fi; }`,
+    `${checksums}{ printf '%s  %s\\n' ${program.sha256} ${dl} | sha256sum -c --quiet - || { rm -f ${dl}; exit 1; }; }`,
     `test "$(stat -c %s ${dl})" = ${program.size}`,
     program.format === "npm" ? `mv ${dl} ${dl}.tgz` : "true",
     unpack,

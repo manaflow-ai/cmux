@@ -6,7 +6,8 @@ import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, STORE_DOWNLOAD_SECONDS, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { STEP_TIMEOUT_MS } from "../scripts/cmux-vm-image/guest";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
 import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
@@ -197,6 +198,60 @@ describe("cmux VM image apt index", () => {
     await expect(bake.fetchAptBatch(never, vm, "apt-ubuntu-download-3-of-5", "fetch")).rejects.toThrow("step apt-ubuntu-download-3-of-5-try-3 failed");
     expect(never.calls).toHaveLength(bake.APT_FETCH_ATTEMPTS);
     expect(bake.APT_FETCH_ATTEMPTS).toBe(3);
+  });
+
+  // Image roll 45113664312 (2026-11-23): GitHub release downloads slowed, and store-codex (109 MB) and store-juicefs
+  // (40 MB) hit the guest's 5-minute exec cap (status 124); curl restarted from byte 0 on every bake. The download now
+  // stops itself under the cap, keeps its partial file, and the next try resumes it.
+  test("a store download stops under the exec cap, keeps its partial file, and the next try resumes it", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "store-resume-"));
+    try {
+      const payload = Buffer.alloc(300_000, 0);
+      for (let i = 0; i < payload.length; i++) payload[i] = (i * 31) % 251;
+      const src = path.join(dir, "src");
+      writeFileSync(src, payload);
+      const sha256 = createHash("sha256").update(payload).digest("hex");
+      const program = { name: "fake", version: "1", url: `file://${src}`, sha256, size: payload.length, format: "raw" as const, bin: { fake: "fake" }, fileName: "fake" };
+      const command = programInstallCommand(program);
+      expect(command).toContain(`timeout ${STORE_DOWNLOAD_SECONDS} curl -fsSL --retry 3 -C - -o /tmp/cmux-dl/${sha256}`);
+      expect(STORE_DOWNLOAD_SECONDS * 1000).toBeLessThan(STEP_TIMEOUT_MS);
+      const store = path.join(dir, "store");
+      const dl = path.join(dir, "dl");
+      const local = command.replaceAll("/opt/cmux/store", store).replaceAll("/tmp/cmux-dl", dl);
+      mkdirSync(dl, { recursive: true });
+      // A partial file that is not a prefix fails the digest and is removed, so the next try starts clean.
+      writeFileSync(path.join(dl, sha256), Buffer.alloc(100_000, 0xff));
+      const corrupt = await runChild("sh", ["-c", local], { timeout: 20_000 });
+      expect(corrupt.status).not.toBe(0);
+      expect(readdirSync(dl)).not.toContain(sha256);
+      // The partial file a stopped try left: the first 100 000 bytes.
+      writeFileSync(path.join(dl, sha256), payload.subarray(0, 100_000));
+      const resumed = await runChild("sh", ["-c", local], { timeout: 20_000 });
+      expect(resumed.stderr).toBe("");
+      expect(resumed.status).toBe(0);
+      expect(readFileSync(path.join(store, sha256, "fake")).equals(payload)).toBe(true);
+
+    } finally {
+      await runChild("chmod", ["-R", "u+w", dir], { timeout: 5_000 });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed store step is run again, keeping its bytes, up to STORE_FETCH_ATTEMPTS times", async () => {
+    const vm = {} as Parameters<typeof bake.stepWithTries>[1];
+    const calls: string[] = [];
+    const lines: string[] = [];
+    const L = {
+      log: (line: string) => void lines.push(line),
+      step: async (_vm: unknown, label: string) => {
+        calls.push(label);
+        if (calls.length <= 2) throw new Error(`step ${label} failed`);
+        return "store codex 0.160.0 289101384";
+      },
+    };
+    expect(await bake.stepWithTries(L, vm, "store-codex", "install", bake.STORE_FETCH_ATTEMPTS, "the bytes it downloaded")).toContain("store codex");
+    expect(calls).toEqual(["store-codex", "store-codex-try-2", "store-codex-try-3"]);
+    expect(lines.join("\n")).toContain("store-codex failed (try 2 of 5); running it again, keeping the bytes it downloaded");
   });
 
   // Bake run 43932356313 (2026-11-16): the snapshot's index update hit its cap, the archive fallback had replaced
