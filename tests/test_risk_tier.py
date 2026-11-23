@@ -1185,6 +1185,7 @@ class DescriptionVerdictTests(unittest.TestCase):
         """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
         grade = self.grade_end_to_end
         out, summary = grade(f"Review (codex, started by lead): SHIP at {HEAD}")
+        self.assertIn("graded=true", out)
         self.assertIn("tier=high", out)
         self.assertIn("ready=true", out)
         self.assertIn("Signed off: review (codex, started by lead) in the description shipped", summary)
@@ -1334,5 +1335,138 @@ class GhFailureTests(unittest.TestCase):
         self.assertEqual(err.getvalue(), "")
 
 
+class SpentBudgetTests(unittest.TestCase):
+    """A spent hourly API budget is a named hold that names its reset, never a traceback and never a grade.
+
+    cmux#51140 and cmux#51251 both went red at `Grade the pull request` inside one hour on 2026-11-22, neither
+    for anything in its own diff: the budget wrapper refused `pulls/N/files?per_page=100&page=1` and the step
+    ended in `subprocess.CalledProcessError ... returned non-zero exit status 1`, which says nothing about what
+    happened or what to do. The remedy taken next, `gh run rerun --failed`, spends from the same empty bucket,
+    so the hold names the reset and says that, instead of asking for a rerun."""
+
+    # Synthetic: the wrapper's shape with made-up numbers. now 2026-11-22T23:26:40Z, reset an hour later.
+    RESET = 1795393600
+    NOW = 1795390000.0
+    WRAPPER = f"app-budget risk tier/evidence/after used=4242 reset={RESET} at={int(NOW)}"
+    SPENT = WRAPPER + "\ngh: API rate limit exceeded for installation ID 4242."
+
+    def refuse(self, stderr, attempts=3):
+        """(the ApiRefused gh_run raised, the gh calls it made, the sleeps it took)."""
+        calls, slept = [], []
+        saved_run, saved_sleep = subprocess.run, time.sleep
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr=stderr)
+
+        risk.subprocess.run, risk.time.sleep = fake_run, slept.append
+        self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
+                                 setattr(risk.time, "sleep", saved_sleep)))
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(risk.ApiRefused) as caught:
+                risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files?per_page=100&page=1"], attempts=attempts)
+        return caught.exception, calls, slept
+
+    def test_the_budget_wrappers_own_words_stop_at_one_refused_call(self):
+        error, calls, slept = self.refuse(self.SPENT)
+        self.assertTrue(error.budget_spent)
+        self.assertEqual(error.reset, self.RESET)
+        self.assertEqual(len(calls), 1, "a retry before the reset spends from the same empty bucket")
+        self.assertEqual(slept, [])
+        # Every caller that already reads an unreadable list as "unread" must keep doing exactly that.
+        self.assertIsInstance(error, subprocess.CalledProcessError)
+
+    def test_the_wrapper_line_alone_counts_without_ghs_rate_limit_words(self):
+        """What #51140 and #51251 actually printed: the wrapper's line, and gh exiting 1 under it."""
+        error, calls, slept = self.refuse(self.WRAPPER)
+        self.assertTrue(error.budget_spent)
+        self.assertEqual(error.reset, self.RESET)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(slept, [])
+
+    def test_a_spent_budget_is_a_hold_that_names_the_operation_the_budget_and_the_reset(self):
+        error, _, _ = self.refuse(self.SPENT)
+        report, annotation = risk.not_graded(error, now=self.NOW)
+        self.assertIn(f"## Risk tier: {risk.NOT_GRADED}", report)
+        self.assertIn("hourly GitHub API budget is spent", report)
+        self.assertIn("repos/o/r/pulls/7/files?per_page=100&page=1", report)
+        self.assertIn("used=4242", report)
+        self.assertIn("at 2026-11-23T00:26:40Z, in 60m 0s", report)
+        self.assertIn("no verdict on this pull request's risk", report)
+        self.assertIn("hourly GitHub API budget is spent", annotation)
+        self.assertIn("2026-11-23T00:26:40Z", annotation)
+
+    def test_the_hold_never_asks_for_a_rerun_before_the_reset(self):
+        """The failure mode's own documented remedy feeds it: a rerun spends from the same empty bucket."""
+        error, _, _ = self.refuse(self.SPENT)
+        report, annotation = risk.not_graded(error, now=self.NOW)
+        for text in (report, annotation):
+            self.assertIn("same empty bucket", text)
+            self.assertIn("no change to it clears it", text)
+            self.assertNotIn("rerun", text.lower().replace("re-running", ""))
+
+    def test_the_hold_carries_no_tier_and_no_grade(self):
+        """A grader that never read the change has no grade: not high, and not a pass either."""
+        error, _, _ = self.refuse(self.SPENT)
+        report, _ = risk.not_graded(error, now=self.NOW)
+        self.assertNotIn("Nothing holds this pull request", report)
+        for tier in risk.TIERS:
+            self.assertNotIn(f"Risk tier: {tier}", report)
+            self.assertNotIn(f"tier={tier}", report)
+
+    def test_a_refusals_own_words_stay_bounded(self):
+        error, _, _ = self.refuse(self.WRAPPER + " " + "x" * 9000)
+        report, annotation = risk.not_graded(error, now=self.NOW)
+        self.assertIn(f"({9000 + len(self.WRAPPER) + 1} characters in all)", report)
+        self.assertLess(len(report), 2000)
+        self.assertLess(len(annotation), 500)
+
+    def ungraded(self, stderr):
+        """(exit code, GITHUB_OUTPUT text, summary, stdout) for a `pr` run whose first read is refused."""
+        saved = risk.gh_items, risk.gh_json
+
+        def refused(endpoint, *args, **kwargs):
+            raise risk.ApiRefused(1, ["gh", "api", endpoint], stderr=stderr, why=stderr,
+                                  budget_spent=bool(risk.GH_RATE_LIMITED.search(stderr)),
+                                  reset=self.RESET if "reset=" in stderr else None)
+        risk.gh_items = refused
+        risk.gh_json = lambda *args: refused(args[-1])
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                told = io.StringIO()
+                with contextlib.redirect_stdout(told):
+                    code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                                      "--summary", str(summary)])
+                return code, out.read_text(), summary.read_text(), told.getvalue()
+        finally:
+            risk.gh_items, risk.gh_json = saved
+
+    def test_a_spent_budget_grades_nothing_and_never_ends_in_a_traceback(self):
+        code, out, summary, told = self.ungraded(self.SPENT)
+        self.assertEqual(code, 1, "a check does not pass what it never read")
+        self.assertIn("graded=false", out)
+        self.assertIn("ready=false", out)
+        # No tier and no label: an ungraded run has no grade to write, and an empty label is not "low".
+        self.assertNotIn("tier=", out)
+        self.assertNotIn("label=", out)
+        self.assertIn("takes_back=false", out)
+        self.assertIn(f"## Risk tier: {risk.NOT_GRADED}", summary)
+        self.assertIn("hourly GitHub API budget is spent", summary)
+        self.assertIn("::error::risk evidence not graded:", told)
+        self.assertNotIn("Traceback", told)
+
+    def test_an_unrecognized_refusal_also_reports_no_grade_rather_than_crashing(self):
+        code, out, summary, told = self.ungraded("gh: Not Found (HTTP 404)")
+        self.assertEqual(code, 1)
+        self.assertIn("graded=false", out)
+        self.assertNotIn("tier=", out)
+        self.assertIn("could not read this pull request", summary)
+        self.assertIn("Not Found (HTTP 404)", summary)
+        self.assertNotIn("empty bucket", summary)
+        self.assertIn("::error::risk evidence not graded:", told)
+
+
 if __name__ == "__main__":
     unittest.main()
+
