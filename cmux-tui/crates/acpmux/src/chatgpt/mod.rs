@@ -16,6 +16,7 @@
 //!
 //! Every OAuth URL comes from [`Endpoints`], so tests run the whole flow against a local server.
 
+mod import;
 mod jwt;
 mod oauth;
 pub(crate) mod store;
@@ -31,6 +32,10 @@ use tokio::sync::watch;
 
 use crate::routes::{self, RouteKind};
 
+pub(crate) use import::codex_auth as import_codex_auth;
+#[cfg(test)]
+pub(crate) use import::test_auth_json as import_test_auth;
+pub use import::{ENV as CI_IMPORT_ENV, enabled as ci_import_enabled};
 pub use oauth::Endpoints;
 
 /// Codex's OAuth client (the one `codex login` signs in with).

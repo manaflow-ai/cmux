@@ -12,7 +12,7 @@ change that moves work off the Mac shows as a before and after from the same har
     deciding_mac_jobs.py guard               exit 1 when a deciding job that runs on Linux can reach another runner
 
 `guard` is the detector for a deciding job drifting back to the Mac: each job in LINUX_DECIDING must resolve
-to Linux labels only. Run it after changing a `runs-on` in cmux-next.yml; it is not a CI step (no new CI tests).
+to Linux labels only. Run it after changing a `runs-on` in cmux-next.yml; it is not a CI step (kept manual under the 2026-10-23 no-new-CI rule, since lifted).
 
 A job is `linux` when every label its `runs-on` can resolve to is Blacksmith or declared fleet Linux
 (tests/runs_on_labels.py, the rule the Linux runner guards use), `mac` when one of them is a macOS or Xcode

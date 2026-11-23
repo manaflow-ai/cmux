@@ -43,6 +43,9 @@ export class ViewNode {
   bold() { return this.set("weight", "bold") }
   italic() { return this.set("italic", true) }
   monospaced() { return this.set("monospaced", true) }
+  /** The system font's design at the same type-scale size: `rounded` (heavy and rounded is the
+   * Lock Screen's time), `serif`, `monospaced` or `default`. */
+  fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">) { return this.set("fontDesign", v) }
   color(v: Bindable<string | null>) { return this.set("color", v) }
   foregroundColor(v: Bindable<string | null>) { return this.set("color", v) }
   secondary() { return this.set("color", "secondary") }
@@ -63,6 +66,8 @@ export class ViewNode {
   /** A color token, `#RRGGBB[AA]`, or a gradient (`linearGradient(...)`, `radialGradient(...)`). */
   background(v: Bindable<SceneFill | null>) { return this.set("background", v) }
   hoverBackground(v: Bindable<string | null>) { return this.set("hoverBackground", v) }
+  /** The App's own glass at `level` under the node (paint only; null drops it). Levels: chrome, popover, menu, chip. */
+  glass(level: Bindable<"chrome" | "popover" | "menu" | "chip" | null> = "popover") { return this.set("glass", level) }
   cornerRadius(v: Bindable<number>) { return this.set("cornerRadius", v) }
   borderColor(v: Bindable<string | null>) { return this.set("borderColor", v) }
   borderWidth(v: Bindable<number>) { return this.set("borderWidth", v) }
@@ -82,6 +87,16 @@ export class ViewNode {
     if (typeof v !== "function" && v !== null) checkTrim(v)
     return this.set("trim", v)
   }
+  /** SwiftUI's name for `rotation`: turns the node clockwise by `degrees` about its center. A change
+   * animates only under `.animation(...)`, behind the motion gate. */
+  rotationEffect(degrees: Bindable<number>) { return this.set("rotation", degrees) }
+  /** Moves the node's drawing by `{x, y}` points without moving its layout; a rotation turns the
+   * moved drawing about the node's center (a clock hand: offset by half its length, then rotated). */
+  offset(v: Bindable<{ x?: number; y?: number }>) { return this.set("offset", v) }
+  /** In a ZStack: places the node's center at `{x, y}`, in points or, with `unit: "fraction"`, as 0...1
+   * of the stack (SwiftUI's `.position`); an axis left out stays centered. A placed child does not size
+   * the stack: an hour grid sizes it and the events and now line sit on it. */
+  position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>) { return this.set("position", v) }
   cursor(v: "pointer" | "default") { return this.set("cursor", v) }
   help(v: Bindable<string>) { return this.set("help", v) }
   // Motion: the host animates these (the app never runs a timer for them). Reduce Motion and
@@ -186,7 +201,28 @@ export const ZStack = container("ZStack")
 export const LazyVStack = container("LazyVStack")
 export const Group = container("Group")
 
-export function Text(text: Bindable<string | number | null | undefined>): ViewNode {
+export type DateTextStyle = "time" | "timer" | "relative" | "date" | "offset"
+
+/** A Text the host formats and ticks itself, like SwiftUI's `Text(date, style:)`: no render, no
+ * timer and no scene batch per second. `date` is Unix ms. `time` "9:41 AM", `date` "November 16,
+ * 2026", `timer` "4:05" (counts down to a future date, up from a past one), `relative` "2 hr, 23
+ * min", `offset` "+2 hours". The page's locale and time zone; `timeZone` (an IANA name) overrides
+ * the zone (a world clock). */
+export interface DateText {
+  date: Bindable<number>
+  style?: Bindable<DateTextStyle>
+  timeZone?: Bindable<string>
+}
+
+export function Text(text: Bindable<string | number | null | undefined> | DateText): ViewNode {
+  if (text !== null && typeof text === "object") {
+    const node = new ViewNode("Text")
+    node.props.text = ""
+    node.props.date = text.date
+    node.props.dateStyle = text.style ?? "time"
+    if (text.timeZone !== undefined) node.props.timeZone = text.timeZone
+    return node
+  }
   const node = new ViewNode("Text")
   node.props.text = typeof text === "function" ? () => String((text as () => unknown)() ?? "") : String(text ?? "")
   return node
@@ -227,6 +263,8 @@ export const Divider = () => new ViewNode("Divider")
 export const Circle = (props: Record<string, unknown> = {}) => new ViewNode("Circle").withProps(props)
 export const Capsule = (props: Record<string, unknown> = {}) => new ViewNode("Capsule").withProps(props)
 export const Rectangle = (props: Record<string, unknown> = {}) => new ViewNode("Rectangle").withProps(props)
+/** A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink by default). */
+export const Line = (props: Record<string, unknown> = {}) => new ViewNode("Line").withProps(props)
 export const RoundedRectangle = (props: Record<string, unknown> = {}) => new ViewNode("RoundedRectangle").withProps(props)
 
 export function ProgressView(value?: Bindable<number | null>): ViewNode {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
 import { Spinner } from "../conversation/icons";
@@ -26,7 +26,8 @@ const STATUS: Record<HarnessStatus, StringKey> = {
 /// output line), a command that failed (`reason` its last line), a command that finished (the row
 /// says so if acpmux still cannot run the harness), or a sign-in in a terminal tab the page waits for.
 type Progress =
-  | { kind: "installing"; line?: string }
+  /// `line`: the command's last output line, or `plain` words for it (the network wait, the second run).
+  | { kind: "installing"; line?: string; plain?: boolean }
   /// `retrySignIn`: a rejected sign-in terminal, retried with its saved `login`; `retryLaunch`: a
   /// rejected Start Chat, retried with the row's action; `retryInstall`: a failed install or update
   /// command, which Retry runs again (first-run finding 6), its row text `shown` (plain words) and
@@ -89,27 +90,23 @@ export function HarnessesScreen({
   const [progress, setProgress] = useState<Record<string, Progress | undefined>>({});
   const live = useRef(true);
   const launching = useRef(new Set<string>());
-  /// A row's harness → the harness it needs (Chief → Claude Code), for checks made outside render.
-  const needsOf = useRef<Record<string, string>>({});
-  /// Has acpmux look again for every row an install left unrunnable (set each render).
-  const lookAgain = useRef<() => void>(() => {});
   useEffect(() => {
     live.current = true;
     return () => {
       live.current = false;
     };
   }, []);
-  const mark = (harness: string, next: Progress | undefined) => {
+  const mark = useCallback((harness: string, next: Progress | undefined) => {
     if (live.current) setProgress((current) => ({ ...current, [harness]: next }));
-  };
-  const remember = (harness: string, reply: unknown) => {
+  }, []);
+  const remember = useCallback((harness: string, reply: unknown) => {
     const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? {
       id: harness,
       auth: "unknown" as const,
     };
     if (live.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
-  };
+  }, []);
   useEffect(() => {
     // A failed terminal launch can race with a health refresh that reports the harness ready.
     // Reconcile that completed state so the stale failure cannot keep the row stuck on Sign In.
@@ -152,15 +149,11 @@ export function HarnessesScreen({
       live = false;
     };
   }, [callNative, installed, checks]);
-  useEffect(() => {
-    // After a Sign In ran in a terminal tab, coming back checks again.
-    const recheck = () => {
-      setChecks((count) => count + 1);
-      lookAgain.current();
-    };
-    window.addEventListener("focus", recheck);
-    return () => window.removeEventListener("focus", recheck);
-  }, []);
+  const rows = useMemo(() => harnessRows(catalog, acpmux, health, checking), [acpmux, catalog, checking, health]);
+  const needsOf = useMemo(
+    () => Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : []))),
+    [rows],
+  );
   const waiting = Object.keys(progress)
     .filter((harness) => progress[harness]?.kind === "waiting")
     .join("\n");
@@ -168,7 +161,7 @@ export function HarnessesScreen({
     // A sign-in started here: checked until it lands (the row turns ready) or the wait ends.
     if (!waiting) return;
     const ids = waiting.split("\n");
-    const checked = (id: string) => needsOf.current[id] ?? id;
+    const checked = (id: string) => needsOf[id] ?? id;
     const ends = Date.now() + SIGN_IN_WAIT_MS;
     let busy = false;
     const timer = setInterval(() => {
@@ -194,30 +187,36 @@ export function HarnessesScreen({
       });
     }, signInPollMs);
     return () => clearInterval(timer);
-  }, [callNative, waiting, signInPollMs]);
+  }, [callNative, mark, needsOf, remember, waiting, signInPollMs]);
   useEscapeCloses(true, onClose);
-  const rows = harnessRows(catalog, acpmux, health, checking);
   /// The harness a row's checks ask about: the one it needs, else its own.
-  const target = (row: HarnessRow) => row.needs?.harness ?? row.harness;
+  const target = useCallback((row: HarnessRow) => row.needs?.harness ?? row.harness, []);
   /// Rows whose install finished while acpmux still cannot run the harness: coming back to the page
   /// (from a terminal tab, Finder or System Settings) has acpmux look for them again.
-  const stuckRows = useRef<HarnessRow[]>([]);
-  const stuckNow = rows.filter(
-    (row) => progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
+  const stuckRows = useMemo(
+    () =>
+      rows.filter(
+        (row) =>
+          progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
+      ),
+    [progress, rows],
   );
   const inFolder = cwd ? { cwd } : {};
   const openDocs = (row: HarnessRow) =>
     void callNative("tab.open", { kind: "browser", text: row.docsUrl, keep: true }).catch(() => undefined);
   /// acpmux looks for harnesses again (PATH and profiles, `rescan`), and the page reads its catalog.
-  const rescan = async (row: HarnessRow) => {
-    const id = target(row);
-    try {
-      remember(id, await callNative("harness.health", { id, refresh: true, rescan: true }));
-      await refreshCatalog?.();
-    } catch {
-      // The row shows what the catalog says.
-    }
-  };
+  const rescan = useCallback(
+    async (row: HarnessRow) => {
+      const id = target(row);
+      try {
+        remember(id, await callNative("harness.health", { id, refresh: true, rescan: true }));
+        await refreshCatalog?.();
+      } catch {
+        // The row shows what the catalog says.
+      }
+    },
+    [callNative, refreshCatalog, remember, target],
+  );
   /// Runs an install or update command in place: the row shows its last output line, and when it
   /// ends well acpmux looks for the harness again; otherwise the row says why.
   const runInPlace = (row: HarnessRow, command: string) => {
@@ -229,7 +228,10 @@ export function HarnessesScreen({
         const ended = await runHostCommand(callNative, command, {
           ...inFolder,
           alive: () => live.current,
-          onLine: (line) => mark(row.harness, { kind: "installing", line: installProgress(line, t) }),
+          onLine: (line) => {
+            const shown = installProgress(line, t);
+            mark(row.harness, { kind: "installing", line: shown, plain: shown !== line });
+          },
         });
         if (ended === "stopped" || !live.current) return;
         await rescan(row);
@@ -256,21 +258,22 @@ export function HarnessesScreen({
       }
     })();
   };
-  const checkAgain = (row: HarnessRow) => {
-    mark(row.harness, { kind: "installing" });
-    void rescan(row).then(() => mark(row.harness, { kind: "done" }));
-  };
-  const lookAgainNow = () => {
-    for (const row of stuckRows.current) checkAgain(row);
-  };
-  // Refs are written after commit, never during render: the timers and listeners above read the
-  // newest rows, needs and look-again action from them.
-  const needsNow = Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : [])));
+  const checkAgain = useCallback(
+    (row: HarnessRow) => {
+      mark(row.harness, { kind: "installing" });
+      void rescan(row).then(() => mark(row.harness, { kind: "done" }));
+    },
+    [mark, rescan],
+  );
   useEffect(() => {
-    needsOf.current = needsNow;
-    stuckRows.current = stuckNow;
-    lookAgain.current = lookAgainNow;
-  });
+    // After a Sign In ran in a terminal tab, coming back checks again.
+    const recheck = () => {
+      setChecks((count) => count + 1);
+      for (const row of stuckRows) checkAgain(row);
+    };
+    window.addEventListener("focus", recheck);
+    return () => window.removeEventListener("focus", recheck);
+  }, [checkAgain, stuckRows]);
   /// The one fix a row acpmux cannot run offers: its update when acpmux has one that needs no
   /// admin rights (through the channel it was installed with), its setup page, or another look.
   const fix = (row: HarnessRow): { label: string; run(): void } => {
@@ -413,7 +416,22 @@ export function HarnessesScreen({
           const secondFix = doing?.kind === "failed" && doing.retryInstall ? otherFix : undefined;
           const label =
             doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
+          const spinning =
+            doing?.kind === "installing" ||
+            doing?.kind === "waiting" ||
+            doing?.kind === "launching" ||
+            row.status === "checking";
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
+          // Words for the person (a failure, the network wait, what a harness needs) wrap to read in
+          // full; an installer's own output line and acpmux's detail stay one line, so a running
+          // install never moves the rows below it.
+          const oneLine =
+            doing?.kind === "installing"
+              ? doing.line !== undefined && !doing.plain
+              : doing?.kind !== "failed" &&
+                !(doing?.kind === "waiting" && row.status === "signIn") &&
+                !(row.needs && (row.status === "notInstalled" || row.status === "signIn")) &&
+                row.detail !== undefined;
           const status =
             doing?.kind === "installing"
               ? (doing.line ?? t("harnesses.installing"))
@@ -442,29 +460,32 @@ export function HarnessesScreen({
                 <span className="acpmux-harness-name">{row.name}</span>
                 <span
                   className="acpmux-harness-detail"
+                  data-harness-detail={oneLine ? "line" : "words"}
                   {...(doing?.kind === "failed" ? { title: doing.reason } : row.detail ? { title: row.detail } : {})}
                 >
                   {status}
                 </span>
               </span>
-              {(doing?.kind === "installing" ||
-                doing?.kind === "waiting" ||
-                doing?.kind === "launching" ||
-                row.status === "checking") && <Spinner size={12} className="acpmux-harness-spinner" loading />}
-              {label && (
-                <button
-                  type="button"
-                  className={row.status === "ready" ? "acpmux-harness-action" : "acpmux-harness-action is-primary"}
-                  disabled={doing?.kind === "launching"}
-                  onClick={() => (failedFix ? failedFix.run() : act(row))}
-                >
-                  {label}
-                </button>
-              )}
-              {secondFix && (
-                <button type="button" className="acpmux-harness-action" onClick={secondFix.run}>
-                  {secondFix.label}
-                </button>
+              {/* One group: when the words need the row's width, the actions move under them together. */}
+              {(spinning || label || secondFix) && (
+                <span className="acpmux-harness-actions">
+                  {spinning && <Spinner size={12} className="acpmux-harness-spinner" loading />}
+                  {label && (
+                    <button
+                      type="button"
+                      className={row.status === "ready" ? "acpmux-harness-action" : "acpmux-harness-action is-primary"}
+                      disabled={doing?.kind === "launching"}
+                      onClick={() => (failedFix ? failedFix.run() : act(row))}
+                    >
+                      {label}
+                    </button>
+                  )}
+                  {secondFix && (
+                    <button type="button" className="acpmux-harness-action" onClick={secondFix.run}>
+                      {secondFix.label}
+                    </button>
+                  )}
+                </span>
               )}
             </li>
           );

@@ -5,9 +5,10 @@
 //! the file as written, and status still reports it.
 //!
 //! Seen on a real nightly (ask-180d77061a): the person's file held
-//! `"workspaceColors.indicatorStyle": "solidFill"` (this build takes dot,
-//! leftRail or fill), and every `cmux customize use` of any profile was
-//! refused until that one value was changed by hand.
+//! `"workspaceColors.indicatorStyle": "solidFill"`, and every
+//! `cmux customize use` was refused until that value was changed by hand.
+//! That legacy spelling is now accepted. These tests use an unsupported
+//! sentinel to keep covering preservation of other stale values.
 
 use std::fs;
 use std::path::PathBuf;
@@ -45,9 +46,9 @@ impl Home {
     }
 }
 
-/// The person's file as it was on the nightly: one value this build does
-/// not take, beside ones it does. Nested, as the settings reader reads it.
-const STALE: &str = "{\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" },\n  \"sidebar\": { \"density\": \"expanded\" }\n}\n";
+/// One deliberately unsupported value beside accepted settings.
+/// Nested, as the settings reader reads it.
+const STALE: &str = "{\n  \"workspaceColors\": { \"indicatorStyle\": \"__unsupported_indicator__\" },\n  \"sidebar\": { \"density\": \"expanded\" }\n}\n";
 
 fn profile(path: &str) -> Profile {
     let home = Home::new("{}\n");
@@ -69,7 +70,10 @@ fn stale_is_reported(customize: &Customize) {
         lines.iter().any(|line| line.contains("workspaceColors.indicatorStyle")),
         "status no longer reports the person's stale value: {lines:?}"
     );
-    assert!(!lines.join("\n").contains("solidFill"), "a problem quoted the value: {lines:?}");
+    assert!(
+        !lines.join("\n").contains("__unsupported_indicator__"),
+        "a problem quoted the value: {lines:?}"
+    );
 }
 
 #[test]
@@ -80,11 +84,14 @@ fn a_stale_value_in_the_persons_settings_never_blocks_a_profile_preview_or_apply
     customize.preview_profile(&profile, "cli", 1).expect("the preview was refused");
     let live = home.settings();
     assert!(live.contains("\"compact\""), "{live}");
-    assert!(live.contains("\"indicatorStyle\": \"solidFill\""), "rewritten: {live}");
+    assert!(
+        live.contains("\"indicatorStyle\": \"__unsupported_indicator__\""),
+        "rewritten: {live}"
+    );
     stale_is_reported(&customize);
     let applied = customize.apply(None, "cli", 2).expect("the apply was refused");
     assert!(applied.recorded);
-    assert!(home.settings().contains("\"solidFill\""));
+    assert!(home.settings().contains("\"__unsupported_indicator__\""));
     stale_is_reported(&customize);
 }
 
@@ -95,7 +102,7 @@ fn a_stale_value_in_the_persons_settings_never_blocks_a_try_on() {
     let profile = profile("night.profile.json");
     customize.try_on(Some(&profile), 60_000, "cli", 1).expect("the try-on was refused");
     assert!(home.settings().contains("\"compact\""));
-    assert!(home.settings().contains("\"solidFill\""));
+    assert!(home.settings().contains("\"__unsupported_indicator__\""));
 }
 
 #[test]
@@ -115,7 +122,7 @@ fn a_stale_value_in_the_persons_settings_never_blocks_a_library_change() {
     customize.library_set_on(&name, false, "cli", 3).expect("turning it off was refused");
     let live = home.settings();
     assert!(!live.contains("\"compact\""), "{live}");
-    assert!(live.contains("\"solidFill\""), "{live}");
+    assert!(live.contains("\"__unsupported_indicator__\""), "{live}");
 }
 
 #[test]
@@ -125,7 +132,7 @@ fn a_profile_that_brings_a_value_the_setting_does_not_take_is_still_refused() {
     let home = Home::new(STALE);
     let customize = home.customize();
     customize.begin("break it", "cli", 1).unwrap();
-    home.write("cmux-next.json", &STALE.replace("solidFill", "glow"));
+    home.write("cmux-next.json", &STALE.replace("__unsupported_indicator__", "glow"));
     let Err(Error::Invalid(problems)) = customize.apply(None, "cli", 2) else {
         panic!("a new refused value applied")
     };
@@ -136,7 +143,7 @@ fn a_profile_that_brings_a_value_the_setting_does_not_take_is_still_refused() {
 #[test]
 fn a_stale_value_in_the_persons_settings_never_blocks_a_save_and_stays_out_of_the_profile() {
     let home = Home::new(
-        "{\n  \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" },\n  \"appearance\": { \"density\": \"compact\" }\n}\n",
+        "{\n  \"workspaceColors\": { \"indicatorStyle\": \"__unsupported_indicator__\" },\n  \"appearance\": { \"density\": \"compact\" }\n}\n",
     );
     let customize = home.customize();
     let saved = customize.save_profile("mine", "my setup", 1).expect("the save was refused");
@@ -146,7 +153,7 @@ fn a_stale_value_in_the_persons_settings_never_blocks_a_save_and_stays_out_of_th
         saved.left_out
     );
     let text = fs::read_to_string(&saved.path).unwrap();
-    assert!(!text.contains("solidFill"), "{text}");
+    assert!(!text.contains("__unsupported_indicator__"), "{text}");
     assert!(text.contains("compact"), "{text}");
     // The saved profile is one someone else can use.
     let theirs = Home::new("{}\n");
@@ -171,4 +178,43 @@ fn a_refused_value_written_during_an_open_preview_stops_a_try_on_before_it_write
     assert!(problems[0].line().contains("workspaceColors.indicatorStyle"), "{problems:?}");
     assert!(!home.config("themes/night.json").exists());
     assert!(!home.settings().contains("\"compact\""));
+}
+
+/// A stylesheet the person wrote that loads something by address: the pane
+/// refuses it (cmux.stylesheetGuard/1), but it is theirs like a stale value.
+const FETCHING_SHEET: &str = "@import 'https://x.example/a.css';\n";
+
+#[test]
+fn a_stylesheet_of_the_persons_that_fetches_never_blocks_a_profile_preview_apply_or_try_on() {
+    let home = Home::new("{}\n");
+    home.write("agent-pane/theme.css", FETCHING_SHEET);
+    let customize = home.customize();
+    let profile = profile("night.profile.json");
+    customize.preview_profile(&profile, "cli", 1).expect("the preview was refused");
+    customize.apply(None, "cli", 2).expect("the apply was refused");
+    let problems = customize.status().unwrap().problems;
+    assert!(
+        problems.iter().any(|problem| problem.line().contains("it has an @import")),
+        "status no longer reports the stylesheet: {problems:?}"
+    );
+    assert_eq!(fs::read_to_string(home.config("agent-pane/theme.css")).unwrap(), FETCHING_SHEET);
+    let fresh = Home::new("{}\n");
+    fresh.write("agent-pane/theme.css", FETCHING_SHEET);
+    fresh.customize().try_on(Some(&profile), 60_000, "cli", 1).expect("the try-on was refused");
+    assert_eq!(fs::read_to_string(fresh.config("agent-pane/theme.css")).unwrap(), FETCHING_SHEET);
+}
+
+#[test]
+fn a_change_that_writes_a_stylesheet_that_fetches_is_refused() {
+    let home = Home::new("{}\n");
+    home.write("agent-pane/theme.css", ":root { --cv-user-bubble-radius: 8px }\n");
+    let customize = home.customize();
+    customize.apply(None, "cli", 1).expect("a plain sheet was refused");
+    customize.begin("fetch a font", "cli", 2).unwrap();
+    home.write("agent-pane/theme.css", ".a { background: url(https://x.example/p.png) }\n");
+    let Err(Error::Invalid(problems)) = customize.apply(None, "cli", 3) else {
+        panic!("a stylesheet that fetches applied")
+    };
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(problems[0].line().contains("url() that is not a data: URL"), "{problems:?}");
 }

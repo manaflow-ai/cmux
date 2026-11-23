@@ -7,12 +7,12 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
 import {
   SceneAppeared,
@@ -21,6 +21,7 @@ import {
   useSceneChildren,
   useSceneEntering,
 } from "./sceneMotion";
+import { formatSceneDate, sceneDateStyle, useSceneNow, type SceneDateStyle } from "./sceneDate";
 import {
   sceneColor,
   sceneGradient,
@@ -30,6 +31,8 @@ import {
   sceneText,
   sceneTrim,
   textStyle,
+  sceneGlass,
+  type SceneStyle,
 } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import "./scene.css";
@@ -267,12 +270,12 @@ function SceneSlider({ node, dispatch, disabled }: { node: SceneNode; dispatch: 
   );
 }
 
-const SHAPES = ["Circle", "Capsule", "Rectangle", "RoundedRectangle"];
+const SHAPES = new Set(["Circle", "Capsule", "Rectangle", "RoundedRectangle"]);
 
 /** A stroked shape with `trim` draws its outline as SVG (a CSS border cannot draw part of itself).
  * Every other shape keeps its CSS box and border. */
 const trimmedOutline = (node: SceneNode): boolean =>
-  SHAPES.includes(node.type) && sceneColor(node.props.stroke) !== undefined && sceneTrim(node.props.trim) !== undefined;
+  SHAPES.has(node.type) && sceneColor(node.props.stroke) !== undefined && sceneTrim(node.props.trim) !== undefined;
 
 /** A shape's box: `size` makes a square of that side; else its `frame` width and height, each 16
  * when neither names it. */
@@ -334,6 +337,22 @@ function SceneShapeOutline({ node }: { node: SceneNode }) {
   );
 }
 
+/** A Text with `date` and `dateStyle`: formatted here and ticked by the shared clock (sceneDate.ts),
+ * so the app sends nothing while it counts. */
+function SceneDateText({ props, style }: { props: SceneNode["props"]; style: SceneDateStyle }) {
+  const now = useSceneNow(true);
+  const text = formatSceneDate(style, props.date as number, now, { timeZone: props.timeZone });
+  return <SceneTextContent text={text} transition={props.contentTransition} />;
+}
+
+/** HStack `alignment`: SwiftUI's vertical alignments (center is the stylesheet's default). */
+const HSTACK_ALIGN: Record<string, string> = {
+  top: "flex-start",
+  bottom: "flex-end",
+  firstTextBaseline: "first baseline",
+  lastTextBaseline: "last baseline",
+};
+
 function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch, disabled: boolean): ReactNode {
   const props = node.props;
   switch (node.type) {
@@ -345,12 +364,18 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "ForEach":
     case "Reorderable":
       return children;
-    case "Text":
+    case "Text": {
+      const dateStyle = sceneDateStyle(props);
       return (
-        <span className="cmux-app-scene-text" style={textStyle(props)}>
-          <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+        <span className="cmux-app-scene-text" style={textStyle(props)} data-date-style={dateStyle}>
+          {dateStyle ? (
+            <SceneDateText props={props} style={dateStyle} />
+          ) : (
+            <SceneTextContent text={sceneText(props.text)} transition={props.contentTransition} />
+          )}
         </span>
       );
+    }
     case "Icon":
       return (
         <SceneSymbol
@@ -408,6 +433,8 @@ function contentOf(node: SceneNode, children: ReactNode, dispatch: SceneDispatch
     case "Rectangle":
     case "RoundedRectangle":
       return trimmedOutline(node) ? <SceneShapeOutline node={node} /> : null;
+    case "Line":
+      return null;
     case "Image":
       return <SceneImage source={props.src} />;
     case "Toggle":
@@ -444,12 +471,23 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true || leaving;
-  const children = shown.map((child) => (
+  const childView = (child: (typeof shown)[number]) => (
     <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
-  ));
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
   const content = contentOf(node, children, dispatch, disabled);
   if (content === undefined) return null;
-  const style: CSSProperties = sceneStyle(props);
+  const style: SceneStyle = sceneStyle(props);
   if (node.type === "Button" && props.destructive === true) style.color = sceneColor("danger");
   if (node.type === "Panel") style.gap = sceneNumber(props.spacing) ?? "var(--cmux-app-scene-panel-spacing)";
   if (node.type === "VStack" || node.type === "LazyVStack" || node.type === "Reorderable") {
@@ -457,18 +495,24 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       props.alignment === "center" ? "center" : props.alignment === "trailing" ? "flex-end" : "stretch";
   }
   if (node.type === "HStack") {
-    // SwiftUI's vertical alignment: top, center (the default) or bottom.
-    style.alignItems = props.alignment === "top" ? "flex-start" : props.alignment === "bottom" ? "flex-end" : undefined;
+    // SwiftUI's vertical alignment: top, center (the default), bottom, or the first or last
+    // text baseline (AM/PM beside a big time).
+    style.alignItems = HSTACK_ALIGN[sceneText(props.alignment)];
   }
-  if (SHAPES.includes(node.type)) {
+  const frame = sceneRecord(props.frame);
+  if (node.type === "Line") {
+    // A stroke along its width: `strokeWidth` thick (1 by default) in `stroke` (the separator ink).
+    if (frame.width === undefined && frame.minWidth === undefined) style.width = "100%";
+    if (frame.height === undefined) style.height = Math.max(0, sceneNumber(props.strokeWidth) ?? 1);
+    style.backgroundColor = sceneColor(props.stroke) ?? sceneColor(props.fill) ?? sceneColor("separator");
+  }
+  if (SHAPES.has(node.type)) {
     // `size` sets both sides; a `frame` width or height wins on its own side (a bar, a capsule).
-    const frame = props.frame && typeof props.frame === "object" ? (props.frame as Record<string, unknown>) : {};
     const side = Math.max(0, sceneNumber(props.size) ?? 16);
     if (frame.width === undefined && frame.maxWidth === undefined && frame.minWidth === undefined) style.width = side;
     if (frame.height === undefined && frame.maxHeight === undefined && frame.minHeight === undefined)
       style.height = side;
     if (frame.maxWidth === "infinity" && frame.width === undefined) style.width = "100%";
-    if (frame.maxHeight === "infinity" && frame.height === undefined) style.height = "100%";
     style.backgroundImage = sceneGradient(props.fill);
     style.backgroundColor = style.backgroundImage
       ? undefined
@@ -491,11 +535,19 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-disabled": disabled ? "" : undefined,
     "data-hover": sceneColor(props.hoverBackground) ? "" : undefined,
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
     "data-transition": typeof props.transition === "string" ? props.transition : undefined,
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
     "data-animation": props.animation === "smooth" || props.animation === "snappy" ? props.animation : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    // `frame({maxHeight: "infinity"})`: the node takes its stack's (or the tile's) whole height (scene.css).
+    "data-fill-height": frame.maxHeight === "infinity" && frame.height === undefined ? "" : undefined,
+    // `frame({maxWidth: "infinity"})`: the node takes the width its row has free (SwiftUI's flexible frame).
+    "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
+    // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
+    "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     style,
     title: sceneText(props.help) || undefined,
   };

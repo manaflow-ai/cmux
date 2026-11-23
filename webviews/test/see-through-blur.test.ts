@@ -325,7 +325,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         page.evaluate(() =>
           getComputedStyle(document.getElementById("popover")!).getPropertyValue("--glass-underlay").trim(),
         );
-      expect(await underlay()).toBe("70%");
+      expect(await underlay()).toBe("40%");
       await attach(page);
       expect(await underlay()).toBe("0%");
       await page.close();
@@ -420,7 +420,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         (document.querySelector(".dock") as HTMLElement).style.height = "60px";
       });
       await settle(page);
-      expect(await underlay()).toBe("70%");
+      expect(await underlay()).toBe("40%");
       await page.close();
     });
   });

@@ -1,3 +1,5 @@
+import { isTemporaryFolder } from "../sessionList";
+
 // The project of the chat the person last picked and started (Leo 2026-10-21: "we dont wanna have
 // stuff constantly get clobbered by agents making projects and then the new workspace has to keep
 // redoing the default... your recently PICKED AND STARTED CHAT... makes more sense"). A New Tab with
@@ -33,7 +35,8 @@ export function rememberStartedProject(
   folder: string | undefined,
   post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
 ): void {
-  if (!isStartableProject(folder)) return;
+  // A temporary folder (a scratch chat in /tmp) is no project to come back to (cmux#49610).
+  if (!isStartableProject(folder) || isTemporaryFolder(folder)) return;
   const started = folder.replace(/\/+$/, "");
   try {
     storage()?.setItem(KEY, started);
@@ -47,8 +50,21 @@ export function rememberStartedProject(
 export function rememberedStartedProject(): string | undefined {
   try {
     const value = storage()?.getItem(KEY);
-    return isStartableProject(value ?? undefined) ? (value as string) : undefined;
+    return isStartableProject(value ?? undefined) && !isTemporaryFolder(value ?? undefined)
+      ? (value as string)
+      : undefined;
   } catch {
     return undefined;
   }
+}
+
+/// The started projects a New Tab page may start on, newest first: this run's copy, then the app's
+/// (`startedProject` in the page's context, kept across launches). Both, not the first alone: a run's
+/// copy the host no longer lists (a removed worktree) gives way to the app's, never to a blank folder
+/// chip (cmux#51272). Each trimmed of a trailing `/`, once.
+export function startedProjectChoices(fromApp: string | undefined): string[] {
+  const choices = [rememberedStartedProject(), fromApp]
+    .filter((folder): folder is string => isStartableProject(folder) && !isTemporaryFolder(folder))
+    .map((folder) => folder.replace(/(.)\/+$/, "$1"));
+  return [...new Set(choices)];
 }
