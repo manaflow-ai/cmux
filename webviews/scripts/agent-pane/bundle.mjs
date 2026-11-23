@@ -73,7 +73,6 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
-
 const result = await build({
   entryPoints: [entry],
   bundle: true,
