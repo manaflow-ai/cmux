@@ -1795,8 +1795,10 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):
             runs_on = jobs[name]["runs-on"]
             self.assertIn("github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64'", runs_on, name)
-            # Then its size's pool: linux_2_ephemeral is ephemeral_only, all Blacksmith (the secret rule above).
-            self.assertTrue(runs_on.rstrip("} ").endswith("fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral"), name)
+            # Then its size's pool: linux_2_ephemeral is ephemeral_only, all Blacksmith (the secret rule above),
+            # then linux_4 (also ephemeral_only) while the writer has not yet published linux_2_ephemeral.
+            self.assertTrue(runs_on.rstrip("} ").endswith(
+                "fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4"), name)
 
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
         runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}
