@@ -139,6 +139,8 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |
 | `pane-motion-films.py` | Python driver for pane-motion-films.sh. | - | 2026-11-15 | active |
+| `window-resize-feel.sh` | Films of a window corner drag (and a pane divider drag) over chat transcripts, one fresh launch per CEF resize-sync arm (`--arms=NAME:LIVE_MS:DRAG_MS:FRAME_SHARE,...`), with frame intervals and CEF fence/commit deltas; for a person or a frame analysis (judges nothing). | Leo 2026-11-22, #50940 | 2026-11-22 | active |
+| `window-resize-feel.py` | Python driver for window-resize-feel.sh. | Leo 2026-11-22, #50940 | 2026-11-22 | active |
 | `pane-overflow-fade.sh` | Native presentation-layer measurement of the pane overflow fade. | - | 2026-10-28 | active |
 | `pane-overflow-bundle-setup.py` | Keeps historical bundle installs from deleting tracked placeholder docs. | - | 2026-10-26 | active |
 | `fullscreen-transition.sh` | Full screen enter and leave: lag, layout passes, resizes. | fullscreen-lag | 2026-10-27 | active |
