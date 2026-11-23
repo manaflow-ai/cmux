@@ -10,6 +10,7 @@ mod input_records;
 mod kitty_file_media;
 mod launch_codec;
 mod output_path;
+mod owner_backpressure;
 mod parser_failure;
 mod parser_order;
 mod parser_queue_memory;
