@@ -119,7 +119,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_above_the_size_limit() {
     fs::write(&ports_file, &ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place, recipe);
+    let reply = start(place, recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&root).map(|status| status.state), Some("failed".to_string()));
@@ -279,7 +279,7 @@ fn own_tree_a_setup_log_is_not_written_through_a_link() {
 fn own_tree_a_teardown_log_is_not_written_through_a_link() {
     let top = folder_with_a_link_in_its_git_folder_at(LOG_FILE);
 
-    let reply = teardown(&place_in(&top), Some("touch ran"));
+    let reply = teardown(&place_in(&top), Some("touch ran"), None);
 
     assert!(!made_elsewhere(&top), "the open followed the link");
     assert_eq!(reply, None, "a teardown with no log does not run");
@@ -419,7 +419,7 @@ fn own_tree_a_setup_log_with_a_second_name_is_made_new() {
 fn own_tree_a_teardown_log_with_a_second_name_is_made_new() {
     let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
 
-    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+    let reply = teardown(&place_in(&top), Some("touch ran"), None).unwrap_or_default();
 
     let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
     assert_eq!(
@@ -444,7 +444,7 @@ fn own_tree_a_log_with_one_name_keeps_its_lines() {
     let log_path = top.join("git-folder").join(LOG_FILE);
     fs::write(&log_path, "a line of the setup\n").unwrap();
 
-    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+    let reply = teardown(&place_in(&top), Some("touch ran"), None).unwrap_or_default();
 
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     assert!(log.starts_with("a line of the setup\n$ touch ran\n"), "the log: {log}");
@@ -621,7 +621,7 @@ fn own_tree_the_log_of_a_setup_that_does_not_start_is_made_new_with_a_second_nam
     fs::write(top.join("git-folder/cmux-worktree-ports.json"), ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
     let (text, started) = (text_elsewhere(&top), top.join("root/started").exists());
@@ -718,7 +718,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_a_list() {
     fs::write(&ports_file, ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
@@ -759,7 +759,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_written() {
     fs::create_dir(git_dir.join("cmux-worktree-ports.json.partial")).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
@@ -767,6 +767,81 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_written() {
     assert!(log.contains("is not written"), "{log}");
     assert!(!top.join("root/started").exists(), "the setup ran");
     fs::remove_dir_all(top).unwrap();
+}
+
+/// A flush, in the place of the flush of a file that is written, that gives an error.
+#[cfg(unix)]
+fn no_flush(_: &File) -> std::io::Result<()> {
+    Err(std::io::Error::other("no flush"))
+}
+
+/// A file that is written is flushed before it takes its name: at the flush, the file that is
+/// flushed has the length of the new bytes, which is not the length of the bytes from before,
+/// and the name has the bytes from before. So a machine that stops after the rename does not
+/// have a file that is cut short at the name.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_written_file_is_flushed_before_it_takes_its_name() {
+    let top = folder_with_a_git_folder();
+    let named = top.join("git-folder/list.json");
+    fs::write(&named, "the old bytes").unwrap();
+    let folder = OwnFolder::open(&top.join("git-folder"));
+    let flushes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+
+    let (seen, name) = (flushes.clone(), named.clone());
+    let written = own_folder::flushes::in_place_of(
+        move |partial: &File| {
+            let length = partial.metadata().map(|partial| partial.len()).ok();
+            seen.borrow_mut().push((length, fs::read_to_string(&name).ok()));
+            Ok(())
+        },
+        || folder.write("list.json", b"each new byte of the list"),
+    );
+    let after = fs::read_to_string(&named).ok();
+
+    fs::remove_dir_all(top).unwrap();
+    assert!(written.is_ok(), "{written:?}");
+    assert_eq!(*flushes.borrow(), [(Some(25), Some("the old bytes".to_string()))]);
+    assert_eq!(after.as_deref(), Some("each new byte of the list"));
+}
+
+/// A file that is not flushed does not take its name: the write gives the error of the flush,
+/// and the name keeps the bytes from before.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_file_that_is_not_flushed_does_not_take_its_name() {
+    let top = folder_with_a_git_folder();
+    let named = top.join("git-folder/list.json");
+    fs::write(&named, "the old bytes").unwrap();
+    let folder = OwnFolder::open(&top.join("git-folder"));
+
+    let written =
+        own_folder::flushes::in_place_of(no_flush, || folder.write("list.json", b"each new byte"));
+    let after = fs::read_to_string(&named).ok();
+
+    fs::remove_dir_all(top).unwrap();
+    assert_eq!(written.map_err(|error| error.to_string()), Err("no flush".to_string()));
+    assert_eq!(after.as_deref(), Some("the old bytes"));
+}
+
+/// A list of ports that is not flushed is as a list that is not written: the allocation gives
+/// no block, and no ports file is made.
+#[cfg(unix)]
+#[test]
+fn own_tree_a_ports_list_that_is_not_flushed_gives_no_block() {
+    let top = folder_with_a_git_folder();
+    let (common, root) = (top.join("git-folder"), top.join("root"));
+
+    let allocated = own_folder::flushes::in_place_of(no_flush, || {
+        ports::allocate_within(&common, &root, Duration::ZERO)
+    });
+    let listed = ports::lookup(&common, &root);
+    let made = common.join("cmux-worktree-ports.json").exists();
+
+    fs::remove_dir_all(top).unwrap();
+    let not_written = matches!(allocated, Err(super::ports::NoList::NotWritten));
+    assert!(not_written, "a block that no list has: {allocated:?}");
+    assert_eq!((listed, made), (None, false));
 }
 
 /// The read of a worktree's port opens no port lock: no lock file is there after it.
@@ -1070,7 +1145,7 @@ fn own_tree_a_setup_keeps_the_ports_file_of_the_folder_that_it_opened() {
     std::os::unix::fs::symlink(top.join("elsewhere"), top.join("repository")).unwrap();
 
     // A recipe with no file list and no command: the start gives the work tree its ports only.
-    let reply = start(place, Recipe::default());
+    let reply = start(place, Recipe::default(), None);
 
     let elsewhere = names_in(&top.join("elsewhere"));
     fs::remove_dir_all(top).unwrap();

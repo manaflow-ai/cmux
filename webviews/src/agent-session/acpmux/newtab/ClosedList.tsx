@@ -38,11 +38,7 @@ export function ClosedList({ items, onReopen }: { items: ClosedItem[]; onReopen(
             disabled={!item.available}
             {...pressToOpen(() => onReopen(item.id))}
           >
-            {item.icon ? (
-              <img className="nt-row-glyph nt-row-favicon" src={item.icon} alt="" draggable={false} />
-            ) : (
-              <RowGlyph kind={item.kind} />
-            )}
+            <RowGlyph kind={item.kind} {...(item.icon ? { icon: item.icon } : {})} />
             <span className="nt-row-title">{item.title}</span>
             {item.detail && <span className="nt-row-detail">{item.detail}</span>}
             <span className="nt-row-action">{nt("reopen")}</span>

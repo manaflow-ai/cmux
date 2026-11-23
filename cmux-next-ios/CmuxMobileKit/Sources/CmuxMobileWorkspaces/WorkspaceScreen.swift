@@ -2,6 +2,7 @@
 import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileModel
 import CmuxMobileScreenSharing
 import SwiftUI
@@ -40,6 +41,8 @@ public struct WorkspaceScreen: View {
     @State private var holder = SourceHolder()
     private let makeSource: @MainActor () -> WorkspaceTabsSource
     @State private var showsGrid: Bool
+    /// The tab overview's columns at this page's width.
+    @State private var overviewColumnCount = 2
     @State private var renameText = ""
     @State private var renameID: String?
     @State private var renamePlaceholder = "Name"
@@ -74,6 +77,14 @@ public struct WorkspaceScreen: View {
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
+            // The overview shows as many columns as the page's width fits (Rust's
+            // `overview_columns`): two on a phone, more on an unfolded screen.
+            .environment(\.tabsKitOverviewColumns, overviewColumnCount)
+            .onGeometryChange(for: Int.self) { proxy in
+                Int(overviewColumns(width: Double(proxy.size.width)))
+            } action: { columns in
+                overviewColumnCount = columns
+            }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
                 if showsGrid, !source.isSelectingTabs {
@@ -110,6 +121,10 @@ public struct WorkspaceScreen: View {
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
+            // The page is one container element that holds its own identifier: on the bare
+            // content the identifier went to every element inside, and the agent tab's
+            // composer field read `workspace.<id>` instead of `chat.composer.field`.
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
@@ -365,7 +380,7 @@ struct WorkspaceGridHeader: View {
                         .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
                         .contentShape(.circle)
                 }
-                .buttonStyle(.cmuxPressFill)
+                .buttonStyle(.cmuxPressGlass)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .accessibilityLabel("Workspaces")
                 Spacer()

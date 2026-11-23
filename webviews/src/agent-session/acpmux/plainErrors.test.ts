@@ -17,7 +17,7 @@ const ROOT = join(import.meta.dir, "..");
 
 /// A caught error's own text.
 const ERR = String.raw`(?:error|err|e|failure|cause|caught)`;
-const RAW = String.raw`(?:errorMessage\(${ERR}\)|errorText\(${ERR}\)|String\(${ERR}\)|${ERR}\s+instanceof\s+Error\s*(?:\?|&&)\s*\(?${ERR}\.message|${ERR}\.message\b)`;
+const RAW = String.raw`(?:errorMessage\(${ERR}\)|startErrorMessage\(${ERR}\)|errorText\(${ERR}\)|String\(${ERR}\)|${ERR}\s+instanceof\s+Error\s*(?:\?|&&)\s*\(?${ERR}\.message|${ERR}\.message\b)`;
 
 /// Where raw text becomes visible.
 const SINKS: [kind: string, pattern: RegExp][] = [
@@ -42,9 +42,9 @@ const SINKS: [kind: string, pattern: RegExp][] = [
 /// with edits above it, so entries are by file and the start of the matched text, not line number.
 const ALLOWED: Record<string, string> = {
   // Details-only.
-  "acpmux/App.tsx|errorMessage(error) || String(error)":
+  "acpmux/pane/paneSnapshot.ts|errorMessage(error) || String(error)":
     "setHostError: hostLine.ts hostLineText puts every text that is not the pane's own behind the line's Details",
-  "acpmux/newtab/NewTabScreen.tsx|setStartError({ harness: args[0], error: errorMessage(error)":
+  "acpmux/newtab/NewTabScreen.tsx|setStartError({ harness: args[0], error: startErrorMessage(error)":
     "StartFailure with a harness: startFailureView says a plain sentence and keeps the text behind ErrorDetails",
 
   // Raw, outside the 2026-11-12 pane audit's rows: named so a new site fails, and left for a

@@ -124,10 +124,10 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const { fill, backdrop } = await look(page);
       expect(backdrop).toContain("blur(24px)");
-      expect(backdrop).toContain("saturate(1.8)");
+      expect(backdrop).toContain("saturate(1.6)");
       // Chromium's underlay (glass.css) is the fill's color layer: under floating glass it hides
-      // crisp text at 70%. A card outside the dock keeps it.
-      expect(fill, "a card outside the dock keeps Chromium's 70% underlay").toBeCloseTo(0.7, 2);
+      // crisp text at the design scale's 40% (design/glass-system.md, rule 6). A card outside the dock keeps it.
+      expect(fill, "a card outside the dock keeps Chromium's 40% underlay").toBeCloseTo(0.4, 2);
       await page.close();
     });
 
@@ -136,7 +136,7 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
       const { fill, backdrop } = await look(page, "docked-composer");
       expect(fill, "no underlay under the docked card").toBe(0);
-      expect(backdrop).toContain("saturate(1.8)");
+      expect(backdrop).toContain("saturate(1.6)");
       const tint = await page.evaluate(
         () => getComputedStyle(document.getElementById("docked-composer")!).backgroundImage,
       );
@@ -147,9 +147,12 @@ await requireBrowserLane("glass-material.test.ts", async () => {
   test("an opaque window keeps the card's tint and blur (the transcript under it, not art)", async () => {
     const page = await open("dark", {});
     const { fill, backdrop } = await look(page);
-    expect(fill).toBeCloseTo(0.7, 2);
+    // The popover level's dark tint (design-scale glass popover darkTint 72: 64 broke the legibility
+    // floor, and 70 left the prompt's code at 4.48:1 over a white page).
+    expect(fill).toBeCloseTo(0.72, 2);
     expect(backdrop).toContain("blur(24px)");
-    expect(backdrop).not.toContain("saturate(1.8)");
+    // One saturation (design/glass-system.md): the opaque window's card frosts at the level's 1.6 too.
+    expect(backdrop).toContain("saturate(1.6)");
     await page.close();
   });
 
@@ -169,6 +172,26 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       expect(layerAlpha(shadow, DEPTH)).toBe(-1);
       await page.close();
     });
+
+  // Liquid Glass off (appearance.liquidGlass; the host sends data-glass="off", CMUX-653): the same
+  // solid card as Reduce Transparency, over art and on an opaque window, floating and docked.
+  for (const colorScheme of ["light", "dark"] as const)
+    for (const seeThrough of [true, false])
+      test(`${colorScheme}, ${seeThrough ? "over art" : "opaque window"}, Liquid Glass off: a solid card, no specular band, no frost, no depth`, async () => {
+        const page = await open(colorScheme, {
+          ...(seeThrough ? { "data-cmux-see-through": "" } : {}),
+          "data-glass": "off",
+        });
+        for (const id of ["composer", "docked-composer"]) {
+          const { fill, backdrop, shadow } = await look(page, id);
+          expect(fill, `${id} fill`).toBe(1);
+          expect(backdrop, `${id} backdrop`).toBe("none");
+          expect(layerAlpha(shadow, SPECULAR_BAND), `${id} specular band`).toBe(-1);
+          expect(layerAlpha(shadow, SHEEN), `${id} sheen`).toBe(-1);
+          expect(layerAlpha(shadow, DEPTH), `${id} depth`).toBe(-1);
+        }
+        await page.close();
+      });
 
   // The system's Reduce Transparency (prefers-reduced-transparency), with no host attribute: the
   // same solid card, for the floating and the docked card alike.

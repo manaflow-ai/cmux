@@ -40,6 +40,8 @@ pub(crate) struct HostShared {
     pub(crate) stream_progress: TerminalStreamProgress,
     pub(crate) writer: Mutex<Box<dyn Write + Send>>,
     pub(crate) master: Mutex<Box<dyn MasterPty + Send>>,
+    /// Input after a paste waits until the program read it (`paste_pacing`). Taken before `writer`, never after.
+    pub(crate) paste_pacer: Mutex<crate::paste_pacing::PastePacer>,
     pub(crate) killer: Mutex<Box<dyn ChildKiller + Send>>,
     pub(crate) pid: Option<u32>,
     pub(crate) command: Vec<String>,
@@ -78,6 +80,10 @@ pub(crate) struct HostShared {
     pub(crate) exit_published: AtomicBool,
     pub(crate) exit_record_path: PathBuf,
     pub(crate) exit_publish_requests: Sender<()>,
+    /// The exit publisher before its thread starts: the host and the
+    /// requests' receiver, taken by the first request with an exit to
+    /// publish (`lifecycle.rs`).
+    pub(crate) exit_publisher: Mutex<Option<(Weak<HostShared>, Receiver<()>)>>,
     pub(crate) force_pty_drain: AtomicBool,
     pub(crate) pty_drain_waker: Mutex<HostStream>,
     pub(crate) termination_started: AtomicBool,
@@ -363,19 +369,63 @@ impl HostShared {
         );
     }
 
-    pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
-        // Marked before the writer lock, so the mark never runs under it.
-        cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
-        let delivered = {
+    /// The child's unread input, when the PTY can say (`pty_input_room::unread_input`).
+    fn unread_input(&self) -> Option<usize> {
+        crate::pty_input_room::unread_input(&**self.master.lock().recover_poison())
+    }
+
+    /// Writes interactive input through the paste pacer: the pacer's lock, then the writer's for each piece (the
+    /// writer is never held while the pacer waits).
+    fn write_paced(&self, payload: &[u8]) -> std::io::Result<()> {
+        let mut pacer = self.paste_pacer.lock().recover_poison();
+        pacer.write(
+            payload,
+            &mut || self.unread_input(),
+            &mut crate::paste_pacing::SystemClock,
+            &mut |piece| {
+                let mut writer = self.writer.lock().recover_poison();
+                writer.write_all(piece).and_then(|()| writer.flush())
+            },
+        )
+    }
+
+    /// A paste frame: written once input before it settled, bracketed when the program asked, and marked so the
+    /// input after it waits until the program read it.
+    pub(crate) fn write_paste_frame(&self, payload: &[u8]) {
+        let mut pacer = self.paste_pacer.lock().recover_poison();
+        pacer.settle(&mut || self.unread_input(), &mut crate::paste_pacing::SystemClock);
+        let bracketed = self.term.lock().recover_poison().mode(2004, false);
+        {
             let mut writer = self.writer.lock().recover_poison();
+            if bracketed {
+                let _ = writer.write_all(b"\x1b[200~");
+            }
+            let _ = writer.write_all(payload);
+            if bracketed {
+                let _ = writer.write_all(crate::paste_pacing::PASTE_END);
+            }
+            let _ = writer.flush();
+        }
+        pacer.paste_written(&crate::paste_pacing::SystemClock);
+    }
+
+    pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+        let (delivered, wrote) = {
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
             let admitted = request_id != 0 || {
                 let master = self.master.lock().recover_poison();
                 crate::pty_input_room::admits(&**master, payload)
             };
-            !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            // Cut after each paste end, each piece once the program read the paste before it
+            // (`paste_pacing`): a Return behind a paste is its own read.
+            let wrote = admitted && self.write_paced(payload).is_ok();
+            (!admitted || wrote, wrote)
         };
+        // Marked after the writer lock, and only for bytes that reached the PTY.
+        if wrote {
+            crate::pty_write_marks::host_wrote(self.terminal_id.as_bytes());
+        }
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
         if request_id == 0 {

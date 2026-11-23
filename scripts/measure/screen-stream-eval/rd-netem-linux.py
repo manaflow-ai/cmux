@@ -13,6 +13,12 @@ namespaces joined by a veth whose two ends each carry `tc netem`:
   host ns:   Xvfb, `cmux-rd testapp --workload motion`, `cmux-rd host --profile baseline`
   viewer ns: `cmux-rd bench --carrier udp` (OpenH264 decode, hence the baseline profile)
 
+The host encodes with Cisco's OpenH264 binary, the one shipped hosts load, fetched by the measured
+binary's `cmux-rd openh264-install` (--openh264 cisco, the default) or given as a path.
+`--openh264 source` keeps the bench feature's source build, which compiles without its assembly and
+encodes about 3x slower; the tables mark its rows "source-built, about 3x slower", and so rows
+written before this flag existed, which were all source-built.
+
 Profiles (the netem line is applied to each direction's egress, so media and feedback both
 see it; jitter is netem's default distribution, which reorders packets):
 
@@ -46,6 +52,8 @@ sch_netem. On the fleet: cmuxterm-hq `cmux-ci test --setup netem` (README.md her
 from __future__ import annotations
 
 import argparse
+import ctypes
+import ctypes.util
 import json
 import math
 import os
@@ -94,6 +102,15 @@ WIFI_AWAY_SEED, WIFI_AWAY_SECONDS = 7, 120.0
 HOLDS_FILE = Path(__file__).with_name("wifi-away-holds.json")
 # Extra `cmux-rd host` flags for every host this run starts (--host-arg, e.g. an encode profile).
 HOST_ARGS: list[str] = []
+# The OpenH264 every host encodes with (--openh264): "cisco", Cisco's binary that shipped hosts load,
+# fetched with the measured cmux-rd's own `openh264-install`; "source", the bench feature's source
+# build, compiled without its assembly; or a path to Cisco's library.
+OPENH264 = ["cisco"]
+# The `--openh264-lib PATH` the binary being measured passes its hosts, empty for the source build.
+LIB_ARGS: list[str] = []
+# How a table marks a row whose host encoded with the source build. A row without an `openh264`
+# field predates the flag and was source-built too.
+SOURCE_BUILT = "source-built, about 3x slower"
 PROFILE_LABELS = {
     "clean": "clean",
     "jitter-5": "5±5 ms",
@@ -185,6 +202,17 @@ def pct_over(sample_times, ms: float):
     return round(sum(v > ms for v in g2g) * 100 / len(g2g), 1) if g2g else None
 
 
+def first_seconds_max(sample_times, seconds: float = 2.0):
+    """The slowest key-to-decoded time, ms, among the presses sent in the session's first `seconds`
+    (from its first press): what a new session's start keyframe costs. None without samples."""
+    rows = [(t["sent_ns"], (t["decoded_ns"] - t["sent_ns"]) / 1e6) for t in sample_times or []
+            if _num(t.get("decoded_ns")) is not None and _num(t.get("sent_ns")) is not None]
+    if not rows:
+        return None
+    first = min(sent for sent, _ in rows)
+    return round(max(ms for sent, ms in rows if sent - first < seconds * 1e9), 1)
+
+
 def summarize_key(report: dict | None) -> dict:
     """Key press to decoded marker from a `--input key` bench line."""
     if not report:
@@ -201,6 +229,7 @@ def summarize_key(report: dict | None) -> dict:
         "mbit_per_s": _num(report.get("mbit_per_s")),
         "frames_per_s": _num(report.get("frames_per_s")),
         "pct_over_50ms": pct_over(report.get("sample_times"), 50),
+        "first_2s_max_ms": first_seconds_max(report.get("sample_times")),
         "target_kbps_last": _num(stats.get("kbps")),
         "host_loss_pct_last": _num(stats.get("loss_pct")),
         "ended": report.get("ended"),
@@ -313,7 +342,7 @@ def lo_table(rows: list[dict]) -> str:
         d, key, passive = r.get("drawdown") or {}, r.get("key") or {}, r.get("passive") or {}
         fps = [v for v in passive.get("decoded_fps_per_s") or [] if v is not None]
         gate = r.get("gate_wait") or {}
-        out.append(f"| `{r['commit'][:12]}` | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
+        out.append(f"| {rd_cell(r)} | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
                    f"| {_fmt(d.get('peak_kbps'))} → {_fmt(d.get('trough_kbps'))} ({_fmt(d.get('drop_pct'))}%), "
                    f"{_fmt(d.get('fall_s'))}, {_fmt(d.get('recover_s'))}, {_fmt(d.get('seconds_falling'))} "
                    f"| {f'{statistics.median(fps):.1f}' if fps else '–'} "
@@ -365,7 +394,7 @@ def stall_table(rows: list[dict]) -> str:
            "| fps in the second after | decodes during hold / in 100 ms after |", "|" + "---|" * 6]
     for r in rows:
         for i, st in enumerate(r.get("stalls") or [], 1):
-            out.append(f"| `{r['commit'][:12]}` | {i} | {_fmt(st.get('target_before_kbps'))} → "
+            out.append(f"| {rd_cell(r)} | {i} | {_fmt(st.get('target_before_kbps'))} → "
                        f"{_fmt(st.get('target_after_kbps'))} ({_fmt(st.get('target_min_within_3s_kbps'))}) "
                        f"| {_fmt(st.get('fresh_frame_ms'))} | {_fmt(st.get('fps_second_after'))} "
                        f"| {_fmt(st.get('decoded_during_hold'))} / {_fmt(st.get('decoded_in_100ms_after'))} |")
@@ -408,6 +437,12 @@ def _fmt(value, digits=1):
     return str(value)
 
 
+def rd_cell(r: dict) -> str:
+    """The cmux-rd column: the commit, marked when its host encoded with the source build."""
+    commit = f"`{str(r.get('commit', '?'))[:12]}`"
+    return commit if r.get("openh264") == "cisco" else f"{commit} ({SOURCE_BUILT})"
+
+
 def _series(values, digits=1, limit=30):
     shown = [_fmt(v, digits) for v in values[:limit]]
     return " ".join(shown) + (" …" if len(values) > limit else "") if shown else "–"
@@ -441,7 +476,7 @@ def markdown_table(rows: list[dict]) -> str:
         ledgers = [x for x in (passive.get("stage_ledger"), key.get("stage_ledger")) if x]
         ledger = "yes" if ledgers else "no"
         out.append(
-            f"| `{r['commit'][:12]}` | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
+            f"| {rd_cell(r)} | {PROFILE_LABELS.get(r['profile'], r['profile'])} "
             f"| {_fmt(key.get('p50_ms'))} / {_fmt(key.get('p95_ms'))} ({_fmt(key.get('lost'))}) "
             f"| {spread} | {_series(passive.get('mbps_per_s') or [], 1)} "
             f"| {_series(target, 0)} | {wire_cell} | {t15} | {fps_cell} | {idr} | {ledger} |")
@@ -669,6 +704,61 @@ def wait_for(path: Path, needle: str, proc: subprocess.Popen, seconds: float) ->
     return False
 
 
+def x_root_children(display: str) -> int | None:
+    """How many windows the X server at DISPLAY has under its root, through libX11; None while it does not
+    accept a connection."""
+    x = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+    x.XOpenDisplay.restype = ctypes.c_void_p
+    x.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x.XDefaultRootWindow.restype = ctypes.c_ulong
+    x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                             ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p),
+                             ctypes.POINTER(ctypes.c_uint)]
+    x.XFree.argtypes = [ctypes.c_void_p]
+    x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    dpy = x.XOpenDisplay(display.encode())
+    if not dpy:
+        return None
+    try:
+        root, parent, children, count = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p(), ctypes.c_uint()
+        if not x.XQueryTree(dpy, x.XDefaultRootWindow(dpy), ctypes.byref(root), ctypes.byref(parent),
+                            ctypes.byref(children), ctypes.byref(count)):
+            return 0
+        if children:
+            x.XFree(children)
+        return count.value
+    finally:
+        x.XCloseDisplay(dpy)
+
+
+def wait_x(display: str, proc: subprocess.Popen, seconds: float, window: bool = False) -> str | None:
+    """Until the X server at DISPLAY accepts a connection (and, with WINDOW, has a window under its root: the
+    testapp's). None when it did; else what never happened."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            return f"{'testapp' if window else 'Xvfb'} on {display} exited ({proc.returncode})"
+        count = x_root_children(display)
+        if count is not None and (not window or count > 0):
+            return None
+        time.sleep(0.05)
+    return (f"no window on {display} in {seconds:g} s (the testapp never mapped one)" if window
+            else f"Xvfb on {display} accepted no connection in {seconds:g} s")
+
+
+def wait_port_free(rig: Rig, seconds: float = 10.0) -> bool:
+    """Until nothing in the host namespace listens on PORT (the stopped host let it go)."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        listed = run(priv(["ip", "netns", "exec", rig.host_ns, "ss", "-Hlntu", f"sport = :{PORT}"]), check=False)
+        if listed.returncode == 0 and not listed.stdout.strip():
+            return True
+        time.sleep(0.05)
+    print(f"rd-netem-linux: port {PORT} still bound {seconds:g} s after the host stopped", file=sys.stderr, flush=True)
+    return False
+
+
 def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float,
           loopback: bool = False) -> tuple[dict | None, str]:
     addr = f"127.0.0.1:{PORT}" if loopback else f"{HOST_IP}:{PORT}"
@@ -688,7 +778,8 @@ def bench(rig: Rig, binary: Path, token: Path, args: list[str], timeout: float,
 def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: Path, display: str,
                     passive_s: int, samples: int) -> dict:
     row = {"schema": SCHEMA, "commit": commit, "profile": profile, "netem_each_direction": PROFILES[profile],
-           "workload": "motion", "carrier": "udp", "host_args": HOST_ARGS}
+           "workload": "motion", "carrier": "udp", "host_args": HOST_ARGS,
+           "openh264": "cisco" if LIB_ARGS else "source"}
     row["qdisc"] = rig.shape(profile)
     if profile in LO_PROFILES:
         return measure_lo(rig, binary, row, scratch, display, passive_s, samples)
@@ -703,7 +794,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", HOST_IP,
                                        "--single-tenant-overlay", "1", "--display", display, "--port", str(PORT),
-                                       "--profile", "baseline", "--token-fd", "3", *HOST_ARGS],
+                                       "--profile", "baseline", "--token-fd", "3", *LIB_ARGS, *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
     try:
         if not wait_for(host_log, "listening", host, 20):
@@ -730,7 +821,7 @@ def measure_profile(rig: Rig, binary: Path, commit: str, profile: str, scratch: 
         return row
     finally:
         stop(host)
-        time.sleep(0.5)  # the next host binds the same port
+        wait_port_free(rig)  # the next host binds the same port
 
 
 def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, passive_s: int,
@@ -753,7 +844,7 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
     with open(host_log, "wb") as log:
         host = rig.spawn(rig.host_ns, [str(binary), "host", "--owner", "owner", "--bind", "127.0.0.1",
                                        "--display", display, "--port", str(PORT), "--profile", "baseline",
-                                       "--token-fd", "3", *HOST_ARGS],
+                                       "--token-fd", "3", *LIB_ARGS, *HOST_ARGS],
                          env={"CMUX_RD_TIMING_LOG": str(timing)}, token=token, stdout=log, stderr=log)
     driver = HoldDriver(rig, holds, period, loss)
     try:
@@ -790,7 +881,22 @@ def measure_lo(rig: Rig, binary: Path, row: dict, scratch: Path, display: str, p
         driver.stop()
         stop(host)
         rig.unshape_lo()
-        time.sleep(0.5)
+        wait_port_free(rig)  # the next host binds the same port
+
+
+def openh264_lib(binary: Path, scratch: Path) -> list[str]:
+    """The `cmux-rd host` flags for OPENH264: Cisco's library, through the measured binary's own
+    installer (it checks the pinned SHA-256) or at a given path, or none for the source build."""
+    choice = OPENH264[0]
+    if choice == "source":
+        return []
+    if choice == "cisco":
+        cmd = [str(binary), "openh264-install", "--dir", str(scratch / "openh264")]
+        printed = [line for line in run(cmd, timeout=300).stdout.splitlines() if line.strip()]
+        if not printed:
+            raise subprocess.CalledProcessError(0, cmd, stderr="printed no library path")
+        choice = printed[-1]
+    return ["--openh264-lib", choice]
 
 
 def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, args) -> list[dict]:
@@ -801,11 +907,13 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
     rows, procs = [], []
     try:
         try:
+            LIB_ARGS[:] = openh264_lib(binary, scratch)
             rig.up()
-        except subprocess.CalledProcessError as error:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            step = "openh264" if error.cmd[:2] == [str(binary), "openh264-install"] else "netns setup"
             for profile in profiles:
                 row = {"schema": SCHEMA, "commit": commit, "profile": profile,
-                       "error": f"netns setup: {error.cmd}: {(error.stderr or '').strip()}"}
+                       "error": f"{step}: {error.cmd}: {(error.stderr or '').strip()}"}
                 print(json.dumps(row), flush=True)
                 with open(out / "results.jsonl", "a") as f:
                     f.write(json.dumps(row) + "\n")
@@ -813,11 +921,15 @@ def measure_binary(binary: Path, commit: str, profiles: list[str], out: Path, ar
             return rows
         display = f":{170 + os.getpid() % 50}"
         procs.append(rig.spawn(rig.host_ns, ["Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"]))
-        time.sleep(1.5)
-        procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload", "motion"]))
-        time.sleep(1.5)
+        x_error = wait_x(display, procs[-1], 20)
+        if x_error is None:
+            procs.append(rig.spawn(rig.host_ns, [str(binary), "testapp", "--display", display, "--workload",
+                                                 "motion"]))
+            x_error = wait_x(display, procs[-1], 20, window=True)
         for profile in profiles:
             try:
+                if x_error:
+                    raise RuntimeError(x_error)
                 row = measure_profile(rig, binary, commit, profile, scratch, display, args.passive_s, args.samples)
             except Exception as error:  # noqa: BLE001 - one profile's failure is that row's data
                 row = {"schema": SCHEMA, "commit": commit, "profile": profile, "error": repr(error)}
@@ -864,6 +976,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--repo-url", default=REPO_URL)
     ap.add_argument("--host-arg", action="append", default=[], metavar="ARG",
                     help="pass ARG to every `cmux-rd host` (repeat per word: --host-arg=--encode-profile --host-arg=ultra)")
+    ap.add_argument("--openh264", default="cisco", metavar="cisco|source|PATH",
+                    help="the OpenH264 hosts encode with: Cisco's binary, as shipped hosts load it (default), "
+                         f"the bench feature's source build ({SOURCE_BUILT}), or Cisco's library at PATH")
     ap.add_argument("--passive-s", type=int, default=20)
     ap.add_argument("--samples", type=int, default=60)
     ap.add_argument("--deps", action="store_true", help="apt-get the build and rig packages first")
@@ -878,6 +993,7 @@ def main(argv: list[str]) -> int:
             ap.error(f"--commit {c}: a full 40-hex sha")
     profiles = args.profile or ["clean", "jitter-5", "jitter-15-burst", "jitter-30-loss2", "stall"]
     HOST_ARGS[:] = args.host_arg
+    OPENH264[:] = [args.openh264]
     args.out.mkdir(parents=True, exist_ok=True)
     if args.deps:
         ensure_deps()

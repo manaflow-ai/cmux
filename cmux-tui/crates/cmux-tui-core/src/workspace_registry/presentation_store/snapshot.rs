@@ -109,6 +109,7 @@ impl WorkspaceRegistry {
             crate::state::home_store::live_home(&self.connection.get())?.map(|h| h.1);
         let app_workspaces = crate::state::home_store::live_app_workspaces(&self.connection.get())?;
         let app_tabs = crate::state::app_workspaces::read_app_tabs(&self.connection.get())?;
+        let recovered_terminals = read_recovered_terminals(&self.connection.get())?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
@@ -119,6 +120,7 @@ impl WorkspaceRegistry {
             remote_terminals,
             home_workspace,
             app_workspaces,
+            recovered_terminals,
             app_tabs,
             tab_groups,
             saved_tab_groups,
@@ -128,4 +130,16 @@ impl WorkspaceRegistry {
             tab_attention,
         })
     }
+}
+
+/// The live terminals recovered from orphaned hosts (`workspace-recovered-v1`): rows whose launch
+/// spec is the recovered one (`mux/orphan_hosts.rs`), not tombstoned or deleted.
+fn read_recovered_terminals(connection: &Connection) -> anyhow::Result<HashSet<String>> {
+    let mut statement = connection.prepare(
+        "SELECT terminal_id FROM terminal_hosts
+         WHERE deleted_revision IS NULL AND lifecycle != 'tombstoned'
+           AND json_extract(launch_spec_json, '$.recovered_terminal') = 1",
+    )?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }

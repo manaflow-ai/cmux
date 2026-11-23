@@ -30,8 +30,8 @@ PERF_ROW-style JSON line per headline, and --out JSON with every sample. Headlin
   per_day          the least-squares slope over the simulated days (MB, disk MB) after creation.
 INFINITE-PERITEM lines give each role at each N: procs, threads, PSS MB and its MB per item over the empty
 pair, and idle wakeups/s. INFINITE-DISKGROW lines name the files whose bytes grow most per simulated day (paths
-with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=holder runs the same counts with every terminal in the one
-holder process (CMUX_TUI_TERMINAL_HOST_MODEL=holder, off in the product) instead of a host per terminal.
+with their ids folded to *, so a file per chat is one line), the next disk slope to bound. --terminal-host-model=hosts runs the same counts with a terminal host per terminal
+process (CMUX_TUI_TERMINAL_HOST_MODEL=hosts, the default everywhere) and --terminal-host-model=holder the one holder process.
 --browser-tabs adds a browser tab to each workspace: headless cmux-tui keeps only its model (the page and
 its renderer are the app's), so it measures the daemon's share of a browser tab and no renderer.
 Measurement only: it signals and reads only the processes it started (its two daemons' trees).
@@ -117,15 +117,22 @@ def sample_proc(pid):
             csw = 0
             tids = os.listdir(f"/proc/{pid}/task")
             out["threads"] = len(tids)
+            per_tid = {}
             for tid in tids:
                 try:
+                    name, n = "?", 0
                     with open(f"/proc/{pid}/task/{tid}/status") as f:
                         for line in f:
-                            if line.startswith(("voluntary_ctxt", "nonvoluntary_ctxt")):
-                                csw += int(line.split()[1])
+                            if line.startswith("Name:"):
+                                name = line.split(None, 1)[1].strip() if len(line.split()) > 1 else "?"
+                            elif line.startswith(("voluntary_ctxt", "nonvoluntary_ctxt")):
+                                n += int(line.split()[1])
+                    csw += n
+                    per_tid[tid] = (name, n)
                 except OSError:
                     pass
             out["wakeups"] = csw
+            out["tid_wakeups"] = per_tid
         else:
             ps = subprocess.run(["ps", "-o", "rss=,time=", "-p", str(pid)], capture_output=True, text=True).stdout.split()
             out["rss"] = int(ps[0]) * 1024
@@ -222,8 +229,10 @@ def file_groups(disks):
 
 def smaps_kinds(pid):
     """One process's PSS in kB by mapping kind (its binary, heap, stacks, other files, anonymous), Linux only:
-    where a role's per-process memory sits."""
+    where a role's per-process memory sits. Anonymous memory is split three ways: a thread's stack (the mapping
+    above a guard page), a malloc arena (glibc maps each at a 64 MB boundary) and the rest."""
     kinds, name = {}, None
+    prev_end, prev_guard = None, False
     try:
         exe = os.path.realpath(f"/proc/{pid}/exe")
         with open(f"/proc/{pid}/smaps") as f:
@@ -231,28 +240,34 @@ def smaps_kinds(pid):
                 head = line.split()
                 if head and "-" in head[0] and not head[0].endswith(":"):
                     path = head[5] if len(head) > 5 else ""
+                    start, end = (int(x, 16) for x in head[0].split("-"))
+                    anon = ("thread-stack" if prev_guard and prev_end == start else
+                            "arena" if start % (64 << 20) == 0 else "anon")
                     name = ("binary" if path == exe else "heap" if path == "[heap]" else
-                            "stack" if path.startswith("[stack") else "anon" if not path else
+                            "stack" if path.startswith("[stack") else anon if not path else
                             "vdso" if path.startswith("[") else "file:" + os.path.basename(path))
+                    prev_end, prev_guard = end, not path and head[1].startswith("---")
                 elif head and head[0] == "Pss:" and name:
                     kinds[name] = kinds.get(name, 0) + int(head[1])
     except (OSError, ValueError, IndexError):
         return {}
-    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:6])
+    return dict(sorted(kinds.items(), key=lambda kv: -kv[1])[:8])
 
 
 def idle_window(top, seconds, disks):
     """Per-role totals: memory at the end, CPU and wakeups over `seconds` of nothing."""
     before = snapshot(top)
-    time.sleep(seconds)  # the idle window itself: nothing is sent
+    time.sleep(seconds)  # sleep-ok: the idle window itself, the span CPU and wakeups are measured over
     after = snapshot(top)
     roles = {}
     for pid, s in after.items():
         r = roles.setdefault(s["role"], {"count": 0, "threads": 0, "rss": 0, "pss": 0, "fds": 0, "cpu_s": 0.0,
                                          "wakeups": 0, "cmds": {}})
-        if IS_LINUX and "smaps_kb" not in r:
-            r["smaps_kb"] = smaps_kinds(pid)  # one process of the role, where its memory sits
+        r.setdefault("by_pss", []).append((s.get("pss") or s["rss"], pid))
         r["cmds"][s["cmd"]] = r["cmds"].get(s["cmd"], 0) + 1
+        named = r.setdefault("thread_names", {})
+        for name, _ in (s.get("tid_wakeups") or {}).values():
+            named[name] = named.get(name, 0) + 1
         r["count"] += 1
         r["threads"] += s.get("threads") or 0
         r["rss"] += s["rss"]
@@ -263,9 +278,24 @@ def idle_window(top, seconds, disks):
             r["cpu_s"] += max(0.0, s["cpu_s"] - b["cpu_s"])
             if s.get("wakeups") is not None and b.get("wakeups") is not None:
                 r["wakeups"] += max(0, s["wakeups"] - b["wakeups"])
+            # Which threads woke, by name (a daemon's 1,000 readers show as one name with a count of threads):
+            # the idle wakeups' owner without perf or strace.
+            names = r.setdefault("thread_wakeups", {})
+            old = b.get("tid_wakeups") or {}
+            for tid, (name, n) in (s.get("tid_wakeups") or {}).items():
+                woke = max(0, n - old.get(tid, (name, n))[1])
+                if woke:
+                    names[name] = names.get(name, 0) + woke
     for r in roles.values():
+        # The role's median process by PSS, where its memory sits: the first one found is the one-off (a
+        # bootstrap host among a thousand per-tab hosts).
+        by_pss = sorted(r.pop("by_pss"))
+        if IS_LINUX:
+            r["smaps_kb"] = smaps_kinds(by_pss[len(by_pss) // 2][1])
         r["cpu_pct"] = round(100 * r.pop("cpu_s") / seconds, 3)
         r["wakeups_per_s"] = round(r.pop("wakeups") / seconds, 2)
+        r["thread_wakeups"] = dict(sorted(r.get("thread_wakeups", {}).items(), key=lambda kv: -kv[1])[:8])
+        r["thread_names"] = dict(sorted(r.get("thread_names", {}).items(), key=lambda kv: -kv[1])[:6])
     total = {
         "pss_mb": round(sum(r["pss"] for r in roles.values()) / 1048576, 2),
         "rss_mb": round(sum(r["rss"] for r in roles.values()) / 1048576, 2),
@@ -378,10 +408,11 @@ class Run:
             ACPMUX_SESSION_CPU_CLASS="normal",
             CMUX_TUI_CONFIG=os.path.join(self.tui_root, "config.json"),
         )
-        # The terminal model under test, never the caller's: hosts (the product default) or the holder.
+        # The terminal model under test, never the caller's: the product default (a host per terminal),
+        # a host per terminal, or the holder.
         env.pop("CMUX_TUI_TERMINAL_HOST_MODEL", None)
-        if self.args.terminal_host_model == "holder":
-            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
+        if self.args.terminal_host_model != "product":
+            env["CMUX_TUI_TERMINAL_HOST_MODEL"] = self.args.terminal_host_model
         # The agent holder under test (acpmux agent_host/custody.rs), never the caller's.
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         return env
@@ -457,7 +488,10 @@ class Run:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-        time.sleep(1)  # bench: let the daemons' own teardown end their children
+        # The daemons' own teardown ends their children: wait (5 s at most) until none of the recorded pids is left.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and any(os.path.exists(f"/proc/{pid}") for pid in own):
+            time.sleep(0.05)
         for pid in own:
             try:
                 os.kill(pid, signal.SIGKILL)
@@ -681,7 +715,7 @@ class Run:
                     os.kill(pid, signal.SIGSTOP)
                 except ProcessLookupError:
                     pass
-            time.sleep(a.sleep)  # bench: the simulated sleep
+            time.sleep(a.sleep)  # sleep-ok: the simulated machine sleep, its length is the scenario
             for pid in pids:
                 try:
                     os.kill(pid, signal.SIGCONT)
@@ -713,9 +747,26 @@ def perf_row(name, value, unit, floor=None):
 CPU_FLOOR_PCT, WAKEUPS_FLOOR = 0.1, 1.0
 
 
-def settle(args):
+def settle(args, top):
     # Past the (fast-forwarded) idle and reap timers, so idle agents have hibernated and closed terminals ended.
-    time.sleep(max(args.idle_child_secs, args.reap_grace_secs) + args.settle)  # bench: waiting out the timers
+    # sleep-ok: the product's own timers have to run out; nothing can make them fire sooner
+    time.sleep(max(args.idle_child_secs, args.reap_grace_secs))
+    # Then their work: the trees' processes per role (the hibernated agents gone, the reaped terminals' shells gone)
+    # hold for --settle s. Bounded: past 6x --settle (at least 30 s) the window is sampled as it is, and logged.
+    roles = lambda: sorted((s["role"], s["cmd"]) for s in snapshot(top).values())
+    reads = max(2, int(args.settle / 0.25))
+    bound = max(30.0, 6 * args.settle)
+    deadline, last, same = time.monotonic() + bound, None, 0
+    while True:
+        now = roles()
+        same = same + 1 if now == last else 1
+        last = now
+        if same >= reads:
+            return
+        if time.monotonic() >= deadline:
+            log(f"settle: the process trees did not hold still for {args.settle} s within {bound:g} s; sampling anyway")
+            return
+        time.sleep(0.25)  # the poll interval of the process trees
 
 
 def run_count(args, count):
@@ -723,7 +774,7 @@ def run_count(args, count):
     result = {"count": count, "samples": []}
     try:
         run.start()
-        settle(args)
+        settle(args, run.top)
         empty = idle_window(run.top, args.window, run.disks)
         result["empty"] = empty
         log(f"N={count} empty {json.dumps(empty['total'])}")
@@ -734,7 +785,7 @@ def run_count(args, count):
                          "working": len(run.working), "drawn": len(run.drawn), "idle": len(run.idle),
                          "chat_tabs": len(run.chat_tabs), "browser_tabs": len(run.browser_tabs),
                          "workspaces": len(run.workspaces)}
-        settle(args)
+        settle(args, run.top)
         day0 = idle_window(run.top, args.window, run.disks)
         day0["day"] = 0
         result["samples"].append(day0)
@@ -743,7 +794,7 @@ def run_count(args, count):
             t0 = time.monotonic()
             turns = run.day(number)
             spent = round(time.monotonic() - t0, 1)
-            settle(args)
+            settle(args, run.top)
             s = idle_window(run.top, args.window, run.disks)
             s.update(day=number, turns=turns, seconds=spent)
             result["samples"].append(s)
@@ -785,7 +836,9 @@ def report(results):
                 top_cmds = sorted(v.get("cmds", {}).items(), key=lambda kv: -kv[1])[:2]
                 print(f"INFINITE-ROLE {n} day={s['day']} {k} n={v['count']} thr={v.get('threads')} mb={v['pss_mb']} "
                       f"cpu={v['cpu_pct']} "
-                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})}", flush=True)
+                      f"wk={v['wakeups_per_s']} fds={v['fds']} cmd={top_cmds} one_kb={v.get('smaps_kb', {})} "
+                      f"woke={json.dumps(v.get('thread_wakeups', {}))} named={json.dumps(v.get('thread_names', {}))}",
+                      flush=True)
         grown = r["samples"][1:]
         if grown:
             # The slope over the days after creation (day 0 holds what the open made), per file group.
@@ -850,8 +903,9 @@ def main():
     p.add_argument("--root-dir", default=None)
     p.add_argument("--keep", action="store_true")
     p.add_argument("--acpmux-log", default="warn", help="acpmux --log; at info, its hibernations are summarized")
-    p.add_argument("--terminal-host-model", choices=("hosts", "holder"), default="hosts",
-                   help="hosts: a __terminal-host per terminal (the product default); holder: "
+    p.add_argument("--terminal-host-model", choices=("product", "hosts", "holder"), default="product",
+                   help="product: the build's default (a host per terminal; the holder is off by default); hosts: "
+                        "CMUX_TUI_TERMINAL_HOST_MODEL=hosts, a terminal host per terminal; holder: "
                         "CMUX_TUI_TERMINAL_HOST_MODEL=holder, one holder process for every terminal")
     p.add_argument("--agent-holder", choices=("off", "on"), default="on",
                    help="on (the product default): ACPMUX_AGENT_HOLDER=1, the daemon keeps a copy of each harness's stdio and "
@@ -867,6 +921,9 @@ def main():
     for path in (args.acpmux, args.tui):
         if not os.access(path, os.X_OK):
             raise SystemExit(f"infinite-items: not executable: {path}")
+    # FAKE_AGENT is found from this file's own path: a copy run from elsewhere would make no chats and still report.
+    if not os.path.isfile(FAKE_AGENT):
+        raise SystemExit(f"infinite-items: no stand-in agent at {FAKE_AGENT}; run this script from its checkout")
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
           f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)}", flush=True)

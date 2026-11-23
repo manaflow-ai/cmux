@@ -3,9 +3,10 @@
 // (`/apps/?mock`) the in-memory mock provider stands in for the app supervisor.
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { createStrings } from "../shared/i18n";
+import { renderLocalized } from "../shared/localizedRoot";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
@@ -46,13 +47,15 @@ export function mountAppsPage(
     store.applyRoute(window.location.hash);
     community.applyRoute(window.location.hash);
   });
-  const strings = createStrings(table);
-  document.documentElement.lang = strings.language;
-  document.title = strings.t("store.window.title");
-  createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
-      <AppsPage store={store} strings={strings} community={community} />
-    </UiProvider>,
+  renderLocalized(
+    createRoot(root),
+    table,
+    (strings) => (
+      <UiProvider container={root} dir={languageDirection(strings.language)}>
+        <AppsPage store={store} strings={strings} community={community} />
+      </UiProvider>
+    ),
+    (strings) => strings.t("store.window.title"),
   );
   return store;
 }

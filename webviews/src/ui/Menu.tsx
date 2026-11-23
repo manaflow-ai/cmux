@@ -5,6 +5,7 @@ import {
   use,
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -30,6 +31,10 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
+import { useExperimentArm } from "../experiments/useExperimentArm";
+import { MENU_V2_INSET, menuStyleV2, type MenuStyleArm } from "./menuStyleV2.experiment";
+import { isThenable } from "./menuArrange";
+import { menuRowStates, type MenuRowStatesArm } from "./menuRowStates.experiment";
 
 export interface MenuProps {
   open?: boolean;
@@ -64,6 +69,8 @@ interface MenuContextValue {
   /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
   endPointer(): void;
+  /** Closes the menu (an async row whose work settled, menu-row-states). */
+  close(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
 
@@ -105,9 +112,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
   };
+  const nativeAvailable = native !== undefined && nativePopup.available;
   const context: MenuContextValue = {
     isOpen,
-    nativeAvailable: native !== undefined && nativePopup.available,
+    nativeAvailable,
     trigger,
     opener,
     keyed,
@@ -133,6 +141,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
         handled: false,
       };
       setMenuOpen(true);
+      // The App draws this menu (a native popup): its panel follows the held press and picks the
+      // row the release lands on (NativePopupHost's press-release). The page sees only that
+      // release; a page row under the panel must not run, and the menu must not close on it.
+      if (nativeAvailable) {
+        session.current = null;
+        return;
+      }
       pointerCleanup.current = trackPressRelease(event, {
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
@@ -187,6 +202,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
       // Pointerup is handled by the press session's document listener (pressRelease.ts) so the row
       // remains selectable while the original trigger still owns pointer capture.
     },
+    close() {
+      setMenuOpen(false);
+    },
   };
   // A menu opened through `open` (automation, a parent's state) skips setMenuOpen: record what has
   // focus now, unless the popup already took it, so a close never returns to a past session's opener.
@@ -221,10 +239,16 @@ export interface MenuButtonProps {
   "aria-labelledby"?: string;
   /** The name automation finds the menu by (`button[data-menu]`), whatever the UI language. */
   "data-menu"?: string;
+  /** The keycaps of the shortcut that opens it, drawn after the tooltip (ui/titleTooltips.ts). */
+  "data-tooltip-shortcut"?: string | undefined;
   /** Also holds the button, for a caller that anchors other UI to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
   /** A field-like trigger (a select, a host field): its menu opens as wide as it (`matchTrigger`). */
   fieldTrigger?: boolean;
+  /** With the `ui-btn` class: a `Button`'s variant and size, so the trigger takes its hover, press
+   *  and open fills (controls.css). */
+  variant?: "ghost" | "subtle" | "solid";
+  size?: "sm" | "md" | "lg";
   children: ReactNode;
 }
 
@@ -236,11 +260,16 @@ export function MenuButton({
   "aria-haspopup": ariaHasPopup,
   "aria-labelledby": ariaLabelledBy,
   "data-menu": dataMenu,
+  "data-tooltip-shortcut": tooltipShortcut,
   buttonRef,
   fieldTrigger,
+  variant,
+  size,
   children,
 }: MenuButtonProps) {
   const context = use(MenuContext);
+  // menu-row-states "on": the open trigger takes the panel's fill (popupSurface.css).
+  const joined = useExperimentArm(menuRowStates) === "on";
   return (
     <BaseMenu.Trigger
       ref={(node: HTMLButtonElement | null) => {
@@ -253,8 +282,12 @@ export function MenuButton({
       aria-labelledby={ariaLabelledBy}
       aria-haspopup={ariaHasPopup}
       data-menu={dataMenu}
+      data-tooltip-shortcut={tooltipShortcut || undefined}
       data-field-trigger={fieldTrigger ? "" : undefined}
+      data-variant={variant}
+      data-size={size}
       data-popup-open={context?.isOpen ? "" : undefined}
+      data-menu-join={joined ? "" : undefined}
       disabled={disabled}
       onKeyUp={(event) => {
         if (event.key !== " ") return;
@@ -344,6 +377,9 @@ const PopupSurface = createContext<string | undefined>(undefined);
 const InPopup = createContext(false);
 /// The box a menu's popups stay inside (`MenuPopupProps.boundary`), so its submenus keep to it too.
 const PopupBoundary = createContext<Element | undefined>(undefined);
+/// The experiments' arms a menu's rows draw (menu-style-v2, menu-row-states), read once per menu.
+type MenuArmsValue = { look: MenuStyleArm; states: MenuRowStatesArm };
+const MenuArms = createContext<MenuArmsValue | null>(null);
 
 export function MenuPopup({
   id,
@@ -378,6 +414,13 @@ export function MenuPopup({
     if (menuOpen) setOwn(boundary ? (triggerRef?.current?.closest(boundary) ?? undefined) : undefined);
   }, [boundary, triggerRef, menuOpen]);
   const collisionBoundary = boundary ? own : inherited;
+  // The experiments' arms (a Settings flip redraws live); a submenu draws its menu's.
+  const parentArms = use(MenuArms);
+  const look = useExperimentArm(menuStyleV2);
+  const states = useExperimentArm(menuRowStates);
+  const arms = useMemo<MenuArmsValue>(() => parentArms ?? { look, states }, [parentArms, look, states]);
+  // menu-style-v2: a submenu's panel is flush with its row, its first row level with it.
+  const flush = nested && side === "inline-end" && arms.look !== "off";
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
@@ -412,7 +455,8 @@ export function MenuPopup({
         collisionPadding={padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
-        sideOffset={UI_ANCHOR_GAP}
+        sideOffset={flush ? MENU_V2_INSET : UI_ANCHOR_GAP}
+        {...(flush ? { alignOffset: -MENU_V2_INSET } : {})}
       >
         <BaseMenu.Popup
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
@@ -424,6 +468,9 @@ export function MenuPopup({
           // The App's menu glass under the page (glass/hostGlass.ts).
           data-host-glass="menu"
           data-host-glass-cover=""
+          // The experiments' arms (menuStyleV2, menuRowStates), styled in popupSurface.css; off draws none.
+          data-menu-style={arms.look === "off" ? undefined : arms.look}
+          data-menu-states={arms.states === "off" ? undefined : arms.states}
           className={cx(
             "ui-popup ui-glass ui-menu",
             scroll && "ui-popup-scroll-shell",
@@ -452,16 +499,18 @@ export function MenuPopup({
         >
           <InPopup value>
             <PopupBoundary value={collisionBoundary}>
-              <PopupSurface value={className}>
-                {scroll ? (
-                  <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
-                    {children}
-                  </div>
-                ) : (
-                  children
-                )}
-                {footer}
-              </PopupSurface>
+              <MenuArms value={arms}>
+                <PopupSurface value={className}>
+                  {scroll ? (
+                    <div ref={edges} className="ui-popup-scroll ui-scroll-edge-fade">
+                      {children}
+                    </div>
+                  ) : (
+                    children
+                  )}
+                  {footer}
+                </PopupSurface>
+              </MenuArms>
             </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>
@@ -510,6 +559,9 @@ export interface MenuItemProps {
   /** Stable action id for automation and gallery fixtures. */
   "data-value"?: string;
   disabled?: boolean;
+  /** Why a disabled row is disabled, one amber line under its label ("Needs sign-in"); drawn under
+   *  the menu-row-states experiment. */
+  reason?: string;
   shortcut?: ReactNode;
   onPointerMove?(event: PointerEvent<HTMLElement>): void;
   onPointerEnter?(event: PointerEvent<HTMLElement>): void;
@@ -518,14 +570,28 @@ export interface MenuItemProps {
   onMouseLeave?(event: MouseEvent<HTMLElement>): void;
   /** The row took focus: the arrow keys focus the highlighted row. */
   onFocus?(event: FocusEvent<HTMLElement>): void;
+  /** An `async` row returns its work's promise (the type stays `void`, so any handler fits). */
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
   children: ReactNode;
+}
+
+/// A row's label, and under a disabled row its reason (menu-row-states). Off: the label alone.
+function RowLabel({ disabled, reason, children }: { disabled?: boolean; reason?: string; children: ReactNode }) {
+  const arms = use(MenuArms);
+  if (!reason || !disabled || !arms || arms.states === "off") return children;
+  return (
+    <span className="ui-menu-text">
+      {children}
+      <span className="ui-menu-reason">{reason}</span>
+    </span>
+  );
 }
 
 export function MenuItem({
   className,
   "data-value": dataValue,
   disabled,
+  reason,
   shortcut,
   onPointerMove,
   onPointerEnter,
@@ -537,6 +603,8 @@ export function MenuItem({
   closeOnClick,
   expanded,
   controls,
+  destructive,
+  async: isAsync,
   children,
 }: MenuItemProps & {
   /** False keeps the menu open after a click (a row that shows or hides rows of its own menu). */
@@ -545,18 +613,58 @@ export function MenuItem({
   expanded?: boolean;
   /** A disclosure row: the id of the rows it shows and hides. */
   controls?: string;
+  /** Red, as a delete or close. */
+  destructive?: boolean;
+  /**
+   * `onSelect` returns a promise (Open PR, Restart agent): under the menu-row-states experiment the
+   * menu stays open at its size, the row spins in its trailing slot, and the menu closes when the
+   * promise settles. Elsewhere the menu closes at once, as for any row.
+   */
+  async?: boolean;
 }) {
   const context = use(MenuContext);
+  const arms = use(MenuArms);
   const handledClick = useRef(false);
+  const waits = Boolean(isAsync && arms && arms.states !== "off");
+  const [pending, setPending] = useState(false);
+  // The row is still drawn: a settle after the menu closed (Escape, a click away) does nothing.
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const select = (event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => {
+    if (!waits) {
+      onSelect?.(event);
+      return;
+    }
+    if (pending) return;
+    const result: unknown = onSelect?.(event);
+    if (!isThenable(result)) {
+      context?.close();
+      return;
+    }
+    setPending(true);
+    const settle = () => {
+      if (!mounted.current) return;
+      setPending(false);
+      context?.close();
+    };
+    result.then(settle, settle);
+  };
+  const keepsOpen = waits ? false : closeOnClick;
   return (
     <BaseMenu.Item
-      className={cx("ui-menu-item", className)}
+      className={cx("ui-menu-item", destructive && "ui-menu-item-destructive", className)}
       {...(dataValue === undefined ? {} : { "data-value": dataValue })}
       disabled={disabled}
-      {...(closeOnClick === undefined ? {} : { closeOnClick })}
+      {...(keepsOpen === undefined ? {} : { closeOnClick: keepsOpen })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
-      {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
+      {...(keepsOpen === false ? { "data-keeps-open": "" } : {})}
+      {...(pending ? { "aria-busy": true, "data-pending": "" } : {})}
       onPointerMove={(event) => {
         context?.movePointer(event);
         onPointerMove?.(event);
@@ -568,7 +676,7 @@ export function MenuItem({
       onFocus={onFocus}
       onPointerUp={(event) => {
         if (disabled) return;
-        if (context?.activatePointer(event, () => onSelect?.(event), closeOnClick === false)) {
+        if (context?.activatePointer(event, () => select(event), keepsOpen === false)) {
           handledClick.current = true;
           event.preventDefault();
         }
@@ -579,11 +687,19 @@ export function MenuItem({
           handledClick.current = false;
           return;
         }
-        onSelect?.(event);
+        select(event);
       }}
     >
-      {children}
+      <RowLabel disabled={disabled} reason={reason}>
+        {children}
+      </RowLabel>
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
+      {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
+      {waits ? (
+        <span className="ui-menu-async" aria-hidden="true">
+          {pending ? <span className="ui-menu-spinner" /> : null}
+        </span>
+      ) : null}
     </BaseMenu.Item>
   );
 }
@@ -593,7 +709,14 @@ export interface MenuCheckboxItemProps extends Omit<MenuItemProps, "onSelect"> {
   onCheckedChange(checked: boolean): void;
 }
 
-export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange, children }: MenuCheckboxItemProps) {
+export function MenuCheckboxItem({
+  className,
+  disabled,
+  reason,
+  checked,
+  onCheckedChange,
+  children,
+}: MenuCheckboxItemProps) {
   const context = use(MenuContext);
   const handledClick = useRef(false);
   return (
@@ -623,7 +746,9 @@ export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange
           <MenuCheckGlyph />
         </BaseMenu.CheckboxItemIndicator>
       </span>
-      {children}
+      <RowLabel disabled={disabled} reason={reason}>
+        {children}
+      </RowLabel>
     </BaseMenu.CheckboxItem>
   );
 }
@@ -646,6 +771,7 @@ export function MenuRadioItem({
   value,
   className,
   disabled,
+  reason,
   shortcut,
   closeOnClick,
   label,
@@ -681,7 +807,9 @@ export function MenuRadioItem({
           <MenuCheckGlyph />
         </BaseMenu.RadioItemIndicator>
       </span>
-      {children}
+      <RowLabel disabled={disabled} reason={reason}>
+        {children}
+      </RowLabel>
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
     </BaseMenu.RadioItem>
   );

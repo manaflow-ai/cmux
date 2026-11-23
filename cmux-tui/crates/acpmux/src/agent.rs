@@ -419,6 +419,10 @@ fn key(id: &Id) -> String {
 
 /// This side's own error for a request whose agent or connection went: no answer of its agent.
 pub(crate) const AGENT_CLOSED: &str = "agent process closed";
+/// The error of a request to an agent whose host link broke because an entry from it could not
+/// be stored (`ChildAgent::start_reader`), when the store gives no refusal of its own.
+pub(crate) const LINK_UNLOGGED: &str =
+    "the agent's output could not be stored, so its link stopped; send again to reconnect";
 
 /// A request's error once its message was cut (`Fence::cut`) before it was written.
 pub const FENCE_CUT: &str =
@@ -850,6 +854,9 @@ pub struct ChildAgent {
     /// Present when the child is `codex app-server`, bridged in process
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
+    /// That `codex app-server` started with the PreToolUse hook that holds each of its tools until
+    /// the repository sync is done (`codex_repo_gate.rs`), read from the argv it started with.
+    pub(crate) codex_repo_gated: bool,
     hosted: Option<Hosted>,
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
@@ -912,6 +919,8 @@ struct Spawned {
     launch: Option<crate::sidecar_census::LaunchServers>,
     preview_format: Option<crate::questions::PreviewFormat>,
     run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
+    repo_gated: bool,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -936,6 +945,7 @@ impl Spawned {
         )
         .await;
         let preview_format = Some(pinned_preview_format(&cmd));
+        let repo_gated = crate::codex_repo_gate::in_args(cmd.as_std().get_args());
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
         // Never at background class while it starts; its class, from the harness's own env (its
@@ -984,6 +994,7 @@ impl Spawned {
             launch: Some(launch),
             preview_format,
             run_class: std::sync::OnceLock::from(run_class),
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1004,6 +1015,7 @@ impl Spawned {
             launch: None,
             preview_format: None,
             run_class: std::sync::OnceLock::new(),
+            repo_gated: false,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1094,6 +1106,7 @@ impl ChildAgent {
             launch,
             preview_format,
             run_class,
+            repo_gated,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1116,6 +1129,7 @@ impl ChildAgent {
             inbound: inbound.clone(),
             pid,
             translator: translator.clone(),
+            codex_repo_gated: repo_gated && codex.is_some(),
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
@@ -1308,7 +1322,7 @@ impl ChildAgent {
                             }
                         };
                         if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
-                            let safe = crate::codex_app_server::redact(&raw);
+                            let safe = crate::codex_app_server::logged(&raw);
                             tap(Direction::In, &Message::notification(&kind, safe), None);
                         }
                         let order = cx.order.lock().await;
@@ -1488,12 +1502,19 @@ impl ChildAgent {
     /// under the same lock, so a late notice of an old link never fails the open requests of the
     /// link that replaced it (review 2 of #26059).
     pub async fn fail_pending_if_unheard(&self) {
+        self.fail_pending_if_unheard_with(AGENT_CLOSED).await;
+    }
+
+    /// [`Self::fail_pending_if_unheard`] with `why` as each request's error: a link that broke
+    /// because an entry could not be stored answers its open requests with the store's refusal
+    /// (`disk.full` on a full disk) at once, rather than leaving them to the client's limit.
+    pub async fn fail_pending_if_unheard_with(&self, why: &str) {
         let mut p = self.pending.lock().await;
         if !self.is_broken() && !self.is_stopped() {
             return;
         }
         for (_, tx) in p.map.drain() {
-            let _ = tx.send(Err(RpcError::internal("agent process closed")));
+            let _ = tx.send(Err(RpcError::internal(why.to_owned())));
         }
     }
 
@@ -1591,6 +1612,13 @@ impl ChildAgent {
             return;
         }
         let pgid = self.pid.map(|p| p as i32);
+        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
+        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
+        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296). Armed
+        // before the first await: the helper scan below reads the whole process table, which
+        // on a loaded machine can outlast the caller's cut, and a cut there sent no signal.
+        #[cfg(unix)]
+        let escalate = KillGroupOnDrop(pgid);
         // Busy: the exit watcher holds it while it reaps the agent (its
         // stdout closed); a helper then is not taken here.
         #[cfg(unix)]
@@ -1604,11 +1632,6 @@ impl ChildAgent {
                 libc::killpg(pg, libc::SIGTERM);
             }
         }
-        // A caller that stops waiting (the daemon's shutdown cuts its session cleanup at its
-        // deadline) drops this future inside the grace: the group still gets its SIGKILL then,
-        // or an agent that ignores SIGTERM outlives the daemon (Codex review of #42296).
-        #[cfg(unix)]
-        let escalate = KillGroupOnDrop(pgid);
         // Windows: Ctrl+Break to the agent's process group first.
         #[cfg(windows)]
         if let Some(pg) = pgid {
@@ -1912,7 +1935,16 @@ impl ChildAgent {
     ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
+        {
+            let mut p = self.pending.lock().await;
+            // A link that broke on an entry it could not store (`start_reader`) is marked under
+            // this lock, and its notice answers every request open then: one added after it would
+            // wait for a reattach nothing starts. It is answered now; the next request reattaches.
+            if self.is_broken() {
+                return Err(RpcError::internal(LINK_UNLOGGED));
+            }
+            p.map.insert(key(&Value::from(id)), tx);
+        }
         let mut abandoned = Abandoned {
             pending: self.pending.clone(),
             sink: self.cancel_sink(),
@@ -1935,6 +1967,11 @@ impl ChildAgent {
                 tokio::select! {
                     () = fence.settled() => {}
                     answer = &mut rx => {
+                        // A direct child may answer its line before its writer, preempted
+                        // between the write and `written()`, marks it: every direct writer
+                        // settles it, so that answer waits for it. Only a host can answer with
+                        // no receipt to come.
+                        if self.hosted.is_none() { fence.settled().await; }
                         if fence.now() == Fence::WRITTEN { on_written(); }
                         return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
                     }
@@ -2112,6 +2149,14 @@ impl ChildAgent {
         }
     }
 
+    /// Whether Claude Code's translator runs this agent, known without asking its host: a direct
+    /// child's own, or one its host's record says it runs (`HostRecord::claude_translator`).
+    /// False for a host of an older build, which never says.
+    pub fn runs_claude_translator(&self) -> bool {
+        self.translator.is_some()
+            || self.hosted.as_ref().is_some_and(|h| h.link().record.claude_translator)
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {
@@ -2196,6 +2241,15 @@ impl ChildAgent {
     /// The host record when this agent runs under a host.
     pub fn host_record(&self) -> Option<crate::agent_host::HostRecord> {
         self.hosted.as_ref().map(|h| h.link().record.clone())
+    }
+
+    /// Whether this agent runs under a host whose record says a level below `level`
+    /// (`HostRecord::host_level`) on another build than this one's (`hub/host_level.rs`).
+    pub fn host_below(&self, level: u32) -> bool {
+        self.hosted.as_ref().is_some_and(|h| {
+            let link = h.link();
+            link.record.host_level < level && link.record.host_build != crate::build_info::build()
+        })
     }
 
     /// The build its host runs (`HostRecord::host_build`), when this agent runs under a host.
@@ -2460,6 +2514,7 @@ impl ChildAgent {
             pid: adopted.harness_pid,
             translator: None,
             codex: None,
+            codex_repo_gated: false,
             hosted: Some(Hosted {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,
@@ -2541,8 +2596,9 @@ impl ChildAgent {
                 let fresh = h > *hosted.logged.borrow();
                 if fresh && !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     drop(turn);
-                    // Not stored: never acknowledge it or anything after it.
-                    // Open requests stay open; the next request reattaches.
+                    // Not stored: never acknowledge it or anything after it. The hub answers the
+                    // open requests at the notice below (`Inbound::LinkBroken`), with the store's
+                    // refusal; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
                     if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
                         return;
@@ -2641,12 +2697,13 @@ impl ChildAgent {
     }
 
     /// Takes custody of `link`'s harness (`agent_host/custody.rs`) in the background, when the
-    /// holder is on and this agent has none of that host yet. Best effort: without it, a host that
-    /// dies cuts the turn as before.
+    /// holder is on, the host can hold (not a translated or bridged harness,
+    /// `HostRecord::may_hold`) and this agent has none of that host yet. Best effort: without it,
+    /// a host that dies cuts the turn as before.
     #[cfg(unix)]
     fn take_custody(self: &Arc<Self>, link: &Arc<crate::agent_host::link::Link>) {
         let Some(hosted) = &self.hosted else { return };
-        if !crate::agent_host::custody::holder_on() {
+        if !crate::agent_host::custody::holder_on() || !link.record.may_hold() {
             return;
         }
         let held = hosted.custody.lock_or_recover().clone();

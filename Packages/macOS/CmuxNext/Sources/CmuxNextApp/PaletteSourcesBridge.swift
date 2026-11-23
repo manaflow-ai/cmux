@@ -55,6 +55,7 @@ enum PaletteSourcesBridge {
     private static func makeBase(services: AppServices) -> PaletteSources {
         PaletteSources(workspaces: WorkspaceSource(services: services), tabs: TabSource(services: services),
                        navigation: AppPaletteNavigationSource(services: services),
+                       openIn: EditorOpenInSource(catalog: services.editorCatalog, focus: { [weak services] in services?.windows.active?.focusedPane.map { pane in EditorOpenInSource.Focus(folder: pane.daemon.isLocal ? NewTerminalStart.folder(of: pane.selectedTab, services: pane.services) : nil, chat: pane.currentTabKey.flatMap { pane.services.agentTabs.existingView($0) } != nil) } }, perform: { [weak services] id, arguments in _ = services?.registry.perform(id, invocation: ActionInvocation(arguments: arguments, origin: .user)) }),
                        targets: targetSource(services),
                        context: { [weak services] in services.map(capturedTargets) ?? [] },
                        // Theme pickers preview the highlighted theme live.
@@ -183,7 +184,7 @@ enum PaletteSourcesBridge {
             // Keep a workspace already listed in this window on the same selection path as a sidebar
             // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
             // A workspace owned by another window keeps the palette's global show behavior.
-            if services.windows.registry.value.owner(of: id) == window.state.id {
+            if services.windows.registry.value.lists(id, in: window.state.id) {
                 SidebarNavigation.activate(.workspace(WorkspaceID(id)), in: window, services)
             } else {
                 services.windows.show(workspaceID: id, in: window.state)

@@ -107,7 +107,7 @@ struct CloudWorkspaceSetupSizeTests {
     @MainActor
     @Test(arguments: [("8192", Optional(8192)), ("auto", nil), ("65536", nil), ("big", nil)])
     func thePickedSizeIsSentAsTheCreateMemory(answer: String, expected: Int?) async throws {
-        let plan = try #require(try await CloudWorkspaceSetupWizard().choosePlan(availability: .available, scopeIsCurrent: { true },
+        let plan = try #require(try await CloudWorkspaceSetupWizard().choosePlan(scopeIsCurrent: { true },
             sizes: Self.sizes, present: { _ in
                 CmuxDialogAnswer(button: "create", role: .default, values: ["source": .text("empty"), "size": .text(answer)])
             }))

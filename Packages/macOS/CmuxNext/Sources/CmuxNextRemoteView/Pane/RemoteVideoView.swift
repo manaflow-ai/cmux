@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextDesign
 
 /// Hosts the presenter's layer at the image rect (1:1 device pixels, padded
 /// or clipped, never scaled; `RemoteViewGeometry`) and the remote cursor
@@ -34,8 +35,9 @@ package final class RemoteVideoView: NSView {
         cursorLayer.zPosition = 1
         // The shadow the window server draws under every macOS cursor (HIServices cursors/*/info.plist:
         // black at 0.45, blur 2, 1 pt down), in this view's points, as on a worn remote shape.
-        // Cursor images carry none. Flipped: positive y falls below.
-        cursorLayer.shadowColor = CGColor(gray: 0, alpha: 1)
+        // Cursor images carry none. Flipped: positive y falls below. The color is the theme's opaque
+        // shadow token (near black in every theme; the app theme, as RemotePaneColors' defaults), not a raw gray.
+        cursorLayer.shadowColor = ThemeTokens.unresolved.shadow.cgColor
         cursorLayer.shadowOpacity = 0.45
         cursorLayer.shadowRadius = 1
         cursorLayer.shadowOffset = CGSize(width: 0, height: 1)
@@ -54,17 +56,39 @@ package final class RemoteVideoView: NSView {
         needsLayout = true
     }
 
-    /// A fitted image fills its layer (filtered); a native one is 1:1.
+    /// A fitted image fills its layer (filtered); a native one is 1:1. A decoded picture that
+    /// lands one pixel per device pixel on the image rect is drawn unfiltered (nearest). Runs
+    /// again when the picture's size, the frame size, the bounds or the backing scale change.
     private func applyScaling() {
         guard let layer = presenter?.layer else { return }
-        layer.contentsGravity = scaling == .fit ? .resize : .topLeft
-        layer.minificationFilter = scaling == .fit ? .trilinear : .linear
-        layer.magnificationFilter = .linear
+        let oneToOne = geometry?.showsOneToOne(picturePixels: shownPicturePixels) ?? false
+        let gravity: CALayerContentsGravity = scaling == .fit ? .resize : .topLeft
+        let minification: CALayerContentsFilter = oneToOne ? .nearest : (scaling == .fit ? .trilinear : .linear)
+        let magnification: CALayerContentsFilter = oneToOne ? .nearest : .linear
+        if layer.contentsGravity != gravity { layer.contentsGravity = gravity }
+        if layer.minificationFilter != minification { layer.minificationFilter = minification }
+        if layer.magnificationFilter != magnification { layer.magnificationFilter = magnification }
     }
 
+    /// The pixel space of the image rect and the cursor overlay (a `cmux.rd/1` stream's size).
     package func setFramePixels(_ size: CGSize) {
         framePixels = size
         needsLayout = true
+    }
+
+    /// The decoded picture's own size, when it may differ from `framePixels` (a smaller picture
+    /// under `video.scaled`). Zero: the picture is `framePixels` large.
+    package private(set) var picturePixels: CGSize = .zero
+
+    package func setPicturePixels(_ size: CGSize) {
+        guard size != picturePixels else { return }
+        picturePixels = size
+        needsLayout = true
+    }
+
+    /// The picture's size for the filter choice.
+    private var shownPicturePixels: CGSize {
+        picturePixels.width >= 1 && picturePixels.height >= 1 ? picturePixels : framePixels
     }
 
     /// The remote cursor and whether the overlay draws it. Moves the layer at once (a
@@ -103,6 +127,8 @@ package final class RemoteVideoView: NSView {
         } else {
             presenter?.layer.isHidden = true
         }
+        // Bounds, frame or picture size changed (every one of them asks for a layout).
+        applyScaling()
         CATransaction.commit()
         placeCursor()
     }

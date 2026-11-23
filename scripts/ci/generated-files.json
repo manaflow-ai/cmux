@@ -33,6 +33,17 @@
       "status": "build"
     },
     {
+      "id": "chief-vm-source",
+      "generator": "backend/apps/api/scripts/gen-chief-vm-source.ts",
+      "outputs": [
+        "backend/apps/api/src/chief-brain-cc/chief-vm-source.ts"
+      ],
+      "inputs": [
+        "backend/chief-cc/image/chief-vm.mjs"
+      ],
+      "status": "build"
+    },
+    {
       "id": "extension-sdk-customize-types",
       "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
       "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
@@ -57,9 +68,7 @@
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+*.generated.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSection.generated.swift"
       ],
-      "inputs": ["schemas/settings/**"],
-      "check": ["--check"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "motion-scale",
@@ -150,14 +159,14 @@
       "generator": "webviews/scripts/pane-protocol-codegen.ts",
       "outputs": ["webviews/src/protocol/generated/*"],
       "inputs": ["webviews/src/protocol/ir/**", "webviews/src/protocol/codegen/**"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "acpmux-protocol",
       "generator": "webviews/scripts/acpmux-protocol-codegen.ts",
       "outputs": ["webviews/src/agent-session/acpmux/protocol/generated/*"],
       "inputs": ["cmux-tui/crates/acpmux/spec/**", "webviews/src/protocol/codegen/**"],
-      "status": "committed"
+      "status": "build"
     },
     {
       "id": "pane-protocol-go",
@@ -189,6 +198,12 @@
       ],
       "inputs": ["config/iroh/managed-relay-catalog.json"],
       "status": "committed"
+    },
+    {
+      "id": "app-store-packages",
+      "generator": "scripts/cmux-next/sync-app-runtime.sh",
+      "outputs": ["Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/store/**"],
+      "status": "build"
     },
     {
       "id": "app-pack",

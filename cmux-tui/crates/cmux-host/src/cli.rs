@@ -320,6 +320,12 @@ fn run_agent(mut cfg: Config) -> u8 {
     if !crate::updater::first_ready::run(&cfg.paths) {
         return code(1);
     }
+    // A machine whose image predates git and gh with the cmux GitHub App, updated in place,
+    // gets that wiring now (github_wiring.rs); never fatal.
+    // SAFETY: geteuid has no preconditions.
+    if cfg.paths.is_system_root() && unsafe { libc::geteuid() } == 0 {
+        crate::github_wiring::ensure(&cfg.paths);
+    }
     // Without a layout the agent still binds and supervises; roles only
     // report the error.
     let install = install_layout(cfg.server_mode);
@@ -365,9 +371,14 @@ fn run_agent(mut cfg: Config) -> u8 {
     // starts, so before the first bind.
     // When this start is that queued restart, the Cloud role reports the machine degraded
     // until the restarted session host answers (cloud/session.rs `Session::after_restart`).
+    // A gate that fails here leaves binds waiting for it (they retry).
     let restarted = cfg.paths.is_system_root()
         && crate::updater::gate::Gate::new(&cfg.paths)
-            .service_started_at(crate::cloud::role::wall_ms());
+            .service_started_at(crate::cloud::role::wall_ms())
+            .unwrap_or_else(|e| {
+                eprintln!("cmux host: the restart gate failed at start ({e}); binds wait for it");
+                false
+            });
     let cloud = crate::cloud::role::CloudRole::new(cfg.paths.clone())
         .with_root_bootstrap(bootstrap.clone())
         .after_queued_restart(restarted);
