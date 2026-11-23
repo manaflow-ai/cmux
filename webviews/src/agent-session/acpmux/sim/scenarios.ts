@@ -56,6 +56,67 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22 05:14Z: a reply's footer, ~150px of nothing, then "Received 2 messages", "Working for 29s"
+  // and "Ran 2 commands": "sometimes you get these way-too-big gaps. i think it's the message recieving not
+  // properly getting treated like the tool call ish thing it should be and instead as if it were a message?"
+  "inbox-delivery-turn": () => {
+    const b = sim(
+      "inbox-delivery-turn",
+      "A reply ends a turn; an inbox delivery of two messages starts a turn of commands.",
+    );
+    b.prompt("Set up the two lane VMs and tell me when they're ready.");
+    workTurn(b, 2, { middleText: false });
+    b.say("It's done when both VMs finish setup; I'll report back then, or sooner if setup needs someone.");
+    b.turnEnd();
+    b.wait(60_000).inbox([
+      { from: "gcp-agent-lane-10/setup", text: "lane-10 finished setup; acpmux answers." },
+      { from: "gcp-agent-lane-11/setup", text: "lane-11 finished setup; acpmux answers." },
+    ]);
+    b.think("Both lanes report ready; checking them.");
+    b.tool("reach gcp-agent-lane-10 acpmux status", { ms: 1_500 });
+    b.tool("reach gcp-agent-lane-11 acpmux status", { ms: 1_500 });
+    b.wait(20_000);
+    b.inbox([{ from: "gcp-agent-lane-10/setup", text: "Also: the mirror is warm." }], { turn: false });
+    b.tool("wt list --host gcp-agent-lane-10", { ms: 1_000 });
+    b.say("Both VMs are ready.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-22 22:08Z, on a coordinator turn whose only work was a SendMessage to a subagent, drawn as
+  // empty space and the action row: "IF THIS IS THE CASE, THEN DON'T FUCKING DISPLAY THIS BULLSHIT LIKE THIS".
+  "send-only-turn": () => {
+    const b = sim(
+      "send-only-turn",
+      "A turn whose only work is Claude Code's SendMessage to a subagent; the next starts.",
+    );
+    b.prompt("Tell the menu lane to keep the Chrome import card.");
+    b.sendMessage("a39e817af38ddf5e7", "Leo says: keep the Chrome import card; fix only the indent.");
+    b.turnEnd();
+    b.wait(15_000).prompt("And the profile icon?");
+    b.think("Asking the same lane.");
+    b.sendMessage("a39e817af38ddf5e7", "Also drop the profile icon from the menu header.");
+    b.sendMessage("a5b2c0d9e8f7a6b5c", "Heads-up: the menu lane owns the header now.");
+    return b.turnEnd().build();
+  },
+
+  // Leo, 2026-11-22 22:08Z: "2 background commands completed" and its rows, then an empty band, then the
+  // action row ("WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT").
+  "background-done-turn": () => {
+    const b = sim(
+      "background-done-turn",
+      "A turn leaves two shells in the background and ends; both end while the agent is idle; the next prompt comes.",
+    );
+    b.prompt("Start the setup on both lanes.");
+    b.background("export ACPMUX_CALLER_SUBAGENT=general-purpose; wt new lane-a", { ms: 8_000 });
+    b.background("wt new finishes", { ms: 9_000 });
+    b.sendMessage("a39e817af38ddf5e7", "Both setups are running; report when they finish.");
+    b.turnEnd();
+    b.backgroundEnds();
+    b.wait(5_000).prompt("Status?");
+    b.say("Both setups finished.");
+    return b.turnEnd().build();
+  },
+
   "incoming-message-turn": () => {
     const b = sim("incoming-message-turn", "A finished turn with a reply, then another agent's message starts a turn.");
     b.prompt("Fix the flaky test.");

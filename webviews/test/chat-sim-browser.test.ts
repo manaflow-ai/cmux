@@ -59,7 +59,10 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
     result.violations.filter((violation) => violation.rule.startsWith(prefix)).map((v) => `${v.rowId}: ${v.detail}`);
 
   // `CHAT_SIM_DUMP=scenario:step`: prints the drawn rows' boxes at that step (where each gap lives).
-  const dumpAt = process.env.CHAT_SIM_DUMP?.split(":");
+  const dumpSpec = process.env.CHAT_SIM_DUMP;
+  const dumpAt = dumpSpec
+    ? [dumpSpec.slice(0, dumpSpec.lastIndexOf(":")), dumpSpec.slice(dumpSpec.lastIndexOf(":") + 1)]
+    : undefined;
   if (dumpAt)
     test(`chat simulator in Chrome: the drawn rows of ${dumpAt[0]} at step ${dumpAt[1]}`, async () => {
       const rows = await page!.evaluate(
@@ -73,7 +76,55 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
       console.log(JSON.stringify(rows, null, 1));
     });
 
-  for (const name of dumpAt ? [] : names)
+  // `CHAT_SIM_SCAN=scenario[,scenario]`: prints the blank bands over one-line rows (harness `scan`).
+  const scan = process.env.CHAT_SIM_SCAN?.split(",");
+  for (const name of scan ?? [])
+    test(`chat simulator in Chrome: blank bands over one-line rows in ${name}`, async () => {
+      const found = await page!.evaluate(
+        (name) => (window as unknown as { __chatSim: { scan(name: string): Promise<unknown> } }).__chatSim.scan(name),
+        name,
+      );
+      console.log(JSON.stringify(found, null, 1));
+    });
+
+  // A turn never draws as empty space plus its action row, and no blank band lies between rows (Leo,
+  // 2026-11-22 22:08Z: "IF THIS IS THE CASE, THEN DON'T FUCKING DISPLAY THIS BULLSHIT LIKE THIS", on a
+  // coordinator turn whose only work was a SendMessage, and "2 background commands completed" over an
+  // empty band). Read in the frame the rows change and settled (harness `bands`).
+  // `CHAT_SIM_BANDS=a,b` picks the chats; `CHAT_SIM_BANDS_OUT=FILE` writes what it found as JSON.
+  const bandNames = process.env.CHAT_SIM_BANDS?.split(",") ?? [
+    "send-only-turn",
+    "background-done-turn",
+    "background-task",
+    "fixture:coord-send-only-turns",
+  ];
+  const bandResults: Record<string, unknown> = {};
+  afterAll(() => {
+    if (process.env.CHAT_SIM_BANDS_OUT)
+      writeFileSync(process.env.CHAT_SIM_BANDS_OUT, JSON.stringify(bandResults, null, 1));
+  });
+  for (const name of dumpAt || scan ? [] : bandNames)
+    test(`chat simulator in Chrome: ${name} draws no empty band and no bare action row`, async () => {
+      const { steps, found } = (await page!.evaluate(
+        (name) =>
+          (
+            window as unknown as {
+              __chatSim: { bands(name: string): Promise<unknown> };
+            }
+          ).__chatSim.bands(name),
+        name,
+      )) as { steps: number; found: { step: number; frame: string; kind: string; row: string; px: number }[] };
+      bandResults[name] = { steps, found };
+      const lines = found.map(
+        (each) => `${each.kind} ${Math.round(each.px)}px at ${each.row} (step ${each.step}, ${each.frame})`,
+      );
+      console.log(
+        `${name}: ${steps} steps, ${found.length} findings${lines.length ? `\n  ${lines.join("\n  ")}` : ""}`,
+      );
+      expect(lines).toEqual([]);
+    });
+
+  for (const name of dumpAt || scan ? [] : names)
     test(`chat simulator in Chrome: ${name} keeps rules a and b`, async () => {
       const result = (await page!.evaluate(
         (name) => (window as unknown as { __chatSim: { run(name: string): Promise<unknown> } }).__chatSim.run(name),

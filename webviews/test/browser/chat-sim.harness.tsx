@@ -79,6 +79,11 @@ async function measure(rows: readonly AcpmuxRow[], working: boolean, sends: numb
 }
 
 async function scenarioNamed(name: string): Promise<SimScenario> {
+  const fixture = /^fixture:([\w.-]+)$/.exec(name);
+  if (fixture) {
+    const text = (await import(`../fixtures/chat-sim/${fixture[1]}.ndjson?raw`)).default as string;
+    return replayScenario(fixture[1]!, parseRecords(text));
+  }
   if (name === "replay") {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
@@ -163,4 +168,182 @@ async function at(name: string, until: number) {
   return dump();
 }
 
-Object.assign(window, { __chatSim: { run, at, dump } });
+/** Plays `name` and, at every step, the blank band over each one-line row (another agent's line, a
+ *  "Received N messages" row, a tool run): its ink top less the ink bottom of the nearest row above
+ *  that draws something. Returns the bands over `min` px, with the rows around them. */
+async function scan(name: string, min = 40) {
+  const scenario = await scenarioNamed(name);
+  let sends = 0;
+  let turn = 0;
+  const found: unknown[] = [];
+  const seen = new Set<string>();
+  await runSimulationAsync(scenario, async (rows, step, index, state) => {
+    if (state.turn !== turn) {
+      turn = state.turn;
+      sends += 1;
+    }
+    const boxes = await measure(rows, state.working, sends);
+    const drawn = dump();
+    let inkBottom: number | undefined;
+    for (let at = 0; at < drawn.length; at += 1) {
+      const row = drawn[at]!;
+      if (!Number.isFinite(row.inkTop)) continue;
+      const band = inkBottom === undefined ? 0 : row.inkTop - inkBottom;
+      const line = /acpmux-row--line|laneNoticeBatch/.test(row.className);
+      if (line && band > min && !seen.has(`${row.id}:${Math.round(band)}`)) {
+        seen.add(`${row.id}:${Math.round(band)}`);
+        found.push({
+          step: index,
+          label: step.label,
+          band,
+          row: row.id,
+          rows: drawn.slice(Math.max(0, at - 4), at + 3),
+        });
+      }
+      inkBottom = Math.max(inkBottom ?? -Infinity, row.inkBottom);
+    }
+    return boxes;
+  });
+  return found;
+}
+
+/** A drawn row's ink: the union of the boxes of what paints in it (text, an icon, an image), never a
+ *  wrapper's padding or something drawn invisible. */
+function inkOf(element: HTMLElement): { top: number; bottom: number } | undefined {
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (const child of element.querySelectorAll<HTMLElement | SVGElement>("*")) {
+    const box = child.getBoundingClientRect();
+    if (box.height === 0 || box.width === 0) continue;
+    const paints =
+      child instanceof SVGSVGElement ||
+      child.tagName === "IMG" ||
+      child.tagName === "CANVAS" ||
+      [...child.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent!.trim());
+    if (!paints) continue;
+    const style = getComputedStyle(child);
+    if (style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+    top = Math.min(top, box.top);
+    bottom = Math.max(bottom, box.bottom);
+  }
+  return Number.isFinite(top) ? { top, bottom } : undefined;
+}
+
+export type BandFinding = {
+  step: number;
+  label: string;
+  /** `first-frame`: read in the frame the rows changed, before the stack corrects its estimates;
+   *  `settled`: two frames later; `+N ms`: N ms after a turn's action row came, frame by frame while
+   *  its end plays (the fold, the reply's last lines, the chase). */
+  frame: string;
+  /** `band`: blank space over a row, ink to ink; `empty-row`: a row with height and nothing drawn in it;
+   *  `bare-actions`: a turn's action row with nothing of its turn drawn between its opening row and it. */
+  kind: "band" | "empty-row" | "bare-actions";
+  row: string;
+  px: number;
+  rows: { id: string; top: number; bottom: number; ink?: { top: number; bottom: number }; text: string }[];
+};
+
+/** The drawn rows' boxes and ink, top to bottom. */
+function drawnRows() {
+  return [...document.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)]
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        id: element.dataset.rowId!,
+        top: rect.top,
+        bottom: rect.bottom,
+        ink: inkOf(element),
+        text: element.innerText.replace(/\s+/g, " ").slice(0, 80),
+      };
+    })
+    .filter((row) => row.bottom - row.top > 0)
+    .sort((a, b) => a.top - b.top);
+}
+
+/** The blank bands over `min` px, the empty rows and the bare action rows drawn now. */
+function bandsNow(
+  byId: ReadonlyMap<string, AcpmuxRow>,
+  min: number,
+  where: Pick<BandFinding, "step" | "label" | "frame">,
+): BandFinding[] {
+  const drawn = drawnRows();
+  const found: BandFinding[] = [];
+  const around = (at: number) => drawn.slice(Math.max(0, at - 3), at + 2);
+  let inkBottom: number | undefined;
+  // Rows that drew something since the turn's opening row (its prompt or incoming line).
+  let since = 0;
+  for (let at = 0; at < drawn.length; at += 1) {
+    const row = drawn[at]!;
+    const kind = byId.get(row.id)?.kind;
+    if (kind === "user") since = 0;
+    if (!row.ink) {
+      if (row.bottom - row.top >= min / 2)
+        found.push({ ...where, kind: "empty-row", row: row.id, px: row.bottom - row.top, rows: around(at) });
+      continue;
+    }
+    // The gap over a prompt is the turns' boundary, which its own rule holds
+    // (transcript-turn-boundary-gaps.test.ts): a band is blank space inside a turn.
+    if (inkBottom !== undefined && kind !== "user" && row.ink.top - inkBottom > min)
+      found.push({ ...where, kind: "band", row: row.id, px: row.ink.top - inkBottom, rows: around(at) });
+    if (kind === "turnSummary" && since === 0)
+      found.push({ ...where, kind: "bare-actions", row: row.id, px: 0, rows: around(at) });
+    if (kind !== "user") since += 1;
+    inkBottom = Math.max(inkBottom ?? -Infinity, row.ink.bottom);
+  }
+  return found;
+}
+
+/** Plays `name` and, at every step, reads the drawn rows in the frame they changed and settled, for
+ *  blank bands over `min` px, rows with height and nothing drawn, and an action row with nothing of its
+ *  turn over it (Leo, 2026-11-22 22:08Z: "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU
+ *  SENT SHIT"). The pane is tall enough that every row draws. */
+/** How long a turn's end is read for after its action row came: past its fold and the reveal's drain. */
+const END_PLAY_MS = 900;
+
+async function bands(name: string, min = 48): Promise<{ steps: number; found: BandFinding[] }> {
+  const scenario = await scenarioNamed(name);
+  let sends = 0;
+  let turn = 0;
+  const found: BandFinding[] = [];
+  const seen = new Set<string>();
+  const keep = (each: BandFinding[]) => {
+    for (const finding of each) {
+      const frame = finding.frame.startsWith("+") ? "end" : finding.frame;
+      const key = `${frame}:${finding.kind}:${finding.row}:${Math.round(finding.px / 8)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push(finding);
+    }
+  };
+  const footers = new Set<string>();
+  const result = await runSimulationAsync(scenario, async (rows, step, index, state) => {
+    if (state.turn !== turn) {
+      turn = state.turn;
+      sends += 1;
+    }
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    flushSync(() => show({ rows, working: state.working, sends }));
+    keep(bandsNow(byId, min, { step: index, label: step.label, frame: "first-frame" }));
+    await frame();
+    await frame();
+    keep(bandsNow(byId, min, { step: index, label: step.label, frame: "settled" }));
+    // A turn's action row just came: its end plays over real frames (the fold, the reply's last
+    // lines revealing, the chase), so it is read frame by frame while that runs.
+    const newFooter = rows.some((row) => row.kind === "turnSummary" && !footers.has(row.id));
+    for (const row of rows) if (row.kind === "turnSummary") footers.add(row.id);
+    if (newFooter) {
+      const start = performance.now();
+      while (performance.now() - start < END_PLAY_MS) {
+        await frame();
+        const ms = Math.round((performance.now() - start) / 50) * 50;
+        keep(bandsNow(byId, min, { step: index, label: step.label, frame: `+${ms} ms` }));
+      }
+    }
+    const boxes = new Map(drawnRows().map((row) => [row.id, { top: row.top, bottom: row.bottom }]));
+    return rows.map((row) => boxes.get(row.id));
+  });
+  return { steps: result.steps, found };
+}
+
+Object.assign(window, { __chatSim: { run, at, dump, scan, bands } });

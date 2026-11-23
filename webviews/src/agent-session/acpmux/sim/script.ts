@@ -59,6 +59,8 @@ export type ToolOptions = {
   /** Leave the call running: no result record (end it later with `toolEnd`). */
   open?: boolean;
   path?: string;
+  /** The call's input (`rawInput`) for a call that is not a command: SendMessage's `{ to, message }`. */
+  input?: Record<string, unknown>;
 };
 
 export type IncomingOptions = {
@@ -160,6 +162,45 @@ export class SimBuilder {
     return this.started(300);
   }
 
+  /** acpmux's inbox notice (provenance `inbox_notice`, hub/inbox.rs): other agents' messages delivered
+   *  as one prompt, a "Received N messages" row. `turn: true` starts a turn with it (the agent was
+   *  idle); otherwise it comes into the running turn. */
+  inbox(messages: { from: string; text: string }[], { turn = true, after = 1_000 } = {}): this {
+    if (turn) this.newTurn();
+    const notice = `inbox-notice-${this.seq + 1}`;
+    const threads = messages.map((message, index) => {
+      const promptId = `${notice}-p${index}`;
+      return {
+        blocker: false,
+        from: [message.from],
+        label: "messages",
+        threadId: `from:${message.from}`,
+        count: 1,
+        preview: message.text.split("\n")[0],
+        promptIds: [promptId],
+        messages: [{ at: this.now + after, from: message.from, promptId, text: message.text }],
+      };
+    });
+    const value = [
+      `[inbox] New messages from other agents in ${threads.length} thread${threads.length === 1 ? "" : "s"}.`,
+      ...threads.map((thread) => `- 1 new from ${thread.from[0]}: ${thread.preview} (thread ${thread.threadId})`),
+    ].join("\n");
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId: turn ? this.promptId : notice,
+        ...(turn ? { turnId: this.turnId } : {}),
+        client: "acpmux",
+        _meta: { provenance: { kind: "inbox_notice", noticeId: notice, threads } },
+      },
+      after,
+      `inbox: ${messages.length} message(s)`,
+    );
+    return turn ? this.started(300) : this;
+  }
+
   /** A thought, streamed in `chunks` deltas `chunkMs` apart. */
   think(value: string, { chunks = 3, chunkMs = 120, after = 400 } = {}): this {
     chunked(value, chunks).forEach((part, index) =>
@@ -202,6 +243,7 @@ export class SimBuilder {
         kind,
         status: "in_progress",
         ...(kind === "execute" ? { rawInput: { command: title, description: title } } : {}),
+        ...(options.input ? { rawInput: options.input } : {}),
         ...(options.path ? { locations: [{ path: options.path }] } : {}),
         ...(options.tool ? { _meta: { claude: { tool: options.tool } } } : {}),
       }),
@@ -262,6 +304,15 @@ export class SimBuilder {
       );
     }
     return this;
+  }
+
+  /** Claude Code's SendMessage to a subagent (by its agentId) or another agent: a "Sent to" row. */
+  sendMessage(to: string, message: string, { ms = 2_500, after = 300 } = {}): this {
+    return this.tool(
+      "SendMessage",
+      { kind: "other", tool: "SendMessage", input: { to, message }, ms, output: '{"success":true}' },
+      after,
+    );
   }
 
   /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. */

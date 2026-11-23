@@ -54,7 +54,10 @@ CMUX_BROWSER_TESTS=1 bun test test/chat-sim-browser.test.ts                     
 CMUX_BROWSER_TESTS=1 CHAT_SIM_SCENARIOS=incoming-notice-turn,long:40 bun test test/chat-sim-browser.test.ts
 CMUX_BROWSER_TESTS=1 CHAT_SIM_OUT=/tmp/chrome.json bun test test/chat-sim-browser.test.ts   # results as JSON
 CMUX_BROWSER_TESTS=1 CHAT_SIM_DUMP=incoming-notice-turn:30 bun test test/chat-sim-browser.test.ts  # the boxes at a step
+CMUX_BROWSER_TESTS=1 CHAT_SIM_SCAN=inbox-delivery-turn bun test test/chat-sim-browser.test.ts     # blank bands over one-line rows
 ```
+
+A scenario name `fixture:NAME` plays `test/fixtures/chat-sim/NAME.ndjson` (a sanitized replay) in either.
 
 It needs Chrome (Linux, a Freestyle VM or CI; never on a Mac). A step costs two frames, so the replay
 (3,561 steps) takes a couple of minutes.
