@@ -1,10 +1,10 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::TcpListener;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::peers::{Answer, Chain, Get, blob_id};
@@ -201,12 +201,16 @@ fn the_config_file_fills_what_the_environment_leaves_out() {
 // `git hash-object` of "hello\n".
 const HELLO: &str = "ce013625030ba8dba906f756967f9e9ca394464a";
 
-/// A local S3: path-style `GET /<bucket>/objects/<id>`, checking each request's SigV4 signature
-/// with `keys` (`None`: a public bucket, asked unsigned). A request whose signature does not
-/// match is answered 403, as S3 does.
+/// A local S3: path-style `GET`, `HEAD` and `PUT` of `/<bucket>/objects/<id>`, checking each
+/// request's SigV4 signature with `keys` (`None`: a public bucket, asked unsigned) and a `PUT`'s
+/// declared payload hash against its body. A request whose signature does not match is answered
+/// 403, as S3 does.
 struct FakeS3 {
     base: String,
     asked: Arc<AtomicUsize>,
+    /// The method of every request, in order.
+    methods: Arc<Mutex<Vec<String>>>,
+    blobs: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 fn fake_s3(keys: Option<Keys>, blobs: HashMap<String, Vec<u8>>) -> FakeS3 {
@@ -214,12 +218,20 @@ fn fake_s3(keys: Option<Keys>, blobs: HashMap<String, Vec<u8>>) -> FakeS3 {
     let port = listener.local_addr().unwrap().port();
     let asked = Arc::new(AtomicUsize::new(0));
     let counter = Arc::clone(&asked);
-    let (keys, blobs) = (Arc::new(keys), Arc::new(blobs));
+    let methods = Arc::new(Mutex::new(Vec::new()));
+    let methods_seen = Arc::clone(&methods);
+    let blobs = Arc::new(Mutex::new(blobs));
+    let held = Arc::clone(&blobs);
+    let keys = Arc::new(keys);
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { return };
-            let (keys, blobs, counter) =
-                (Arc::clone(&keys), Arc::clone(&blobs), Arc::clone(&counter));
+            let (keys, blobs, counter, methods) = (
+                Arc::clone(&keys),
+                Arc::clone(&held),
+                Arc::clone(&counter),
+                Arc::clone(&methods_seen),
+            );
             std::thread::spawn(move || {
                 let mut writer = stream.try_clone().unwrap();
                 let mut reader = BufReader::new(stream);
@@ -242,7 +254,17 @@ fn fake_s3(keys: Option<Keys>, blobs: HashMap<String, Vec<u8>>) -> FakeS3 {
                                 .insert(name.trim().to_ascii_lowercase(), value.trim().to_owned());
                         }
                     }
+                    let method = line.split_whitespace().next().unwrap_or_default().to_owned();
                     let path = line.split_whitespace().nth(1).unwrap_or_default().to_owned();
+                    methods.lock().unwrap().push(method.clone());
+                    let length: usize = headers
+                        .get("content-length")
+                        .and_then(|value| value.parse().ok())
+                        .unwrap_or(0);
+                    let mut body = vec![0u8; length];
+                    if reader.read_exact(&mut body).is_err() {
+                        return;
+                    }
                     let signed_ok = keys.as_ref().as_ref().is_none_or(|keys| {
                         let mut signed: Vec<(String, String)> =
                             ["host", "x-amz-content-sha256", "x-amz-date", "x-amz-security-token"]
@@ -254,18 +276,22 @@ fn fake_s3(keys: Option<Keys>, blobs: HashMap<String, Vec<u8>>) -> FakeS3 {
                                 })
                                 .collect();
                         signed.sort();
-                        let want = authorization(keys, "us-east-1", "GET", &path, "", &signed);
+                        let want = authorization(keys, "us-east-1", &method, &path, "", &signed);
                         headers.get("authorization") == Some(&want)
+                            && (method != "PUT"
+                                || headers.get("x-amz-content-sha256") == Some(&sha256_hex(&body)))
                     });
+                    let oid = path.strip_prefix("/blobs/objects/").unwrap_or_default().to_owned();
                     let (status, body) = if !signed_ok {
                         (
                             "403 Forbidden",
                             b"<Error><Code>SignatureDoesNotMatch</Code></Error>".to_vec(),
                         )
-                    } else if let Some(bytes) =
-                        path.strip_prefix("/blobs/objects/").and_then(|oid| blobs.get(oid))
-                    {
-                        ("200 OK", bytes.clone())
+                    } else if method == "PUT" {
+                        blobs.lock().unwrap().insert(oid, body);
+                        ("200 OK", Vec::new())
+                    } else if let Some(bytes) = blobs.lock().unwrap().get(&oid) {
+                        ("200 OK", if method == "HEAD" { Vec::new() } else { bytes.clone() })
                     } else {
                         ("404 Not Found", Vec::new())
                     };
@@ -284,7 +310,7 @@ fn fake_s3(keys: Option<Keys>, blobs: HashMap<String, Vec<u8>>) -> FakeS3 {
             });
         }
     });
-    FakeS3 { base: format!("http://127.0.0.1:{port}"), asked }
+    FakeS3 { base: format!("http://127.0.0.1:{port}"), asked, methods, blobs }
 }
 
 /// No other source holds anything.
@@ -363,4 +389,152 @@ fn wrong_keys_drop_the_store_on_its_first_answer() {
     let asked = s3.asked.load(Ordering::SeqCst);
     assert!(asked <= 8, "asked {asked} times");
     assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+}
+
+fn example_keys() -> Keys {
+    Keys {
+        access_key_id: "AKIDEXAMPLE".to_owned(),
+        secret_access_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".to_owned(),
+        session_token: None,
+    }
+}
+
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> &'a str {
+    headers.iter().find(|(at, _)| at == name).map_or("", |(_, value)| value.as_str())
+}
+
+/// The same requests signed by botocore 1.34.46's `S3SigV4Auth` (payload signing on).
+#[test]
+fn signs_get_and_put_as_botocore_does() {
+    let at = UNIX_EPOCH + Duration::from_secs(1_795_406_706);
+    let store = |endpoint: &str, bucket: &str, prefix: &str| {
+        Config::bucket(
+            "s3",
+            Bucket {
+                endpoint: endpoint.to_owned(),
+                bucket: bucket.to_owned(),
+                region: "auto".to_owned(),
+                prefix: prefix.to_owned(),
+                keys: Some(example_keys()),
+                ..Bucket::default()
+            },
+        )
+        .unwrap()
+    };
+    let get = store("http://127.0.0.1:9000", "blobs", "fleet/objects").signed(
+        "GET",
+        HELLO,
+        EMPTY_SHA256,
+        at,
+    );
+    assert_eq!(header(&get, "x-amz-content-sha256"), EMPTY_SHA256);
+    assert!(header(&get, "authorization").ends_with(
+        "SignedHeaders=host;x-amz-content-sha256;x-amz-date, \
+         Signature=bcd733d4784bab47b63bc7c087c96c323f98dac7d2ba863fc38876b4756e90ab"
+    ));
+    let put = store("https://acct.r2.cloudflarestorage.com:443", "blobs", "objects").signed(
+        "PUT",
+        HELLO,
+        &sha256_hex(b"hello\n"),
+        at,
+    );
+    assert_eq!(
+        header(&put, "x-amz-content-sha256"),
+        "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+    );
+    assert!(
+        header(&put, "authorization").ends_with(
+            "Signature=e071a88b764001aed706aefcd23eff178300f0300cab083c15d534e71fa3fcf4"
+        ),
+        "{put:?}"
+    );
+}
+
+/// A push sends only what the bucket lacks (one `HEAD` each), and the chain then reads it back.
+#[test]
+fn a_push_stores_what_the_bucket_lacks_and_skips_what_it_has() {
+    let s3 = fake_s3(Some(aws_keys()), HashMap::from([(HELLO.to_owned(), b"hello\n".to_vec())]));
+    let store = store_at(&s3.base, Some(aws_keys()));
+    let new = b"a new blob\n";
+    let new_id = blob_id(new, 40);
+    assert_eq!(store.push(HELLO, b"hello\n").unwrap(), Pushed::Had);
+    assert_eq!(store.push(&new_id, new).unwrap(), Pushed::Stored);
+    assert_eq!(store.push(&new_id, new).unwrap(), Pushed::Had);
+    assert_eq!(*s3.methods.lock().unwrap(), ["HEAD", "HEAD", "PUT", "HEAD"]);
+    assert_eq!(s3.blobs.lock().unwrap().get(&new_id).map(Vec::as_slice), Some(&new[..]));
+    let chain = Chain::new(Vec::new(), Box::new(NoNet)).with_stores(vec![store]);
+    let (rest, filled, kept) = fill(&chain, std::slice::from_ref(&new_id));
+    assert!(rest.is_empty());
+    assert_eq!((kept, filled.r2), (vec![new_id], 1));
+}
+
+/// Bytes that are not the blob they are named as are never sent: the bucket holds no wrong object
+/// under a right name.
+#[test]
+fn a_push_refuses_bytes_that_do_not_hash_to_their_id() {
+    let s3 = fake_s3(Some(aws_keys()), HashMap::new());
+    let store = store_at(&s3.base, Some(aws_keys()));
+    assert!(store.push(HELLO, b"not hello\n").is_err());
+    assert!(store.push("../../etc", b"hello\n").is_err());
+    assert_eq!(s3.asked.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_push_with_wrong_keys_is_denied() {
+    let s3 = fake_s3(Some(aws_keys()), HashMap::new());
+    let mut wrong = aws_keys();
+    wrong.secret_access_key = "not-the-secret".to_owned();
+    let store = store_at(&s3.base, Some(wrong));
+    assert_eq!(store.push(HELLO, b"hello\n").unwrap(), Pushed::Denied(403));
+    assert!(s3.blobs.lock().unwrap().is_empty());
+}
+
+fn push_target(to: &str, vars: &[(&str, &str)]) -> Result<Config, String> {
+    let vars: HashMap<String, String> =
+        vars.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect();
+    Config::push_target(to, &|name: &str| vars.get(name).cloned())
+}
+
+#[test]
+fn a_push_target_is_the_configured_store_or_the_url_with_the_s3_keys() {
+    // The store the chain reads, with its own keys and region.
+    let configured = push_target(
+        "https://acct.r2.cloudflarestorage.com/seed/objects/",
+        &[
+            ("CMUX_PROJECTION_R2_ACCOUNT_ID", "acct"),
+            ("CMUX_PROJECTION_R2_BUCKET", "seed"),
+            ("CMUX_PROJECTION_R2_ACCESS_KEY_ID", "r2-id"),
+            ("CMUX_PROJECTION_R2_SECRET_ACCESS_KEY", "r2-secret"),
+            ("AWS_ACCESS_KEY_ID", "aws-id"),
+            ("AWS_SECRET_ACCESS_KEY", "aws-secret"),
+        ],
+    )
+    .unwrap();
+    assert_eq!((configured.tier, configured.region.as_str()), ("r2", "auto"));
+    assert_eq!(configured.keys.map(|keys| keys.access_key_id).as_deref(), Some("r2-id"));
+    // Any other base, with the standard keys.
+    let url = push_target(
+        "http://127.0.0.1:9000/blobs/fleet",
+        &[("AWS_ACCESS_KEY_ID", "id"), ("AWS_SECRET_ACCESS_KEY", "secret")],
+    )
+    .unwrap();
+    assert_eq!(url.base, "http://127.0.0.1:9000/blobs/fleet");
+    assert_eq!((url.host.as_str(), url.path.as_str()), ("127.0.0.1:9000", "/blobs/fleet"));
+    assert_eq!(url.region, "us-east-1");
+    let r2 = push_target(
+        "https://other.r2.cloudflarestorage.com/b/objects",
+        &[
+            ("CMUX_PROJECTION_S3_ACCESS_KEY_ID", "id"),
+            ("CMUX_PROJECTION_S3_SECRET_ACCESS_KEY", "s"),
+        ],
+    )
+    .unwrap();
+    assert_eq!(r2.region, "auto");
+    // A public bucket is read unsigned, but a push always signs.
+    let no_keys = push_target(
+        "https://pub-1.r2.dev/objects",
+        &[("CMUX_PROJECTION_R2_URL", "https://pub-1.r2.dev")],
+    );
+    assert!(no_keys.is_err_and(|why| why.contains("no access keys")));
+    assert!(push_target("s3://bucket", &[]).is_err());
 }
