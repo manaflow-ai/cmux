@@ -27,6 +27,7 @@ struct FeedPeekView: View {
             }
         }
         .background(Color.cmuxMobileBackground)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier(chat == nil ? "feed.peek.event" : "feed.peek.chat")
     }
 

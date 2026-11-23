@@ -158,12 +158,13 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             // Long-press peek (FeedPeek). The chat was opened once, so its transcript is on the phone:
             // the preview is the chat's newest turns.
             Scene(group: g, id: "row-peek-chat", args: Self.feed) { app in
-                let row = app.tables["feed.list"].cells["feed.row.f-pricing"]
+                let row = app.tables["feed.list"].cells["feed.row.f-finished"]
+                for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
                 return C.steps([
-                    { C.tap(row, "pricing row") },
+                    { C.tap(row, "finished row") },
                     { C.wait(app.navigationBars.buttons["More"].firstMatch, "chat", timeout: 30) },
                     { C.pause(2); return C.tap(app.navigationBars.buttons.firstMatch, "Back") },
-                    { C.pause(1.5); return C.longPress(row, "pricing row") },
+                    { C.pause(1.5); return C.longPress(row, "finished row") },
                     { C.wait(C.any(app, "feed.peek.chat"), "chat preview", timeout: 10) },
                 ])
             },
