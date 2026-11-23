@@ -309,6 +309,16 @@ elif verb == "import":
 '''
 
 
+def until(condition, seconds: float = 10) -> bool:
+    """Until condition() holds (a stopped process gone, say), SECONDS at most: whether it held."""
+    deadline = time.monotonic() + seconds
+    while not condition():
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def write_executable(path: Path, text: str) -> None:
     path.write_text(text.replace("PYTHON", sys.executable, 1))
     path.chmod(0o755)
@@ -583,9 +593,9 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         calls = (self.defaults_dir / "calls.log").read_text().split("\n")
         self.assertEqual(calls.count(f"delete {BUNDLE}"), 4)
         self.assertEqual((self.defaults_dir / f"{BUNDLE}.plist").read_bytes(), b"account defaults")
-        time.sleep(0.2)
-        self.assertFalse(smoke.alive(arm["pid"]), "the seeded launch outlived the run")
-        self.assertFalse(smoke.alive(int(self.host_pid_path.read_text())), "the seeded launch's terminal host outlived the run")
+        self.assertTrue(until(lambda: not smoke.alive(arm["pid"])), "the seeded launch outlived the run")
+        host = int(self.host_pid_path.read_text())
+        self.assertTrue(until(lambda: not smoke.alive(host)), "the seeded launch's terminal host outlived the run")
         self.assert_cleaned_up(report)
 
     def test_the_report_keeps_the_hosts_load_for_each_arm_and_the_seeded_launchs_marks(self):
@@ -1762,7 +1772,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
-        time.sleep(0.2)
+        until(lambda: smoke.pids_under(Path(report["root"])) == [])
         self.assertEqual(smoke.pids_under(Path(report["root"])), [])
 
     def test_the_apps_terminal_host_is_stopped_by_its_record(self):
@@ -1771,8 +1781,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         status, output, report = self.run_smoke("healthy", "--seconds", "0", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
         host = int(self.host_pid_path.read_text())
-        time.sleep(0.2)
-        self.assertFalse(smoke.alive(host), "the app's terminal host outlived the run")
+        self.assertTrue(until(lambda: not smoke.alive(host)), "the app's terminal host outlived the run")
         self.assert_cleaned_up(report)
 
     def test_a_recorded_pid_that_is_not_a_terminal_host_is_left_alone(self):
@@ -1836,7 +1845,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         written = []
 
         def write_mark_soon():
-            time.sleep(0.05)
+            time.sleep(0.05)  # sleep-ok: the mark arrives 50 ms into the watch's wait, the lag the test measures
             written.append(time.monotonic())
             os.write(marks_write, f"{smoke.RENDER_MARK} 812.0\n".encode())
 
