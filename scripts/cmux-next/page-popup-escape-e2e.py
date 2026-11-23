@@ -111,13 +111,23 @@ def main():
               flush=True)
     rpc("debug.key", {"key": "i", "modifiers": ["command"]})
     ready = wait(lambda: "error" not in (rpc("debug.agent_pane", {"action": "readiness"}) or {"error": 1}), 30)
-    time.sleep(2)  # test harness: the new chat's composer mounts
+    # Until the new chat's composer is on screen.
+    if ready and not wait(lambda: (rpc("debug.agent_pane", {"action": "readiness"}) or {}).get("composer_visible"), 15, 0.1):
+        print("note: the new chat's composer never showed in 15 s", flush=True)
     x, y = ((rpc("debug.window_frame") or {}).get("frame") or [100, 100])[:2]  # [x, y, width, height]
     frame = rpc("debug.window_frame", {"frame": [x, y, 600, 400]}) or {}
     print("window:", json.dumps(frame), "chat ready:", bool(ready), flush=True)
     size = [round(v) for v in (frame.get("frame") or [0, 0, 0, 0])[2:]]
     row("the window is 600x400", "600x400", "x".join(map(str, size)), size == [600, 400])
-    time.sleep(1)  # test harness: the page lays out at the new size
+    # Until the panes and the chat hold still at the new size.
+    settled = [None, 0]
+    def laid_out():
+        now = json.dumps([rpc("debug.pane_chrome"), rpc("debug.agent_pane", {"action": "readiness"})], sort_keys=True)
+        settled[1] = settled[1] + 1 if now == settled[0] else 1
+        settled[0] = now
+        return settled[1] >= 3
+    if not wait(laid_out, 10, 0.1):
+        print("note: the layout never held still in 10 s after the resize", flush=True)
     for surface in opts.surface:
         check_surface(surface)
     if opts.page_host:

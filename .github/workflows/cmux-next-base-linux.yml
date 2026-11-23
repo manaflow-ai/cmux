@@ -7,12 +7,17 @@ name: cmux-next base linux
 #
 # It reports and holds nothing: no pull request waits on it and no status is posted on one. A red run names
 # the merges since the last green tip and their authors in its summary; it starts no bisect and opens no
-# revert. One run at a
-# time per branch; pushes that land while it runs collapse into one pending run on the newest tip, so a
-# busy hour is about a dozen runs, not one per merge. Each run routes the steps by the paths changed
-# since the last green run, so a red step runs again on every tip until the base is green, and a run
-# after a green one costs only the steps the new commits reach. With no green run to diff from (the first
-# run, or a read that failed) every linux step runs.
+# revert. One run at a time per branch; pushes that land while it runs collapse into one pending run on the
+# newest tip, so a busy hour is about a dozen runs, not one per merge.
+#
+# Each run routes the steps by the paths changed since the last green run, so a red step runs again on
+# every tip until the base is green, and a run after a green one costs only the steps the new commits
+# reach. When the read of the last green run fails (its first hour: HTTP 403 twice, and both runs ran every
+# step, 22 of the hour's 62 runner-min), the run routes by the push's own diff; the next run that reads a
+# green tip covers what that left out. Only a branch with no green run yet runs every linux step.
+#
+# A step that fails runs once more by itself before the run is red (a failed setup or tool: the whole job): in that first hour 4 of 13 runs were
+# red and none was a base break (one timing test twice, a slow runner, a runner shut down).
 #
 # A push to a lane/base-linux-drill-* branch runs it there (the drill).
 on:
@@ -46,31 +51,69 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
       - name: List the paths changed since the last green run
-        timeout-minutes: 3
+        timeout-minutes: 4
         env:
           GH_TOKEN: ${{ github.token }}
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
+          # Prints the last green tip, `none` when the branch has no green run, or nothing when the read failed.
           since="$(python3 - <<'PY' || true
-          import json, os, urllib.request
+          import json, os, sys, time, urllib.request
           url = (f"{os.environ['GITHUB_API_URL']}/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/"
                  f"cmux-next-base-linux.yml/runs?branch={os.environ['GITHUB_REF_NAME']}&status=success&per_page=1")
           request = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
                                                          "Accept": "application/vnd.github+json"})
-          with urllib.request.urlopen(request, timeout=30) as answer:
-              runs = json.load(answer).get("workflow_runs") or []
-          print(runs[0]["head_sha"] if runs else "")
+          for wait in (0, 5, 20):
+              time.sleep(wait)
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as answer:
+                      runs = json.load(answer).get("workflow_runs") or []
+              except (OSError, ValueError) as error:
+                  print(f"::warning::The read of the last green run failed: {error}", flush=True, file=sys.stderr)
+                  continue
+              print(runs[0]["head_sha"] if runs else "none")
+              break
           PY
           )"
+          from="last green run"
+          if [[ -z "$since" && "$PUSH_BEFORE" =~ ^[0-9a-f]{40}$ && ! "$PUSH_BEFORE" =~ ^0+$ ]]; then
+            since="$PUSH_BEFORE"
+            from="tip before this push (the last green run could not be read)"
+          fi
           if [[ "$since" =~ ^[0-9a-f]{40}$ ]] && git fetch --quiet --no-tags --depth=1 origin "$since"; then
             git diff --name-only --no-renames -z "$since" HEAD > "$RUNNER_TEMP/changed-paths.txt"
             echo "PATHS_FILE=$RUNNER_TEMP/changed-paths.txt" >> "$GITHUB_ENV"
             echo "SINCE_SHA=$since" >> "$GITHUB_ENV"
-            echo "::notice::linux steps routed by the $(tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c) paths changed since the last green run ($since)."
+            echo "::notice::linux steps routed by the $(tr -cd '\0' < "$RUNNER_TEMP/changed-paths.txt" | wc -c) paths changed since the $from ($since)."
           else
-            echo "::notice::No green run to diff from: every linux step runs."
+            echo "::notice::No tip to diff from: every linux step runs."
           fi
       - name: Run the routed linux steps (ci/steps.toml)
-        run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
+        run: |
+          set +e
+          ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} 2>&1 | tee "$RUNNER_TEMP/linux-first.log"
+          first="${PIPESTATUS[0]}"
+          set -e
+          if [[ "$first" -eq 0 ]]; then
+            exit 0
+          fi
+          # The blocking steps that failed, from the runner's own `::error ...::step NAME exited|ran past` lines.
+          again="$(sed -n 's/^::error .*::step \([^ ]*\) \(exited\|ran past\) .*/\1/p' "$RUNNER_TEMP/linux-first.log" | sort -u | paste -sd, -)"
+          only=(--only "$again")
+          # A setup or a tool that failed (`step tool (rust) ran past its 180 s`) kept steps from running at
+          # all, and a failure that names no step is not one step's: the whole routed job runs again.
+          if [[ -z "$again" ]] || grep -qE '^::error .*::step (setup|tool) \(' "$RUNNER_TEMP/linux-first.log"; then
+            again="the whole routed job (a setup or a tool failed, or no step was named)"
+            only=()
+          fi
+          echo "::notice::Failed once, running once more: $again"
+          if ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${only[@]}"; then
+            echo "::warning title=Flaky on the base::Failed once and passed when run again, so the base is not red: $again"
+            echo "Failed once and passed when run again (flaky, the base is not red): $again" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::Failed twice on this tip: $again"
+          exit 1
       - name: Name the merges since the last green tip
         if: failure()
         timeout-minutes: 3
@@ -93,7 +136,7 @@ jobs:
                   title = commit["commit"]["message"].splitlines()[0]
                   lines.append(f"- {commit['sha'][:12]} {title} ({who})")
           else:
-              lines.append("No green run to count from: every linux step ran on this tip.")
+              lines.append("No tip to count from: every linux step ran on this tip.")
           text = "\n".join(lines) + "\n"
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
               summary.write(text)
