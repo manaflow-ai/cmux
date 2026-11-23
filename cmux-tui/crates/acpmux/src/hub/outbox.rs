@@ -303,10 +303,10 @@ impl Delivery {
 /// The deliveries, saved at `path` when the store is on disk.
 #[derive(Default)]
 pub struct Outbox {
-    deliveries: StdMutex<Book>,
+    deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
-    disk: StdMutex<Disk>,
+    disk: crate::worker_lock::Mutex<Disk>,
     /// At most one bounded delivery/reconciliation task for each id in this launch.
     running: StdMutex<HashSet<String>>,
     /// Fired on every change: a `send_status` that waits wakes.
@@ -318,6 +318,8 @@ pub struct Outbox {
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
+    /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
+    unsettled_seen: std::sync::atomic::AtomicUsize,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -507,8 +509,25 @@ impl Outbox {
 
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
+    /// Never waits: `status` (every pane's connect, `ls`) reads it, and a writer can hold the
+    /// book for seconds on a loaded Mac (Leo's daemon, 2026-11-22). While the book is held this
+    /// answers the last count it made.
     pub fn unsettled(&self) -> usize {
-        self.book().deliveries.values().filter(|d| !d.settled()).count()
+        use std::sync::atomic::Ordering::Relaxed;
+        let Some(book) = self.deliveries.try_lock() else {
+            return self.unsettled_seen.load(Relaxed);
+        };
+        let count = book.deliveries.values().filter(|d| !d.settled()).count();
+        self.unsettled_seen.store(count, Relaxed);
+        count
+    }
+
+    /// Tests only: takes the book, runs `taken`, and holds it for `held`, as a slow writer does.
+    #[cfg(test)]
+    pub(crate) fn hold_book_for_then(&self, held: std::time::Duration, taken: impl FnOnce()) {
+        let _book = self.book();
+        taken();
+        std::thread::sleep(held);
     }
 
     /// Keep the original team destination independently of the hub's resolved receipt shape.

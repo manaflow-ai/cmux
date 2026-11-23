@@ -179,6 +179,7 @@ fn exited_host_fixture_with_parser_at(
         exit_published: AtomicBool::new(false),
         exit_record_path,
         exit_publish_requests,
+        exit_publisher: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),
