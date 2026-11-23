@@ -606,6 +606,20 @@
       "title" : "Compress Chats Idle For",
       "type" : "number"
     },
+    "agents.chats.coldSegments" : {
+      "default" : false,
+      "description" : "Compresses the older parts of long chats. Run cmux chats warm to undo.",
+      "title" : "Compress Long Chats",
+      "type" : "boolean"
+    },
+    "agents.chats.coldSegmentsLevel" : {
+      "default" : 3,
+      "description" : "Higher levels use less disk and take longer to compress.",
+      "maximum" : 19,
+      "minimum" : 1,
+      "title" : "Long Chat Compression Level",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -3076,23 +3090,7 @@
         "org.keepassxc.KeePassXC",
         "1password",
         "bitwarden",
-        "com.apple.systempreferences",
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.mitchellh.ghostty",
-        "net.kovidgoyal.kitty",
-        "com.github.wez.wezterm",
-        "org.alacritty",
-        "dev.warp.*",
-        "windowsterminal.exe",
-        "cmd.exe",
-        "powershell.exe",
-        "pwsh.exe",
-        "org.gnome.Terminal",
-        "org.gnome.Ptyxis",
-        "org.kde.konsole",
-        "com.cmuxterm.app",
-        "com.cmuxterm.app.*"
+        "com.apple.systempreferences"
       ],
       "description" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
       "items" : {
@@ -6353,7 +6351,7 @@
       "type" : "boolean"
     },
     "tabs.newTabApp" : {
-      "description" : "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+      "description" : "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
       "title" : "New Tab App",
       "type" : "string"
     },

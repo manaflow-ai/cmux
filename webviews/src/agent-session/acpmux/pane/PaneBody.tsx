@@ -25,8 +25,10 @@ import { knownRefusalText } from "../transportErrors";
 import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
 import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
+import type { NewTabStartFailure } from "../newtab/StartFailure";
 import { HistoryScreen } from "../newtab/HistoryScreen";
-import { NewTabAppPage } from "../newtab/NewTabAppPage";
+import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
+import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
@@ -274,6 +276,10 @@ export type PaneBodyDeps = NewTabShown &
     pendingCommands: SlashCommand[] | undefined;
     extensionCommands: readonly SlashCommand[];
     newTabFixError: string | undefined;
+    /// A New Tab start that failed before any chat opened: the page came back and says it.
+    newTabStartFailure: Omit<NewTabStartFailure, "retry"> | undefined;
+    /// Leaves New Tab for a start, keeping the page until it opens a chat or fails (App.tsx).
+    leaveNewTabForStart: (sent?: { text: string; attachments: ComposerAttachment[] }) => void;
     newTabKnownProjects: readonly string[] | null;
     startFolder: string | undefined;
     onNewTabPromptTyped: (text: string, target?: { harness?: string; cwd?: string }) => void;
@@ -544,6 +550,8 @@ export function drawPaneBody({
   pendingCommands,
   extensionCommands,
   newTabFixError,
+  newTabStartFailure,
+  leaveNewTabForStart,
   newTabKnownProjects,
   startFolder,
   onNewTabPromptTyped,
@@ -787,37 +795,46 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen &&
-            showNewTab &&
-            !newTab.history &&
-            !newTabApp &&
-            pageStyle(shownTemplate(newTab)) !== "minimal" && (
-              <StyleSwitch
-                current={pageStyle(shownTemplate(newTab))}
-                onPick={(next) =>
-                  pickNewTabStyle(next, {
-                    callNative,
-                    show: (template) => setNewTab((current) => current && { ...current, template }),
-                  })
-                }
-                onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              />
-            )}
-          {showNewTab && folderAskView}
-          {newTabApp && !harnessesOpen ? (
-            <NewTabAppPage
-              key={`${newTabGeneration}:${newTabApp}`}
-              app={newTabApp}
-              {...(newTab?.cwd ? { cwd: newTab.cwd } : {})}
-              onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-              inputToken={newTab?.inputToken}
-              onInputReady={(token) => void callNative("newTab.inputReady", { token })}
+          {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
+            <StyleSwitch
+              current={pageStyle(shownTemplate(newTab))}
+              onPick={(next) =>
+                pickNewTabStyle(next, {
+                  callNative,
+                  show: (template) => setNewTab((current) => current && { ...current, template }),
+                })
+              }
+              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
-          ) : showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          )}
+          {showNewTab && folderAskView}
+          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
                 <NewTabScreen
+                  // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
+                  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
+                  // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
+                  // composer, its focus and its input-ready report stay the page's own.
+                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
+                  {...(newTab.app || newTab.clock
+                    ? {
+                        above: (
+                          <>
+                            {newTab.clock && <NewTabClock {...newTab.clock} />}
+                            {newTabApp && (
+                              <NewTabAppSlot
+                                key={`${newTabGeneration}:${newTabApp}`}
+                                app={newTabApp}
+                                {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+                                onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+                              />
+                            )}
+                          </>
+                        ),
+                      }
+                    : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -975,6 +992,7 @@ export function drawPaneBody({
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
+                  {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
                   lastAgent={newTab.lastAgent}
@@ -1036,7 +1054,8 @@ export function drawPaneBody({
                       // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
                       leave: () => {
                         holdComposerPlace();
-                        setNewTab(undefined);
+                        // Kept until the start opens a chat or fails (`startLeftNewTab`).
+                        leaveNewTabForStart();
                       },
                       selectSession,
                       showAllChats,
@@ -1119,6 +1138,7 @@ export function drawPaneBody({
               onInputReady={(token) => void callNative("newTab.inputReady", { token })}
               onLeaveDraft={leaveNewTabDraft}
               takeDraft={takeNewTabDraft}
+              {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
               onFieldEdit={newTabFieldEdited}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
