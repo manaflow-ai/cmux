@@ -1,8 +1,9 @@
 //! Part of `Peer` (`peer.rs`). The peer's resources (`_acpmux/host_health`:
 //! RAM, disk, load, budget verdict, live agents, the health loop's
 //! problems), kept from the link's own keepalive so `host ls` and placement
-//! read them from memory and ask no machine. No timer of its own: the ping tick asks every `HEALTH_EVERY`
-//! ticks (60 s at the default 20 s ping), one request at a time with a
+//! read them from memory and ask no machine. No timer of its own: the ping tick asks once the link is ready and
+//! then once every `HEALTH_EVERY` of wall time, whatever the ping cadence (a 2 s ping that asked
+//! every third tick sent each peer an ask every 6 s, ten times the design), one request at a time with a
 //! `HEALTH_BUDGET` deadline, and only while the link is ready; it stops when
 //! the connection does. A peer on a build without the method is kept as
 //! `{"unsupported": true}` and reads as unknown, never as down.
@@ -14,8 +15,13 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-/// Ask on every this many ping ticks.
-pub(super) const HEALTH_EVERY: u64 = 3;
+/// How often the ping tick asks, measured in time, not ticks, so a faster ping does not ask more.
+pub(super) const HEALTH_EVERY: Duration = Duration::from_secs(60);
+
+/// Whether the ping tick at `now` asks: the first ready tick does, then one every `HEALTH_EVERY`.
+pub(super) fn health_due(last: Option<tokio::time::Instant>, now: tokio::time::Instant) -> bool {
+    last.is_none_or(|at| now.saturating_duration_since(at) >= HEALTH_EVERY)
+}
 /// How long one ask may take. `refresh_health` is detached from the link loop, and a timeout
 /// keeps the previous reading; it never blocks a wake or launch.
 // timeout: stale health is preferable to making peer/link work fail on a busy machine.
@@ -94,4 +100,28 @@ fn trim(v: Value) -> Value {
         out.insert("problems".to_owned(), crate::server::machine_health::sanitize(problems));
     }
     Value::Object(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_is_asked_once_a_minute_whatever_the_ping() {
+        let start = tokio::time::Instant::now();
+        // The first ready tick asks.
+        assert!(health_due(None, start));
+        // A 2 s ping ticks 29 more times before the next ask, not 2.
+        let mut asks = 1;
+        let mut last = start;
+        for tick in 1..=150u32 {
+            let now = start + Duration::from_secs(2) * tick;
+            if health_due(Some(last), now) {
+                asks += 1;
+                last = now;
+            }
+        }
+        // 300 s of 2 s pings: one ask a minute (at 0, 60, 120, 180, 240, 300 s).
+        assert_eq!(asks, 6);
+    }
 }
