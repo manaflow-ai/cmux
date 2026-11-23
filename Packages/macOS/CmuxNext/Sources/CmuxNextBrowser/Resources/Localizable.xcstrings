@@ -28990,6 +28990,90 @@
           }
         }
       }
+    },
+    "browser.designMode.commentSend": {
+      "comment": "The small hint in a pick's comment bubble when the workspace's agent chat keeps comment threads: Command-Return adds the pick and sends it to the agent at once",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command-Return to send to agent"
+          }
+        }
+      }
+    },
+    "browser.designMode.threadSending": {
+      "comment": "A sent design mode comment's thread card on the page, while it is being sent to the agent chat",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending…"
+          }
+        }
+      }
+    },
+    "browser.designMode.threadSent": {
+      "comment": "A sent design mode comment's thread card on the page, after the agent chat took it and before the agent replied",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent"
+          }
+        }
+      }
+    },
+    "browser.designMode.threadAnswered": {
+      "comment": "The heading of a design mode comment's thread card on the page, above the agent's reply",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent replied"
+          }
+        }
+      }
+    },
+    "browser.designMode.threadFailed": {
+      "comment": "A design mode comment's thread card on the page when the comment was not sent or the agent's turn failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not answered"
+          }
+        }
+      }
+    },
+    "browser.designMode.threadResolve": {
+      "comment": "The button on a design mode comment's thread card that closes the thread and removes the pick",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve"
+          }
+        }
+      }
+    },
+    "browser.designMode.sendFailed": {
+      "comment": "The browser's notice when Send to agent for a design mode comment failed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The comment could not be sent to the agent chat."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
