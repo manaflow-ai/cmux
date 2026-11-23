@@ -151,7 +151,7 @@ PAGE_PROBE = """(() => {
     return {name, where, iterations: String(timing.iterations), duration: timing.duration};
   });
   const el = document.activeElement;
-  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(),
+  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(), ready: document.readyState,
     active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
     animation_count: anims.length});
 })()"""
@@ -181,14 +181,20 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         reply = devtools(browser, "Performance.getMetrics")
         return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
 
+    every = (call("debug.cef_pages") or {}).get("pages") or []
+    # Every page's load state, browser tabs and blank pages too: a page whose load never ends keeps Chrome's tab icon
+    # spinning (a compositor animation in the app at idle: "CompositorAnimationObserver is active for too long ...
+    # TabIcon" in the app log).
+    log("IDLE-CPU-LOADING " + json.dumps([{"browser": p.get("browser"), "origin": p.get("origin"), "path": p.get("path"),
+                                           "hidden": p.get("hidden"), "loading": p.get("loading")} for p in every]))
     # Hidden pages too: a hidden page's script runs on its renderer's main thread as a shown one's does.
-    pages = [page for page in (call("debug.cef_pages") or {}).get("pages") or []
-             if str(page.get("origin", "")).startswith("cmux-page://")]
+    pages = [page for page in every if str(page.get("origin", "")).startswith("cmux-page://")]
     out = []
     for page in pages:
         devtools(page["browser"], "Performance.enable")
         entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path"),
-                 "hidden": bool(page.get("hidden")), "renderer_clients": page.get("renderer_clients")}
+                 "hidden": bool(page.get("hidden")), "loading": page.get("loading"),
+                 "renderer_clients": page.get("renderer_clients")}
         probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
         try:
             entry.update(json.loads(probe["result"]["value"]))
