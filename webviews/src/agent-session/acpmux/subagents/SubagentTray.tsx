@@ -550,7 +550,8 @@ export const SubagentTray = memo(function SubagentTray({
     if (!box || !step) return;
     // Measured against the box's own cap, not its drawn height: the hat's open fold starts it at
     // nothing, which would scroll the step out of the view it then grows into.
-    const cap = Number.parseFloat(getComputedStyle(box).maxHeight);
+    const view = box.ownerDocument.defaultView;
+    const cap = view?.getComputedStyle ? Number.parseFloat(view.getComputedStyle(box).maxHeight) : Number.NaN;
     const room = Math.min(box.scrollHeight, Number.isFinite(cap) ? cap : box.scrollHeight);
     if (box.scrollHeight <= room) return;
     const top = step.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
