@@ -229,3 +229,32 @@ edit's color in the simulator's screenshot) on a fleet Mac:
 
 The live code build itself takes about 2.5 minutes from an empty DerivedData (both passes, `-jobs 6`).
 The app it makes is 190 MB and exports 79,324 interposable symbols.
+
+## The iPhone app on an iPhone (cmux Dev)
+
+The design (cmuxterm-hq docs/design/ios-dev-channels.md, phase 3, "Hot Swift on the device"): the
+same engine on a real phone, in cmux Dev (`dev.cmux.mobile.dev`) only. An iPhone loads only code
+signed by the app's own team, so the Mac signs each patch with the Apple Development identity that
+`sign_device_app.py` signed cmux Dev with. `scripts/live-code/ios-device.sh` is the loop, run on the
+Mac the phone is attached to:
+
+| You want | Do this |
+|---|---|
+| The live code build of cmux Dev for iphoneos, once (unsigned) | `scripts/live-code/ios-device.sh build OUT` |
+| Sign, install and launch it on the phone | `scripts/live-code/ios-device.sh run OUT UDID [KEY=VALUE...]` |
+| Apply edited files | `scripts/live-code/ios-device.sh patch OUT FILE.swift...` |
+| Undo the newest patch (or all) | `scripts/live-code/ios-device.sh undo OUT [--all]` |
+| The app's log, read from the phone | `scripts/live-code/ios-device.sh log OUT` |
+
+On a device the app ignores `CMUX_LIVE_CODE_DIR`: only cmux Dev watches a folder, its own
+`Library/LiveCode` (`LiveCodeRedraw.deviceFolder`), and only in a DEBUG build. A patch reaches it
+by `devicectl device copy to` into cmux Dev's data container. devicectl cannot rename a file into
+place, so the patch arrives hidden (`.NAME.dylib`, then its sidecar `.NAME.json`) and an empty
+`NAME.load` marker after it; the engine reads the hidden copy only once the marker is there. The
+app's answer is its `live-code.log`, copied back. The pairing link as the transport is the next
+slice. A cmux Dev try build (not a live code build) also watches, but has no interposable symbols,
+so a patch to it is refused or repoints nothing.
+
+Not yet run on a phone: whether iOS's dyld loads the dev-signed patch from the container, whether
+dyld_dynamic_interpose and the symbol-pointer rebind work there, and whether patch.py's
+`-undefined dynamic_lookup` link is accepted for iphoneos.

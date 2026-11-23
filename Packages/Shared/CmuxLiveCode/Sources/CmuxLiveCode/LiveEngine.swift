@@ -6,7 +6,9 @@
 // macOS app, scripts/live-code/ios-sim.sh for the iPhone app in the iOS Simulator).
 //
 // The live folder is the whole interface, so `cmux live-code` (and its MCP tools) can repair the
-// app when its UI is wedged: a new `*.dylib` applies, a new `*.rollback` undoes the newest patch,
+// app when its UI is wedged: a new `*.dylib` applies, a new `NAME.load` applies the hidden
+// `.NAME.dylib` beside it (for a transport that cannot rename a file into place: devicectl's copy into
+// a phone's container, scripts/live-code/ios-device.sh), a new `*.rollback` undoes the newest patch,
 // a new `*.rollback-all` undoes them all, and the app keeps `status.json` (what is applied) and
 // `live-code.log` there. All of it runs on the engine actor, never on the main thread; only the
 // redraw after a change is the app's, which sends it to the main thread without waiting for it.
@@ -69,7 +71,8 @@ public actor LiveEngine {
         self.redraw = redraw
     }
     #else
-    /// The iOS Simulator's live code build is a Debug build: it loads any patch, ad hoc included.
+    /// The iPhone app's live code builds are DEBUG builds. In the Simulator it loads any patch, ad hoc
+    /// included; on a device dyld itself loads only a patch signed by the app's own team.
     public init(folder: LiveFolder, redraw: @escaping @Sendable (Int) -> Void) {
         self.folder = folder
         self.redraw = redraw
@@ -113,17 +116,22 @@ public actor LiveEngine {
                 undo(name, all: true)
             } else if name.hasSuffix(".rollback") {
                 undo(name, all: false)
+            } else if name.hasSuffix(".load") {
+                // The hidden patch was copied whole before this marker was.
+                let base = String(name.dropLast(".load".count))
+                apply("." + base + ".dylib", as: base + ".dylib")
             } else {
-                apply(name)
+                apply(name, as: name)
             }
         }
     }
 
-    private func apply(_ name: String) {
+    /// Applies the folder's `file`, named `name` in the log and status.json.
+    private func apply(_ file: String, as name: String) {
         let started = Date()
         do {
             // The check and the load read one private copy, never the shared folder's file twice.
-            let copy = try folder.privateCopy(name)
+            let copy = try folder.privateCopy(file)
             defer { try? FileManager.default.removeItem(at: copy) }
             #if os(macOS)
             // Outside Debug and bench, only a patch signed by this app's team loads, or, for an
@@ -134,7 +142,7 @@ public actor LiveEngine {
             #endif
             let handle = try Interposer.load(copy.path)
             let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current)
-            let sidecar = folder.sidecar(name)
+            let sidecar = folder.sidecar(file)
             let record = LivePatchRecord(name: name, commit: sidecar?.commit, files: sidecar?.files,
                                          functions: patched.after.count, appliedAt: Date().timeIntervalSince1970)
             applied.append((patched, record))
@@ -234,7 +242,7 @@ public struct LiveFolder: Sendable {
     /// Patches and undo requests, in name order. A hidden name is a file still being written.
     func entries() -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: url.path)) ?? []).filter {
-            !$0.hasPrefix(".") && ($0.hasSuffix(".dylib") || $0.hasSuffix(".rollback") || $0.hasSuffix(".rollback-all"))
+            !$0.hasPrefix(".") && ($0.hasSuffix(".dylib") || $0.hasSuffix(".load") || $0.hasSuffix(".rollback") || $0.hasSuffix(".rollback-all"))
         }.sorted()
     }
 
@@ -287,7 +295,8 @@ public struct LiveFolder: Sendable {
         var files: [String]?
     }
 
-    /// `NAME.json` beside the patch `NAME.dylib`, when patch.py wrote one.
+    /// `NAME.json` beside the patch `NAME.dylib` (`.NAME.json` beside a hidden `.NAME.dylib`), when
+    /// patch.py wrote one.
     func sidecar(_ name: String) -> Sidecar? {
         guard name.hasSuffix(".dylib") else { return nil }
         let json = url.appendingPathComponent(String(name.dropLast(".dylib".count)) + ".json")

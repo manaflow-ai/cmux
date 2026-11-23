@@ -52,6 +52,22 @@ struct LivePatchCopyTests {
         #expect(throws: LiveCodeError.self) { try PatchSignature.check(path.path, app: .team("ABCDE12345")) }
     }
     #endif
+
+    /// A phone's patch arrives hidden (`.NAME.dylib`: devicectl cannot rename into place), then its
+    /// `NAME.load` marker: the folder lists only the marker, and the hidden patch and its sidecar read.
+    @Test func aDevicePatchIsListedByItsLoadMarkerOnly() throws {
+        let live = try folder()
+        let bytes = Data("patch bytes".utf8)
+        try bytes.write(to: live.url.appendingPathComponent(".patch-3.dylib"))
+        try Data(#"{"commit":"abc","files":["A.swift"]}"#.utf8).write(to: live.url.appendingPathComponent(".patch-3.json"))
+        #expect(live.entries().isEmpty)
+        try Data().write(to: live.url.appendingPathComponent("patch-3.load"))
+        #expect(live.entries() == ["patch-3.load"])
+        let copy = try live.privateCopy(".patch-3.dylib")
+        defer { try? FileManager.default.removeItem(at: copy) }
+        #expect(try Data(contentsOf: copy) == bytes)
+        #expect(live.sidecar(".patch-3.dylib")?.commit == "abc")
+    }
 }
 
 #if os(macOS)

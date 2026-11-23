@@ -47,9 +47,22 @@ source "$here/lib/two-pass.sh"
 # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
 source "$here/lib/xcodebuild-args.sh"
 
+# IOS_LIVE_PLATFORM picks the build's platform: iphonesimulator (this script), or iphoneos
+# (scripts/live-code/ios-device.sh, which sources this file: an unsigned device app the Mac signs).
+IOS_LIVE_PLATFORM="${IOS_LIVE_PLATFORM:-iphonesimulator}"
+# More build settings for the platform (ios-device.sh: cmux Dev's bundle id and name, no signing).
+IOS_LIVE_EXTRA_SETTINGS=()
+
 xcodebuild_live() { # OUT CONFIG LOG [LIST]
-  local out="$1" config="$2" log="$3" list="${4:-}" conditions=DEBUG args=() line
+  local out="$1" config="$2" log="$3" list="${4:-}" conditions=DEBUG args=() line destination signing
   [[ "$config" == Demo ]] && conditions="DEBUG CMUX_MOBILE_DEMO"
+  if [[ "$IOS_LIVE_PLATFORM" == iphoneos ]]; then
+    destination='generic/platform=iOS'
+    signing=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37)
+  else
+    destination='generic/platform=iOS Simulator'
+    signing=(CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=)
+  fi
   while IFS= read -r line; do args+=("$line"); done < <(live_code_xcodebuild_args "$config" "$list")
   # The app's views are mostly `private struct`s, whose symbols stay inside their object file and
   # so could never be repointed. -enable-private-imports gives them external symbols (the same
@@ -57,10 +70,11 @@ xcodebuild_live() { # OUT CONFIG LOG [LIST]
   args+=('OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_LIVE_CODE_PRIVATE_$(TARGET_NAME))')
   while IFS= read -r line; do args+=("CMUX_LIVE_CODE_PRIVATE_$line=-Xfrontend -enable-private-imports"); done < <(live_code_targets)
   xcodebuild -project "$ios/CmuxMobileApp.xcodeproj" -scheme CmuxMobileApp -configuration "$config" \
-    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$out/dd" -jobs "${JOBS:-6}" \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+    -destination "$destination" -derivedDataPath "$out/dd" -jobs "${JOBS:-6}" \
+    "${signing[@]}" ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
     COMPILER_INDEX_STORE_ENABLE=NO ENABLE_DEBUG_DYLIB=NO \
     "SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) $conditions" \
+    ${IOS_LIVE_EXTRA_SETTINGS[@]+"${IOS_LIVE_EXTRA_SETTINGS[@]}"} \
     "${args[@]}" build >"$log" 2>&1 || {
       grep -E "error:" "$log" | sort -u | head -n 30 >&2
       die "xcodebuild failed (log $log)"
@@ -80,7 +94,7 @@ build() { # OUT [CONFIG]
     || die "no CmuxMobileLinkFFI.xcframework: build it (cmux-next-ios/rust/scripts/build-xcframework.sh) or restore it (scripts/ci/ios_ffi_cache.py)"
   # 1. Build and link, nothing interposable yet. Its log holds the frontend commands patches compile with.
   xcodebuild_live "$out" "$config" "$out/xcodebuild.log"
-  local app="$out/dd/Build/Products/$config-iphonesimulator/CmuxMobileApp.app"
+  local app="$out/dd/Build/Products/$config-$IOS_LIVE_PLATFORM/CmuxMobileApp.app"
   local bin="$app/CmuxMobileApp"
   [[ -f "$bin" ]] || die "no app at $app"
   # 2. What the app exports of its own modules, made interposable: only the link steps run again.
@@ -157,6 +171,9 @@ undo() { # OUT [--all]
   : > "$out/live/.$name" && mv "$out/live/.$name" "$out/live/$name"
   answer "$out" "$name" "$before"
 }
+
+# Sourced (ios-device.sh): the functions only.
+[[ "${BASH_SOURCE[0]}" == "$0" ]] || return 0
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
