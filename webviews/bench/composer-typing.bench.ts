@@ -285,13 +285,27 @@ async function measure(
   engine: "chromium" | "webkit" = ENGINE as "chromium" | "webkit",
   replyWords = 0,
 ): Promise<Record<string, unknown>> {
-  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
+  const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true, ...(process.env.CT_ARGS ? { args: process.env.CT_ARGS.split(" ") } : {}) });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       // One renderer runs the focused page and L2's documents, so its profile is what every key waits behind.
       const cdp = PROFILE && engine === "chromium" ? await page.context().newCDPSession(page) : undefined;
+      if (process.env.CT_PROBE) await page.addInitScript(() => {
+        (window as any).__p = { mc: [], pt: [], to: [], ic: [] };
+        (window as any).__sc = new Map();
+        document.addEventListener("scroll", (ev) => { const el = ev.target as any; const k = el === document ? "document" : `${el.tagName}.${String(el.className).slice(0, 80)}`; const m = (window as any).__sc; m.set(k, [(m.get(k)?.[0] ?? 0) + 1, el.scrollTop ?? 0]); }, true);
+        document.addEventListener("scrollend", (ev) => { const el = ev.target as any; const k = "END " + (el === document ? "document" : `${el.tagName}.${String(el.className).slice(0, 80)}`); const m = (window as any).__sc; m.set(k, [(m.get(k)?.[0] ?? 0) + 1, el.scrollTop ?? 0]); }, true);
+        const s = (window as any).__p;
+        document.addEventListener("keydown", (ev) => { const t = ev.timeStamp; requestAnimationFrame(() => {
+          const c = new MessageChannel(); c.port1.onmessage = () => s.mc.push(performance.now() - t); c.port2.postMessage(0);
+          (globalThis as any).scheduler?.postTask(() => s.pt.push(performance.now() - t), { priority: "user-blocking" });
+          setTimeout(() => s.to.push(performance.now() - t), 0);
+          const i = new MessageChannel(); i.port1.onmessage = () => s.ic.push(performance.now() - t); i.port2.postMessage(0);
+        }); }, true);
+      });
+      if (process.env.CT_PROBE) (globalThis as any).__probePage = page;
       const traceOut = process.env.CT_TRACE_OUT;
       const typing =
         traceOut && engine === "chromium"
@@ -346,6 +360,7 @@ async function measure(
           })),
         };
       } finally {
+        if (process.env.CT_PROBE) { const r = await page.evaluate(() => (window as any).__p); const q = (a: number[], x: number) => [...a].sort((m, n) => m - n)[Math.round((a.length - 1) * x)]?.toFixed(1); console.log("SCROLLS", JSON.stringify([...(await page.evaluate(() => [...(window as any).__sc.entries()]))])); for (const k of ["mc", "pt", "to", "ic"]) console.log("PROBE", k, r[k].length, "p50", q(r[k], .5), "p95", q(r[k], .95), "p99", q(r[k], .99)); }
         await page.close();
       }
     }
