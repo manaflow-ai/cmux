@@ -1777,6 +1777,7 @@ fi
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
+  -skipPackagePluginValidation
   -configuration "$BUILD_CONFIGURATION"
   -destination 'platform=macOS'
 )
