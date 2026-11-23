@@ -13,7 +13,8 @@ run-name: ${{ github.event_name == 'workflow_dispatch' && format('pair-e2e {0}',
 # A tool, not a gate: it runs only when dispatched, or on a push to a pair-e2e/** branch (a branch made
 # to test one PR, e.g. pair-e2e/pr-49393: the PR head merged with the base it needs). No pull request,
 # merge queue or branch protection reads it. Dispatch needs this file on the default branch; until a copy
-# is registered there, push a pair-e2e/** branch, which runs the file in that branch.
+# is registered there, push a pair-e2e/** branch, which runs the file in that branch. A lane VM's broker
+# pushes only lane/** branches and dispatches no workflow, so a lane/pair-e2e-** push runs it too.
 #
 # Evidence: SUMMARY.md only (the run summary and a 3-day artifact). The screens and logs stay on the VM:
 # the account's Settings > Devices list names other Macs signed in to it.
@@ -25,7 +26,7 @@ on:
         required: true
         type: string
   push:
-    branches: ["pair-e2e/**"]
+    branches: ["pair-e2e/**", "lane/pair-e2e-**"]
 
 permissions:
   contents: read
