@@ -1,4 +1,12 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject, useInsertionEffect } from "react";
+import React, {
+  useCallback,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type RefObject,
+  useInsertionEffect,
+  useLayoutEffect,
+} from "react";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
@@ -18,6 +26,7 @@ import { remember } from "./composer/pasteMarks";
 import { type PromptText, usePromptTextValue } from "./composer/promptText";
 import { acpmuxPerf } from "./perf";
 import { holdFlag, setRef } from "./heldFlag";
+import { watchFocusVisible } from "./focusVisibleMark";
 
 /// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
 /// and dialogs the card opens, and attachments.
@@ -50,6 +59,10 @@ export type ComposerBoxProps = {
   handle?: React.Ref<ComposerBoxHandle>;
   /// Receives the glass card's element (New Tab anchors its suggestions to it).
   boxRef?: React.Ref<HTMLDivElement>;
+  /// Hears when focus-visible enters or leaves the card (focusVisibleMark.ts): the host marks its own
+  /// parts (`data-focused` on the form, the dock's edge) from it, never with a wide `:has()`. Called on
+  /// focus changes only, outside React state, so a keystroke renders nothing.
+  onFocusVisible?: (focused: boolean) => void;
   /// What the prompt holds besides its text (attachmentIntake.tsx), shown over the prompt.
   attachments: ComposerAttachment[];
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
@@ -124,6 +137,7 @@ export function ComposerBox({
   fieldRef,
   handle,
   boxRef,
+  onFocusVisible,
   attachments,
   pending,
   setAttachments,
@@ -303,6 +317,25 @@ export function ComposerBox({
     },
     [boxRef],
   );
+  // The card's focus ring reads `data-focused` (composerStates.css), the card's own state, set here
+  // as focus moves: a `:has(:focus-visible)` on the card was checked again for every node a keystroke
+  // put in the prompt (transcript-motion-model step 7).
+  const focusHeard = useRef(onFocusVisible);
+  useInsertionEffect(() => {
+    focusHeard.current = onFocusVisible;
+  });
+  useLayoutEffect(() => {
+    if (!boxElement) return;
+    const stop = watchFocusVisible(boxElement, (focused) => {
+      boxElement.toggleAttribute("data-focused", focused);
+      focusHeard.current?.(focused);
+    });
+    return () => {
+      stop();
+      boxElement.removeAttribute("data-focused");
+      focusHeard.current?.(false);
+    };
+  }, [boxElement]);
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
