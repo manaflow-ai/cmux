@@ -119,7 +119,7 @@ jobs:
     name: ${{ inputs.confirm == 'SUBMIT' && 'Submit for App Review' || 'Preview the App Review submission' }}
     needs: check
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder' && needs.check.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
     environment: release
     env:
