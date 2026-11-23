@@ -107,9 +107,7 @@ impl<'c, C: Connection> Painter<'c, C> {
         };
         let motion = if kind == Kind::Motion {
             let shm = ShmSeg::new(conn, w as usize * h as usize * 4, ServerAccess::Read)?;
-            let mut rng = Rng::new(0x0dd_ba11);
-            let noise = (0..1024 * 1024).map(|_| (rng.next_u64() >> 56) as u8).collect();
-            Some(MotionState { shm, noise, frame: 0 })
+            Some(MotionState { shm, noise: marker::motion_noise(), frame: 0 })
         } else {
             None
         };
@@ -237,28 +235,7 @@ impl<'c, C: Connection> Painter<'c, C> {
         let (w, h) = (self.w as usize, self.h as usize);
         let Some(m) = self.motion.as_mut() else { return Ok(()) };
         m.frame = m.frame.wrapping_add(1);
-        let t = m.frame as usize;
-        let (dx, dy) = (t * 7, t * 3);
-        let stride = w * 4;
-        let col: Vec<u8> = (0..w).map(|x| (x * 255 / w) as u8).collect();
-        {
-            let buf = m.shm.pixels_mut();
-            for y in 0..h {
-                let ny = ((y + dy) & 1023) * 1024;
-                let gy = ((y * 255 / h) + t * 3) as u8;
-                let row = &mut buf[y * stride..(y + 1) * stride];
-                for (x, px) in row.chunks_exact_mut(4).enumerate() {
-                    let n = m.noise[ny + ((x + dx) & 1023)] >> 2;
-                    let r = col[x].wrapping_add((t * 2) as u8);
-                    let b = col[x].wrapping_add(gy).wrapping_sub(t as u8);
-                    px[0] = b.wrapping_add(n);
-                    px[1] = gy.wrapping_add(n);
-                    px[2] = r.wrapping_add(n);
-                    px[3] = 0;
-                }
-            }
-            marker::paint_bgrx(buf, stride, counter);
-        }
+        marker::paint_motion_bgrx(m.shm.pixels_mut(), w, h, &m.noise, m.frame as usize, counter);
         // Returns once the server has read the segment, before we overwrite it next tick.
         m.shm.put_image(&self.conn, self.win, self.gray, (self.w, self.h), self.depth)
     }

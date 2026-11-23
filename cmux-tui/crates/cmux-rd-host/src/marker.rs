@@ -64,3 +64,35 @@ pub fn paint_bgrx(buf: &mut [u8], stride: usize, counter: u32) {
         }
     }
 }
+
+/// The 1024x1024 noise texture of the `motion` workload (fixed seed, so every run codes the
+/// same pictures).
+pub fn motion_noise() -> Vec<u8> {
+    let mut rng = crate::clock::Rng::new(0x0dd_ba11);
+    (0..1024 * 1024).map(|_| (rng.next_u64() >> 56) as u8).collect()
+}
+
+/// Frame `t` of the `motion` workload into a `w`x`h` BGRX buffer: a full-screen moving
+/// gradient plus a moving noise texture, with the marker for `counter` painted in. The test
+/// app (`testapp --workload motion`) and `encode-selftest --workload motion` draw the same
+/// pictures.
+pub fn paint_motion_bgrx(buf: &mut [u8], w: usize, h: usize, noise: &[u8], t: usize, counter: u32) {
+    let (dx, dy) = (t * 7, t * 3);
+    let stride = w * 4;
+    let col: Vec<u8> = (0..w).map(|x| (x * 255 / w) as u8).collect();
+    for y in 0..h {
+        let ny = ((y + dy) & 1023) * 1024;
+        let gy = ((y * 255 / h) + t * 3) as u8;
+        let row = &mut buf[y * stride..(y + 1) * stride];
+        for (x, px) in row.chunks_exact_mut(4).enumerate() {
+            let n = noise[ny + ((x + dx) & 1023)] >> 2;
+            let r = col[x].wrapping_add((t * 2) as u8);
+            let b = col[x].wrapping_add(gy).wrapping_sub(t as u8);
+            px[0] = b.wrapping_add(n);
+            px[1] = gy.wrapping_add(n);
+            px[2] = r.wrapping_add(n);
+            px[3] = 0;
+        }
+    }
+    paint_bgrx(buf, stride, counter);
+}

@@ -2,7 +2,9 @@
 //! with no capture and no network, and report the per-frame encode cost and size. The
 //! `marker` workload changes a 640x32 corner per frame; `text` scrolls a full screen of
 //! glyph-like blocks by 13 rows per frame (a terminal scroll); `type` draws one 8x12 glyph
-//! per frame at a moving cursor (a person typing: a few dozen bytes of change). Each frame
+//! per frame at a moving cursor (a person typing: a few dozen bytes of change); `motion` is
+//! `testapp --workload motion` (full-screen moving gradient and noise), painted as BGRX and
+//! converted into the picture it codes, as the X11 capture does. Each frame
 //! also converts a BGRX rectangle of the damaged size to I420 (`convert_ms`), the step the
 //! X11 capture runs before the encode. `--threads N` sets the encoder's threads and slices
 //! and `--convert-threads N` the converter's (both default to the shipped choice for this
@@ -117,8 +119,10 @@ pub fn run(opts: &Opts) -> Res<()> {
     draw_text(&mut pic, 0, 7);
     let mut au = Vec::new();
     // The capture's readback of the damaged rect, converted into a picture of its own.
-    let bgrx: Vec<u8> = (0..w * h * 4).map(|i| (i * 37) as u8).collect();
+    let mut bgrx: Vec<u8> = (0..w * h * 4).map(|i| (i * 37) as u8).collect();
     let mut converted = I420::new(w, h);
+    let motion = workload == "motion";
+    let noise = if motion { crate::marker::motion_noise() } else { Vec::new() };
     let (mut encode_ms, mut convert_ms, mut sizes) = (Vec::new(), Vec::new(), Vec::new());
     let (mut idrs, mut empty) = (0usize, 0usize);
     let mut structure_ok = true;
@@ -129,13 +133,21 @@ pub fn run(opts: &Opts) -> Res<()> {
                 (0, 0, w, h)
             }
             "type" => draw_typed(&mut pic, i),
+            // The test app's picture, painted as the X server holds it, read back whole.
+            "motion" => {
+                crate::marker::paint_motion_bgrx(&mut bgrx, w, h, &noise, i + 1, i as u32);
+                (0, 0, w, h)
+            }
             _ => {
                 draw_marker(&mut pic, i as u32);
                 (0, 0, 640, 32)
             }
         };
         let t0 = now_ns();
-        bgrx_rect_to_i420(&bgrx[..dw * dh * 4], &mut converted, dx, dy, dw, dh, convert_threads);
+        // Motion converts into the picture it codes (the capture's path); the others draw the
+        // picture directly and convert a same-sized rect beside it for the cost.
+        let target = if motion { &mut pic } else { &mut converted };
+        bgrx_rect_to_i420(&bgrx[..dw * dh * 4], target, dx, dy, dw, dh, convert_threads);
         convert_ms.push((now_ns() - t0) as f64 / 1e6);
         let t0 = now_ns();
         // Capture time in microseconds at 60 fps.
