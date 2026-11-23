@@ -1142,7 +1142,9 @@ jobs:
     # and static checks, so macOS admission can depend on its real result
     # without a second runner polling another workflow.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: 5
+    # On the shared cmux-linux pool its 187 steps take 4.5 to 5 min (main, 2026-11-21: 4:30, 4:33, 5:00); 5 min
+    # cancelled it mid-run (cmux job 136948316380). 10 min leaves room without hiding a real hang for long.
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
