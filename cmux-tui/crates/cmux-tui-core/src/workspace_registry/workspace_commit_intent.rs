@@ -13,6 +13,10 @@ use super::public_fold::{StatedDigests, workspace_value_stated};
 use super::*;
 use cmux_json::JsonGet as _;
 
+#[path = "workspace_insert_commit.rs"]
+mod insert;
+pub(crate) use insert::WorkspaceInsert;
+
 /// One prepared workspace registry commit.
 #[derive(Debug)]
 pub(crate) struct WorkspaceCommitIntent {
@@ -41,6 +45,9 @@ pub(crate) struct WorkspaceCommitIntent {
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
     extra: Option<ExtraRows>,
+    /// A commit that adds one workspace and changes nothing else (`workspaces` is then empty):
+    /// it runs [`insert`]'s path, whose work does not follow the count of workspaces.
+    insert: Option<insert::InsertedWorkspace>,
 }
 
 /// [`OwnedTransactionWrite`] with a `Debug` for the intent.
@@ -103,6 +110,7 @@ impl WorkspaceRegistry {
             stated_workspaces,
             session_id: self.session_id.clone(),
             extra: None,
+            insert: None,
         })
     }
 
@@ -136,6 +144,17 @@ impl WorkspaceRegistry {
             result,
             project_resource,
         )?;
+        self.commit_workspace_intent(intent, extra)
+    }
+
+    /// Commit a prepared workspace registry intent: through the journal writer when it runs
+    /// and the caller does not hold the connection, else locally. A borrowed `extra` cannot
+    /// leave this thread, so it commits locally.
+    pub(super) fn commit_workspace_intent(
+        &mut self,
+        intent: WorkspaceCommitIntent,
+        extra: Option<RegistryTransactionWrite<'_>>,
+    ) -> anyhow::Result<RegistryCommit> {
         let Some(extra) = extra else {
             return Ok(self
                 .commit_registry_intent(RegistryIntent::Workspace(intent))?
@@ -168,9 +187,15 @@ impl WorkspaceCommitIntent {
         tx: &Transaction<'_>,
         extra: Option<RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<WorkspaceCommitReceipt> {
+        if let Some(replayed) = self.replayed(tx)? {
+            return Ok(replayed);
+        }
+        self.check_generation()?;
+        if let Some(insert) = &self.insert {
+            return self.apply_insert(tx, extra, insert);
+        }
         let mutation = &self.mutation;
         let fingerprint: &str = &self.fingerprint;
-        let expected_generation = self.expected_generation.as_deref();
         let expected_revision = self.expected_revision;
         let event_kind: &str = &self.event_kind;
         let workspace_key: &str = &self.workspace_key;
@@ -181,46 +206,8 @@ impl WorkspaceCommitIntent {
         let project_resource = self.project_resource;
         let previous_topology = &self.previous_topology;
 
-        if let Some((stored_fingerprint, stored_result, revision)) = tx
-            .query_row(
-                "SELECT fingerprint, result_json, committed_revision
-                 FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
-                params![mutation.origin, mutation.id],
-                |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-                },
-            )
-            .optional()?
-        {
-            let ids = StoredIds::load(tx)?;
-            if ids.fingerprint(stored_fingerprint)? != fingerprint {
-                anyhow::bail!(
-                    "mutation {} from {} was retried with a different payload",
-                    mutation.id,
-                    mutation.origin
-                );
-            }
-            return Ok(WorkspaceCommitReceipt {
-                commit: RegistryCommit {
-                    revision: u64::try_from(revision)
-                        .context("stored mutation revision is negative")?,
-                    result: serde_json::from_str(&ids.text(stored_result))?,
-                    replayed: true,
-                },
-                resource_revision: None,
-            });
-        }
-
         validate_workspace_key(workspace_key)?;
         validate_registry(workspaces)?;
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "workspace generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
         if let Some(active_workspace) = active_workspace {
             anyhow::ensure!(
                 workspaces.iter().any(|workspace| &workspace.public_id == active_workspace),
@@ -430,6 +417,56 @@ impl WorkspaceCommitIntent {
             commit: RegistryCommit { revision, result: result.clone(), replayed: false },
             resource_revision,
         })
+    }
+}
+
+impl WorkspaceCommitIntent {
+    /// The receipt of this mutation when the ledger holds it already (a retry): its original
+    /// result, nothing written.
+    fn replayed(&self, tx: &Transaction<'_>) -> anyhow::Result<Option<WorkspaceCommitReceipt>> {
+        let mutation = &self.mutation;
+        let Some((stored_fingerprint, stored_result, revision)) = tx
+            .query_row(
+                "SELECT fingerprint, result_json, committed_revision
+                 FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
+                params![mutation.origin, mutation.id],
+                |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        let ids = StoredIds::load(tx)?;
+        if ids.fingerprint(stored_fingerprint)? != self.fingerprint {
+            anyhow::bail!(
+                "mutation {} from {} was retried with a different payload",
+                mutation.id,
+                mutation.origin
+            );
+        }
+        Ok(Some(WorkspaceCommitReceipt {
+            commit: RegistryCommit {
+                revision: u64::try_from(revision)
+                    .context("stored mutation revision is negative")?,
+                result: serde_json::from_str(&ids.text(stored_result))?,
+                replayed: true,
+            },
+            resource_revision: None,
+        }))
+    }
+
+    fn check_generation(&self) -> anyhow::Result<()> {
+        if let Some(expected) = self.expected_generation.as_deref()
+            && expected != self.generation
+        {
+            anyhow::bail!(
+                "workspace generation conflict: expected {expected}, current {}",
+                self.generation
+            );
+        }
+        Ok(())
     }
 }
 

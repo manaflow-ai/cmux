@@ -127,7 +127,7 @@ pub(crate) fn without_crosscheck<R>(body: impl FnOnce() -> R) -> R {
 
 /// Debug builds always compare; release builds when the daemon runs with
 /// `CMUX_TUI_PROJECTION_CROSSCHECK=1`.
-pub(super) fn crosscheck_enabled() -> bool {
+pub(crate) fn crosscheck_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     #[cfg(test)]
     if CROSSCHECK_OFF.with(std::cell::Cell::get) {
