@@ -693,7 +693,8 @@ public final class AgentPaneModel {
         // Nor the paths of files dropped or pasted from this Mac.
         case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names, let gestureAt): return await attachDropped(kind, names: names, gestureAt: gestureAt)
-        // A chat on another machine gets the gesture's source only (`attachSource`).
+        // A chat on another machine, or a page before its handshake, gets the pasteboard's claim
+        // only, never this Mac's file metadata (`attachSource`).
         case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
         case .attachExternal: return await takeExternalAttachments()
         case .attachmentSourceIcon(let bundleId):
