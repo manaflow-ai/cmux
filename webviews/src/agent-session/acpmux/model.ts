@@ -1400,6 +1400,9 @@ export type AcpmuxSnapshot = {
     /// A watched Claude or Codex desktop session acpmux delivers replies into (`bridgedWatch`): a reply goes
     /// to the app and takes nothing over.
     bridged?: boolean;
+    /// A chat handed to a cmux terminal (`terminalWatch`): the terminal and the chat are two live views of one
+    /// session, so the chat takes prompts (into the terminal's harness) and shows no View Only banner.
+    terminal?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -1541,6 +1544,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// A return placed that line (the chat picked, shown again, the reader back): the view opens at
+  /// it, not at the latest message (App.tsx). Unset for the line a scroll up placed.
+  sinceLands?: true;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
