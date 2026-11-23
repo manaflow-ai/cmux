@@ -1406,6 +1406,7 @@ fn join_claims(
         generation: Some(generation),
         issued_at_unix: validity.0,
         expires_at_unix: validity.1,
+        grant: None,
     }
 }
 
@@ -1738,6 +1739,8 @@ mod tests {
                 lane: LaneToken(lane.into()),
                 generation,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -1786,6 +1789,7 @@ mod tests {
                 generation,
                 issued_at_unix,
                 expires_at_unix,
+                grant: None,
             })
             .unwrap()
     }
@@ -1819,6 +1823,8 @@ mod tests {
                 lane: LaneToken("interactive".into()),
                 generation: 7,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2082,6 +2088,8 @@ mod tests {
                 lane: lane.clone(),
                 generation,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2282,6 +2290,8 @@ mod tests {
                 lane: LaneToken("bulk".into()),
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2312,6 +2322,8 @@ mod tests {
                 lane: LaneToken("bulk".into()),
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2343,6 +2355,8 @@ mod tests {
                 lane: LaneToken("bulk".into()),
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2383,6 +2397,8 @@ mod tests {
                 lane,
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;

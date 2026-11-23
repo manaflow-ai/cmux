@@ -105,7 +105,7 @@ public nonisolated enum HomeEngineStrings {
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .localizedModule) }
     /// The card's Reactions block (a416): whether a tapback can wake the Chief, and its classifier.
     static var reactionsSection: String { String(localized: "home.engine.reactions", defaultValue: "Reactions", table: "Home", bundle: .localizedModule) }
-    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Can Wake the Chief", table: "Home", bundle: .localizedModule) }
+    static var reactionsCanWake: String { String(localized: "home.engine.reactions.canWake", defaultValue: "Wake Chief", table: "Home", bundle: .localizedModule) }
     static var reactionsOn: String { String(localized: "home.engine.reactions.on", defaultValue: "On", table: "Home", bundle: .localizedModule) }
     static var reactionsOff: String { String(localized: "home.engine.reactions.off", defaultValue: "Off", table: "Home", bundle: .localizedModule) }
     static var reactionClassifier: String { String(localized: "home.engine.reactions.classifier", defaultValue: "Classifier", table: "Home", bundle: .localizedModule) }
@@ -122,13 +122,29 @@ public nonisolated enum HomeEngineStrings {
     static var defaultNamedFormat: String {
         String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .localizedModule)
     }
+    // Computer (cmux issue 36047): where a Chief of this Mac does computer use.
+    static var computerSection: String { String(localized: "home.engine.section.computer", defaultValue: "cmux Computer Use", table: "Home", bundle: .localizedModule) }
+    static var computerRow: String { String(localized: "home.engine.computer", defaultValue: "Computer", table: "Home", bundle: .localizedModule) }
+    static var computerThisMac: String { String(localized: "home.engine.computer.thisMac", defaultValue: "This Mac", table: "Home", bundle: .localizedModule) }
+    static var computerNew: String { String(localized: "home.engine.computer.new", defaultValue: "New Cloud Computer…", table: "Home", bundle: .localizedModule) }
+    static var computerMacNote: String {
+        String(localized: "home.engine.computer.macNote", defaultValue: "The Chief clicks and types in this Mac's apps. Pick a Cloud computer to keep it off this Mac.",
+               table: "Home", bundle: .localizedModule)
+    }
+    static var computerCloudNote: String {
+        String(localized: "home.engine.computer.cloudNote", defaultValue: "The Chief clicks, types and browses on this Cloud computer, starting with its next turn.",
+               table: "Home", bundle: .localizedModule)
+    }
+    static var computerShowDesktop: String {
+        String(localized: "home.engine.computer.showDesktop", defaultValue: "Show Desktop", table: "Home", bundle: .localizedModule)
+    }
     static var agentSection: String { String(localized: "home.engine.section.agent", defaultValue: "Agent", table: "Home", bundle: .localizedModule) }
     static var appearanceSection: String {
         String(localized: "home.engine.section.appearance", defaultValue: "Appearance", table: "Home", bundle: .localizedModule)
     }
     static var diagnostics: String { String(localized: "home.engine.section.diagnostics", defaultValue: "Diagnostics", table: "Home", bundle: .localizedModule) }
     /// Under the name, for a Chief whose brain runs here.
-    static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .localizedModule) }
+    public static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .localizedModule) }
     /// The Hosted Chief's place line.
     public static var runsInCloud: String {
         String(localized: "home.engine.runsInCloud", defaultValue: "Runs in the cloud", table: "Home", bundle: .localizedModule)

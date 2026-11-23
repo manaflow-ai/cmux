@@ -140,6 +140,24 @@ struct MacScreenAppKitViewTests {
         pages.tabClosed("home")
     }
 
+    /// The quiet rows keep Start cmux on NAME (Leo 2026-11-14: "agents need to be able to help set up and
+    /// propagate the app for me"): an offline Mac's one button; without the daemon's verbs, none.
+    @Test func quietOfflineRowOffersStartCmux() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let offline = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false, online: false,
+                                                    macScreenShared: true, access: MacScreenAccess(.full),
+                                                    setup: .make(isMac: true, online: false, verbs: .all, run: nil))
+        let noDaemon = MacScreenHomeSnapshot.Device(id: "other-mac", name: "Studio", isPhone: false, online: false,
+                                                     macScreenShared: true, access: MacScreenAccess(.full))
+        home.build(MacScreenHomeSnapshot(devices: .list([offline, noDaemon]), sharingLook: .list, devicesLook: .offlineLines))
+        #expect(findView("macScreen.home.start.Air Blue", under: home) != nil)
+        #expect(findView("macScreen.home.start.Studio", under: home) == nil)
+        pages.tabClosed("home")
+    }
+
     /// A usable Mac says nothing about access: name, dot and the buttons.
     @Test func askAccessSaysNothing() throws {
         let pages = makePages()
