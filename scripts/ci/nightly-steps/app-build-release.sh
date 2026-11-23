@@ -152,7 +152,7 @@ run_release_build() (
     --derived-data "$derived_data" --configuration Release --archs "$archs" \
     --log "$RUNNER_TEMP/helper-prebuild.log" -- \
   ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
-    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
+    env CMUX_NEXT_TUI_MODE=deferred CMUX_SKIP_ZIG_BUILD=1 xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath "$derived_data" \
     -destination 'generic/platform=macOS' \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache" \
