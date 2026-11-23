@@ -360,7 +360,8 @@ async function run(
       if (step.type === "reader") {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const reader = step.reader;
-        if (scroller)
+        // An `open` reader action (opening a "Worked for") does not scroll.
+        if (scroller && !("open" in reader))
           scroller.scrollTop =
             "scrollBy" in reader
               ? scroller.scrollTop + reader.scrollBy
