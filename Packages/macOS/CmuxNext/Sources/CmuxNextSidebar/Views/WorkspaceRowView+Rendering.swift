@@ -220,7 +220,12 @@ extension WorkspaceRowView {
         if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
-            badge.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
+            // On the pixel grid as the status glyph is (`statusGlyphFrame`): both share one center, and the count's
+            // edges stay sharp, not on a half pixel.
+            let scale = window?.backingScaleFactor ?? 2
+            var frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
+            frame.origin = NSPoint(x: SidebarStyle.pixelSnapped(frame.minX, scale: scale), y: SidebarStyle.pixelSnapped(frame.minY, scale: scale))
+            badge.frame = frame
             badgeEdge = columns.trailingEdge(before: badge.frame)
         }
         var closeFrame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
