@@ -4,6 +4,9 @@
 //! never from argv), and their agents call typed actions on it (`cmux hub call stripe.refund.create --args '{...}'`)
 //! under rules, with approvals and an audit log. The hub decides; this CLI only asks and shapes the answers.
 //!
+//! Approvals are read only here: a person answers one with a click in cmux Settings > Integrations. A lane running
+//! this CLI holds the person's session token, so an answer verb would let it approve its own agent's refund.
+//!
 //! Every verb prints one JSON object with `--json`: `{"ok": true, ...}`, or `{"ok": false, "error": {"code",
 //! "message"}}` with the hub's own code (`stripe.key_refused`, `approval.gone`, ...) or this CLI's (`cli.invalid_args`,
 //! `api.unreachable`, `api.bad_answer`, `auth.no_token`). A deployment with no hub answers `hub.not_found` with
@@ -21,20 +24,21 @@ use zeroize::Zeroizing;
 use super::inference_gateway::{TokenSource, backend_credential};
 
 pub(super) const HELP: &str = "\
-cmux hub: link accounts (Stripe) and let your agents call them under your rules.
+cmux hub: link accounts (Stripe, GitHub) and let your agents call them under your rules.
 
 Usage:
   cmux hub overview [--audit-limit N] [--json]
   cmux hub connections [--json]
   cmux hub link stripe [--sharing private|team] [--policy ask|block] [--json]
       (the restricted key is read from stdin, or a hidden prompt; never pass it as an argument)
+  cmux hub link github [--sharing private|team] [--json]
+      (no key: it uses the GitHub connection you made in cmux)
   cmux hub remove <connection-id> [--json]
   cmux hub actions [--json]
   cmux hub call <action> [--args JSON] [--connection ID] [--invocation-id ID] [--json]
   cmux hub status <call-id> [--json]
   cmux hub approvals [--json]
-  cmux hub approve <approval-id> [--remember] [--json]
-  cmux hub deny <approval-id> [--json]
+      (read only: a person answers an approval in cmux Settings > Integrations, never from this CLI)
   cmux hub policy [--json]
   cmux hub rule add --action NAME --effect allow|ask|block [--owner team|user] [--connection ID]
                     [--agent NAME] [--amount-lte MINOR] [--amount-gt MINOR] [--currency CUR] [--repo OWNER/NAME]
@@ -63,6 +67,8 @@ pub(super) enum Verb {
     },
     Connections,
     Link {
+        /// `stripe` (a restricted key on stdin) or `github` (no key).
+        provider: String,
         sharing: Option<String>,
         policy: Option<String>,
     },
@@ -80,11 +86,6 @@ pub(super) enum Verb {
         id: String,
     },
     Approvals,
-    Answer {
-        id: String,
-        allow: bool,
-        remember: bool,
-    },
     Policy,
     RuleAdd {
         rule: Value,
@@ -167,7 +168,6 @@ pub(super) fn parse(
     let mut token = None;
     let mut positionals: Vec<String> = Vec::new();
     let mut values: Map<String, Value> = Map::new();
-    let mut remember = false;
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
         let (flag, inline) = match arg.split_once('=') {
@@ -209,7 +209,6 @@ pub(super) fn parse(
             "--team" => team = Some(value()?),
             "--token-file" => token = Some(TokenSource::File(value()?.into())),
             "--token-command" => token = Some(TokenSource::Command(value()?)),
-            "--remember" if kind == "approve" => remember = true,
             "--key" | "--secret" | "--api-key" => {
                 return Err("the key is read from stdin or a prompt, never from an argument".into());
             }
@@ -248,18 +247,21 @@ pub(super) fn parse(
         }
         "connections" => none(Verb::Connections)?,
         "link" => {
-            match positionals.as_slice() {
-                [p] if p == "stripe" => {}
-                [p] => return Err(format!("{p} cannot be linked here yet; link stripe")),
-                [] => return Err("name the provider: cmux hub link stripe".into()),
+            let provider = match positionals.as_slice() {
+                [p] if p == "stripe" || p == "github" => p.clone(),
+                [p] => return Err(format!("{p} cannot be linked here yet; link stripe or github")),
+                [] => return Err("name the provider: cmux hub link stripe | github".into()),
                 [_, extra, ..] => return Err(format!("unexpected argument {extra}")),
-            }
+            };
             let sharing = text("sharing")
                 .map(|s| one_of(&s, &["private", "team"], "--sharing"))
                 .transpose()?;
             let policy =
                 text("policy").map(|s| one_of(&s, &["ask", "block"], "--policy")).transpose()?;
-            Verb::Link { sharing, policy }
+            if provider == "github" && policy.is_some() {
+                return Err("--policy is for Stripe; GitHub reads follow your rules".into());
+            }
+            Verb::Link { provider, sharing, policy }
         }
         "remove" => Verb::Remove { id: positional("connection", "hubc_")? },
         "actions" => none(Verb::Actions)?,
@@ -293,9 +295,10 @@ pub(super) fn parse(
         }
         "status" => Verb::Status { id: positional("call", "hcall_")? },
         "approvals" => none(Verb::Approvals)?,
-        "approve" => Verb::Answer { id: positional("approval", "apr_")?, allow: true, remember },
-        "deny" => {
-            Verb::Answer { id: positional("approval", "apr_")?, allow: false, remember: false }
+        "approve" | "deny" | "answer" => {
+            return Err(
+                "approvals are answered by a person in cmux Settings > Integrations, not from the CLI".into(),
+            );
         }
         "policy" => none(Verb::Policy)?,
         "rule add" => none(Verb::RuleAdd { rule: rule_body(&values)? })?,
@@ -439,14 +442,6 @@ pub(super) fn request_of(verb: &Verb) -> HubRequest {
         }
         Verb::Status { id } => get(&format!("/calls/{id}")),
         Verb::Approvals => get("/approvals"),
-        Verb::Answer { id, allow, remember } => {
-            let mut body = Map::new();
-            body.insert("decision".into(), json!(if *allow { "allow" } else { "deny" }));
-            if *remember {
-                body.insert("remember".into(), json!(true));
-            }
-            post(format!("/approvals/{id}/answer"), Value::Object(body))
-        }
         Verb::Policy => get("/policy"),
         Verb::RuleAdd { rule } => post("/policy/rules".into(), rule.clone()),
         Verb::RuleRemove { id } => post(format!("/policy/rules/{id}/remove"), json!({})),
@@ -474,15 +469,18 @@ pub(super) fn overview_requests(audit_limit: u32) -> [HubRequest; 4] {
     ]
 }
 
-/// The link body: the key goes here and nowhere else.
+/// The link body: a Stripe key goes here and nowhere else; GitHub has none.
 pub(super) fn link_body(
-    key: &str,
+    provider: &str,
+    key: Option<&str>,
     sharing: Option<&str>,
     policy: Option<&str>,
 ) -> Zeroizing<String> {
     let mut body = Map::new();
-    body.insert("provider".into(), json!("stripe"));
-    body.insert("key".into(), json!(key));
+    body.insert("provider".into(), json!(provider));
+    if let Some(key) = key {
+        body.insert("key".into(), json!(key));
+    }
     if let Some(s) = sharing {
         body.insert("sharing".into(), json!(s));
     }
@@ -631,12 +629,6 @@ pub(super) fn answer(verb: &Verb, status: u16, body: &Value) -> Value {
         Verb::Approvals => {
             out.insert("approvals".into(), list("approvals", call_view));
         }
-        Verb::Answer { .. } => {
-            out.insert("call".into(), body.get("call").map(call_view).unwrap_or(Value::Null));
-            if let Some(rule) = body.get("rule").filter(|r| r.is_object()) {
-                out.insert("rule".into(), rule_view(rule));
-            }
-        }
         Verb::Policy => {
             out.insert(
                 "paused".into(),
@@ -663,6 +655,19 @@ pub(super) fn answer(verb: &Verb, status: u16, body: &Value) -> Value {
     Value::Object(out)
 }
 
+/// The overview with where its approvals are answered: `platform` (the origin it read) and `team` (the one it named,
+/// else null for the token's own). The Settings card answers an approval there itself, on the person's click: this CLI
+/// has no verb that answers one, since a lane running it holds the person's token and could approve its own agent.
+pub(super) fn with_answer_target(mut overview: Value, platform: &str, team: Option<&str>) -> Value {
+    if overview.get("available") == Some(&json!(true))
+        && let Some(map) = overview.as_object_mut()
+    {
+        map.insert("platform".into(), json!(platform));
+        map.insert("team".into(), team.map_or(Value::Null, |t| json!(t)));
+    }
+    overview
+}
+
 /// The overview from its four answers (in [`overview_requests`] order): one view model for the Settings card. A hub
 /// that is not on this deployment is `ok: true, available: false`, so the card shows a calm "not available here yet".
 pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
@@ -680,6 +685,7 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
             "message": "The integrations hub is not available on this deployment yet.",
             "connections": [], "approvals": [], "rules": [], "audit": [], "paused": false,
             "hasStripe": false,
+            "hasGithub": false,
         });
     }
     if let Some(failed) = answers.iter().find(|a| a.get("ok") != Some(&json!(true))) {
@@ -687,8 +693,10 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
     }
     let [c, a, p, l] = answers;
     let connections = c["connections"].clone();
-    let has_stripe =
-        connections.as_array().is_some_and(|list| list.iter().any(|c| c["provider"] == "stripe"));
+    let has = |provider: &str| {
+        connections.as_array().is_some_and(|list| list.iter().any(|c| c["provider"] == provider))
+    };
+    let (has_stripe, has_github) = (has("stripe"), has("github"));
     let paused = p["paused"].as_bool().unwrap_or(false);
     json!({
         "ok": true,
@@ -697,6 +705,7 @@ pub(super) fn overview(parts: [(u16, Value); 4]) -> Value {
         "pausedText": if paused { "Paused: every call is refused until you resume." } else { "On: calls follow your rules." },
         "connections": connections,
         "hasStripe": has_stripe,
+        "hasGithub": has_github,
         "approvals": a["approvals"],
         "rules": p["rules"],
         "audit": l["audit"],
@@ -762,6 +771,8 @@ pub(super) fn action_label(name: &str) -> String {
         "stripe.refund.create" => "Stripe refunds".into(),
         "stripe.charges.list" => "listing Stripe charges".into(),
         "stripe.charge.get" => "reading a Stripe charge".into(),
+        "github.pulls.list" => "listing GitHub pull requests".into(),
+        "github.issues.list" => "listing GitHub issues".into(),
         other => match other.strip_suffix(".*") {
             Some(prefix) if !prefix.contains('.') => {
                 format!("any {} action", provider_label(prefix))
@@ -1119,13 +1130,22 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
                 hub.send(&d, None)
             );
             match (a, b, c, d) {
-                (Ok(a), Ok(b), Ok(c), Ok(d)) => overview([a, b, c, d]),
+                (Ok(a), Ok(b), Ok(c), Ok(d)) => {
+                    with_answer_target(overview([a, b, c, d]), &hub.platform, hub.team.as_deref())
+                }
                 (Err(e), ..) | (_, Err(e), ..) | (_, _, Err(e), _) | (.., Err(e)) => e,
             }
         }
-        Verb::Link { sharing, policy } => {
-            let Some(key) = key else { return error_json("cli.invalid_args", "no key") };
-            let body = link_body(&key, sharing.as_deref(), policy.as_deref());
+        Verb::Link { provider, sharing, policy } => {
+            if provider == "stripe" && key.is_none() {
+                return error_json("cli.invalid_args", "no key");
+            }
+            let body = link_body(
+                provider,
+                key.as_deref().map(|k| k.as_str()),
+                sharing.as_deref(),
+                policy.as_deref(),
+            );
             match hub.send(&request_of(verb), Some(&body)).await {
                 Ok((status, value)) => answer(verb, status, &value),
                 Err(e) => e,
@@ -1263,7 +1283,7 @@ pub(super) fn run_words(words: &[String], json_out: bool) -> i32 {
             return 2;
         }
     };
-    let key = if matches!(verb, Verb::Link { .. }) {
+    let key = if matches!(&verb, Verb::Link { provider, .. } if provider == "stripe") {
         match read_key() {
             Ok(k) => Some(k),
             Err(e) => {

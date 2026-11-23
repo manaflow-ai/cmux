@@ -22,7 +22,11 @@ fn hub_parses_every_verb() {
     assert_eq!(parse_ok("overview"), Verb::Overview { audit_limit: 20 });
     assert_eq!(
         parse_ok("link stripe --sharing team"),
-        Verb::Link { sharing: Some("team".into()), policy: None }
+        Verb::Link { provider: "stripe".into(), sharing: Some("team".into()), policy: None }
+    );
+    assert_eq!(
+        parse_ok("link github"),
+        Verb::Link { provider: "github".into(), sharing: None, policy: None }
     );
     assert_eq!(parse_ok("remove hubc_0123abcd"), Verb::Remove { id: "hubc_0123abcd".into() });
     assert_eq!(parse_ok("actions"), Verb::Actions);
@@ -39,14 +43,6 @@ fn hub_parses_every_verb() {
     );
     assert_eq!(parse_ok("status hcall_abc"), Verb::Status { id: "hcall_abc".into() });
     assert_eq!(parse_ok("approvals"), Verb::Approvals);
-    assert_eq!(
-        parse_ok("approve apr_1 --remember"),
-        Verb::Answer { id: "apr_1".into(), allow: true, remember: true }
-    );
-    assert_eq!(
-        parse_ok("deny apr_1"),
-        Verb::Answer { id: "apr_1".into(), allow: false, remember: false }
-    );
     assert_eq!(parse_ok("policy"), Verb::Policy);
     assert_eq!(parse_ok("rule remove hubr_9"), Verb::RuleRemove { id: "hubr_9".into() });
     assert_eq!(parse_ok("pause"), Verb::Pause { paused: true });
@@ -62,17 +58,21 @@ fn hub_parses_every_verb() {
 fn hub_refuses_a_key_in_argv_and_bad_arguments() {
     assert!(parse_err("link stripe --key rk_test_abc").contains("never from an argument"));
     assert!(parse_err("link stripe --key=rk_test_abc").contains("never from an argument"));
-    assert!(parse_err("link github").contains("link stripe"));
+    assert!(parse_err("link slack").contains("link stripe or github"));
+    assert!(parse_err("link github --policy ask").contains("--policy is for Stripe"));
     assert!(parse_err("remove ../etc").contains("not a connection id"));
     assert!(parse_err("remove hubc_a/b").contains("not a connection id"));
-    assert!(parse_err("approve hcall_1").contains("approval"));
+    // A person answers an approval in Settings; the CLI has no verb for it (a lane holds the person's token).
+    for words in ["approve apr_1", "approve apr_1 --remember", "deny apr_1", "answer apr_1"] {
+        assert!(parse_err(words).contains("Settings > Integrations"), "{words}");
+    }
     assert!(parse_err("call stripe.* ").contains("not an action"));
     assert!(parse_err("call stripe.refund.create --args [1]").contains("JSON object"));
     assert!(parse_err("call stripe.refund.create --invocation-id short").contains("8 to 128"));
     assert!(parse_err("audit --limit 0").contains("1 to 200"));
     assert!(parse_err("audit --limit 201").contains("1 to 200"));
     assert!(parse_err("audit --before 0").contains("seq"));
-    assert!(parse_err("deny apr_1 --remember").contains("unexpected"));
+    assert!(parse_err("approvals --remember").contains("unexpected"));
     assert!(parse_err("connections extra").contains("unexpected"));
     assert!(parse_err("frobnicate").contains("unknown verb"));
     assert!(parse_err("rule").contains("rule add"));
@@ -128,11 +128,6 @@ fn hub_builds_requests() {
             json!({"action": "stripe.refund.create", "args": {"charge": "ch_1", "amount": 1200}, "connection": "hubc_1"})
         )
     );
-    let r = request_of(&parse_ok("approve apr_7 --remember"));
-    assert_eq!((r.method, r.path.as_str()), ("POST", "/approvals/apr_7/answer"));
-    assert_eq!(r.body, Some(json!({"decision": "allow", "remember": true})));
-    let r = request_of(&parse_ok("deny apr_7"));
-    assert_eq!(r.body, Some(json!({"decision": "deny"})));
     let r = request_of(&parse_ok("remove hubc_1"));
     assert_eq!(r.path, "/connections/hubc_1/remove");
     let r = request_of(&parse_ok("rule remove hubr_1"));
@@ -147,6 +142,8 @@ fn hub_builds_requests() {
         "https://p/v1/hub/audit?before=40&limit=5&team=acme%20team"
     );
     let r = request_of(&parse_ok("link stripe"));
+    assert_eq!((r.method, r.path.as_str(), r.body), ("POST", "/connections", None));
+    let r = request_of(&parse_ok("link github --sharing team"));
     assert_eq!((r.method, r.path.as_str(), r.body), ("POST", "/connections", None));
     let paths: Vec<String> =
         overview_requests(7).iter().map(|r| url_of("https://p", r, None)).collect();
@@ -199,12 +196,15 @@ fn hub_rule_add_body() {
 
 #[test]
 fn hub_link_body_and_key_checks() {
-    let body = link_body("rk_test_abc123", Some("team"), Some("ask"));
+    let body = link_body("stripe", Some("rk_test_abc123"), Some("team"), Some("ask"));
     let v: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(
         v,
         json!({"provider": "stripe", "key": "rk_test_abc123", "sharing": "team", "policy": "ask"})
     );
+    let body = link_body("github", None, None, None);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap(), json!({"provider": "github"}));
+    // A live key goes to the hub, which answers `stripe.live_not_yet` in its own words (the card shows it as is).
     assert_eq!(restricted_key("  rk_live_ABC123\n").unwrap().as_str(), "rk_live_ABC123");
     let refused = restricted_key("sk_live_ABC").unwrap_err();
     assert_eq!(refused["error"]["code"], "stripe.key_refused");
@@ -306,6 +306,14 @@ fn hub_shapes_calls() {
 #[test]
 fn hub_shapes_rules() {
     assert_eq!(
+        rule_text(
+            &json!({"action": "github.*", "effect": "block", "when": {"repo": "acme/secret"}})
+        ),
+        "Block any GitHub action in acme/secret"
+    );
+    assert_eq!(action_label("github.pulls.list"), "listing GitHub pull requests");
+    assert_eq!(action_label("github.issues.list"), "listing GitHub issues");
+    assert_eq!(
         rule_text(&json!({"owner": "user", "action": "stripe.refund.create", "effect": "ask"})),
         "Ask before Stripe refunds"
     );
@@ -386,11 +394,18 @@ fn hub_overview_shapes_the_card() {
     assert_eq!(o["available"], true);
     assert_eq!(o["paused"], true);
     assert_eq!(o["hasStripe"], true);
+    assert_eq!(o["hasGithub"], false);
     assert_eq!(o["connections"][0]["title"], "Stripe · Acme");
     assert_eq!(o["approvals"][0]["approvalId"], "apr_1");
     assert_eq!(o["rules"][0]["text"], "Ask before Stripe refunds");
     assert_eq!(o["audit"][0]["line"], "Linked · Linked Stripe · by leo");
     assert_eq!(o["next"], 2);
+    assert!(o.get("platform").is_none());
+    let o = with_answer_target(o, "https://platform.example", None);
+    assert_eq!(
+        (o["platform"].as_str(), &o["team"]),
+        (Some("https://platform.example"), &Value::Null)
+    );
 }
 
 #[test]
@@ -400,6 +415,7 @@ fn hub_overview_not_available_is_calm() {
     assert_eq!(o["ok"], true);
     assert_eq!(o["available"], false);
     assert_eq!(o["connections"], json!([]));
+    assert!(with_answer_target(o, "https://p", Some("t")).get("platform").is_none());
     let o = overview([
         ok(json!({"connections": []})),
         (401, json!({"error": {"code": "hub.unauthorized", "message": "sign in"}})),
@@ -420,15 +436,26 @@ fn hub_answers_keep_the_hub_fields() {
     assert_eq!(a["rule"]["id"], "hubr_2");
     assert_eq!(a["rule"]["text"], "Ask before any action");
     let a = answer(
-        &parse_ok("approve apr_1 --remember"),
+        &parse_ok("status hcall_1"),
         200,
-        &json!({
-            "call": {"id": "hcall_1", "status": "succeeded", "summary": "Refund"},
-            "rule": {"id": "hubr_3", "action": "stripe.refund.create", "effect": "allow", "remembered": true}
-        }),
+        &json!({"call": {"id": "hcall_1", "status": "succeeded", "summary": "Refund"}}),
     );
     assert_eq!(a["call"]["statusLabel"], "Done");
-    assert_eq!(a["rule"]["remembered"], true);
+    let a = answer(
+        &parse_ok("link github"),
+        409,
+        &json!({"error": {"code": "github.not_connected", "message": "connect GitHub first"}}),
+    );
+    assert_eq!(
+        (a["error"]["code"].as_str(), a["error"]["message"].as_str()),
+        (Some("github.not_connected"), Some("connect GitHub first"))
+    );
+    let a = answer(
+        &parse_ok("link stripe"),
+        400,
+        &json!({"error": {"code": "stripe.live_not_yet", "message": "live keys are not linked yet"}}),
+    );
+    assert_eq!(a["error"]["message"], "live keys are not linked yet");
     let a = answer(&parse_ok("remove hubc_1"), 200, &json!({"removed": true, "id": "hubc_1"}));
     assert_eq!(human_lines(&a), ["removed hubc_1"]);
     let a = answer(
