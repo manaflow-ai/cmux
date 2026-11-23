@@ -11,8 +11,10 @@
 //!
 //! The inbox long-polls the hub (`inbox_wait`), never more often than `min_poll_gap`, after an
 //! answer or a failure alike (a hub that answers at once, with nothing or an error, is no busy
-//! loop), and delivers each message on its own task, at most `max_in_flight` at a time; a message
-//! already being delivered is not started again. After a failed call each loop waits, doubling from `backoff_first` to `backoff_cap` (or the hub's
+//! loop), and delivers each message on its own task, at most `max_in_flight` at a time, besides
+//! reads of a session (`READ_SLOTS` more, so a read never waits behind sends and starts; with the
+//! shared slots full the inbox is polled on for reads and holds any other message it gets for the
+//! next free slot, at most `MAX_HELD`); a message already being delivered is not started again. After a failed call each loop waits, doubling from `backoff_first` to `backoff_cap` (or the hub's
 //! `retryAfterSeconds`, if longer), and logs only the first failure of a run of them and the
 //! recovery. Both loops stop when [`MeshRelay`] is stopped or dropped, when the daemon stops (its
 //! hub's `shutdown`, or the hub gone), or when the mesh hub refuses a call itself (a bad
@@ -468,12 +470,36 @@ async fn inbox(
         () = ended(&mut stop, &hub) => return,
     }
     let mut deliveries = tokio::task::JoinSet::new();
+    // Reads run in their own slots (`READ_SLOTS`): a read never waits behind the shared ones.
+    let mut reads = tokio::task::JoinSet::new();
+    // Messages leased while the shared slots were full (the inbox is polled on for reads), in
+    // the order the hub gave them; each starts as a shared slot frees.
+    let mut held: std::collections::VecDeque<InMessage> = std::collections::VecDeque::new();
     let in_flight: Arc<StdMutex<HashSet<String>>> = Arc::default();
+    let shared = options.max_in_flight.max(1);
     loop {
         while deliveries.try_join_next().is_some() {}
-        if deliveries.len() >= options.max_in_flight.max(1) {
+        while reads.try_join_next().is_some() {}
+        while deliveries.len() < shared {
+            let Some(message) = held.pop_front() else { break };
+            let Some(hub) = hub.upgrade() else { return };
+            let own_id = own.borrow().clone();
+            deliveries.spawn(run_delivery(
+                hub,
+                message,
+                client.clone(),
+                control.clone(),
+                in_flight.clone(),
+                beat.clone(),
+                own_id,
+            ));
+        }
+        let read_room = READ_SLOTS.saturating_sub(reads.len());
+        let full = deliveries.len() >= shared;
+        if full && (read_room == 0 || held.len() >= MAX_HELD) {
             tokio::select! {
                 _ = deliveries.join_next() => continue,
+                Some(_) = reads.join_next() => continue,
                 () = ended(&mut stop, &hub) => break,
             }
         }
@@ -489,8 +515,13 @@ async fn inbox(
             }
         }
         let started = Instant::now();
-        // Only as many as it can deliver now: a leased message waits for its ack.
-        let room = options.max_in_flight.max(1) - deliveries.len();
+        // Only as many as it can deliver now: a leased message waits for its ack. With the shared
+        // slots full, as many as the read slots take: a message that is no read waits in `held`.
+        let room = if full {
+            read_room.min(MAX_HELD - held.len())
+        } else {
+            shared - deliveries.len() + read_room
+        };
         let polled = tokio::select! {
             r = client.inbox(options.inbox_wait, room) => r,
             () = ended(&mut stop, &hub) => break,
@@ -518,31 +549,25 @@ async fn inbox(
                     if !in_flight.lock_or_recover().insert(message.message_id.clone()) {
                         continue;
                     }
+                    let set = if is_read(&message) && reads.len() < READ_SLOTS {
+                        &mut reads
+                    } else if deliveries.len() < shared {
+                        &mut deliveries
+                    } else {
+                        held.push_back(message);
+                        continue;
+                    };
                     let Some(hub) = hub.upgrade() else { return };
-                    let (client, control, in_flight, beat) =
-                        (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
-                    deliveries.spawn(async move {
-                        let ack =
-                            deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
-                        // A started session is in the hub's address book before its sender
-                        // hears the start went through.
-                        if message.kind == Kind::Control
-                            && message.op.as_deref() == Some("start")
-                            && ack
-                                .as_ref()
-                                .is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
-                        {
-                            beat.now(START_LISTED_WAIT).await;
-                        }
-                        if let Some(ack) = ack
-                            && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
-                        {
-                            // Its lease brings it back, and that delivery answers with this one.
-                            tracing::warn!("mesh relay: ack of {} failed: {e}", message.message_id);
-                        }
-                        in_flight.lock_or_recover().remove(&message.message_id);
-                    });
+                    set.spawn(run_delivery(
+                        hub,
+                        message,
+                        client.clone(),
+                        control.clone(),
+                        in_flight.clone(),
+                        beat.clone(),
+                        own_id,
+                    ));
                 }
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
@@ -571,6 +596,49 @@ async fn inbox(
             }
         }
     }
+}
+
+/// Reads of a session through the hub (`mesh_read.rs`) running at once, beside the shared
+/// `max_in_flight`. A read changes nothing and answers in milliseconds, but behind 32 sends and
+/// starts on a busy machine each one waited 5 to 12 s, ten of them past the 50 s a read waits
+/// (cmuxterm-hq#15806).
+const READ_SLOTS: usize = 16;
+
+/// The most messages held for a shared slot while the inbox is polled on for reads. Past it the
+/// inbox waits for a slot, as it did before reads had their own.
+const MAX_HELD: usize = 64;
+
+/// Whether `message` is a read of a session through the hub, which runs in [`READ_SLOTS`].
+fn is_read(message: &InMessage) -> bool {
+    message.kind == Kind::Control && message.op.as_deref() == Some("read")
+}
+
+/// Delivers one leased message and acks it, then lets its id be leased again.
+async fn run_delivery(
+    hub: Arc<Hub>,
+    message: InMessage,
+    client: Arc<dyn MeshHub>,
+    control: Arc<dyn ControlHook>,
+    in_flight: Arc<StdMutex<HashSet<String>>>,
+    beat: Arc<Beat>,
+    own_id: Option<String>,
+) {
+    let ack = deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
+    // A started session is in the hub's address book before its sender hears the start went
+    // through.
+    if message.kind == Kind::Control
+        && message.op.as_deref() == Some("start")
+        && ack.as_ref().is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
+    {
+        beat.now(START_LISTED_WAIT).await;
+    }
+    if let Some(ack) = ack
+        && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
+    {
+        // Its lease brings it back, and that delivery answers with this one.
+        tracing::warn!("mesh relay: ack of {} failed: {e}", message.message_id);
+    }
+    in_flight.lock_or_recover().remove(&message.message_id);
 }
 
 /// A connection of the origin a relayed request runs as: a peer daemon's, proven

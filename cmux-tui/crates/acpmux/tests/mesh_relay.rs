@@ -633,6 +633,77 @@ impl ControlHook for Starts {
     }
 }
 
+/// A hook whose starts run until `release`, as a busy machine's sends and starts hold its
+/// delivery slots, and whose reads answer at once, as a read of a session does.
+#[derive(Default)]
+struct BusyStarts {
+    release: Notify,
+    released: std::sync::atomic::AtomicBool,
+}
+
+impl ControlHook for BusyStarts {
+    fn control<'a>(&'a self, _: &'a Arc<Hub>, m: &'a InMessage) -> BoxFuture<'a, Option<Ack>> {
+        Box::pin(async move {
+            if m.op.as_deref() == Some("read") {
+                return Some(Ack::answered(&m.message_id, "{}".into()));
+            }
+            loop {
+                let released = self.release.notified();
+                if self.released.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                released.await;
+            }
+            Some(Ack::delivered(&m.message_id, Some("started".into())))
+        })
+    }
+}
+
+/// cmuxterm-hq#15806: on a machine with 109 sessions every read of one through the hub waited
+/// 5 to 12 s behind the shared delivery slots, and a read of ten round trips missed its 50 s.
+/// A read is answered while every shared slot is busy, and what came in behind the busy slots
+/// still runs once they free, each once.
+#[tokio::test]
+async fn a_read_is_answered_while_every_shared_delivery_slot_is_busy() {
+    let hub = hub();
+    let fake = Arc::new(FakeHub::default());
+    let hook = Arc::new(BusyStarts::default());
+    let options = quick();
+    let shared = options.max_in_flight;
+    let relay = MeshRelay::start(&hub, fake.clone(), hook.clone(), options);
+    // Every shared slot runs a start that does not end.
+    for i in 0..shared {
+        fake.lease(message(&format!("start-{i}"), "", Kind::Control));
+    }
+    fake.until("the shared slots taken", |s| s.waiting.is_empty()).await;
+    // Then one more start, which waits behind them, and a read.
+    fake.lease(message(&format!("start-{shared}"), "", Kind::Control));
+    let read = InMessage { op: Some("read".into()), ..message("read-1", "", Kind::Control) };
+    let asked = tokio::time::Instant::now();
+    fake.lease(read);
+    fake.until_within(Duration::from_secs(5), "the read's answer", |s| {
+        !s.acked("read-1").is_empty()
+    })
+    .await;
+    let waited = asked.elapsed();
+    println!(
+        "read answered in {} ms with {shared} of {shared} shared slots busy",
+        waited.as_millis()
+    );
+    assert_eq!(fake.with(|s| s.acked("read-1")[0].state), AckState::Delivered);
+    assert!(waited < Duration::from_secs(2), "the read waited {waited:?}");
+    assert!(fake.with(|s| (0..=shared).all(|i| s.acked(&format!("start-{i}")).is_empty())));
+
+    hook.released.store(true, std::sync::atomic::Ordering::SeqCst);
+    hook.release.notify_waiters();
+    for i in 0..=shared {
+        let id = format!("start-{i}");
+        fake.until(&id, |s| !s.acked(&id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(&id).len()), 1, "{id} ran once");
+    }
+    relay.stop().await;
+}
+
 #[tokio::test]
 async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
     let hub = hub();
