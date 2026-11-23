@@ -43,8 +43,7 @@ final class SidebarBridge {
             },
             displayName: { [weak services = self.services] peer in services?.machines.machineName(peer: peer) },
             open: { [weak services = self.services] lane in
-                guard let services else { return }
-                guard let lane = lane as? AgentActivityLane else { return }
+                guard let services, let lane = lane as? AgentActivityLane else { return }
                 SidebarPriorityFeed.open(lane, services: services)
             })
     }()
