@@ -99,7 +99,6 @@ src/agent-session/acpmux/PermissionCard.tsx	1
 src/agent-session/acpmux/permissions/Panel.tsx	1
 src/agent-session/acpmux/ProjectChooser.tsx	1
 src/agent-session/acpmux/promptFocus.ts	1
-src/agent-session/acpmux/prototype/WorkspaceShell.tsx	1
 src/agent-session/acpmux/question/HatQuestions.tsx	1
 src/agent-session/acpmux/queue/QueueScreen.tsx	1
 src/agent-session/acpmux/queue/useQueue.ts	1

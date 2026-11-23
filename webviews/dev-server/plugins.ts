@@ -6,7 +6,7 @@
 //   /markdown?file=   the markdown editor (markdown-page.html, src/pages/markdown) on a repo file
 //   /markdown/viewer?file=  the classic markdown viewer shell (Resources/markdown-viewer/shell.html)
 //   /editor?file=     the code editor (editor-page.html, src/pages/editor) on any file in the home folder
-//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html; prototype.html beside it);
+//   /agent-pane/      the agent pane (src/agent-session/acpmux/index.html);
 //                     POST /__dev-host/read answers its git and file-search reads (agentGitHost.ts)
 //   /history/ /apps/ /settings/ ...  React pages (every src/pages/<page>/main.tsx); `?mock` uses the page's in-memory provider
 //   /gallery/         every component and page in named fixture states (src/gallery, galleryHost.ts)
@@ -364,7 +364,6 @@ const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
   "src/agent-session/acpmux/dev.tsx",
-  "src/agent-session/acpmux/prototype/dev.tsx",
   "src/markdown-viewer/devHost.ts",
   "src/pages/markdown/devBridge.ts",
   "src/pages/markdown/main.tsx",
