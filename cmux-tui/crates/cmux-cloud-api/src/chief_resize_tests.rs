@@ -1,7 +1,5 @@
 use std::cell::RefCell;
 
-use serde_json::Map;
-
 use super::*;
 
 const MACHINE: &str = "vm_0123456789abcdefghij";
@@ -144,7 +142,7 @@ fn request(args: Value) -> Request {
         team: None,
         app_version: None,
         local_only: false,
-        args: Map::from_iter(args),
+        args,
     }
 }
 
