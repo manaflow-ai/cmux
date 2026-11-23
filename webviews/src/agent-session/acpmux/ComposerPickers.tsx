@@ -1628,6 +1628,7 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
             if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;

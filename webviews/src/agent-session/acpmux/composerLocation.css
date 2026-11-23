@@ -2016,3 +2016,28 @@
   width: calc(var(--ui-ghost-icon-size) * 1.25);
   height: var(--ui-ghost-icon-size);
 }
+
+/* A location menu sized by a drag (ui/PopupResize.tsx, cmux#51745): its list takes the height the
+   person gave it, not its own cap, and scrolls inside it; the search field and the actions keep theirs
+   (as .acpmux-folder-popover's list already does). */
+.acpmux-menu.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) > :not(.ui-popup-resize) { flex-shrink: 0; }
+.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) .ui-combobox-scroll {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+.acpmux-location-menu[data-resized-height]:not(.acpmux-folder-popover) .ui-combobox-scroll > .ui-combobox-viewport {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+}

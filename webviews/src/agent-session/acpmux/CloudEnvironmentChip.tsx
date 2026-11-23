@@ -277,6 +277,7 @@ export function CloudEnvironmentChip({
           align="start"
           label={name}
           className={`acpmux-menu acpmux-location-menu acpmux-cloud-env-menu acpmux-cloud-env-menu-${dropUp}`}
+          resize={{ id: "composer.cloudEnvironment" }}
         >
           {dropUp === "sections" && <div className="acpmux-env-heading">{label}</div>}
           <MenuRadioGroup value={control.current} onValueChange={(next) => pick(String(next))}>
