@@ -4059,6 +4059,14 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
 .cv-thought:is(.is-toggle, .is-whole) > :is(.cv-tool__icon, .cv-tool__chevron, .cv-thought__time) {
   height: var(--cv-tool-row-height);
 }
+/* In the transcript every row's chevron is its glyph's size (`.acpmux-row :is(.cv-tool__chevron,
+   …)` below, which outranks the height above), so in this top-aligned row it sat at the line's top,
+   5px over its words while the glyph and the time sat on them (cmux#51746). Its margins centre it
+   on the first line instead, open or closed, as `align-items: center` does on every other row.
+   test/transcript-chevron-vertical-center.test.ts. */
+.acpmux-row .cv-thought:is(.is-toggle, .is-whole) > .cv-tool__chevron {
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-chevron-glyph)) / 2);
+}
 .cv-thought.is-full {
   flex-direction: column;
   align-items: stretch;
