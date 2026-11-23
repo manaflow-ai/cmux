@@ -764,7 +764,7 @@ private nonisolated struct JoinConsentPage: Encodable {
 public nonisolated struct JoinConsentStrings {
     public nonisolated init() {}
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .localizedModule)
     }
 
     static var section: String { s("devices.join.section", "This Mac on Your Team") }
