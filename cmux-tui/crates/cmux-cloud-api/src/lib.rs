@@ -29,6 +29,9 @@
 //! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
 //! `cloud.machine.resize` ([`chief_resize`]).
 //!
+//! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
+//! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
+//!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
 //!
@@ -55,6 +58,7 @@ mod chat;
 pub mod chief_machine;
 pub mod chief_resize;
 pub mod classic_runs;
+mod fork_runs;
 mod http;
 mod machine;
 pub mod machine_io;

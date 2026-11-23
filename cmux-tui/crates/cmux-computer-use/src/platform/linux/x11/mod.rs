@@ -568,6 +568,10 @@ impl Desktop for X11Desktop {
         self.scroll_impl(target, dx, dy)
     }
 
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        self.move_impl(target, delivery)
+    }
+
     fn drag(
         &self,
         window_id: &str,
