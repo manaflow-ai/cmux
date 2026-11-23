@@ -464,6 +464,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
             "needs-you-v1",
             "appearance-v1",
             "pair-requests-v1",
+            "phone-frames-v1",
+            "tab-snapshots-v1",
             "browser-stream-v1",
             "browser-video-track-v1",
             "surface-stream-v1",
@@ -1763,6 +1765,7 @@ async fn device_traffic_reads_back_a_phones_bytes_over_the_link_socket() {
         activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
         links: Default::default(),
         build_space: None,
+        pairing: None,
     });
     let server = tokio::spawn(serve(path.clone(), dialer));
     for _ in 0..200 {
@@ -2033,6 +2036,7 @@ async fn a_paired_mac_lists_and_allows_a_waiting_request_over_its_link_socket() 
         activity: Arc::new(cmux_mobile_host::activity::Activity::memory()),
         links: Default::default(),
         build_space: None,
+        pairing: None,
     });
     let server = tokio::spawn(serve(path.clone(), dialer));
     for _ in 0..200 {
@@ -2161,4 +2165,128 @@ async fn a_paired_mac_lists_and_allows_a_waiting_request_over_its_link_socket() 
     );
     server.abort();
 }
-||||||| 4b816cb17582
+
+/// `cmux mobile pair-requests` with no `--mac`, on the Mac the request waits on: the owner-only
+/// link socket (`{"op":"pair-requests"}`, link_socket.rs) lists the waiting request and answers it
+/// as the app's Allow would, with no link and no remote peer involved. The fingerprint is still
+/// required and checked. With CMUX_PAIR_REQUESTS_CLI naming a cmux-tui binary, the CLI's own
+/// `mobile pair-requests list|allow` (no `--mac`) drive the same socket.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn this_mac_lists_and_allows_its_own_waiting_request_over_its_link_socket() {
+    use cmux_mobile_host::auth::{TokenSource, Tokens};
+    use cmux_mobile_host::link_socket::{Dialer, serve, socket_path};
+    use cmux_mobile_host::pair_requests::{WaitingRequest, fingerprint};
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let pairing = Pairing::new(
+        "this-mac".into(),
+        tokio::sync::watch::channel(None).1,
+        Arc::new(move |event| sink.lock().unwrap().push(event)),
+    );
+    let waiting = Arc::clone(&pairing.waiting);
+    let probe = phone_keys();
+    let probe_id = uuid::Uuid::new_v4().to_string();
+    let _held = waiting.hold(WaitingRequest {
+        device_id: probe_id.clone(),
+        name: "Probe iPhone".into(),
+        kind: cmux_mobile_host::peer::PeerKind::Phone,
+        identity_key: probe.identity_hex.clone(),
+        approval_key: probe.approval_hex.clone(),
+        since: std::time::Instant::now(),
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let daemon_socket = dir.path().join("local.sock");
+    let path = socket_path(&daemon_socket);
+    let dialer = Arc::new(Dialer {
+        device_id: "this-mac".into(),
+        device_name: "This Mac".into(),
+        base_url: "http://127.0.0.1:9".into(),
+        tokens: Arc::new(Tokens::new(TokenSource::Access("unused".into()))),
+        ice: IceSource::Fixed(Vec::new()),
+        signaling: tokio::sync::watch::channel(None).1,
+        identity: tokio::sync::watch::channel(None).1,
+        activity: Arc::clone(&pairing.activity),
+        links: Default::default(),
+        build_space: None,
+        pairing: Some(pairing),
+    });
+    let server = tokio::spawn(serve(path.clone(), dialer));
+    for _ in 0..200 {
+        if path.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the local path is owner-only");
+    }
+    let local = |args: serde_json::Value| serde_json::json!({"op": "pair-requests", "args": args});
+    let fingerprint = fingerprint(&probe.approval_hex);
+
+    let lines = link_socket_lines(&path, local(serde_json::json!({"action": "list"}))).await;
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["requests"][0]["deviceId"], probe_id.as_str(), "{lines:?}");
+    assert_eq!(lines[0]["requests"][0]["fingerprint"], fingerprint.as_str(), "{lines:?}");
+    // A wrong key, or none, is refused as over a link.
+    let lines = link_socket_lines(
+        &path,
+        local(serde_json::json!({"action": "answer", "deviceId": probe_id, "fingerprint": "00000000", "allow": true})),
+    )
+    .await;
+    assert_eq!(lines[0]["error"], "fingerprint_mismatch", "{lines:?}");
+    let lines = link_socket_lines(
+        &path,
+        local(serde_json::json!({"action": "answer", "deviceId": probe_id, "allow": true})),
+    )
+    .await;
+    assert_eq!(lines[0]["error"], "bad_request", "{lines:?}");
+    assert!(events.lock().unwrap().is_empty());
+
+    if let Some(cli) = std::env::var_os("CMUX_PAIR_REQUESTS_CLI") {
+        let run = |args: &str| {
+            let out = std::process::Command::new(&cli)
+                .args(args.split_whitespace())
+                .env("CMUX_TUI_SOCKET", &daemon_socket)
+                .output()
+                .expect("cmux mobile pair-requests");
+            let (stdout, stderr) = (
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                String::from_utf8_lossy(&out.stderr).into_owned(),
+            );
+            eprintln!("cmux {args} (rc {:?}):\n{stdout}{stderr}", out.status.code());
+            (out.status.code(), stdout, stderr)
+        };
+        let (rc, stdout, _) = run("mobile pair-requests list");
+        assert_eq!(rc, Some(0));
+        assert!(stdout.contains(&format!("allow {probe_id} --fingerprint {fingerprint}\n")), "{stdout}");
+        let (rc, _, stderr) = run(&format!("mobile pair-requests allow {probe_id} --fingerprint 00000000"));
+        assert_eq!(rc, Some(1));
+        assert!(stderr.contains("cmux mobile pair-requests list"), "{stderr}");
+        let (rc, stdout, _) =
+            run(&format!("mobile pair-requests allow {probe_id} --fingerprint {}", &fingerprint[..8]));
+        assert_eq!(rc, Some(0));
+        assert!(stdout.contains("allowed"), "{stdout}");
+    } else {
+        let lines = link_socket_lines(
+            &path,
+            local(serde_json::json!({"action": "answer", "deviceId": probe_id,
+                                     "fingerprint": &fingerprint[..8], "allow": true})),
+        )
+        .await;
+        assert_eq!(lines, vec![serde_json::json!({"ok": true})]);
+    }
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![Event::PairAnswer {
+            phone_device_id: probe_id.clone(),
+            identity_key: probe.identity_hex.clone(),
+            approval_key: probe.approval_hex.clone(),
+            allow: true,
+            by_device_id: "this-mac".into(),
+        }]
+    );
+    server.abort();
+}
