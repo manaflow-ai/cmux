@@ -215,6 +215,8 @@ pub(super) fn names_a_move(mark: &str) -> bool {
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
+#[path = "transfer_handoff.rs"]
+pub(super) mod transfer_handoff;
 #[path = "transfer_precopy.rs"]
 pub(super) mod transfer_precopy;
 
@@ -276,8 +278,11 @@ impl Hub {
                 // Wait for a running turn to end on its own, then move (`AFTER_TURN_WAIT`).
                 let after_turn =
                     !interrupt && params.get("afterTurn").and_then(Value::as_bool) == Some(true);
+                // The acked hand-off of prompts that come in as the chat freezes
+                // (`transfer_handoff.rs`); off unless the client asks.
+                let acked = params.get("ackedHandoff").and_then(Value::as_bool) == Some(true);
                 self.transfer_begin(
-                    &session, interrupt, after_turn, socket, ssh, host, gates, precopy,
+                    &session, interrupt, after_turn, socket, ssh, host, gates, precopy, acked,
                 )
                 .await
             }
@@ -353,6 +358,7 @@ impl Hub {
         to_host: Option<&str>,
         gates_receiver: bool,
         precopy: Option<(&str, u64)>,
+        acked: bool,
     ) -> Result<Value, RpcError> {
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
@@ -484,6 +490,12 @@ impl Hub {
                 RpcError::internal(format!("transfer: bundle dir: {error}")),
                 carried,
             ));
+        }
+        // What the queue holds before the bundle is made is in it; what comes in later is handed
+        // off at the commit (`transfer_handoff.rs`).
+        if acked && let Err(error) = transfer_handoff::note_base(session, &dir) {
+            drop(guard);
+            return Err(unfreeze(error, carried));
         }
         let made = self
             .export_after(session, &dir, prefix.as_ref().map(|p| p.after_seq))
@@ -692,7 +704,17 @@ impl Hub {
         if let Some(epoch) = transfer_epoch_marker(&dir)? {
             check_epoch(current, Some(epoch))?;
         }
+        // Prompts that went in after the bundle was made go to the target, each acked, before
+        // the commit (`transfer_handoff.rs`): one not acked refuses it, the chat still here.
+        let acked = transfer_handoff::acked(&dir);
+        let mut handed = Vec::new();
+        if acked {
+            self.hand_off_stragglers(session, &dir, transfer_id, &to, &mut handed).await?;
+        }
         for q in session.queue() {
+            if acked && handed.iter().any(|h| h.prompt_id == q.prompt_id) {
+                continue;
+            }
             self.remove_queued(session, &q.prompt_id);
         }
         {
@@ -706,12 +728,19 @@ impl Hub {
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        self.append(
-            session,
-            "mux",
-            "transferred",
-            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
-        );
+        let mut record =
+            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()});
+        if acked {
+            // One that went in during the hand-off, now that the chat is marked moved.
+            if let Err(e) =
+                self.hand_off_stragglers(session, &dir, transfer_id, &to, &mut handed).await
+            {
+                tracing::warn!(session = %session.id, transfer = transfer_id, "{}", e.message);
+            }
+            let list: Vec<Value> = handed.iter().map(|h| h.record()).collect();
+            record.set("handedOff", Value::Array(list));
+        }
+        self.append(session, "mux", "transferred", record);
         self.kill(session, false).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);

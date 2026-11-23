@@ -879,6 +879,8 @@ pub enum Command {
         interrupt: bool,
         #[arg(long)]
         after_turn: bool,
+        #[arg(long)]
+        acked_handoff: bool,
     },
     #[command(hide = true)]
     Harnesses,
@@ -1344,6 +1346,10 @@ pub enum SessionCmd {
         /// Let a running turn end on its own, then move.
         #[arg(long)]
         after_turn: bool,
+        /// Hand prompts that come in as the chat freezes to the target, each acked before the
+        /// move commits (prototype; cmuxterm-hq goals/super-highway.md idea w47-25).
+        #[arg(long)]
+        acked_handoff: bool,
     },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
@@ -1768,9 +1774,15 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
-            SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
-                Command::Transfer { session, to, cwd, name, interrupt, after_turn }
-            }
+            SessionCmd::Transfer {
+                session,
+                to,
+                cwd,
+                name,
+                interrupt,
+                after_turn,
+                acked_handoff,
+            } => Command::Transfer { session, to, cwd, name, interrupt, after_turn, acked_handoff },
             SessionCmd::Move(args) => Command::MoveSessions(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
