@@ -176,10 +176,10 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadNews,
   noteUnreadCount,
+  noteUnreadNews,
 } from "./conversation/unreadState";
-import { sinceNews, sinceCount } from "./conversation/sinceNews";
+import { sinceCount, sinceNews } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
