@@ -51,6 +51,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("button.icon-button") ? null : "no menu + play button";
     case "url":
     case "text":
+      if (row.validation === "domain:config_actions")
+        return has("[data-config-actions]") && has("input[data-action-new-command]") ? null : "no command list";
       return has("input.text") ? null : "no text field";
     case "host_list":
       return has("input.token-input") ? null : "no token field";
