@@ -570,6 +570,8 @@ fn host_update(peer: &FakePeer, build: &str, now: bool) -> PeerUpdate {
 #[tokio::test]
 async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
     let peer = FakePeer::new("self-window");
+    // With the idle restart off, the guarantee is as it was: one an hour.
+    peer.write(".acpmux/update.idle-restart", "0\n");
     let new = fake_acpmux(NEW, Some(NEW));
     let files = serving(&new);
     let plan = ready(&peer, &files).await;
@@ -614,6 +616,26 @@ async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
         "{up:?}"
     );
     peer.assert_only_read(&installed, newer);
+    drop(plan);
+
+    // The idle restart on (the default): the bound moves to one an hour
+    // amortized, at most two in any rolling hour. After a restart, one idle
+    // early restart may happen; a third update in the same window is held.
+    std::fs::remove_file(peer.home.join(".acpmux/update.idle-restart")).unwrap();
+    peer.write("sessions.json", IDLE);
+    restarted_ago(&peer, 5 * 60);
+    let up = windowed_apply(&peer, newest).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newest)), "{up:?}");
+    let third = "d4e5f6a7b 2026-10-24";
+    let installed = peer.read(".local/bin/acpmux");
+    peer.take_calls();
+    let up = windowed_apply(&peer, third).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    peer.assert_only_read(&installed, newest);
 }
 
 /// A self-update of a peer the window holds, pushing `build`, idle or not as
