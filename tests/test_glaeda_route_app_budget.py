@@ -188,6 +188,8 @@ class PrMediaPlansOnlyFirstFinishedRuns(unittest.TestCase):
         condition = load("pr-media.yml")["jobs"]["plan"]["if"]
         self.assertIn("github.event.workflow_run.run_attempt == 1", condition)
         self.assertIn("github.event.workflow_run.conclusion != 'cancelled'", condition)
+        # Every job skipped (the static checks too): no app build, so no plan job and no runner.
+        self.assertIn("github.event.workflow_run.conclusion != 'skipped'", condition)
         # A manual dispatch is the escape hatch for any head the filters passed over.
         self.assertIn("github.event_name == 'workflow_dispatch' ||", condition)
 

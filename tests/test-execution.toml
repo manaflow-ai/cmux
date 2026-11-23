@@ -803,6 +803,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_mac_grants.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -977,6 +981,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_appstore_lane_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_asc_ops.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1677,10 +1685,6 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_ios_ui_nightly.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_update_release_tag.py"
 lane = "linux-guard"
 
@@ -1863,6 +1867,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_runner_set.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2374,4 +2382,32 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_gate_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_write_token_jit_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_language_boundaries_spends_no_rest.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_takeback_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_blind_spots.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_api_call_log_bootstrap.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
 lane = "linux-guard"

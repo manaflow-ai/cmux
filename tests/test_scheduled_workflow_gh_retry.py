@@ -40,6 +40,13 @@ JS_INSTALL = "if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_W
 DEFAULT_CAP = 3600
 # Room in the job's timeout beyond the wait cap, for the calls and steps themselves.
 MARGIN_SECONDS = 300
+# GitHub's API budget resets hourly. A nightly delivery job (it decides, promotes or moves
+# nightly-next) waits through one whole reset rather than lose that night's build: on
+# 2026-11-21 promote-nightly-next failed twice under a 900 s cap (job 136673914596: "resets in
+# 1693s, past GH_BUDGET_WAIT_MAX_SECONDS=900"; job 136744434336: "resets in 791s, past this
+# job's 85s left to wait") and nothing moved nightly-next for hours.
+ONE_RESET_SECONDS = 3600
+DELIVERY_JOBS = {"nightly.yml": ("decide", "promote-nightly-next", "promote-nightly-next-acked")}
 
 
 def triggers(doc: dict) -> dict:
@@ -146,6 +153,13 @@ class ScheduledWorkflowGhRetryTests(unittest.TestCase):
             steps = doc["jobs"][job]["steps"]
             self.assertTrue(any(calls_gh(s) for s in steps), workflow)
             self.assertTrue(any(INSTALL.match(str(s.get("run", "")).strip()) for s in steps), workflow)
+
+    def test_nightly_delivery_jobs_wait_through_one_whole_reset(self) -> None:
+        for workflow, names in DELIVERY_JOBS.items():
+            jobs = yaml.safe_load((WORKFLOWS / workflow).read_text(encoding="utf-8"))["jobs"]
+            for name in names:
+                cap = int((jobs[name].get("env") or {}).get("GH_BUDGET_WAIT_MAX_SECONDS", DEFAULT_CAP))
+                self.assertGreaterEqual(cap, ONE_RESET_SECONDS + MARGIN_SECONDS, f"{workflow}:{name}")
 
     def test_the_lint_flags_a_bare_call(self) -> None:
         bare = {"timeout-minutes": 5, "steps": [{"run": 'x="$(gh api repos/o/r)"'}]}

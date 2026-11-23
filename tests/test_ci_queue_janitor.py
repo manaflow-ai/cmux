@@ -186,6 +186,75 @@ class PaidPortablePoolSnapshotTests(unittest.TestCase):
         self.assertEqual(janitor.label_started([run], {run["id"]: jobs}), {LINUX: iso(10)})
 
 
+class OwnedIdleTests(unittest.TestCase):
+    """The owned Linux labels' idle runners in the pool snapshot (attach_owned_idle()), which runner_pools.py reads
+    to tell a full owned label from one whose waiting jobs its idle runners do not take."""
+
+    LABEL = "cmux-fleet-linux-x64"
+
+    def runner(self, *, busy: bool, status: str = "online", labels=("self-hosted", "cmux-fleet-linux-x64")):
+        return {"id": next(_ids), "status": status, "busy": busy, "labels": [{"name": name} for name in labels]}
+
+    def test_counts_online_idle_and_busy_runners_per_owned_label(self) -> None:
+        roster = ([self.runner(busy=False)] * 3 + [self.runner(busy=True)] * 2
+                  + [self.runner(busy=False, status="offline")] + [self.runner(busy=False, labels=("other",))])
+        counts = janitor.owned_linux_idle(roster)
+        self.assertEqual(counts[self.LABEL], {"online": 5, "busy": 2, "idle": 3})
+        self.assertEqual(counts["glaeda-linux-arm64"], {"online": 0, "busy": 0, "idle": 0})
+
+    def test_attaches_counts_to_the_label_pool_entry(self) -> None:
+        snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 309, "oldest_queued_minutes": 12}}}
+        runners = [self.runner(busy=False) for _ in range(4)] + [self.runner(busy=True)]
+
+        def fetch(path: str):
+            if path.startswith("repos/"):
+                return {"runners": runners}
+            if "runner-groups?" in path:
+                return {"runner_groups": []}
+            raise AssertionError(path)
+
+        janitor.attach_owned_idle(snapshot, None, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+        self.assertEqual(snapshot["pools"][self.LABEL]["idle"], 4)
+        self.assertEqual(snapshot["pools"][self.LABEL]["busy"], 1)
+        self.assertEqual(snapshot["owned_runners"]["read_at"], "2026-09-22T17:00:00Z")
+
+    def test_reads_a_pool_of_700_runners_whole(self) -> None:
+        # Review F1 on cmux#49556: the roster's default 5 pages (500 runners) made the idle count of a ~700-runner
+        # pool a sample in arbitrary order, so busy pages alone could read as "full" beside hundreds idle.
+        runners = [self.runner(busy=True) for _ in range(500)] + [self.runner(busy=False) for _ in range(200)]
+        snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 500, "oldest_queued_minutes": 12}}}
+
+        def fetch(path: str):
+            if "runner-groups?" in path:
+                return {"runner_groups": [{"id": 7}]}
+            if "runner-groups/7/runners" in path:
+                page = int(path.rsplit("page=", 1)[1])
+                return {"runners": runners[(page - 1) * 100:page * 100]}
+            return {"runners": []}
+
+        janitor.attach_owned_idle(snapshot, None, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+        self.assertEqual(snapshot["pools"][self.LABEL]["online"], 700)
+        self.assertEqual(snapshot["pools"][self.LABEL]["idle"], 200)
+
+    def test_an_unread_roster_leaves_no_idle_reading(self) -> None:
+        for token, fetch in ((None, None), ("t", mock.Mock(side_effect=RuntimeError("HTTP 500")))):
+            with self.subTest(token=token):
+                snapshot = {"pools": {self.LABEL: {"queued": 19, "running": 0, "oldest_queued_minutes": 12}}}
+                with mock.patch("sys.stderr", new=io.StringIO()):
+                    janitor.attach_owned_idle(snapshot, token, "manaflow-ai/cmux", now=NOW, fetch=fetch)
+                self.assertNotIn("idle", snapshot["pools"][self.LABEL])
+                self.assertIn("error", snapshot["owned_runners"])
+
+    def test_the_sweep_step_gets_the_roster_token(self) -> None:
+        doc = yaml.safe_load(WORKFLOW.read_text())
+        steps = [step for job in doc["jobs"].values() for step in job.get("steps") or ()]
+        [mint] = [step for step in steps if step.get("id") == "route-token"]
+        self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
+        self.assertTrue(mint.get("continue-on-error"))
+        [sweep] = [step for step in steps if step.get("name") == "Cancel wasted macOS runs"]
+        self.assertEqual(sweep["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+
+
 class ProtectionTests(unittest.TestCase):
     def test_never_touched_runs(self):
         cases = [
@@ -4328,11 +4397,22 @@ class FleetGatesTests(unittest.TestCase):
         self.assertEqual(side["as_of"], "2026-09-22T16:58:00Z")  # the reading's own, when a label has none
         self.assertEqual(janitor.FLEET_GATES_STALE_S, 300)
 
+    def test_a_version_2_reading_is_read_and_cut_to_version_1(self):
+        # cmuxterm-hq#16097 (2026-11-21) moved the dashboard to version 2, which only adds a top-level `disk`
+        # inventory. Refusing it read every glaeda label as full for hours (snapshot gates_error "not version 1").
+        v2 = dict(gates_reading(), version=2, disk=[{"host": "cmux20", "free_gib": 80}])
+        gates, why = janitor.fleet_gates(json.dumps(v2))
+        self.assertIsNone(why)
+        self.assertEqual(gates, janitor.fleet_gates(json.dumps(gates_reading()))[0])
+        self.assertEqual(gates["version"], 1)
+        self.assertNotIn("disk", gates)
+
     def test_a_reading_out_of_shape_is_refused_whole(self):
         bad = {
             "": "no CI_FLEET_GATES reading",
             "not json": "not JSON",
-            json.dumps(dict(gates_reading(), version=2)): "not version 1",
+            json.dumps(dict(gates_reading(), version=3)): "not a version this reader takes",
+            json.dumps(dict(gates_reading(), version=True)): "not a version this reader takes",
             json.dumps(dict(gates_reading(), as_of="yesterday")): "no as_of",
             json.dumps(dict(gates_reading(), as_of="2026-09-22T16:58:00")): "no as_of",
             json.dumps(gates_reading(busy=-1)): "out of shape",
@@ -5920,7 +6000,15 @@ def daemon_job(*, started, conclusion="success", status="completed"):
 
 
 class OrphanedDispatchRerunTests(unittest.TestCase):
-    """An orphaned dispatch on a long-lived branch comes back (orphan_reruns()): base's daemon-tests verdict."""
+    """An orphaned dispatch on a long-lived branch comes back (orphan_reruns()): base's daemon-tests verdict.
+
+    These pin the off switch, CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0: by default a base tier run waiting for a Mac
+    runner is kept, never cancelled (BaseTierWaitingTests)."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {"CMUX_NEXT_BASE_TIER_KEEP_QUEUED": "0"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_scope_is_a_long_lived_branch_dispatch_below_the_attempt_bound(self):
         def scoped(run, job_name="cmux-next daemon tests"):
@@ -6218,6 +6306,69 @@ def finished_jobs(age):
              "labels": [HOSTED], "created_at": iso(age), "runner_name": None},
             {"status": "completed", "conclusion": "skipped", "name": "changes",
              "labels": [LINUX], "created_at": iso(age), "runner_name": None}]
+
+
+class BaseTierWaitingTests(unittest.TestCase):
+    """2026-11-22: base tier run 45066513743's `cmux-next generated files` job waited 2h23m with no runner while 6
+    newer jobs on its label got one; the orphan pass cancelled it at 22:57:18Z (sweep 45079169808) and no later
+    sweep re-ran it. By default the orphan pass now keeps a base tier run whose only waiting jobs wait for a Mac,
+    and reports it; CMUX_NEXT_BASE_TIER_KEEP_QUEUED=0 cancels it again."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("CMUX_NEXT_BASE_TIER_KEEP_QUEUED", None)
+
+    def starved(self, run=None, jobs=None):
+        run = run or base_tier_dispatch()
+        jobs = jobs if jobs is not None else real_41190186270_jobs()
+        orphans = find([run], {run["id"]: jobs, 1: served_mac26()[1]})
+        self.assertEqual(len(orphans), 1)
+        return orphans
+
+    def test_a_base_tier_run_waiting_for_a_mac_is_kept_and_reported(self):
+        orphans = self.starved()
+        self.assertTrue(orphans[0].mac_wait_only)
+        decisions = orphan_plan(orphans)
+        self.assertEqual([d.action for d in decisions], ["skip"])
+        self.assertIn("starved base tier run waiting for a Mac runner", decisions[0].note)
+        self.assertEqual(janitor.orphan_reruns(decisions, {}, {}, now=NOW), [])
+        summary = janitor.render_orphan_summary(decisions, dry_run=False, now=NOW,
+                                                min_age=dt.timedelta(minutes=120), results={})
+        self.assertIn("keep (starved base tier run waiting for a Mac runner", summary)
+        self.assertIn(str(orphans[0].run.get("html_url") or orphans[0].run["id"]), summary)
+
+    def test_zero_cancels_it_again(self):
+        os.environ["CMUX_NEXT_BASE_TIER_KEEP_QUEUED"] = "0"
+        self.assertEqual([d.action for d in orphan_plan(self.starved())], ["cancel"])
+
+    def test_the_switch_is_on_unless_zero(self):
+        for value, expected in ((None, True), ("", True), ("1", True), (" 0 ", False), ("0", False)):
+            env = {} if value is None else {"CMUX_NEXT_BASE_TIER_KEEP_QUEUED": value}
+            self.assertEqual(janitor.keep_waiting_base_tier(env), expected, value)
+
+    def test_other_dispatches_are_still_cancelled(self):
+        for run in (base_tier_dispatch(kind="cmux-next tip daemon suite"),
+                    dict(base_tier_dispatch(), head_branch="main"),
+                    dict(base_tier_dispatch(), path=".github/workflows/cmux-tui.yml")):
+            self.assertEqual([d.action for d in orphan_plan(self.starved(run))], ["cancel"], run)
+        orphan = self.starved(dict(base_tier_dispatch(), event="push"))[0]
+        self.assertTrue(orphan.mac_wait_only)
+        self.assertFalse(janitor.waiting_base_tier(orphan))
+
+    def test_a_base_tier_run_with_a_waiting_linux_job_is_still_cancelled(self):
+        jobs = real_41190186270_jobs()
+        jobs.append({"id": next(_ids), "name": "cmux-next checks", "labels": [LINUX], "created_at": iso(134.7),
+                     "started_at": iso(134.7), "status": "queued", "conclusion": None, "runner_id": None,
+                     "runner_name": None})
+        orphans = self.starved(jobs=jobs)
+        self.assertFalse(orphans[0].mac_wait_only)
+        self.assertEqual([d.action for d in orphan_plan(orphans)], ["cancel"])
+
+    def test_the_sweep_passes_the_repository_variable(self):
+        text = (ROOT / ".github/workflows/ci-queue-janitor.yml").read_text()
+        self.assertIn("CMUX_NEXT_BASE_TIER_KEEP_QUEUED: ${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}", text)
 
 
 class ConcurrencyHolderTests(unittest.TestCase):
