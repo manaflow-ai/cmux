@@ -83,6 +83,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(1.5))
                     DemoDirector.shared.post(.feedScroll(toEvent: event))
+                    // CMUX_MOBILE_FEED_SHOT_STACK=<event id>: then opens the stack that event leads.
+                    if let stack = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_STACK"], !stack.isEmpty {
+                        try? await Task.sleep(for: .seconds(1))
+                        DemoDirector.shared.post(.feedStack(event: stack, expanded: true))
+                    }
                 }
             }
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_ANSWER=<event id> allows that permission request
@@ -377,7 +382,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         case .feedSwipeAction(let id, let action):
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedExpand, .feedReply, .answerQuestion:
+        case .feedExpand, .feedReply, .answerQuestion, .feedStack:
             list.demo(command)
         default:
             break
