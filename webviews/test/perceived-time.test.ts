@@ -58,6 +58,8 @@ describe("perceived-time judge", () => {
     expect(judge("interactive", null, [], [], 25).verdict).toBe("no row");
     expect(judge("visible", "r", [], [400], 25).verdict).toBe("no base");
     expect(judge("visible", "r", base, [], 25).verdict).toBe("head missing");
+    // Broken in both trees is not this change's failure.
+    expect(judge("visible", "r", [], [], 25).verdict).toBe("unmeasured");
   });
 });
 

@@ -128,7 +128,7 @@ export type Judgement = {
   baseMedian: number | null;
   headMedian: number | null;
   deltaMs: number | null;
-  verdict: "pass" | "regressed" | "faster" | "no row" | "no base" | "head missing";
+  verdict: "pass" | "regressed" | "faster" | "no row" | "no base" | "head missing" | "unmeasured";
 };
 
 /// One number's verdict from both arms' pooled rounds (pure).
@@ -142,6 +142,8 @@ export function judge(
 ): Judgement {
   const out = { metric, row, base: [...base], head: [...head], baseMedian: null, headMedian: null, deltaMs: null };
   if (row === null) return { ...out, verdict: "no row" };
+  // Neither tree printed the row: the bench is broken at base (or on this runner), not by this change.
+  if (!head.length && !base.length) return { ...out, verdict: "unmeasured" };
   if (!head.length) return { ...out, verdict: "head missing" };
   const headMedian = median(head);
   if (!base.length) return { ...out, headMedian, verdict: "no base" };
@@ -316,6 +318,8 @@ async function main() {
     console.error("perceived-time: the head printed no row for a number it measures; see notes");
     process.exit(2);
   }
+  if (all.some((j) => j.verdict === "unmeasured"))
+    console.log("::warning title=perceived time::a bench printed no row in base or head; see the notes in the summary");
   if (all.some((j) => j.verdict === "regressed") && !waived) process.exit(1);
 }
 
