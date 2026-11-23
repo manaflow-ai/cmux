@@ -52,6 +52,7 @@ import argparse, hashlib, json, os, platform, random, shlex, shutil, statistics,
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 GHOSTTY_VERSION = "1.4.0"
 GHOSTTY_DMG_SHA256 = "3a02075dbd24318d778426af41dee5507d53ecc4578ede96912ec9ce6d18d3e8"
@@ -217,7 +218,7 @@ class Breakdown:
         # The window starts once the burst is under way: the writer process runs.
         if not wait_until(lambda: terminal_processes(lambda c: self.writer in c), f"{self.label}'s writer to start",
                           timeout=30, interval=0.05, raise_on_timeout=False):
-            print(f"{self.label}: the writer never showed in ps within 30 s; measuring anyway", flush=True)
+            safe_print(f"{self.label}: the writer never showed in ps within 30 s; measuring anyway", flush=True)
         before = terminal_processes(self.match)
         threads_before = {pid: threads_of(pid) for pid in before}
         started = time.monotonic()

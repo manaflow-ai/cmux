@@ -17,6 +17,8 @@ strip's tracking path). DIR gets frame-NNN.png, strip.png, report.json and path.
 time from the recording's key). It quits the app with its own quit and signals nothing else.
 """
 import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -136,11 +138,11 @@ try:
         print(f"open {url}: {done.returncode}", flush=True)
         # The page opened in its tab and loaded (best effort: the hover pass below fetches each picture).
         if not wait(page_loaded, 20):
-            print(f"note: {url} not loaded in 20 s", flush=True)
+            safe_print(f"note: {url} not loaded in 20 s", flush=True)
     rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}, "origin": "script"})
     # The strip shows the workspace's tabs and stops moving.
     if wait_stable(lambda: json.dumps(strip_tabs()), 15) is None:
-        print("note: the tab strip did not settle in 15 s", flush=True)
+        safe_print("note: the tab strip did not settle in 15 s", flush=True)
     tabs = wait(lambda: (lambda t: t if len(t) >= 3 else None)(strip_tabs()), 30) or strip_tabs()
     print("tabs", [(t.get("label"), t["frame"]) for t in tabs], flush=True)
     if len(tabs) < 3:
@@ -153,7 +155,7 @@ try:
         time.sleep(2.2)
     rpc("debug.mouse", {"action": "move", "x": off[0], "y": off[1]})
     if not wait(lambda: card_showing(False), 10):
-        print("note: a tab card still showed 10 s after the pointer left the strip", flush=True)
+        safe_print("note: a tab card still showed 10 s after the pointer left the strip", flush=True)
 
     # The pointer path, (seconds after the recording's first move, x, y): from tab 0, whose card shows, a
     # delay, a slow pass right, a fast pass back left, a turn back mid-glide, then off the strip.
@@ -164,7 +166,7 @@ try:
     rpc("debug.mouse", {"action": "move", "x": centers[0][0], "y": centers[0][1]})
     # Its card shows (past the delay) and stops changing (the open animation done).
     if not wait(card_showing, 15):
-        print("note: tab 0's card did not show in 15 s", flush=True)
+        safe_print("note: tab 0's card did not show in 15 s", flush=True)
     wait_stable(lambda: json.dumps(rpc("debug.hover_cards", timeout=5) or {}, sort_keys=True), 5)
     first = ramp(0.0, centers[0], centers[1], 0.3, 18)
     path = first[:1]

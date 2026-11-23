@@ -1126,7 +1126,7 @@ def cloud_chief():
                     pass
             return False
         if not wait(host_connected, 60, step=0.5):
-            print("cloud chief: no 'daemon connected' in the host log after 60 s", flush=True)
+            safe_print("cloud chief: no 'daemon connected' in the host log after 60 s", flush=True)
         answer = unix_call(tools_sock, {"tool": "spawn", "tasks": ["Run `sleep 20`, then reply with only the word cloud-ok."]},
                            timeout=600)
         sub = (re.findall(r"- (a\d+):", answer.get("text", "")) or [None])[0]

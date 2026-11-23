@@ -509,7 +509,7 @@ def record(name, ticks, terms, profile):
         # The tick programs are running before the recorder attaches: every loop wrote its started mark.
         if not wait_until(lambda: tick_marks(terms, "started") >= len(terms), f"{name}: the tick loops to start", timeout=15,
                           raise_on_timeout=False):
-            print(f"note: {name}: {tick_marks(terms, 'started')} of {len(terms)} tick loops started", flush=True)
+            safe_print(f"note: {name}: {tick_marks(terms, 'started')} of {len(terms)} tick loops started", flush=True)
     # The recorder's ktrace intermediates (1-12 GB each) go to a temp dir of this run, removed after the export.
     attach_at = time.time()
     xct_tmp = os.path.join(SCRATCH, "xctrace-tmp")
@@ -532,7 +532,7 @@ def record(name, ticks, terms, profile):
     wait_until(lambda: recording.is_set() or proc.poll() is not None, f"{name}: xctrace to attach", timeout=60,
                raise_on_timeout=False)
     if not recording.is_set():
-        print(f"note: {name}: xctrace printed no recording line (exit {proc.poll()}): {''.join(lines)[-300:]}", flush=True)
+        safe_print(f"note: {name}: xctrace printed no recording line (exit {proc.poll()}): {''.join(lines)[-300:]}", flush=True)
     # This recording's ktrace intermediates: the files the recorder holds open now (removed after the export).
     held = subprocess.run(["lsof", "-p", str(proc.pid), "-Fn"], capture_output=True, text=True).stdout.splitlines()
     mine = {line[1:] for line in held if line.startswith("n") and os.path.basename(line[1:]).startswith("instruments")
@@ -578,7 +578,7 @@ def record(name, ticks, terms, profile):
         # The tick programs end before the next run: every loop wrote its ended mark.
         if not wait_until(lambda: tick_marks(terms, "ended") >= len(terms), f"{name}: the tick loops to end",
                           timeout=max(0.0, tick_end - time.monotonic()) + 30, raise_on_timeout=False):
-            print(f"note: {name}: {tick_marks(terms, 'ended')} of {len(terms)} tick loops ended", flush=True)
+            safe_print(f"note: {name}: {tick_marks(terms, 'ended')} of {len(terms)} tick loops ended", flush=True)
     safe_print(f"{name}: {json.dumps({k: v for k, v in result.items() if k != 'profile'})}", flush=True)
     return result
 

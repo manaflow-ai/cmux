@@ -13,6 +13,9 @@ frame-NNN.png, strip.png, report.json and presses.json (each press's time from t
 app with its own quit and signals nothing else.
 """
 import argparse, json, os, plistlib, socket, subprocess, tempfile, threading, time
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -111,11 +114,11 @@ try:
     off = (700, 500)
     rpc("debug.mouse", {"action": "move", "x": off[0], "y": off[1]})
     if not wait(lambda: card_showing(False), 10):
-        print("note: a card still showed 10 s after the pointer moved off", flush=True)
+        safe_print("note: a card still showed 10 s after the pointer moved off", flush=True)
     rpc("debug.mouse", {"action": "move", "x": point[0], "y": point[1]})
     # Past the dwell: the card shows, and its open animation ends (the report stops changing).
     if not wait(card_showing, 15):
-        print("note: the row's card did not show in 15 s", flush=True)
+        safe_print("note: the row's card did not show in 15 s", flush=True)
     last = None
     for _ in range(25):  # bounded: up to 5 s for two equal reads in a row
         now = json.dumps(rpc("debug.hover_cards", timeout=5) or {}, sort_keys=True)

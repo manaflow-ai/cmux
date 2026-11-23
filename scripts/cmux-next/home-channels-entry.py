@@ -28,6 +28,7 @@ endAgents and the tag's acpmux daemon shutdown. Reads NX_APP, NX_APP_TAG, NX_APP
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from state_wait import wait_stable  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 APP, TAG = os.environ["NX_APP"], os.environ["NX_APP_TAG"]
 OUT, STOP = os.environ.get("NX_ARTIFACTS", "/tmp/home-channels-entry"), os.environ.get("NX_APP_STOP", "")
@@ -466,7 +467,7 @@ try:
                       op={"kind": "message.send", "client_msg_id": "pin1-n-%s" % stamp, "parts": [{"type": "text", "text": "another reply"}]})
         # Wait until Messages read the rows again (pin1's row changed with the reply); a second move would pin pin0 again.
         if not poll(lambda: native_row(pins[1]) != before, 15):
-            print("note: pin1's Messages row did not change within 15 s of the reply", flush=True)
+            safe_print("note: pin1's Messages row did not change within 15 s of the reply", flush=True)
         wait_stable(lambda: [native_row(c) for c in pins], "Messages' pin rows after the reply", timeout=10, interval=0.25,
                     reads=4, raise_on_timeout=False)
         check("the move does not run again (pin0 stays unpinned)", not any(r["id"] == pins[0] and r.get("pinned") for r in inbox()),

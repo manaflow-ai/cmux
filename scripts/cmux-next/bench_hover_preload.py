@@ -141,7 +141,7 @@ def start_vdisplay(hz: float, scratch: str, hold_s: int = 3600) -> tuple[subproc
     if display and main == display and not wait_until(lambda: str(cg.CGMainDisplayID()) == display,
                                                       f"display {display} as the main display", timeout=10,
                                                       raise_on_timeout=False):
-        print(f"   vdisplay: display {display} never became main here", file=sys.stderr)
+        safe_print(f"   vdisplay: display {display} never became main here", file=sys.stderr)
 
     def bounds():
         r = cg.CGDisplayBounds(cg.CGMainDisplayID())

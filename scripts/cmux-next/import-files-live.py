@@ -381,7 +381,7 @@ try:
     if tab:
         wait_for(lambda: tab in shown_tabs(), "the new WebKit tab shown")
     else:
-        print(f"note: openBrowser.webkit made no tab id: {json.dumps(opened)[:300]}", flush=True)
+        safe_print(f"note: openBrowser.webkit made no tab id: {json.dumps(opened)[:300]}", flush=True)
     # A history suggestion row shows the page's title, which only the imported history holds;
     # the typed text alone is not one.
     rows = wait_for(lambda: omnibar_rows(f"safari-hist-{RUN}") if f"Safari history {RUN}" in omnibar_rows(f"safari-hist-{RUN}") else None,

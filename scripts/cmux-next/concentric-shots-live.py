@@ -22,6 +22,7 @@ composite with the overlay panels that toasts and dialogs draw in; no Screen Rec
 import argparse, hashlib, json, os, plistlib, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from state_wait import wait_stable  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -186,7 +187,7 @@ try:
     if wait(lambda: window_with("playground"), 15):
         settled("the playground window", window=lambda: window_with("playground"))
     else:
-        print("note: no playground window listed in 15 s", flush=True)
+        safe_print("note: no playground window listed in 15 s", flush=True)
     shoot("playground", window=playground_window)
     print("toasts", json.dumps(rpc("debug.toast"))[:600], flush=True)
 finally:
