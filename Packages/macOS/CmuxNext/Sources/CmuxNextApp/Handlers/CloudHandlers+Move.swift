@@ -65,18 +65,18 @@ extension CloudHandlers {
         bindSSHMove(into: registry, context: context)
         // The chat's place controls (cloud/auto/evacuate): Swift calls and draws, Rust decides (``CloudPlaceDriver``).
         // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way. Auto starts with them.
-        let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: CloudPlaceApp(services: services))
+        let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: services)
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
-        for id in [CloudPlaceApp.set, CloudPlaceApp.retry, CloudPlaceApp.evacuate, CloudPlaceApp.cancel] {
-            bind(id, registry, reason: id == CloudPlaceApp.cancel ? { nil } : reason) { invocation in
-                guard id == CloudPlaceApp.cancel || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+        for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel] {
+            bind(id, registry, reason: id == AppServices.placeCancel ? { nil } : reason) { invocation in
+                guard id == AppServices.placeCancel || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id
                 switch id {
-                case CloudPlaceApp.set:
+                case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
                     if let tab { place.setMode(mode, tab: tab) }
-                case CloudPlaceApp.retry: if let tab { place.retry(tab: tab) }
-                case CloudPlaceApp.cancel: place.cancel(tab: tab, session: invocation["session"]?.stringValue)
+                case AppServices.placeRetry: if let tab { place.retry(tab: tab) }
+                case AppServices.placeCancel: place.cancel(tab: tab, session: invocation["session"]?.stringValue)
                 default: place.evacuate(sessions: invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) })
                 }
             }
@@ -183,33 +183,25 @@ extension CloudPlaceFlows.Cargo {
 }
 
 /// The app's side of the chat place controls (``CloudPlaceDriver``): its chats, how it runs a move, what its ledger knows.
-@MainActor
-private final class CloudPlaceApp: CloudPlaceHost {
-    static let set: ActionID = "chatPlace.set"
-    static let cancel: ActionID = "chatMove.cancel"
-    static let retry: ActionID = "chatMove.retry"
-    static let evacuate: ActionID = "cloudEvacuate"
-
-    private let services: AppServices
-    private var tabs: [String: TabModel] = [:]
-
-    init(services: AppServices) { self.services = services }
+extension AppServices: CloudPlaceHost {
+    static let placeSet: ActionID = "chatPlace.set"
+    static let placeCancel: ActionID = "chatMove.cancel"
+    static let placeRetry: ActionID = "chatMove.retry"
+    static let placeEvacuate: ActionID = "cloudEvacuate"
 
     func placeChats() -> [CloudPlaceChat] {
         var found: [CloudPlaceChat] = [], seen = Set<String>()
-        tabs = [:]
-        for daemon in services.machines.daemons {
+        for daemon in machines.daemons {
             for workspace in daemon.store.workspaces {
                 for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                    guard let record = tab.agentSession, let session = record.session ?? services.agentTabs.sessions[services.agentTabs.tabKey(of: tab)],
+                    guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)],
                           seen.insert(session).inserted else { continue }
-                    let cloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
-                    guard daemon.isLocal && !cloud && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
-                        || cloud && services.cloud.movedChats.entry(host: record.host, session: session) != nil else { continue }
-                    tabs[tab.id] = tab
-                    found.append(CloudPlaceChat(id: tab.id, session: session, onCloud: cloud, turnRunning: CloudPlaceCargo.read(tab: tab, session: session, services: services).turnRunning,
+                    let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
+                    guard daemon.isLocal && !onCloud && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
+                        || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil else { continue }
+                    found.append(CloudPlaceChat(id: tab.id, session: session, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
-                                                moving: services.cloud.place.isMoving(session) || services.cloud.movingBack.contains(tab.id)))
+                                                moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id)))
                 }
             }
         }
@@ -224,15 +216,15 @@ private final class CloudPlaceApp: CloudPlaceHost {
         case nil: break
         }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: arguments, origin: .user)
-        let registry = services.registry
+        let registry = self.registry
         let action = toCloud ? CloudMove.action : CloudBringBack.action
         for work in registry.capturingWork({ _ = registry.perform(action, invocation: invocation) }) { _ = await work.value }
     }
 
     func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) {
-        let ledger = services.cloud.movedChats.all()
+        let ledger = cloud.movedChats.all()
         return (ledger.first { $0.session == session || $0.broughtBack?.session == session }?.machineID,
-                services.machines.cloud.map { machine in
+                machines.cloud.map { machine in
                     CloudPlaceOwnMachine(id: machine.machineID, sessions: ledger.filter { $0.machineID == machine.machineID && $0.broughtBack == nil }.map(\.session),
                                          gone: [.deleting, .destroyed].contains(machine.machine.status))
                 })
