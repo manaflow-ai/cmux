@@ -1219,7 +1219,7 @@ impl Store for JournalStore {
         Store::is_cold(&self.inner.local, id)
     }
     fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
-        self.inner.fenced(|| Store::offload_cold(&self.inner.local, id))
+        self.inner.fenced(id, || Store::offload_cold(&self.inner.local, id))
     }
     fn register_cloud_root(&self) -> Result<Option<usize>> {
         Store::register_cloud_root(&self.inner.local)
