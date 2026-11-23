@@ -228,12 +228,32 @@ jobs:
       # per signer Mac, design manaflow-ai/cmuxterm-hq#17011); 1 is the one-slot rule and the rollback.
       # Set NIGHTLY_NEXT_SLOTS=2 only after the per-host groups PR (#49139) lands: with the legacy
       # single push group, 2 promotes into a pending run that waits out the whole build.
+      # The rolling rule's spare reader: a read the job's token is refused goes out once more on this
+      # read-only route App token (its own budget; main's promote job reads on it too), so a dry
+      # github.token and cmux-bot budget do not cost the tick its answer. Ticks 45118875109 and
+      # 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both builds
+      # had left their slots, and the promotion waited until 05:52.
+      - name: Mint the rolling rule's spare read token
+        id: spare-read-token
+        if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == '' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Apply the rolling rule
         id: rolling
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          SPARE_READ_TOKEN: ${{ steps.spare-read-token.outputs.token }}
           WINDOW_MINUTES: ${{ vars.NIGHTLY_NEXT_ROLLING_MINUTES || '10' }}
           NIGHTLY_NEXT_SLOTS: ${{ vars.NIGHTLY_NEXT_SLOTS || '1' }}
           GH_BUDGET_WAIT_ATTEMPTS: "1"
