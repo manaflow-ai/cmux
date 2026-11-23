@@ -67,7 +67,7 @@ extension AppActions {
         #if DEBUG || CMUX_BENCH_HOOKS
         services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
         #endif
-        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
+        registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }; services.onboarding.chief.bindMeetChief(into: registry)
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
@@ -117,7 +117,7 @@ extension AppActions {
     /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
     static func renameRowWindow(_ workspace: WorkspaceModel, _ services: AppServices) -> WindowController? {
         let windows = services.windows
-        let owner = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:))
+        let owner = windows.actingWindow(for: workspace.id).flatMap(windows.controller(for:))
         return [owner, windows.active].compactMap { $0 }.first { $0.sidebar.model.workspace(SidebarWorkspaceID(workspace.id)) != nil }
     }
 
@@ -232,18 +232,19 @@ extension AppActions {
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key, services.selectionCloses.canStart(workspace.id)
         else { return .done } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
-        if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+        if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.actingWindow(for: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { sidebar.send(.close(ids)); return .done }
         // The workspace's own machine, for the question and the close alike. `offline`: a person's close on a machine that is
         // not connected (a paused Cloud VM): its row leaves as any other, and the close waits for the machine outside the
         // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
         // again); a row that cannot hide says why. CLI and socket closes still fail at once.
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
-        let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        let id = workspace.id, owner = services.windows.actingWindow(for: id) // the window the person closes it in
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         // The unpinned group this close may empty (cx-rcby), read before the workspace leaves; `deleteIfEmpty` rechecks.
         let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault, selected = WorkspaceCloseSelection()
+        let undo = WorkspaceGroupClose.singleCloseUndo(workspace, invocation, services)
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -273,19 +274,22 @@ extension AppActions {
             send: { hidden in
                 // Told only once the close goes ahead: a cancelled question keeps the workspace's remote terminals.
                 let terminals = WorkspaceClose.closing(workspace, on: daemon)
+                if !offline || hidden { undo?.offer() } // toasts v2: the close goes ahead, so its Undo shows
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
                     }
+                    if failure != nil { undo?.withdraw() }
                     // Wait for the close event before deciding whether its personal group is empty.
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     if failure == nil, let personalGroup {
                         PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
                     }
-                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when.
-                    if failure == nil, invocation.origin == .user, let machine = services.machines.session(daemon.machineID)?.machine, let shown = controller?.window ?? services.windows.active?.window {
-                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: machine.evictAt), duration: .seconds(8)), in: shown)
+                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when, once per machine.
+                    if failure == nil, invocation.origin == .user, let session = services.machines.session(daemon.machineID), !session.toldKeptOnClose, let shown = controller?.window ?? services.windows.active?.window {
+                        session.toldKeptOnClose = true
+                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: session.machine.evictAt), duration: .seconds(8)), in: shown)
                     }
                     if hidden, failure == nil { ClosingWorkspaces.shared.end(id, refused: false, in: nil) } // refused: the effect's `takeBack`
                     return failure
@@ -321,18 +325,19 @@ extension AppActions {
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
         // A person's Move Up/Down on one of several selected rows moves them as one block, as Cmd-Opt-Up/Down does.
         if invocation.origin == .user, let workspace = scope(services, invocation).workspace,
-           let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+           let sidebar = services.windows.actingWindow(for: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let id = SidebarWorkspaceID(workspace.id), sidebar.actionTargets(for: id).count > 1 {
             sidebar.moveActionTargets(of: id, offset < 0 ? .up : .down)
             return
         }
         if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
+        if let workspace = scope(services, invocation).workspace, services.windows.active?.sidebar.model.selectableWorkspaces.contains(where: { $0.id.rawValue == workspace.id }) != true, (try? moveBandWorkspace(workspace, services, origin: invocation.origin, { _ in .step(offset) })) == true { return } // pinned, no list row: among Pinned's items
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               let index = store.workspaces.firstIndex(where: { $0 === workspace }) else { return }
         // Up/down among the workspaces its window lists: the daemon index of
         // the neighbor in that window (other windows' workspaces are skipped).
-        let members = Set(services.windows.registry.value.owner(of: workspace.id).map(services.windows.registry.members(of:)) ?? [])
+        let members = Set(services.windows.actingWindow(for: workspace.id).map(services.windows.registry.members(of:)) ?? [])
         let visible = store.workspaces.filter { members.isEmpty || members.contains($0.id) }
         guard let position = visible.firstIndex(where: { $0 === workspace }), visible.indices.contains(position + offset),
               let target = store.workspaces.firstIndex(where: { $0 === visible[position + offset] }), target != index else { return }

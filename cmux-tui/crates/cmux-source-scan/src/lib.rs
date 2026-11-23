@@ -10,10 +10,13 @@
 //! - [`timing_ratio`]: no wall-clock ratio or upper percentile assert in a default-run test
 //!   (cmuxterm-hq docs/handbook/timing-on-a-busy-host.md, fix 7), run by hand over a checkout;
 //!   [`nextest`] says which tests nextest runs beside others.
+//! - [`rows`]: how a test row or a ratchet's list is held to what a check found (the exact
+//!   multiset, duplicates counted).
 //!
 //! `cmux-source-scan test-hooks|timing-ratio ...` runs either over a checkout.
 
 pub mod nextest;
+pub mod rows;
 pub mod source;
 pub mod test_hooks;
 pub mod timing_ratio;

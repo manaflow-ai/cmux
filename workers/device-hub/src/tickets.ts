@@ -2,6 +2,7 @@ import { signEs256, verifyEs256Jws } from "./crypto";
 import type { Env } from "./env";
 
 export const TICKET_TTL_S = 60;
+export const REATTACH_TTL_S = 30;
 export type Role = "viewer" | "host";
 export type Scope = "view" | "full";
 
@@ -12,14 +13,15 @@ export interface TicketPayload {
   peer: string;
   peerKey: string;
   scope: Scope;
+  reattach?: boolean;
   iat: number;
   exp: number;
   jti: string;
 }
 
-export async function mintTicket(env: Env, claims: Omit<TicketPayload, "iat" | "exp" | "jti">, nowMs = Date.now()): Promise<string> {
+export async function mintTicket(env: Env, claims: Omit<TicketPayload, "iat" | "exp" | "jti">, nowMs = Date.now(), ttlS = TICKET_TTL_S): Promise<string> {
   const iat = Math.floor(nowMs / 1000);
-  const payload: TicketPayload = { ...claims, iat, exp: iat + TICKET_TTL_S, jti: crypto.randomUUID() };
+  const payload: TicketPayload = { ...claims, iat, exp: iat + ttlS, jti: crypto.randomUUID() };
   return signEs256(env.TICKET_KEY, payload as unknown as Record<string, unknown>, "dh-ticket");
 }
 
@@ -34,6 +36,7 @@ export async function readTicket(env: Env, token: string): Promise<TicketPayload
     typeof p.peer === "string" &&
     typeof p.peerKey === "string" &&
     (p.scope === "view" || p.scope === "full") &&
+    (p.reattach === undefined || typeof p.reattach === "boolean") &&
     typeof p.iat === "number" &&
     typeof p.exp === "number" &&
     typeof p.jti === "string";

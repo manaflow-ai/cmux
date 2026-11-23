@@ -128,7 +128,7 @@
   pointer-events: none;
 }
 .onb-capsule.ui-btn {
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
 }
 .onb-slot-spinner {
   display: inline-flex;
@@ -432,6 +432,18 @@
 .onb-import-access.ui-btn {
   font-size: var(--text-caption);
 }
+/* A quiet button on the import cards' glass (Open System Settings) rests at the control level
+   (design/chat-surfaces.md): no fill, the ink's 16% outline. The subtle fill is the text's own 6%,
+   which in dark lifts the glass toward a white wallpaper under it, so the button's words fell to
+   4.2:1 while the card's held 4.6:1. Hover and press keep their fills; the previous glass keeps the
+   old filled rest. */
+:root:not([data-glass-levels="previous"])
+  .onb-import
+  :is(.onb-import-list, .onb-import-options, .onb-express-ask)
+  .ui-btn[data-variant="subtle"]:not(:hover, :active, [data-popup-open], [data-disabled]) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ds-surface-control-line);
+}
 
 .onb-kinds {
   display: flex;
@@ -573,18 +585,18 @@
 
 /* Grouped: the browsers in one card, hairlines between, and the kinds in a second card, two to a
    line (Settings' lists; the agents step's list look). */
-/* The cards are frosted glass of their own: the surface color at 62% over a blur, so a busy wallpaper
+/* The cards are frosted glass of their own: the surface color at the chrome glass level over its blur, so a busy wallpaper
    behind the window's glass never fights the rows' text (the plain look's 5% tint did). Never opaque. */
 .onb-import {
-  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+  --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) var(--ds-glass-chrome-tint), transparent);
 }
 .onb-import .onb-import-list,
 .onb-import .onb-import-options {
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
+  backdrop-filter: var(--ds-glass-chrome-blur);
 }
 .onb-import .onb-import-list {
   gap: 0;
@@ -880,8 +892,8 @@
   border: 1px solid var(--onb-card-rim);
   border-radius: var(--ds-radius-xl);
   background: var(--onb-card-glass);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  -webkit-backdrop-filter: var(--ds-glass-chrome-blur);
+  backdrop-filter: var(--ds-glass-chrome-blur);
   text-align: start;
 }
 .onb-express-ask-icon {
@@ -917,6 +929,14 @@
     backdrop-filter: none;
   }
 }
+/* Liquid Glass off (appearance.liquidGlass): the same solid cards. */
+:where(:root[data-glass="off"]) .onb-import {
+  --onb-card-glass: var(--ds-color-surface);
+}
+:where(:root[data-glass="off"]) .onb-import :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 
 /* A row's fill and a control's opacity follow the motion switch (WebTheme's data-cmux-motion). */
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
@@ -927,4 +947,198 @@
   :is(.onb-import-row, .onb-progress-bar, .onb-import input[type="checkbox"], .onb-box-mark) {
     transition: none;
   }
+}
+
+/* cmux Tools: the Agents step's list, its status line, then where Settings keeps the answer. */
+.onb-agent-tools-note {
+  margin-top: auto;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* Make cmux Yours (cmux#48416): three groups of native radios in the 300-point body. The radio
+   itself is visually hidden (it keeps focus, arrows and the accessibility role); the label draws
+   the choice, and a checked choice gets the accent rim. Cards (shipping): the two ways to work side
+   by side, named background tiles. Rows: the ways to work stacked as list rows, tiles unnamed. */
+.onb-make {
+  --onb-make-tile-h: 48px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4);
+  min-height: 0;
+}
+.onb-make-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.onb-make-label {
+  margin-bottom: var(--ds-space-2);
+  padding: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-weight: var(--weight-emphasis);
+}
+.onb-make input[type="radio"] {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.onb-make-option,
+.onb-make-segment,
+.onb-make-tile {
+  position: relative;
+  border: 1px solid var(--onb-card-rim);
+  background: var(--onb-card-fill);
+  cursor: default;
+}
+.onb-make-option:hover,
+.onb-make-segment:hover,
+.onb-make-tile:hover {
+  background: var(--ds-color-hover);
+}
+.onb-make-option:active,
+.onb-make-segment:active,
+.onb-make-tile:active {
+  background: var(--ds-color-pressed);
+}
+.onb-make-option[data-checked],
+.onb-make-segment[data-checked],
+.onb-make-tile[data-checked] {
+  border-color: var(--ds-color-accent);
+  box-shadow: inset 0 0 0 1px var(--ds-color-accent);
+}
+.onb-make-option:has(input:focus-visible),
+.onb-make-segment:has(input:focus-visible),
+.onb-make-tile:has(input:focus-visible) {
+  outline: 2px solid var(--ds-color-focus);
+  outline-offset: 2px;
+}
+
+/* How you work. */
+.onb-make-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--ds-space-2);
+}
+.onb-make-option {
+  display: flex;
+  padding: var(--ds-space-3) var(--ds-space-4);
+  border-radius: var(--ds-radius-xl);
+}
+.onb-make-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.onb-make-option-title {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  font-weight: var(--weight-emphasis);
+}
+.onb-make-option-detail {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.onb-make-badge {
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-color-accent);
+  color: var(--ds-color-on-accent);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+.onb-make[data-look="rows"] .onb-make-options {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.onb-make[data-look="rows"] .onb-make-option {
+  padding-block: var(--ds-space-2);
+  border-radius: 0;
+}
+.onb-make[data-look="rows"] .onb-make-option:first-child {
+  border-radius: var(--ds-radius-md) var(--ds-radius-md) 0 0;
+}
+.onb-make[data-look="rows"] .onb-make-option:last-child {
+  border-top-width: 0;
+  border-radius: 0 0 var(--ds-radius-md) var(--ds-radius-md);
+}
+.onb-make[data-look="rows"] .onb-make-option-text {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--ds-space-3);
+}
+
+/* Density: one segmented control. */
+.onb-make-segments {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--ds-space-2);
+}
+.onb-make-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border-radius: var(--ds-radius-control);
+}
+
+/* Background: None, Shuffle, then the paintings. */
+.onb-make-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--ds-space-2);
+}
+.onb-make-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-md);
+  min-width: 0;
+}
+.onb-make-tile-image {
+  display: block;
+  height: var(--onb-make-tile-h);
+  border-radius: var(--ds-radius-sm);
+  background-color: color-mix(in srgb, var(--ds-color-fg) 8%, transparent);
+  background-size: cover;
+  background-position: center;
+}
+img.onb-make-tile-image {
+  width: 100%;
+  object-fit: cover;
+}
+.onb-make-tile-image.is-none {
+  background-image: linear-gradient(
+    to top right,
+    transparent calc(50% - 0.5px),
+    var(--onb-card-rim) 50%,
+    transparent calc(50% + 0.5px)
+  );
+}
+.onb-make-tile-name {
+  overflow: hidden;
+  padding-inline: var(--grid-half-step);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.onb-make[data-look="rows"] .onb-make-tiles {
+  --onb-make-tile-h: 40px;
 }

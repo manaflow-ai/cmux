@@ -138,18 +138,21 @@ public nonisolated enum SidebarTunables {
         help: "Lists every computer's rows under the Priority view's states (Needs you, Done, Failed, CI failing, Working, Idle) with counts, in your order inside each. Rows move as their state changes; the active row stays put until another row is active.",
         default: false, code: "SidebarTunables.groupByStatus")
 
+    /// Lineage nesting (Leo 2026-10-21: "A LOT OF THESE SESSIONS ID IMAGINE DIDNT NECESSSARILY NEED TO SHOW UP ON THE
+    /// SIDE BY DEFAULT"): a workspace whose agent another workspace's agent started lists under that workspace, at any
+    /// depth, and a parent below the top level starts folded with its roll-up. Only person-started sessions are top
+    /// level. On by default; the rest of `sidebar.sessionTree` (keycaps, chat history) stays opt-in.
+    public static let lineageNesting = Tunable<Bool>.toggle(
+        "sidebar.lineageNesting", .sidebar, "Nest agent-started sessions",
+        help: "A workspace an agent started lists under the workspace whose agent started it, at any depth. Sessions a lane started stay folded under it until you open them. Off lists every workspace at the top level.",
+        default: true, code: "SidebarTunables.lineageNesting")
+
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
     /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
     public static let groupRowLimit = Tunable<Double>.number(
         "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
         help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
         default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
-    /// One list (`sidebar.groupByComputer` off) draws a quiet "Workspaces" heading over its rows, as the Codex sidebar
-    /// heads its list "Recents" (https://github.com/manaflow-ai/cmux/issues/39956). Off draws the bare list (cx-mdo0).
-    public static let listHeading = Tunable<Bool>.toggle(
-        "sidebar.listHeading", .sidebar, "Workspaces heading over the list",
-        help: "Draws a quiet Workspaces heading over the sidebar's one workspace list, as the Codex sidebar heads its list. Off: the list starts with its first row.",
-        default: true, code: "SidebarTunables.listHeading")
 
     /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex desktop sidebar's
     /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956). Off by default: the sidebar is the
@@ -173,6 +176,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
         help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
         default: false, code: "SidebarTunables.nowLine")
+
+    /// A row whose agent chat has steps left in its task list (acpmux `taskList`: the harness's
+    /// plan, else the one its Chief keeps) shows how many are done ("3/7") on the name's line, and
+    /// its hover card says what runs now and what is next. On by default (David Beyer, Nov 20 call).
+    public static let taskProgress = Tunable<Bool>.toggle(
+        "sidebar.taskProgress", .sidebar, "Rows show their agent's task progress",
+        help: "While an agent chat in a workspace has steps left in its task list, the row shows how many are done (3/7) and the hover card says what runs now and what is next.",
+        default: true, code: "SidebarTunables.taskProgress")
 
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
@@ -273,14 +284,15 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
-            listHeading.descriptor,
             surfaceDimDark.descriptor,
             surfaceDimLight.descriptor,
             laneStatus.descriptor,
+            lineageNesting.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
             nowLine.descriptor,
+            taskProgress.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
@@ -315,6 +327,6 @@ public nonisolated enum SidebarTunables {
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,
             workspaceTitleMotion.descriptor,
-        ] + SidebarSectionTunables.all
+        ] + SidebarSectionTunables.all + SidebarRowTuning.all
     }
 }

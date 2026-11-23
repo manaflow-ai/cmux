@@ -10,6 +10,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
+import { MODEL_PICKER } from "./composerSelectors";
 
 const finished = [
   user("Add retries with backoff to the fetch helper", 10),
@@ -90,7 +91,7 @@ function toggleFast(current: "on" | "off"): Play {
         picks.push(message.params.value);
       return original(message);
     };
-    const button = { selector: ".acpmux-model .acpmux-picker-button" } as const;
+    const button = { selector: MODEL_PICKER } as const;
     const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
     try {
       await ctx.waitFor(() => ctx.document.querySelector(button.selector));
@@ -150,16 +151,34 @@ export default agentPaneEntry({
   widths: { narrow: 420, normal: 720, wide: 1100 },
   anchors: [{ selector: ".acpmux-composer-bar" }, { selector: ".acpmux-composer-box" }],
   covers: [
+    "agent-session/acpmux/composerLocation.css",
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
   ],
   variants: {
+    "wrap-one-line": {
+      composerLook: "claude",
+      note: "A short prompt keeps the leading and trailing controls on its first line.",
+      ready: { draft: "Check composer wrapping" },
+      snapshot: row(),
+    },
+    "wrap-two-lines": {
+      composerLook: "claude",
+      note: "A soft wrap keeps the first line at its fixed top inset and the controls in place.",
+      ready: {
+        draft:
+          "Check composer wrapping and keep the first line, caret and controls in place as the prompt grows downward.",
+      },
+      snapshot: row(),
+    },
     "claude-auto": {
+      composerLook: "claude",
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
     },
     "router-opus-on-codex": {
+      composerLook: "claude",
       note: "Codex running Opus 5.5 through a router (Lawrence 2026-11-10): the chip's logo is the model's own provider, Claude's, beside Opus 5.5  Medium, never the harness's OpenAI mark (chipFace.ts).",
       snapshot: {
         ...row({ harness: "codex", model: "claude-opus-5-5" }, { harness: "codex", family: "codex" }),
@@ -177,24 +196,29 @@ export default agentPaneEntry({
       },
     },
     "grid-running": {
+      composerLook: "claude",
       note: "Grid measurement: running with the steer / queue placeholder and no draft.",
       snapshot: row({ isWorking: true }),
     },
     "grid-draft": {
+      composerLook: "claude",
       note: "Grid measurement: a single plain text line and Send.",
       ready: { draft: "Check the grid lines" },
       snapshot: row(),
     },
     "grid-draft-lines": {
+      composerLook: "claude",
       note: "A two-line draft keeps its text column on the composer's 44px grid line while the controls stay on the last line.",
       snapshot: row(),
       ready: { draft: "First line of the draft\nSecond line of the draft" },
     },
     "long-model": {
+      composerLook: "claude",
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",
       snapshot: { ...row({ model: LONG_MODEL }), catalog: longCatalog },
     },
     "leo-report": {
+      composerLook: "claude",
       note: "Claude Opus 5.5 with Fast mode on, Medium and Auto: a narrower pane swaps whole units (effort's short name, the model's family, the mode's label, the model's mark alone), never an ellipsis; the effort stays inside the one model button and no bolt shows.",
       snapshot: {
         ...row({}, { configOptions: [effort, fastMode], modes }),
@@ -202,6 +226,7 @@ export default agentPaneEntry({
       },
     },
     granted: {
+      composerLook: "claude",
       note: "A chat-wide allowance: the row still shows one lock, the mode's; the granted status gets no slot in it.",
       snapshot: {
         ...row(),
@@ -216,16 +241,19 @@ export default agentPaneEntry({
       },
     },
     "fast-off": {
+      composerLook: "claude",
       note: "A model with fast mode, off: no bolt in the row; the model button's menu ends on an unchecked Fast mode row, and a click turns it on.",
       snapshot: row({}, { configOptions: [effort, speed("off")] }),
       play: toggleFast("off"),
     },
     "fast-on": {
+      composerLook: "claude",
       note: "Fast on: the button still reads Opus 5.5  Medium, with no Fast word; the menu's Fast mode row is checked, and a click turns it off.",
       snapshot: row({}, { configOptions: [effort, speed("on")] }),
       play: toggleFast("on"),
     },
     queued: {
+      composerLook: "claude",
       note: "A running turn with prompts queued above the field: Stop takes Send's circle, the row keeps its clusters.",
       snapshot: {
         ...row({ isWorking: true }),

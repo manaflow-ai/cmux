@@ -1,4 +1,4 @@
-/// How the person answered the classic import preview (``ClassicImportPlan``).
+/// How the person answered the classic import preview (`ClassicImportPreview`).
 public nonisolated enum ClassicImportAnswer: Equatable, Sendable {
     /// Import pressed.
     case accepted

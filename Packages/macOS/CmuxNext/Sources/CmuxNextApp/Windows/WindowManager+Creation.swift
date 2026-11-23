@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 
@@ -28,11 +29,11 @@ extension WindowManager {
 
     /// New workspace, on the New Tab page, in `state`'s window when it is
     /// open, else in a new window (the app has no open window: Dock, CLI, menu).
-    /// `slot` places it in that window's sidebar once it is reported.
-    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil) {
+    /// `slot` places it in that window's sidebar once it is reported; `picksCloud`: its composer has Cloud picked (cmux#46021).
+    func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil, picksCloud: Bool = false) {
         let target = targetWindow(preferring: state?.id)
         var spawn = WorkspaceSpawn(newTabPage: true)
-        spawn.slot = slot
+        (spawn.slot, spawn.firstChat) = (slot, picksCloud ? .picksCloud(handoff: nil) : nil)
         Task { [services] in
             do {
                 _ = try await createWorkspace(spawn, on: daemon, into: target)
@@ -56,17 +57,19 @@ extension WindowManager {
         return windowID
     }
 
-    /// Dock click, Show cmux: the last closed window comes back with its
-    /// workspaces; with none registered, a new window with a new workspace.
+    /// Dock click, Show cmux, an open of the running app (a launcher, `open -a`, a hand-off): a window it has comes forward, else the
+    /// last closed one, else one new window, never a second while it opens (Leo 2026-11-11: "double clicking from [a launcher], caused this").
     func reopenOrCreateWindow() {
-        if !reopenClosedWindow() { newWindow() }
+        if let shown = active { if NSApp.isHidden { NSApp.unhide(nil) }; return bringToFront(shown) }
+        guard !reopenClosedWindow(), !reopenCreating else { return }
+        reopenCreating = true; Task { _ = await createWorkspace(into: UUID().uuidString.lowercased(), newTabPage: true); reopenCreating = false }
     }
 
-    /// `preferred` when that window is open (the launch window is, before the restore: `awaitsRestore`),
-    /// else a new window id. A second window left the launch window on Home (dogfood gate v2.2.3, `type`).
+    /// `preferred` when open (the launch window is, before the restore: `awaitsRestore`; dogfood gate v2.2.3), else the active window: a closed or
+    /// unknown id never opens a second window (Leo 2026-11-16: "Why that open up a new space actually?"). Only nil asks for a new window id.
     func targetWindow(preferring preferred: String?) -> String {
-        if let preferred, registry.value.window(preferred)?.isOpen == true || awaitsRestore(preferred) { return preferred }
-        return UUID().uuidString.lowercased()
+        let opens = { (id: String) in self.registry.value.window(id)?.isOpen == true || self.awaitsRestore(id) }
+        return preferred.flatMap { opens($0) ? $0 : active.map(\.state.id).flatMap { opens($0) ? $0 : nil } } ?? UUID().uuidString.lowercased()
     }
 
     /// The launch window before the restore applied the saved registry (`restored`, set in that turn) or gave

@@ -236,7 +236,6 @@ export function RecipientField({
             data-selected={selected === index || undefined}
             data-testid="cmux.home.newMessage.token"
             aria-label={format("home.compose.removeRecipient", token.text)}
-            title={token.recipient ? undefined : format("home.compose.unknownRecipient", token.text)}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
               setSelected(index);
@@ -274,7 +273,10 @@ export function RecipientField({
         </button>
       </div>
       {visible && (
-        <div className="hm-suggestions" data-testid="cmux.home.newMessage.suggestions">
+        <div
+          className="hm-suggestions ui-glass ui-glass-floats ui-glass-transient"
+          data-testid="cmux.home.newMessage.suggestions"
+        >
           {emptyText !== null ? (
             <p className="hm-suggestions-empty">{emptyText}</p>
           ) : (

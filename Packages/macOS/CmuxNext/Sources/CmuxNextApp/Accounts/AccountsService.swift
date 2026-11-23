@@ -17,6 +17,12 @@ final class AccountsService: AccountsServices {
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     private(set) lazy var github = GitHubConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    /// The Chief's Gmail and Google Calendar connections (cmux issue 34263), on the same sign-in and owner API.
+    private(set) lazy var chiefConnections = ChiefConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    private(set) lazy var agentKeys = TeamAgentKeys.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    private(set) lazy var modelsPolicy = TeamModelsPolicy.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    /// `models.spreadUsage` mirrored into acpmux for the app's life (SettingsModels.mirrorSpread).
+    private var spreadMirror: Task<Void, Never>?
     let keys: any ProviderKeyStoring
     /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
     let labels: AccountLabelerStore
@@ -48,12 +54,14 @@ final class AccountsService: AccountsServices {
         capture = services.environment.authCaptureFixture ? ProviderCaptureFixture() : nil // the flag is DEBUG-only
         fixtureHome = capture?.home ?? environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
-        let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
+        let ownID = NextSupport.currentRunSegment.map { "\(bundleID ?? "cmux").\($0)" } ?? bundleID
+        let storeID = fixtureHome == nil ? ownID : "\(bundleID ?? "cmux").fixture"
         keys = capture?.keys() ?? KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID), loginKeychain: services.loginKeychain)
         labels = AccountLabelerStore(provider: capture?.labelSalt ?? KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID), loginKeychain: services.loginKeychain))
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
+        spreadMirror = SettingsModels.mirrorSpread(settings: { [weak services] in services?.settings }, environment: { [weak services] in services.flatMap(QuitAgents.environment) })
     }
 
     /// The detection inputs. The login env is captured once per launch
@@ -100,7 +108,7 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth) }
+    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth, backend: services.cloud.configuration.runtimeSelection?.developerBackendLabel) }
 
     func runCmuxAccount(_ action: CmuxAccountAction) {
         if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }

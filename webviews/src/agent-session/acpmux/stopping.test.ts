@@ -71,10 +71,11 @@ test("Stop says it is stopping until the turn ends", async () => {
     await until(() => view.shown.stopping === true);
     expect(view.shown.isWorking).toBe(true);
 
-    // The turn's end takes it away, while acpmux still lists the chat as running.
+    // The turn's end takes it away, and the turn with it, while acpmux still lists the chat as
+    // running (turnEndStopsLiveLine.test.ts: no Thinking clock past the end).
     daemon.emit(id, { mux: "turn_end", msg: { stopReason: "cancelled" } });
     await until(() => view.shown.stopping === undefined);
-    expect(view.shown.isWorking).toBe(true);
+    expect(view.shown.isWorking).toBe(false);
     daemon.emit(id, { mux: "turn_result", msg: { status: "cancelled", stopReason: "cancelled" } });
     daemon.touch(id, { status: "ready" });
     await until(() => !view.shown.isWorking);
@@ -266,8 +267,9 @@ test("a refused Stop stops reading as stopping and says why", () =>
     await deliver({ sessionId: f.id, message: reason, reason: "remote.session_cancel_ownership" });
     await f.until(() => f.shown().stopping === undefined);
     expect(f.shown().isWorking).toBe(true);
-    const said = translate("queue.stopRefused", { reason });
-    expect(said).toContain(reason);
+    // The pane's own words for the reason it knows; acpmux's English stays in the log.
+    const said = translate("queue.stopRefused", { reason: translate("error.stopOwnerOnly") });
+    expect(said).not.toContain(reason);
     expect(notes().slice(before)).toEqual([said]);
   }));
 
@@ -302,8 +304,10 @@ test("only the refusal of the Stop still waiting counts", () =>
     await deliver({ sessionId: f.id, message, turnId: "stop-turn-1" });
     await f.until(() => f.shown().stopping === undefined);
     expect(notes().slice(before)).toHaveLength(1);
-    expect(notes().at(-1)).toContain(message);
-    expect(notes().at(-1)).not.toContain("earlier");
+    // A reason the pane does not word: the plain line, never acpmux's text.
+    const { translate } = await import("./i18n");
+    expect(notes().at(-1)).toBe(translate("queue.stopRefusedPlain"));
+    expect(notes().at(-1)).not.toContain(message);
   }));
 
 test("a failed cancel send leaves Stop available for a successful retry", () =>

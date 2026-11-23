@@ -39,14 +39,15 @@ extension DaemonService {
     }
 
     /// The effect of a command whose local change the caller already showed outside the store (a
-    /// sidebar row's color): `rollback` takes it back when the command fails.
+    /// sidebar row's color): `rollback` takes it back when the command fails. With no local change
+    /// (a palette edit the store shows from the daemon's echo), the registry still shows a failure.
     ///
     /// - Parameters:
     ///   - label: The command's name.
-    ///   - rollback: Undoes the caller's local change.
+    ///   - rollback: Undoes the caller's local change; none by default.
     ///   - body: The command.
     /// - Returns: ``ActionEffect/applied(_:)``.
-    public func commandEffect(_ label: String, rollback: @escaping @MainActor (ActionWorkFailure) -> Void,
+    public func commandEffect(_ label: String, rollback: @escaping @MainActor (ActionWorkFailure) -> Void = { _ in },
                               _ body: @escaping DaemonCommandBody) -> ActionEffect {
         .applied(ActionConfirmation(send: sender(label, body), rollback: rollback))
     }

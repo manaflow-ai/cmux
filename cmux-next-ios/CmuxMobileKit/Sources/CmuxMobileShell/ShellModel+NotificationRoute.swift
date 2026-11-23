@@ -131,7 +131,7 @@ extension ShellModel {
             feedPath = [destination]
         case .workspace(let id, let tabID):
             guard let workspace = store.workspace(id: id) else { return }
-            if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
+            if let tabID { store.requestOpen(tabID: tabID, in: workspace.id) }
             store.markSeen(workspace.id)
             tab = .workspaces
             if !workspacesPath.isEmpty {

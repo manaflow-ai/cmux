@@ -495,6 +495,37 @@ fn removing_a_tree_refuses_a_file_and_removes_only_a_link() {
     );
 }
 
+/// A Unix socket an earlier daemon left under the held home reads as a socket, and is removed, so
+/// the next daemon binds its own there. On macOS the held read opened the name for events only,
+/// which a socket refuses (`EOPNOTSUPP`): the old `share-host/device.sock` read as "nothing",
+/// stayed, the bind failed, and the app never reached the daemon's device (one Mac, two device
+/// rows). Leo: "i cant connect from air blue to cosmic gray even after turning on tons of shit".
+#[cfg(unix)]
+#[test]
+fn a_left_socket_is_read_and_removed() {
+    isolated(
+        module_path!(),
+        "a_left_socket_is_read_and_removed",
+        |home| {
+            use std::os::unix::fs::FileTypeExt;
+            crate::config::hold_home();
+            let folder = home.join("share-host");
+            std::fs::create_dir(&folder).unwrap();
+            let path = folder.join("device.sock");
+            // Bound by its name in the folder: a temp path can pass the socket path limit.
+            std::env::set_current_dir(&folder).unwrap();
+            drop(std::os::unix::net::UnixListener::bind("device.sock").unwrap());
+            let meta = crate::home_fs::symlink_metadata(&path).expect("a left socket reads");
+            assert!(meta.file_type().is_socket(), "it read as {:?}", meta.file_type());
+            crate::home_fs::remove_file(&path).unwrap();
+            assert!(std::fs::symlink_metadata(&path).is_err(), "the left socket stayed");
+            std::os::unix::net::UnixListener::bind("device.sock")
+                .expect("the next bind takes the path");
+        },
+        |_, _| {},
+    );
+}
+
 /// Windows (and any platform): a writer under the held home checks the home's identity again
 /// right before each step (`home_fs`; on Windows the file id, its volume serial and file index).
 /// The same home passes; a replaced one is refused and gets nothing.
@@ -511,6 +542,51 @@ fn a_replaced_home_is_refused_by_its_file_id_and_the_same_home_passes() {
             let wrote = crate::config::write_atomic(&home.join("b.json"), b"{}");
             assert!(wrote.is_err(), "a replaced home was written: {wrote:?}");
             assert_eq!(tree(home), Vec::<String>::new(), "the new home got a write");
+        },
+        |_, _| {},
+    );
+}
+
+/// Off Unix a read goes between two checks of the home (`home_fs::held_read`). A home replaced
+/// after the first check and before the read: the read, made by path in the replacement, fails
+/// (`NotFound`: the replacement has no such file). That error must not stand for the held home's
+/// answer: `LocalStore::load` reads `NotFound` as "no session", which would hide the lost home
+/// (#41915 review F1). The second check runs whatever the read answered, and a home replaced
+/// before it is the lost home's error. The race is forced at the end of the first check
+/// (`config::seams::on_checked`) on the same `held_read` the Windows arms use, so it runs on
+/// every platform.
+#[test]
+fn a_held_read_that_fails_in_a_replaced_home_is_the_lost_home_not_not_found() {
+    isolated(
+        module_path!(),
+        "a_held_read_that_fails_in_a_replaced_home_is_the_lost_home_not_not_found",
+        |home| {
+            let file = home.join("sessions").join("c").join("session.json");
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, b"{}").unwrap();
+            crate::config::hold_home();
+            let swapped = std::rc::Rc::new(std::cell::Cell::new(false));
+            let _hook = {
+                let (swapped, home, file) = (swapped.clone(), home.to_path_buf(), file.clone());
+                crate::config::seams::on_checked(move |path, passed| {
+                    if path == file && passed && !swapped.replace(true) {
+                        replace(&home);
+                    }
+                })
+            };
+            let read = crate::home_fs::held_read(&file, || std::fs::symlink_metadata(&file));
+            assert!(
+                swapped.get(),
+                "the home was not replaced between the first check and the read"
+            );
+            let error = read.expect_err("a read in a replaced home answered");
+            assert_ne!(
+                error.kind(),
+                std::io::ErrorKind::NotFound,
+                "the replacement's NotFound stood for the held home's answer: {error}"
+            );
+            assert!(error.to_string().contains("is gone"), "not the lost home's error: {error}");
+            assert!(home.with_extension("old").join("sessions/c/session.json").exists());
         },
         |_, _| {},
     );

@@ -140,6 +140,10 @@ SIGNING_MATERIAL_UNPICKED = {
     "promote-nightly-next": "a main dispatch the signer refuses; its own route ends on the nightly slot "
                             "(test_nightly_trusted_routing.test_no_signing_job_reads_an_owned_runner_variable)",
     "promote-nightly-next-acked": "retired (if: false) twin of promote-nightly-next, same route",
+    "nightly-next-one": "builds and signs in one job on cmux15's signer label, a literal with no pick "
+                        "(tests/test_nightly_next_one_job.py)",
+    "sign-live-code-variant": "signs nightly-next-one's live code variant after it on the same signer label, a literal "
+                              "with no pick (docs: live-code-nightly design section 1)",
 }
 
 
@@ -819,10 +823,8 @@ class SnapshotReadToken(unittest.TestCase):
     # The jobs that read the routing App key; no other job gains it (find-nightly-next-recovery and
     # legacy-identity-target keep reading the snapshot with GITHUB_TOKEN). route-visual-gate-nightly
     # picks the visual gate's idle owned Mac with it (docs/ci/nightly-next-visual-gate.md).
-    # build-nightly-app reads it in one step after the build, to place the light jobs that follow it on an
-    # idle mini (runner list read only; cmux-next-guards.yml's portable-placement reads it the same way on
-    # pull requests, outside the environment).
-    # decide places early controls through the same read-only routing App.
+    # build-nightly-app mints a read token from it for the unsigned restore, and decide mints a spare read
+    # token from the same read-only routing App.
     KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
                   "build-nightly-app", "find-nightly-next-recovery"}
 

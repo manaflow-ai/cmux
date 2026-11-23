@@ -18,6 +18,7 @@ import { chromium, type Browser } from "playwright";
 import { PNG } from "pngjs";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -94,9 +95,14 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
         colorScheme: scheme,
       });
       try {
+        // The centered arm (jumpPlace.experiment.ts `center`): the prose spots 90 px either side of
+        // the disc stay inside the viewport; at the composer's end edge one would fall past it.
+        await page.addInitScript(() =>
+          localStorage.setItem("cmux.experiments", JSON.stringify({ "jump-latest-place": "center" })),
+        );
         await page.goto(stageURL(scheme));
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        await page.waitForSelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]");
+        await page.waitForSelector(JUMP_LATEST_SHOWN);
         // The arrow (and its pool) off, so only the glass and what it shows are measured.
         await page.addStyleTag({ content: ".acpmux-jump-latest__arrow { visibility: hidden !important; }" });
         await page.evaluate(
@@ -105,7 +111,7 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
               requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 500))),
             ),
         );
-        const box = await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").boundingBox();
+        const box = await page.locator(JUMP_LATEST).boundingBox();
         if (!box) throw new Error("Jump to latest did not render");
         const cx = box.x + box.width / 2;
         const cy = box.y + box.height / 2;
@@ -142,10 +148,13 @@ await requireBrowserLane("jump-latest-lens-frost.test.ts", async () => {
         const mean = (values: number[]) => values.reduce((sum, v) => sum + v, 0) / values.length;
         const under = mean(unders);
         const beside = mean(besides);
-        const info = await page.evaluate(() => {
-          const style = getComputedStyle(document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")!);
-          return { backdrop: style.backdropFilter, fill: style.backgroundColor };
-        });
+        const info = await page.evaluate(
+          ({ JUMP_LATEST }) => {
+            const style = getComputedStyle(document.querySelector(JUMP_LATEST)!);
+            return { backdrop: style.backdropFilter, fill: style.backgroundColor };
+          },
+          { JUMP_LATEST },
+        );
         console.log(
           JSON.stringify({
             scheme,

@@ -35,7 +35,8 @@ BROKER_FIELDS = frozenset({
     "headRefOid", "id", "isArchived", "isBinary", "isCrossRepository", "isDraft", "isFork", "isMinimized",
     "isPrivate", "isTruncated", "issueCount", "label", "labels", "lastEditedAt", "limit", "locked", "login",
     "maintainerCanModify", "mergeCommit", "mergeMethod", "mergeStateStatus", "mergeable", "merged",
-    "mergedAt", "mergedBy", "message", "name", "nameWithOwner", "nodes", "number", "object", "oid",
+    "mergedAt", "mergedBy", "message", "messageBody", "messageHeadline", "mode", "name", "nameWithOwner", "nodes",
+    "number", "object", "oid",
     "pageInfo", "parents", "path", "prefix", "pullRequest", "pushedAt", "remaining", "requestedReviewer",
     "resetAt", "reviewRequests", "reviews", "slug", "startCursor", "state", "status", "submittedAt",
     "target", "targetUrl", "text", "timelineItems", "title", "totalCount", "tree", "type", "updatedAt",
@@ -53,7 +54,7 @@ BROKER_ISSUES_FIELDS = frozenset({
     "nodes", "number", "pageInfo", "state", "title",
 })
 BROKER_SCOPED_FIELD_NAMES = frozenset({
-    "associatedPullRequests", "baseRepository", "checkSuites", "compare", "headRepository",
+    "associatedPullRequests", "baseRef", "baseRepository", "checkSuites", "compare", "headRepository",
     "headRepositoryOwner", "history", "isRequired", "issueOrPullRequest", "issues", "owner", "pullRequests",
     "ref", "repository", "statusCheckRollup",
 })
@@ -461,6 +462,67 @@ class SpentRestQuotaTests(unittest.TestCase):
         self.assertEqual(status, 0, err)
         self.assertEqual(len(calls), 1)
 
+    def run_graphql_first(self, gh):
+        calls = []
+
+        def recording(*args):
+            calls.append(args)
+            return gh(*args)
+        original = freeze.gh
+        freeze.gh = recording
+        self.addCleanup(setattr, freeze, "gh", original)
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--base", "feat-cmux-next", "--graphql-first"])
+        return status, out.getvalue(), err.getvalue(), calls
+
+    def test_graphql_first_reads_no_rest_when_no_freeze_is_open(self):
+        """merge-freeze.yml runs on about 141 pull request events an hour (2026-11-21 07Z); the REST issue list
+        each made came out of the repository's GITHUB_TOKEN hour the production promote gates 403'd on. GraphQL
+        has its own quota, so the workflow reads the freeze list there first."""
+        def gh(*args):
+            if self.issues_query(args):
+                return self.graphql_answer([])
+            self.fail(f"unexpected read: {args}")
+        status, _, err, calls = self.run_graphql_first(gh)
+        self.assertEqual(status, 0, err)
+        self.assertEqual(len(calls), 1)
+
+    def test_graphql_first_falls_back_to_rest_when_graphql_is_refused(self):
+        def gh(*args):
+            if self.issues_query(args):
+                raise subprocess.CalledProcessError(1, ["gh", *args], stderr="gh: HTTP 502")
+            if args[1].startswith("repos/x/y/issues?"):
+                return "[]"
+            self.fail(f"unexpected read: {args}")
+        status, _, err, calls = self.run_graphql_first(gh)
+        self.assertEqual(status, 0, err)
+        self.assertEqual(len(calls), 2)
+
+    def test_graphql_first_still_blocks_on_an_open_freeze(self):
+        frozen = issue(body=body())
+
+        def gh(*args):
+            target = args[1]
+            if self.issues_query(args):
+                return self.graphql_answer([node(frozen)])
+            if target == "graphql":
+                return json.dumps({"data": {"repository": {"issueOrPullRequest": {"lastEditedAt": None}}}})
+            if target.startswith("repos/x/y/issues/7/events?"):
+                return json.dumps([labeled("lawrence", name="merge-freeze")])
+            if target == "repos/x/y/collaborators/lawrence/permission":
+                return json.dumps({"role_name": "admin"})
+            if target.startswith("repos/x/y/pulls/1/files?"):
+                return json.dumps([{"filename": "cmux-tui/spec/x.json"}])
+            if target == "repos/x/y/pulls/1":
+                return json.dumps({"changed_files": 1})
+            if target.startswith("repos/x/y/issues/1/events?"):
+                return "[]"
+            self.fail(f"unexpected read: {args}")
+        status, out, err, _ = self.run_graphql_first(gh)
+        self.assertEqual(status, 1, err)
+        self.assertIn("#7", out)
+
     def test_a_graphql_next_page_is_unreadable_not_clear(self):
         def gh(*args):
             if args[1].startswith("repos/x/y/issues?"):
@@ -540,7 +602,17 @@ class SpentRestQuotaTests(unittest.TestCase):
 
 class BrokerGraphqlFieldsTests(unittest.TestCase):
     """The land gates read GitHub through the lane-gh broker, which refuses a graphql field outside its list. Scope:
-    merge_freeze.py and scripts/gh-merge-green (the scripts a land gate runs), not every graphql caller in scripts/."""
+    merge_freeze.py, scripts/gh-merge-green and the base-red classifier land-judge runs on every land with a red
+    (CLASSIFIER_FILES), not every graphql caller in scripts/. A classifier query the broker refuses means no base red
+    can be excused from a lane VM (cmuxterm-hq#10092: BLOB_QUERY's `mode`)."""
+
+    # The base-red classifier and the helpers it loads; cmuxterm-hq tools/lane-gh-broker/test_classifier_queries.py
+    # SOURCES lists the same files.
+    CLASSIFIER_FILES = ("base_red_excuse.py", "test_reds.py", "main_fix_evidence.py", "gh_pages.py",
+                        "webviews_test_results.py")
+    # Refused on purpose, with why the classifier still answers (the broker's REFUSED_ON_PURPOSE): root `nodes` can
+    # name a node of any repo, so SuiteChecks.read catches the refusal and reads those runs over REST.
+    CLASSIFIER_REFUSED_ON_PURPOSE = frozenset({"SUITE_CHECKS_QUERY"})
 
     def gate_queries(self):
         import ast
@@ -549,6 +621,33 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
                    and "repository(" in n.value]
         queries += re.findall(r"query='([^']*)'", (ROOT / "scripts/gh-merge-green").read_text())
         return queries
+
+    def classifier_queries(self):
+        """Each classifier file's module-level `NAME_QUERY` strings, by name: literals and f-strings joined as Python
+        joins them, each `{value}` of an f-string read as `0` (a page size or count, never a field name). A `_QUERY`
+        this can't read fails the test, so a query is never skipped unread (cmux#42173 review F1)."""
+        import ast
+
+        def text(node):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            if isinstance(node, ast.JoinedStr):
+                return "".join(text(part) if isinstance(part, ast.Constant) else "0" for part in node.values)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                left, right = text(node.left), text(node.right)
+                return None if left is None or right is None else left + right
+            return None
+
+        found = {}
+        for name in self.CLASSIFIER_FILES:
+            for node in ast.parse((ROOT / "scripts/ci" / name).read_text()).body:
+                if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                        and node.targets[0].id.endswith("_QUERY")
+                        and not (isinstance(node.value, ast.Constant) and not isinstance(node.value.value, str))):
+                    value = text(node.value)
+                    self.assertIsNotNone(value, f"{name}: {node.targets[0].id} is not a string this scan can read")
+                    found[f"{name}:{node.targets[0].id}"] = value
+        return found
 
     def test_the_parser_reads_root_fields_fields_and_skips_aliases_arguments_and_types(self):
         roots, below = graphql_fields('query($o:String!){a: repository(owner:$o,name:"x"){issue(number:1){... on Issue{lastEditedAt}}}}')
@@ -563,6 +662,14 @@ class BrokerGraphqlFieldsTests(unittest.TestCase):
         self.assertGreaterEqual(len(queries), 6, "the scan found too few queries; its pattern is stale")
         for query in queries:
             self.assertEqual([], broker_refused_fields(query), query)
+
+    def test_every_classifier_graphql_query_selects_only_fields_the_broker_accepts(self):
+        queries = self.classifier_queries()
+        self.assertGreaterEqual(len(queries), 4, "the scan found too few classifier queries; its pattern is stale")
+        refused = {key: broker_refused_fields(query) for key, query in queries.items()
+                   if key.partition(":")[2] not in self.CLASSIFIER_REFUSED_ON_PURPOSE and broker_refused_fields(query)}
+        self.assertEqual({}, refused, "the lane broker refuses these fields; allow them in cmuxterm-hq "
+                         "tools/lane-gh-broker/graphql-allowlist.json and this file's BROKER_* copy the same day")
 
 
 if __name__ == "__main__":

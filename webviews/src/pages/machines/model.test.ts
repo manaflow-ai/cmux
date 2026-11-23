@@ -219,14 +219,19 @@ describe("shown lines", () => {
   });
 });
 
-describe("the Cloud header names the active team", () => {
-  test("only the Cloud group's header carries the team", () => {
-    const items = sectionItems({ rows, style: "compact", cloudTeam: { name: "cmux", personal: false } }, strings);
-    const headers = items.flatMap((item) => (item.type === "header" ? [item] : []));
-    expect(headers.filter((header) => header.team).map((header) => header.key)).toEqual(["h:cloud"]);
-    expect(headers.find((header) => header.key === "h:cloud")?.team).toEqual({ name: "cmux", personal: false });
-    expect(sectionItems({ rows, style: "compact" }, strings).some((item) => item.type === "header" && item.team)).toBe(
-      false,
+describe("the Cloud header says only Cloud (https://github.com/manaflow-ai/cmux/issues/45695)", () => {
+  test("a snapshot naming the active team still heads the Cloud group with only its title", () => {
+    const team = { cloudTeam: { name: "AUSTIN", personal: false } };
+    const items = sectionItems({ rows, style: "compact", ...team }, strings);
+    const cloud = items.find((item) => item.type === "header" && item.key === "h:cloud");
+    expect(cloud).toEqual({
+      type: "header",
+      key: "h:cloud",
+      title: t("machines.group.cloud"),
+      first: expect.any(Boolean),
+    });
+    expect(shownLines({ rows, style: "compact", busy: [], failed: {}, ...team }, strings).join("\n")).not.toContain(
+      "AUSTIN",
     );
   });
 });

@@ -1,7 +1,7 @@
 // The GitHub page's ops (`cmux.github.*`, GitHubPageProvider.swift). `pr.inspect` and
 // `browser.openIn` are the agent page's link card methods under this page's namespace: the pull
 // request comes from the app's one cache (AgentReplyPullRequests), never a GitHub call per ask.
-import type { LinkedPullRequest } from "../../agent-session/acpmux/chips/pullRequestStore";
+import type { LinkedPullRequest } from "../../agent-session/acpmux/chips/pullRequestTypes";
 
 export type { LinkedPullRequest };
 
@@ -131,7 +131,8 @@ export type MergeState =
   | { phase: "confirm" }
   | { phase: "merging" }
   | { phase: "merged"; queued: boolean }
-  | { phase: "failed"; message: string };
+  /** `refused`: GitHub would not merge it (a check, a review, a conflict): the page says so. */
+  | { phase: "failed"; message: string; refused?: boolean };
 
 /** The host's answer to `pr.inspect`. */
 export interface PullRequestReply {

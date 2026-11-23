@@ -114,4 +114,4 @@ export function main(argv = process.argv.slice(2)): number {
   return 0;
 }
 
-if (import.meta.main) process.exit(main());
+if ((import.meta as ImportMeta & { main?: boolean }).main) process.exit(main());

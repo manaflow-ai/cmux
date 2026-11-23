@@ -117,7 +117,7 @@
   padding: var(--grid-base) var(--grid-gap);
   box-sizing: border-box;
   border: 0;
-  border-radius: var(--acpmux-session-info-row-radius);
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;

@@ -19,6 +19,46 @@ import QuartzCore
 /// One exception, which a kind states (``PaneKeyResizeHeld``; today the Home): its view keeps the size it had when the
 /// hold began, on the hold's edges, and takes the area's size once, when the hold ends.
 public final class PaneContentAreaView: NSView {
+    /// The Chromium hosts inside this area that read its clip.
+    public let chromeClipReaders = FrameNoticeReaders()
+    private weak var chromeClipRoot: NSView?
+    private var chromeClipCard: CGRect?
+    private var chromeClipRadius: CGFloat = 0
+
+    /// Clips content below the tab row to the window's card, so its own fills cannot paint under the corner wedges.
+    public func setChromeClip(card: CGRect?, radius: CGFloat, in root: NSView) {
+        chromeClipRoot = root
+        chromeClipCard = card
+        chromeClipRadius = radius
+        updateChromeClip()
+    }
+
+    private func updateChromeClip() {
+        guard let layer, chromeClipCard != nil || layer.mask?.name == CALayer.cmuxCardClipName else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let rect = chromeClipCard.flatMap { card in chromeClipRoot.map { convert(card, from: $0) } }
+        // A chat sharing the row extends above the card; its tools must stay visible there.
+        guard let rect, rect.maxY >= bounds.maxY - 0.5 else {
+            if layer.mask?.name == CALayer.cmuxCardClipName {
+                layer.mask = nil
+                chromeClipReaders.notifyGeometryChange()
+            }
+            return
+        }
+        let radius = min(chromeClipRadius, rect.width / 2, rect.height / 2)
+        let mask = layer.mask ?? CALayer()
+        guard layer.mask == nil || mask.frame != rect || mask.cornerRadius != radius else { return }
+        mask.name = CALayer.cmuxCardClipName
+        mask.frame = rect
+        mask.cornerRadius = radius
+        mask.cornerCurve = .circular
+        mask.backgroundColor = CGColor(gray: 0, alpha: 1) // colour-allow: alpha-only clip coverage; this colour is never displayed
+        layer.mask = mask
+        chromeClipReaders.notifyGeometryChange()
+    }
+
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -53,9 +93,19 @@ public final class PaneContentAreaView: NSView {
     /// pane has its terminal's ground from the key's frame, never the window's color.
     public var waitingGround: CGColor? { didSet { paintGround() } }
 
+    /// The ground the area paints where no view above paints its pane's ground (``PaneGroundOwning``).
+    private var ownGround: CGColor? { waitingGround ?? (paintsRestingGround ? restingGround : nil) }
+
     private func paintGround() {
-        let ground = waitingGround ?? (paintsRestingGround ? restingGround : nil)
+        let ground = paneGroundIsOwnedAbove ? nil : ownGround
         if layer?.backgroundColor != ground { layer?.backgroundColor = ground }
+    }
+
+    /// In a window the area knows the pane it is in: a pane whose ground a view above paints gets none here, and an
+    /// area that came out from under an owner paints its own again (the paint writes the layer only on a change).
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { paintGround() }
     }
 
     /// The area's size when the hold began: what a producer that hears the hold measures its pane's size change from;
@@ -98,7 +148,13 @@ public final class PaneContentAreaView: NSView {
 
     public override func setFrameSize(_ newSize: NSSize) { // perf-hot: 4ms motion-frame
         super.setFrameSize(newSize)
+        updateChromeClip()
         follow(handing: false)
+    }
+
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        updateChromeClip()
     }
 
     /// In a hold every shown view resizes as at rest and lays out in this frame's pass. Not the containers handed the
@@ -272,8 +328,13 @@ public final class PaneContentAreaView: NSView {
             if let ground = (view as? any PaneGroundReporting)?.paneGround, ground.alpha > 0 { return ground }
             if let color = view.layer?.backgroundColor, color.alpha > 0 { return color }
         }
-        return layer?.backgroundColor.flatMap { $0.alpha > 0 ? $0 : nil }
+        // Where a view above paints the ground (a see-through floating pane), the area's own ground is what it gives.
+        return (paneGroundIsOwnedAbove ? ownGround : layer?.backgroundColor).flatMap { $0.alpha > 0 ? $0 : nil }
     }
+}
+
+extension PaneContentAreaView: PaneGroundFollowing {
+    public func paneGroundOwnerChanged() { paintGround() }
 }
 
 /// A view in a pane's content area whose ground is not its layer's background (CLOSE MOTION 2 case 3, cmux-ad m48): a

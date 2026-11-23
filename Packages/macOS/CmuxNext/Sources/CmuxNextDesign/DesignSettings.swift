@@ -37,6 +37,8 @@ public final class DesignSettings {
     public static let shared = DesignSettings()
     /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
     public let motionChanges = MotionChanges()
+    /// The composite tokens a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    let tokenMemos = TokenMemos()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -44,6 +46,9 @@ public final class DesignSettings {
     public var densityTokens: DensityTokens = .compact
     /// `appearance.customDensities`: the user's own densities, in file order.
     public var customDensities: [DensityTokens] = []
+    /// Whether `densityTokens` is the active theme file's own density (its `"density"` block): then a change to it
+    /// shows but is not saved, since the file would put it back.
+    public var densityFromThemeFile = false
     /// Every density the user can pick: the built-ins, densest first, then the custom ones.
     public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
     /// The density with `id` among `availableDensities`.
@@ -57,6 +62,8 @@ public final class DesignSettings {
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// `app.language`: the code cmux's own text is in, nil for System; pages get it on every document.
+    public var appLanguage: String?
     /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
     /// multiplier drives type, spacing and control heights across native surfaces.
     public var interfaceScale: CGFloat = 1
@@ -71,9 +78,31 @@ public final class DesignSettings {
         return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.pageScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-scale', '\(Typography.pageDensityScale)');"
             + "document.documentElement.style.setProperty('--cmux-density-text-scale', '\(Typography.pageDensityTextScale)');"
-            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "document.documentElement.style.setProperty('--cmux-chat-text-scale', '\(Typography.pageChatTextScale)');"
+            + "if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(); } else { document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)'); }"
+            + composerScript
+            + "document.documentElement.style.setProperty('--cmux-row-text-scale', '\(Typography.pageRowTextScale)');"
+            + "document.documentElement.style.setProperty('--cmux-row-icon-scale', '\(Typography.pageRowIconScale)');"
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
+    /// New Tab scales its Default page values together with one zoom.
+    private var composerScript: String {
+        let tokens = Metrics.tokens.tokens
+        let values: [(String, String?)] = [
+            ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
+            ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
+            ("--cmux-composer-pad-block", nil),
+            ("--cmux-composer-text-size", nil),
+            ("--cmux-composer-icon-size", nil),
+            ("--cmux-composer-chip-text-size", nil),
+            ("--cmux-composer-row-radius-extra", nil),
+            ("--cmux-chat-editor-min", tokens["chatEditorMin"].map { "\(Self.cssNumber($0))px" }),
+        ]
+        return values.map { name, value in
+            "document.documentElement.style.setProperty('\(name)', '\(value ?? "")');"
+        }.joined()
+    }
+    private static func cssNumber(_ value: Double) -> String { String(format: "%g", value) }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
@@ -115,6 +144,15 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
         }
     }
+    /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
+    /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
+    public var agentGlowEnabled = false
+    /// `appearance.previousGlass`: web pages draw the glass numbers from before the one glass system
+    /// (``WebTheme/glassLevels`` is `previous`). Off by default.
+    public var previousGlass = false
+    /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
+    /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
+    public var agentGlow = BackdropAgentGlow.calm
     /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
     /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
     /// setting reaches it (``SettingsApplier``).
@@ -124,6 +162,10 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
+    /// entry is centered and fills (today's look). Every window and pane backdrop observes it
+    /// (`WindowMaterialView.observePlacement`).
+    public var backgroundPlacements: [String: BackdropPlacement] = [:]
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -149,6 +191,8 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
+    /// `tabs.shellIconTheme`: shell tabs draw the `>_` glyph (default) or their machine's icon.
+    public var tabShellIconTheme: TabShellIconTheme = .default
     /// `tabs.verticalTabs`: every workspace shows its tabs as a vertical list unless it turned them off.
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
@@ -165,6 +209,9 @@ public final class DesignSettings {
             if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
         }
     }
+    /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
+    /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
+    public var agentBadges: AgentBadgesExperiment = .off
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -195,11 +242,9 @@ public final class DesignSettings {
     public var showsHoverCards: Bool { hoverCardsEnabled && calmMode.showsHoverEffects }
     /// The pointer paints a hover fill on tabs, sidebar rows and chrome buttons (off in calm mode).
     public var showsHoverFills: Bool { calmMode.showsHoverEffects }
-    /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
-    /// Defaults to `HoverCardTiming.showDelay`.
+    /// `sidebar.hoverCards.delay`: pointer rest before any hover card opens (rows, rail, tabs, the
+    /// Update Ready card, Home link chips). Defaults to `HoverCardTiming.showDelay`, Chrome's 1300 ms.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
-    /// `sidebar.hoverCards.delay` has a value in the file: its delay is a fixed wait, with no settle.
-    public var hoverCardDelayIsSet = false
     /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
     public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `sidebar.hoverCards.groups.*`: whether group headers and tab group chips open a card, after
@@ -264,6 +309,10 @@ public final class DesignSettings {
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
     public var effectiveTerminalFontFamily: String? { terminalFontFamily ?? terminalConfigFontFamily }
+    /// The size in points the terminals draw at (the loaded config's `font-size`, `terminal.fontSize`
+    /// over the Ghostty config's), as last loaded (`GhosttyConfigFontFamily.recordLoad`); nil before.
+    /// The iPhone gets it (`ThemePhone`); nothing here repaints on it.
+    public var terminalFontSize: Double?
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
@@ -274,12 +323,39 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
+    /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
+    public var liquidGlass = false
+    /// `appearance.fontSmoothing`: what web pages draw with now (``WebTheme``). Chrome text cmux draws
+    /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
+    /// value (``ProcessFontSmoothing/current``).
+    public var fontSmoothing: FontSmoothing = .auto
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
     /// `appearance.chromeStyle`: the window look whose defaults the finer
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
+    /// `appearance.titleAreaContrast`: how strongly the chrome around the content (the titlebar, the tab
+    /// row and the sidebar) is shaded, as a share of the theme's shade
+    /// (``Metrics/mainPaneChromeShade(isDark:)``). 1, the default, is the shade as it was; lower is softer.
+    /// The shade follows through `WindowRootView.observeMainPane`; a change repaints the themed views too, so a
+    /// selected folder tab takes the selection fill where the softer shade no longer sets it apart
+    /// (``Palette/folderTabFill``).
+    public var titleAreaContrast: CGFloat = 1 {
+        didSet { if titleAreaContrast != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.titleAreaTone`: one colour (the default) or a subtle tone (``TitleAreaTone``,
+    /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
+    public var titleAreaTone: TitleAreaTone = .oneColor {
+        didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
+    /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
+    /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
+    public var cornerFlush: CornerFlush? {
+        didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
@@ -346,7 +422,7 @@ public final class DesignSettings {
         case .dividerThickness: 0...6
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
-        case .chromeFontSize: 10...16
+        case .chromeFontSize: 10...20
         case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }
@@ -354,7 +430,7 @@ public final class DesignSettings {
 
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0.85), 1.5)
+        min(max(value, 0.25), 5)
     }
 
     public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {

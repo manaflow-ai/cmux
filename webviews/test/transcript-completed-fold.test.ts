@@ -1,4 +1,4 @@
-// A completed turn keeps its final answer in sight and folds the earlier transcript, including
+// A completed turn keeps its answers in sight and folds earlier work narration, including
 // received reports, under one stable Worked-for disclosure. A running turn keeps the existing
 // step-by-step rows so the reader can follow work as it arrives.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
@@ -69,7 +69,7 @@ const completedTurn = () => {
   return [
     prompt,
     tool("read"),
-    answer("progress", "I found the retry race and am checking the two call sites."),
+    answer("progress", "Checking the two call sites."),
     tool("test"),
     received("report"),
     answer("final", "The retry fix is shipped."),
@@ -91,10 +91,10 @@ test("a completed turn folds all pre-answer work and received reports under one 
   const opened = turnView(rows, new Set([`${WORKED}-prompt`]))
     .filter((entry) => entry.kind !== "date")
     .map((entry) => entry.id);
-  // Opened, the work and the report between it fold under one line of messages (messageRuns.ts).
-  expect(opened).toEqual(["prompt", "worked-prompt", "messageRun-read", "final", "summary"]);
+  // Commentary ends the first run; the later command and received report share their own line.
+  expect(opened).toEqual(["prompt", "worked-prompt", "read", "progress", "messageRun-test", "final", "summary"]);
   const run = turnView(rows, new Set([`${WORKED}-prompt`])).find((entry) => entry.messageRun);
-  expect(new Set(run?.messageRun?.rows)).toEqual(new Set(["read", "progress", "test", "report"]));
+  expect(new Set(run?.messageRun?.rows)).toEqual(new Set(["test", "report"]));
   expect(
     turnFoldFor(
       rows,
@@ -166,7 +166,7 @@ test("App's toggle call shape (raw snapshot rows) closes a fold a provisional st
   expect(full.some((entry) => entry.kind === WORKED)).toBe(false);
 
   const closed = toggleTurnFold(full, expanded, `${WORKED}-prompt`);
-  expect([...closed]).toEqual([]);
+  expect(closed.has(`${WORKED}-report`)).toBe(false);
   expect(isOpen(closed)).toBe(false);
   expect(turnView(full, closed)).not.toContainEqual(expect.objectContaining({ id: "read" }));
 

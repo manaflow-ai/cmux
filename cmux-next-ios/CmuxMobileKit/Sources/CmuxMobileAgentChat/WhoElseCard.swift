@@ -49,7 +49,7 @@ struct WhoElseCard: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .padding(.leading, 26)
                 .padding(.vertical, -10)
                 .accessibilityIdentifier("agentChat.whoElse.more")
@@ -154,7 +154,7 @@ private struct WhoElseRow: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.vertical, -10)
             .accessibilityLabel(String(localized: "mobile.agentChat.whoElse.open", defaultValue: "Open \(session.displayName)", bundle: .module))
             .accessibilityIdentifier("agentChat.whoElse.open")

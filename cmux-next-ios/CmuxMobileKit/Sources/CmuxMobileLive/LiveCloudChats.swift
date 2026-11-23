@@ -180,11 +180,12 @@ public final class CloudChatRelay {
         guard !isRetired, let session = hub.sessions[sessionID], session.peer == nil else { return nil }
         if let store = stores[sessionID] { return store }
         let summary = AgentSessionSummary(
-            id: session.id, name: session.name, harness: session.harness, agentName: session.harness,
+            id: session.id, name: session.shownName ?? "", harness: session.harness, agentName: session.harness,
             cwd: session.cwd, workspaceTitle: machine.name, macName: machine.name,
             status: session.summaryStatus, macID: macID
         )
         let store = AgentChatStore(source: hub.source(sessionID: sessionID, summary: summary))
+        store.boundsMemoryOffScreen()
         stores[sessionID] = store
         return store
     }

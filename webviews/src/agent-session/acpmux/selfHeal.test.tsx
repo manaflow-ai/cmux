@@ -317,13 +317,48 @@ test("the host's restore status reads as a quiet line with its elapsed time", ()
   expect(readHostRestoring(undefined, 5)).toBeUndefined();
   const restoring = { waitedMs: 12_000, at: 1_000 };
   expect(hostRecoveryLine({ restoring, now: 4_000 })).toEqual({ kind: "restoring", waitedMs: 15_000 });
-  expect(renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />)).toContain(
-    "Restoring sessions… 0:15",
-  );
+  // The time is its own clock element (HostError.tsx `ClockedWords`): the line's text, tags aside.
+  expect(
+    renderToStaticMarkup(<HostRecoveringLine restoring={restoring} now={4_000} />).replace(/<[^>]+>/g, ""),
+  ).toContain("Restoring sessions… 0:15");
   // A lost link says nothing for its first moment, and leaves the line to the failure past 25 s.
   expect(hostRecoveryLine({ relinkingSince: 0, now: 500 })).toBeUndefined();
-  expect(hostRecoveryLine({ relinkingSince: 0, now: 2_000 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ relinkingSince: 0, now: 12_000 })).toEqual({ kind: "reconnecting" });
   expect(hostRecoveryLine({ relinkingSince: 0, now: 30_000 })).toBeUndefined();
+});
+
+// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A daemon restart, an
+// update's handoff or a drop that heals within 10 s is something the person can do nothing about: no
+// open chat says anything while it lasts. It said "Reconnecting…" from 1.5 s.
+test("a lost link or a restore that heals within 10 s shows no line on the chat", () => {
+  for (const now of [1_500, 2_000, 5_000, 9_999]) expect(hostRecoveryLine({ relinkingSince: 0, now })).toBeUndefined();
+  expect(renderToStaticMarkup(<HostRecoveringLine relinkingSince={0} now={9_999} />)).toBe("");
+  // A restore the host reports is as quiet for as long.
+  for (const waitedMs of [0, 3_000, 9_999])
+    expect(hostRecoveryLine({ restoring: { waitedMs, at: 0 }, now: 0 })).toBeUndefined();
+  expect(hostRecoveryLine({ restoring: { waitedMs: 4_000, at: 0 }, now: 3_000 })).toBeUndefined();
+  // Past 10 s it is said, once, as one calm line.
+  expect(hostRecoveryLine({ relinkingSince: 0, now: 10_000 })).toEqual({ kind: "reconnecting" });
+  expect(hostRecoveryLine({ restoring: { waitedMs: 4_000, at: 0 }, now: 6_000 })).toEqual({
+    kind: "restoring",
+    waitedMs: 10_000,
+  });
+});
+
+test("a refusal the pane says at once is never covered by the quiet Reconnecting line", () => {
+  // Another build's acpmux on the socket: said at once with its Restart, not after 25 s of "Reconnecting…".
+  expect(hostRecoveryLine({ relinkingSince: 0, failureShown: true, now: 2_000 })).toBeUndefined();
+  expect(
+    renderToStaticMarkup(
+      <HostRecoveringLine relinkingSince={0} failureShown now={2_000} otherwise={<p>the failure line</p>} />,
+    ),
+  ).toBe("<p>the failure line</p>");
+  // The host's own word that acpmux restores still shows: a refusal without it ends the restore.
+  const restoring = { waitedMs: 13_000, at: 0 };
+  expect(hostRecoveryLine({ restoring, failureShown: true, now: 1_000 })).toEqual({
+    kind: "restoring",
+    waitedMs: 14_000,
+  });
 });
 
 test("a tab shown again while its lag read still retries keeps its connection and draws the missed turn once", async () => {

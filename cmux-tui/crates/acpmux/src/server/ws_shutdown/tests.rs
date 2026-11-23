@@ -101,12 +101,42 @@ async fn restart_interrupts_a_blocked_writer_and_bounds_the_close() {
     let (_stop, stopped) = oneshot::channel();
     let shutdown = WsShutdown::default();
     out.send("x".repeat(1 << 20)).await.unwrap();
-    let task = tokio::spawn(write(sink, outbound, stopped, shutdown.clone(), Default::default()));
+    let task = tokio::spawn(write_link(
+        sink,
+        outbound,
+        None,
+        stopped,
+        shutdown.clone(),
+        Default::default(),
+    ));
     tokio::task::yield_now().await;
     shutdown.close_clients();
     let before = tokio::time::Instant::now();
     task.await.unwrap();
     assert_eq!(before.elapsed(), CLOSE_BUDGET);
+}
+
+/// A connection that ended (its reader too slow, `outbound.rs`) stops its writer even while a
+/// frame waits on a client that reads nothing: what is left gets [`LAST_FRAMES_WAIT`], then the
+/// close its [`CLOSE_BUDGET`]. The socket is never held open by a frozen client.
+#[tokio::test(start_paused = true)]
+async fn a_stop_ends_a_writer_blocked_on_a_client_that_reads_nothing() {
+    let (ours, _unread) = tokio::io::duplex(64);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let (out, outbound) = mpsc::channel(2);
+    let (stop, stopped) = oneshot::channel();
+    out.send("x".repeat(1 << 20)).await.unwrap();
+    out.send("the last line".to_owned()).await.unwrap();
+    drop(out);
+    let shutdown = WsShutdown::default();
+    let task =
+        tokio::spawn(write_link(sink, outbound, None, stopped, shutdown, Default::default()));
+    tokio::task::yield_now().await;
+    stop.send(()).unwrap();
+    let before = tokio::time::Instant::now();
+    task.await.unwrap();
+    assert_eq!(before.elapsed(), LAST_FRAMES_WAIT + CLOSE_BUDGET);
 }
 
 #[tokio::test]
@@ -126,7 +156,8 @@ async fn late_writer_sees_restart_but_normal_connection_close_has_no_restart_cod
         } else {
             stop.send(()).unwrap();
         }
-        let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
+        let task =
+            tokio::spawn(write_link(sink, outbound, None, stopped, shutdown, Default::default()));
         let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
             .await
             .unwrap()
@@ -151,7 +182,8 @@ async fn ordinary_shutdown_uses_a_normal_close_code() {
     let (_stop, stopped) = oneshot::channel();
     let shutdown = WsShutdown::default();
     shutdown.normal_shutdown();
-    let task = tokio::spawn(write(sink, outbound, stopped, shutdown, Default::default()));
+    let task =
+        tokio::spawn(write_link(sink, outbound, None, stopped, shutdown, Default::default()));
     let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
         .await
         .unwrap()
@@ -198,7 +230,8 @@ async fn a_writer_that_sees_the_close_before_the_normal_stop_closes_normally() {
     let (_stop, stopped) = oneshot::channel();
     let shared = WsShutdown::default();
     let (local, _draining) = shared.listener();
-    let task = tokio::spawn(write(sink, outbound, stopped, local.clone(), Default::default()));
+    let task =
+        tokio::spawn(write_link(sink, outbound, None, stopped, local.clone(), Default::default()));
     tokio::task::yield_now().await;
     // The listener's close of its clients reaches the writer first.
     local.close_clients();
@@ -229,7 +262,8 @@ async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
     let (stop, stopped) = oneshot::channel();
     let shared = WsShutdown::default();
     let (local, _draining) = shared.listener();
-    let task = tokio::spawn(write(sink, outbound, stopped, local.clone(), Default::default()));
+    let task =
+        tokio::spawn(write_link(sink, outbound, None, stopped, local.clone(), Default::default()));
     tokio::task::yield_now().await;
     shared.restart();
     stop.send(()).unwrap();

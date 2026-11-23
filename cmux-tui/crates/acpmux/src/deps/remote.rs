@@ -152,6 +152,7 @@ impl Remote {
     pub fn new(origin: String, bearer: String) -> Result<Remote> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()
+            .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
             // A part or a whole download; a stalled one is given up, never waited on.

@@ -5,10 +5,8 @@
 //! that anymore").
 //!
 //! Only while Usage Patterns is on (`diagnostics.usagePatterns`, off by
-//! default; the counts go into this machine's own usage-patterns file like
-//! every other count, and `cmux usage-patterns` shows them), or while the
-//! person shares install counts with cmux (`diagnostics.shareInstallCounts`,
-//! off by default; `crate::install_share`). Both are off unless turned on.
+//! default): the counts go into this machine's own usage-patterns file like
+//! every other count, and `cmux usage-patterns` shows them. Nothing is sent.
 //! `web/scripts/cmux-vm-image/install-census.ts` turns readouts into the
 //! image's package list.
 //!
@@ -34,10 +32,7 @@ static COUNTED: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 /// Counts the installs a live `tool_call`/`tool_call_update` record's shell
 /// command runs, once per call. One atomic load when counting is off.
 pub(super) fn count_installs(session_id: &str, kind: &str, msg: &Value) {
-    let sharing = crate::install_share::sharing();
-    if !matches!(kind, "tool_call" | "tool_call_update")
-        || !(cmux_usage_patterns::enabled() || sharing)
-    {
+    if !matches!(kind, "tool_call" | "tool_call_update") || !cmux_usage_patterns::enabled() {
         return;
     }
     let Some(update) = msg.pointer("/params/update") else { return };
@@ -51,16 +46,9 @@ pub(super) fn count_installs(session_id: &str, kind: &str, msg: &Value) {
         cmux_usage_patterns::count("install", install.manager);
         if install.packages.is_empty() {
             cmux_usage_patterns::count("install-manifest", install.manager);
-            if sharing {
-                crate::install_share::count(install.manager, None);
-            }
         }
         for package in &install.packages {
-            let key = package_key(install.manager, package);
-            cmux_usage_patterns::count("install-package", &key);
-            if sharing {
-                crate::install_share::count(install.manager, Some(&key));
-            }
+            cmux_usage_patterns::count("install-package", &package_key(install.manager, package));
         }
     }
 }

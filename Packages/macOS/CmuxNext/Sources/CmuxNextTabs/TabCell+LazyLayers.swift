@@ -39,7 +39,7 @@ extension TabCell {
         if let closeBackgroundLayer, let closeGlyphLayer { return (closeBackgroundLayer, closeGlyphLayer) }
         let background = CALayer()
         background.cornerCurve = .continuous
-        background.actions = ["backgroundColor": Self.fade, "bounds": NSNull(), "position": NSNull()]
+        background.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull()] // Helium: no fade
         let glyph = CAShapeLayer()
         glyph.actions = Self.noActions
         glyph.fillColor = nil
@@ -57,10 +57,14 @@ extension TabCell {
     func applyCloseColors() {
         guard let closeBackgroundLayer, let closeGlyphLayer else { return }
         themeScope.perform {
-            closeGlyphLayer.strokeColor = (isCloseHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
+            // Helium (Chromium's tab_close_button.cc): the x is the title's color, hovered or not; the hover fill is the
+            // tab's most-contrasting ink at 16 % (pressed 14 %), shown at once.
+            closeGlyphLayer.strokeColor = (isSelected ? Palette.textPrimary : Palette.textSecondary).cgColor
             // The `disc` treatment draws the fill while the x stands in for the status, so it reads as a button there.
             let disc = metrics.hoverCloseSwap == .disc && visibility.closeReplacesStatus
-            closeBackgroundLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isCloseHovered || disc, pressed: isClosePressed))?.cgColor
+            let percent = BrowserChromeTuning.value(.closeHoverOpacity) - (isClosePressed ? 2 : 0)
+            closeBackgroundLayer.backgroundColor = isCloseHovered || disc || isClosePressed
+                ? Palette.textPrimary.withAlphaComponent(max(0, percent) / 100).cgColor : nil
         }
     }
 

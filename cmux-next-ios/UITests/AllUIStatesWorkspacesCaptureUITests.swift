@@ -33,7 +33,10 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                 C.steps([
                     { C.scrollDown(app, times: 2) },
                     { C.tap(C.any(app, "workspaces.fold.mbp"), "offline Mac fold") },
+                    // The opened rows start under the tab bar: bring them up before the tap.
+                    { C.scrollDown(app, times: 2) },
                     { C.tap(app.buttons["workspace.row.ws-zed"], "ws-zed row") },
+                    { app.alerts.firstMatch.waitForExistence(timeout: 5) ? nil : "no offline alert" },
                 ])
             },
             Scene(group: g, id: "filter-menu", args: Self.list) { app in C.tap(C.any(app, "workspaces.filter"), "filter menu") },
@@ -56,6 +59,28 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
                   frames: [("connect-mac-other-team", 3.5), ("switched-team", 8.5)]),
             Scene(group: g, id: "new-workspace-menu", args: Self.list) { app in
                 C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            // Its submenus (2026-11-18 reorganize): each folder list once, behind one row.
+            Scene(group: g, id: "new-workspace-menu-live-mac", args: Self.list + ["-cmux-mobile-agent-chats"]) { app in
+                C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            Scene(group: g, id: "new-workspace-menu-agent-chat", args: Self.list + ["-cmux-mobile-agent-chats"]) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.newAgentChatOn"), "New Agent Chat") },
+                ])
+            },
+            Scene(group: g, id: "new-workspace-menu-open-recent", args: Self.list) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.openRecent"), "Open Recent") },
+                ])
+            },
+            Scene(group: g, id: "new-workspace-menu-agent-workspace", args: Self.list) { app in
+                C.steps([
+                    { C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                    { C.tap(C.any(app, "workspaces.newAgentWorkspace"), "New Agent Workspace") },
+                ])
             },
             Scene(group: g, id: "new-workspace-creating", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.tap(C.any(app, "workspaces.new"), "New Workspace button")

@@ -23,6 +23,12 @@
 //! busy on its own. Left open: a turn the harness starts in the moment between this check and the
 //! stop, with nothing of its own running, as for the idle pass.
 //!
+//! A chat out of usage is idle (Leo: "lanes dont count if they are idle and out of usage"): a
+//! continuation that only waits out a usage limit, with no turn running, does not make the stop
+//! refuse (`Hub::only_rate_limit_waits`). The stop closes the chat and its continuation with it,
+//! so nothing starts at the reset. Anything else it has (a queued prompt, a permission) still
+//! counts, and a release to the terminal (`release_to_watch.rs`) still waits for it.
+//!
 //! A refusal is JSON-RPC error [`NOT_IDLE_CODE`] with data `{"reason": "busy" | "revision_moved",
 //! "revision": N, "sessionId": ID}`, plus `busyWith` for `busy` (`turn`, `queued`, `permission`,
 //! `tool_call`, `subagent`, `process`, `unstored`, `unadopted_host`, `starting`, `moving`). The
@@ -156,7 +162,10 @@ impl Hub {
         if has_child {
             Self::drain_inbound(session).await;
         }
-        if let Some(what) = self.busy_with(session) {
+        // A rate-limit continuation waiting for the reset is no work: the stop closes the chat
+        // and starts nothing (`only_rate_limit_waits`). Only the stop reads it so; a release to
+        // the terminal still waits for it.
+        if let Some(what) = self.busy_with_as(session, false) {
             return busy(what);
         }
         // An agent host this daemon has not adopted (it could not, or has not yet): what runs
@@ -183,10 +192,17 @@ impl Hub {
     }
 
     /// What keeps the session from being idle, if anything.
-    fn busy_with(&self, session: &Session) -> Option<&'static str> {
+    pub(super) fn busy_with(&self, session: &Session) -> Option<&'static str> {
+        self.busy_with_as(session, true)
+    }
+
+    /// `busy_with`; without `rate_waits`, a continuation that only waits out a usage limit
+    /// (`only_rate_limit_waits`) does not count.
+    fn busy_with_as(&self, session: &Session, rate_waits: bool) -> Option<&'static str> {
         if session.turn().is_some()
             || session.harness_turn.load(Ordering::SeqCst)
-            || self.continuation_pending(session)
+            || (self.continuation_pending(session)
+                && (rate_waits || !self.only_rate_limit_waits(session)))
         {
             return Some("turn");
         }
@@ -218,13 +234,10 @@ impl Hub {
         if self.any_process_running(session) {
             return Some("process");
         }
-        // A Claude chat with turns but none stored: stopped, it would come back as a fresh
-        // conversation (`idle.rs` keeps it awake for the same reason).
-        {
-            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.claude_unstored && m.turn_count > 0 {
-                return Some("unstored");
-            }
+        // A Claude chat with turns but none stored, whose agent did work there: stopped, it would
+        // come back as a fresh conversation (`idle.rs` keeps it awake for the same reason).
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).keeps_unstored_awake() {
+            return Some("unstored");
         }
         if session.moving().is_some() {
             return Some("moving");

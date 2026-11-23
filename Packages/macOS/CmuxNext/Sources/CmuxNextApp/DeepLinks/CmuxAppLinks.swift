@@ -20,8 +20,9 @@ enum CmuxAppLinks {
     @discardableResult
     static func open(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool {
         if url.isFileURL { return openPath(url, services: services) }
+        if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
         if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
-            return services.registry.perform(action, invocation: ActionInvocation(origin: .user))
+            return services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user))
         }
         if let agent = openAgentWeb(url, services: services, click: click) { return agent }
         // A pull request link clicked in an agent chat: the native GitHub page when `browser.openPullRequestsInGitHubPage` is on.
@@ -40,11 +41,11 @@ enum CmuxAppLinks {
     /// URL; false with agent links off.
     @MainActor
     static func openAgentWeb(_ url: URL, services: AppServices, click: LinkRouter.Click = .init()) -> Bool? {
-        let (link, bare) = (DeepLink.parseAgentWeb(url), DeepLink.agentWebSession(url))
+        let (link, bare) = (DeepLink.parseAgentWeb(url), DeepLink.agentWebSession(url) ?? DeepLink.agentReference(url, linkScheme: services.linkScheme))
         guard link != nil || bare != nil else { return nil }
         let web = { @MainActor in LinkRouter.shared.open(url, as: click) }
         let intent: WindowActivation.Intent = click.background ? .bringForward : .raise
-        return (try? DeepLinkNavigator(services: services).openAgentLink(link, bare: bare, intent, asking: false, notFound: web)) != nil
+        return (try? DeepLinkNavigator(services: services).openAgentLink(link, bare: bare, intent, asking: false, notFound: bare.map(DeepLink.isAgentReference) == true ? nil : web)) != nil
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
@@ -79,7 +80,7 @@ enum CmuxAppLinks {
     }
 
     /// The action a settings link runs (``DeepLink/settingsAction(for:linkScheme:)``).
-    static func settingsAction(for url: URL, linkScheme: String) -> ActionID? { DeepLink.settingsAction(for: url, linkScheme: linkScheme) }
+    static func settingsAction(for url: URL, linkScheme: String) -> DeepLink.SettingsLinkAction? { DeepLink.settingsAction(for: url, linkScheme: linkScheme) }
 
     /// The link `url` opens in this app (``DeepLink/appLink(for:linkScheme:chiefHost:)``).
     static func link(for url: URL, linkScheme: String, chiefHost: String?) -> DeepLink? {

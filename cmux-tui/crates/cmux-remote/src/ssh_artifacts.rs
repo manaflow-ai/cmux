@@ -700,16 +700,10 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
     // Another cmux-tui process may be fetching the same build: hold the lock
     // while appending to the shared partial file, then look again.
     let lock_path = directory.join(format!("{file_name}.lock"));
-    let _lock = tokio::task::spawn_blocking(move || -> std::io::Result<std::fs::File> {
-        std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
-        let lock =
-            std::fs::File::options().create(true).truncate(false).write(true).open(&lock_path)?;
-        lock.lock()?;
-        Ok(lock)
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| format!("could not lock the download cache: {error}"))?;
+    let _lock = tokio::task::spawn_blocking(move || lock_download(&lock_path))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("could not lock the download cache: {error}"))?;
     if is_cached(payload).await {
         return Ok(payload.cache_path.clone());
     }
@@ -832,6 +826,37 @@ fn prune_cache(directory: &Path, keep: &str) {
         }
     }
 }
+
+/// The download cache's lock for one build, waiting while another process fetches it.
+fn lock_download(lock_path: &Path) -> std::io::Result<DownloadLock> {
+    std::fs::create_dir_all(lock_path.parent().unwrap_or(Path::new(".")))?;
+    let lock = std::fs::File::options().create(true).truncate(false).write(true).open(lock_path)?;
+    lock.lock()?;
+    Ok(DownloadLock(lock))
+}
+
+/// [`lock_download`]'s lock, held until dropped. The drop unlocks before the
+/// file closes: a child another thread started meanwhile keeps a copy of the
+/// open file until it execs or exits, and a close alone would leave the lock
+/// held in that copy.
+struct DownloadLock(std::fs::File);
+
+impl Drop for DownloadLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsFd for DownloadLock {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        std::os::fd::AsFd::as_fd(&self.0)
+    }
+}
+
+#[cfg(all(test, unix))]
+#[path = "ssh_artifacts_lock_tests.rs"]
+mod lock_tests;
 
 #[cfg(test)]
 mod published_pin_tests {

@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-scheduled-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `feed-view-changed`, `feed-reports-changed`, `stash-changed` (page relays only), `apps-changed` (page relays only), `tasks-changed` (page relays only), `computer-use-activity` (local owner connections, macOS), `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -47,15 +47,18 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
+| `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `remote-host-v1` (macOS) |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
 | `keybindings-changed` | subscribe | machine keybindings | protocol 12; capability `keybindings-v1` |
 | `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
+| `conversation-scheduled-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-scheduled-v1` |
 | `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
 | `conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `chief-live-v1` |
 | `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
 | `chief-changed` | subscribe | `chief` | protocol 12 additive extension; capability `chief-events-v1` |
+| `agent-session-share-changed` | subscribe | `session` | protocol 12 additive extension; capability `agent-session-share-events-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
@@ -497,6 +500,29 @@ as it sent it (`seq`, `index`, `tx`, `at`, `actor`, `origin`, `kind`,
 `{event:"tasks-changed", lost:true}`; the page then reads `tasks.snapshot`
 again. Only a page relay whose page lists it (the Tasks page) hears it.
 
+### computer-use-activity
+
+| Field | Value |
+| --- | --- |
+| event | `computer-use-activity` |
+| status | implemented |
+| since | capability `remote-host-v1` (macOS) |
+
+Published when what cmux Remote's Computer Use worker reports about its agent
+sessions changes (the host's `workers["computer-use"].activity`, which the
+worker updates at most every half second per session while it acts, and when
+a session's cursor goes away). The payload is
+`{event:"computer-use-activity", sessions:[{session:string, label:string,
+app?:{id:string, name:string}, last_action_ms:uint64, stopped?:bool}]}`, newest action first;
+an empty list when no session acted or the host is gone. `label` is the
+agent's name, `app` the app it acted on last when the worker knows it, and
+`last_action_ms` the wall-clock time of its last action on this machine;
+`stopped` is true while the person has stopped that agent's Computer Use from
+the menu bar (its calls are refused and do not count as actions). Only
+the person's own local Unix connections hear it (never a page relay or a
+remote device); the cmux app shows its menu bar badge and Computer Use row
+from it. `remote-host-status` carries the same list in `host.workers`.
+
 ### history-changed
 
 | Field | Value |
@@ -649,6 +675,21 @@ whose principal is `participant` (the person's own clients; an agent never
 sees the person's pins). Not a conversation change: it carries no `rev` and
 never reaches `conversation.events` or the remote relay.
 
+### conversation-scheduled-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-scheduled-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-scheduled-v1` |
+
+`object{event:"conversation-scheduled-changed", conversation:string, participant:string, scheduled?:object, removed?:{id, reason:"sent"|"cancelled", seq?}}`,
+published when one of `participant`'s Send Later messages is created,
+changed, failed, sent or cancelled (`conversation-scheduled-op` and the
+owner's sender), only to the connections whose principal is `participant`.
+A sent message's `conversation-changed` comes first. Never reaches
+`conversation.events` or the remote relay.
+
 ### conversation-run-changed
 
 | Field | Value |
@@ -716,6 +757,28 @@ reads the record with `chief.profile.get` or `chief.profile.list`. Home and
 the Channels page redraw their Chiefs on it instead of polling. Not a
 conversation change: it carries no conversation or `rev` and never reaches
 `conversation.events` or the remote relay.
+
+### agent-session-share-changed
+
+| Field | Value |
+| --- | --- |
+| event | `agent-session-share-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `agent-session-share-events-v1` |
+
+`object{event:"agent-session-share-changed", session:string}`: the link shares
+of acpmux session `session`'s chat read differently in `agent-session-share-list`
+than before. Published after a create, an invite, an uninvite, a redeem (a
+link guest's or an invitee's join), a kick, a revoke, an expiry (the timer or
+any verb that notices it), the room ending or refusing the share, a room
+answering a create, and the chat closing. A read, an invite or redeem asked
+again, and a room's own bookkeeping (a queued kick or `DELETE` acknowledged)
+publish nothing. It names only the chat, never an account or a guest: a client
+reads `agent-session-share-list {surface}` again. Only to the owner's own
+connections that may run the share verbs (same-user Unix, not bound by
+`agent-session-proxy-bind`, not a remote relay) and echoed
+`agent-session-share-events-v1` in `set-client-info`. The app's Invite People
+sheet re-reads its rows on it for as long as it is open, instead of polling.
 
 ### cloud-conversation-run-changed
 
@@ -919,10 +982,14 @@ object{event:"pane-closed",workspace:Id,screen:Id,pane:Id,index:usize,entity:Pan
 Payload:
 
 ```text
-object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab}
+object{event:"tab-added",workspace:Id,screen:Id,pane:Id,surface:Id,index:usize,entity:Tab,transaction?:string}
 ```
 
 The tab's subject id is its `surface`, matching `Tab.surface`; the protocol has no separate tab id.
+`transaction` is the `transaction` of the create request that made the tab,
+when it sent one: `new-conversation-tab` with
+`conversation-tab-transaction-v1`, and `new-tab` and
+`new-frontend-browser-tab` with `tab-create-place-v1`.
 
 ### tab-closed
 
@@ -972,6 +1039,29 @@ screens also emit `tree-changed` first. It carries no workspace revision.
 ```text
 object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
+
+### screen-device-changed
+
+| Field | Value |
+| --- | --- |
+| event | `screen-device-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `screen-device-identity-v1` |
+
+Payload:
+
+```text
+object{event:"screen-device-changed",screen_device_id:string|null}
+```
+
+This is the authenticated cmux Remote worker's independently generated screen
+UUID. It is delivered only to the local owner app (Unix or authenticated owner
+WebSocket); page relays, paired clients, and other remote clients do not hear
+it. A client opts in by echoing `screen-device-identity-v1` in `set-client-info`.
+An opted-in subscription receives one current-value replay before live events.
+The replay and removal event use `null` when the worker is unavailable. Clients
+use the UUID as the screen-device identity and must not infer it from a machine
+id, joined id, or display name.
 
 ### selection-changed
 
@@ -1074,7 +1164,7 @@ object{event:"layout-changed",screen:Id,workspace?:Id,active_pane?:Id,zoomed_pan
 
 Meaning: A screen's pane geometry changed through split, close/collapse, ratio update, viewport column width, row heights, dock, apply-layout, swap, undo, tab drag, or zoom. The event is emitted once per settled command.
 
-A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `hidden_dividers` (`split-divider-visibility-v1`), `columns`). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width`, `hidden_dividers` and `columns` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
+A server that advertises `layout-delta-v1` includes the screen's new layout in the event: `workspace`, and the layout fields of that `Screen` exactly as `list-workspaces` reports them at the commit (`active_pane`, `zoomed_pane`, `layout`, and when present `viewport_splits`, `viewport_base_width`, `hidden_dividers` (`split-divider-visibility-v1`), `columns`, `floating` (`floating-panes-v1`), `quick_terminal` (`quick-terminal-v1`)). It does not include `panes` or tabs; the pane and tab deltas carry those. Like `Screen`, the SDK schema does not list `viewport_splits`, `viewport_base_width`, `hidden_dividers`, `columns`, `floating` and `quick_terminal` yet. `transaction` is the numeric `transaction` of the request that caused the change (`set-split-ratio`, `set-viewport-pane-width`, `set-layout-sizes`, `set-column-dock`, `set-row-heights`, `float-pane`), as a decimal string, so the frontend that sent it can recognize the echo of its own gesture. A client patches that one screen's layout. When the event carries no layout (an older server), or names a pane the client does not have, clients re-fetch `export-layout` or `list-workspaces`.
 
 Example:
 
@@ -1484,6 +1574,32 @@ Example:
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
 ```
 
+### device-setup-step
+
+| Field | Value |
+| --- | --- |
+| event | `device-setup-step` |
+| status | implemented targeted control event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"device-setup-step",device:string,step:string,
+       state:"ok"|"changed"|"warn"|"fail"|"skip",detail:string,fix:string}
+```
+
+Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
+on the control queue of the connection that asked, before the request's reply. The fields are
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+`start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
+
+Example:
+
+```json
+{"event":"device-setup-step","device":"studio-mac","step":"app","state":"ok","detail":"NIGHTLY 2100 is current","fix":""}
+```
+
 ### terminal-clipboard-read
 
 | Field | Value |
@@ -1608,6 +1724,7 @@ Meaning: One coalesced render frame. The cursor is always present; `rows` contai
 | Kitty replay sidecars | protocol 9 aliases; protocol 10 graphics state |
 | `pending` field | additive, `terminal-pending-sequence-v1` |
 | `history_rows_omitted` field | additive, `attach-replay-history-rows-v1` |
+| `history_rows_skipped` field | additive, `attach-replay-history-window-v1` |
 
 Payload:
 
@@ -1642,7 +1759,8 @@ object{
     cursor_blink:boolean|null
   },
   pending?:Base64,
-  history_rows_omitted?:uint64
+  history_rows_omitted?:uint64,
+  history_rows_skipped?:uint64
 }
 ```
 
@@ -1680,7 +1798,11 @@ string, and a resize there drops byte attachments so they reattach.
 `replay_history_rows` (`attach-replay-history-rows-v1`, see `attach-surface`):
 `data` then holds the active area and at most that many of the newest history
 rows, and the field counts the older history rows it left out (0 when the
-whole history fit).
+whole history fit). `history_rows_skipped` is present only for a window away
+from the active area (`replay_history_start`,
+`attach-replay-history-window-v1`): `data` holds the window's rows, then the
+active area, and the field counts the history rows between them that it
+left out.
 
 Example:
 
@@ -1704,10 +1826,84 @@ object{event:"output",surface:Id,data:Base64,colors?:TerminalColors}
 
 Meaning: Live PTY bytes applied after the `vt-state` snapshot. Chunks preserve byte order for the attached surface. Chunk boundaries are implementation details. Hosted output that atomically changes authored colors includes the complete `colors` value to apply with that chunk.
 
+Without `attach-output-coalesce-v1`, each PTY read is one `output` event. A connection that declared `attach-output-coalesce-v1` in `set-client-info` before a bytes attach (see `attach-surface`, `output_coalesce_ms`) gets at most one `output` per interval (default 16.667 ms): the bytes of one interval concatenated in order, the first bytes after an idle interval at once, at most about 1 MiB per event, and any held bytes before any other attach event. Its `scroll-changed` events follow the same interval (the newest position). The event's shape is unchanged.
+
 Example:
 
 ```json
 {"event":"output","surface":1,"data":"bHMNCg=="}
+```
+
+### agent-cli-frame
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-frame` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v1` |
+
+Payload:
+
+```text
+object{event:"agent-cli-frame",surface:Id,stream:string,frame:uint64,base:uint64|null,cols:uint16,rows:uint16,data:Base64,cursor_x:uint16,cursor_y:uint16,cursor_visible:boolean}
+```
+
+Meaning: On a hybrid attach of an agent CLI's terminal (see `attach-surface`,
+`agent-cli-hybrid-v1`), one change of its screen in place of the `output` that
+made it. `data` is a `cmux_agent_cli_render::hybrid::Delta` encoding (varints:
+`seq`, `at_ms`, zigzag `shift`, then per-row spans: set `len` cells of one
+style, or clear `len` cells back to blank). It turns the screen the viewer shows
+after frame `base` into the screen after `frame`; `base: null` means over a
+blank screen of `cols` by `rows` (a keyframe: reset the viewer's screen first).
+`shift` scrolls the shown screen before the spans apply, up when positive (the
+rows that leave the top go to the viewer's scrollback). The cursor goes to
+`cursor_x`, `cursor_y` and shows when `cursor_visible`. Colors are as the
+program wrote them (default, a 256-color index or RGB), so the viewer's theme
+resolves them as it does PTY bytes. `cmux_agent_cli_render::vt::frame_bytes`
+turns a frame into terminal bytes for a viewer that draws with its own
+terminal. A viewer keeps `stream` and the newest `frame` it applied to resume
+with `hybrid_stream` and `hybrid_frame` after a drop.
+
+Example:
+
+```json
+{"event":"agent-cli-frame","surface":1,"stream":"9b1c…","frame":12,"base":11,"cols":100,"rows":32,"data":"AQAAAQ...","cursor_x":4,"cursor_y":30,"cursor_visible":true}
+```
+
+### agent-cli-lean
+
+| Field | Value |
+| --- | --- |
+| event | `agent-cli-lean` |
+| status | implemented |
+| since | protocol 12, capability `agent-cli-hybrid-v2` |
+
+Payload:
+
+```text
+object{event:"agent-cli-lean",surface:Id,f:Base64}
+```
+
+Meaning: An `agent-cli-frame` in the lean form, for a connection that declared
+`agent-cli-hybrid-v2` as well as `agent-cli-hybrid-v1`: the same frames, paced
+the same, with everything in `f` (`cmux_agent_cli_render::lean`). `f` starts
+with a flags varint (1 keyframe, 2 head, 4 numbered, 8 cursor, 16 cursor
+visible). A head (the connection's first frame, a keyframe, a new size) carries
+the stream id (length, UTF-8), `cols` and `rows`; a numbered frame carries
+`frame`, then `base` unless it is a keyframe; an unnumbered frame is the last
+one plus one, on top of it; a cursor frame carries `cursor_x`, `cursor_y`. Then
+zigzag `shift`, the span count and the spans: `row`, `col`, `len << 1 | set`;
+a set span names its style by index into a table the connection builds (an
+index one past its end brings `fg`, `bg`, `attrs` and adds them), then its
+cells: a printable ASCII byte, 0 for the empty half of a wide glyph, 1 for any
+other text (length, UTF-8), or 2 for a run (count, then one cell). The style
+table and the numbering start over on each connection. A viewer resumes with
+`hybrid_stream` and `hybrid_frame` as for `agent-cli-frame`.
+
+Example:
+
+```json
+{"event":"agent-cli-lean","surface":1,"f":"HAEJAwEAAQ..."}
 ```
 
 ### resized
@@ -1721,10 +1917,12 @@ Example:
 Payload:
 
 ```text
-object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64}
+object{event:"resized",surface:Id,cols:uint16,rows:uint16,replay?:Base64,data?:Base64,kitty_image_aliases?:array<KittyImageAlias>,kitty_graphics_state?:KittyGraphicsState,colors?:TerminalColors,pending?:Base64,history_rows_omitted?:uint64}
 ```
 
 Meaning: Protocol v6 attach-only event indicating that the authoritative surface size changed and the existing mirror must be replaced from the supplied replay. Protocol v7 sends the replay in `replay` and adds the fresh `colors` snapshot, including sparse palette overrides; protocol-v6 compatibility payloads use `data` and omit `colors`. Protocol v9 and v10 clients apply the Kitty sidecars with the same ordering as `vt-state`. Clients must accept either replay field, create a fresh terminal mirror at `cols` by `rows`, apply the replay and sidecars, restore the supplied colors when present, write `pending` when present (with the same capability and meaning as on `vt-state`), then continue applying later `output` chunks.
+
+A viewer that declared `attach-replay-history-window-v1` in `set-client-info` and attached with `replay_history_rows` gets a replay of the active area and at most that many of the newest history rows, not the whole history, and `history_rows_omitted` counts the older rows left out (as on `vt-state`). Other viewers get the whole history and no field.
 
 Example:
 
@@ -1889,6 +2087,7 @@ Payload:
 object{
   event:"agent-changed",
   surface:Id,
+  terminal_id?:string,
   state:"working"|"blocked"|"idle"|"done"|"unknown",
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
@@ -1901,7 +2100,8 @@ object{
 ```
 
 `last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
-`list-agents`). `agent_session_id` is the harness's own session id its hooks reported
+`list-agents`). `surface` and `terminal_id` are those of `list-agents`: the terminal's first
+tab placement and its public id. `agent_session_id` is the harness's own session id its hooks reported
 (see `list-agents`).
 
 Meaning: The current agent state for a surface changed. `agent` is the

@@ -148,12 +148,12 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
 public final class MenuSwatchStrip: NSView {
     private let choices: [NSMenuItem]
     /// Each choice's color; nil draws the scope's tertiary ink.
-    private let colors: [GroupColor?]
-    private let current: GroupColor?
+    let colors: [GroupColor?]
+    let current: GroupColor?
     /// The row that removes the color, drawn first as the No Color swatch; nil draws none.
     public let clearChoice: NSMenuItem?
     /// Whether the target has no color now: the No Color swatch is ringed.
-    private let clearIsCurrent: Bool
+    let clearIsCurrent: Bool
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?
@@ -162,7 +162,7 @@ public final class MenuSwatchStrip: NSView {
     public static let ringRoom: CGFloat = 3
 
     /// The No Color swatch's name (its VoiceOver action and tooltip).
-    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .module) }
+    public static var noColorTitle: String { String(localized: "menu.swatch.noColor", defaultValue: "No Color", bundle: .localizedModule) }
 
     /// Every swatch in drawing order: the No Color one first when there is one.
     private var swatchCount: Int { choices.count + (clearChoice == nil ? 0 : 1) }

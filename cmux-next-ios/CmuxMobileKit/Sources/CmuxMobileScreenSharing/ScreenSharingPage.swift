@@ -11,13 +11,17 @@ private let theme = CmuxMobileTheme.standard
 /// Settings → Screen Sharing: the account's Macs (from the device hub), the
 /// viewer's choices, and the full-screen viewer of the Mac being shared. A
 /// Mac shares its screen from its own Settings › Devices; the first time this
-/// phone asks, the Mac shows Allow / Deny.
+/// phone asks, the Mac shows Allow / Deny. A Mac that can't be shared (not
+/// shared, offline, blocked, or the hub refused it) says why in an alert when
+/// it's tapped, over the list, never as a full-screen card (user 2026-11-13).
 public struct ScreenSharingPage: View {
     let service: ScreenSharingService
     /// A Mac to share as soon as the account lists it (a workspace's + › Screen Sharing names
     /// its Mac); nil, or no Mac by that name, leaves the choice to the list.
     let connectTo: String?
     @State private var connectedOnce = false
+    /// Check Again's list read; the page going away cancels it.
+    @State private var checking: Task<Void, Never>?
 
     public init(service: ScreenSharingService, connectTo: String? = nil) {
         self.service = service
@@ -38,23 +42,82 @@ public struct ScreenSharingPage: View {
         .refreshable { await service.refresh() }
         .onAppear {
             service.start()
+            // An already read list is kept for the next showing too, not only one that changes.
+            service.listChanged()
             connectToNamedMac()
         }
-        .onChange(of: service.macs.map(\.id)) { connectToNamedMac() }
-        .fullScreenCover(item: Binding(get: { service.viewer }, set: { if $0 == nil { service.dismissViewer() } })) { viewer in
+        // A request still waiting for the hub when the page goes (Done, back) ends with it.
+        .onDisappear {
+            checking?.cancel()
+            checking = nil
+            service.leaveUnshownRequest()
+        }
+        .onChange(of: service.macs.map { "\($0.id)|\($0.name)|\(service.unavailability(of: $0) == nil)" }) {
+            service.listChanged()
+            connectToNamedMac()
+        }
+        // The list was read (it may hold the same Macs the last one did, drawn from it).
+        .onChange(of: service.discovery) {
+            service.listChanged()
+            connectToNamedMac()
+        }
+        .fullScreenCover(item: Binding(get: { service.viewerOnScreen }, set: { if $0 == nil { service.dismissViewer() } })) { viewer in
             ScreenSharingViewerScreen(viewer: viewer, retry: { viewer.request(viewer.lastScope) },
                                       close: { service.dismissViewer() })
+        }
+        .alert(service.alert.map { $0.refusal.title($0.hostName) } ?? "",
+               isPresented: Binding(get: { service.alert != nil }, set: { if !$0 { service.alert = nil } }),
+               presenting: service.alert) { alert in
+            alertActions(alert)
+        } message: { alert in
+            if let message = alert.refusal.message { Text(message) }
         }
         .accessibilityIdentifier("screenSharing.page")
     }
 
-    /// Once per showing: the Mac named `connectTo`, when exactly one Mac has that name.
+    @ViewBuilder private func alertActions(_ alert: ScreenSharingMacAlert) -> some View {
+        switch alert.refusal {
+        case .notShared, .hostOffline, .permissionNone:
+            Button("Check Again") {
+                checking?.cancel()
+                // task-owner: one list refresh for the alert's Check Again, then that tap's outcome;
+                // cancelled when the page goes away
+                checking = Task { await service.checkAgain(alert.hostID, scope: alert.requested) }
+            }
+            Button("OK", role: .cancel) {}
+        case .viewOnly:
+            Button("Connect View Only") { service.select(alert.hostID, scope: .view) }
+            Button("Cancel", role: .cancel) {}
+        case .other:
+            Button("Try Again") { service.select(alert.hostID, scope: alert.requested) }
+            Button("Cancel", role: .cancel) {}
+        case .notFound:
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    /// A tap on a Mac. The person chose: the named Mac no longer connects on its own.
+    private func select(_ mac: HubDevice, scope: SessionScope?) {
+        connectedOnce = true
+        service.select(mac, scope: scope)
+    }
+
+    /// Once per showing: the Mac named `connectTo`, when exactly one Mac has that name and it can
+    /// be shared now. One that can't stays in the list, and says why when it's tapped.
     private func connectToNamedMac() {
-        guard !connectedOnce, service.viewer == nil, let name = Self.normalized(connectTo) else { return }
-        let matches = service.macs.filter { Self.normalized($0.name) == name }
-        guard matches.count == 1, let mac = matches.first else { return }
+        // Only from a read list: a Mac drawn from the last one may be offline or not shared now.
+        guard !connectedOnce, service.discovery == .listed, service.viewer == nil, service.alert == nil,
+              let mac = Self.namedMac(connectTo, in: service.macs, unavailable: { service.unavailability(of: $0) }) else { return }
         connectedOnce = true
         service.connect(to: mac, scope: service.preferences.defaultScope)
+    }
+
+    /// The one Mac named `name` that can be shared now.
+    static func namedMac(_ name: String?, in macs: [HubDevice], unavailable: (HubDevice) -> ScreenSharingRefusal?) -> HubDevice? {
+        guard let name = normalized(name) else { return nil }
+        let matches = macs.filter { normalized($0.name) == name }
+        guard matches.count == 1, let mac = matches.first, unavailable(mac) == nil else { return nil }
+        return mac
     }
 
     static func normalized(_ name: String?) -> String? {
@@ -95,8 +158,11 @@ public struct ScreenSharingPage: View {
                 }
             }
             ForEach(macs) { mac in
-                ScreenSharingMacRow(mac: mac, access: service.access(to: mac)) { scope in
-                    service.connect(to: mac, scope: scope ?? service.preferences.defaultScope)
+                ScreenSharingMacRow(mac: mac, access: service.access(to: mac),
+                                    connecting: service.pendingSelection?.hostID == mac.id
+                                        || (service.viewerOnScreen == nil && service.viewer?.hostID == mac.id
+                                            && service.viewer?.phase.isRequesting == true)) { scope in
+                    select(mac, scope: scope)
                 }
             }
         } header: {
@@ -107,11 +173,14 @@ public struct ScreenSharingPage: View {
     }
 }
 
-/// One Mac: its name, whether it can be shared now, and this phone's access to it.
+/// One Mac: its name, whether it can be shared now, and this phone's access to it. A Mac that
+/// can't be shared stays tappable: the tap says why.
 struct ScreenSharingMacRow: View {
     let mac: HubDevice
     let access: DeviceScope
-    /// Connect; nil asks for the default scope.
+    /// The hub is being asked for this Mac (the row spins until it answers).
+    var connecting = false
+    /// Connect, or say why not; nil asks for the default scope.
     let connect: (SessionScope?) -> Void
 
     private var available: Bool { mac.online && mac.macScreenShared && access != .none }
@@ -128,15 +197,19 @@ struct ScreenSharingMacRow: View {
                     Text(status).font(theme.type.meta).foregroundStyle(theme.colors.label2)
                 }
                 Spacer(minLength: 8)
-                if available {
+                if connecting {
+                    CmuxSpinner()
+                } else if available {
                     Image(systemName: "chevron.right").font(theme.type.meta).foregroundStyle(theme.colors.label2)
                 }
             }
         }
-        .disabled(!available)
+        .disabled(connecting)
         .contextMenu {
-            Button("Connect with Full Control", systemImage: "cursorarrow.click.2") { connect(.full) }
-            Button("Connect View Only", systemImage: "eye") { connect(.view) }
+            if available {
+                Button("Connect with Full Control", systemImage: "cursorarrow.click.2") { connect(.full) }
+                Button("Connect View Only", systemImage: "eye") { connect(.view) }
+            }
         }
         .accessibilityIdentifier("screenSharing.mac.\(mac.name)")
     }
@@ -193,8 +266,6 @@ struct ScreenSharingViewerScreen: View {
     var body: some View {
         Group {
             if let screen = viewer.screen {
-                // No .resumeOnForeground: a ticket admits once, so a dropped stream cannot
-                // reconnect; the viewer ends it and its card asks the Mac again.
                 ScreenSessionView(session: screen, features: Self.features, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
@@ -202,9 +273,13 @@ struct ScreenSharingViewerScreen: View {
         }
         .onAppear { ScreenSharingOrientation.shared.begin() }
         .onDisappear { ScreenSharingOrientation.shared.end() }
+        // Back from the background (or a lock): a reattach sleeping out its backoff tries now.
+        .onChange(of: scenePhase) { if scenePhase == .active { viewer.reattachNow() } }
     }
 
-    static let features = ScreenFeatures.all.subtracting(.resumeOnForeground)
+    @Environment(\.scenePhase) private var scenePhase
+
+    static let features = ScreenFeatures.all
 
     @ViewBuilder private var card: some View {
         switch viewer.phase {
@@ -216,13 +291,16 @@ struct ScreenSharingViewerScreen: View {
                        message: "Allow this iPhone on the Mac to start sharing.", secondaryTitle: "Cancel", secondary: close)
         case .streaming:
             EmptyState(symbol: "desktopcomputer", title: "Starting the screen…", secondaryTitle: "Close", secondary: close)
+        case .reconnecting:
+            EmptyState(symbol: "arrow.triangle.2.circlepath", title: "Reconnecting to \(viewer.hostName)…",
+                       message: "The Mac is still reachable. Reconnecting this screen…", secondaryTitle: "Close", secondary: close)
         case .declined:
             EmptyState(symbol: "hand.raised.slash", title: "\(viewer.hostName) declined",
                        message: "Someone at the Mac said Deny.", primaryTitle: "Ask Again", primary: retry,
                        secondaryTitle: "Close", secondary: close)
         case let .refused(refusal, _):
             EmptyState(symbol: "exclamationmark.triangle", title: refusal.title(viewer.hostName), message: refusal.message,
-                       primaryTitle: refusal == .other || refusal == .hostOffline ? "Try Again" : nil, primary: retry,
+                       primaryTitle: refusal.isOther || refusal == .hostOffline ? "Try Again" : nil, primary: retry,
                        secondaryTitle: "Close", secondary: close)
         case let .ended(reason):
             EmptyState(symbol: "rectangle.on.rectangle.slash", title: "Sharing ended",
@@ -251,6 +329,7 @@ extension ScreenSharingRefusal {
         case .hostOffline: "Open cmux on the Mac and make sure it's online."
         case .notShared: "Turn on Share This Mac in the Mac's Settings › Devices."
         case .notFound: nil
+        case let .other(reason?): "The device hub could not start the session: \(reason)"
         case .other: "Check your connection and try again."
         }
     }

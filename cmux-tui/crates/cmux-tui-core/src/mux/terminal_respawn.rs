@@ -104,8 +104,9 @@ const RESPAWN_REASONS: &[&str] = &[
     "died_without_exit_status",
     "missing_record",
     "incarnation_mismatch",
-    // A signal that ended the shell while the owner shut down (logout, a
-    // daemon stop): the next owner's start sweep respawns it.
+    // A signal or an exit status that ended the shell while the owner shut
+    // down (logout, a restart, a daemon stop): the next owner's start sweep
+    // respawns it.
     "session_shutdown",
     // A host that ended its shell because no owner served it for the orphan
     // grace, or a SIGTERM reached it while orphaned (cx-3ryj): a host that
@@ -544,16 +545,16 @@ impl Mux {
             }
             Err(error) => {
                 eprintln!("cmux-tui: terminal {terminal_id} was not respawned: {error:#}");
-                let lost = TerminalEnd::host_lost(format!(
-                    "{}: {error:#}",
-                    crate::terminal_end::RESPAWN_FAILED_DETAIL
-                ));
                 // No free PTY (a respawn of every terminal after a reboot or a
                 // kill of everything, more than `kern.tty.ptmx_max`): park the
                 // tabs, recorded before the end commit, as PTY reclaim parks
                 // idle shells, so the app starts each one when its workspace
-                // is shown instead of leaving it dead.
+                // is shown instead of leaving it dead. The end names that
+                // cause, so a client can say what the person can do.
                 let no_pty = pty_reclaim::is_pty_exhaustion(&error);
+                let lost = TerminalEnd::host_lost(crate::terminal_end::respawn_failed_detail(
+                    &error, no_pty,
+                ));
                 if no_pty {
                     self.note_pty_exhausted();
                     if !user_restart {
@@ -888,45 +889,5 @@ fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// R-LIFECYCLE S1b: an abandoned respawn changes what keeps an app
-    /// session's owner (server/owner_keepers.rs), so it wakes the terminal
-    /// lifecycle watchers, as the other ends of a respawn do.
-    #[cfg(any(unix, windows))]
-    #[test]
-    fn an_abandoned_respawn_wakes_the_terminal_lifecycle_watchers() {
-        let mux = Mux::new_for_test("test", SurfaceOptions::default());
-        let events = mux.subscribe_terminal_lifecycle();
-        while events.try_recv().is_ok() {}
-        mux.pending_terminals
-            .lock()
-            .unwrap()
-            .insert("term_x".to_string(), ("t1".to_string(), PendingTerminal::Respawning));
-        mux.abandon_terminal_respawn("t1");
-        assert!(!mux.terminal_is_respawning("t1"));
-        assert!(
-            events.try_recv().is_ok(),
-            "an abandoned respawn woke no terminal lifecycle watcher"
-        );
-    }
-
-    #[test]
-    fn a_closed_terminals_argv_is_forgotten_and_the_memory_is_bounded() {
-        let respawns = TerminalRespawns::from_env();
-        let argv = vec!["make".to_string(), "test".to_string()];
-        respawns.remember_argv("t1", &argv);
-        assert_eq!(respawns.argv("t1"), Some(argv.clone()));
-        respawns.forget_argv("t1");
-        assert_eq!(respawns.argv("t1"), None);
-        for index in 0..ARGV_LIMIT + 10 {
-            respawns.remember_argv(&format!("t{index}"), &argv);
-        }
-        assert_eq!(respawns.argv("t0"), None, "the oldest argv was not evicted");
-        assert_eq!(respawns.argv(&format!("t{}", ARGV_LIMIT + 9)), Some(argv));
-        let memory = respawns.argv.lock().unwrap_or_else(PoisonError::into_inner);
-        assert_eq!(memory.by_terminal.len(), ARGV_LIMIT);
-        assert_eq!(memory.order.len(), ARGV_LIMIT);
-    }
-}
+#[path = "terminal_respawn_tests.rs"]
+mod tests;

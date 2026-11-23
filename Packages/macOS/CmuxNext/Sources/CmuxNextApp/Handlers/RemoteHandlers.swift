@@ -18,7 +18,9 @@ enum RemoteHandlers {
         MachineSectionHostView.bindJoinedActions(into: registry, context: context)
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
-        let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
+        // The palette collects a machine, or offers Add Machine when none is
+        // known. Explicit callers still get machine()'s missing-target refusal.
+        let hasMachine = available
         ssh.offerInstall = { [weak registry] session in
             // Asks through the registry's confirmation sheet (remote.install is destructive).
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
@@ -31,11 +33,11 @@ enum RemoteHandlers {
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive, byPerson: invocation.isPersonsRequest)
+                // `--name` (server install --label): the sidebar name, as Add Machine's Name field sets it.
+                if let name = invocation["name"]?.stringValue, session.host.label != name { session.host = session.host.named(name); ssh.rememberHost(session) }
                 if interactive { showWhenConnected(session, context) }
             }
-            if let text = invocation["destination"]?.stringValue {
-                return try connect(text)
-            }
+            if let text = invocation["destination"]?.stringValue { return try connect(text) }
             // The host as a Cmd-Shift-P step; Return runs this again with it.
             registry.ask("remote.connect", invocation, ActionArgumentAsk(argument: "destination"))
         }
@@ -98,7 +100,7 @@ enum RemoteHandlers {
                     return nil
                 } catch {
                     if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-                    return ActionWorkFailure(String(describing: error))
+                    return ActionWorkFailure(log: String(describing: error), reason: CloudStrings.errorText(error))
                 }
             }
             registry.track(work)

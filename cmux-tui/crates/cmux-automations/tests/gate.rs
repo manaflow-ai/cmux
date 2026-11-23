@@ -395,3 +395,63 @@ fn a_real_watch_command_turns_its_lines_into_an_event_and_stops_with_the_runner(
     let alive = unsafe { libc::kill(pid, 0) } == 0;
     assert!(!alive, "the watch command stops when the runner's Watches is dropped");
 }
+
+#[test]
+fn an_event_trigger_names_a_known_event_and_has_no_due_times() {
+    let idle = Trigger::Event { event: "agent-idle".into(), debounce_seconds: 5 };
+    assert!(idle.validate().is_ok());
+    assert_eq!(idle.next_after(T0).unwrap(), None);
+    assert_eq!(idle.describe(), "When an agent goes idle");
+    assert_eq!(
+        Trigger::Event { event: "pr-opened".into(), debounce_seconds: 5 }.describe(),
+        "When a pull request is opened"
+    );
+    let unknown = Trigger::Event { event: "agent-busy".into(), debounce_seconds: 5 };
+    let why = unknown.validate().unwrap_err().0;
+    assert!(why.contains("agent-idle") && why.contains("cmux automation events"), "{why}");
+    assert!(Trigger::Event { event: "agent-idle".into(), debounce_seconds: 0 }.validate().is_err());
+    // Stored as data, so the app and an older reader see the event's name.
+    let stored = serde_json::to_value(&idle).unwrap();
+    assert_eq!(
+        stored,
+        serde_json::json!({"type": "event", "event": "agent-idle", "debounce_seconds": 5})
+    );
+    assert_eq!(serde_json::from_value::<Trigger>(stored).unwrap(), idle);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_event_trigger_runs_cmux_automation_events_through_the_runners_program() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let store = store("event");
+    let program = std::env::temp_dir().join(format!("cmux-fake-{}", std::process::id()));
+    std::fs::write(&program, "#!/bin/sh\necho \"$@\"\nexec sleep 600\n").unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let a = store
+        .create(
+            spec(
+                "idle",
+                Trigger::Event { event: "agent-idle".into(), debounce_seconds: 1 },
+                "true",
+                Gate::default(),
+            ),
+            T0,
+        )
+        .unwrap();
+    let now_ms = || {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as i64
+    };
+    let mut w = Watches::new(store).with_program(program.to_string_lossy().into_owned());
+    w.reconcile(std::slice::from_ref(&a), now_ms());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut events = Vec::new();
+    while events.is_empty() && Instant::now() < deadline {
+        w.wait(Duration::from_millis(200), &now_ms);
+        events = w.due_events(now_ms());
+    }
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].text, "automation events agent-idle\n");
+    drop(w);
+    let _ = std::fs::remove_file(&program);
+}

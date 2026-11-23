@@ -1,6 +1,7 @@
 use crate::log::{
-    Anchor, Edge, Error, Log, MAX_CHECKPOINT, MAX_PAGE_BYTES, Options, RECORD_OVERHEAD,
-    ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter, section, sections,
+    Anchor, Edge, Error, Log, MAX_BLOB_READ, MAX_CHECKPOINT_STATE, MAX_FRAME_BYTES, MAX_PAGE_BYTES,
+    MAX_ROWS, Options, Patch, RECORD_OVERHEAD, ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side,
+    StateWriter, section, sections,
 };
 use crate::row::{MAX_ROW_TEXT, Placement, Row, RowKind};
 use crate::testkit::{assert_rows, ids, open, settle, text, texts, whole_book};
@@ -16,14 +17,14 @@ fn rows_come_back_in_book_order_as_the_bytes_that_went_in() {
     let (mut log, recovered) = open(home.path());
     assert_eq!((recovered.checkpoint, recovered.replayed, recovered.truncated), (false, 0, 0));
     assert_eq!((log.last_seq(), log.min_row(), log.max_row()), (0, 0, 0));
-    let empty = log.window(Anchor::End, 400, 1 << 20);
+    let empty = log.window(Anchor::End, 400, 1 << 20).unwrap();
     assert!(empty.rows.is_empty() && !empty.has_before && !empty.has_after);
 
     for id in 1..=40 {
         assert_eq!(log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap(), id);
     }
     assert_eq!((log.last_seq(), log.min_row(), log.max_row()), (40, 1, 40));
-    let window = log.window(Anchor::End, 400, 1 << 20);
+    let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
     assert_eq!(ids(&window.rows), (1..=40).collect::<Vec<_>>());
     assert_eq!((window.lo, window.hi, window.has_before, window.has_after), (1, 40, false, false));
     let (read, reads) = texts(&mut log, &window.rows);
@@ -63,7 +64,7 @@ fn rows_settle_out_of_order_and_both_orders_hold() {
     for id in [2, 4, 5, 3, 6, 1] {
         log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap();
     }
-    let window = log.window(Anchor::End, 400, 1 << 20);
+    let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
     assert_eq!(ids(&window.rows), vec![1, 2, 3, 4, 5, 6], "book order is rowId order");
     let (read, reads) = texts(&mut log, &window.rows);
     assert_eq!(reads, 1);
@@ -96,7 +97,7 @@ fn a_patch_is_a_new_record_and_the_row_reads_as_its_newest_rev() {
     assert_eq!(log.patch(3, 2, RawRange::NONE, b"{\"answered\":true}").unwrap(), 6);
     assert!(matches!(log.patch(3, 2, RawRange::NONE, b"x"), Err(Error::StaleRev { have: 2, .. })));
 
-    let window = log.window(Anchor::End, 400, 1 << 20);
+    let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
     assert_eq!(ids(&window.rows), vec![1, 2, 3, 4, 5]);
     assert_eq!(window.rows[2].rev, 2);
     let (read, _) = texts(&mut log, &window.rows);
@@ -115,7 +116,7 @@ fn a_patch_is_a_new_record_and_the_row_reads_as_its_newest_rev() {
     let (mut log, recovered) = open(home.path());
     assert_eq!((recovered.checkpoint, recovered.replayed), (false, 6));
     assert_eq!(log.row(3).unwrap().rev, 2);
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     log.patch(3, 5, RawRange::NONE, b"{\"answered\":false}").unwrap();
     drop(log);
     let (mut log, recovered) = open(home.path());
@@ -134,7 +135,7 @@ fn a_record_carries_and_returns_its_raw_range() {
     log.append_settled(1, 1, raw, b"row").unwrap();
     let since = log.since(0, 1 << 20).unwrap();
     assert_eq!(since.rows[0].raw, raw);
-    let window = log.window(Anchor::End, 1, 1 << 20);
+    let window = log.window(Anchor::End, 1, 1 << 20).unwrap();
     assert_eq!(log.raw_range(&window.rows[0]).unwrap(), raw);
     let bytes = std::fs::read(home.path().join("rows/000001.seg")).unwrap();
     assert_eq!(&bytes[32..36], &file.to_le_bytes());
@@ -148,10 +149,30 @@ fn a_raw_file_must_be_mapped_before_a_record_can_name_it() {
     let (mut log, _) = open(home.path());
     assert!(matches!(
         log.append_settled(1, 1, RawRange { file: 1, off: 0, len: 1 }, b"row"),
-        Err(Error::Corrupt(_))
+        Err(Error::InvalidInput(_))
     ));
     let file = log.append_raw_file(b"events/one").unwrap();
     log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, b"row").unwrap();
+}
+
+#[test]
+fn caller_input_errors_are_not_rebuild_corruption() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    assert!(matches!(log.append_raw_file(b"bad\nline"), Err(Error::InvalidInput(_))));
+    settle(&mut log, 1, 2);
+    assert!(matches!(
+        log.patch_many(&[
+            Patch { row_id: 1, rev: 2, raw: RawRange::NONE, text: b"one" },
+            Patch { row_id: 1, rev: 3, raw: RawRange::NONE, text: b"two" },
+        ]),
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(matches!(
+        log.append_settled(3, 1, RawRange { file: 1, off: 0, len: 1 }, b"row"),
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(matches!(log.write_checkpoint(&[], &[2]), Err(Error::InvalidInput(_))));
 }
 
 #[test]
@@ -170,7 +191,7 @@ fn a_row_text_is_1_to_16384_bytes() {
     assert_eq!(log.last_seq(), 0, "a refused row takes no seq");
     log.append_settled(1, 1, RawRange::NONE, &over[..MAX_ROW_TEXT]).unwrap();
     log.append_settled(2, 1, RawRange::NONE, b"x").unwrap();
-    let window = log.window(Anchor::End, 400, 1 << 20);
+    let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
     let (read, _) = texts(&mut log, &window.rows);
     assert_eq!((read[0].len(), read[1].as_slice()), (MAX_ROW_TEXT, &b"x"[..]));
 }
@@ -220,7 +241,7 @@ fn segments_roll_and_every_read_crosses_them() {
     assert_eq!(ids(&log.since(511, 1 << 20).unwrap().rows), (512..=600).collect::<Vec<_>>());
 
     // With a checkpoint, only what came after it is read.
-    log.write_checkpoint(b"state").unwrap();
+    log.write_checkpoint(b"state", &[]).unwrap();
     settle(&mut log, 601, 640);
     drop(log);
     let (mut log, recovered) = Log::open(home.path(), small_segments()).unwrap();
@@ -237,41 +258,41 @@ fn a_window_is_bounded_in_rows_and_bytes_and_says_what_lies_beyond() {
     let (mut log, _) = open(home.path());
     settle(&mut log, 1, 1000);
 
-    let end = log.window(Anchor::End, 400, 1 << 20);
+    let end = log.window(Anchor::End, 400, 1 << 20).unwrap();
     assert_eq!(ids(&end.rows), (601..=1000).collect::<Vec<_>>());
     assert_eq!((end.lo, end.hi, end.has_before, end.has_after), (601, 1000, true, false));
 
     let bytes =
         |rows: &[crate::log::RowRef]| rows.iter().map(|row| row.len as usize).sum::<usize>();
-    let tight = log.window(Anchor::End, 400, 4096);
+    let tight = log.window(Anchor::End, 400, 4096).unwrap();
     assert!(bytes(&tight.rows) <= 4096 && tight.rows.len() < 40 && !tight.rows.is_empty());
     assert_eq!(tight.rows.last().unwrap().row_id, 1000);
-    assert_eq!(log.window(Anchor::End, 400, 0).rows.len(), 1, "never empty for its size");
-    assert_eq!(log.window(Anchor::End, 0, 1 << 20).rows.len(), 0);
-    assert_eq!(log.window(Anchor::End, usize::MAX, usize::MAX).rows.len(), 1000);
+    assert_eq!(log.window(Anchor::End, 400, 0).unwrap().rows.len(), 1, "never empty for its size");
+    assert_eq!(log.window(Anchor::End, 0, 1 << 20).unwrap().rows.len(), 0);
+    assert_eq!(log.window(Anchor::End, usize::MAX, usize::MAX).unwrap().rows.len(), MAX_ROWS);
 
-    let before = log.window(Anchor::Row { id: 500, side: Side::Before }, 100, 1 << 20);
+    let before = log.window(Anchor::Row { id: 500, side: Side::Before }, 100, 1 << 20).unwrap();
     assert_eq!(ids(&before.rows), (401..=500).collect::<Vec<_>>());
     assert!(before.has_before && before.has_after);
-    let after = log.window(Anchor::Row { id: 500, side: Side::After }, 100, 1 << 20);
+    let after = log.window(Anchor::Row { id: 500, side: Side::After }, 100, 1 << 20).unwrap();
     assert_eq!(ids(&after.rows), (500..=599).collect::<Vec<_>>());
     assert_eq!((after.lo, after.hi), (500, 599));
-    let around = log.window(Anchor::Row { id: 500, side: Side::Around }, 100, 1 << 20);
+    let around = log.window(Anchor::Row { id: 500, side: Side::Around }, 100, 1 << 20).unwrap();
     assert_eq!(ids(&around.rows), (450..=549).collect::<Vec<_>>());
     assert_eq!((around.lo, around.hi, around.has_before, around.has_after), (450, 549, true, true));
 
     // Near an end, the side with nothing left gives its share to the other.
-    let first = log.window(Anchor::Row { id: 3, side: Side::Around }, 100, 1 << 20);
+    let first = log.window(Anchor::Row { id: 3, side: Side::Around }, 100, 1 << 20).unwrap();
     assert_eq!(ids(&first.rows), (1..=100).collect::<Vec<_>>());
     assert!(!first.has_before && first.has_after);
-    let last = log.window(Anchor::Row { id: 998, side: Side::Around }, 100, 1 << 20);
+    let last = log.window(Anchor::Row { id: 998, side: Side::Around }, 100, 1 << 20).unwrap();
     assert_eq!(ids(&last.rows), (901..=1000).collect::<Vec<_>>());
     assert!(last.has_before && !last.has_after);
-    let past = log.window(Anchor::Row { id: 5000, side: Side::Around }, 100, 1 << 20);
+    let past = log.window(Anchor::Row { id: 5000, side: Side::Around }, 100, 1 << 20).unwrap();
     assert_eq!(ids(&past.rows), (901..=1000).collect::<Vec<_>>());
-    let past = log.window(Anchor::Row { id: 5000, side: Side::Before }, 10, 1 << 20);
+    let past = log.window(Anchor::Row { id: 5000, side: Side::Before }, 10, 1 << 20).unwrap();
     assert_eq!(ids(&past.rows), (991..=1000).collect::<Vec<_>>());
-    let past = log.window(Anchor::Row { id: 5000, side: Side::After }, 10, 1 << 20);
+    let past = log.window(Anchor::Row { id: 5000, side: Side::After }, 10, 1 << 20).unwrap();
     assert!(past.rows.is_empty() && past.has_before && !past.has_after);
 
     let (read, reads) = texts(&mut log, &around.rows);
@@ -285,7 +306,7 @@ fn an_around_window_charges_rows_against_one_byte_budget() {
     let (mut log, _) = open(home.path());
     log.append_settled(1, 1, RawRange::NONE, &vec![b'b'; 5_000]).unwrap();
     log.append_settled(2, 1, RawRange::NONE, &vec![b'a'; 8_000]).unwrap();
-    let window = log.window(Anchor::Row { id: 2, side: Side::Around }, 3, 10_000);
+    let window = log.window(Anchor::Row { id: 2, side: Side::Around }, 3, 10_000).unwrap();
     assert_eq!(ids(&window.rows), vec![2]);
     assert_eq!(window.rows[0].len, 8_000);
 }
@@ -297,14 +318,14 @@ fn unsettled_ids_between_settled_rows_are_stepped_over() {
     for id in (10..=200u64).filter(|id| !id.is_multiple_of(3)) {
         log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap();
     }
-    let window = log.window(Anchor::Row { id: 99, side: Side::Around }, 20, 1 << 20);
+    let window = log.window(Anchor::Row { id: 99, side: Side::Around }, 20, 1 << 20).unwrap();
     assert_eq!(window.rows.len(), 20);
     assert!(window.rows.iter().all(|row| !row.row_id.is_multiple_of(3)));
     assert!(window.rows.windows(2).all(|pair| pair[0].row_id < pair[1].row_id));
     assert_eq!((log.min_row(), log.max_row()), (10, 200));
     let all = whole_book(&mut log);
     assert_eq!(all.len(), (10..=200u64).filter(|id| !id.is_multiple_of(3)).count());
-    let first = log.page(Edge::Before(12), MAX_PAGE_BYTES);
+    let first = log.page(Edge::Before(12), MAX_PAGE_BYTES).unwrap();
     assert_eq!((ids(&first.rows), first.has_before), (vec![10, 11], false));
 }
 
@@ -323,7 +344,7 @@ fn a_page_is_one_read_and_pages_tile_the_book() {
     let mut edge = Edge::Before(u64::MAX);
     let mut pages = 0;
     loop {
-        let page = log.page(edge, MAX_PAGE_BYTES);
+        let page = log.page(edge, MAX_PAGE_BYTES).unwrap();
         let before = log.stats().reads;
         let (read, reads) = texts(&mut log, &page.rows);
         assert_eq!(reads, 1, "a page is one read");
@@ -348,7 +369,7 @@ fn a_page_is_one_read_and_pages_tile_the_book() {
     let mut seen = Vec::new();
     let mut edge = Edge::After(0);
     loop {
-        let page = log.page(edge, 2000);
+        let page = log.page(edge, 2000).unwrap();
         assert!(page.rows.iter().skip(1).map(|row| row.len).sum::<u32>() <= 2000);
         assert_eq!(texts(&mut log, &page.rows).1, 1);
         seen.extend(ids(&page.rows));
@@ -358,8 +379,8 @@ fn a_page_is_one_read_and_pages_tile_the_book() {
         edge = Edge::After(page.hi);
     }
     assert_eq!(seen, (1..=3000).collect::<Vec<_>>());
-    assert!(log.page(Edge::Before(1), MAX_PAGE_BYTES).rows.is_empty());
-    assert!(log.page(Edge::After(3000), MAX_PAGE_BYTES).rows.is_empty());
+    assert!(log.page(Edge::Before(1), MAX_PAGE_BYTES).unwrap().rows.is_empty());
+    assert!(log.page(Edge::After(3000), MAX_PAGE_BYTES).unwrap().rows.is_empty());
 }
 
 #[test]
@@ -389,19 +410,19 @@ fn the_checkpoint_keeps_the_actors_state_under_64_kb() {
     let mut state = StateWriter::new();
     state.push(section::OPEN_ROWS, &text(11)).push(section::RAW_CURSOR, b"file\0inode\0offset");
     state.push(section::TRANSLATOR, &7u32.to_le_bytes());
-    log.write_checkpoint(state.as_bytes()).unwrap();
+    log.write_checkpoint(state.as_bytes(), &[]).unwrap();
     assert_eq!(log.stats().checkpoints, 1);
     assert!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len() < 64 * 1024);
 
-    let too_large = vec![0u8; MAX_CHECKPOINT];
+    let too_large = vec![0u8; MAX_CHECKPOINT_STATE];
     assert!(matches!(
-        log.write_checkpoint(&too_large),
-        Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT
+        log.write_checkpoint(&too_large, &[]),
+        Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT_STATE
     ));
-    let largest = vec![7u8; MAX_CHECKPOINT - 68];
-    log.write_checkpoint(&largest).unwrap();
+    let largest = vec![7u8; MAX_CHECKPOINT_STATE - crate::log::CHECKPOINT_OVERHEAD];
+    log.write_checkpoint(&largest, &[]).unwrap();
     assert_eq!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len(), 65535);
-    log.write_checkpoint(state.as_bytes()).unwrap();
+    log.write_checkpoint(state.as_bytes(), &[]).unwrap();
     drop(log);
 
     let (log, recovered) = open(home.path());
@@ -459,7 +480,7 @@ fn a_large_body_goes_to_a_blob_and_is_read_by_range() {
     assert_eq!(log.read_blob(1, bytes - 4, 100, &mut read).unwrap(), bytes);
     assert_eq!(read, b"89\"}");
     log.read_blob(1, 0, usize::MAX, &mut read).unwrap();
-    assert_eq!(read.len(), 1 << 20, "one read is at most one frame");
+    assert_eq!(read.len(), MAX_BLOB_READ, "one read is at most one page");
     log.read_blob(1, bytes + 5, 100, &mut read).unwrap();
     assert!(read.is_empty());
     assert!(matches!(log.read_blob(2, 0, 1, &mut read), Err(Error::Io(_))));
@@ -471,7 +492,7 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
     let home = tempfile::tempdir().unwrap();
     let (mut log, _) = open(home.path());
     settle(&mut log, 1, 20);
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     drop(log);
     // Point row 5 at row 6's record, and leave an entry for a row whose record was never
     // written (what a power loss between the two writes can leave).
@@ -496,11 +517,17 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
     drop(index);
 
     let (mut log, _) = open(home.path());
-    let window = log.window(Anchor::End, 400, 1 << 20);
-    assert_eq!(ids(&window.rows), (1..=20).collect::<Vec<_>>(), "the ghost entry is not a row");
+    let window = log.window(Anchor::End, 400, 1 << 20).unwrap();
+    assert_eq!(
+        ids(&window.rows),
+        (1..=20).filter(|id| *id != 5).collect::<Vec<_>>(),
+        "the ghost entry is refused"
+    );
+    assert_eq!(window.refused, vec![5]);
     let (mut buf, mut at) = (Vec::new(), Vec::new());
+    let refused = log.row(5).unwrap();
     assert!(matches!(
-        log.fill(&window.rows, &mut buf, &mut at),
+        log.fill(&[refused], &mut buf, &mut at),
         Err(Error::CorruptRow { row_id: 5, .. })
     ));
     assert!(matches!(
@@ -516,6 +543,48 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
 }
 
 #[test]
+fn closed_folds_skip_hidden_rows_and_open_fold_pages_are_bounded() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    log.append_settled(1, 1, RawRange::NONE, br#"{"body":{"out":[[2,3],[5,5]]}}"#).unwrap();
+    for id in 2..=10 {
+        log.append_settled(id, 1, RawRange::NONE, &text(id)).unwrap();
+    }
+    let mut folds = crate::folds::Folds::open(&home.path().join("folds.idx"), 0).unwrap();
+    folds.append(1, 10).unwrap();
+    folds.sync().unwrap();
+    let closed = log.read_window(Anchor::End, 400, MAX_FRAME_BYTES, Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&closed.rows), vec![1, 2, 3, 5]);
+    let open = log.read_page(Edge::After(1), MAX_PAGE_BYTES, Some(1), Some(&folds), &[]).unwrap();
+    assert_eq!(ids(&open.rows), (2..=10).collect::<Vec<_>>());
+    assert!(!open.has_before && !open.has_after);
+}
+
+#[test]
+fn stopped_log_rejects_every_bounded_read() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    settle(&mut log, 1, 2);
+    log.write_checkpoint(&[], &[]).unwrap();
+    log.patch(1, 2, RawRange::NONE, b"patched").unwrap();
+    log.fail_cut_after(0);
+    assert!(log.cut_to_checkpoint(&[]).is_err());
+    assert!(matches!(log.window(Anchor::End, 1, 1024), Err(Error::Stopped)));
+    assert!(matches!(log.page(Edge::After(0), 1024), Err(Error::Stopped)));
+    assert!(matches!(log.since(0, 1024), Err(Error::Stopped)));
+    assert!(matches!(log.resume_size(0, 1024), Err(Error::Stopped)));
+    assert!(matches!(log.read_window(Anchor::End, 1, 1024, None, &[]), Err(Error::Stopped)));
+    assert!(matches!(log.read_page(Edge::After(0), 1024, None, None, &[]), Err(Error::Stopped)));
+    assert!(matches!(
+        log.fill_checked(&[], &mut Vec::new(), &mut Vec::new(), &mut Vec::new()),
+        Err(Error::Stopped)
+    ));
+
+    let mut out = Vec::new();
+    assert!(matches!(log.read_blob(1, 0, 1, &mut out), Err(Error::Stopped)));
+}
+
+#[test]
 fn a_log_can_move_to_its_actors_thread() {
     fn is_send<T: Send>() {}
     is_send::<Log>();
@@ -527,7 +596,7 @@ fn a_clean_reopen_writes_nothing_and_a_short_index_is_rebuilt() {
     {
         let (mut log, _) = open(home.path());
         settle(&mut log, 1, 700);
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
         settle(&mut log, 701, 720);
     }
     let (log, recovered) = open(home.path());
@@ -543,7 +612,7 @@ fn a_clean_reopen_writes_nothing_and_a_short_index_is_rebuilt() {
         assert_eq!((recovered.checkpoint, recovered.replayed), (false, 720), "{name}");
         assert_rows(&mut log, 720);
         assert_eq!(ids(&log.since(700, 1 << 20).unwrap().rows), (701..=720).collect::<Vec<_>>());
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
     }
 }
 
@@ -554,7 +623,7 @@ fn patches_from_one_line_sync_once_before_their_indexes() {
     let (mut log, _) = open(home.path());
     settle(&mut log, 1, 3);
     let file = log.append_raw_file(b"events/patch").unwrap();
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     let syncs = log.stats().syncs;
     let raw = RawRange { file, off: 0, len: 8 };
     log.patch_many(&[

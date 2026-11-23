@@ -18,7 +18,7 @@ extension DiffPageProvider {
         }
         let data: Data?
         do {
-            data = try await chat.brief(root)
+            data = try await chat.brief?(root)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -33,7 +33,7 @@ extension DiffPageProvider {
     /// `config` listing `cmux.diff.brief` and `payload.reviewBrief` when a chat owns the tab, so
     /// the page keeps the brief's row from its first frame.
     func withBrief(_ config: JSONValue) -> JSONValue {
-        guard chat() != nil, case .object(var members) = config, members["pick"] == nil,
+        guard let chat = chat(), chat.brief != nil, case .object(var members) = config, members["pick"] == nil,
               case .object(var payload)? = members["payload"] else { return config }
         members["ops"] = .array((members["ops"]?.arrayValue ?? []) + [.string(Self.briefOp)])
         payload["reviewBrief"] = true

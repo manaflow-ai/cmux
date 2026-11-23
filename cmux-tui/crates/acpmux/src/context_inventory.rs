@@ -5,7 +5,7 @@
 //! returned only for cmux-owned additions (or a verified local preset file).
 
 use crate::config::Config;
-use crate::store::SessionMeta;
+use crate::store::{SessionMeta, SharedText};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -30,8 +30,9 @@ pub struct ContextPart {
     /// Delivery channel, when known. Describing a source never injects it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
+    /// One copy for every chat that captured the same text (guidance, rules, a preset's prompt).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub text: Option<SharedText>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -291,6 +292,8 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
+    // A partial copy of a Mac folder (a Cloud chat's first pass): what stayed on the Mac.
+    parts.extend(crate::left_on_mac::part(&meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
@@ -303,7 +306,7 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
             measurement: "estimated".into(),
             source_bytes: Some(text.len() as u64),
             channel: Some("system-prompt-file".into()),
-            text: Some(text),
+            text: Some(text.into()),
         });
     }
     parts
@@ -320,7 +323,7 @@ fn preset_part(text: String) -> ContextPart {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some("system-prompt-file".into()),
-        text: Some(text),
+        text: Some(text.into()),
     }
 }
 
@@ -517,7 +520,9 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     push_blocks(
         parts.into_iter().flatten().filter(|p| {
             p.included
-                && (is_rule(p) || p.source == crate::folder_instructions::SOURCE)
+                && (is_rule(p)
+                    || p.source == crate::folder_instructions::SOURCE
+                    || p.source == crate::left_on_mac::SOURCE)
                 && p.channel.as_deref().is_none_or(|channel| channel == USER_CONTEXT)
         }),
         blocks,
@@ -592,7 +597,7 @@ pub fn guidance_part_on(text: String, channel: &str) -> ContextPart {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some(channel.into()),
-        text: Some(text),
+        text: Some(text.into()),
     }
 }
 
@@ -631,7 +636,7 @@ fn snapshot_on(cfg: &Config, cwd: &Path, channel: &str) -> Vec<ContextPart> {
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
         channel: Some(channel.into()),
-        text: Some(text.to_owned()),
+        text: Some(text.into()),
     }]
 }
 

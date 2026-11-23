@@ -31,7 +31,7 @@ fn connect(path: &Path) -> io::Result<UnixStream> {
     let bytes = path.as_os_str().as_bytes();
     // SAFETY: zero is a valid initialized sockaddr_un; fields filled below.
     let mut addr: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-    if bytes.contains(&0) || bytes.len() >= addr.sun_path.len() {
+    if bytes.contains(&0) || !cmux_unix_socket::fits(path) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid identity socket path"));
     }
     addr.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX)

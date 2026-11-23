@@ -142,8 +142,17 @@ fn shell_command(command: &Value) -> Option<String> {
 fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
     let script = shell_command(item.get("command")?)?;
     let cwd = s(item, "cwd").map(|cwd| cwd.strip_prefix("file://").unwrap_or(cwd));
-    let actions: Vec<&Value> =
+    let mut actions: Vec<&Value> =
         item.get("parsed_cmd").and_then(Value::as_array).into_iter().flatten().collect();
+    // A name Codex parsed out of a loop keeps its shell variable (`for f in a b; do cat $f;
+    // done` is "read $f"): such a call reads as its command, so a title never shows a `$f` (Leo,
+    // 2026-11-21: "this is not a good enough tool call heading that we have derived").
+    let unexpanded = |a: &&Value| {
+        ["name", "path", "query"].iter().any(|k| s(a, k).is_some_and(|v| v.contains('$')))
+    };
+    if actions.iter().any(unexpanded) {
+        actions.clear();
+    }
     let path = actions.first().and_then(|a| s(a, "path")).map(str::to_owned);
     let (kind, title) = match actions.as_slice() {
         [a] if s(a, "type") == Some("read") => {
@@ -575,6 +584,21 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_codex_read_parsed_from_a_loop_never_titles_its_shell_variable() {
+        let item = json!({
+            "command": ["/bin/zsh", "-lc", "for f in a.md b.md; do cat $f; done"],
+            "parsed_cmd": [{"type": "read", "cmd": "cat $f", "name": "$f", "path": "$f"}],
+            "aggregated_output": "x", "exit_code": 0, "status": "completed",
+        });
+        let tool = codex_command("c1", &item, None).unwrap();
+        assert_eq!(tool.call["kind"], "execute");
+        assert_eq!(tool.call["title"], "for f in a.md b.md; do cat $f; done");
+        assert!(tool.call.get("locations").is_none());
+        let plain = json!({"command": "cat a.md", "parsed_cmd": [{"type": "read", "name": "a.md", "path": "a.md"}]});
+        assert_eq!(codex_command("c2", &plain, None).unwrap().call["title"], "Read a.md");
+    }
 
     fn edit(id: &str) -> Value {
         json!([{"type": "tool_use", "id": id, "name": "Edit",

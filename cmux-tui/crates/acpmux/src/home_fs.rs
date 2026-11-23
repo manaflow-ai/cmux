@@ -126,24 +126,29 @@ pub(crate) fn create_dir_all(dir: impl AsRef<Path>, mode: u32) -> io::Result<()>
 }
 
 /// Off Unix: refuses an operation on `path` under a home that is no longer the held one (its
-/// file id moved on), right before the operation.
-#[cfg(not(unix))]
+/// file id moved on), right before the operation. Built in tests on every platform too: the
+/// forced race on [`held_read`] (`lost_home_race_tests.rs`) runs on Linux CI, with the same home
+/// check (`config::refuse_lost_home`), which compares the device and inode there.
+#[cfg(any(not(unix), test))]
 fn held(path: &Path) -> io::Result<()> {
     crate::config::refuse_lost_home(path).map_err(io::Error::other)
 }
 
 /// Off Unix: `read` of `path`, made between two checks of the home ([`held`]): the answer is the
 /// held home's, or an error when the home was replaced before or during the read. A replacement
-/// that lacks a file the held home has then never reads as "not there" (#41721 review F1).
-#[cfg(not(unix))]
-fn held_read<T, E: From<io::Error>>(
+/// that lacks a file the held home has then never reads as "not there" (#41721 review F1). The
+/// second check runs whatever the read answered: a read that failed in a replacement (a
+/// `NotFound`, which `LocalStore::load` reads as "no session") is the lost home's error too
+/// (#41915 review F1).
+#[cfg(any(not(unix), test))]
+pub(crate) fn held_read<T, E: From<io::Error>>(
     path: &Path,
     read: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {
     held(path)?;
-    let answer = read()?;
+    let answer = read();
     held(path)?;
-    Ok(answer)
+    answer
 }
 
 /// [`create_dir_all`] with 0700, and an existing folder of this user narrowed to 0700 (one an
@@ -258,6 +263,8 @@ fn found<T>(read: io::Result<T>) -> io::Result<bool> {
 pub(crate) struct DirEntry {
     pub(crate) name: std::ffi::OsString,
     pub(crate) is_file: bool,
+    pub(crate) is_dir: bool,
+    pub(crate) is_symlink: bool,
 }
 
 /// `std::fs::read_dir(path)`, read in the held home when `path` is below it: a writer that
@@ -275,9 +282,34 @@ pub(crate) fn read_dir(path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
             std::fs::read_dir(path)?
                 .map(|entry| {
                     let entry = entry?;
-                    Ok(DirEntry { name: entry.file_name(), is_file: entry.file_type()?.is_file() })
+                    let kind = entry.file_type()?;
+                    Ok(DirEntry {
+                        name: entry.file_name(),
+                        is_file: kind.is_file(),
+                        is_dir: kind.is_dir(),
+                        is_symlink: kind.is_symlink(),
+                    })
                 })
                 .collect()
+        })
+    }
+}
+
+/// The names of at most `limit` entries of the folder `path` (no `.` or `..`, nothing stat'ed),
+/// read in the held home when `path` is below it, as [`read_dir`]: a bounded look at one folder.
+pub(crate) fn read_dir_names(
+    path: impl AsRef<Path>,
+    limit: usize,
+) -> io::Result<Vec<std::ffi::OsString>> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::read_dir_names(path, limit)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || {
+            std::fs::read_dir(path)?.take(limit).map(|entry| Ok(entry?.file_name())).collect()
         })
     }
 }
@@ -302,6 +334,150 @@ pub(crate) fn private_state_file(path: impl AsRef<Path>) -> anyhow::Result<File>
     #[cfg(not(unix))]
     {
         held_read(path, || crate::config::private_state_file(path))
+    }
+}
+
+/// A private store folder held for one read pass. On Unix children are reached from its
+/// descriptor, so replacing an ancestor cannot redirect a later chat read. Elsewhere each
+/// operation checks the held home before and after its path read.
+pub(crate) struct PrivateDir {
+    path: std::path::PathBuf,
+    #[cfg(unix)]
+    file: File,
+}
+
+impl PrivateDir {
+    pub(crate) fn open(path: &Path) -> anyhow::Result<Self> {
+        crate::config::refuse_lost_home(path)?;
+        #[cfg(unix)]
+        {
+            crate::config::validate_private_state_ancestors(path)?;
+            let open = || {
+                OpenOptions::new()
+                    .read(true)
+                    .mode(0o700)
+                    .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+                    .open(path)
+            };
+            let file = Self::checked(open()?, path, open)?;
+            Ok(Self { path: path.to_path_buf(), file })
+        }
+        #[cfg(not(unix))]
+        {
+            held_read(path, || -> anyhow::Result<Self> {
+                std::fs::symlink_metadata(path)?;
+                crate::config::private_state_dir(path)?;
+                Ok(Self { path: path.to_path_buf() })
+            })
+        }
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn names(&self) -> io::Result<Vec<std::ffi::OsString>> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsFd as _;
+            unix::list(&self.file.as_fd().try_clone_to_owned()?)
+        }
+        #[cfg(not(unix))]
+        {
+            held_read(&self.path, || {
+                std::fs::read_dir(&self.path)?
+                    .map(|entry| entry.map(|entry| entry.file_name()))
+                    .collect()
+            })
+        }
+    }
+
+    pub(crate) fn entry(&self, name: &std::ffi::OsStr) -> io::Result<DirEntry> {
+        Self::check_name(name)?;
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsFd as _;
+            unix::read_entry_fd(self.file.as_fd(), name, &self.path)
+        }
+        #[cfg(not(unix))]
+        {
+            let path = self.path.join(name);
+            #[cfg(test)]
+            crate::config::startup_seams::entry_stat_error(&path)?;
+            let kind = symlink_metadata(path)?.file_type();
+            Ok(DirEntry {
+                name: name.to_os_string(),
+                is_file: kind.is_file(),
+                is_dir: kind.is_dir(),
+                is_symlink: kind.is_symlink(),
+            })
+        }
+    }
+
+    pub(crate) fn child(&self, name: &std::ffi::OsStr) -> anyhow::Result<Self> {
+        Self::check_name(name)?;
+        let path = self.path.join(name);
+        #[cfg(unix)]
+        {
+            let open = || self.open_name(name, libc::O_DIRECTORY);
+            let file = Self::checked(open()?, &path, open)?;
+            Ok(Self { path, file })
+        }
+        #[cfg(not(unix))]
+        {
+            Self::open(&path)
+        }
+    }
+
+    pub(crate) fn private_file(&self, name: &std::ffi::OsStr) -> anyhow::Result<File> {
+        Self::check_name(name)?;
+        #[cfg(unix)]
+        {
+            let file = self.open_name(name, libc::O_NONBLOCK)?;
+            crate::config::validate_private_state_file(&file, &self.path.join(name))?;
+            Ok(file)
+        }
+        #[cfg(not(unix))]
+        {
+            private_state_file(self.path.join(name))
+        }
+    }
+
+    fn check_name(name: &std::ffi::OsStr) -> io::Result<()> {
+        // Only one child name is accepted: no caller can escape the held parent with `..`.
+        let mut parts = Path::new(name).components();
+        if !matches!(parts.next(), Some(std::path::Component::Normal(part)) if part == name)
+            || parts.next().is_some()
+        {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn open_name(&self, name: &std::ffi::OsStr, flags: i32) -> io::Result<File> {
+        use std::os::fd::AsFd as _;
+        unix::open_private_at(self.file.as_fd(), name, flags).map(File::from)
+    }
+
+    #[cfg(unix)]
+    fn checked(
+        file: File,
+        path: &Path,
+        reopen: impl FnOnce() -> io::Result<File>,
+    ) -> anyhow::Result<File> {
+        use std::os::unix::fs::MetadataExt as _;
+        crate::config::validate_private_state_dir(&file, path)?;
+        let before = file.metadata()?;
+        #[cfg(test)]
+        crate::config::startup_seams::dir_checked(path);
+        let after = reopen()?.metadata()?;
+        anyhow::ensure!(
+            before.dev() == after.dev() && before.ino() == after.ino(),
+            "{} changed while its private permissions were checked",
+            path.display()
+        );
+        Ok(file)
     }
 }
 
@@ -397,14 +573,13 @@ pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
     }
 }
 
-/// A new name beside `path` for a temporary copy of it: `.<name>.tmp-<pid>-<n>`.
+/// The name beside `path` for this process's temporary copy of it: `.<name>.tmp-<pid>`, the same
+/// on every write (`dead_temps`: each new name is one more path fseventsd keeps).
 fn aside(path: &Path) -> io::Result<std::path::PathBuf> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
     let mut tmp = std::ffi::OsString::from(".");
     tmp.push(name);
-    tmp.push(format!(".tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    tmp.push(format!(".tmp-{}", std::process::id()));
     Ok(path.with_file_name(tmp))
 }
 
@@ -456,13 +631,24 @@ fn replace_with<T>(
     fill: impl FnOnce(&mut File, &Path) -> io::Result<T>,
 ) -> io::Result<T> {
     let tmp = aside(to)?;
-    let mut file = create_private(&tmp, mode)?;
-    let done = fill(&mut file, &tmp).and_then(|value| {
-        drop(file);
-        rename(&tmp, to).map(|()| value)
-    });
-    if done.is_err() {
+    let done = {
+        // This process's writers of the name take turns (`dead_temps::hold`). One a failed
+        // removal left is this process's own: start anew.
+        let _turn = crate::dead_temps::hold(&tmp);
         let _ = remove_file(&tmp);
+        let done = create_private(&tmp, mode).and_then(|mut file| {
+            fill(&mut file, &tmp).and_then(|value| {
+                drop(file);
+                rename(&tmp, to).map(|()| value)
+            })
+        });
+        if done.is_err() {
+            let _ = remove_file(&tmp);
+        }
+        done
+    };
+    if let (Some(dir), Some(name)) = (to.parent(), to.file_name()) {
+        crate::dead_temps::remove(dir, &format!(".{}.tmp-", name.to_string_lossy()));
     }
     done
 }
@@ -632,6 +818,9 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
     private_dir(dir)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    // This process's writers of the name take turns, as `config::write_atomic`'s, which names
+    // its copy the same (`dead_temps::hold`).
+    let turn = crate::dead_temps::hold(&tmp);
     // A file a crashed process left under a reused pid keeps its mode: start anew.
     let _ = remove_file(&tmp);
     let written = (|| {
@@ -644,8 +833,10 @@ pub(crate) fn write_json_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })();
     if written.is_err() {
         let _ = remove_file(&tmp);
-        return written;
     }
+    drop(turn);
+    crate::dead_temps::remove_beside(path);
+    written?;
     let _ = sync_dir(dir);
     Ok(())
 }
@@ -662,7 +853,7 @@ mod unix {
     use std::ffi::{CStr, CString, OsStr};
     use std::fs::File;
     use std::io;
-    use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::path::{Component, Path};
 
@@ -701,6 +892,22 @@ mod unix {
                 dir.as_raw_fd(),
                 name.as_ptr(),
                 libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        })
+    }
+
+    pub(super) fn open_private_at(
+        dir: BorrowedFd<'_>,
+        name: &OsStr,
+        flags: i32,
+    ) -> io::Result<OwnedFd> {
+        let name = c(name)?;
+        // SAFETY: a valid descriptor and a NUL-terminated child name.
+        owned(unsafe {
+            libc::openat(
+                dir.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | flags,
             )
         })
     }
@@ -899,8 +1106,38 @@ mod unix {
             return std::fs::symlink_metadata(path);
         };
         // SAFETY: a valid descriptor and a NUL-terminated name.
-        let fd = owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) })?;
-        File::from(fd).metadata()
+        match owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) }) {
+            Ok(fd) => File::from(fd).metadata(),
+            // Apple's systems open no Unix socket (`EOPNOTSUPP`), even for events only: a socket
+            // an earlier daemon left (`share-host/device.sock`) then read as "nothing to remove",
+            // so the next bind failed and the app's device channel never came up. Its metadata is
+            // read by path and kept only when it is the file the held home's folder names (same
+            // device and inode), so a replacement at the same path still never answers.
+            Err(error) if error.raw_os_error() == Some(libc::EOPNOTSUPP) => {
+                use std::os::unix::fs::MetadataExt as _;
+                // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+                let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+                // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
+                check(unsafe {
+                    libc::fstatat(
+                        dir.as_raw_fd(),
+                        at.name.as_ptr(),
+                        &mut stat,
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    )
+                })?;
+                let meta = std::fs::symlink_metadata(path)?;
+                #[allow(
+                    clippy::useless_conversion,
+                    clippy::unnecessary_fallible_conversions,
+                    reason = "st_dev and st_ino widths differ by system"
+                )]
+                let same = meta.dev() == u64::try_from(stat.st_dev).unwrap_or(u64::MAX)
+                    && meta.ino() == u64::from(stat.st_ino);
+                if same { Ok(meta) } else { Err(error) }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) fn read_dir(path: &Path) -> io::Result<Vec<super::DirEntry>> {
@@ -908,45 +1145,75 @@ mod unix {
             return std::fs::read_dir(path)?
                 .map(|entry| {
                     let entry = entry?;
-                    let is_file = entry.file_type()?.is_file();
-                    Ok(super::DirEntry { name: entry.file_name(), is_file })
+                    let kind = entry.file_type()?;
+                    Ok(super::DirEntry {
+                        name: entry.file_name(),
+                        is_file: kind.is_file(),
+                        is_dir: kind.is_dir(),
+                        is_symlink: kind.is_symlink(),
+                    })
                 })
                 .collect();
         }
+        read_dir_fd(&open_folder(path)?, path)
+    }
+
+    pub(super) fn read_dir_names(path: &Path, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
+        if crate::config::held_home_dir(path).is_none() {
+            return std::fs::read_dir(path)?
+                .take(limit)
+                .map(|entry| Ok(entry?.file_name()))
+                .collect();
+        }
+        list_up_to(&open_folder(path)?, limit)
+    }
+
+    /// The folder at `path`, opened in the held home when it is below it.
+    fn open_folder(path: &Path) -> io::Result<OwnedFd> {
         let at = at(path, None)?;
         // SAFETY: a valid descriptor and a NUL-terminated name. A final symlink is followed, as
         // `std::fs::read_dir` follows it.
-        let folder = owned(unsafe {
+        owned(unsafe {
             libc::openat(
                 at.dirfd(),
                 at.name.as_ptr(),
                 libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
             )
-        })?;
+        })
+    }
+
+    pub(super) fn read_dir_fd(folder: &OwnedFd, path: &Path) -> io::Result<Vec<super::DirEntry>> {
         let mut out = Vec::new();
-        for name in list(&folder)? {
-            // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
-            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
-            let c_name = c(&name)?;
-            // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
-            let found = unsafe {
-                libc::fstatat(
-                    folder.as_raw_fd(),
-                    c_name.as_ptr(),
-                    &mut stat,
-                    libc::AT_SYMLINK_NOFOLLOW,
-                )
-            };
-            match check(found) {
-                Ok(_) => out.push(super::DirEntry {
-                    name,
-                    is_file: stat.st_mode & libc::S_IFMT == libc::S_IFREG,
-                }),
+        for name in list(folder)? {
+            match read_entry_fd(folder.as_fd(), &name, path) {
+                Ok(entry) => out.push(entry),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error),
             }
         }
         Ok(out)
+    }
+
+    pub(super) fn read_entry_fd(
+        folder: BorrowedFd<'_>,
+        name: &OsStr,
+        _path: &Path,
+    ) -> io::Result<super::DirEntry> {
+        #[cfg(test)]
+        crate::config::startup_seams::entry_stat_error(&_path.join(name))?;
+        // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        let c_name = c(name)?;
+        // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
+        check(unsafe {
+            libc::fstatat(folder.as_raw_fd(), c_name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW)
+        })?;
+        Ok(super::DirEntry {
+            name: name.to_os_string(),
+            is_file: stat.st_mode & libc::S_IFMT == libc::S_IFREG,
+            is_dir: stat.st_mode & libc::S_IFMT == libc::S_IFDIR,
+            is_symlink: stat.st_mode & libc::S_IFMT == libc::S_IFLNK,
+        })
     }
 
     pub(super) fn hard_link(original: &Path, link: &Path) -> io::Result<()> {
@@ -998,8 +1265,41 @@ mod unix {
         Ok(())
     }
 
+    fn directory_errno() -> Option<*mut libc::c_int> {
+        // SAFETY: each function returns this thread's errno slot.
+        #[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
+        {
+            Some(unsafe { libc::__error() })
+        }
+        #[cfg(target_os = "linux")]
+        {
+            Some(unsafe { libc::__errno_location() })
+        }
+        #[cfg(any(target_os = "android", target_os = "netbsd", target_os = "openbsd"))]
+        {
+            Some(unsafe { libc::__errno() })
+        }
+        #[cfg(not(any(
+            target_vendor = "apple",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "linux",
+            target_os = "android",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            None
+        }
+    }
+
     /// The names in `dir`, without `.` and `..`.
-    fn list(dir: &OwnedFd) -> io::Result<Vec<std::ffi::OsString>> {
+    pub(super) fn list(dir: &OwnedFd) -> io::Result<Vec<std::ffi::OsString>> {
+        list_up_to(dir, usize::MAX)
+    }
+
+    /// [`list`], stopping once `limit` names are read.
+    pub(super) fn list_up_to(dir: &OwnedFd, limit: usize) -> io::Result<Vec<std::ffi::OsString>> {
         // fdopendir takes the descriptor it is given; it gets its own copy.
         let copy = dir.as_fd().try_clone_to_owned()?;
         // SAFETY: a valid descriptor whose ownership passes to the stream.
@@ -1009,20 +1309,38 @@ mod unix {
         }
         std::mem::forget(copy); // closedir closes it
         let mut names = Vec::new();
-        loop {
+        let errno = directory_errno();
+        let done = loop {
+            if names.len() >= limit {
+                break Ok(names);
+            }
+            if let Some(errno) = errno {
+                // SAFETY: this thread's errno slot. Zero distinguishes EOF from a read error.
+                unsafe { *errno = 0 };
+            }
             // SAFETY: a valid stream; the entry is read before the next readdir.
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
-                break;
+                let error = errno.and_then(|errno| {
+                    // SAFETY: this thread's errno slot, read before another syscall changes it.
+                    let code = unsafe { *errno };
+                    (code != 0).then(|| io::Error::from_raw_os_error(code))
+                });
+                #[cfg(test)]
+                let error = crate::config::startup_seams::directory_read_error(error);
+                break match error {
+                    Some(error) => Err(error),
+                    None => Ok(names),
+                };
             }
             // SAFETY: d_name is NUL-terminated.
             let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
             if name != b"." && name != b".." {
                 names.push(OsStr::from_bytes(name).to_os_string());
             }
-        }
+        };
         // SAFETY: a stream fdopendir returned, closed once.
         unsafe { libc::closedir(stream) };
-        Ok(names)
+        done
     }
 }

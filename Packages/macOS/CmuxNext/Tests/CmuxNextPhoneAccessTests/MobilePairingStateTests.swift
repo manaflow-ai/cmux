@@ -2,33 +2,8 @@ import CmuxNextMobile
 @testable import CmuxNextPhoneAccess
 import Testing
 
-/// The Mobile Pairing page names the one missing step: an account first,
-/// then phone access, then a listener that is up. A listener failure shows
-/// as itself, and a listener that is between runs reads as preparing.
+/// The page's state names, as webviews/src/pages/mobile-pairing/types.ts reads them.
 struct MobilePairingStateTests {
-    @Test func signingInComesFirst() {
-        #expect(MobilePairingState.resolve(signedIn: false, allowed: true, phase: .listening(relayURL: nil)) == .signedOut)
-        #expect(MobilePairingState.resolve(signedIn: false, allowed: false, phase: nil) == .signedOut)
-    }
-
-    @Test func phoneAccessOffIsTheNextStep() {
-        #expect(MobilePairingState.resolve(signedIn: true, allowed: false, phase: nil) == .accessOff)
-        #expect(MobilePairingState.resolve(signedIn: true, allowed: false, phase: .listening(relayURL: "https://r")) == .accessOff)
-    }
-
-    @Test(arguments: [nil, MobileIrxHost.Phase.idle, .provisioning, .waitingForRelay, .stopped])
-    func aListenerOnItsWayIsPreparing(phase: MobileIrxHost.Phase?) {
-        #expect(MobilePairingState.resolve(signedIn: true, allowed: true, phase: phase) == .preparing)
-    }
-
-    @Test func aListeningHostIsReady() {
-        #expect(MobilePairingState.resolve(signedIn: true, allowed: true, phase: .listening(relayURL: "https://relay")) == .ready)
-    }
-
-    @Test func aFailedListenerSaysWhy() {
-        #expect(MobilePairingState.resolve(signedIn: true, allowed: true, phase: .failed("relay refused")) == .failed("relay refused"))
-    }
-
     @Test func wireNamesMatchThePage() {
         #expect(MobilePairingState.signedOut.wireName == "signedOut")
         #expect(MobilePairingState.accessOff.wireName == "accessOff")

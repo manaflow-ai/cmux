@@ -28,9 +28,18 @@ pub enum Settings {
 /// else `cmux-next.json` then classic `cmux.json`. The settings watcher
 /// (`hub/settings_watch.rs`) watches these.
 pub fn paths() -> Vec<PathBuf> {
-    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
+    paths_from(|name| std::env::var_os(name).filter(|v| !v.is_empty()), dirs::home_dir)
+}
+
+/// `paths` for an environment and a home lookup. With no home at all both
+/// files stay relative to the working directory, as before cmux-config read
+/// them (#42064 F1): `seed_path_from` alone would drop classic `cmux.json`.
+fn paths_from(
+    var: impl Fn(&str) -> Option<OsString>,
+    home_dir: impl Fn() -> Option<PathBuf>,
+) -> Vec<PathBuf> {
     let env = |name: &str| match name {
-        "HOME" => var("HOME").or_else(|| dirs::home_dir().map(OsString::from)),
+        "HOME" => Some(var("HOME").or_else(|| home_dir().map(OsString::from)).unwrap_or_default()),
         _ => var(name),
     };
     std::iter::once(location::config_path_from(env)).chain(location::seed_path_from(env)).collect()
@@ -47,6 +56,15 @@ pub fn read() -> Settings {
         Err(e) => Some(Settings::Unreadable(format!("{}: {e}", path.display()))),
     };
     paths().iter().find_map(|path| read_one(path)).unwrap_or(Settings::Missing)
+}
+
+/// The settings file `read` reads: the first of [`paths`] that exists, else
+/// the first (the one the app creates). What a server cmux starts is told to
+/// read (`agent_tools::cmux_server`).
+pub fn resolved_path() -> PathBuf {
+    let paths = paths();
+    // `paths` always lists the config path first, so the empty default is never taken.
+    paths.iter().find(|path| path.exists()).or_else(|| paths.first()).cloned().unwrap_or_default()
 }
 
 /// The settings file's text, or `None` when there is none to read.
@@ -72,4 +90,37 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
     }
     let pointer = format!("/{}", key.replace('.', "/"));
     doc.pointer(&pointer).cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_no_home_both_files_stay_relative() {
+        assert_eq!(
+            paths_from(|_| None, || None),
+            [PathBuf::from(".config/cmux/cmux-next.json"), PathBuf::from(".config/cmux/cmux.json")]
+        );
+    }
+
+    #[test]
+    fn home_and_override_resolve_as_cmux_config_does() {
+        let home = |name: &str| (name == "HOME").then(|| OsString::from("/h"));
+        assert_eq!(
+            paths_from(home, || None),
+            [
+                PathBuf::from("/h/.config/cmux/cmux-next.json"),
+                PathBuf::from("/h/.config/cmux/cmux.json")
+            ]
+        );
+        let fallback = paths_from(|_| None, || Some(PathBuf::from("/d")));
+        assert_eq!(fallback[1], PathBuf::from("/d/.config/cmux/cmux.json"));
+        let over = |name: &str| match name {
+            "HOME" => Some(OsString::from("/h")),
+            CONFIG_OVERRIDE => Some(OsString::from("~/t.json")),
+            _ => None,
+        };
+        assert_eq!(paths_from(over, || None), [PathBuf::from("/h/t.json")]);
+    }
 }

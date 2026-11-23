@@ -1,9 +1,12 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../../experiments/experiment";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 /// How the followed transcript moves when the reader sends and while a reply streams (followChase.ts).
 /// Leo, 2026-11-07: "When it comes to sending messages, I feel like the jump, the jolt is a bit too
-/// jarring ... what is satisfying at 120 hertz? That's what we want to aim at." To try another arm,
+/// jarring ... what is satisfying at 120 hertz? That's what we want to aim at." Then, 2026-11-09:
+/// "these animations all slosh around and it's not cohesive / i previously sent the claude code one,
+/// just look at how they do it" and "we need to slim down": `send` ships. To try another arm,
 /// set `cmux.experiments` to `{"follow-motion":"chunk"}` in the pane's web inspector and reload.
 export const followMotion = defineExperiment({
   id: "follow-motion",
@@ -11,10 +14,14 @@ export const followMotion = defineExperiment({
   description:
     "Sending from the latest message and a fast reply streaming in. Watch whether the sent prompt, the rows above it and each new line move as one steady motion, with no jump in a frame and no surge per chunk.",
   arms: {
+    send: {
+      label: "Send only (slim)",
+      description:
+        "Only a send moves on a curve: the sent prompt and its thinking row rise into the room they open in one motion (the send step). A reply streaming, a row arriving and the turn ending move the rows in the frame they land, as Claude Code's transcript only appends.",
+    },
     spring: {
       label: "Spring chase",
-      description:
-        "Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the 180 ms standard step), at most 450 px/s near home and faster as it nears two lines behind, and a new move keeps the speed it has. It never trails by more than two lines: what lands past that moves at once. New text lies at most a line under the composer; past that it moves at once.",
+      description: `Every move of the rows in view (a line, the prompt and live line arriving, the composer clearing) is drawn back and chased home on one critically damped spring (the ${MOTION_MS.standard} ms standard step), at most 450 px/s near home and faster as it nears two lines behind, and a new move keeps the speed it has. It never trails by more than two lines: what lands past that moves at once. New text lies at most a line under the composer; past that it moves at once.`,
     },
     blocks: {
       label: "Spring, passes under the composer",
@@ -23,12 +30,11 @@ export const followMotion = defineExperiment({
     },
     eased: {
       label: "Eased glide (before)",
-      description:
-        "The view before: a rise with the same rows eases over 180 ms, restarted at each line and capped at the live line's room; rows that arrive and the composer's change move at once.",
+      description: `The view before: a rise with the same rows eases over ${MOTION_MS.standard} ms, restarted at each line and capped at the live line's room; rows that arrive and the composer's change move at once.`,
     },
     chunk: {
       label: "Eased per chunk",
-      description: "Every move of the rows in view restarts a fixed 180 ms ease-out from where they are drawn.",
+      description: `Every move of the rows in view restarts a fixed ${MOTION_MS.standard} ms ease-out from where they are drawn.`,
     },
     linear: {
       label: "Steady chase",
@@ -37,7 +43,7 @@ export const followMotion = defineExperiment({
     },
     instant: { label: "At once", description: "Every move lands in the frame it happens, as with motion off." },
   },
-  defaultArm: "blocks",
+  defaultArm: "send",
 });
 
 export type FollowMotionArm = keyof typeof followMotion.arms;

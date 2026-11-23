@@ -54,4 +54,26 @@ import Testing
         await view.flush()
         #expect(cache.load() == nil, "a restore writes nothing")
     }
+
+    /// The Chief Home showed last (CMUX-571): written with the next batch, restored by the next
+    /// launch's store before the owner answers, and the same Chief again writes nothing.
+    @Test func theLastChiefIsKeptForTheNextLaunch() async throws {
+        let cache = Self.cache()
+        let view = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
+        view.setChief(Self.austin)
+        await view.flush()
+        #expect(try #require(cache.load()).chief == Self.austin)
+        view.setChief(Self.austin)
+        #expect(!view.hasPendingWrite)
+        let next = HomeClientViewCache(cache: cache, writeDelay: .zero, clock: ContinuousClock())
+        next.restore(try #require(cache.load())) {}
+        #expect(next.chief == Self.austin)
+    }
+
+    /// A cache written before the Chief was kept decodes, with no Chief.
+    @Test func aCacheFromBeforeTheChiefHasNone() throws {
+        let data = Data(#"{"version":1,"conversations":[],"windows":[],"sends":[],"drafts":[],"scroll":[]}"#.utf8)
+        let snapshot = try JSONDecoder().decode(HomeCacheSnapshot.self, from: data)
+        #expect(snapshot.chief == nil)
+    }
 }

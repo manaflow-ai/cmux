@@ -21,6 +21,8 @@ use super::*;
 
 /// A persistent map: `clone` is O(1), its nodes shared until one side writes.
 type PMap<K, V> = imbl::HashMap<K, V>;
+/// A persistent sorted map, used where prefix lookup needs ordered keys.
+type POrdMap<K, V> = imbl::OrdMap<K, V>;
 /// A persistent sorted set, likewise.
 type PSet<A> = imbl::OrdSet<A>;
 
@@ -34,6 +36,11 @@ pub(crate) struct RemoteRows {
     names: Names,
     /// Writes so far: a shared session list is rebuilt after one (`list_guard.rs`).
     pub(crate) writes: u64,
+    /// The summary each row had before a dropped link marked it stale
+    /// ([`Self::mark_peer_stale`]): a follow of the peer's list after the link is back sends only
+    /// the rows that changed (`row_log.rs`), so the rest are put back as they were. Any other
+    /// write of the row drops it.
+    stale_from: PMap<String, Arc<RemoteSession>>,
 }
 
 impl std::ops::Deref for RemoteRows {
@@ -52,7 +59,7 @@ impl RemoteRows {
     pub(crate) fn insert_shared(&mut self, key: String, row: Arc<RemoteSession>) {
         self.take(&key);
         self.writes += 1;
-        if let Some(pair) = pair_of(&row.summary) {
+        if let Some(pair) = row.summary.pair() {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
@@ -68,9 +75,10 @@ impl RemoteRows {
     // A write replaces the row; a reader keeps the version its snapshot holds until it ends.
     pub(crate) fn take(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
         let row = self.rows.remove(key)?;
+        self.stale_from.remove(key);
         self.writes += 1;
         self.names.remove(key, &row);
-        if let Some(pair) = pair_of(&row.summary)
+        if let Some(pair) = row.summary.pair()
             && let Some(keys) = self.by_pair.get_mut(&pair)
         {
             keys.remove(key);
@@ -103,28 +111,51 @@ impl RemoteRows {
 
     /// Marks `peer`'s rows stale (`peer_cache::mark_stale`): the summaries that changed. Each row
     /// is taken out and put back through `insert`, so the index follows whatever the mark touched.
-    /// There is no other way to change a row in place.
-    pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<Value> {
+    /// There is no other way to change a row in place. Each summary shares the text the row had
+    /// before the mark, the mark kept apart (`PeerRow::stale_announced`), so it copies no row.
+    pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<PeerRow> {
         let keys: Vec<String> = self
             .of_peer(peer)
             .filter(|(_, r)| {
-                let status = r.summary.get("status").and_then(Value::as_str);
+                let status = r.summary.status();
                 status != Some("closed")
                     && (status != Some("unreachable")
-                        || r.summary.get("stale").and_then(Value::as_bool) != Some(true)
-                        || r.summary.get("lastSeen").unwrap_or(&Value::Null) != &json!(last_seen))
+                        || !r.summary.stale()
+                        || r.summary.last_seen() != last_seen)
             })
             .map(|(k, _)| k.clone())
             .collect();
         let mut changed = Vec::new();
         for key in keys {
-            let Some(mut row) = self.remove(&key) else { continue };
-            if super::peer_cache::mark_stale(&mut row.summary, last_seen) {
-                changed.push(row.summary.clone());
+            let live = self.stale_from.get(&key).cloned();
+            let Some(row) = self.take(&key) else { continue };
+            let live = live.unwrap_or_else(|| Arc::clone(&row));
+            let before = row.summary.clone();
+            let mut row = Arc::unwrap_or_clone(row);
+            if row.summary.mark_stale(last_seen) {
+                changed.push(PeerRow::stale_announced(&before, &row.summary, last_seen));
             }
-            self.insert(key, row);
+            self.insert(key.clone(), row);
+            self.stale_from.insert(key, live);
         }
         changed
+    }
+
+    /// Peer `peer`'s rows as the peer last listed them: a row a dropped link marked stale, as it
+    /// was before.
+    pub(crate) fn live_of_peer<'a>(
+        &'a self,
+        peer: &str,
+    ) -> impl Iterator<Item = &'a RemoteSession> + 'a {
+        self.of_peer(peer).map(|(key, row)| &**self.stale_from.get(key).unwrap_or(row))
+    }
+
+    /// Peer `peer`'s rows a dropped link marked stale, each as it was before, with its key.
+    pub(crate) fn stale_of_peer<'a>(
+        &'a self,
+        peer: &str,
+    ) -> impl Iterator<Item = (&'a String, &'a Arc<RemoteSession>)> + 'a {
+        self.of_peer(peer).filter_map(|(key, _)| self.stale_from.get(key).map(|live| (key, live)))
     }
 
     /// Peer `peer`'s rows with their keys, reading no other peer's.
@@ -149,6 +180,13 @@ impl RemoteRows {
     pub(crate) fn find_mux(&self, peer: &str, mux: &str) -> Option<(&String, &Arc<RemoteSession>)> {
         let keys = self.by_peer.get(peer)?.get(mux)?;
         keys.iter().find_map(|key| self.rows.get_key_value(key))
+    }
+
+    /// The row a peer last listed for `mux`, restoring the pre-stale copy when
+    /// the current row only reflects a dropped link.
+    pub(crate) fn find_live_mux(&self, peer: &str, mux: &str) -> Option<&RemoteSession> {
+        let (key, row) = self.find_mux(peer, mux)?;
+        Some(self.stale_from.get(key).map_or(&**row, |live| &**live))
     }
 
     /// Removes peer `peer`'s rows, answering them with their keys.
@@ -184,6 +222,7 @@ impl RemoteRows {
         let mut keys: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
         keys.extend(n.by_name.get(key).into_iter().flatten());
         keys.extend(n.by_bare_name.get(key).into_iter().flatten());
+        keys.extend(n.by_alias.get(key).into_iter().flatten());
         keys.extend(
             n.keys
                 .range::<_, str>((std::ops::Bound::Included(key), std::ops::Bound::Unbounded))
@@ -194,6 +233,12 @@ impl RemoteRows {
                 .range::<_, (String, String)>((key.to_owned(), String::new())..)
                 .take_while(|(mux, _)| mux.starts_with(key))
                 .map(|(_, k)| k),
+        );
+        keys.extend(
+            n.by_alias
+                .range::<_, str>((std::ops::Bound::Included(key), std::ops::Bound::Unbounded))
+                .take_while(|(alias, _)| alias.starts_with(key))
+                .flat_map(|(_, rows)| rows.iter()),
         );
         keys.into_iter().filter_map(|k| self.rows.get_key_value(k.as_str())).collect()
     }
@@ -228,6 +273,7 @@ impl RemoteRows {
 struct Names {
     by_name: PMap<String, PSet<String>>,
     by_bare_name: PMap<String, PSet<String>>,
+    by_alias: POrdMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
@@ -236,7 +282,7 @@ struct Names {
 impl Names {
     /// `row`'s entries: (index, value) for each map it is listed in.
     fn entries(row: &RemoteSession) -> [(u8, Option<String>); 3] {
-        let name = row.summary.get("name").and_then(Value::as_str).unwrap_or("");
+        let name = row.summary.name().unwrap_or("");
         let bare = name.strip_prefix(row.peer.as_str()).and_then(|rest| rest.strip_prefix('/'));
         let last = name.rsplit_once('/').map(|(_, last)| last);
         [(0, Some(name.to_owned())), (1, bare.map(str::to_owned)), (2, last.map(str::to_owned))]
@@ -256,6 +302,9 @@ impl Names {
                 self.map(which).entry(value).or_default().insert(key.to_owned());
             }
         }
+        if let Some(alias) = row.summary.alias() {
+            self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
+        }
         self.keys.insert(key.to_owned());
         self.muxes.insert((row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -271,6 +320,14 @@ impl Names {
                 }
             }
         }
+        if let Some(alias) = row.summary.alias()
+            && let Some(keys) = self.by_alias.get_mut(alias)
+        {
+            keys.remove(key);
+            if keys.is_empty() {
+                self.by_alias.remove(alias);
+            }
+        }
         self.keys.remove(key);
         self.muxes.remove(&(row.receipt.mux_session_id.clone(), key.to_owned()));
     }
@@ -279,23 +336,11 @@ impl Names {
     fn is_empty(&self) -> bool {
         self.by_name.is_empty()
             && self.by_bare_name.is_empty()
+            && self.by_alias.is_empty()
             && self.by_last_segment.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()
     }
-}
-
-/// A row's `(mux.parent, mux.handle)` tags, as its summary lists them.
-fn pair_of(summary: &Value) -> Option<(String, String)> {
-    let tags = summary.get("tags")?;
-    let tag = |key: &str| {
-        tags.get(key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(str::to_owned)
-    };
-    Some((tag("mux.parent")?, tag("mux.handle")?))
 }
 
 #[cfg(test)]
@@ -306,7 +351,10 @@ mod tests {
     fn row(peer: &str, mux: &str, status: &str) -> (String, RemoteSession) {
         let receipt = SessionReceipt::new(peer, mux, None, 0);
         let summary = json!({"sessionId": mux, "peer": peer, "status": status});
-        (receipt.qualified_id(), RemoteSession { peer: peer.into(), summary, receipt })
+        (
+            receipt.qualified_id(),
+            RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
+        )
     }
 
     fn keys_of(rows: &RemoteRows, peer: &str) -> Vec<String> {
@@ -333,7 +381,7 @@ mod tests {
         let (key, r) = row("a", "s1", "ready");
         rows.insert(key, r);
         assert_eq!(keys_of(&rows, "a"), ["a/s1", "a/s2"]);
-        assert_eq!(rows.find_mux("a", "s1").unwrap().1.summary["status"], "ready");
+        assert_eq!(rows.find_mux("a", "s1").unwrap().1.summary.status(), Some("ready"));
 
         rows.take("a/s1");
         assert!(rows.find_mux("a", "s1").is_none());
@@ -362,7 +410,7 @@ mod tests {
             rows.insert(key, r);
         }
         assert_eq!(rows.mark_peer_stale("a", None).len(), 1);
-        assert_eq!(rows.find_mux("b", "s1").unwrap().1.summary["status"], "running");
+        assert_eq!(rows.find_mux("b", "s1").unwrap().1.summary.status(), Some("running"));
     }
 
     /// One step of the model check below.
@@ -454,7 +502,7 @@ mod tests {
                 let pair = pair_of_ix((parent, handle));
                 let mut want: Vec<String> = model
                     .values()
-                    .filter(|r| super::pair_of(&r.summary).as_ref() == Some(&pair))
+                    .filter(|r| r.summary.pair().as_ref() == Some(&pair))
                     .map(|r| r.receipt.qualified_id())
                     .collect();
                 want.sort();
@@ -468,7 +516,7 @@ mod tests {
         }
         let pairs = model
             .values()
-            .filter_map(|r| super::pair_of(&r.summary))
+            .filter_map(|r| r.summary.pair())
             .collect::<std::collections::HashSet<_>>();
         if rows.pairs() != pairs.len() {
             return fail(format!("pairs {} != model {}", rows.pairs(), pairs.len()));
@@ -483,7 +531,9 @@ mod tests {
                 let (key, mut r) = row(&peer_of(p), &format!("s{m}"), STATUSES[s as usize]);
                 if let Some(pair) = pair {
                     let (parent, handle) = pair_of_ix(pair);
-                    r.summary["tags"] = json!({"mux.parent": parent, "mux.handle": handle});
+                    let mut summary = r.summary.value();
+                    summary["tags"] = json!({"mux.parent": parent, "mux.handle": handle});
+                    r.summary = summary.into();
                 }
                 model.insert(key.clone(), r.clone());
                 rows.insert(key, r);
@@ -512,11 +562,14 @@ mod tests {
             Op::MarkStale(p, seen) => {
                 let peer = peer_of(p);
                 let seen = seen.map(u64::from);
-                let mut got: Vec<Value> = rows.mark_peer_stale(&peer, seen);
+                let mut got: Vec<Value> =
+                    rows.mark_peer_stale(&peer, seen).iter().map(PeerRow::value).collect();
                 let mut want: Vec<Value> = Vec::new();
                 for r in model.values_mut().filter(|r| r.peer == peer) {
-                    if super::super::peer_cache::mark_stale(&mut r.summary, seen) {
-                        want.push(r.summary.clone());
+                    let mut summary = r.summary.value();
+                    if super::super::peer_cache::mark_stale(&mut summary, seen) {
+                        want.push(summary.clone());
+                        r.summary = summary.into();
                     }
                 }
                 let by_id = |v: &Value| v["sessionId"].as_str().unwrap_or_default().to_owned();
@@ -563,7 +616,10 @@ mod tests {
     fn named_row(peer: &str, mux: &str, name: &str) -> (String, RemoteSession) {
         let receipt = SessionReceipt::new(peer, mux, None, 0);
         let summary = json!({"sessionId": mux, "peer": peer, "status": "running", "name": name});
-        (receipt.qualified_id(), RemoteSession { peer: peer.into(), summary, receipt })
+        (
+            receipt.qualified_id(),
+            RemoteSession { peer: peer.into(), summary: summary.into(), receipt },
+        )
     }
 
     /// Every key, through the indexes, finds exactly the rows a walk over all of them finds,

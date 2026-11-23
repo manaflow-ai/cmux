@@ -118,9 +118,11 @@ const line = (props: Parameters<typeof Thinking>[0]) => (
 
 test("the compacting line says Compacting with the compaction's time, never Thinking or tokens", () => {
   act(() => root!.render(line({})));
-  // Base: "Thinking 1m 35s · 1.8K tokens", as in Leo's capture.
+  // Thinking and compacting both keep time without token amounts.
   expect(container.textContent).toContain("Thinking");
-  expect(container.textContent).toContain("tokens");
+  expect(container.textContent).toContain("1m 35s");
+  expect(container.textContent).not.toContain("tokens");
+  expect(container.querySelector(".cv-worked__sep")).toBeNull();
 
   act(() =>
     root!.render(line({ liveState: "compacting", liveCompaction: { state: "running" }, doingAt: START + 83_000 })),

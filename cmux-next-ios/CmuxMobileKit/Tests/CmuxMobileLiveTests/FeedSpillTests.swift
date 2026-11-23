@@ -1,5 +1,4 @@
 import CmuxMobileModel
-import Darwin
 import Foundation
 import Testing
 @testable import CmuxMobileFeed
@@ -113,37 +112,55 @@ import Testing
     }
 
     /// 3,000 live events of 8 KB: the Feed holds its window and the spill holds the rest on
-    /// disk; before the spill they were dropped (`olderOnDisk` stays 0 without one). Live heap
-    /// bytes (malloc's size in use) with and without the spill stay about the same: the
-    /// spill keeps at most one partial page in memory.
+    /// disk; before the spill they were dropped (`olderOnDisk` stays 0 without one). What the
+    /// Feed holds in memory (`residentBytes`) with and without the spill stays about the same:
+    /// the spill keeps at most one partial page in memory.
+    ///
+    /// It measures the store, not the process: malloc's bytes in use for the whole process
+    /// counted whatever other tests allocated meanwhile (the hybrid proofs: 80 MB against a 76 MB
+    /// bound), which the 16 MB `neighbor` below stands for. The inserts drive `FeedStore`, which
+    /// is main-actor code; they give the main actor back after every event, so the 3 to 9 s each
+    /// run takes in a debug build holds the other main-actor tests for one insert (1 to 3 ms) at
+    /// a time. Its store has its own memory pressure, so another test's (or the system's) memory
+    /// warning cannot trim it mid-run. Not every 50: a 50-event
+    /// chunk is 50 to 150 ms on the iOS simulator, ahead of every main-actor hop of the tests
+    /// running beside it (ReconnectChainTimingTests counted 9 to 11 round trips of 80 ms where
+    /// it allows 3: run 44237359613, and feat-cmux-next run 44236368758 after #45716).
     @Test func memoryWithSpill() async {
-        func run(spilling: Bool) -> (live: Int, onDisk: Int) {
-            let store = FeedStore(items: [])
+        func run(spilling: Bool) async -> (live: Int, onDisk: Int) {
+            let store = FeedStore(items: [], memoryPressure: MemoryPressure(observesSystem: false))
             let spill = Self.spill()
             if spilling { store.useSpill(spill) }
-            let start = Self.heapInUse()
-            for index in 0..<3000 { store.insert(Self.item(index, bytes: 8192), atTop: true) }
+            for index in 0..<3000 {
+                store.insert(Self.item(index, bytes: 8192), atTop: true)
+                await Task.yield()
+            }
+            // What another test (the hybrid proofs, say) holds meanwhile is not the Feed's.
+            let neighbor = spilling ? Self.neighborAllocation() : []
             spill.flush()
-            let live = Self.heapInUse() - start
+            let live = store.residentBytes()
+            withExtendedLifetime(neighbor) {}
             let onDisk = spill.storedCount()
             store.useSpill(nil)
             return (live, onDisk)
         }
-        let dropped = run(spilling: false)
-        let spilled = run(spilling: true)
+        let dropped = await run(spilling: false)
+        let spilled = await run(spilling: true)
         let line = "MEMBENCH feed events=3000 body=8KB window=\(FeedStore.memoryLimit) dropped=\(dropped.live >> 10)KB onDisk=\(dropped.onDisk) spilled=\(spilled.live >> 10)KB onDisk=\(spilled.onDisk)"
         print(line)
         Attachment.record(line, named: "membench.txt")
         #expect(dropped.onDisk == 0)
         #expect(spilled.onDisk == 2500)
+        // The reading sees the window: 500 events of 8 KB.
+        #expect(dropped.live >= FeedStore.memoryLimit * 8192)
         // A partial page (under 100 events of 8 KB) and the spilled ids, at most.
         #expect(spilled.live < dropped.live + 2 << 20)
     }
 
-    static func heapInUse() -> Int {
-        var stats = malloc_statistics_t()
-        malloc_zone_statistics(nil, &stats)
-        return Int(stats.size_in_use)
+    /// 16 MB that another test allocates and holds while this one measures: a guard against going
+    /// back to a process-wide reading (malloc's bytes in use), which counts it and fails.
+    static func neighborAllocation() -> [UInt8] {
+        [UInt8](repeating: 0xA5, count: 16 << 20)
     }
 
 }

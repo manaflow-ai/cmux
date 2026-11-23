@@ -54,6 +54,8 @@ fn unlogged_row_event(session: &Session, kind: &str) -> HubEvent {
         remote: None,
         update_line: Default::default(),
         row: Default::default(),
+        list_seq: 0,
+        peer_batch: false,
     }
 }
 

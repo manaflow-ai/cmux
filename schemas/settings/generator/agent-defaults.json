@@ -3,6 +3,7 @@
   "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentDefaults.generated.swift",
   "type": "AgentDefaultsSettingsSchema",
   "lists": {
-    "agentDefaults": ["descriptors", "AgentDefaultsSettingsSchema"]
+    "agentDefaults": ["descriptors", "AgentDefaultsSettingsSchema"],
+    "agentTools": ["toolsDescriptors", "AgentDefaultsSettingsSchema"]
   }
 }

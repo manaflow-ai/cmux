@@ -124,7 +124,7 @@ const now = Effect.map(Clock.currentTimeMillis, (ms) => new Date(ms));
  * indexed ownership query so this remains a gate rather than a tenant-wide
  * scan.
  */
-const meshEnabledFor = (tenantId: Principal["tenantId"], actor: string) =>
+export const meshEnabledFor = (tenantId: Principal["tenantId"], actor: string) =>
   Effect.gen(function* () {
     const config = yield* MeshConfig;
     if (!config.experiment) return false;

@@ -23,20 +23,38 @@ public struct SettingsDeepLink: Equatable, Sendable {
         setting = Self.text(invocation["setting"])
     }
 
-    /// Settings > Personalization's page route (Personalization…), on `part` (its jump bar's
-    /// `background`, `theme`, ...) and for `workspace` (Change Background…'s This Workspace) when given.
-    /// A route with a part is new at each request (`open`, which the page ignores, as Customize
-    /// Menu…'s): the host opens a route only when it differs from the last one it opened, and the
-    /// person may have jumped to another part since, so a repeat Change Background… lands again.
-    public static func personalizationRoute(part: String? = nil, workspace: String? = nil,
-                                            open: UInt64? = nil) -> String {
+    /// Settings > Appearance's page route, on its background picker when `background` (Change
+    /// Background…) and for `workspace` (the picker's This Workspace) when given. Personalization
+    /// folded into Appearance (one settings area, David Beyer 2026-11-20), so Personalization… opens
+    /// the bare route. A background route is new at each request (`open`, which the page reads only
+    /// to show the picker again): the host opens a route only when it differs from the last one it
+    /// opened, and the person may have scrolled away since, so a repeat Change Background… lands again.
+    public static func appearanceRoute(background: Bool = false, workspace: String? = nil,
+                                       open: UInt64? = nil) -> String {
         var query: [String] = []
-        if let part {
-            query.append(contentsOf: ["focus=personalization.\(part)", "open=\(open ?? DispatchTime.now().uptimeNanoseconds)"])
+        if background {
+            query.append(contentsOf: ["focus=appearance.background", "open=\(open ?? DispatchTime.now().uptimeNanoseconds)"])
         }
         if let workspace, let id = workspace.addingPercentEncoding(withAllowedCharacters: .alphanumerics) { query.append("workspace=\(id)") }
-        return "#/settings/personalization" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+        return "#/settings/appearance" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
     }
+
+    /// The page fragment for `section` and `setting`: a schema setting focuses its row; any other
+    /// anchor opens its section.
+    /// The Development section (and its keys) exists only in DEV and NIGHTLY builds: elsewhere a request for
+    /// it opens Settings on the default page (the page hides the category the same way).
+    public static func route(section: SettingsSection?, setting: String?, devBuild: Bool = DevTools.isEnabled) -> String? {
+        if let setting, let descriptor = SettingsSchema.descriptor(for: CmuxConfigFile.keyPath(from: setting)) {
+            guard descriptor.section != .development || devBuild else { return nil }
+            return "#/settings/\(descriptor.section.rawValue)?focus=\(descriptor.id)"
+        }
+        guard let section, section != .development || devBuild else { return nil }
+        return "#/settings/\(section.rawValue)"
+    }
+
+    /// Settings > Customize (App menu > Customizations' last row); a page without that category opens
+    /// its default one (`categoryOf` in webviews/src/pages/settings/categories.ts).
+    public static let customizeRoute = "#/settings/customize"
 
     /// Where the window scrolls: nil without a setting, or when nothing in
     /// Settings has that name (the caller reports it).

@@ -4,6 +4,7 @@
 // `cmux.bookmarks.apply` from the person's click or key, then a re-list. React reads it through
 // `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   buildTree,
@@ -101,6 +102,20 @@ export interface BookmarksStoreOptions {
 }
 
 const EMPTY_TREE = buildTree([]);
+
+/** The listing with each node whose fields all match the tree's kept as the tree's object: a list
+ * row takes its node as a prop, so a re-read after one change elsewhere re-renders that row only. */
+function keepUnchanged(listing: readonly Bookmark[], previous: ReadonlyMap<string, Bookmark>): Bookmark[] {
+  return listing.map((node) => {
+    const kept = previous.get(node.id);
+    return kept && sameFields(kept, node) ? kept : node;
+  });
+}
+
+function sameFields(a: Bookmark, b: Bookmark): boolean {
+  const keys = Object.keys(a) as (keyof Bookmark)[];
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
+}
 
 export class BookmarksStore {
   private snapshot: BookmarksSnapshot;
@@ -299,7 +314,7 @@ export class BookmarksStore {
   }
 
   private take(listing: ListResult): void {
-    const tree = buildTree(listing.bookmarks);
+    const tree = buildTree(keepUnchanged(listing.bookmarks, this.snapshot.tree.nodes));
     const { folder, selection, focus } = this.snapshot;
     // A shown folder that went away (deleted elsewhere) falls back to the bar.
     const shown = isRoot(folder) || tree.nodes.has(folder) ? folder : "bar";
@@ -339,7 +354,14 @@ export class BookmarksStore {
     try {
       const reply = await this.client.call<SearchResult>(BookmarkOps.search, { browser_profile_id: profile, text });
       if (generation !== this.searchGeneration || profile !== this.snapshot.profile) return;
-      const results = reply.bookmarks;
+      // Each result that did not change keeps the object it had (as the last results or the tree
+      // hold it): a relist runs the search again, and a list row takes its node as a prop.
+      const last = new Map((this.snapshot.results ?? []).map((row) => [row.id, row]));
+      const nodes = this.snapshot.tree.nodes;
+      const results = reply.bookmarks.map((row) => {
+        const kept = last.get(row.id) ?? nodes.get(row.id);
+        return kept && sameFields(kept, row) ? kept : row;
+      });
       const shown = new Set(results.map((row) => row.id));
       this.set({ results, selection: this.snapshot.selection.filter((id) => shown.has(id)) });
     } catch (error) {
@@ -678,7 +700,8 @@ export class BookmarksStore {
 export const MAX_APPLY_OPS = 256;
 
 function noticeOf(error: unknown): Notice {
-  const message = error instanceof Error ? error.message : String(error);
+  // The daemon's refusal text stays in the error; the person reads the plain sentence.
+  const message = userMessage(error);
   const extra = isPageError(error) ? refusalExtra(error.details) : undefined;
   return { kind: "failed", message, ...(extra?.code ? { code: extra.code } : {}) };
 }

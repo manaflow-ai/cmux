@@ -4,6 +4,7 @@
 // conversation, pages of PAGE older ones on demand) and refetches on a gap. Writes go to the host
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
@@ -13,6 +14,7 @@ import { conversationHash, hashConversation, setHash } from "./panes";
 import { LiveBook } from "./live";
 import { readPresentation } from "./presentation";
 import { RunBook } from "./runs";
+import { ScheduledBook } from "./scheduled";
 import { HomeSheets } from "./sheets";
 import { fixtureRank, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
 import { ChiefWorkStore } from "./ChiefWorkStore";
@@ -127,9 +129,17 @@ export interface HomeSnapshot {
   /** Which owners take files through this host (asked once at start; absent until it answers). */
   fileSupport?: HomeAttachmentSupport;
   error?: string;
+  /** Why the last Cloud inbox read failed: the Cloud rows are the last good list, read again with
+   * backoff until one answers (absent: it answered, or no Cloud). */
+  cloudError?: string;
 }
 
-const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
+/** The first retry of a failed Cloud inbox read, doubled per failure up to the cap. */
+export const CLOUD_RETRY_FIRST_MS = 2_000;
+export const CLOUD_RETRY_MAX_MS = 60_000;
+
+/** The plain sentence of a failure; the owner's own text stays in the error. */
+const describe = (error: unknown) => userMessage(error);
 
 export class HomeChannelsStore {
   private snapshot: HomeSnapshot;
@@ -151,6 +161,8 @@ export class HomeChannelsStore {
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
   readonly live = new LiveBook();
+  /** My Send Later messages in the open conversation (`conversation-scheduled-v1`). */
+  readonly scheduled: ScheduledBook;
   /** Runs whose steps are being read now (one read at a time per run). */
   private readonly loadingRuns = new Set<string>();
   /** Serialize historical step reads, including reads requested by mounted run cards. */
@@ -182,6 +194,7 @@ export class HomeChannelsStore {
     this.chiefWork = new ChiefWorkStore(client);
     this.attachments = client ? new AttachmentService(client) : undefined;
     this.avatars = client ? new AvatarService(client) : undefined;
+    this.scheduled = new ScheduledBook(client, (error) => this.set({ error: describe(error) }));
     this.sheets = new HomeSheets(client, host, {
       open: async (conversation) => {
         await this.reloadInbox();
@@ -398,7 +411,32 @@ export class HomeChannelsStore {
     }
   }
 
+  /** The pending retry of a failed Cloud inbox read, and the wait before the next one. */
+  private cloudRetry: ReturnType<typeof setTimeout> | undefined;
+  private cloudRetryMs = CLOUD_RETRY_FIRST_MS;
+
+  /** After a failed Cloud read, reads the inbox again: 2 s, then doubling to one a minute. An
+   * answer (or a stopped page) ends the retries and the next failure starts at 2 s again. */
+  private retryCloud(failed: boolean): void {
+    clearTimeout(this.cloudRetry);
+    this.cloudRetry = undefined;
+    if (!failed || !this.running) {
+      this.cloudRetryMs = CLOUD_RETRY_FIRST_MS;
+      return;
+    }
+    const wait = this.cloudRetryMs;
+    this.cloudRetryMs = Math.min(wait * 2, CLOUD_RETRY_MAX_MS);
+    const life = this.life;
+    this.cloudRetry = setTimeout(() => {
+      this.cloudRetry = undefined;
+      if (life === this.life) void this.reloadInbox();
+    }, wait);
+  }
+
   private stop(): void {
+    clearTimeout(this.cloudRetry);
+    this.cloudRetry = undefined;
+    this.cloudRetryMs = CLOUD_RETRY_FIRST_MS;
     this.life++;
     this.chiefWork.select(undefined);
     this.running = false;
@@ -430,7 +468,9 @@ export class HomeChannelsStore {
         loading: false,
         error: undefined,
         inboxState: inbox.inboxState === true,
+        cloudError: inbox.cloudError,
       });
+      this.retryCloud(inbox.cloudError !== undefined);
       // The open conversation's owner is known now (a reconnect says the viewing again), and an
       // open row the list dropped is no longer viewed (even with nothing to open instead).
       this.syncViewing();
@@ -461,6 +501,7 @@ export class HomeChannelsStore {
       draft: this.drafts.draft(id),
       highlight: undefined,
     });
+    this.scheduled.watch(id);
     this.syncViewing();
     await this.reloadPage(id);
   }
@@ -1007,6 +1048,9 @@ export class HomeChannelsStore {
     for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
     for (const message of batch.messages ?? []) this.drafts.posted(message);
     if (batch.runs?.length) this.runs.apply(batch.runs);
+    if (batch.scheduled?.length) this.scheduled.changed(batch.scheduled);
+    // A reconnect may have missed the queue's events: read it again.
+    if (batch.connection === "online") this.scheduled.changed();
     if (batch.avatars?.length) this.avatars?.changed(batch.avatars);
     if (batch.messages?.length) this.runs.noteMessages(batch.messages);
     this.applyLive(batch);

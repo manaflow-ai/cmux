@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import hashlib
+import os
 import http.client
 import urllib.error
 import json
 from pathlib import Path
+import io
 import re
+import shlex
+import subprocess
+import sys
 import tempfile
+import textwrap
 from unittest import TestCase, main
 from unittest.mock import patch
 
@@ -17,6 +24,7 @@ import yaml
 SCRIPT = Path(__file__).with_name("verify_published_manifest.py")
 ROOT = SCRIPT.parents[2]
 ARTIFACT_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
+BUILD_PROFILES = ROOT / "scripts" / "cmux-next" / "cmux-tui-build-profiles.json"
 WINDOWS_INSTALLER = ROOT / "web" / "public" / "tui" / "install-static.ps1"
 SPEC = importlib.util.spec_from_file_location("verify_published_manifest", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None
@@ -102,15 +110,21 @@ class VerifyPublishedManifestTests(TestCase):
         )
         return manifest
 
-    def machine_manifest(self, payloads: dict[str, bytes]) -> dict[str, object]:
-        targets = (
-            "aarch64-apple-darwin",
-            "x86_64-apple-darwin",
-            "x86_64-unknown-linux-musl",
-            "aarch64-unknown-linux-musl",
-        )
+    MACHINE_TARGETS = (
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+    )
+    INTEL_MAC = "x86_64-apple-darwin"
+
+    def machine_targets(self, *, intel_mac: bool) -> tuple[str, ...]:
+        """What the workflow builds: every target on main, no Intel Mac elsewhere."""
+        return tuple(t for t in self.MACHINE_TARGETS if intel_mac or t != self.INTEL_MAC)
+
+    def machine_manifest(self, payloads: dict[str, bytes], *, intel_mac: bool = True) -> dict[str, object]:
         artifacts: dict[str, dict[str, dict[str, object]]] = {}
-        for target in targets:
+        for target in self.machine_targets(intel_mac=intel_mac):
             target_artifacts: dict[str, dict[str, object]] = {}
             for kind in ("chatmux-relay", "cmux-tui"):
                 name = f"{kind}-{target}"
@@ -132,18 +146,93 @@ class VerifyPublishedManifestTests(TestCase):
             "artifacts": artifacts,
         }
 
-    def machine_payloads(self) -> dict[str, bytes]:
+    def machine_payloads(self, *, intel_mac: bool = True) -> dict[str, bytes]:
         payloads: dict[str, bytes] = {}
-        for target in (
-            "aarch64-apple-darwin",
-            "x86_64-apple-darwin",
-            "x86_64-unknown-linux-musl",
-            "aarch64-unknown-linux-musl",
-        ):
+        for target in self.machine_targets(intel_mac=intel_mac):
             for kind in ("chatmux-relay", "cmux-tui"):
                 name = f"{kind}-{target}"
                 payloads[name] = name.encode("utf-8")
         return payloads
+
+    def machine_manifest_calls(self, *, intel_mac: bool) -> list[tuple[str, list[str]]]:
+        """Each --machine-manifest call of the publish job as (step, argv), expanded as bash expands it
+        with CMUX_TUI_DARWIN_X86_64 set (main) or empty (every other ref)."""
+        document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
+        calls: list[tuple[str, list[str]]] = []
+        for step in document["jobs"]["publish"]["steps"]:
+            run = step.get("run")
+            if not isinstance(run, str) or "--machine-manifest" not in run:
+                continue
+            run = run.replace("\\\n", " ")
+            run = re.sub(
+                r"\$\{CMUX_TUI_DARWIN_X86_64:\+([^}]*)\}",
+                lambda match: match.group(1) if intel_mac else "",
+                run,
+            )
+            self.assertNotIn("CMUX_TUI_DARWIN_X86_64", run, step["name"])
+            run = run.replace("$GITHUB_SHA", self.COMMIT)
+            for call in run.split("verify_published_manifest.py")[1:]:
+                argv = shlex.split(call.split("\n", 1)[0])
+                if "--machine-manifest" in argv:
+                    calls.append((step["name"], argv))
+        return calls
+
+    def run_machine_check(
+        self, argv: list[str], manifest: dict[str, object], payloads: dict[str, bytes]
+    ) -> tuple[int, str]:
+        """Run one workflow call of the script on this manifest and these binaries: (exit code, stderr)."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            for name, payload in payloads.items():
+                (root / name).write_bytes(payload)
+
+            def opener(request: object, timeout: float = 0) -> object:
+                url = request.full_url  # type: ignore[attr-defined]
+                name = url.split("?", 1)[0].rsplit("/", 1)[1]
+                response = FakeResponse({})
+                response.body = (root / name).read_bytes()
+                response.headers = {"Content-Length": str(len(response.body))}
+                return response
+
+            local = [arg.replace("assets/chatmux-relay", str(root)) for arg in argv]
+            errors = io.StringIO()
+            with patch.object(VERIFY, "urlopen", side_effect=opener), \
+                    contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
+                code = VERIFY.main(local)
+            return code, errors.getvalue().replace(str(root), "assets/chatmux-relay").strip()
+
+    @staticmethod
+    def reads_latest(argv: list[str]) -> bool:
+        return any("/latest/" in arg for arg in argv)
+
+    def workflow_machine_manifest(
+        self, payloads: dict[str, bytes], *, intel_mac: bool
+    ) -> dict[str, object]:
+        """The machine manifest as the workflow's own build_machine_manifest writes it for these files."""
+        workflow = ARTIFACT_WORKFLOW.read_text(encoding="utf-8")
+        function = workflow.split("build_machine_manifest() {", 1)[1]
+        builder = textwrap.dedent(function.split("<<'PY'\n", 1)[1].split("\n          PY\n", 1)[0])
+        self.assertIn("CMUX_TUI_DARWIN_X86_64", builder)
+        environment = {k: v for k, v in os.environ.items() if k != "CMUX_TUI_DARWIN_X86_64"}
+        if intel_mac:
+            environment["CMUX_TUI_DARWIN_X86_64"] = "1"
+        with tempfile.TemporaryDirectory() as directory:
+            relay, tui = Path(directory) / "chatmux-relay", Path(directory) / "cmux-tui"
+            relay.mkdir()
+            tui.mkdir()
+            for name, payload in payloads.items():
+                ((tui if name.startswith("cmux-tui-") else relay) / name).write_bytes(payload)
+            subprocess.run(
+                [
+                    sys.executable, "-", str(relay), str(tui), self.COMMIT, f"0.0.0-r2.sha-{self.COMMIT}",
+                    "https://github.com", "manaflow-ai/cmux", "123456789",
+                    f"https://github.com/manaflow-ai/cmux/releases/tag/chatmux-relay-r2-{self.COMMIT}",
+                    "https://github.com/manaflow-ai/cmux/actions/runs/123456789",
+                ],
+                input=builder, text=True, check=True, capture_output=True, env=environment,
+            )
+            return json.loads((relay / "manifest.json").read_text(encoding="utf-8"))
 
     def verify(self, manifest: dict[str, object]) -> None:
         with patch.object(VERIFY, "urlopen", return_value=FakeResponse(manifest)):
@@ -473,7 +562,14 @@ class VerifyPublishedManifestTests(TestCase):
     def test_artifact_workflow_verifies_unix_machine_manifest_before_latest(self) -> None:
         document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
         build = document["jobs"]["build"]["with"]
-        windows = document["jobs"]["build-windows"]["with"]
+        # build-windows reads what it builds from the keyed profile file
+        # (scripts/cmux-next/cmux-tui-build-profiles.json, a tree-key input).
+        profile = json.loads(BUILD_PROFILES.read_text(encoding="utf-8"))["windows"]
+        ref = "${{ fromJSON(needs.tree-preflight.outputs.build_profiles).windows.%s }}"
+        windows = {
+            key: profile[key] if value == ref % key else value
+            for key, value in document["jobs"]["build-windows"]["with"].items()
+        }
         # The Windows daemon is built for GPUI's Windows daemon mode, but is
         # published only under cmux-tui-windows/<sha>/ and the tree: never in
         # cmux-tui/<sha>/ or cmux-tui/latest/, which the public Windows
@@ -570,6 +666,116 @@ class VerifyPublishedManifestTests(TestCase):
                 artifact_directory=root,
                 machine_manifest=True,
             )
+
+    def test_each_machine_manifest_check_passes_what_the_workflow_writes_without_intel_mac(self) -> None:
+        """Off main the workflow builds no x86_64-apple-darwin and writes the machine manifest without it.
+
+        Runs 43328431497 and 43328655357 failed 'Verify Unix manifests before upload' on that manifest
+        ("machine manifest target set mismatch"), so no feat-cmux-next tree was published.
+        """
+        payloads = self.machine_payloads(intel_mac=False)
+        manifest = self.machine_manifest(payloads, intel_mac=False)
+        calls = [(step, argv) for step, argv in self.machine_manifest_calls(intel_mac=False)
+                 if not self.reads_latest(argv)]
+        self.assertEqual(
+            [step for step, _ in calls],
+            [
+                "Verify Unix manifests before upload",
+                "Verify immutable Unix manifests before latest publish",
+                "Verify the kept Unix manifests",
+                "Verify published Unix manifests",
+            ],
+        )
+        for step, argv in calls:
+            with self.subTest(step=step):
+                self.assertEqual(self.run_machine_check(argv, manifest, payloads), (0, ""))
+
+    def test_the_workflow_writes_and_checks_the_same_machine_targets_on_each_ref(self) -> None:
+        """The writer and each check take the target set from the same switch, so one cannot move alone.
+
+        #42230 took the Intel Mac target out of the writer and left the check at four targets.
+        """
+        for intel_mac in (False, True):
+            payloads = self.machine_payloads(intel_mac=intel_mac)
+            manifest = self.workflow_machine_manifest(payloads, intel_mac=intel_mac)
+            self.assertEqual(manifest, self.machine_manifest(payloads, intel_mac=intel_mac))
+            for step, argv in self.machine_manifest_calls(intel_mac=intel_mac):
+                if self.reads_latest(argv) and not intel_mac:
+                    continue
+                with self.subTest(intel_mac=intel_mac, step=step):
+                    self.assertEqual(self.run_machine_check(argv, manifest, payloads), (0, ""))
+
+    def test_a_ref_without_intel_mac_refuses_a_machine_manifest_that_has_it(self) -> None:
+        """The check wants exactly the targets the caller built, not 'three or four'."""
+        payloads = self.machine_payloads()
+        manifest = self.machine_manifest(payloads)
+        for step, argv in self.machine_manifest_calls(intel_mac=False):
+            if self.reads_latest(argv):
+                continue
+            with self.subTest(step=step):
+                code, errors = self.run_machine_check(argv, manifest, payloads)
+                self.assertEqual(code, 1)
+                self.assertIn("machine manifest target set mismatch", errors)
+                self.assertIn(f"expected {list(self.machine_targets(intel_mac=False))}", errors)
+
+    def test_main_refuses_a_machine_manifest_without_intel_mac(self) -> None:
+        """Main builds all four targets, and latest/ is published only there: each check stays strict."""
+        calls = self.machine_manifest_calls(intel_mac=True)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(sum(self.reads_latest(argv) for _, argv in calls), 1)
+        payloads = self.machine_payloads()
+        manifest = self.machine_manifest(payloads)
+        short_payloads = self.machine_payloads(intel_mac=False)
+        short = self.machine_manifest(short_payloads, intel_mac=False)
+        for step, argv in calls:
+            with self.subTest(step=step, latest=self.reads_latest(argv)):
+                self.assertEqual(self.run_machine_check(argv, manifest, payloads), (0, ""))
+                code, errors = self.run_machine_check(argv, short, short_payloads)
+                self.assertEqual(code, 1)
+                self.assertIn("machine manifest target set mismatch", errors)
+                self.assertIn(f"expected {list(self.MACHINE_TARGETS)}", errors)
+
+    def test_the_latest_machine_manifest_check_wants_intel_mac_whatever_the_ref_built(self) -> None:
+        """latest/ is what the universal classic app reads; its check never takes the short set."""
+        latest = [argv for _, argv in self.machine_manifest_calls(intel_mac=False) if self.reads_latest(argv)]
+        self.assertEqual(len(latest), 1)
+        short_payloads = self.machine_payloads(intel_mac=False)
+        short = self.machine_manifest(short_payloads, intel_mac=False)
+        code, errors = self.run_machine_check(latest[0], short, short_payloads)
+        self.assertEqual(code, 1)
+        self.assertIn(f"expected {list(self.MACHINE_TARGETS)}", errors)
+
+    def test_the_caller_can_leave_out_only_the_intel_mac_machine_target(self) -> None:
+        """The target set is the caller's argument, bounded: an empty or short expansion cannot pass a thin manifest."""
+        payloads = self.machine_payloads(intel_mac=False)
+        manifest = self.machine_manifest(payloads, intel_mac=False)
+        base = ["--manifest-file", "assets/chatmux-relay/manifest.json", "--expected-commit", self.COMMIT,
+                "--artifact-directory", "assets/chatmux-relay"]
+
+        def check(*targets: str, machine: bool = True) -> tuple[int, str]:
+            argv = base + (["--machine-manifest"] if machine else [])
+            for target in targets:
+                argv += ["--machine-target", target]
+            return self.run_machine_check(argv, manifest, payloads)
+
+        built = self.machine_targets(intel_mac=False)
+        self.assertEqual(check(*built), (0, ""))
+        self.assertEqual(check(*reversed(built)), (0, ""))
+        for targets, message in (
+            ((), "target set mismatch: expected " + str(list(self.MACHINE_TARGETS))),
+            (built[:2], "machine target set cannot leave out ['aarch64-unknown-linux-musl']"),
+            (built[1:], "machine target set cannot leave out ['aarch64-apple-darwin']"),
+            ((self.INTEL_MAC,), "machine target set cannot leave out"),
+            (built + ("x86_64-pc-windows-gnu",), "unknown machine target: ['x86_64-pc-windows-gnu']"),
+            (built + built[:1], "machine target named more than once: ['aarch64-apple-darwin']"),
+        ):
+            with self.subTest(targets=targets):
+                code, errors = check(*targets)
+                self.assertEqual(code, 1)
+                self.assertIn(message, errors)
+        code, errors = check(*built, machine=False)
+        self.assertEqual(code, 1)
+        self.assertIn("--machine-target needs --machine-manifest", errors)
 
     def test_machine_manifest_rejects_compatibility_fields_and_windows(self) -> None:
         payloads = self.machine_payloads()

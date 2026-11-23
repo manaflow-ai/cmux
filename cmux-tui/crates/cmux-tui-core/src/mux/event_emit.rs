@@ -3,6 +3,12 @@
 use super::*;
 
 impl Mux {
+    /// The revision of what `list-workspaces` shows (`list-workspaces-known-v1`,
+    /// mux/tree_revision.rs). Read it before reading the tree.
+    pub(crate) fn tree_revision(&self) -> String {
+        self.tree_revision.current()
+    }
+
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribers.subscribe()
     }
@@ -85,6 +91,9 @@ impl Mux {
                 | MuxEvent::TreeDelta(_)
         ) {
             self.respawn_gate.wake_waiters();
+        }
+        if tree_revision::changes_tree(&event) {
+            self.tree_revision.bump();
         }
         self.activity.observe(&event);
         if let MuxEvent::Conversation(conversation) = &event {

@@ -19,11 +19,23 @@ type Loop = { file: string; keyframes: string; selector: string; props: string[]
  *  `goneWith`: the open change that removes or adds the entry, so it may match nothing. */
 const ALLOWED: { file: string; keyframes: string; selector: string; why: string; goneWith?: string }[] = [
   {
+    file: "agent-session/acpmux/markdownField.css",
+    keyframes: "acpmux-md-caret-blink",
+    selector: ".acpmux-md-caret",
+    why: "the composer's text caret, drawn on a line that holds an attachment so it stays the text's height (#40941); it blinks as the native caret it stands in for, only while the field has focus",
+  },
+  {
     file: "agent-session/acpmux/conversation/conversation.css",
     keyframes: "cmux-breathe",
     selector: '[data-working-look="breathe"] .cv-spinner[data-working]',
     why: "explicit user-selected Breathing Dot only; the default and unknown values use the spinner",
   },
+  ...["start", "middle", "end"].map((dot) => ({
+    file: "agent-session/acpmux/conversation/JumpDots.css",
+    keyframes: `cv-jump-dots-${dot}`,
+    selector: ".cv-jump-dots__dot",
+    why: "the opt-in activity mark on the live working line and visible Jump to latest button; the dots trade size and position and honor static and reduced motion",
+  })),
   {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",
@@ -35,12 +47,6 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     keyframes: "mt-dot",
     selector: ".mt-typing i",
     why: "the Messages typing bubble's three dots (the native transcript's typing indicator, shown only while someone types; still under the motion gate), not a status dot",
-  },
-  {
-    file: "agent-session/acpmux/dictation.css",
-    keyframes: "acpmux-mic-outside",
-    selector: ".acpmux-mic-outside > span",
-    why: "level bars in the composer mic's place while another app dictates (outsideDictation.ts), not a status dot; Static status indicators, motion off and Reduce Motion hold them still",
   },
   {
     file: "agent-session/acpmux/newtab/screen.css",

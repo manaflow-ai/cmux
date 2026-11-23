@@ -78,6 +78,16 @@ test("a timed-out receipt says so in the chat's words (never the server's), an u
   }
 });
 
+// #39022 review at a5563b2d, F2: a cleanup cmux gave up on says the VM is left to delete, never
+// that its destroy is still pending.
+test("an abandoned cleanup says the VM was not deleted, never that its destroy is pending", () => {
+  const receipt = { status: "succeeded", cleanup: "abandoned" };
+  const shown = text(renderToStaticMarkup(<SandboxRunView run={{ task: "go", state: "done", receipt }} />));
+  expect(t("sandbox.vmAbandoned")).not.toBe("sandbox.vmAbandoned");
+  expect(shown).toContain(t("sandbox.vmAbandoned"));
+  expect(shown).not.toContain(t("sandbox.vmPending"));
+});
+
 test("a refusal is worded by its code; a failure that may hide a Run says so", async () => {
   const refused = await runSandbox(
     () => Promise.reject({ code: "run_sandbox_unavailable", message: "x" }),

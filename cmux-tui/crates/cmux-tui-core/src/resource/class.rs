@@ -51,6 +51,7 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::ChiefAutomationList
                 | Self::ChiefProfileList
                 | Self::ChiefProfileGet
                 | Self::ChiefProfileAvatarGet
@@ -69,6 +70,7 @@ impl ResourceOperation {
                 | Self::DiffCommentsList
                 | Self::GitDiff
                 | Self::GitFilesList
+                | Self::GitFingerprint
                 | Self::GitFilesSearch
                 | Self::GitStatus
                 | Self::GitWorktreeSetup
@@ -99,6 +101,7 @@ impl ResourceOperation {
                 | Self::NotificationList
                 | Self::AgentList
                 | Self::AgentMessageList
+                | Self::ChatList
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
@@ -107,6 +110,7 @@ impl ResourceOperation {
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
                 | Self::KeybindingsGet
+                | Self::LanguagePacksEnsure
                 | Self::BrowserDevicesList
                 | Self::BrowserProfileList
                 | Self::SidebarLayoutGet
@@ -114,9 +118,13 @@ impl ResourceOperation {
                 | Self::ProjectList
                 | Self::PaletteUsageGet
                 | Self::PaletteRank
+                | Self::ThemeSchemeConvert
+                | Self::ThemeSchemeExport
+                | Self::ThemeSchemeFromImage
                 | Self::StashList
                 | Self::ClassicImportPlan
                 | Self::ConductorImportPlan
+                | Self::BrowserImportRead
                 | Self::CloudVmFirewallList
                 | Self::CloudVmFirewallGet
                 | Self::CloudVmNetworks
@@ -128,6 +136,7 @@ impl ResourceOperation {
                 | Self::CloudOwnerHandoffs
                 | Self::CloudOwnerHarnessLoginCopy
                 | Self::CloudOwnerGithubApp
+                | Self::CloudOwnerGithubRepos
                 | Self::CloudMachineChatAccess
                 | Self::CloudOwnerTurns
                 | Self::RoomList

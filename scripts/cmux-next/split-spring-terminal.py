@@ -23,6 +23,7 @@ With --suite=anim-perf it runs scripts/cmux-next/anim-perf-terminal.py (tab, wor
 and palette animations at a 120 Hz frame budget).
 With --suite=split-scale it runs scripts/cmux-next/split-scale-bench.py (split, close, bottom pane, divider drag and
 side pane across 1/4/9 splits, four pane contents and 1/10/30 workspaces).
+With --suite=split-move it runs that bench's move family (--moves: a tab or a pane from one split to another).
 
 Usage: split-spring-terminal.py --tag <tag> --app PATH [--rounds 3] [--presses 5] [--interval 100]
        [--directions right,down] [--scrollback 20000] [--stream] [--json PATH] [--out DIR] [--gate]
@@ -52,10 +53,47 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=memory-agents`: the app's idle memory, empty and with idle agent chats open, as perf-cron rows
+# (scripts/cmux-next/memory-agents-cron.py, bench_memory.py on the acpmux test agent).
+if "--suite=memory-agents" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory-agents-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=memory-agents"])
+# `--suite=cef-resize`: late frames and commit time while panes and the window resize beside a Chromium page, as
+# perf-cron rows (scripts/cmux-next/cef-resize-cron.py, cef-resize-sync-bench.py's light bench).
+if "--suite=cef-resize" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cef-resize-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=cef-resize"])
+# `--suite=relaunch`: quit and reopen with the session restored, to the window, the chats live again and the terminals
+# live; `--suite=wake`: the app after every process of it was frozen and resumed, a wake proxy. Both as perf-cron rows
+# (scripts/cmux-next/relaunch-wake-cron.py, which keeps the --suite argument).
+for _suite in ("relaunch", "wake"):
+    if f"--suite={_suite}" in sys.argv:
+        suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "relaunch-wake-cron.py")
+        os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
+# `--suite=chat-size`: one chat at 1 MB to 4 GB, five axes, each over the 1 MB chat's (scripts/cmux-next/chat-size-ratio.py;
+# the perf cron's chat-size part).
+if "--suite=chat-size" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat-size-ratio.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-size"])
+# `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
+# then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
+if "--suite=renderer-rest" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "renderer-rest.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=renderer-rest"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-smoke"])
+# `--suite=terminal-throughput`: one large output burst through a NEXT terminal and through standalone Ghostty, MB/s
+# each and their ratio (scripts/cmux-next/terminal-throughput-bench.py; the perf cron's throughput part).
+if "--suite=terminal-throughput" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminal-throughput-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=terminal-throughput"])
+# `--suite=power`: the app's power in mW, idle and scrolling, against standalone Ghostty at idle
+# (scripts/cmux-next/power-cron.py, bench_power.py; the perf cron's power part).
+if "--suite=power" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "power-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=power"])
 # `--suite=premain`: where the time from the process start to main() goes (scripts/cmux-next/premain-launch.py): the
 # staged copy, a new ditto copy and a new APFS clone, 3 launches each, with the signature checkers' log per launch.
 if "--suite=premain" in sys.argv:
@@ -69,6 +107,11 @@ if "--suite=command-pan" in sys.argv:
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=open-panel"])
+# `--suite=overlay-open`: icon picker and group editor opens, warm, cold and after a sign of intent, and their memory
+# (scripts/cmux-next/overlay-open-bench.py).
+if "--suite=overlay-open" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay-open-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=overlay-open"])
 # `--suite=first-click`: one click on native controls acts while a Chromium page holds the key (first-click-live.py).
 if "--suite=first-click" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-click-live.py")
@@ -89,6 +132,19 @@ if "--suite=split-scale" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
     os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=split-scale"])
+# `--suite=split-move`: the same bench's move family (a tab or a pane from one split to another, forth and back, in a
+# half, a third and a quarter, per pane content), judged frame by frame by split_move_metrics.py.
+if "--suite=split-move" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "split-scale-bench.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    rest = [a for a in sys.argv[1:] if a != "--suite=split-move"]
+    os.execv(sys.executable, [sys.executable, suite] + rest + ([] if any(a.startswith("--moves") for a in rest) else ["--moves=all"]))
+# `--suite=sidebar-stress`: sidebar scroll, switch, theme switch during a scroll and custom sidebar sections at 20 and
+# 500 workspaces (scripts/cmux-next/sidebar-stress-profiles.py, which runs sidebar-stress-bench.py per profile).
+if "--suite=sidebar-stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-stress-profiles.py")
+    os.environ.setdefault("CMUX_BENCH_LAUNCH", "direct")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=sidebar-stress"])
 # `--suite=hover-instant`: a sidebar row's hover card, pointer arrival to card, at 10 and 200 workspaces
 # (scripts/cmux-next/hover-instant-bench.py; the sidebar-hover-instant goal).
 if "--suite=hover-instant" in sys.argv:
@@ -101,6 +157,12 @@ if "--suite=hover-instant" in sys.argv:
 if "--suite=budgets" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-budgets.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=budgets"])
+# `--suite=stress`: the app under extreme stress from several angles (CPU and thread starvation, many streaming
+# agent chats, many workspaces with output floods, a CLI/socket flood, memory pressure), a baseline and a stress
+# window each (scripts/cmux-next/stress-bench.py; the `stress` cmux-bench).
+if "--suite=stress" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stress-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=stress"])
 # `--suite=workspace-scaling`: the warning-only 1/100/1000 workspace trend budget.
 if "--suite=workspace-scaling" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace-scaling-bench.py")
@@ -230,6 +292,29 @@ if "--suite=idle-budget" in sys.argv:
 if "--suite=script-storm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "script-storm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=script-storm"])
+
+def pane_bench_report(proc, config):
+    """Passes the lane's output through and writes --json (the step's report.json artifact): one row per PANE-BENCH
+    line (action, panes, frames, p50/p95/max ms, frames over 8 ms) and each suite's lane result. Before, the pane bench
+    wrote no report, so `--artifact artifacts/split-spring/report.json` failed a step whose suites passed."""
+    rows, suites = [], {}
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        if line.startswith("PANE-BENCH "):
+            row = dict(kv.split("=", 1) for kv in line.split()[1:] if "=" in kv)
+            rows.append({k: (v if k == "action" else float(v) if "." in v else int(v)) for k, v in row.items()})
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] in ("PaneMotionWorkTests", "PaneMotionBench") and parts[1] in ("passed", "failed", "skipped", "no"):
+            suites[parts[0]] = " ".join(parts[1:-1]) if parts[-1].endswith("s") else " ".join(parts[1:])
+    status = proc.wait()
+    path = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--json=")), None)
+    if path is None and "--json" in sys.argv[:-1]:
+        path = sys.argv[sys.argv.index("--json") + 1]
+    if path:
+        with open(path, "w") as f:
+            json.dump({"suite": "pane-bench", "config": config, "exit": status, "suites": suites, "rows": rows}, f, indent=1)
+    return status
+
 # `--suite=pane-bench`: the layout's own pane motion benches, no app window (PaneMotionBench: frame time of
 # split/close/New Column/zoom at 2, 8 and 30 panes; PaneMotionWorkTests: panes touched per frame). Run
 # yourself (perf lead, not a CI gate); --config=release|debug picks the build (default release).
@@ -237,8 +322,10 @@ if "--suite=pane-bench" in sys.argv:
     root = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip() or "."
     config = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--config=")), "release")
     env = dict(os.environ, CMUX_PANE_BENCH="1", CMUX_SWIFT_SUITE_CONFIGURATION=config)
-    sys.exit(subprocess.run([os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
-                             "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env).returncode)
+    sys.exit(pane_bench_report(subprocess.Popen(
+        [os.path.join(root, "scripts/ci/package-test-lane.sh"), "suite", "Packages/macOS/CmuxNext",
+         "PaneMotionWorkTests,PaneMotionBench"], cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace"), config))
 # `--suite=action-budget-bench`: the per-action budget monitor's always-on cost in ns per run and per batch
 # (ActionBudgetMonitorBench, CmuxNextActionsTests), no app window; --config=release|debug (default release). Run
 # it on each macOS major (perf lead, not a CI gate) and quote its `action-budget bench:` lines.
@@ -263,6 +350,28 @@ if "--suite=gui-tests" in sys.argv:
 if "--suite=every-action" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "every-action-sweep.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=every-action"])
+# `--suite=activation`: Cmd-Tab back in a heavy session (scripts/cmux-next/activation-perf.py: become notices'
+# main-thread time, the drain after them, indicator resyncs, hangs; perf-lead row 8). Its activation-perf.json is
+# also --json (the step's report.json); the rest of the arguments after the suite's own go to activation-perf.py.
+if "--suite=activation" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "activation-perf.py")
+    wrapper = argparse.ArgumentParser(add_help=False)
+    wrapper.add_argument("--json")
+    wrapper.add_argument("--out")
+    # activation-perf.py's own options; the measure step's others (--tag, --suite, --vdisplay ...) are not its.
+    for flag in ("--app", "--hang-ms", "--workspaces", "--browser", "--hibernate", "--chats", "--cycles", "--max-resyncs"):
+        wrapper.add_argument(flag)
+    wrapper.add_argument("--sample", action="store_true")
+    wrapper.add_argument("--gate", action="store_true")
+    known, _ = wrapper.parse_known_args()
+    passed = [part for key, value in vars(known).items() if key != "json" and value not in (None, False)
+              for part in (["--" + key.replace("_", "-")] + ([] if value is True else [str(value)]))]
+    status = subprocess.run([sys.executable, suite] + passed).returncode
+    produced = os.path.join(known.out, "activation-perf.json") if known.out else None
+    if known.json and produced and os.path.exists(produced):
+        with open(produced) as source, open(known.json, "w") as target:
+            target.write(source.read())
+    sys.exit(status)
 # `--suite=typing-frame`: key to frame in a terminal, the Home composer and the omnibar, idle and under load
 # (optionally in the STRESS session), scripts/cmux-next/typing-frame-bench.py.
 if "--suite=typing-frame" in sys.argv:

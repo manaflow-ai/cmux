@@ -55,7 +55,8 @@ public final class ScreenSession {
     public var preferences: ScreenPreferences
     public var credentials: VNCCredentials
     /// Automatic reconnects after a stream drops: how many tries (0 turns them
-    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails.
+    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails. A viewer
+    /// that needs a new ticket can use ``prepareForReconnect()`` first.
     @ObservationIgnored public var reconnectLimit = 5
 
     @ObservationIgnored public var onFrame: ((VNCFrame) -> Void)?
@@ -83,6 +84,12 @@ public final class ScreenSession {
         didSet { if stream !== oldValue { abandonPendingPaste() } }
     }
     @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
+    #if DEBUG && canImport(UIKit)
+    /// DEBUG only: the screen-stream eval's probe. The viewer has it watch the video view it makes
+    /// (`ScreenPresentProbe.watch`), and each video track gets it after `onVideoTrack` ran, so its
+    /// frame callback follows the view's renderer. Set before the view appears.
+    @ObservationIgnored public var debugVideoProbe: ScreenPresentProbe?
+    #endif
     /// Stream displays (sizes) and the one streaming.
     @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
     /// A screen stream's pointers, as fractions of the streamed display:
@@ -93,6 +100,10 @@ public final class ScreenSession {
     /// the Mac then leaves its cursor out of the video. Set before
     /// connecting; an app that never sets it gets the cursor in the picture.
     @ObservationIgnored public var drawsPointers = false
+    /// The Mac's cursor shape on a screen stream, its own image (nil: none
+    /// yet, or a Mac that sends none). Only with ``drawsPointers`` (main actor).
+    @ObservationIgnored public var onStreamCursor: ((ScreenStreamCursor?) -> Void)?
+    @ObservationIgnored private var streamCursors = ScreenStreamCursorCache()
     /// "Direct" or "Relay" once WebRTC picks a path.
     public private(set) var streamPath = "WebRTC"
     /// What the screen stream's Mac accepts beyond the first protocol, from
@@ -122,6 +133,15 @@ public final class ScreenSession {
     }
 
     public private(set) var imagePaste = ImagePaste.idle
+
+    /// What the stream's Mac says its screen shows: live, or black because it
+    /// is locked or its display asleep (``ScreenSourceState``). Live for an
+    /// older Mac that never says, and again on each connect.
+    public private(set) var sourceState = ScreenSourceState.live
+    /// The Mac's source state, from the running stream's viewer (a demo may set it too).
+    public func receiveSourceState(_ state: ScreenSourceState) {
+        if sourceState != state { sourceState = state }
+    }
     /// The image ``imagePaste`` is about (another image's answer never settles it).
     @ObservationIgnored private var imagePasteID: String?
 
@@ -177,7 +197,46 @@ public final class ScreenSession {
         if imagePaste != .sending { imagePaste = .idle }
     }
     /// The stream dropped and is coming back on its own.
-    public private(set) var isReconnecting = false
+    public private(set) var isReconnecting = false {
+        didSet { if isReconnecting != oldValue { armReconnectNotice() } }
+    }
+    /// A reconnect has run for ``reconnectNoticeDelay`` without a picture: only now does the
+    /// view say "Reconnecting". Under it the last frame stays and nothing is said (a blip
+    /// the session recovers from by itself is not the person's problem).
+    public private(set) var reconnectNoticeDue = false
+    /// How long a reconnect stays silent: about the time after which a frozen picture
+    /// stops reading as a hiccup. A reattach lands well under it on a short drop.
+    public nonisolated static let reconnectNoticeDelay: Duration = .seconds(10)
+    @ObservationIgnored private var reconnectNoticeTask: Task<Void, Never>?
+    /// A first connect has run for ``connectNoticeDelay``: only now does the view say
+    /// "Connecting to …". One that answers within it (the usual case) never flashes the card.
+    public private(set) var connectNoticeDue = false
+    /// How long a first connect stays silent: the shared bound for a connection state the person
+    /// can do nothing about (`schemas/notice-timing/notice-timing.json` `connectionQuietMs`, 10 s;
+    /// hq `docs/handbook/connection-state-with-no-action-or-bound.md`), the same as a reconnect.
+    public nonisolated static let connectNoticeDelay: Duration = reconnectNoticeDelay
+    @ObservationIgnored private var connectNoticeTask: Task<Void, Never>?
+    /// The clock both notice waits run on; tests give it one they control.
+    @ObservationIgnored public var noticeClock: any Clock<Duration> = ContinuousClock()
+    /// Whether the connecting card says anything yet (Leo, 2026-11-14: "i also want all our
+    /// connectivity stuff to shut the f*** up"): a reconnect only past ``reconnectNoticeDelay``,
+    /// a first connect only past ``connectNoticeDelay``. Under them the view draws no card, over
+    /// the last frame on a reconnect. A failure is its own phase and is never held.
+    public var connectingNoticeShown: Bool {
+        guard case .connecting = phase else { return false }
+        return isReconnecting ? reconnectNoticeDue : connectNoticeDue
+    }
+    /// An owner that gets a fresh ticket for a dropped stream (a device hub viewer, whose
+    /// `reconnectLimit` is 0): a drop calls it, and when the owner takes the drop (true) the
+    /// session stays reconnecting over its last frame instead of showing the failed card first.
+    /// Not taken (false): the failed card, as without an owner.
+    @ObservationIgnored public var onDropped: (@MainActor () -> Bool)?
+    /// Connected, or reconnecting: the toolbar, shortcuts and trackpad keep their places so
+    /// the screen does not jump while it comes back.
+    public var keepsLiveLayout: Bool {
+        if case .connected = phase { return true }
+        return isReconnecting
+    }
     /// The connection stalled (ICE disconnected): no picture is coming,
     /// though WebRTC has not given up yet. Cleared when it recovers.
     public private(set) var isStalled = false
@@ -238,9 +297,8 @@ public final class ScreenSession {
 
     /// A screen stream whose signaling the app supplies: each `connect()`
     /// asks `signaling` for the connection to use (a device hub session's
-    /// ``TicketSignaling``, which admits once). Nil fails the connect, so a
-    /// dropped session does not reconnect on its own unless the app has a
-    /// new one ready.
+    /// ``TicketSignaling``, which admits once). Nil fails the connect; an app
+    /// that needs to reattach supplies a fresh ticket before reconnecting.
     public init(title: String, preferences: ScreenPreferences = ScreenPreferences(),
                 signaling: @escaping @MainActor () -> (any ScreenSignaling)?) {
         self.title = title
@@ -271,6 +329,7 @@ public final class ScreenSession {
         guard !isClosed else { return }
         disconnect(silently: true)
         phase = .connecting
+        armConnectNotice()
         if let makeSignaling {
             guard let signaling = makeSignaling() else {
                 phase = .failed(message: "There is no session to connect with.", needsSignIn: false)
@@ -340,15 +399,30 @@ public final class ScreenSession {
 
     // MARK: Stream
 
+    /// A new or ended stream: its Mac's cursor shapes start over.
+    private func resetStreamCursor() {
+        let had = streamCursors.current != nil
+        streamCursors.reset()
+        if had { onStreamCursor?(nil) }
+    }
+
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
         // The last stream's pointers: a new host may send none (it draws its cursor).
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         if let reconnectStarted { viewer.openTimeout = Self.attemptTimeout(elapsed: Date().timeIntervalSince(reconnectStarted)) }
         relayErrors = []
         isStalled = false
         stats.targetFps = nil
         hostCapabilities = []
+        receiveSourceState(.live)
+        viewer.onSourceState = { [weak self, weak viewer] state in
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                self.receiveSourceState(state)
+            }
+        }
         viewer.onCapabilities = { [weak self, weak viewer] capabilities in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -369,7 +443,16 @@ public final class ScreenSession {
             guard error.isTURN else { return }
             Task { @MainActor in self?.relayErrors.append(error) }
         }
-        viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
+        viewer.onVideo = { [weak self] box in
+            Task { @MainActor in
+                self?.onVideoTrack?(box)
+                #if DEBUG && canImport(UIKit)
+                // After the view's own sinks: libwebrtc calls a track's sinks in order, so the
+                // probe sees each frame after the renderer took it.
+                self?.debugVideoProbe?.attach(box)
+                #endif
+            }
+        }
         viewer.onDisplays = { [weak self, weak viewer] message in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
@@ -388,9 +471,19 @@ public final class ScreenSession {
         viewer.onTelepointers = { [weak self, weak viewer] message in
             let point = { (pointer: ScreenHostMessage.Pointer?) in pointer.map { CGPoint(x: $0.x, y: $0.y) } }
             let (person, agent) = (point(message.person), point(message.agent))
+            let shape = message.shape
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
+                if self.streamCursors.select(shape) { self.onStreamCursor?(self.streamCursors.current) }
                 self.onTelepointers?(person, agent)
+            }
+        }
+        viewer.onCursorShape = { [weak self, weak viewer] shape in
+            // Decoded here, off the main actor.
+            guard let cursor = ScreenStreamCursor(shape) else { return }
+            Task { @MainActor in
+                guard let self, self.stream === viewer else { return }
+                if self.streamCursors.add(cursor) { self.onStreamCursor?(self.streamCursors.current) }
             }
         }
         viewer.onState = { [weak self, weak viewer] message in
@@ -447,6 +540,12 @@ public final class ScreenSession {
             // Giving up: the dropped stream's room socket would keep reconnecting.
             stream?.close()
             stream = nil
+            if let onDropped {
+                // The owner reattaches with a new ticket: still reconnecting, never the failed card.
+                isReconnecting = true
+                phase = .connecting
+                if onDropped() { return }
+            }
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
@@ -463,6 +562,36 @@ public final class ScreenSession {
         }
     }
 
+    /// Starts (or stops) the clock after which a reconnect is said out loud.
+    private func armReconnectNotice() {
+        reconnectNoticeTask?.cancel()
+        reconnectNoticeTask = nil
+        if reconnectNoticeDue { reconnectNoticeDue = false }
+        guard isReconnecting else { return }
+        let clock = noticeClock
+        reconnectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; a recovered stream cancels it
+            try? await clock.sleep(for: Self.reconnectNoticeDelay)
+            guard !Task.isCancelled, let self, isReconnecting else { return }
+            reconnectNoticeDue = true
+        }
+    }
+
+    /// Starts the clock after which a first connect is said out loud (a reconnect has its own).
+    private func armConnectNotice() {
+        connectNoticeTask?.cancel()
+        connectNoticeTask = nil
+        if connectNoticeDue { connectNoticeDue = false }
+        guard !isReconnecting else { return }
+        let clock = noticeClock
+        connectNoticeTask = Task { [weak self] in
+            // wakeup-allow: one-shot, cancellable notice deadline; the next connect cancels it
+            try? await clock.sleep(for: Self.connectNoticeDelay)
+            guard !Task.isCancelled, let self, case .connecting = phase else { return }
+            connectNoticeDue = true
+        }
+    }
+
     /// Connects again under the reconnect policy: a failed attempt retries
     /// with backoff before the error shows. For a change that needs a new
     /// connection (the relay setting), where the host may still be dropping
@@ -474,6 +603,17 @@ public final class ScreenSession {
         reconnectAttempts = 0
         isReconnecting = true
         connect()
+    }
+
+    /// Leaves this session in the reconnecting state while an app obtains new
+    /// signaling credentials. The session object and its view state stay alive.
+    public func prepareForReconnect() {
+        guard !isClosed else { return }
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        disconnect(silently: true)
+        isReconnecting = true
+        phase = .connecting
     }
 
     /// The app came back to the foreground: a stream that dropped while it
@@ -549,9 +689,13 @@ public final class ScreenSession {
         client = nil
         // Closing a peer connection waits on WebRTC's threads (TURN
         // deallocation can take seconds): never on the main actor.
-        if let stream { Task.detached { stream.close() } }
+        if let stream {
+            let sendBye = !silently
+            Task.detached { stream.close(sendBye: sendBye) }
+        }
         stream = nil
         onTelepointers?(nil, nil)
+        resetStreamCursor()
         stats.targetFps = nil
         if !silently { phase = .ended }
     }

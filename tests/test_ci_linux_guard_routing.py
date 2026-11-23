@@ -311,7 +311,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
         self.assertIn(
-            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next') && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
+            "if: ${{ (!cancelled() && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')) && needs.changes.outputs.next_line != 'true' && needs.changes.outputs.macos != 'false') && "
             + LABEL_EVENT_GUARD + " }}",
             block,
         )
@@ -534,7 +534,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_executable_docs_and_unknown_inputs_never_take_docs_shortcut(self):
         for path in (
-            "skills/cmux-cua/AGENTS.md", "docs/cli-contract.md",
+            "skills/cmux-computer-use/AGENTS.md", "docs/cli-contract.md",
             "skills/unknown/SKILL.md", "ghostty", ".gitmodules",
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
             ".github/workflows/ci.yml", "scripts/ci/detect_linux_guard_changes.py",
@@ -559,6 +559,16 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 result = run_guard_status(results={JOBS["submodule_forward_only"]: outcome})
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(f"{JOBS['submodule_forward_only']}: {outcome}", result.stderr)
+        # A feat-cmux-next pull request runs it as the ci/steps.toml step: only there is its skip fine.
+        job = JOBS["submodule_forward_only"]
+        self.assertEqual(run_guard_status(results={job: "skipped"}, event="pull_request",
+                                          base_ref="feat-cmux-next").returncode, 0)
+        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+            with self.subTest(event=event, base_ref=base_ref):
+                self.assertNotEqual(run_guard_status(results={job: "skipped"}, event=event,
+                                                     base_ref=base_ref).returncode, 0)
+        self.assertNotEqual(run_guard_status(results={job: "failure"}, event="pull_request",
+                                             base_ref="feat-cmux-next").returncode, 0)
 
         for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):

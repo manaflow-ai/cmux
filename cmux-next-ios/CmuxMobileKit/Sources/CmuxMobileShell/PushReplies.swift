@@ -17,8 +17,8 @@ extension LiveCoordinator {
     /// headless one a notification reply builds on a cold background launch.
     @MainActor
     static func forAccount(auth: CmuxMobileAuthModel, user: CmuxMobileAuthModel.User, base: URL, store: AppStore,
-                           transport: CmuxMobileModel.TransportKind) -> LiveCoordinator {
-        let api = LiveAPI(baseURL: base) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
+                           transport: CmuxMobileModel.TransportKind, watchesConnectivity: Bool = true) -> LiveCoordinator {
+        let api = LiveAPI(baseURL: base, buildSpace: auth.buildSpace) { [auth] in try await auth.serviceAccessToken(forceRefresh: $0) }
         return LiveCoordinator(
             store: store,
             api: api,
@@ -28,9 +28,10 @@ extension LiveCoordinator {
             transport: transport.link,
             relayOnly: DeveloperOptions.relayOnly,
             blockUDP: DeveloperOptions.blockUDP,
-            dialer: FFIMacLinkDialer(),
+            dialer: FFIMacLinkDialer(buildSpace: Result { try auth.buildSpace.headerValue() }),
             keys: PhoneKeys(userID: user.id),
-            push: PushKeys.current()
+            push: PushKeys.current(),
+            watchesConnectivity: watchesConnectivity
         )
     }
 }
@@ -372,7 +373,8 @@ public final class PushReplies {
         _ = await ObservationWait({ auth.isResolved }, budget: .seconds(3)).value
         guard auth.isSignedIn, let user = auth.user, let base = auth.apiBaseURL else { return nil }
         let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [])
-        let coordinator = LiveCoordinator.forAccount(auth: auth, user: user, base: base, store: store, transport: SettingsStore().transport)
+        let coordinator = LiveCoordinator.forAccount(auth: auth, user: user, base: base, store: store, transport: SettingsStore().transport,
+                                                     watchesConnectivity: false)
         await auth.loadTeams()
         coordinator.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
         return coordinator

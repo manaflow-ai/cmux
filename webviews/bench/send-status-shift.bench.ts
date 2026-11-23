@@ -20,13 +20,22 @@
 //   ui.transcript.send.live_ms         Return to the first frame that paints the running turn's status line.
 //   ui.transcript.send.thought_ms      the first thinking chunk's send (stand-in) to the first frame that paints it (its
 //                                      words, or the row a live thought draws as).
+//   ui.transcript.send.first_thought_ms  Return to the first frame that paints the turn's thinking (Leo, 2026-11-09:
+//                                      "I only started seeing your thinking bit, like, seven seconds in").
+// With `--new-chat` the reader sends from the composer of a pane with no chat yet; the stand-in takes `--start-ms` to
+// start the agent (`session/new`) before the prompt goes. It also reports:
+//   ui.transcript.send.new.places      how many places the sent prompt showed in between the composer and its
+//                                      transcript row (a "sending" row in the composer's queue is one): 0 is one move.
+//   ui.transcript.send.new.user_ms     Return to the first frame that paints the prompt's transcript row.
 // And a log of each jump: its frame, its time since the Return, what moved and by how much.
-//   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--json FILE]
+//   bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms 1500] [--new-chat]
+//     [--start-ms 1500] [--json FILE]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, Page } from "playwright";
 import { scoreBoxFrames, type BoxFrame } from "../src/gallery/shift";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow } from "./perfRow";
@@ -38,8 +47,15 @@ const flag = (name: string) => {
 };
 const ENGINES = (flag("--engines") ?? "chromium,webkit").split(",");
 const THINK_MS = Number(flag("--think-ms") ?? 1500);
+/// The reader starts a new chat from the New Tab page; the agent takes START_MS to start.
+const NEW_CHAT = argv.includes("--new-chat");
+const FIELD = ".acpmux-composer-prompt";
+const START_MS = Number(flag("--start-ms") ?? 1500);
 const JSON_OUT = flag("--json");
-const ROUNDS = Number(argv.find((arg, index) => /^\d+$/.test(arg) && !argv[index - 1]?.startsWith("--")) ?? 3);
+const ROUNDS = Number(
+  argv.find((arg, index) => /^\d+$/.test(arg) && !/^--(engines|think-ms|start-ms|json)$/.test(argv[index - 1] ?? "")) ??
+    3,
+);
 if (!Number.isInteger(ROUNDS) || ROUNDS < 1 || ENGINES.some((name) => name !== "chromium" && name !== "webkit")) {
   console.error("usage: bun bench/send-status-shift.bench.ts [rounds=3] [--engines chromium,webkit] [--think-ms N]");
   process.exit(2);
@@ -66,9 +82,11 @@ const summary = () => ({
   queuePaused: false,
   queued: 0,
   queue: [],
-  turnCount: 4,
+  turnCount: NEW_CHAT ? 0 : 4,
   updatedAt: Date.now(),
 });
+/// A new chat's session exists only once `session/new` answered.
+let created = !NEW_CHAT;
 const update = (body: Record<string, unknown>) => ({
   method: "session/update",
   params: { sessionId: "agent-1", update: body },
@@ -82,7 +100,7 @@ const record = (dir: string, kind: string, msg: Record<string, unknown>): Event 
   events.push(event);
   return event;
 };
-for (let turn = 0; turn < 4; turn++) {
+for (let turn = 0; turn < (NEW_CHAT ? 0 : 4); turn++) {
   record("mux", "user_message", { text: `Check step ${turn + 1} of the retry plan`, promptId: `p-${turn}` });
   record("mux", "turn_started", {});
   record(
@@ -102,7 +120,7 @@ function answer(method: string): unknown {
     case "initialize":
       return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     case "_acpmux/watch":
-      return { sessions: [summary()] };
+      return { sessions: created ? [summary()] : [] };
     case "_acpmux/attach":
       return { session: summary(), lastSeq: opened, events: events.slice(0, opened) };
     case "_acpmux/events":
@@ -179,7 +197,7 @@ async function runTurn(ws: Socket, id: number, promptId: string | undefined) {
 /// Resolves once the transcript's offset and height have held, with nothing in it animating, for 12 painted frames.
 const rest = (page: Page) =>
   page.evaluate(async () => {
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    const scroll = () => document.querySelector<HTMLElement>(".acpmux-scroll");
     const moving = () =>
       document
         .getAnimations()
@@ -190,65 +208,88 @@ const rest = (page: Page) =>
     let last = "";
     for (let held = 0, frames = 0; held < 12 && frames < 600; frames += 1) {
       await window.cmuxPaintFrame();
-      const now = `${scroller.scrollTop}:${scroller.scrollHeight}`;
+      const scroller = scroll();
+      const now = scroller ? `${scroller.scrollTop}:${scroller.scrollHeight}` : "none";
       held = now === last && !moving() ? held + 1 : 0;
       last = now;
     }
   });
 
 export type Sample = { id: string; kind: string; x: number; y: number; width: number; height: number };
-export type Frame = { at: number; rows: Sample[]; thought: boolean; anims: number };
+/// `elsewhere`: the sent prompt's words show outside the transcript and the composer's field (a queued
+/// "sending" row).
+export type Frame = { at: number; rows: Sample[]; thought: boolean; anims: number; elsewhere: boolean };
 /// Samples every row box in the transcript's view, and the composer's, once per painted frame, in the view's
 /// coordinates, with the wall time (Date.now(), the stand-in's clock) of each.
-const startSampling = (page: Page, thoughtText: string) =>
-  page.evaluate((thoughtText) => {
-    const w = window as unknown as { __frames: Frame[]; __stop: () => void };
-    w.__frames = [];
-    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const read = () => {
-      const view = scroller.getBoundingClientRect();
-      const rows: Sample[] = [];
-      for (const row of scroller.querySelectorAll<HTMLElement>("[data-row-id]")) {
-        const box = row.getBoundingClientRect();
-        if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
-        rows.push({
-          id: row.dataset.rowId!,
-          kind: (row.firstElementChild?.className || row.className || "").toString().split(" ")[0] ?? "",
-          x: box.x - view.x,
-          y: box.y - view.y,
-          width: box.width,
-          height: box.height,
+const startSampling = (page: Page, thoughtText: string, promptText: string) =>
+  page.evaluate(
+    ({ thoughtText, promptText }) => {
+      const w = window as unknown as { __frames: Frame[]; __stop: () => void };
+      w.__frames = [];
+      // A new chat's transcript mounts only after the send: read it each frame.
+      const read = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const view = scroller?.getBoundingClientRect() ?? document.body.getBoundingClientRect();
+        const rows: Sample[] = [];
+        // The prompt's words drawn outside the transcript and the composer's own field.
+        let elsewhere = false;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node && !elsewhere; node = walker.nextNode()) {
+          if (!node.textContent?.includes(promptText)) continue;
+          const parent = node.parentElement;
+          if (!parent || scroller?.contains(parent) || parent.closest(".acpmux-composer-prompt")) continue;
+          const box = parent.getBoundingClientRect();
+          elsewhere = box.width > 0 && box.height > 0 && getComputedStyle(parent).visibility !== "hidden";
+        }
+        for (const row of scroller?.querySelectorAll<HTMLElement>("[data-row-id]") ?? []) {
+          const box = row.getBoundingClientRect();
+          if (box.height <= 0 || box.bottom <= view.top || box.top >= view.bottom) continue;
+          rows.push({
+            id: row.dataset.rowId!,
+            kind: (row.firstElementChild?.className || row.className || "").toString().split(" ")[0] ?? "",
+            x: box.x - view.x,
+            y: box.y - view.y,
+            width: box.width,
+            height: box.height,
+          });
+        }
+        const composer = document.querySelector(".acpmux-composer")?.getBoundingClientRect();
+        if (composer)
+          rows.push({
+            id: "composer",
+            kind: "composer",
+            x: composer.x - view.x,
+            y: composer.y - view.y,
+            width: composer.width,
+            height: composer.height,
+          });
+        // Running finite animations (the follow glide, a fold): their frames are motion, not layout jumps.
+        const anims = document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+          ).length;
+        w.__frames.push({
+          at: Date.now(),
+          rows,
+          thought: scroller?.innerText.includes(thoughtText) ?? false,
+          anims,
+          elsewhere,
         });
-      }
-      const composer = document.querySelector(".acpmux-composer")?.getBoundingClientRect();
-      if (composer)
-        rows.push({
-          id: "composer",
-          kind: "composer",
-          x: composer.x - view.x,
-          y: composer.y - view.y,
-          width: composer.width,
-          height: composer.height,
-        });
-      // Running finite animations (the follow glide, a fold): their frames are motion, not layout jumps.
-      const anims = document
-        .getAnimations()
-        .filter(
-          (animation) =>
-            animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
-        ).length;
-      w.__frames.push({ at: Date.now(), rows, thought: scroller.innerText.includes(thoughtText), anims });
-    };
-    read();
-    w.__stop = window.cmuxAfterPaint(() => {
+      };
       read();
-    });
-  }, thoughtText);
+      w.__stop = window.cmuxAfterPaint(() => {
+        read();
+      });
+    },
+    { thoughtText, promptText },
+  );
 const stopSampling = (page: Page) =>
   page.evaluate(() => {
     const w = window as unknown as { __frames: Frame[]; __stop: () => void };
     w.__stop();
-    const box = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+    const box = (document.querySelector<HTMLElement>(".acpmux-scroll") ?? document.body).getBoundingClientRect();
     return { frames: w.__frames, view: { width: box.width, height: box.height } };
   });
 
@@ -259,6 +300,12 @@ export type Round = {
   liveMs: number | null;
   userMs: number | null;
   thoughtMs: number | null;
+  /** The Return to the first frame that paints the thinking. */
+  firstThoughtMs: number | null;
+  /** The Return to the first frame that shows the prompt outside the transcript and composer. */
+  elsewhereMs: number | null;
+  /** How many places the prompt showed between the composer and its transcript row. */
+  places: number;
   liveHeights: number[];
   /** How often the live line changed height between the send and the first thinking chunk: its slot. */
   slotResizes: number;
@@ -341,6 +388,15 @@ export function measure(
     liveMs: live ? live.at - sentAt : null,
     userMs: user ? user.at - sentAt : null,
     thoughtMs: shown && thoughtAt ? shown.at - thoughtAt : null,
+    firstThoughtMs: shown && thoughtAt ? shown.at - sentAt : null,
+    elsewhereMs: (() => {
+      const at = frames.find((frame) => frame.at >= sentAt && frame.elsewhere)?.at;
+      return at === undefined ? null : at - sentAt;
+    })(),
+    // A place: a run of frames in which the prompt shows outside its row, before that row paints.
+    places: frames
+      .filter((frame) => frame.at >= sentAt && (!user || frame.at < user.at))
+      .filter((frame, index, all) => frame.elsewhere && !all[index - 1]?.elsewhere).length,
     liveHeights,
     slotResizes: (() => {
       const heights = frames
@@ -374,13 +430,14 @@ async function round(browser: Browser, url: string): Promise<Round> {
   events.length = opened;
   status = "idle";
   thoughtSentAt = 0;
+  created = !NEW_CHAT;
   const page = await browser.newPage({ viewport: { width: 900, height: 640 } });
   try {
     await installPaintedFrames(page);
     await page.goto(url);
-    await page.locator(".acpmux-composer-prompt").waitFor({ timeout: 60_000 });
-    await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
-    await page.locator(".acpmux-composer-prompt").click();
+    await page.locator(FIELD).waitFor({ timeout: 60_000 });
+    if (!NEW_CHAT) await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
+    await page.locator(FIELD).click();
     await page.keyboard.type(PROMPT);
     await page.mouse.move(0, 0);
     await rest(page);
@@ -390,10 +447,10 @@ async function round(browser: Browser, url: string): Promise<Round> {
         .locator("[data-row-id]")
         .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.rowId!)),
     );
-    await startSampling(page, THOUGHT.split(" ").slice(0, 4).join(" "));
+    await startSampling(page, THOUGHT.split(" ").slice(0, 4).join(" "), PROMPT);
     const sentAt = Date.now();
     await page.keyboard.press("Enter");
-    await sleep(THINK_MS + 200);
+    await sleep((NEW_CHAT ? START_MS : 0) + THINK_MS + 200);
     await turnDone;
     await rest(page);
     await page.waitForTimeout(1000);
@@ -431,7 +488,23 @@ if (import.meta.main) {
             method: string;
             params?: { _meta?: { acpmux?: { promptId?: string } } };
           };
-          if (message.method === "_acpmux/attach") socket = ws;
+          if (message.method === "_acpmux/attach" || message.method === "_acpmux/watch") socket = ws;
+          // A new chat: the agent takes START_MS to start, then the chat exists.
+          if (message.method === "session/new" && message.id !== undefined) {
+            const id = message.id;
+            void sleep(START_MS).then(() => {
+              created = true;
+              ws.send(
+                JSON.stringify({
+                  jsonrpc: "2.0",
+                  method: "_acpmux/session_changed",
+                  params: { sessionId: SESSION, kind: "created", session: summary() },
+                }),
+              );
+              ws.send(JSON.stringify({ jsonrpc: "2.0", id, result: { sessionId: SESSION } }));
+            });
+            return;
+          }
           if (message.method === "session/prompt" && message.id !== undefined) {
             turnDone = runTurn(ws, message.id, message.params?._meta?.acpmux?.promptId);
             return;
@@ -462,7 +535,8 @@ if (import.meta.main) {
       },
     });
     releases.push(["static server", () => statics.stop(true)]);
-    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${SESSION}`;
+    const endpoint = `#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t`;
+    const url = `http://127.0.0.1:${statics.port}/${endpoint}${NEW_CHAT ? `&cwd=${encodeURIComponent("/home/dev/sun")}` : `&session=${SESSION}`}`;
 
     let failed = 0;
     const report: Record<string, Round[]> = {};
@@ -472,9 +546,6 @@ if (import.meta.main) {
       try {
         browser = isChromium
           ? await chromium.launch({
-              ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-                ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-                : { channel: "chrome" }),
               headless: true,
             })
           : await webkit.launch({ headless: true });
@@ -498,21 +569,21 @@ if (import.meta.main) {
       const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)]!;
       const stat = (values: number[]) => ({ p50: median(values), p95: Math.max(...values) });
       console.log(
-        `send-status-shift: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms (p50 median, p95 worst)`,
+        `send-status-shift: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms${NEW_CHAT ? `, new chat, start ${START_MS} ms` : ""} (p50 median, p95 worst)`,
       );
       console.log(
-        "round | jumps | slot resizes | box cls | user ms | live ms | thought ms | live heights | frame p95 ms",
+        "round | jumps | slot resizes | box cls | user ms | live ms | thought ms | first thought ms | elsewhere ms | places | live heights | frame p95 ms",
       );
       for (const [index, r] of rounds.entries())
         console.log(
-          `${index + 1} | ${r.jumps.length} | ${r.slotResizes} | ${r.boxCls.toFixed(4)} | ${r.userMs} | ${r.liveMs} | ${r.thoughtMs} | ${r.liveHeights.join(",")} | ${r.frameP95}`,
+          `${index + 1} | ${r.jumps.length} | ${r.slotResizes} | ${r.boxCls.toFixed(4)} | ${r.userMs} | ${r.liveMs} | ${r.thoughtMs} | ${r.firstThoughtMs} | ${r.elsewhereMs} | ${r.places} | ${r.liveHeights.join(",")} | ${r.frameP95}`,
         );
       for (const jump of rounds.at(-1)!.jumps)
         console.log(
           `  jump frame ${jump.frame} +${jump.ms} ms ${jump.kind} ${jump.id} dx ${jump.dx} dy ${jump.dy} dh ${jump.dh}`,
         );
       if (process.env.SEND_SHIFT_TRACE) for (const line of rounds.at(-1)!.trace) console.log(`  ${line}`);
-      const name = `ui.transcript.send${isChromium ? "" : ".webkit"}`;
+      const name = `ui.transcript.send${NEW_CHAT ? ".new" : ""}${isChromium ? "" : ".webkit"}`;
       perfRow({
         name: `${name}.jumps`,
         ...stat(rounds.map((r) => r.jumps.length)),
@@ -548,8 +619,34 @@ if (import.meta.main) {
         target: 34,
         floor: 17,
       });
+      // The model's own wait (THINK_MS) is the floor; a new chat's start (START_MS) adds to it.
+      perfRow({
+        name: `${name}.first_thought_ms`,
+        ...stat(rounds.map((r) => r.firstThoughtMs ?? 99999)),
+        unit: "ms",
+        target: (NEW_CHAT ? START_MS : 0) + THINK_MS + 34,
+        floor: 17,
+      });
+      perfRow({
+        name: `${name}.user_ms`,
+        ...stat(rounds.map((r) => r.userMs ?? 99999)),
+        unit: "ms",
+        target: 17,
+        floor: 17,
+      });
+      perfRow({
+        name: `${name}.places`,
+        ...stat(rounds.map((r) => r.places)),
+        unit: "count",
+        target: 0,
+        floor: 0.5,
+      });
     }
-    if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify({ thinkMs: THINK_MS, report }, null, 2));
+    if (JSON_OUT)
+      fs.writeFileSync(
+        JSON_OUT,
+        JSON.stringify({ thinkMs: THINK_MS, newChat: NEW_CHAT, startMs: START_MS, report }, null, 2),
+      );
     if (failed) process.exitCode = 1;
   } finally {
     await release();

@@ -33,15 +33,9 @@ final class DensityController {
             notify(DensityStrings.alreadyUsing(name))
             return
         }
-        let densityPath = DensitySetting.configPath, customPath = CustomDensitySelectionSetting.configPath
-        try AppearanceHandlers.requireUnmanaged(densityPath, context)
-        try AppearanceHandlers.requireUnmanaged(customPath, context)
+        try requireUnmanaged()
         design.densityTokens = density
-        if density.isBuiltIn {
-            context.writeSettings("set density", [(densityPath, .string(density.id)), (customPath, nil)], reloadOnFailure: true)
-        } else {
-            context.writeSettings("set custom density", [(customPath, .string(density.id))], reloadOnFailure: true)
-        }
+        context.writeSettings("set density", CustomDensitiesSetting.writes(customs: nil, active: density), reloadOnFailure: true)
     }
 
     /// Makes a custom density from `basedOn` (default: the density in use) named `name`, with
@@ -58,19 +52,27 @@ final class DensityController {
         } else {
             base = design.densityTokens
         }
-        var made = CustomDensitiesSetting.duplicate(base, name: trimmed, existing: design.customDensities)
-        if let fontSize { made = DensityTokens(id: made.id, name: made.name, basedOn: made.basedOn, level: made.level,
-                                                spacing: made.spacing, fontSize: fontSize, tokens: made.tokens) }
-        let listPath = CustomDensitiesSetting.configPath, customPath = CustomDensitySelectionSetting.configPath
-        try AppearanceHandlers.requireUnmanaged(listPath, context)
-        try AppearanceHandlers.requireUnmanaged(customPath, context)
-        let list = design.customDensities + [made]
-        design.customDensities = list
-        design.densityTokens = made
-        context.writeSettings("create density", [(listPath, .array(list.map(CustomDensitiesSetting.json))), (customPath, .string(made.id))],
-                              reloadOnFailure: true)
+        let made = CustomDensitiesSetting.duplicate(base, name: trimmed, fontSize: fontSize, existing: design.customDensities)
+        try requireUnmanaged()
+        persist(customs: design.customDensities + [made], active: made)
         notify(DensityStrings.created(made.name))
         return made
+    }
+
+    /// Applies and saves the custom densities `customs` and `active` as the density in use (New Custom Density and
+    /// the Density Playground); nothing while a policy manages the density keys.
+    func persist(customs: [DensityTokens], active: DensityTokens) {
+        guard (try? requireUnmanaged()) != nil else { return }
+        design.customDensities = customs
+        design.densityTokens = active
+        context.writeSettings("save densities", CustomDensitiesSetting.writes(customs: customs, active: active), reloadOnFailure: true)
+    }
+
+    /// Refuses a change while a policy manages the density keys.
+    func requireUnmanaged() throws {
+        for path in [DensitySetting.configPath, CustomDensitySelectionSetting.configPath, CustomDensitiesSetting.configPath] {
+            try AppearanceHandlers.requireUnmanaged(path, context)
+        }
     }
 
     /// Every density as an argument value: built-ins (localized names), then custom ones.
@@ -80,6 +82,6 @@ final class DensityController {
 
     private static func toast(_ message: String, context: AppActionContext) {
         guard let window = context.services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        _ = CmuxToastCenter.shared.show(CmuxToast(id: "density", message: message, duration: .seconds(3)), in: window)
+        _ = CmuxToastCenter.shared.show(CmuxToast(id: "density", message: message, duration: .seconds(3), keepsDuration: true), in: window)
     }
 }

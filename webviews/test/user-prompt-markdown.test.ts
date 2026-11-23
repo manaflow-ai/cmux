@@ -82,10 +82,8 @@ await requireBrowserLane("user-prompt-markdown.test.ts", async () => {
           };
         });
         // design/transcript-spacing.md "Prompt bubble" (transcriptSpacing.ts BUBBLE): 16 at the
-        // sides, a 12 radius, the block padding what a 44 one-line bubble leaves its line.
-        expect(chrome.padding).toBe(
-          `${(BUBBLE.oneLine - parseFloat(chrome.lineHeight)) / 2}px ${BUBBLE.paddingInline}px`,
-        );
+        // sides, a 12 radius, 10px block padding.
+        expect(chrome.padding).toBe(`10px ${BUBBLE.paddingInline}px`);
         expect(chrome.radius).toBe(`${BUBBLE.radius}px`);
         expect(chrome.width).toBeLessThanOrEqual(630);
         if (plain) {

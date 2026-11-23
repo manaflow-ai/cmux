@@ -26,7 +26,10 @@ use rusqlite::Connection;
 use serde_json::{Map, json};
 
 use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied};
-use cmux_layout_reducer::sidebar_doc::{Doc, Item, Op, PINNED_SECTION_ID, WorkspaceRef};
+use cmux_layout_reducer::sidebar_doc::{
+    Doc, Item, Op, PINNED_SECTION_ID, Target, WorkspaceRef, machine_section_id,
+};
+use cmux_tui_util::user_settings::NewWorkspacePlacement;
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
@@ -135,6 +138,74 @@ pub(crate) fn drop_closed_adopts(
     Ok(())
 }
 
+/// Put another machine's new workspaces where `workspaces.newPlacement` puts
+/// every new workspace: first in their machine section under `top` (the
+/// default) and `afterCurrent` (the current workspace is this machine's),
+/// last under `bottom`. This daemon writes no personal row for another
+/// machine's create, so the app adopts it once it shows live and unplaced;
+/// an adopt with no target placed it at the end of its section (Lawrence
+/// 2026-11-12: "by default all new workspaces should go to the top"). A
+/// machine's first adopt (no section yet) keeps that machine's order. This
+/// machine's own workspaces are placed from their personal rows. The app adopts
+/// every unplaced workspace at once, so one adopt can hold several machines'
+/// refs, or a new one beside one placed already: each machine's new refs are
+/// placed on their own (cmux#47677: such a batch listed a new Cloud workspace last).
+pub(crate) fn place_remote_adopts(
+    connection: &Connection,
+    doc: &Doc,
+    ops: &mut Vec<Op>,
+    placement: NewWorkspacePlacement,
+) -> anyhow::Result<()> {
+    if placement == NewWorkspacePlacement::Bottom
+        || !ops.iter().any(|op| matches!(op, Op::Adopt { to: None, .. }))
+        || !crate::state::store::state_tables_ready(connection)?
+    {
+        return Ok(());
+    }
+    let local = crate::state::values::local_registry_id(connection)?;
+    let mut placed = Vec::with_capacity(ops.len());
+    for op in ops.drain(..) {
+        let refs = match op {
+            Op::Adopt { refs, to: None } => refs,
+            other => {
+                placed.push(other);
+                continue;
+            }
+        };
+        // Each machine's new refs whose section exists go first in it, newest
+        // first as a create lists them (the app adopts in the order the
+        // machine made them); the rest keep the reducer's own placement.
+        let mut rest = Vec::new();
+        let mut firsts: Vec<(String, Vec<WorkspaceRef>)> = Vec::new();
+        for reference in refs {
+            let session = reference.session_id.clone();
+            if session == local
+                || doc.workspace_item(&reference).is_some()
+                || doc.section(&machine_section_id(&session)).is_none()
+            {
+                rest.push(reference);
+            } else if let Some((_, group)) = firsts.iter_mut().find(|(id, _)| *id == session) {
+                group.push(reference);
+            } else {
+                firsts.push((session, vec![reference]));
+            }
+        }
+        if !rest.is_empty() || firsts.is_empty() {
+            placed.push(Op::Adopt { refs: rest, to: None });
+        }
+        for (session, mut refs) in firsts {
+            refs.reverse();
+            let section = machine_section_id(&session);
+            placed.push(Op::Adopt {
+                refs,
+                to: Some(Target { index: Some(0), ..Target::end(&section) }),
+            });
+        }
+    }
+    *ops = placed;
+    Ok(())
+}
+
 /// Whether workspace `id` of this machine closed (its row is tombstoned). An
 /// id the registry does not know is not closed: the reducer decides on it.
 fn is_closed(connection: &Connection, id: &str) -> anyhow::Result<bool> {
@@ -165,6 +236,14 @@ fn touches_pinned(applied: &Applied) -> bool {
         || applied.previous_items.values().flatten().any(was_pinned)
         || applied.changes.sections.iter().any(|section| section.id == PINNED_SECTION_ID)
         || applied.changes.deleted_sections.iter().any(|id| id == PINNED_SECTION_ID)
+}
+
+/// `op`'s wire name (`move`, `item.update`, ...), for the refusal log.
+fn op_kind(op: &Op) -> String {
+    serde_json::to_value(op)
+        .ok()
+        .and_then(|value| value.get("op")?.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 impl Mux {
@@ -211,6 +290,12 @@ impl Mux {
                 store::with_doc_mut(transaction, |doc| {
                     let mut ops = ops_for(transaction, doc)?;
                     drop_closed_adopts(transaction, doc, &mut ops)?;
+                    place_remote_adopts(
+                        transaction,
+                        doc,
+                        &mut ops,
+                        NewWorkspacePlacement::current(),
+                    )?;
                     closes_for_reset(transaction, doc, &mut ops)?;
                     anyhow::ensure!(
                         !reduce::changes_app_kind(doc, &ops),
@@ -219,8 +304,17 @@ impl Mux {
                     );
                     let previous_revision = doc.revision;
                     let mut mint = mint_item_id;
-                    let applied = reduce::apply_in_place(doc, &ops, &mut mint)
-                        .map_err(|refusal| anyhow::anyhow!("bad request: {}", refusal.as_str()))?;
+                    let applied =
+                        reduce::apply_in_place(doc, &ops, &mut mint).map_err(|refusal| {
+                            // The app shows this only for the person's own change; the log keeps every
+                            // refusal with its key and op kinds, so one can be read back after the fact.
+                            let kinds: Vec<String> = ops.iter().map(op_kind).collect();
+                            eprintln!(
+                                "cmux-tui: sidebar change {key} refused: {} (ops {kinds:?})",
+                                refusal.as_str()
+                            );
+                            anyhow::anyhow!("bad request: {}", refusal.as_str())
+                        })?;
                     let result = json!({
                         "revision": doc.revision.to_string(),
                         "inverse": applied.inverse,
@@ -261,16 +355,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Unpin moves a pinned tree, closed members and all, back into its machine
-    /// section; the close that follows removes them and the groups they empty,
-    /// as closing the last workspace does there (a283, pinning-DESIGN.md).
-    #[test]
-    fn unpin_and_reset_close_what_is_not_open() {
-        assert!(returns_closed_items(&[Op::Reset]));
-        assert!(returns_closed_items(&[Op::Unpin { items: vec!["g".into()] }]));
-        assert!(!returns_closed_items(&[Op::Pin { items: vec!["g".into()] }]));
-    }
-}
+#[path = "sidebar_doc_ops_tests.rs"]
+mod tests;

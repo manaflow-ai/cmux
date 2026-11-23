@@ -36,12 +36,11 @@ impl Layout {
         let output = repository
             .run(&arguments, MAX_SMALL_BYTES)
             .map_err(|failure| crate::git_ops::git_failed(operation, &failure))?;
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        let mut lines = text.lines();
-        let (Some(common), Some(own)) = (lines.next(), lines.next()) else {
+        // A folder's name can have a line break: the answer is read as bytes.
+        let Some((common, own)) = cmux_git::two_folders(&output.stdout) else {
             return Err(failed(operation, "git_failed", "git did not name its directories"));
         };
-        let canonical = |path: &str| {
+        let canonical = |path: PathBuf| {
             fs::canonicalize(path)
                 .map_err(|error| failed(operation, "git_failed", error.to_string()))
         };

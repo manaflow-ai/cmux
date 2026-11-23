@@ -16,6 +16,7 @@ import {
   readerScrolled,
   readerSent,
   settleIdle,
+  type IdleMark,
   type ManualMark,
   type PromptScan,
 } from "./jumpUp";
@@ -246,4 +247,116 @@ test("the tracker keeps a chat's stretch after its steps settle, at once on a sw
   } finally {
     jest.useRealTimers();
   }
+});
+
+/// A layout of `rows` (id, version, time, drawn height) for the measure that tells new content from
+/// rows measuring or folding; the place row is first.
+const drawn = (rows: [string, number, number, number][], lastPrompt?: string, now = 1) => {
+  const tops: number[] = [];
+  let total = 0;
+  for (const [, , , height] of rows) {
+    tops.push(total);
+    total += height;
+  }
+  const list = rows.map(([id, version, at]) => ({ id, version, at }));
+  const indexOf = (place: { rowId: string }) => list.findIndex((row) => row.id === place.rowId);
+  return {
+    topOf: (place: { rowId: string; offset: number }) => {
+      const index = indexOf(place);
+      return index >= 0 ? tops[index]! + place.offset : undefined;
+    },
+    totalHeight: total,
+    viewHeight: VIEW,
+    lastPrompt,
+    now,
+    rows: list,
+    heightAt: (index: number) => rows[index]![3],
+    indexOf,
+  };
+};
+
+test("rows measuring taller on a reload, or a section folding and opening, are no new content", () => {
+  let state: IdleMark = { read: { place: { rowId: "r5", offset: 0 } }, prompt: null };
+  // A reload's estimates: then every row below measures to its drawn height, 600 px more in all.
+  state = settleIdle(
+    state,
+    drawn([
+      ["r5", 1, 50, 100],
+      ["a1", 1, 51, 200],
+      ["a2", 1, 52, 200],
+    ]),
+  );
+  state = settleIdle(
+    state,
+    drawn([
+      ["r5", 1, 50, 100],
+      ["a1", 1, 51, 500],
+      ["a2", 1, 52, 500],
+    ]),
+  );
+  expect(state.mark).toBeUndefined();
+  // A section folds away (its rows go) and opens 800 px tall again: its rows keep their times.
+  state = settleIdle(
+    state,
+    drawn([
+      ["r5", 1, 50, 100],
+      ["a2", 1, 52, 500],
+    ]),
+  );
+  state = settleIdle(
+    state,
+    drawn([
+      ["r5", 1, 50, 100],
+      ["a1", 1, 51, 500],
+      ["x1", 1, 51, 800],
+      ["a2", 1, 52, 500],
+    ]),
+  );
+  expect(state.mark).toBeUndefined();
+  // A row that came in since, a screen tall: new content.
+  state = settleIdle(
+    state,
+    drawn(
+      [
+        ["r5", 1, 50, 100],
+        ["a1", 1, 51, 500],
+        ["a2", 1, 52, 500],
+        ["n1", 1, 60, VIEW],
+      ],
+      undefined,
+      9,
+    ),
+  );
+  expect(state.mark).toEqual({ place: { rowId: "r5", offset: 0 }, at: 9, why: "idle" });
+});
+
+test("a reply streaming on (its version moving) counts its growth; a running turn's rows above its live line count", () => {
+  let state: IdleMark = { read: { place: { rowId: "p1", offset: 0 } }, prompt: null };
+  state = settleIdle(
+    state,
+    drawn([
+      ["p1", 1, 10, 80],
+      ["reply", 1, 11, 100],
+      ["live", 1, 11, 40],
+    ]),
+  );
+  state = settleIdle(
+    state,
+    drawn([
+      ["p1", 1, 10, 80],
+      ["reply", 2, 11, 100 + VIEW / 2],
+      ["live", 1, 11, 40],
+    ]),
+  );
+  expect(state.mark).toBeUndefined();
+  state = settleIdle(
+    state,
+    drawn([
+      ["p1", 1, 10, 80],
+      ["reply", 2, 11, 100 + VIEW / 2],
+      ["tool", 1, 12, VIEW / 2],
+      ["live", 1, 11, 40],
+    ]),
+  );
+  expect(state.mark?.place.rowId).toBe("p1");
 });

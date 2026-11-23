@@ -42,8 +42,11 @@ import type {
   HarnessesState,
   HostLists,
   IntegrationsState,
+  KeysState,
   SharesState,
   TailnetState,
+  ModelsState,
+  LibraryListing,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -65,8 +68,16 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Appearance > Customization Library fixture state; default the mock's few entries. */
+  library?: LibraryListing;
+  /** The CLI refuses every library change with this text (a preview is open). */
+  libraryRefusal?: string;
+  /** Settings > Keys fixture state (requests and keys); default the mock's. */
+  keys?: KeysState;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
+  /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
+  models?: ModelsState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Add > Endpoint: what the endpoint lists for Fetch Models and the hello
@@ -188,10 +199,25 @@ type VariantBase = {
   play?: Play;
   /** Variant-specific play thresholds, merged over the entry defaults. */
   checks?: PlayChecks;
+  /** The title area tone the variant is drawn under, over the env's (env.ts TITLE_AREA_TONES): for
+   * a variant that only means something under one tone (a folder tab's join under Subtle Tone). */
+  titleAreaTone?: import("./env").TitleAreaToneName;
+  /** The picture the variant is drawn over when the env sets none (env.ts BACKGROUNDS), or one per scheme: the window
+   * turns see-through as over the user's picture in the app (the theme's tint over it, the pane's inks fit for it), for
+   * a variant that only means something over a picture. A stage that painted its own picture got neither.
+   * `{ dark: "busy", light: "light" }` is the control contrast audit's pairing (test/support/controlContrast.ts): the
+   * wallpaper tint is the theme's whatever the picture (ReadabilityOverArtTests), so a light theme's text is not held
+   * to 4.5:1 over a busy picture. */
+  background?: import("./env").GalleryBackground | Record<"dark" | "light", import("./env").GalleryBackground>;
+  /** A whole look the variant is drawn under (golden/look.ts): its theme file for the env's scheme
+   * over the env's theme, and, in the agent pane, its settings, stylesheet and composer look. */
+  look?: import("./golden/look").GoldenLook;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
 export type AgentPaneVariant = VariantBase & {
+  /** The composer's initial look, before the pane mounts; absent uses the app's default. */
+  composerLook?: import("../agent-session/acpmux/composerLook").ComposerLook;
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
@@ -225,6 +251,10 @@ export type AgentPaneVariant = VariantBase & {
     routeId: string | null;
     fromSessionId: string | null;
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
+    /** Whose credential refused the chat, as acpmux names it. */
+    credential?: "login" | "apiKey" | "cmux";
+    /** The provider id of a refused API key ("opencode-go"). */
+    provider?: string;
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
@@ -256,6 +286,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;
+  /** The mock app's tab strip (mock-app.html): other tabs' titles beside this chat's, in order; the
+   * chat's own tab is the one named by the snapshot's title. */
+  windowTabs?: string[];
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -293,6 +326,9 @@ export type DiffPageVariant = VariantBase & {
   sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** The first diff never arrives (`loading`), or opening it fails with `openError` (`error`). */
+  mode?: "loading" | "error";
+  openError?: { code: string; message: string };
   /** Saved review comments the in-page host lists (`comments.list`). */
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
@@ -318,6 +354,10 @@ export type AppsPageVariant = VariantBase & {
     details: Record<string, AppDetail>;
     installed: Record<string, InstalledApp>;
     grants: Record<string, Grants>;
+    /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+    examples?: boolean;
+    /** Package files `cmux.apps.asset.get` serves (screenshots, icon images), by app and path. */
+    assets?: Record<string, Record<string, string>>;
   };
 };
 
@@ -388,6 +428,8 @@ export type IconPickerPageVariant = VariantBase & {
   /** Saved picker prefs (Frequently Used, skin tone, symbol rendering) the host loads. */
   prefs?: unknown;
   assetState?: "loading" | "error";
+  /** The host refuses the pick (`finish` rejects): the picker stays open and says so. */
+  finishState?: "refused";
   query?: string;
   active?: number;
   mode?: "normal" | "empty";

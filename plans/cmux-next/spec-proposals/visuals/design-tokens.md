@@ -176,8 +176,37 @@ Default density is **compact** (`DesignSettings.swift:25 (DesignSettings.density
 | scrollEdgeFade | 18 | 22 | :91 |
 | panePadding | 2 | 4 | Metrics.swift:91-95 (`Metrics.panePadding`) |
 | divider thickness / hit width | 1 / 7 | 1 / 7 | MetricTunables.swift:107-112 (`MetricTunables.dividerThickness`, `dividerHitWidth`) |
-| tab background inset / content inset | 1 / 8 | 1 / 8 | ChromeTunables.swift:28-31 (`tabBackgroundInset`, `tabContentLeadingInset`) |
+| tab background inset / content inset | 1 / derived | 1 / derived | `tabBackgroundInset` (ChromeTunables.swift); content inset = (tabHeight − iconSize) / 2 + iconSize / 16 on the 2x grid (`Metrics.evenIconLeadingInset`): 6 at a 24 pt tab with a 14 pt icon; was a fixed 8 until 8f32c4613bc |
 | terminal text inset | 4 | 4 | PaneChromeMetrics.swift:46 (`PaneChromeMetrics.terminalTextInset`) |
+
+### Browser chrome: Helium and Chrome source values
+
+The browser pane's tab bar and omnibar are Helium's at Default, the same design at 20 pt rows at Compact, and Chrome's sizes with Helium's shapes at Spacious (Lawrence 2026-11-13, density thread: "Helium is nearly pixel perfect"; "use helium for default, for spacious, still keep helium details, but match chrome's sizing/padding"). Values are read from Helium [a2d96a7](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b) (tag 0.21.3, Chromium 157.0.8103.78) and Chromium [157.0.8103.78](https://github.com/chromium/chromium/tree/157.0.8103.78), and checked against 2x captures of Helium 0.21.3.1 and Chrome 157 on cmux-lawrence-2 ([refs](../../helium-density/refs), [the full table with every source line](../../helium-density/source-values.md)). On-screen numbers are points; "Helium" is its classic horizontal layout.
+
+| item | Helium (Default) | Chrome (Spacious sizes) | measured Helium | source | cmux token |
+|---|---|---|---|---|---|
+| tab pill height | 28 (`kTabHeight` 31 less `kTabStripPadding` 3) | 34 (`kTabHeight` 34 + overlap 1, 6 above) | 28 | [layout-constants.patch](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b/patches/helium/ui/layout-constants.patch), [layout_constants.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/layout_constants.cc#L110) | `browserRowHeight` 28 / 34 |
+| gap above the pills | 3 (`kTabStripPadding` = `kHeliumBasePadding`) | 6 | 3 | layout-constants.patch | `browserRowGap` 3 / 6 |
+| toolbar height | 34 (28 + `TOOLBAR_INTERIOR_MARGIN` VH(3, 6)) | 46 (34 + VH(6, 6)) | 34 | layout-constants.patch, [layout_constants.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/layout_constants.cc#L223) | row + 2 gaps |
+| top chrome above the page | 65 | 86 | 65 | derived | 3 gaps + 2 rows |
+| omnibar height / corner | 28 / 8 | 34 / 17 (capsule) | 28 / 8 | `kLocationBarHeight`, [location-bar.patch](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b/patches/helium/ui/location-bar.patch) | `browserRowHeight`, `chromeRowCornerRadius` (8 on 28) |
+| tab corner | 8 (all corners, no feet) | 10 top only | 8 | [tabs.patch](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b/patches/helium/ui/tabs.patch) | `chromeRowCornerRadius(height:)` 8 on 28 |
+| inactive tab hover | flat fill, corner 8 | flat fill | 8 | tabs.patch | the tab corner |
+| x hover square / corner | 14 / 4 (`RoundRectHighlightPathGenerator`, not concentric) | 16 circle | 14 / 4 | [tabs.patch](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b/patches/helium/ui/tabs.patch#L419), [tab_close_button.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/views/tabs/tab/tab_close_button.cc#L79) | `closeButtonSize` 14 on 28, `closeCornerRadius` 4 on 14 |
+| x ink / stroke | 8 / about 1.5 | 8 / about 1.5 | 8 | [close_tab_chrome_refresh_old.icon](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/app/vector_icons/close_tab_chrome_refresh_old.icon#L5) | `closeGlyphSize` 8 on 28, stroke 1.5 on 8 |
+| x from the pill's end | 6 | 8 | 6 | [tab.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/views/tabs/tab.cc#L536) | `contentTrailingInset` 6 on 28 |
+| x hover / pressed fill | the tab's text color at 16% / 14%, no fade | same | 16% | [tab_close_button.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/views/tabs/tab/tab_close_button.cc#L61) | `Palette` hover fill |
+| favicon / to title | 16 / 6 | 16 / 8 | 16 / 6 | `kTabPreTitlePadding` | `iconSize`, `iconTitleSpacing` |
+| tab title | 12 pt regular | 12 pt regular | | [chrome_typography_provider.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/views/chrome_typography_provider.cc#L69) | tab title font |
+| omnibar text | 14 pt regular | 14 pt regular | | location_bar_view.cc | `OmnibarMetrics.fontSize` |
+| toolbar button / icon / gap | 28 / 20 / 3 | 34 / 20 / 2 | 28 / 3 | `kToolbarButtonHeight`, `TOOLBAR_BUTTON` 4, `kToolbarIconDefaultMargin` | `toolbarButtonSize`, `buttonSpacing` |
+| toolbar button hover corner | 8 | 17 (circle) | 8 | [toolbar.patch](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b/patches/helium/ui/toolbar.patch) | `buttonCornerRadius` |
+| reload to omnibar | 6 (`kLocationBarMargin`) | 9 | 6 | layout-constants.patch | `OmnibarStyle.barMargin` |
+| extension button / icon | 28 / 16 | 34 / 16 | 28 | [extensions_toolbar_desktop.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/views/extensions/extensions_toolbar_desktop.cc#L697) | toolbar button size |
+| extension badge | 14 tall, 9 pt bold, corner 4 | same | | [icon_with_badge_image_source.cc](https://github.com/chromium/chromium/blob/157.0.8103.78/chrome/browser/ui/extensions/icon_with_badge_image_source.cc#L105) | |
+| new tab + | 28 square, corner 8, 3 after the last tab | 28, circle, 6 after | 28 / 8 | [tab-strip-controls.patch](https://github.com/imputnet/helium/blob/a2d96a753a3e9f10e10170615f8eaed6b159e85b/patches/helium/ui/tab-strip-controls.patch) | the tab corner |
+
+Per density (`DensityPreset`): Compact 20 pt rows 2 pt apart, Default 28 on 3, Comfortable 31 on 4, Spacious 34 on 6; every corner and the x take the same share of the row (`HeliumDensityGeometryTests`, `HeliumTabCloseButtonTests`).
 
 Corners come in two shapes, and ports draw each surface with the shape the Swift code uses, pixel for pixel.
 

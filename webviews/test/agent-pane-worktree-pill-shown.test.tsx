@@ -1,7 +1,7 @@
 // The header's worktree pill reads the session host's `git.status` again each time its chat starts
 // or ends a turn (the branch may have changed). A chat nobody looks at ran the same reads: about 50
 // agents that end turns in bursts each ran a git process for a pill no one saw, in front of the
-// `git.status` of the view the person looked at (Lawrence's nightly ef384ddbc64d, 2026-11-11: 49
+// `git.status` of the view the person looked at (the nightly ef384ddbc64d, 2026-11-11: 49
 // `git.status` in 35 minutes, 1.8 s the slowest). A hidden chat's refresh now waits until the chat
 // shows, and then runs once.
 import { afterAll, expect, test } from "bun:test";

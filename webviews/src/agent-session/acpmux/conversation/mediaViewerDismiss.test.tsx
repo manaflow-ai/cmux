@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { VideoViewer } from "../chips/ReplyMedia";
 import { ImageViewer } from "./ImageViewer";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // Base UI's focus code schedules frames that may run after a test: the frame functions stay installed
 // for the whole file, and go when it ends (the frames still pending then are cleared with them).
@@ -16,7 +17,8 @@ const frames = {
   cancelAnimationFrame: globalThis.cancelAnimationFrame,
 };
 installFrames();
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   const globals = globalThis as Record<string, unknown>;
   for (const [key, value] of Object.entries(frames)) {
     if (value === undefined) delete globals[key];
@@ -47,9 +49,10 @@ function installFrames() {
   globals.cancelAnimationFrame ??= (id: number) => clearTimeout(id);
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

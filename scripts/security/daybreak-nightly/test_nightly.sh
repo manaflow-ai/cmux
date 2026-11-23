@@ -12,6 +12,7 @@ cat > "$T/bin/sr" <<'SR'
 #!/bin/bash
 out=""; prev=""; for a in "$@"; do [[ "$prev" == "-o" ]] && out="$a"; prev="$a"; done
 echo "$PWD ${@: -1}" >> "$FAKE_LOG"
+echo "route=${SUBROUTER_CODEX_BASE_URL:-unset} account=${SUBROUTER_CODEX_ACCOUNT_ID:-unset}" >> "$FAKE_LOG"
 printf '# report\nCOUNTS critical=0 high=1 medium=0 low=0\n' > "$out"
 SR
 cat > "$T/bin/cmux" <<'CM'
@@ -44,11 +45,28 @@ grep -q 'lane lanea' "$FAKE_LOG" || fail "lane a (changed) not audited"
 ! grep -q 'lane laneb' "$FAKE_LOG" || fail "lane b (unchanged) was audited"
 [[ "$(cat "$T/state/last-demo.sha")" == "$(git -C "$T/work" rev-parse HEAD)" ]] || fail "state not saved"
 grep -q 'cmux notification create --level error' "$FAKE_LOG" || fail "no notification for a high finding"
+# The worker goes to the cmux-lawrence subrouter, the route that holds the Daybreak account;
+# the machine's default sr server (sr2) does not have it.
+grep -q 'route=http://100.89.225.106:31415/v1 account=lawrence@manaflow.ai' "$FAKE_LOG" || fail "worker not pinned to the cmux-lawrence route"
 [[ "$(stat -f %Lp "$T/state")" == "700" ]] || fail "state dir is not 0700"
 
 : > "$FAKE_LOG"
 bash "$HERE/nightly.sh" 2>/dev/null || fail "second run failed"
 ! grep -q 'demo' "$FAKE_LOG" || fail "second run audited an empty range"
+# A worker that fails fast logs the model error, not a lane timeout, and the state stays put.
+echo 4 > "$T/work/a/x"; git -C "$T/work" -c user.email=t@t -c user.name=t commit -qam "touch a for failure"; git -C "$T/work" push -q origin main
+cat > "$T/bin/sr" <<'SR'
+#!/bin/bash
+echo '{"type":"turn.failed","error":{"message":"unexpected status 503 Service Unavailable: requested account not found"}}'
+exit 1
+SR
+before="$(cat "$T/state/last-demo.sha")"
+if bash "$HERE/nightly.sh" 2>/dev/null; then fail "failed worker run reported success"; fi
+[[ "$(cat "$T/state/last-demo.sha")" == "$before" ]] || fail "state advanced past a failed lane"
+run_log="$(ls "$T"/out/*/run.log | tail -1)"
+grep -q 'requested account not found' "$run_log" || fail "run log does not name the worker's model error"
+! grep -q 'lane timeout' "$run_log" || fail "a fast failure was logged as a lane timeout"
+: > "$run_log"
 # A hung worker is stopped at the lane timeout, the run fails, and the state stays put.
 echo 3 > "$T/work/a/x"; git -C "$T/work" -c user.email=t@t -c user.name=t commit -qam "touch a again"; git -C "$T/work" push -q origin main
 cat > "$T/bin/sr" <<'SR'
@@ -64,6 +82,7 @@ start=$(date +%s)
 if CMUX_DAYBREAK_LANE_TIMEOUT=2 bash "$HERE/nightly.sh" 2>/dev/null; then fail "hung worker run reported success"; fi
 [[ $(( $(date +%s) - start )) -lt 60 ]] || fail "lane timeout did not stop the hung worker"
 [[ "$(cat "$T/state/last-demo.sha")" == "$before" ]] || fail "state advanced past an unaudited range"
+grep -q 'lane timeout' "$run_log" || fail "a hung worker was not logged as a lane timeout"
 sleep 1
 ! kill -0 "$(cat "$FAKE_CHILD")" 2>/dev/null || { kill "$(cat "$FAKE_CHILD")"; fail "the hung worker's child process was left running"; }
 echo "PASS"

@@ -96,7 +96,7 @@ public struct CodeCard: View {
                     .contentShape(.rect)
                     .padding(-6)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel(copied ? "Copied" : "Copy code")
         }
         .foregroundStyle(.secondary)

@@ -41,6 +41,7 @@ impl Hub {
                         harness: m.harness.clone(),
                         state: m.status.to_string(),
                         stuck_reason: None,
+                        cwd: crate::mesh::heartbeat_cwd(&m.cwd.to_string_lossy()),
                         team_address: team_enabled
                             .then(|| {
                                 m.tags
@@ -177,7 +178,7 @@ mod mesh_route_tests {
     fn row(peer: &str, id: &str, name: &str) -> RemoteSession {
         RemoteSession {
             peer: peer.into(),
-            summary: json!({"sessionId": id, "name": name}),
+            summary: json!({"sessionId": id, "name": name}).into(),
             receipt: SessionReceipt {
                 host_id: peer.into(),
                 mux_session_id: id.into(),

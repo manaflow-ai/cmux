@@ -15,7 +15,7 @@ public final class PermissionRequestPanel: NSPanel {
     /// - Parameter card: the card to carry.
     public init(card: PermissionRequestCardView) {
         self.card = card
-        surface = Glass.makeOverlayPanel(content: nil)
+        surface = Glass.makeOverlayPanel(content: nil, cornerRadius: PermissionRequestCardView.cardCornerRadius)
         super.init(contentRect: NSRect(x: 0, y: 0, width: PermissionRequestCardView.width, height: 120),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isOpaque = false

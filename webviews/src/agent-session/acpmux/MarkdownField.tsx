@@ -25,6 +25,7 @@ import {
   wholeSelected,
   withTextMarksEscaped,
 } from "./composer/inlineNode";
+import { inlineCaretPlugin } from "./composer/inlineCaret";
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
@@ -32,13 +33,14 @@ import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from ".
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { spacedAfterDeeplink } from "./composer/deeplinks";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
-import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
+import { MINIMAL_SCROLLER_ATTRIBUTE, SETTLING_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
   Editor,
   defaultValueCtx,
@@ -64,6 +66,7 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
@@ -163,9 +166,10 @@ export type MarkdownFieldHandle = {
   /// The ids of the attachments placed in the text, from its nodes alone (text shaped like a token
   /// is text), in order, each once; undefined before the editor is made.
   inlineIds(): string[] | undefined;
-  /// Writes `/name ` over the `/word` the caret ends (composer/slashTokens.ts), the text around it
+  /// Writes `/name ` (or an extension command's `insert`) over the `/word` the caret ends
+  /// (composer/slashTokens.ts), the text around it
   /// kept, as one undoable edit; false when there is no such word or no editor yet.
-  insertCommand(name: string): boolean;
+  insertCommand(name: string, insert?: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -391,6 +395,42 @@ function spaceAfterPastedLink(view: EditorView, from: number) {
   const next = after?.isText ? after.text!.charAt(0) : after?.type.name === "hardbreak" ? "\n" : "";
   if (spacedAfterDeeplink(before, next, Math.max(0, from - $head.start())) === before) return;
   view.dispatch(view.state.tr.insert($head.pos, view.state.schema.text(" ")).scrollIntoView());
+}
+
+/** Ends the field's current undo group: the next edit starts its own. */
+function endUndoStep(view: EditorView) {
+  if (!view.isDestroyed) view.dispatch(closeHistory(view.state.tr));
+}
+
+/** The paste whose edits are one undo step now (`beginPasteStep`), and the timer that ends it. */
+type PasteStep = { event: Event | undefined; timer: ReturnType<typeof setTimeout> | undefined };
+
+/** A paste as one undo step of its own (https://github.com/manaflow-ai/cmux/issues/49644): three
+ * screenshots pasted one after another went out on one ⌘Z, because the history joins adjacent edits
+ * made within its group delay and each pasted node lands right after the one before it. The group
+ * ends before the paste and again once its event is done, so neither the words typed before it nor
+ * the next paste or key joins it. Every edit made for `event` (ProseMirror's insert after the
+ * handlers return, and the composer's document listener that places the paste's attachments) joins
+ * its step: it ends on a timer, a task later, not in a microtask, which a browser runs between one
+ * native listener and the next (Greptile review). A key (`endPasteStep`) or another paste ends it
+ * sooner. `joins` set: the paste goes in where a chip was just taken out for it (Edit in Prompt),
+ * and joins that removal's step, so one undo brings the chip back. */
+function beginPasteStep(view: EditorView, step: PasteStep, event: Event, joins: { current: boolean }) {
+  if (step.event === event) return;
+  if (step.event) endPasteStep(view, step);
+  step.event = event;
+  if (joins.current) joins.current = false;
+  else endUndoStep(view);
+  step.timer = setTimeout(() => endPasteStep(view, step), 0);
+}
+
+/** Ends the open paste's undo step (`beginPasteStep`), if one is open. */
+function endPasteStep(view: EditorView, step: PasteStep) {
+  if (!step.event) return;
+  step.event = undefined;
+  clearTimeout(step.timer);
+  step.timer = undefined;
+  endUndoStep(view);
 }
 
 /** A paste's plain text inserted as `insertPlain` does, then `spaceAfterPastedLink`. */
@@ -743,6 +783,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const literalNow = useRef(literal);
   // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
   const plainPasteAt = useRef(-Infinity);
+  // The paste event whose edits are one undo step now (`beginPasteStep`).
+  const pasteStep = useRef<PasteStep>({ event: undefined, timer: undefined });
+  // Set when a chip's node went out for what takes its place (`removeInline` with `caret`: Edit in
+  // Prompt, Keep as .txt): the next insert is in the same undo step, so an undo brings the chip back.
+  const joinsStep = useRef(false);
   literalNow.current = literal;
   const plainInputNow = useRef(plainInput || literal);
   plainInputNow.current = plainInput || literal;
@@ -865,8 +910,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       if (attribute === undefined) dom.removeAttribute(name);
       else dom.setAttribute(name, attribute);
   };
+  // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   const showPlaceholder = (markdown: string) => {
-    if (empty.current) empty.current.hidden = markdown !== "";
+    const hide = markdown !== "";
+    if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.
@@ -984,6 +1031,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             props: {
               handleDOMEvents: {
                 keydown: (_view, event) => {
+                  // A key ends the paste before it: what it types is a step of its own.
+                  endPasteStep(_view, pasteStep.current);
+                  joinsStep.current = false;
                   returnTaken = false;
                   // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
                   // the editor's state only at the next selectionchange, a task later. A key that
@@ -1135,8 +1185,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 copy: (editorView, event) => copied(editorView, event, false),
                 cut: (editorView, event) => copied(editorView, event, true),
                 paste: (editorView, event) => {
+                  // A copy made in a composer goes back in by the surface's own plan; a link it ends
+                  // in gets the space every pasted link gets.
+                  const pasteFrom = editorView.state.selection.from;
+                  joinsStep.current = false;
+                  beginPasteStep(editorView, pasteStep.current, event, joinsStep);
                   if (latest.current.onPasteFirst?.(event)) {
                     event.preventDefault();
+                    spaceAfterPastedLink(editorView, pasteFrom);
                     return true;
                   }
                   const data = event.clipboardData;
@@ -1179,6 +1235,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               },
               handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
               handlePaste: (editorView, event, slice) => {
+                beginPasteStep(editorView, pasteStep.current, event, joinsStep);
                 if (literalNow.current) {
                   const data = event.clipboardData;
                   const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
@@ -1429,12 +1486,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(gfm)
         .use(history)
         .use(clipboard)
-        .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
+        .use(
+          placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current), $prose(() => inlineCaretPlugin())] : [],
+        )
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
         // Finds each cmux deeplink, drawn as plain text (composer/deeplinkTokens.ts).
         .use($prose(() => deeplinkTokensPlugin()))
         // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
         .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
+        // `@` mentions as inline chips while the composer refresh is on (composer/mentionChips.ts).
+        .use($prose(() => mentionChipsPlugin()))
         .create()
         .then((made) => {
           if (disposed) {
@@ -1451,7 +1512,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
           tellSlash(view.current.state);
-          if (pendingFocus.current) view.current.focus();
+          if (pendingFocus.current) focusRoute(view.current, "system", "the editor is ready: its pending focus");
           latest.current.onReady?.();
           window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
         });
@@ -1533,7 +1594,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   useEffect(
     () =>
       wrapper.current && typeof ResizeObserver === "function" && typeof MutationObserver === "function"
-        ? followScrollEdges(wrapper.current)
+        ? // No mark while the field settles to a height its draft fits (composer/fieldGrowth.ts).
+          followScrollEdges(wrapper.current, "y", { quietWhile: SETTLING_SCROLLER_ATTRIBUTE })
         : undefined,
     [],
   );
@@ -1685,19 +1747,31 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           insertPlain(view.current, text);
         },
         insertInline: (ids, replace, at) => {
-          if (!view.current) return false;
+          const current = view.current;
+          if (!current) return false;
           refocus.current = null;
-          return insertInline(view.current, ids, replace, at);
+          // Attachments placed outside a paste event (a pasted or dropped picture, once read) are an
+          // undo step of their own too: one ⌘Z takes out the last ones, never the ones before them
+          // or the words typed before them (https://github.com/manaflow-ai/cmux/issues/49644).
+          // "restore" makes no step.
+          if (at === "restore" || pasteStep.current.event) return insertInline(current, ids, replace, at);
+          if (joinsStep.current) joinsStep.current = false;
+          else endUndoStep(current);
+          const went = insertInline(current, ids, replace, at);
+          endUndoStep(current);
+          return went;
         },
         removeInline: (id, caret) => {
-          if (view.current) removeInline(view.current, id, caret);
+          if (!view.current) return;
+          removeInline(view.current, id, caret);
+          joinsStep.current = caret === true;
         },
         plainPaste: () => {
           plainPasteAt.current = performance.now();
         },
-        insertCommand: (name) => {
+        insertCommand: (name, insert) => {
           const current = view.current;
-          const tr = current && commandEdit(current.state, name);
+          const tr = current && commandEdit(current.state, name, insert);
           if (!current || !tr) return false;
           refocus.current = null;
           current.dispatch(tr);

@@ -29,16 +29,21 @@ impl Hub {
             || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
-            || session.queue().iter().any(|q| !q.aside())
+            // What a rate-limit hold (restored first, `rate_hold.rs`) kept queued waits for this
+            // continuation, which folds it into its one turn, as before the restart.
+            || (!Self::rate_held(session) && session.queue().iter().any(|q| !q.aside()))
         {
             return;
         }
         // The journal can be ahead of asynchronously saved session.json after a crash. Read
-        // only to the newest turn boundary; a newer open turn supersedes any earlier retry.
+        // only to the newest turn boundary; a newer open turn supersedes any earlier retry. Both
+        // kinds are in the log's kind copies (`store/kind_index.rs`): a chat whose newest
+        // boundary is far back (a long streamed turn, a watched chat with none) reads its copies,
+        // not its whole log back from the end, at every start (ask-5136ca7948).
         let mut last = None;
         if self
             .store
-            .scan_back(
+            .scan_back_indexed(
                 &session.id,
                 0,
                 u64::MAX,
@@ -99,7 +104,7 @@ impl Hub {
             "auto_resume_exhausted",
             "turn_stop_requested",
         ];
-        let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let scanned = self.scan_for_rebuild(session, &kinds, &mut |e: EventRecord| {
             if matches!(e.kind.as_str(), "queued" | "user_message")
                 && e.msg.pointer("/_meta/provenance/manual") == Some(&Value::Bool(true))
                 && e.msg.pointer("/_meta/provenance/turnId").and_then(Value::as_str)
@@ -383,11 +388,8 @@ impl Hub {
                 }
                 return;
             }
-            let delay = retry.next_at.saturating_sub(crate::hub::now_ms());
-            tokio::select! {
-                () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-                () = wake.notified() => {}
-            }
+            // A restored `rate_limit` wait holds the chat again until its deadline.
+            hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,

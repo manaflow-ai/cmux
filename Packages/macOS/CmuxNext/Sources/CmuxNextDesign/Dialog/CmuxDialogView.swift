@@ -16,7 +16,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     private(set) var buttonViews: [CmuxDialogButtonView] = []
     private var inputs: [String: NSControl] = [:]
     /// Text fields, choices, check boxes, then buttons: the focus order.
-    private(set) var focusables: [NSView] = []
+    var focusables: [NSView] = []
     private let body = NSStackView()
     private let row = NSStackView()
     private(set) var surface: CmuxDialogCardSurface?
@@ -134,7 +134,15 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         return responder === self || responder.isDescendant(of: self)
     }
 
-    @objc private func pressed(_ sender: CmuxDialogButtonView) {
+    /// The drawn button for `id` (a host reads the person's click on it, ``CmuxDialogPersonClick``).
+    public func buttonView(_ id: String) -> CmuxDialogButtonView? { buttonViews.first { $0.button.id == id } }
+
+    /// Enables or disables every button (no second answer while one is on its way).
+    public func setButtonsEnabled(_ enabled: Bool) {
+        for button in buttonViews { button.isEnabled = enabled }
+    }
+
+    @objc func pressed(_ sender: CmuxDialogButtonView) {
         noteEdit()
         dialog.press(sender.button.id)
     }
@@ -176,11 +184,11 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         outer.addArrangedSubview(body)
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
-        let titleFont = Typography.system(.default, size: TypeScale.title, weight: TypeScale.emphasis)
+        let titleFont = Typography.dialogTitle
         let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
         body.addArrangedSubview(title)
         if let origin = spec.origin {
-            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.caption, role: .secondary, width: contentWidth))
+            body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
         }
         if !spec.lines.isEmpty {
             let lines = linesView(width: contentWidth)
@@ -194,13 +202,31 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         for field in spec.fields where !trailing.contains(field) {
             for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
         }
+        if let error = spec.error {
+            let line = label(error, font: Typography.cardBody, role: .danger, width: contentWidth)
+            line.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.error")
+            body.addArrangedSubview(line)
+        }
+        let stacked = spec.layout == .stacked
         for button in spec.buttons {
-            buttonViews.append(CmuxDialogButtonView(button, hint: dialog.hint(for: button), quiet: safeDefault && button.role == .destructive,
+            let quiet = (safeDefault && button.role == .destructive) || (stacked && button.role == .cancel)
+            buttonViews.append(CmuxDialogButtonView(button, hint: dialog.hint(for: button), quiet: quiet,
                                                     keycap: true, target: self, action: #selector(pressed(_:))))
+        }
+        body.setCustomSpacing(CmuxDialogMetrics.buttonsGap, after: body.arrangedSubviews.last ?? title)
+        if stacked {
+            // The default first, the other answers in the spec's order, the cancel answer last (``CmuxDialogSpec/Layout/stacked``).
+            let order: (CmuxDialogButtonView) -> Int = { $0.button.role == .default ? 0 : $0.button.role == .cancel ? 2 : 1 }
+            let stack = buttonViews.enumerated().sorted { (order($0.element), $0.offset) < (order($1.element), $1.offset) }.map(\.element)
+            Self.fillStack(row, stack, width: contentWidth)
+            body.addArrangedSubview(row)
+            focusables += stack
+            chainKeyViews()
+            finish(outer: outer, padding: padding, cardWidth: cardWidth, trailing: [])
+            return
         }
         let main = buttonViews.filter { !$0.isQuiet }
         Self.fillButtonRow(row, main, width: contentWidth)
-        body.setCustomSpacing(CmuxDialogMetrics.buttonsGap, after: body.arrangedSubviews.last ?? title)
         body.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
         // Tab follows what the person sees: left to right on one line, top to bottom when stacked.
@@ -212,10 +238,15 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             body.addArrangedSubview(quietRow)
             focusables += quiet
         }
-        for field in trailing {
-            for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
-        }
+        // The check boxes join the focus order after the buttons, as they show.
+        let trailingViews = trailing.flatMap { fieldViews($0, width: contentWidth) }
         chainKeyViews()
+        finish(outer: outer, padding: padding, cardWidth: cardWidth, trailing: trailingViews)
+    }
+
+    /// Adds `trailing` (a safe-default dialog's check boxes) under the buttons and puts the card on its glass.
+    private func finish(outer: NSStackView, padding: CGFloat, cardWidth: CGFloat, trailing: [NSView]) {
+        for view in trailing { body.addArrangedSubview(view) }
         // A horizontal stack aligned to the top keeps its top inset but not its bottom one: hold each arranged
         // view above it, or the buttons sit on the card's bottom edge.
         for view in outer.arrangedSubviews {
@@ -225,7 +256,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         let content = NSView()
         content.addSubview(outer)
         // The card keeps the key-window glass while it fades out (debug.dialog_strip).
-        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook)
+        let surface = CmuxDialogCardSurface(content: content, activeLook: dialog.activeLook, usesTransientMaterial: spec.usesTransientMaterial)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         self.surface = surface
@@ -245,14 +276,14 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The lines; a long message (an import preview) scrolls in a box of bounded height, so the buttons stay on screen.
     private func linesView(width: CGFloat) -> NSView {
-        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.body, role: .secondary, width: width) })
+        let lines = NSStackView(views: spec.lines.map { label($0, font: Typography.cardMessage, role: .secondary, width: width) })
         lines.orientation = .vertical
         lines.alignment = .leading
         lines.spacing = Metrics.space2
         lines.translatesAutoresizingMaskIntoConstraints = false
         guard spec.lines.count > CmuxDialogMetrics.scrollingLineCount
             || spec.lines.reduce(0, { $0 + $1.count }) > CmuxDialogMetrics.scrollingCharacterCount else { return lines }
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -266,7 +297,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             lines.topAnchor.constraint(equalTo: clip.topAnchor),
             lines.widthAnchor.constraint(equalToConstant: width),
             scroll.widthAnchor.constraint(equalToConstant: width),
-            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.body, spacing: lines.spacing)),
+            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.cardMessage, spacing: lines.spacing)),
             fit,
         ])
         return scroll
@@ -304,6 +335,19 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         }
     }
 
+    /// A stacked dialog's buttons (``CmuxDialogSpec/Layout/stacked``): one under another, each `width` wide.
+    private static func fillStack(_ row: NSStackView, _ buttons: [CmuxDialogButtonView], width: CGFloat) {
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.orientation = .vertical
+        row.alignment = .leading
+        row.spacing = Metrics.space2
+        for button in buttons {
+            row.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: width).isActive = true
+        }
+        row.widthAnchor.constraint(equalToConstant: width).isActive = true
+    }
+
     /// A safe-default dialog's destructive choices: quiet text buttons, leading, on one line when they fit in
     /// `width`, else one under another; never the card's width (they are not the answer to reach for).
     private static func quietRow(_ buttons: [CmuxDialogButtonView], width: CGFloat) -> NSStackView {
@@ -323,18 +367,23 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         }
     }
 
-    private enum TextRole { case primary, secondary }
+    enum TextRole { case primary, secondary, danger }
 
     /// A themed label: it re-reads its ink in the scope it draws in (on joining a window and on every theme
     /// change), never the scope it was built in.
-    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
+    func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
         let label = ThemedLabel(wrappingLabelWithString: text)
         label.font = font
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
         label.focusRingType = .none
         // Fitted to the dialog's glass card, as its buttons are (GlassTextEveryThemeTests).
-        label.themeColor = role == .primary ? { Palette.sheetText(.primary) } : { Palette.sheetText(.secondary) }
+        switch role {
+        case .primary: label.themeColor = { Palette.sheetText(.primary) }
+        case .secondary: label.themeColor = { Palette.sheetText(.secondary) }
+        // The quiet destructive button's ink: the danger color fit to 4.5:1 on the card.
+        case .danger: label.themeColor = { Self.dangerInk() }
+        }
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
     }
@@ -343,7 +392,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
             let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
-            input.font = Typography.body
+            input.font = Typography.cardMessage
             input.placeholderString = placeholder
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
@@ -371,16 +420,20 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             return captioned(caption, popup, width: width)
         case .check(let id, let title, _):
             let check = ThemedCheckbox(checkboxWithTitle: title, target: self, action: #selector(controlChanged(_:)))
-            check.font = Typography.body
+            check.font = Typography.cardMessage
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             register(check, id: id)
             return [check]
-        case .preview(let text):
-            let preview = label(text, font: Typography.system(.monospaced, size: TypeScale.body), role: .primary, width: width)
-            preview.maximumNumberOfLines = 8
-            preview.lineBreakMode = .byTruncatingTail
-            return [preview]
+        case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps:
+            return readOnlyFieldViews(field, width: width)
         }
+    }
+
+    /// The danger ink as the quiet destructive button draws it: fit to 4.5:1 on the card. Call in the theme scope.
+    static func dangerInk() -> NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return CmuxDialogButtonLook(role: .destructive, tokens: tokens, quiet: true,
+                                    card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value)).title.nsColor
     }
 
     private func register(_ control: NSControl, id: String) {
@@ -388,9 +441,9 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         focusables.append(control)
     }
 
-    private func captioned(_ caption: String?, _ view: NSView, width: CGFloat) -> [NSView] {
+    func captioned(_ caption: String?, _ view: NSView, width: CGFloat) -> [NSView] {
         guard let caption else { return [view] }
-        return [label(caption, font: Typography.caption, role: .secondary, width: width), view]
+        return [label(caption, font: Typography.cardBody, role: .secondary, width: width), view]
     }
 }
 

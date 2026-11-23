@@ -31,7 +31,6 @@ FAILURES = []
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish", "publish-windows", "publish-tree", "publish-tree-tested", "point-feat-channel", "mark-tree-commits"],
-    "dogfood-artifact-publish.yml": ["publish"],
 }
 ARTIFACT_SECRETS = {
     "CF_R2_ACCESS_KEY_ID",
@@ -53,7 +52,6 @@ RELEASE_JOBS = {
     "ios-app-store.yml": ["upload-and-validate"],
     "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],
-    "repair-v0-64-25-helper-rpaths.yml": ["repair"],
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
 }

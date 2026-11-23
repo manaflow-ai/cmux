@@ -7,8 +7,11 @@
 //! renaming never wait for a disk sync. A kept change's records are `Stream` records, which the
 //! journal writes in its next batch: a line that shows the change waits for that write (a kill
 //! -9 of every process then keeps it). They are appended as kept records
-//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (10 ms with no
-//! record), with the next acknowledged batch, or the stream sync delay (1 s) later, whichever
+//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (500 ms with no
+//! record: longer than the gap between two typed keys, so typing costs about two syncs a second, a
+//! barrier and a full one,
+//! rather than one per key, cmuxterm-hq#11322), with the next acknowledged batch (a send), or the
+//! stream sync delay (1 s) later, whichever
 //! comes first; so an OS crash or a power loss takes back at most that last second of drafts and
 //! names, always a suffix, and the next acknowledged change (a prompt) does not sync a burst of
 //! them in its turn (probe job 01189fd6: 316 records, 1.17 MB, 7.3 ms). Before (journal on,
@@ -42,6 +45,9 @@ pub struct Durability {
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
     pub written: tokio::sync::watch::Receiver<u64>,
+    /// Asks the journal to sync through an LSN now (`cmux_journal::Journal::ask_durable`): a
+    /// connection holds a line until it is durable (`server/durable_gate.rs`).
+    pub ask: Arc<dyn Fn(u64) + Send + Sync>,
     /// Called with how long a line has waited each time it waits another stall interval for the
     /// journal (`server/durable_gate.rs`). When the journal's writer is failing (a write or sync
     /// returned an error: it retries without end) the store asks the daemon to stop for a restart
@@ -63,7 +69,8 @@ pub(crate) fn streamed(record: &EventRecord) -> bool {
 pub(crate) enum RecordClass {
     /// Agent output: shown at once, raises no gate (C4).
     Stream,
-    /// The line of a kept change (a chat's `renamed`): shown once written ([`ShowAfter::Written`]).
+    /// The line of a kept change (a chat's `renamed`, and the `titled` a rename writes with it):
+    /// shown once written ([`ShowAfter::Written`]), so a rename never waits for the disk.
     Kept,
     /// Every other line: shown once durable.
     Acked,
@@ -72,7 +79,7 @@ pub(crate) enum RecordClass {
 pub(crate) fn record_class(record: &EventRecord) -> RecordClass {
     if agent_output(record) {
         RecordClass::Stream
-    } else if record.dir == "mux" && record.kind == "renamed" {
+    } else if record.dir == "mux" && matches!(record.kind.as_str(), "renamed" | "titled") {
         RecordClass::Kept
     } else {
         RecordClass::Acked

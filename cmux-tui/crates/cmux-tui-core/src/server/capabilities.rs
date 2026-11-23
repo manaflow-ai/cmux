@@ -59,10 +59,17 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_FORK_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SIDE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_ATTENTION_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_SETTINGS_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_LOGIN_MACHINE_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_CONTEXT_CAPABILITY);
+        capabilities.push(agent_session_attach::member::AGENT_SESSION_STEER_CAPABILITY);
+        capabilities.push(agent_session_attach::member::AGENT_SESSION_QUEUE_DECISION_CAPABILITY);
+        capabilities.push(agent_session_attach::member::AGENT_SESSION_MEMBER_CAPABILITY);
         capabilities.push(agent_session_attach::AGENT_SESSION_BTW_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PAGE_BYTES_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -84,6 +91,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODEL_CAPABILITY);
+        // The start takes `permission_mode` wherever it is served; only a start on the caller's
+        // own Cloud VM acts on it (agent_session_start.rs `start_policy`).
+        capabilities.push(AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_MODE_CAPABILITY);
         // A phone's channel (hostd's `cloud-acpmux`) is enforced here: the carrier's signed
         // owner role (carrier_role.rs), the phone floor on its start (agent_session_start.rs)
@@ -94,6 +104,12 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_owner_cloud_start() {
         capabilities.push(AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY);
+        // The owner's model credential with the start and its refresh (agent_session_start.rs).
+        capabilities.push(AGENT_SESSION_START_CREDENTIALS_CAPABILITY);
+        // A Codex credential's provider reaches app-server (acpmux agent_credentials.rs, cmux#45774).
+        capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
+        // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
+        capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -223,6 +239,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
+            && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != BROWSER_RUNTIME_CAPABILITY
     });
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -252,6 +269,7 @@ pub(super) fn advertised_capabilities(
         creating_input::CREATING_INPUT_CANCEL_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
+        send_once::SEND_KEY_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -268,6 +286,8 @@ pub(super) fn advertised_capabilities(
         DOCK_COLUMN_SPLIT_DOWN_CAPABILITY,
         ROWS_CAPABILITY,
         rows::ROW_CLIENT_KEYS_CAPABILITY,
+        floating_panes::FLOATING_PANES_CAPABILITY,
+        floating_panes::QUICK_TERMINAL_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         split_kind::COLUMN_LEFT_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
@@ -283,12 +303,19 @@ pub(super) fn advertised_capabilities(
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
         SIZE_LEASE_CAPABILITY,
+        SIZE_LEASE_V2_CAPABILITY,
         crate::mux::host_policy::HOST_SIZE_POLICY_CAPABILITY,
         HOST_GRID_VIEW_CAPABILITY,
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
+        TERMINAL_RESUME_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
+        ATTACH_OUTPUT_COALESCE_CAPABILITY,
+        AGENT_CLI_HYBRID_CAPABILITY,
+        AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+        TERMINAL_SHELL_LINES_CAPABILITY,
+        ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
         terminal_snapshot::ATTACH_VISIBILITY_CAPABILITY,
         terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
@@ -306,12 +333,14 @@ pub(super) fn advertised_capabilities(
         TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         DAEMON_SHUTDOWN_RESTART_CAPABILITY,
+        DAEMON_STOP_IF_IDLE_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
         TERMINAL_TAIL_PIN_CAPABILITY,
         TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY,
         RESUME_COMMAND_CAPABILITY,
         TERMINAL_LAST_COMMAND_CAPABILITY,
+        TERMINAL_COMMAND_CONTEXT_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -330,6 +359,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
         WORKSPACE_SIDEBAR_PLACEMENT_CAPABILITY,
         WORKSPACE_CREATED_BY_CAPABILITY,
+        CREATED_BY_DETAIL_CAPABILITY,
         TERMINAL_READ_UNWRAP_CAPABILITY,
         TERMINAL_WAIT_NEW_CAPABILITY,
         TERMINAL_EXIT_STATUS_CAPABILITY,
@@ -358,6 +388,7 @@ pub(super) fn advertised_capabilities(
         BOOKMARKS_CAPABILITY,
         BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
+        crate::mux::settings::SETTINGS_EDIT_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         crate::feed_client::FEED_CLIENT_CAPABILITY,
@@ -367,6 +398,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
+        SCREEN_DEVICE_IDENTITY_CAPABILITY,
         TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
@@ -374,6 +406,9 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
+        conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
+        conversations::HOME_INBOX_SINCE_CAPABILITY,
+        conversations::HOME_INBOX_WINDOW_CAPABILITY,
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY,
         conversation_live::CHIEF_LIVE_CAPABILITY,
@@ -396,6 +431,8 @@ pub(super) fn advertised_capabilities(
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        LIST_WORKSPACES_KNOWN_CAPABILITY,
+        LIST_WORKSPACES_LIMIT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         TERMINAL_STATE_CAPABILITY,
@@ -403,6 +440,7 @@ pub(super) fn advertised_capabilities(
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::launch_credential::LAUNCH_CREDENTIAL_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::home_store::WORKSPACE_RECOVERED_CAPABILITY,
         crate::state::app_workspaces::APP_SCREENS_CAPABILITY,
         crate::state::agent_folder::CAPABILITY,
         crate::state::agent_start::CAPABILITY,
@@ -425,7 +463,9 @@ pub(super) fn advertised_capabilities(
         crate::state::classic_import_router::CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
         crate::resource_router::palette_rank::CAPABILITY,
+        crate::resource_router::browser_import::CAPABILITY,
         crate::resource_router::palette_rank::BATCH_CAPABILITY,
+        crate::resource_router::theme_scheme::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
@@ -452,6 +492,7 @@ pub(super) fn advertised_capabilities(
         crate::history_ops::CAPABILITY,
         crate::history_ops::CLEAR_UNTIL_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::FINGERPRINT_CAPABILITY,
         crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::COMMIT_CAPABILITY,
         crate::git_ops::PUSH_CAPABILITY,
@@ -459,14 +500,17 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::git_ops::DIFF_COMMENTS_CAPABILITY,
+        crate::git_ops::DIFF_COMMENTS_SEND_CAPABILITY,
         crate::git_ops::WORKTREE_SETUP_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::remote_host::REMOTE_HOST_CAPABILITY,
+        crate::computer_use_host::COMPUTER_USE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
+        crate::mux::tab_strip::tab_place::CAPABILITY,
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
     ];
@@ -476,6 +520,7 @@ pub(super) fn advertised_capabilities(
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
     capabilities.extend(crate::apps::advertised_capabilities());
+    capabilities.extend(crate::device_setup::advertised());
     #[cfg(unix)]
     capabilities.extend(crate::fs_ops::advertised());
     #[cfg(unix)]
@@ -483,68 +528,16 @@ pub(super) fn advertised_capabilities(
     #[cfg(unix)]
     capabilities.extend(crate::blob_fetch::advertised());
     #[cfg(unix)]
+    capabilities.extend(crate::projection::advertised());
+    #[cfg(unix)]
     capabilities.push(BROWSER_RUNTIME_CAPABILITY);
     #[cfg(unix)]
     capabilities.push(crate::shell_runs::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::language_packs::CAPABILITY);
     capabilities
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{SurfaceOptions, start_terminal_reaper};
-
-    /// A client decides from `identify` whether closing a tab may only
-    /// detach its terminal: that is safe only while the reaper runs.
-    #[test]
-    fn identify_advertises_the_reaper_only_while_it_runs() {
-        let mux = Mux::new_for_test("reaper-capability", SurfaceOptions::default());
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
-        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        let reaper = start_terminal_reaper(&mux).unwrap();
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        reaper.stop();
-        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
-    }
-
-    /// The server answers `identify` from its attach, and the owner started
-    /// its reaper only later: a client that identified in between saw an
-    /// owner without a reaper (main #39586 on macOS). An owner that announced
-    /// its reaper lists the capability from the start; a stopped reaper ends
-    /// the announcement.
-    #[test]
-    fn identify_lists_an_announced_reaper_before_it_starts() {
-        let mux = Mux::new_for_test("reaper-announced", SurfaceOptions::default());
-        mux.announce_terminal_reaper();
-        assert!(
-            identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
-            "an owner that starts its reaper after its attach answered identify without \
-             terminal-reaper-active-v1 before the reaper thread ran"
-        );
-        let reaper = start_terminal_reaper(&mux).unwrap();
-        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
-        reaper.stop();
-        assert!(
-            !identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY),
-            "a stopped reaper is still advertised"
-        );
-    }
-
-    /// `cmux-tui capabilities` names only what `identify` always serves: a
-    /// daemon with nothing installed at startup advertises every one of them.
-    #[test]
-    fn identify_serves_every_static_capability() {
-        let mux = Mux::new_for_test("static-capabilities", SurfaceOptions::default());
-        let identified = identify_capabilities(&mux);
-        let listed = static_capabilities();
-        assert!(listed.contains(&conversations::WS_CONVERSATIONS_CAPABILITY));
-        assert!(listed.contains(&page_credential::PAGE_CREDENTIAL_CAPABILITY));
-        for capability in &listed {
-            assert!(identified.contains(capability), "identify lacks {capability}");
-        }
-        assert!(listed.windows(2).all(|pair| pair[0] < pair[1]), "sorted and unique: {listed:?}");
-        assert!(!listed.contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY), "runtime-only");
-        assert!(listed.contains(&TERMINAL_CLOSE_IF_UNPLACED_CAPABILITY), "static");
-    }
-}
+#[path = "capabilities_tests.rs"]
+mod tests;

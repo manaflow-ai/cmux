@@ -1,15 +1,16 @@
 //! What `daemon status` says about the daemon's own cost (`gauges` in `_acpmux/status`): how long
-//! each startup phase took, its resident memory, and how often it rebuilt a whole session list,
-//! with the bytes queued for each connection (`server/queue_gauge.rs`) beside them.
+//! each startup phase took and its resident memory, with the bytes queued for each connection
+//! (`server/queue_gauge.rs`) beside them. No whole session list is built any more (a list reply
+//! costs its page or its changes, `hub/row_log.rs`), so none is counted.
 //!
 //! On 2026-11-12 a daemon on Leo's Mac grew to 11 GB within 15 minutes of its start, took 93 s
 //! from socket-ready to "agents may spawn", and nothing it answered said which phase or which
 //! queue held the time or the memory (rework finding E3, `docs/design/acpmux-otp-rework.md`).
 //! Every gauge here is a few atomics or a short lock that no request holds, so `daemon status`
-//! reads them even while startup or a list build runs.
+//! reads them even while startup runs.
 
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, VecDeque};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -19,20 +20,13 @@ pub fn global() -> &'static Gauges {
     GAUGES.get_or_init(Gauges::new)
 }
 
-/// How far back "list rebuilds per minute" looks.
-const MINUTE: Duration = Duration::from_secs(60);
-
 /// The most startup phases kept: a daemon has about 15; a test process starts many hubs.
 const PHASES: usize = 64;
-
-/// The most whole-list variants (`Snapshot::made` names) kept by name.
-const VARIANTS: usize = 32;
 
 pub struct Gauges {
     /// The first touch: `daemon::run` reads [`global`] first, so this is the daemon's start.
     born: Instant,
     phases: Mutex<Vec<Phase>>,
-    lists: Mutex<Lists>,
 }
 
 #[derive(Clone)]
@@ -42,19 +36,6 @@ struct Phase {
     at_ms: u64,
     /// Its length; None while it runs. A mark is a phase of 0 ms.
     ms: Option<u64>,
-}
-
-#[derive(Default)]
-struct Lists {
-    total: u64,
-    /// The start of each rebuild within the last [`MINUTE`].
-    recent: VecDeque<Instant>,
-    last_rows: usize,
-    last_bytes: usize,
-    last_build_us: u64,
-    max_build_us: u64,
-    /// Each whole-list variant made from a snapshot (`own masked`, `acp`, ...): count and bytes.
-    variants: BTreeMap<&'static str, (u64, u64)>,
 }
 
 /// A running phase: its length is recorded when this drops.
@@ -80,7 +61,7 @@ fn millis(d: Duration) -> u64 {
 
 impl Gauges {
     fn new() -> Self {
-        Self { born: Instant::now(), phases: Mutex::default(), lists: Mutex::default() }
+        Self { born: Instant::now(), phases: Mutex::default() }
     }
 
     /// A startup phase begins now; it ends when the guard drops.
@@ -103,73 +84,255 @@ impl Gauges {
         phases.push(Phase { name, at_ms: millis(self.born.elapsed()), ms: Some(0) });
     }
 
-    /// A whole session list was built (`hub/list_guard.rs`): `rows` rows, `bytes` of text.
-    pub fn list_rebuilt(&self, rows: usize, bytes: usize, build: Duration) {
-        let now = Instant::now();
-        let mut lists = self.lists.lock().unwrap_or_else(PoisonError::into_inner);
-        lists.total += 1;
-        lists.recent.push_back(now);
-        while lists.recent.front().is_some_and(|at| now.duration_since(*at) > MINUTE) {
-            lists.recent.pop_front();
-        }
-        let us = u64::try_from(build.as_micros()).unwrap_or(u64::MAX);
-        (lists.last_rows, lists.last_bytes, lists.last_build_us) = (rows, bytes, us);
-        lists.max_build_us = lists.max_build_us.max(us);
-    }
-
-    /// A whole-list variant `name` of `bytes` was made from a snapshot (`Snapshot::made`).
-    pub fn list_variant(&self, name: &'static str, bytes: usize) {
-        let mut lists = self.lists.lock().unwrap_or_else(PoisonError::into_inner);
-        if lists.variants.len() >= VARIANTS && !lists.variants.contains_key(name) {
-            return;
-        }
-        let entry = lists.variants.entry(name).or_default();
-        entry.0 += 1;
-        entry.1 += bytes as u64;
-    }
-
     /// `gauges` in `_acpmux/status`, but for the connections' queues, which the server adds.
     pub fn status(&self) -> Value {
         let phases: Vec<Value> = {
             let phases = self.phases.lock().unwrap_or_else(PoisonError::into_inner);
             phases.iter().map(|p| json!({"name": p.name, "atMs": p.at_ms, "ms": p.ms})).collect()
         };
-        let lists = {
-            let mut lists = self.lists.lock().unwrap_or_else(PoisonError::into_inner);
-            let now = Instant::now();
-            while lists.recent.front().is_some_and(|at| now.duration_since(*at) > MINUTE) {
-                lists.recent.pop_front();
-            }
-            let variants: serde_json::Map<String, Value> = lists
-                .variants
-                .iter()
-                .map(|(name, (count, bytes))| {
-                    ((*name).to_owned(), json!({"made": count, "bytes": bytes}))
-                })
-                .collect();
-            json!({
-                "total": lists.total,
-                "lastMinute": lists.recent.len(),
-                "lastRows": lists.last_rows,
-                "lastBytes": lists.last_bytes,
-                "lastBuildUs": lists.last_build_us,
-                "maxBuildUs": lists.max_build_us,
-                "variants": variants,
-            })
-        };
         json!({
             "uptimeMs": millis(self.born.elapsed()),
             "startup": phases,
             "memory": memory(),
-            "listRebuilds": lists,
+            "peerLists": peer_lists().status(),
+            "recordWrites": record_writes().status(),
+            "attach": attach_latency().status(),
+            "fanout": fanout_status(),
         })
+    }
+}
+
+/// The time chats' records take to be written (`Hub::write_record_locked`): the store's append
+/// alone, and the whole write from its sequence number to its event on the hub's channel. Totals
+/// only, so a reader takes the difference across a window (the turn bench,
+/// `benches/turn_overhead.rs`, reads it around each turn).
+pub fn record_writes() -> &'static RecordWrites {
+    static WRITES: OnceLock<RecordWrites> = OnceLock::new();
+    WRITES.get_or_init(RecordWrites::default)
+}
+
+#[derive(Default)]
+pub struct RecordWrites {
+    records: AtomicU64,
+    store_ns: AtomicU64,
+    write_ns: AtomicU64,
+}
+
+impl RecordWrites {
+    /// One record written: `store` in the store's append, `write` in all.
+    pub fn note(&self, store: Duration, write: Duration) {
+        let nanos = |d: Duration| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX);
+        self.records.fetch_add(1, Ordering::Relaxed);
+        self.store_ns.fetch_add(nanos(store), Ordering::Relaxed);
+        self.write_ns.fetch_add(nanos(write), Ordering::Relaxed);
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "records": self.records.load(Ordering::Relaxed),
+            "storeNs": self.store_ns.load(Ordering::Relaxed),
+            "writeNs": self.write_ns.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// Peers' lists (whole, or a follow's patch) a link handed the hub's one notice loop that it has
+/// not taken yet: counted by the link that sends one (`peer_runtime_io.rs`) and by the loop that
+/// takes it (`hub/peer_grace.rs`). The hub's notice channel is bounded by notices, not bytes, so a
+/// loop slower than the lists coming in holds every one of them.
+pub fn peer_lists() -> &'static PeerLists {
+    static LISTS: OnceLock<PeerLists> = OnceLock::new();
+    LISTS.get_or_init(PeerLists::default)
+}
+
+#[derive(Default)]
+pub struct PeerLists {
+    lists: AtomicU64,
+    bytes: AtomicU64,
+    peak_lists: AtomicU64,
+    peak_bytes: AtomicU64,
+}
+
+impl PeerLists {
+    /// A list of `bytes` of row text is on its way into the queue.
+    pub fn queued(&self, bytes: u64) {
+        let lists = self.lists.fetch_add(1, Ordering::Relaxed) + 1;
+        let bytes = self.bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        self.peak_lists.fetch_max(lists, Ordering::Relaxed);
+        self.peak_bytes.fetch_max(bytes, Ordering::Relaxed);
+    }
+
+    /// The loop took a list of `bytes`. Saturating: a test may send a list no link counted.
+    pub fn taken(&self, bytes: u64) {
+        let less = |by: u64| move |v: u64| Some(v.saturating_sub(by));
+        let _ = self.lists.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(1));
+        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, less(bytes));
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "lists": self.lists.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+            "peakLists": self.peak_lists.load(Ordering::Relaxed),
+            "peakBytes": self.peak_bytes.load(Ordering::Relaxed),
+        })
+    }
+}
+
+/// How many recent samples a [`Latencies`] ring keeps.
+pub const LATENCY_RING: usize = 1024;
+
+/// The last [`LATENCY_RING`] latencies of one kind, in microseconds: a fixed ring of atomics, so
+/// a sample is one `fetch_add` and one store (no lock, no allocation) and `daemon status` reads
+/// it while samples land. A read racing a store may see that one slot's old or new value.
+///
+/// Leo, 2026-11-19: "a couple thousand f***ing sessions across VMs talking to [the hub machine]": these
+/// rings say whether opening a chat and fanning a chat's change out stay flat as sessions and
+/// connections grow (`gauges.attach`, `gauges.fanout`).
+pub struct Latencies {
+    samples: [AtomicU32; LATENCY_RING],
+    /// Every sample taken; the next slot is this modulo the ring.
+    taken: AtomicU64,
+}
+
+impl Default for Latencies {
+    fn default() -> Self {
+        Self { samples: std::array::from_fn(|_| AtomicU32::new(0)), taken: AtomicU64::new(0) }
+    }
+}
+
+impl Latencies {
+    pub fn record(&self, took: Duration) {
+        let micros = u32::try_from(took.as_micros()).unwrap_or(u32::MAX);
+        let slot = self.taken.fetch_add(1, Ordering::Relaxed) % LATENCY_RING as u64;
+        if let Some(sample) = self.samples.get(slot as usize) {
+            sample.store(micros, Ordering::Relaxed);
+        }
+    }
+
+    /// `{count, window, p50Ms, p95Ms, maxMs}`: `count` is every sample taken, `window` how many
+    /// of the latest the quantiles cover (at most [`LATENCY_RING`]); the quantiles are
+    /// nearest-rank over that window, null before the first sample.
+    pub fn status(&self) -> Value {
+        let taken = self.taken.load(Ordering::Relaxed);
+        let window = usize::try_from(taken).unwrap_or(usize::MAX).min(LATENCY_RING);
+        let mut sorted = [0u32; LATENCY_RING];
+        for (to, from) in sorted.iter_mut().zip(&self.samples).take(window) {
+            *to = from.load(Ordering::Relaxed);
+        }
+        let sorted = sorted.get_mut(..window).unwrap_or_default();
+        sorted.sort_unstable();
+        let ms = |micros: u32| f64::from(micros) / 1000.0;
+        let rank = |q: f64| -> Option<f64> {
+            let n = sorted.len();
+            let at = ((q * n as f64).ceil() as usize).clamp(1, n.max(1)) - 1;
+            sorted.get(at).map(|&m| ms(m))
+        };
+        json!({
+            "count": taken,
+            "window": window,
+            "p50Ms": rank(0.50),
+            "p95Ms": rank(0.95),
+            "maxMs": sorted.last().map(|&m| ms(m)),
+        })
+    }
+}
+
+/// `gauges.attach`: a client opening a chat (`_acpmux/attach`, `session/load`, this daemon's or
+/// a peer's chat through its link), from its request read to its reply queued on the connection
+/// (`server::serve_connection_from`).
+pub fn attach_latency() -> &'static Latencies {
+    static RING: OnceLock<Latencies> = OnceLock::new();
+    RING.get_or_init(Latencies::default)
+}
+
+/// A request that opens a chat's view, timed in [`attach_latency`].
+pub fn opens_a_chat(method: &str) -> bool {
+    matches!(method, crate::rpc::method::MUX_ATTACH | crate::rpc::method::SESSION_LOAD)
+}
+
+/// `gauges.fanout`: one hub event (a chat's update, a row change), from its send to the last
+/// connection's fan-out task queuing what it owes for it ([`FanoutClock`]).
+pub fn fanout_latency() -> &'static Latencies {
+    static RING: OnceLock<Latencies> = OnceLock::new();
+    RING.get_or_init(Latencies::default)
+}
+
+/// Hub events a connection's fan-out task lagged past (the broadcast channel dropped them for
+/// it) and how many times one lagged, each followed by a resync: what the latency leaves out.
+static FANOUT_DROPPED: AtomicU64 = AtomicU64::new(0);
+static FANOUT_RESYNCS: AtomicU64 = AtomicU64::new(0);
+
+/// A connection's fan-out task lagged past `events` hub events: it never queues them, so none
+/// of them is a latency sample; each counts in `gauges.fanout.dropped`.
+pub fn fanout_lagged(events: u64) {
+    FANOUT_DROPPED.fetch_add(events, Ordering::Relaxed);
+    FANOUT_RESYNCS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// `gauges.fanout`: the latency ring's fields, with `dropped` (events a connection lagged past,
+/// summed over connections) and `resyncs` (times a connection lagged).
+fn fanout_status() -> Value {
+    let mut status = fanout_latency().status();
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("dropped".into(), json!(FANOUT_DROPPED.load(Ordering::Relaxed)));
+        fields.insert("resyncs".into(), json!(FANOUT_RESYNCS.load(Ordering::Relaxed)));
+    }
+    status
+}
+
+/// One hub event's fan-out: when it was sent and how many connections' fan-out tasks have yet to
+/// take it. It lives in the event's shared cells (`HubEvent::row`), so it costs no allocation of
+/// its own. The last task to take it records the time since the send in [`fanout_latency`]. An
+/// event a task lagged past, or whose connection closed before taking it, is no sample.
+#[derive(Debug, Default)]
+pub struct FanoutClock {
+    /// Nanoseconds from the gauges' birth to the send, at least 1; 0 until sent.
+    sent_ns: AtomicU64,
+    left: AtomicUsize,
+}
+
+impl FanoutClock {
+    /// The event goes to `connections` fan-out tasks now.
+    pub fn arm(&self, connections: usize) {
+        let since = u64::try_from(global().born.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.sent_ns.store(since.max(1), Ordering::Relaxed);
+        self.left.store(connections, Ordering::Release);
+    }
+
+    /// One connection's fan-out task queued the event; the last one records the sample.
+    pub fn taken(&self) {
+        self.taken_into(fanout_latency());
+    }
+
+    /// Connections' fan-out tasks yet to take the event.
+    #[cfg(test)]
+    pub fn owed(&self) -> usize {
+        self.left.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub fn sent(&self) -> bool {
+        self.sent_ns.load(Ordering::Relaxed) > 0
+    }
+
+    fn taken_into(&self, ring: &Latencies) {
+        let less = |left: usize| left.checked_sub(1);
+        if self.left.fetch_update(Ordering::AcqRel, Ordering::Acquire, less) == Ok(1) {
+            let sent = Duration::from_nanos(self.sent_ns.load(Ordering::Relaxed));
+            if !sent.is_zero() {
+                ring.record(global().born.elapsed().saturating_sub(sent));
+            }
+        }
     }
 }
 
 /// `gauges` in `_acpmux/status`: [`Gauges::status`] with each connection's queue.
 pub fn daemon_status() -> Value {
     let mut status = global().status();
-    status["queues"] = crate::server::queue_gauge::status();
+    if let Some(fields) = status.as_object_mut() {
+        fields.insert("queues".into(), crate::server::queue_gauge::status());
+    }
     status
 }
 
@@ -240,9 +403,6 @@ mod tests {
         }
         gauges.mark("socket ready");
         gauges.mark("socket ready");
-        gauges.list_rebuilt(3, 120, Duration::from_micros(40));
-        gauges.list_variant("own masked", 100);
-        gauges.list_variant("own masked", 100);
         let status = gauges.status();
         let phases = status["startup"].as_array().unwrap();
         assert_eq!(phases.len(), 2, "{status}");
@@ -250,11 +410,86 @@ mod tests {
         assert!(phases[0]["ms"].as_u64().unwrap() >= 5, "{status}");
         assert_eq!(phases[1]["name"], "socket ready");
         assert_eq!(phases[1]["ms"], 0);
-        assert_eq!(status["listRebuilds"]["total"], 1);
-        assert_eq!(status["listRebuilds"]["lastMinute"], 1);
-        assert_eq!(status["listRebuilds"]["variants"]["own masked"]["made"], 2);
-        assert_eq!(status["listRebuilds"]["variants"]["own masked"]["bytes"], 200);
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         assert!(status["memory"]["rssBytes"].as_u64().unwrap() > 0, "{status}");
+        assert!(status["attach"].get("p95Ms").is_some(), "{status}");
+        assert!(status["fanout"].get("p95Ms").is_some(), "{status}");
+    }
+
+    #[test]
+    fn a_lag_counts_its_events_as_dropped_and_one_resync() {
+        let before = fanout_status();
+        fanout_lagged(7);
+        let after = fanout_status();
+        let grew = |field: &str| after[field].as_u64().unwrap() - before[field].as_u64().unwrap();
+        // Other tests in this process may lag too: at least this one's.
+        assert!(grew("dropped") >= 7, "{before} {after}");
+        assert!(grew("resyncs") >= 1, "{before} {after}");
+    }
+
+    #[test]
+    fn an_empty_ring_reports_no_quantiles() {
+        let status = Latencies::default().status();
+        let none = json!({"count": 0, "window": 0, "p50Ms": null, "p95Ms": null, "maxMs": null});
+        assert_eq!(status, none);
+    }
+
+    #[test]
+    fn the_ring_reports_nearest_rank_quantiles_of_its_window() {
+        let ring = Latencies::default();
+        // 1..=100 ms, shuffled by a stride coprime to 100.
+        for i in 0..100u64 {
+            ring.record(Duration::from_millis((i * 37) % 100 + 1));
+        }
+        let status = ring.status();
+        assert_eq!(status["count"], 100);
+        assert_eq!(status["window"], 100);
+        assert_eq!(status["p50Ms"], 50.0);
+        assert_eq!(status["p95Ms"], 95.0);
+        assert_eq!(status["maxMs"], 100.0);
+    }
+
+    #[test]
+    fn the_ring_keeps_only_its_last_samples() {
+        let ring = Latencies::default();
+        // A slow start the ring has since overwritten, then a whole ring of 2 ms.
+        for _ in 0..10 {
+            ring.record(Duration::from_secs(9));
+        }
+        for _ in 0..LATENCY_RING {
+            ring.record(Duration::from_millis(2));
+        }
+        let status = ring.status();
+        assert_eq!(status["count"], (LATENCY_RING + 10) as u64);
+        assert_eq!(status["window"], LATENCY_RING);
+        assert_eq!(status["p95Ms"], 2.0);
+        assert_eq!(status["maxMs"], 2.0);
+    }
+
+    #[test]
+    fn a_sample_is_whole_microseconds_and_saturates() {
+        let ring = Latencies::default();
+        ring.record(Duration::from_micros(1500));
+        assert_eq!(ring.status()["p50Ms"], 1.5);
+        ring.record(Duration::from_secs(u64::MAX / 4));
+        assert_eq!(ring.status()["maxMs"], f64::from(u32::MAX) / 1000.0);
+    }
+
+    #[test]
+    fn a_fanout_records_once_when_its_last_connection_takes_it() {
+        let ring = Latencies::default();
+        let clock = FanoutClock::default();
+        clock.arm(3);
+        clock.taken_into(&ring);
+        clock.taken_into(&ring);
+        assert_eq!(ring.status()["count"], 0);
+        clock.taken_into(&ring);
+        assert_eq!(ring.status()["count"], 1);
+        // A task that subscribed after the send takes it too: no second sample, no wrap.
+        clock.taken_into(&ring);
+        assert_eq!(ring.status()["count"], 1);
+        // An event built but never sent records nothing.
+        FanoutClock::default().taken_into(&ring);
+        assert_eq!(ring.status()["count"], 1);
     }
 }

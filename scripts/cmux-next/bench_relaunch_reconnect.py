@@ -70,6 +70,9 @@ AGENT = os.path.join(HERE, "idle_cost_agent.py")
 PHASES = [
     ("app main", "app", "main_start"),
     ("did finish launching", "app", "did_finish_launching_end"),
+    ("first window frame", "app", "first_window_frame_committed"),
+    ("Chromium start", "app", "cef.initialize_start"),
+    ("Chromium ready", "app", "cef.ready"),
     ("lookup start", "app", "acpmux.lookup_start"),
     ("build homes adopted", "app", "acpmux.adopted"),
     ("daemon status answered", "app", "acpmux.status_answered"),
@@ -199,6 +202,58 @@ def round_phases(timings: dict, page: dict, daemon: dict) -> dict:
     return out
 
 
+def uptime_to_epoch_ms() -> float | None:
+    """ms to add to a CLOCK_UPTIME_RAW reading (ns / 1e6) to get ms since 1970, read now: the app
+    stamps `debug.cef` `start_steps` on that clock (CEFStartSteps). None off macOS."""
+    clock = getattr(time, "CLOCK_UPTIME_RAW", None)
+    if clock is None:
+        return None
+    before = time.time_ns()
+    uptime = time.clock_gettime_ns(clock)
+    after = time.time_ns()
+    return ((before + after) / 2 - uptime) / 1e6
+
+
+def cef_step_marks(cef: dict, offset_ms: float | None, zero: float | None) -> dict:
+    """Chromium's start steps (`debug.cef` `start_steps`: `initialize`, `make_tab`, `create_window`,
+    pump runs, `first_window`, page points) as marks in ms since process start: `cef.NAME` when a
+    step began and `cef.NAME.end` when a timed one ended (a repeated name gets `#2`, `#3`)."""
+    steps = cef.get("start_steps") if isinstance(cef, dict) else None
+    if offset_ms is None or zero is None or not isinstance(steps, list):
+        return {}
+    out, seen = {}, {}
+    for step in steps:
+        if not isinstance(step, dict) or not isinstance(step.get("start_uptime_ns"), (int, float)):
+            continue
+        name = str(step.get("name"))
+        seen[name] = seen.get(name, 0) + 1
+        key = f"cef.{name}" + (f"#{seen[name]}" if seen[name] > 1 else "")
+        start = step["start_uptime_ns"] / 1e6 + offset_ms - zero
+        out[key] = start
+        if isinstance(step.get("ms"), (int, float)) and step["ms"] > 0:
+            out[f"{key}.end"] = start + step["ms"]
+    return out
+
+
+def all_marks(timings: dict, page: dict, cef: dict | None = None, offset_ms: float | None = None) -> dict:
+    """Every app launch mark, Chromium start step and page mark, in ms after
+    did_finish_launching_end, in time order: a mark added inside a phase (a new
+    `DebugTimings.markLaunch`, a `CEFStartSteps` point or a page `*_epoch_ms` mark) shows up here
+    with no harness change, as the fleet runs this script only from feat-cmux-next."""
+    zero = timings.get("process_start_epoch_ms")
+    marks = dict(timings.get("launch_ms_since_process_start") or {})
+    marks.update(cef_step_marks(cef or {}, offset_ms, zero))
+    if zero is not None:
+        for key, at in page.items():
+            if key.endswith("_epoch_ms") and isinstance(at, (int, float)):
+                marks["page." + key[:-len("_epoch_ms")]] = at - zero
+    base = marks.get("did_finish_launching_end")
+    if not isinstance(base, (int, float)):
+        return {}
+    out = {name: round(float(at) - base, 1) for name, at in marks.items() if isinstance(at, (int, float))}
+    return dict(sorted(out.items(), key=lambda item: item[1]))
+
+
 def median_table(rounds: list[dict], modes: list[str]) -> str:
     def cell(values):
         values = [v for v in values if v is not None]
@@ -270,6 +325,7 @@ def main(argv: list[str] | None = None):
                 pid, sock, scratch = bm.launch(args.app, config, env, scratch=scratch)
                 page = wait_live(sock, args.live_timeout)
                 timings = bp.rpc(sock, "debug.timings") or {}
+                cef = bp.rpc(sock, "debug.cef") or {}
                 daemon, log_lines = daemon_log(acpmux_home, quit_at)
                 daemon = {name: at for name, at in daemon.items() if at >= started}
                 phases = round_phases(timings, page, daemon)
@@ -278,10 +334,13 @@ def main(argv: list[str] | None = None):
                          "launch_to_process_ms": None if zero is None else round(zero - started, 1),
                          "phases": phases, "page": page, "daemon_log": daemon, "daemon_log_lines": log_lines,
                          "daemon_after": sorted(daemon_pids(args.app)),
-                         "app_marks": timings.get("launch_ms_since_process_start")}
+                         "app_marks": timings.get("launch_ms_since_process_start"),
+                         "cef_start_steps": cef.get("start_steps") if isinstance(cef, dict) else None}
                 rounds.append(entry)
                 print(f"PERF-RELAUNCH mode={mode} round={index + 1} live_ms={phases.get('first live event')} "
                       f"{json.dumps(phases)}", flush=True)
+                print(f"PERF-RELAUNCH-MARKS mode={mode} round={index + 1} "
+                      f"{json.dumps(all_marks(timings, page, cef, uptime_to_epoch_ms()))}", flush=True)
     finally:
         bm.end_bundle(args.app)
         if scratch:

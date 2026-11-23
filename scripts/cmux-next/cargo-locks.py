@@ -42,12 +42,23 @@ Every workspace runs on one toolchain (RUSTUP_TOOLCHAIN, else the one active at 
 toolchain installs): a lock's consistency does not depend on the toolchain, and a pinned toolchain the host
 lacks would otherwise leave that workspace unchecked.
 
+explain FILE|-   Reads a log (FILE, or stdin with `-`) of a cargo run that failed. When it holds cargo's refusal of a stale
+        lock under --locked (any of the three spellings below), prints one cause-and-fix block on stderr (the lock,
+        repository-relative when it is in the repository; the repair; that a rerun does not help), plus a GitHub
+        `::error title=stale Cargo.lock::` line on stdout under GITHUB_ACTIONS, and exits 0. Otherwise (no refusal,
+        an empty log, a missing or unreadable file) it prints nothing and exits 1. Every CI wrapper that runs cargo
+        with --locked and prints a cause of its own on failure asks this first, so the reader of a red check sees
+        the stale lock and not a lint, a build break or a test failure that did not happen (2026-11-12: a pull
+        request went red on 15 checks for one stale lock; the clippy job said "fix each lint", the author reran
+        twice and stopped). The log is read line by line: a multi-megabyte log never backtracks.
+
 Callers: the pre-push gate (prepush-gate.py, CARGO_LOCK_CHECK) on any push that changes a Cargo.toml or
 Cargo.lock; rust-workspaces.yml's plan job on every pull request and push, with --strict and --base (CI is the
 backstop: an unchecked workspace is red there, a timeout only in a workspace the change touches); the base autofix
 (base-autofix.sh --locks) after a feat-cmux-next push that does.
 
 Usage: scripts/cmux-next/cargo-locks.py check|fix [--repo DIR] [--strict] [--base SHA] [--deadline S] [--jobs N]
+       scripts/cmux-next/cargo-locks.py explain FILE|- [--repo DIR]
 """
 from __future__ import annotations
 
@@ -80,6 +91,82 @@ NO_BASE_DEADLINE = 240
 clock = time.monotonic
 # cargo's line while another cargo holds the package cache lock.
 LOCK_WAIT = "Blocking waiting for file lock on package cache"
+# explain: the same three spellings, with the lock's path (which can hold spaces). Only a line that holds
+# REFUSED is matched against it, and one line at a time.
+REFUSED = "--locked was passed"
+NAMES_LOCK = "the lock file "
+# What stands between the lock's path and REFUSED, and what must stand before NAMES_LOCK (None: anything).
+REFUSAL_ENDS = ((" because ", ("cannot update ", "cannot create ")), (" needs to be updated but ", None))
+# Characters a lock's path can span: up to PATH_MAX.
+REFUSAL_WINDOW = 4200
+
+
+def refused_lock(line: str) -> str | None:
+    """The lock's path in the first of cargo's refusals LINE holds, else None. Each REFUSED is judged against the
+    NAMES_LOCK nearest before it, and both are found in one pass, so one long line (a progress bar, a minified dump,
+    the same words a million times) costs its length, not its length times a window."""
+    named, ahead = -1, line.find(NAMES_LOCK)
+    at = line.find(REFUSED)
+    while at != -1:
+        while ahead != -1 and ahead < at:
+            named, ahead = ahead, line.find(NAMES_LOCK, ahead + 1)
+        start = named + len(NAMES_LOCK)
+        if named != -1 and at - start <= REFUSAL_WINDOW:
+            for end, before in REFUSAL_ENDS:
+                if (at - len(end) > start and line.endswith(end, start, at)
+                        and (before is None or line.endswith(before, 0, named))):
+                    return line[start:at - len(end)]
+        at = line.find(REFUSED, at + 1)
+    return None
+
+
+def refused_locks(lines, repo: Path) -> list[str]:
+    """The lock files cargo refused to write under --locked in LINES, in order, repository-relative when inside
+    REPO."""
+    found: list[str] = []
+    for line in lines:
+        raw = refused_lock(line)
+        if raw is None:
+            continue
+        raw = raw.strip().strip("`'\"")
+        try:
+            lock = Path(raw).resolve().relative_to(repo.resolve()).as_posix()
+        except (ValueError, OSError):
+            lock = raw
+        if lock not in found:
+            found.append(lock)
+    return found
+
+
+def explain(source: str, repo: Path) -> int:
+    """0 and the cause-and-fix block when the log at SOURCE (`-`: stdin) holds cargo's stale-lock refusal, else 1
+    and nothing."""
+    try:
+        if source == "-":
+            import io
+            locks = refused_locks(io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace"), repo)
+        else:
+            with open(source, encoding="utf-8", errors="replace") as handle:
+                locks = refused_locks(handle, repo)
+    except OSError:
+        return 1
+    if not locks:
+        return 1
+    named = ", ".join(locks)
+    verb = "does not match its" if len(locks) == 1 else "do not match their"
+    cause = (f"{named} {verb} manifests on this ref, often because the base changed a dependency "
+             "after the branch was cut, so cargo --locked stopped before building or testing anything")
+    steps = ("merge the base branch into the branch",
+             "run `scripts/cmux-next/cargo-locks.py fix` from the repository root",
+             "commit the Cargo.lock files it changed")
+    block = [f"stale Cargo.lock: {cause}.", "Fix:"]
+    block += [f"  {n}. {step}" for n, step in enumerate(steps, 1)]
+    block.append("A rerun does not help.")
+    sys.stdout.flush()
+    print("\n".join(block), file=sys.stderr, flush=True)
+    if os.environ.get("GITHUB_ACTIONS"):
+        print(f"::error title=stale Cargo.lock::{cause}. Fix: {'; '.join(steps)}. A rerun does not help.", flush=True)
+    return 0
 
 
 def tracked_roots(repo: Path) -> list[str]:
@@ -438,8 +525,10 @@ def fix(repo: Path, results: dict[str, tuple[str, str]], end: float | None = Non
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("mode", choices=("check", "fix"))
-    parser.add_argument("--repo", default=".", help="the repository's top directory (default: .)")
+    parser.add_argument("mode", choices=("check", "fix", "explain"))
+    parser.add_argument("log", nargs="?", help="explain: the log to read (`-`: stdin)")
+    parser.add_argument("--repo", default=None, help="the repository's top directory (default: .; for explain, "
+                        "the repository this script is in)")
     parser.add_argument("--strict", action="store_true", help="a workspace cargo could not judge fails the check")
     parser.add_argument("--base", default="", help="the change's base commit: under --strict, a timed-out "
                         "workspace the change does not touch only warns")
@@ -447,7 +536,13 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"seconds the whole check may take (default with no usable --base: {NO_BASE_DEADLINE})")
     parser.add_argument("--jobs", type=int, default=8)
     args = parser.parse_args(argv)
-    repo = Path(args.repo).resolve()
+    if args.mode == "explain":
+        if args.log is None:
+            parser.error("explain needs a log file (or - for stdin)")
+        return explain(args.log, Path(args.repo or Path(__file__).resolve().parents[2]))
+    if args.log is not None:
+        parser.error(f"unrecognized arguments: {args.log}")
+    repo = Path(args.repo or ".").resolve()
 
     touched = touched_roots(repo, tracked_roots(repo), args.base) if args.mode == "check" and args.strict else None
     # One absolute deadline for the whole run: check, then fix's rewrites and their re-checks.

@@ -2,8 +2,17 @@
 // order once the chat takes the one before (startingSends.ts).
 import { expect, test } from "bun:test";
 import { inlineToken, type ComposerAttachment } from "./attachments";
+import { LIVE_THINKING, turnView } from "./conversation/turns";
 import { inlinePrompt } from "./inlinePrompt";
-import { StartingSends, startingQueueEntry } from "./startingSends";
+import { emptySnapshot } from "./snapshotCache";
+import {
+  queuedStartingSends,
+  StartingSends,
+  startingQueueEntry,
+  withStartingPrompt,
+  type StartingSend,
+  startingIn,
+} from "./startingSends";
 
 /** A send acpmux takes or refuses when the test says. */
 function gate() {
@@ -24,6 +33,7 @@ function harness() {
   const sends = new StartingSends(
     (rows) => shown.push(rows.map((row) => row.text)),
     (text) => given.push(text),
+    () => ({ visit: 1 }),
   );
   const go = (text: string) => {
     sent.push(text);
@@ -143,6 +153,50 @@ test("a queued send goes with the gesture its Enter bound, and one without goes 
   expect(carried).toEqual([undefined, "held-1"]);
 });
 
+// Leo, 2026-11-09: "there's the gap between when you send off a message versus otherwise, like it's
+// like there's a one-two discontinuity". A new chat's first prompt is the chat's first row from the
+// send, with its Thinking line under it, while the chat still starts: never a queued row first that
+// jumps into the transcript once the agent is up. The chat's own row for it has the same id.
+test("a new chat's first prompt draws as its first row with the Thinking line, and later ones stay queued", () => {
+  const sends = [
+    { id: "p1", text: "first", attachments: [], at: 1, sentIn: { visit: 1 } },
+    { id: "p2", text: "second", attachments: [], at: 2, sentIn: { visit: 1 } },
+  ] satisfies StartingSend[];
+  const drawn = withStartingPrompt(emptySnapshot(), sends);
+  expect(drawn.rows.map((row) => [row.id, row.kind, row.text, row.pending])).toEqual([
+    ["local-p1", "user", "first", true],
+  ]);
+  // The transcript draws the start-look Thinking line under it at once (conversation/turns.ts `waiting`).
+  const shaped = turnView(drawn.rows, new Set(), { now: 10 });
+  expect(shaped.map((row) => row.id)).toEqual(["local-p1", LIVE_THINKING]);
+  // The composer's queue draws only the prompts after it.
+  expect(queuedStartingSends(sends, drawn.rows).map((send) => send.id)).toEqual(["p2"]);
+  // Once the chat's client draws the prompt (the same id), its row is the client's and nothing is added.
+  const started = {
+    ...emptySnapshot(),
+    rows: [{ id: "local-p1", version: 1, at: 3, kind: "user", text: "first", pending: true }],
+  };
+  expect(withStartingPrompt(started, sends)).toBe(started);
+  expect(queuedStartingSends(sends, started.rows).map((send) => send.id)).toEqual(["p2"]);
+  // A chat with prompts of its own draws none.
+  const going = { ...emptySnapshot(), rows: [{ id: "u1", version: 1, at: 0, kind: "user", text: "older" }] };
+  expect(withStartingPrompt(going, sends)).toBe(going);
+  expect(withStartingPrompt(emptySnapshot(), [])).toEqual(emptySnapshot());
+});
+
+test("a starting prompt keeps the id its send goes with", () => {
+  const shown: string[][] = [];
+  const sends = new StartingSends(
+    (rows) => shown.push(rows.map((row) => row.id)),
+    () => undefined,
+    () => ({ visit: 1 }),
+  );
+  sends.add("first", [], () => new Promise(() => undefined), undefined, "prompt-1");
+  sends.add("second", [], () => new Promise(() => undefined));
+  expect(shown.at(-1)![0]).toBe("prompt-1");
+  expect(shown.at(-1)![1]).toStartWith("starting-");
+});
+
 // #41016: a queued row drew the draft as it was, each attachment as U+FFFC, its id, U+FFFC.
 const image = {
   id: "0ffcff4e-5219-4332-9ceb-9d0acc03a47a",
@@ -220,4 +274,49 @@ test("an edited waiting row keeps a text file left in the strip apart from its w
   expect(sent).toHaveLength(1);
   expect(sent[0]!.startsWith("look\n\n")).toBe(true);
   expect(sent[0]!.split("BODY").length - 1).toBe(1);
+});
+
+// Review of #39781: a prompt sent in a new chat is that chat's. Another chat opened while it still
+// starts (an empty one too) draws none of it, in its transcript or its queue; the chat the new chat
+// took draws it, as does the new chat itself; a prompt sent in an existing chat stays that chat's.
+test("a starting prompt draws only in the chat it was sent in", () => {
+  const sends = [
+    { id: "p1", text: "first", attachments: [], at: 1, sentIn: { visit: 4 } },
+    { id: "p2", text: "second", attachments: [], at: 2, sentIn: { visit: 4 } },
+  ] satisfies StartingSend[];
+  const ids = (shown: readonly StartingSend[]) => shown.map((send) => send.id);
+  // The new chat, still starting.
+  expect(startingIn(sends, { visit: 4 }, undefined)).toBe(sends);
+  // The chat it took (its select moved the visit).
+  expect(ids(startingIn(sends, { chat: "s-new", visit: 5 }, { sessionId: "s-new", visit: 4 }))).toEqual(["p1", "p2"]);
+  // An empty chat opened while it starts, and another new chat.
+  expect(ids(startingIn(sends, { chat: "s-empty", visit: 5 }, undefined))).toEqual([]);
+  expect(ids(startingIn(sends, { chat: "s-empty", visit: 7 }, { sessionId: "s-new", visit: 4 }))).toEqual([]);
+  expect(ids(startingIn(sends, { visit: 6 }, undefined))).toEqual([]);
+  const empty = startingIn(sends, { chat: "s-empty", visit: 5 }, undefined);
+  expect(withStartingPrompt(emptySnapshot(), empty).rows).toEqual([]);
+  // A chat's own prompts, sent while it was shown, in any later visit of it.
+  const own = [{ id: "p3", text: "third", attachments: [], at: 3, sentIn: { chat: "s-new", visit: 5 } }];
+  expect(ids(startingIn(own, { chat: "s-new", visit: 9 }, undefined))).toEqual(["p3"]);
+  expect(ids(startingIn(own, { chat: "s-other", visit: 9 }, undefined))).toEqual([]);
+});
+
+// Review of #39781: the first prompt's row draws what the chat's own sent row draws once it went
+// (direct.ts `sentPrompt`): a pasted block's text and range, and the attachments a Retry sends again.
+test("a new chat's first prompt row carries its paste and its attachments", () => {
+  const paste = {
+    id: "paste-1",
+    kind: "pasted" as const,
+    name: "log.txt",
+    mimeType: "text/plain",
+    size: 9,
+    text: "line\nline",
+  };
+  const sends = [
+    { id: "p1", text: "see this", attachments: [paste], at: 1, sentIn: { visit: 1 } },
+  ] satisfies StartingSend[];
+  const row = withStartingPrompt(emptySnapshot(), sends).rows[0]!;
+  expect(row.text).toContain("line\nline");
+  expect(row.pasted?.length).toBe(1);
+  expect(row.retryAttachments).toEqual([paste]);
 });

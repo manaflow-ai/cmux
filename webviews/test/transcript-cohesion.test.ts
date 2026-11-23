@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { TRANSCRIPT_LIVE_STEP_GAP, TRANSCRIPT_LIVE_STEP_HEIGHT } from "../src/agent-session/acpmux/transcriptGrid";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -100,6 +101,17 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 if (!previous) throw new Error("The live state has no preceding activity row");
                 return {
                   gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+                  height: live.getBoundingClientRect().height,
+                  // The box transcriptGrid.ts gives it, as drawn (transcriptLiveVars on the scroller, resolved in place).
+                  box: (() => {
+                    const probe = document.createElement("div");
+                    probe.style.cssText =
+                      "position:absolute;visibility:hidden;width:0;height:var(--cv-live-step-height)";
+                    live.parentElement!.append(probe);
+                    const value = probe.getBoundingClientRect().height;
+                    probe.remove();
+                    return value;
+                  })(),
                   // Read a resolved token rather than parsing a calc() or var() expression.
                   scale: Number.parseFloat(
                     getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"),
@@ -111,9 +123,13 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
               console.log(
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
               );
-              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
-                // The transcript's run gap, 12 at scale 1 (transcriptGrid.ts TRANSCRIPT_RUN_GAP; Lucas, 2026-11-11).
-                expect(measured.gap).toBeCloseTo(12 * interfaceScale, 1);
+              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
+                // The live line's gap and box in a run come from one place (transcriptGrid.ts TRANSCRIPT_LIVE_STEP_BOX).
+                expect(measured.gap).toBeCloseTo(TRANSCRIPT_LIVE_STEP_GAP * interfaceScale, 1);
+                expect(measured.height).toBeCloseTo(measured.box, 1);
+                // At Interface Size 1 the drawn box is the grid's number.
+                if (interfaceScale === 1) expect(measured.box).toBeCloseTo(TRANSCRIPT_LIVE_STEP_HEIGHT, 1);
+              }
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
                 await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });

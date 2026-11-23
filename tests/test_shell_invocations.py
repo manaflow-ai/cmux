@@ -5,6 +5,8 @@ the stubs bash ran are a subset of what may_run() allows. A fixture with no cons
 must also match exactly. Run: python3 tests/test_shell_invocations.py"""
 from __future__ import annotations
 
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -121,6 +123,73 @@ FIXTURES = [
     ("a substitution in an arithmetic expansion", "echo $(( $(a) + 1 )) >/dev/null", {"a"}, set()),
     ("a substitution in a heredoc body's arithmetic expansion", "cat <<EOF >/dev/null\n$(( $(a) + 1 ))\nEOF",
      {"a"}, set()),
+    # The parser reads what bash reads (#41768 review: a `case` pattern credited as a command, `X+=x cmd` unseen). Each
+    # row is a place the two disagreed: a word bash takes as an assignment, a pattern, an arithmetic or conditional
+    # expression, or an expansion of the program word.
+    ("a quoted subscript makes an assignment-looking word uncertain (dep-fleet-6 F1)",
+     'X["a=b"]=v gh', {"gh"}, set()),
+    ("an escaped subscript operator makes an assignment-looking word uncertain (dep-fleet-6 F1)",
+     'X[\\==]"="v gh', set(), set()),
+    ("an equals in a subscript cannot hide a quoted operator (dep-fleet-6 F2)",
+     'X[a=b]"="v gh', set(), set()),
+    ("an equals in a subscript cannot hide an escaped operator (dep-fleet-6 F2)",
+     r'X[a=b]\=v gh', set(), set()),
+    ("a quoted value in a subscript word is conservatively uncertain",
+     'X[a=b]="v" gh', {"gh"}, set()),
+    ("nested bracket equals cannot hide a quoted operator (dep-fleet-6 F2)",
+     'X[a[b]=c]"="v gh', set(), set()),
+    ("an append assignment before a command (#41768 F2)", "X+=x gh release create v1", {"gh"}, None),
+    ("a subscripted assignment before a command", "X[0]=v gh", {"gh"}, None),
+    ("a subscripted append assignment before a command", "X[i]+=v gh", {"gh"}, None),
+    ("a quoted subscript in an assignment before a command is uncertain", 'X["k y"]=v gh', {"gh"}, set()),
+    ("a quoted equals in a subscripted assignment is not an assignment (dep-fleet-6 F1)", 'X[0]"=v" gh', set(), None),
+    ("a quoted assignment is the program, not an assignment", '"X=1" gh', set(), None),
+    ("an escaped = is the program, not an assignment", "X\\=1 gh", set(), None),
+    ("a keyword after an assignment is the program", "X=1 if gh", set(), None),
+    ("a ! after an assignment is the program", "X=1 ! gh", set(), None),
+    ("a ;;& retests after a nonmatching clause (dep-fleet-6 F2)",
+     "case x in x) a ;;& y) b ;; x) c ;; esac", {"a", "c"}, None),
+    ("a case pattern after ;& is no command (#41768 F1)", "case x in x) a ;& gh) b ;; esac", {"a", "b"}, None),
+    ("a case pattern list is no command", "case x in x|gh) a ;; esac", {"a"}, None),
+    ("a case pattern after a leading paren is no command", "case gh in (gh) a ;; esac", {"a"}, None),
+    ("a case pattern after ;;& is no command", "case x in x) a ;;& x|gh) b ;; esac", {"a", "b"}, None),
+    ("a later matching case clause is not reached (dep-fleet-6 F2)", "case x in x) a ;; x) b ;; esac", {"a"}, None),
+    ("a case in a skipped branch does not clear control flow (dep-fleet-6 F3)",
+     "if false; then case x in x) a ;; esac; fi", set(), set()),
+    ("a conditional in a skipped branch does not clear control flow (dep-fleet-6 F3)",
+     "if false; then [[ -n x ]]; a; fi", set(), set()),
+    ("a case over lines", "case x\nin\n  x|gh)\n    a\n    ;;\nesac", {"a"}, None),
+    ("a nested case", "case x in x) case y in y|gh) a ;; esac ;& c) b ;; esac", {"a", "b"}, None),
+    ("a case pattern's paren does not close a substitution", "x=$(case x in y) echo ;; gh) a ;; esac)\nb",
+     {"b"}, None),
+    ("an arithmetic command names no command", "(( gh = 1 ))\na", {"a"}, None),
+    ("a shift in an arithmetic command opens no heredoc", "(( 1 << 2 ))\na", {"a"}, None),
+    ("an arithmetic for loop header names no command", "for (( gh=0; gh<1; gh++ )); do a; done", {"a"}, None),
+    ("a conditional expression's operators split no command", "[[ -n x && ( gh || b ) ]]\na", {"a"}, None),
+    ("a coprocess runs its command", "coproc a\nwait", {"a"}, set()),
+    ("a coprocess after time runs its command (dep-fleet-6 F4)", "time coproc a; wait", {"a"}, set()),
+    ("a coprocess after repeated time runs its command (dep-fleet-6 follow-up)", "time time coproc a; wait", {"a"}, set()),
+    ("a coprocess after mixed time wrappers runs its command (dep-fleet-6 follow-up)",
+     "time -p time coproc a; wait", {"a"}, set()),
+    ("a quoted subscript operator is not repaired by a later equals (dep-fleet-6 F2)",
+     'X[0]"="v=w gh', set(), None),
+    ("time before an assignment leaves coproc ordinary (dep-fleet-6 follow-up)", "time X=1 coproc a", set(), set()),
+    ("an assignment before time leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 time coproc a", set(), set()),
+    ("an assignment before ! runs ! as the command (dep-fleet-6 F1)", "X=1 ! true", set(), None),
+    ("an assignment before coproc runs coproc as the command (dep-fleet-6 F1)", "X=1 coproc true", set(), None),
+    ("external time after an assignment does not consume assignments",
+     "X=1 time X=2 gh", set(), None),
+    ("external time after env does not consume assignments", "env time X=2 gh", set(), None),
+    ("quoted external time does not consume assignments", '"time" X=2 gh', set(), None),
+    ("a quoted time leaves coproc ordinary (dep-fleet-6 follow-up)", '"time" coproc a', set(), set()),
+    ("a negated coprocess remains reserved (dep-fleet-6 follow-up)", "! coproc a; wait", {"a"}, set()),
+    ("an assignment before ! leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 ! coproc a", set(), set()),
+    ("a quoted ! leaves coproc ordinary (dep-fleet-6 follow-up)", '"!" coproc a', set(), set()),
+    ("a quoted coproc leaves its argument ordinary (dep-fleet-6 follow-up)", '"coproc" a', set(), set()),
+    ("env treats coproc as a program name (dep-fleet-6 F1)", "env coproc a", set(), set()),
+    ("time env treats coproc as a program name (dep-fleet-6 F1)", "time env coproc a", set(), set()),
+    ("an assignment makes coproc a program name (dep-fleet-6 F1)", "X=1 coproc a", set(), set()),
+    ("a brace expansion in the program word", "{a,b}", {"a"}, set()),
 ]
 
 
@@ -184,6 +253,16 @@ SCRIPT_FIXTURES = [
     ("exec -c ./sign.sh", True, True),
     ("FLAGS=-n\nbash $FLAGS ./sign.sh", False, False),
     ("FLAGS=-e\nbash $FLAGS ./sign.sh", True, False),
+    # Assignments the way each reader takes them (#41768 F2): env takes any word with `=`, `time` takes bash's.
+    ("env X+=1 ./sign.sh", True, True),
+    ("env 'A B=1' ./sign.sh", True, True),
+    ("env Y[0]=2 ./sign.sh", True, False),
+    ('"env" ./sign.sh', True, True),
+    ('env "X=1" ./sign.sh', True, True),
+    ('"env" X"="1 ./sign.sh', True, True),
+    (r'env X\=1 ./sign.sh', True, True),
+    ("time X+=1 ./sign.sh 2>/dev/null", True, True),
+    ("./sig*.sh", True, False),
 ]
 
 
@@ -195,7 +274,7 @@ def run_with_marker(script: str) -> tuple[bool, set[str]]:
         log.touch()
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        for name, path in (("sign.sh", root / "sign.sh"), ("a", bin_dir / "a")):
+        for name, path in (("sign.sh", root / "sign.sh"), ("a", bin_dir / "a"), ("gh", bin_dir / "gh")):
             path.write_text(f"#!/bin/sh\necho {name} >> '{log}'\n")
             path.chmod(0o755)
         environment = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"}
@@ -262,6 +341,78 @@ def possible(script: str) -> set[str]:
 
 
 class AgainstBash(unittest.TestCase):
+    def test_env_reads_quoted_assignment_operands_after_shell_quote_removal(self) -> None:
+        for script in ('env "X=1" g"h" release create v1',
+                       '"env" X"="1 g"h" release create v1',
+                       r'env X\=1 g"h" release create v1'):
+            with self.subTest(script=script):
+                _, ran = run_with_marker(script)
+                self.assertEqual(ran, {"gh"})
+                self.assertEqual(must_run(script), [["gh", "release", "create", "v1"]])
+                self.assertTrue(may_run_program(script, "gh"))
+
+    def test_prefix_assignment_makes_time_an_external_path_command(self) -> None:
+        bash = shutil.which("bash")
+        self.assertIsNotNone(bash)
+        time_binary = shutil.which("time")
+        self.assertIsNotNone(time_binary)
+        for has_time in (False, True):
+            with self.subTest(time_on_path=has_time), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                # Bash's true builtin is the control; external time resolves this marker from PATH.
+                marker = root / "true"
+                marker.write_text('#!/bin/sh\nprintf "external-true X=%s\\n" "$X"\n')
+                marker.chmod(0o755)
+                if has_time:
+                    (root / "time").symlink_to(time_binary)
+                environment = {"PATH": str(root), "HOME": str(root), "LC_ALL": "C"}
+                result = subprocess.run([bash, "--noprofile", "--norc", "-c", "X=1 time true"],
+                                        env=environment, capture_output=True, text=True, timeout=30,
+                                        stdin=subprocess.DEVNULL)
+                self.assertEqual(result.returncode, 0 if has_time else 127, result.stderr)
+                self.assertEqual(result.stdout, "external-true X=1\n" if has_time else "")
+                if not has_time:
+                    self.assertIn("time: command not found", result.stderr)
+                # A reserved time is independent of PATH, including with an assignment after it.
+                control = subprocess.run([bash, "--noprofile", "--norc", "-c", "time X=1 true"],
+                                         env=environment, capture_output=True, text=True, timeout=30,
+                                         stdin=subprocess.DEVNULL)
+                self.assertEqual(control.returncode, 0, control.stderr)
+                self.assertEqual(control.stdout, "")
+                print(f"bash time fixture: time_on_path={has_time}, prefix_assignment_exit={result.returncode}, "
+                      f"stdout={result.stdout!r}, reserved_time_exit={control.returncode}")
+                self.assertEqual(must_run("X=1 time true"), [])
+                self.assertTrue(may_run_program("X=1 time true", "true"))
+                self.assertEqual(must_run("time X=1 true"), [["true"]])
+                external = f"{shlex.quote(time_binary)} true"
+                absolute = subprocess.run([bash, "--noprofile", "--norc", "-c", external],
+                                          env=environment, capture_output=True, text=True, timeout=30,
+                                          stdin=subprocess.DEVNULL)
+                self.assertEqual(absolute.returncode, 0, absolute.stderr)
+                self.assertEqual(absolute.stdout, "external-true X=\n")
+                self.assertEqual(must_run(external), [])
+                self.assertTrue(may_run_program(external, "true"))
+
+    def test_prefix_assignments_leave_bang_and_coproc_as_programs(self) -> None:
+        self.assertEqual(must_run("X=1 ! true"), [["!", "true"]])
+        self.assertEqual(must_run("X=1 coproc true"), [["coproc", "true"]])
+
+    def test_quoted_subscript_operator_does_not_credit_gh(self) -> None:
+        for script in ('X["a=b"]=v gh', 'X["k y"]=v gh', 'X[0]"=v" gh', 'X[0]"="v=w gh',
+                       'X[\\==]"="v gh', '"X=1" gh', "X\\=1 gh"):
+            with self.subTest(script=script):
+                self.assertEqual(must_run(script), [])
+                self.assertTrue(may_run_program(script, "gh"))
+        self.assertTrue(may_run_program('"env" gh release create v1', "gh"))
+
+    def test_coproc_program_position_is_not_any_program(self) -> None:
+        for script in (
+                "env coproc a", "time env coproc a", "X=1 coproc a",
+                "time X=1 coproc a", "X=1 time coproc a", '"time" coproc a',
+                "X=1 ! coproc a", '"!" coproc a', '"coproc" a'):
+            with self.subTest(script=script):
+                self.assertFalse(may_run_program(script, "a"))
+
     def test_every_fixture_is_sound_in_both_directions(self) -> None:
         for name, script, ran, expected_certain in FIXTURES:
             with self.subTest(name):

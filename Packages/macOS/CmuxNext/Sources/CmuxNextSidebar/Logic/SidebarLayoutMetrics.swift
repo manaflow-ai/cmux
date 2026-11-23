@@ -49,17 +49,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows and group headers (a
-    /// header follows `rowHeight`). A group header keeps its solid bar in the group's color, only
-    /// shorter (Lawrence 2026-10-18).
-    public var minimal: SidebarLayoutMetrics {
-        var m = self
-        let step = (rowHeight * 0.17).rounded()
-        m.rowHeight -= step
-        m.rowHeightWithSubtitle -= step
-        return m
-    }
-
     /// Expanded density's metrics: rows and group headers are two lines tall (`rowStep`).
     public var expanded: SidebarLayoutMetrics {
         var m = self
@@ -67,11 +56,11 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         return m
     }
 
-    /// The metrics a layout under `o` uses: Minimal Mode's shorter rows, or Expanded's two-line
-    /// rows (not with workspaces as tabs, whose rows are one line at any density). Every place
-    /// that sizes list rows reads this, so a header and a row cannot take different steps.
+    /// The metrics a layout under `o` uses: Expanded's two-line rows (not with workspaces as tabs,
+    /// whose rows are one line at any density). Every place that sizes list rows reads this, so a
+    /// header and a row cannot take different steps. Minimal Mode (`sidebar.minimal`) only hides
+    /// chrome until hover and never changes density (Lawrence 2026-11-15).
     public func resolved(for o: SidebarLayoutOptions) -> SidebarLayoutMetrics {
-        if o.minimal { return minimal }
         return o.expanded && !o.workspacesAsTabs ? expanded : self
     }
 
@@ -120,9 +109,6 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// only one machine is listed, titled "Projects" (the sidebar list sets
     /// it). One list (the default) never shows it (cx-mdo0).
     public var showsSoleMachineHeader = false
-    /// One list draws a quiet "Workspaces" heading over its workspace rows, as the Codex sidebar heads its list
-    /// "Recents" (`sidebar.listHeading`, https://github.com/manaflow-ai/cmux/issues/39956). A label only: no fold, no menu, no drop.
-    public var headsWorkspaceList = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
     /// than this Mac names it (and a failed connection) in its machine mark,
@@ -136,6 +122,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// listed: the others, and this Mac with `sidebar.showLocalMachine`. Empty with one machine,
     /// where a mark would tell nothing.
     public var machines: [MachineID: SidebarMachine] = [:]
+    /// The Cloud machines listed: their rows draw a small muted cloud in the trailing status cluster (``WorkspaceRowContent/runsInCloud``)
+    /// and never their machine's name.
+    public var cloudMachines: Set<MachineID> = []
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?
@@ -145,10 +134,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     func shown(inCollapsed id: GroupID) -> Set<WorkspaceID> { (revealedWorkspaces[id] ?? []).union(activeWorkspaceID.map { [$0] } ?? []) }
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
-    /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
-    /// and marks, whatever `workspaceRow` shows (`rowContent`).
-    public var minimal = false
-    /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
+    /// Expanded rows (`sidebar.density`): `WorkspaceRowContent(expanded:)`.
     public var expanded = false
     /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): every workspace row is one line.
     public var workspacesAsTabs = false
@@ -187,6 +173,12 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var chatHistory: SidebarChatHistoryState?
     /// The Done fold: workspaces marked Done fold into a "Done (N)" row at the end of their list.
     public var foldsDone = false
+    /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
+    /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
+    public var settled: Set<WorkspaceID> = []
+    /// Automatic sessions (`sidebar.showAutomaticSessions` off, the default; `SidebarAutomaticPlanner`): these rows fold
+    /// into an "Automatic (N)" row at the end of their list, before the Settled row. Empty draws every row in place.
+    public var automatic: Set<WorkspaceID> = []
     /// Archived workspaces fold into an "Archived (N)" row at the end of their list, after the Done row; on by default
     /// (Lawrence 18470, gallery pick V2). Off, they draw dimmed in place.
     public var foldsArchived = true
@@ -205,22 +197,17 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
 }
 
 nonisolated extension SidebarLayoutOptions {
-    /// Icon, the working spinner and progress (spinner and OSC 9;4 bar, Lawrence via cx-htbe5): the name
-    /// and the unread mark always draw (minimal mode).
-    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .progress]))
     /// Workspaces as tabs: the icon, the working spinner and the pull request badge, on the name's
     /// line with the status glyph and the unread mark (Claude desktop's chat list).
     static let tabRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .pullRequest]))
 
-    /// What `ws`'s row draws under these options. Minimal mode drops the
-    /// second line (including another computer's name and a machine's
-    /// stage), the status block, counts and badges; the working spinner,
-    /// loading, the progress bar and attention states still show, like the unread mark.
+    /// What `ws`'s row draws under these options.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
-        // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
+        content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
+        content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
+        // Every mode (each density, workspaces as tabs), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }
         if let sessionTree { content.keycap = keycaps[ws.id] }
@@ -243,11 +230,16 @@ nonisolated extension SidebarLayoutOptions {
         }
         // What the agent needs, for the row's accessibility label only: a row draws no status words
         // (Leo 2026-10-21), its badge's dot says it. Worded on the main actor by the row view.
-        if !minimal, let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
+        if let chip = WorkspaceRowContent.rowChip(ws.agentChip) { content.chip = chip }
         // A row that already has a second line says there what its agent does now; a one-line row
         // keeps its height, so rows do not grow and shrink as agents start and stop.
-        if !minimal, content.detail != nil, let step = ws.agentStep {
+        if content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
+        }
+        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
+        // over a status or an expanded row's age, and never a line of its own.
+        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
+            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
         }
         return content
     }
@@ -259,17 +251,12 @@ nonisolated extension SidebarLayoutOptions {
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
         }
-        if expanded && !minimal {
+        if expanded {
             let shown = workspaceRow.resolved(for: ws.rowKind)
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
                                        showsPullRequest: shown.shows(.pullRequest), ages: ages)
         }
-        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages) }
-        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now, ages: ages)
-        content.detail = nil
-        content.badgeTime = nil
-        content.status = nil
-        return content
+        return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages)
     }
 }
 

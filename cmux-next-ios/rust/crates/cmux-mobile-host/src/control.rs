@@ -28,6 +28,11 @@
 //! - `{"type":"needs_you","items":[{"id","title","body","kind","source","url","created_at_ms"}]}`:
 //!   the open requests of the app's own Feed (held PRs, sign-ins, consent cards), the whole set
 //!   each time it changes. hostd serves them to phones and pushes each once (`needs_you.rs`).
+//! - `{"type":"appearance","theme":{"background","foreground","palette",...},
+//!   "wallpaper":{"path","tint_opacity"},"terminal":[...],"look":{...}}`: the colors the app's
+//!   chrome derives from, the picture its windows show, its terminal theme and the rest of its
+//!   look (window style, glass, fonts, chat colors), the whole state each time it changes
+//!   (`appearance.rs`).
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -302,6 +307,11 @@ pub enum Inbound {
     NeedsYou {
         items: Vec<crate::needs_you::Request>,
     },
+    /// The app's theme and wallpaper, the whole state (`appearance.rs`).
+    /// Boxed: the theme, wallpaper and look make it several times any other line.
+    Appearance(Box<crate::appearance::FromApp>),
+    /// A browser tab's favicon or thumbnail the app wrote to a file (`tab_snapshots.rs`).
+    TabPicture(crate::tab_snapshots::PictureFile),
     /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
     /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
     /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
@@ -383,6 +393,12 @@ pub enum Event {
         /// signature (the app checks and burns it; hostd only forwards it). Absent without one.
         #[serde(skip_serializing_if = "Option::is_none")]
         pair_token: Option<String>,
+        /// The phone app's bundle id as the phone states it at `auth` (`bundleId`), e.g.
+        /// `dev.cmux.mobile.<tag>` for a tagged dev build; the app's DEBUG-only dev auto-approve
+        /// pairs a same-tag phone with it (cmux-next-ios/SECURITY.md "Dev auto-approve"). A claim,
+        /// not a proof. Absent from an older phone, a malformed one and every machine.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        bundle_id: Option<String>,
         /// What asks: `phone` (omitted, as before) or a machine (`mac`, `linux`), which the
         /// app approves with grants (docs/multi-machine-sessions.md).
         #[serde(skip_serializing_if = "is_phone")]
@@ -391,6 +407,16 @@ pub enum Event {
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired {
         phone_device_id: String,
+    },
+    /// Another of the person's paired devices (`by_device_id`) answered the waiting request of
+    /// `phone_device_id` with these keys (`pair_requests.rs`): the app answers it as the person's
+    /// Allow or Don't Allow, only while that request with these keys still waits.
+    PairAnswer {
+        phone_device_id: String,
+        identity_key: String,
+        approval_key: String,
+        allow: bool,
+        by_device_id: String,
     },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
@@ -551,6 +577,12 @@ pub fn spawn_stdin_reader() -> Supplied {
                     }
                 }
                 Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
+                // Read off this loop: a wallpaper read never holds a token or a device line.
+                Some(Inbound::Appearance(appearance)) => {
+                    tokio::spawn(crate::appearance::set(*appearance));
+                }
+                // Read off this loop, in line order.
+                Some(Inbound::TabPicture(file)) => crate::tab_snapshots::offer_file(file),
                 Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
                     resolve_cloud_links(request, paid, desktops, links);
                 }
@@ -751,6 +783,25 @@ mod tests {
                 }]
             })
         );
+        let appearance = Inbound::parse(
+            r##"{"type":"appearance","theme":{"background":"#000000","foreground":"#ffffff","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"blue"},"wallpaper":{"path":"/tmp/w.jpg","tint_opacity":0.6}}"##,
+        );
+        let Some(Inbound::Appearance(appearance)) = appearance else { panic!("appearance did not parse") };
+        assert_eq!(appearance.theme.accent, "blue");
+        assert_eq!(appearance.wallpaper.map(|w| w.path), Some("/tmp/w.jpg".to_owned()));
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"tab_picture","surface":7,"part":"thumb","path":"/tmp/t.jpg","w":576,"h":360,"mime":"image/jpeg","captured_at_ms":5}"#
+            ),
+            Some(Inbound::TabPicture(crate::tab_snapshots::PictureFile {
+                surface: 7,
+                part: crate::tab_snapshots::Part::Thumb,
+                path: "/tmp/t.jpg".into(),
+                w: 576,
+                h: 360,
+                captured_at_ms: 5,
+            }))
+        );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
     }
@@ -825,6 +876,7 @@ mod tests {
             approval_key: "04".into(),
             registered_at_ms,
             pair_token,
+            bundle_id: None,
             kind: crate::peer::PeerKind::Phone,
         };
         let request = |registered_at_ms| request_with(registered_at_ms, None);
@@ -839,6 +891,21 @@ mod tests {
             serde_json::to_string(&scanned).unwrap(),
             r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","pair_token":"AbC-dEf_0123456789"}"#
         );
+        let tagged = Event::PairRequest {
+            phone_device_id: "p".into(),
+            name: "n".into(),
+            identity_key: "04".into(),
+            approval_key: "04".into(),
+            registered_at_ms: None,
+            pair_token: None,
+            bundle_id: Some("dev.cmux.mobile.my-tag".into()),
+            kind: crate::peer::PeerKind::Phone,
+        };
+        assert_eq!(
+            serde_json::to_string(&tagged).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","bundle_id":"dev.cmux.mobile.my-tag"}"#
+        );
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("bundle_id"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {

@@ -12,11 +12,13 @@ pub mod exit;
 mod config;
 mod creation_history;
 mod error;
+mod files;
 mod output;
 mod prompt;
 mod run;
 pub mod token;
 
+pub use config::default_config_path;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
@@ -37,6 +39,7 @@ Configuration:
   CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
+  CMUX_VM_DEFAULT_CONFIG  the default config file instead (a cmux DEV build's own; optional)
   Without CMUX_VM_API_KEY or --config, the token `token create` stored is used
   (login Keychain on macOS, else ~/.config/cmux/vm-token.json)
 
@@ -132,9 +135,9 @@ enum Command {
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
-    /// Read guest file metadata without starting the VM
+    /// Read guest files and metadata without starting the VM
     #[command(subcommand)]
-    File(FileCommand),
+    File(files::FileCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -179,12 +182,6 @@ struct CreationListArgs {
     /// Continue from a previous page's opaque cursor
     #[arg(long)]
     cursor: Option<String>,
-}
-
-#[derive(Subcommand, Debug)]
-enum FileCommand {
-    /// Show file metadata on a running, paused, stopped or retired VM
-    Stat(FileStatArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -233,14 +230,6 @@ struct ServerRevokeArgs {
 struct DeviceArg {
     /// Device id (dev_...)
     device_id: String,
-}
-
-#[derive(Args, Debug)]
-struct FileStatArgs {
-    /// VM id (vm_...)
-    vm_id: String,
-    /// Absolute guest path, without parent segments
-    path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -322,10 +311,10 @@ struct SnapshotCreateArgs {
     /// Display name
     #[arg(long)]
     name: Option<String>,
-    /// Seconds the snapshot is kept after its last use (60-31536000)
+    /// Seconds after it is taken when the snapshot is deleted, however recently a VM booted from it (60-31536000)
     #[arg(long, value_name = "SECONDS")]
     ttl: Option<i64>,
-    /// Seconds after creation when the snapshot is deleted (60-31536000)
+    /// Seconds without a VM created from it after which the snapshot is deleted; each create resets the clock (60-31536000)
     #[arg(long, value_name = "SECONDS")]
     auto_delete: Option<i64>,
     /// Reuse this key when retrying, so the snapshot is created only once [default: a new random key]
@@ -702,6 +691,9 @@ async fn execute(
     .map_err(|e| CliError::usage(e.to_string()))?;
     match cli.command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,
+        Command::File(command) => files::run(&client, command, cli.json, stdout)
+            .await
+            .map(|()| exit::OK),
         Command::Token(token::TokenCommand::Create(args)) => {
             let base = (settings.base_url != cmux_vm_client::DEFAULT_BASE_URL)
                 .then(|| settings.base_url.clone());
@@ -1133,31 +1125,8 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::Run(_) | Command::Token(_) => {
+        Command::Run(_) | Command::Token(_) | Command::File(_) => {
             Err(CliError::usage("this verb needs the API credential"))
-        }
-        Command::File(FileCommand::Stat(args)) => {
-            let id = args
-                .vm_id
-                .parse::<types::VmId>()
-                .map_err(|_| CliError::usage("invalid VM id"))?;
-            if !args.path.starts_with('/')
-                || args.path.contains('\0')
-                || args.path.split('/').any(|part| part == "..")
-                || args.path.encode_utf16().count() > 4096
-            {
-                return Err(CliError::usage(
-                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
-                ));
-            }
-            let path = args
-                .path
-                .parse::<types::GuestPath>()
-                .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
-                .await
-                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
-            out.file_stat(&body)
         }
     }
 }

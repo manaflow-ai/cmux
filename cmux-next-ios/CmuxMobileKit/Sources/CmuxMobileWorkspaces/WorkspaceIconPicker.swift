@@ -106,7 +106,7 @@ struct WorkspaceIconPicker: View {
                     }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel(name)
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityIdentifier("iconPicker.symbol.\(name)")

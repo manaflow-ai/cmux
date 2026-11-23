@@ -29,6 +29,10 @@ use crate::workspace_registry::personal_store::read_workspaces;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, WorkspaceRegistry};
 
 pub(crate) const WORKSPACE_KIND_CAPABILITY: &str = "workspace-kind-v1";
+/// The raw tree marks the recovery workspace (`Workspace.recovered`, `server/home.rs`): every tab
+/// in it is a terminal the daemon recovered from an orphaned host (`mux/orphan_hosts.rs`), so it is
+/// not a workspace the person made.
+pub(crate) const WORKSPACE_RECOVERED_CAPABILITY: &str = "workspace-recovered-v1";
 pub(crate) const HOME_KIND: &str = "home";
 /// The fixed idempotency key and correlation key of the home creation.
 pub(crate) const HOME_CREATION_KEY: &str = "home";
