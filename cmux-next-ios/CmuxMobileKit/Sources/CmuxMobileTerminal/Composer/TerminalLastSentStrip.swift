@@ -160,9 +160,9 @@ public struct TerminalLastSentGallery: View {
                             .padding(.horizontal, 12)
                         ZStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 2) {
-                                ForEach(Array((Self.rows + Self.rows).enumerated()), id: \.offset) { _, row in
-                                    Text(row).font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.85))
-                                }
+                                // A fixed 10-row sample, drawn whole.
+                                Text((Self.rows + Self.rows).joined(separator: "\n"))
+                                    .font(.system(size: 13, design: .monospaced)).foregroundStyle(.white.opacity(0.85))
                             }
                             .padding(.horizontal, 8)
                             .padding(.top, 8)
