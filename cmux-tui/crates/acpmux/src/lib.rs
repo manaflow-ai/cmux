@@ -321,6 +321,7 @@ mod single_shot_list_tests;
 #[cfg(test)]
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
+pub mod sr2_priority;
 pub mod ssh_config_hosts;
 pub(crate) mod ssh_forward;
 pub(crate) mod ssh_forward_owners;
@@ -372,6 +373,7 @@ pub mod usage_stats;
 pub mod user_settings;
 pub mod vault;
 pub mod web_modes;
+pub mod web_tailnet;
 pub mod wire_size;
 pub mod wireguard;
 pub mod workflow_journal;
