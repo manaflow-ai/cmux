@@ -243,6 +243,16 @@ impl Projection {
         segments
     }
 
+    /// Paints what feeds with `paint` false changed since the last paint:
+    /// a phone that takes several chunks before it draws paints them once.
+    /// Nothing on the alternate screen (its bytes went through as they came).
+    pub fn flush(&mut self) -> Vec<Segment> {
+        if self.term.is_alternate() {
+            return Vec::new();
+        }
+        self.paint().into_iter().collect()
+    }
+
     /// Answers for the program (cursor and text area reports, in host cells).
     pub fn take_replies(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.term.replies)
