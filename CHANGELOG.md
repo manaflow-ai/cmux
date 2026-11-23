@@ -4,6 +4,9 @@ All notable changes to cmux are documented here.
 
 ## [Unreleased]
 
+### Added
+- Read files, byte ranges, and directory listings from paused VMs with `cmux vm file read` and `cmux vm file ls`, without starting the machine.
+
 ### Fixed
 - Cloud agent authentication failures now name missing, expired or rejected provider credentials and offer an explicit, confirmed setup followed by retrying the failed turn.
 - ACPMux `new` keeps a lone positional session name, explains `--stay` and `--wait` compatibility flags, and avoids stale, restarting or outdated placement hosts.
