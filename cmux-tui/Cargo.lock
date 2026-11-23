@@ -71,6 +71,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vault-egress",
+ "cmux-voice",
  "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
@@ -3076,6 +3077,19 @@ dependencies = [
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+]
+
+[[package]]
+name = "cmux-voice"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

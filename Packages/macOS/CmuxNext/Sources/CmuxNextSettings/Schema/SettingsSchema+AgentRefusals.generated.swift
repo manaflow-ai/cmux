@@ -12,6 +12,9 @@ extension SettingsSchema {
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
         "cloud.newWorkspacesInCloud": .privacy, "cloud.newWorkspaceFolder": .privacy,
+        // Where the person's microphone audio goes: which dictation service hears each recording and at what address. An agent must never redirect it.
+        "agentPane.dictationEngine": .privacy, "agentPane.dictationEngineURL": .privacy,
+        "agentPane.dictationEngineModel": .privacy,
         // The key chord the dictation mic posts to another app: only the person picks what cmux types into other apps.
         "agentPane.dictationShortcut": .userOnly,
         // Whether an agent starts Cloud machines and sessions with no Start card: only the person delegates it.

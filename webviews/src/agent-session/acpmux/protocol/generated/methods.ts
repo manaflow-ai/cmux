@@ -305,6 +305,9 @@ export interface AcpmuxRequests {
   "_acpmux/connections/chatgpt.import": { params: unknown; result: unknown };
   "_acpmux/connections/claude_token.add": { params: unknown; result: unknown };
   "_acpmux/connections/credential": { params: unknown; result: unknown };
+  "_acpmux/voice/state": { params: unknown; result: unknown };
+  "_acpmux/voice/transcribe": { params: unknown; result: unknown };
+  "_acpmux/voice/check": { params: unknown; result: unknown };
   "_acpmux/web_modes": { params: unknown; result: unknown };
   "_acpmux/web_token_rotate": { params: unknown; result: unknown };
   "_acpmux/reload_config": { params: unknown; result: unknown };
@@ -713,6 +716,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/connections/chatgpt.import", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/claude_token.add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/connections/credential", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/voice/state", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/voice/transcribe", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/voice/check", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_modes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/web_token_rotate", kind: "request", acp: false, typed: false },
   { name: "_acpmux/reload_config", kind: "request", acp: false, typed: false },

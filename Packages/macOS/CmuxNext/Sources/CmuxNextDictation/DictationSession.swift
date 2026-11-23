@@ -59,15 +59,32 @@ public final class DictationSession {
     /// recording reaches the page with the words (a few milliseconds). A cancel drops it.
     private(set) var closing: Task<Void, Never>?
 
+    /// The person's own dictation provider (`agentPane.dictationEngine`), asked at each start of a
+    /// session made with the default engine: nil (on-device, the default) dictates with
+    /// ``OnDeviceDictationTranscriber`` as before; a transcription records the session and has the
+    /// provider transcribe it on stop (``RecordedDictationTranscriber``). The app installs it once
+    /// for every surface (the composer, the terminal, Home).
+    public static var providerTranscription: (@MainActor () -> RecordedDictationTranscriber.Transcribe?)?
+
+    /// The default engine: the provider's when one is set, else on-device.
+    public static func defaultTranscriber(_ meter: DictationAudioLevelMeter) -> any SpeechTranscribing {
+        if let transcribe = providerTranscription?() {
+            return RecordedDictationTranscriber(levelMeter: meter, transcribe: transcribe)
+        }
+        return OnDeviceDictationTranscriber(levelMeter: meter)
+    }
+
     /// - Parameters:
-    ///   - makeTranscriber: A fresh single-session engine fed by the meter.
+    ///   - makeTranscriber: A fresh single-session engine fed by the meter; by default
+    ///     ``defaultTranscriber(_:)``.
     ///   - locale: The language, read at each start.
     ///   - stopDeadline: How long a stop may flush before the session ends
-    ///     with what it has.
+    ///     with what it has, unless the engine names its own
+    ///     (``SpeechTranscribing/finalizingDeadline``).
     public init(
         authorizer: any DictationAuthorizing = SystemDictationAuthorizer(),
         makeTranscriber: @escaping @MainActor (DictationAudioLevelMeter) -> any SpeechTranscribing = { meter in
-            OnDeviceDictationTranscriber(levelMeter: meter)
+            DictationSession.defaultTranscriber(meter)
         },
         locale: @escaping @MainActor () -> Locale = { Locale.current },
         stopDeadline: Duration = .seconds(3),
@@ -110,7 +127,8 @@ public final class DictationSession {
         case .listening:
             set(.finalizing)
             let session = generation
-            deadline.schedule(after: stopDeadline) { @MainActor [weak self] in
+            // A provider engine waits for its provider's answer (a minute), not the on-device flush.
+            deadline.schedule(after: transcriber?.finalizingDeadline ?? stopDeadline) { @MainActor [weak self] in
                 self?.finish(session)
             }
             finishEngine()
@@ -127,7 +145,7 @@ public final class DictationSession {
         listening?.cancel()
         listening = nil
         endLevels()
-        finishEngine()
+        cancelEngine()
         transcriber = nil
         recording?.discard()
         recording = nil
@@ -166,8 +184,8 @@ public final class DictationSession {
         }
         guard session == generation, phase == .starting else {
             // Cancelled while starting: the engine may have opened the
-            // microphone after the cancel reached it.
-            await engine.finishTranscribing()
+            // microphone after the cancel reached it. Nothing is sent.
+            await engine.cancelTranscribing()
             return
         }
         set(.listening)
@@ -210,8 +228,8 @@ public final class DictationSession {
             onFinalText?(delta)
         }
         // The engine ended its stream itself (or missed the deadline); make
-        // sure it let go of the microphone.
-        finishEngine()
+        // sure it let go of the microphone, and drop a provider's late answer.
+        cancelEngine()
         transcriber = nil
         let text = committed
         guard let recording else {
@@ -242,7 +260,7 @@ public final class DictationSession {
         deadline.cancel()
         listening = nil
         endLevels()
-        finishEngine()
+        cancelEngine()
         transcriber = nil
         recording?.discard()
         recording = nil
@@ -274,6 +292,14 @@ public final class DictationSession {
         guard let engine = transcriber else { return }
         // task-owner: one-shot teardown; the engine's finish is idempotent and bounded
         Task { await engine.finishTranscribing() }
+    }
+
+    /// Ends the engine without a result and without waiting (Esc, an ended or failed session). An
+    /// on-device engine finishes as in ``finishEngine()``; a provider engine sends nothing.
+    private func cancelEngine() {
+        guard let engine = transcriber else { return }
+        // task-owner: one-shot teardown; the engine's cancel is idempotent and bounded
+        Task { await engine.cancelTranscribing() }
     }
 
     private func endLevels() {

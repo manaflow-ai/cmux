@@ -2618,6 +2618,7 @@ mod routes;
 mod secrets;
 mod share_host;
 mod vault;
+mod voice;
 mod web_device;
 pub(crate) use vault::reply as vault_reply;
 mod races;

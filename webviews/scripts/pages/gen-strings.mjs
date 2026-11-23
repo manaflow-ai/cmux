@@ -125,6 +125,8 @@ export const PAGES = {
         file: `${sources}/CmuxNextSettings/Localizable.xcstrings`,
         keys: () => schemaKeys("schemas/settings/settings-schema.json"),
       },
+      // The page's own cards that have no Swift window twin (the dictation engine's key card).
+      { file: "webviews/src/pages/settings/Localizable.xcstrings" },
       {
         file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
         // `settingsWindow.` keys too: the page draws the Swift window's cards (R82 commits 2-5).

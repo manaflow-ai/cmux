@@ -135,6 +135,7 @@ final class HomeVoiceDictation: HomeVoiceInput {
             String(localized: "home.voice.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
             String(localized: "home.voice.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
+        case .providerFailed(let code, let detail): providerFailureMessage(code: code, detail: detail)
         case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
             String(localized: "home.voice.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .localizedModule)
         }

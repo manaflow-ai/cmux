@@ -1,6 +1,7 @@
 import { Fragment, startTransition, useEffect, useState } from "react";
 import type { CategoryGroup } from "../categories";
 import { text } from "../strings";
+import { DictationProviderCard, dictationCardAnchor } from "./DictationProviderCard";
 import { APP_LANGUAGE_KEY, LanguageRelaunchRow } from "./LanguageRelaunchRow";
 import { SettingRow } from "./SettingRow";
 import { MoreOptions } from "./MoreOptions";
@@ -79,6 +80,8 @@ export function GroupList({
     const open = !shown || group.rows.some((row) => shown.has(row.key));
     const proposed = group as ArrangedGroup;
     const title = proposed.untitled ? "" : shownGroupTitle(text(group.title), pageTitle);
+    // The dictation engine's key card follows the last dictation row, on the card or behind its More Options.
+    const dictation = shown ? null : dictationCardAnchor([...group.rows, ...(proposed.more ?? [])]);
     return (
       <section
         className={shown ? "group collapse" : "group"}
@@ -109,11 +112,14 @@ export function GroupList({
                   <SettingRow row={row} query={query} focused={row.key === focus} />
                   {/* The menus keep the launch language: a Relaunch row under Language while they differ. */}
                   {row.key === APP_LANGUAGE_KEY && <LanguageRelaunchRow />}
+                  {row.key === dictation && <DictationProviderCard />}
                 </Fragment>
               ),
             )}
             {/* The card's More Options row and the rows it opens (rowLevels.ts). */}
-            {!shown && proposed.more && proposed.more.length > 0 && <MoreOptions rows={proposed.more} focus={focus} />}
+            {!shown && proposed.more && proposed.more.length > 0 && (
+              <MoreOptions rows={proposed.more} focus={focus} after={dictation} />
+            )}
           </div>
         </div>
       </section>

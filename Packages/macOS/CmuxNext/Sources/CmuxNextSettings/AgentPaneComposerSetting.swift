@@ -26,6 +26,12 @@ import CmuxNextDesign
 /// the person bound the app to one other than its default; empty (the default) uses the app's.
 /// Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's
 /// thing ... Or, like, maybe you can map the button to that thing, perhaps?"
+/// `dictationEngine`: what turns speech into text when the source is `cmux`, `onDevice` (Apple's
+/// on-device engine, as before; the default) or a provider the person brings with their own key
+/// (`openai`, `groq`, `localServer`, `whisperCpp`, `custom`), which acpmux's `_acpmux/voice/*` runs;
+/// `dictationEngineURL` and `dictationEngineModel` override its base URL and model (empty: its own).
+/// Leo, 2026-11-22: "people should be able to add their own api keys/whatever and toggle that voice
+/// mode and whatever to link up to their provider of choice".
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
 /// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
@@ -57,6 +63,9 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var composerRing = Self.composerRingDefault
     public var showDictation = Self.showDictationDefault
     public var dictationSource = Self.dictationSourceDefault
+    public var dictationEngine = Self.dictationEngineDefault
+    public var dictationEngineURL = Self.dictationEngineURLDefault
+    public var dictationEngineModel = Self.dictationEngineModelDefault
     public var dictationShortcut = Self.dictationShortcutDefault
     public var spellChecking = Self.spellCheckingDefault
     public var attachmentView = Self.attachmentViewDefault
@@ -123,6 +132,26 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     continue
                 }
                 setting.dictationSource = source
+                continue
+            }
+            if descriptor.path == dictationEnginePath {
+                guard descriptor.accepts(value), let engine = value.stringValue.flatMap(AgentPaneDictationEngine.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.dictationEngine = engine
+                continue
+            }
+            if descriptor.path == dictationEngineURLPath || descriptor.path == dictationEngineModelPath {
+                guard descriptor.accepts(value), let text = value.stringValue else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                if descriptor.path == dictationEngineURLPath {
+                    setting.dictationEngineURL = text
+                } else {
+                    setting.dictationEngineModel = text
+                }
                 continue
             }
             if descriptor.path == dictationShortcutPath {

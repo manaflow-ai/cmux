@@ -72,7 +72,9 @@ public final class VoiceRoomHost {
                 #if DEBUG
                 if let recorded = DictationSession.recorded() { return recorded }
                 #endif
-                return DictationSession()
+                // Always on-device: the room listens continuously and needs live words, which a
+                // provider engine (agentPane.dictationEngine) only gives on stop.
+                return DictationSession(makeTranscriber: { meter in OnDeviceDictationTranscriber(levelMeter: meter) })
             },
             poster: VoiceRoomHTTPPoster(address: address),
             events: VoiceRoomWebSocketEvents(address: address),

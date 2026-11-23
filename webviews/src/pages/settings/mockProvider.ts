@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockDictationState } from "./mockDictation";
 import { mockModels, runMockModels } from "./mockModels";
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
@@ -59,6 +60,9 @@ import {
   type KeysState,
   type ModelsRun,
   type ModelsState,
+  type DictationCheck,
+  type DictationRun,
+  type DictationState,
   type ComputerUseApproval,
   type AgentToolsCardRun,
   type AgentToolsCardState,
@@ -666,6 +670,25 @@ export class MockSettingsProvider {
         }
         return {};
       },
+      "cmux.settings.dictation.run": async (params) => {
+        const run = params as DictationRun;
+        this.dictationRuns.push(run);
+        if (this.dictationHold) await this.dictationHold;
+        if (this.dictationFails) throw new ProtocolError(this.dictationFails, "acpmux did not answer");
+        if (run.action === "check") {
+          if (this.dictation.key === "required" && !this.dictation.hasKey)
+            return { ok: false, error: { code: "key_missing", detail: "" } } satisfies DictationCheck;
+          return this.dictationCheck;
+        }
+        if (run.action === "setKey") {
+          if (!this.dictation.keyAccount)
+            throw new ProtocolError("cmux.settings.invalid", "this engine has no key to store");
+          this.dictation = { ...this.dictation, hasKey: true };
+        } else if (run.action === "removeKey") {
+          this.dictation = { ...this.dictation, hasKey: false };
+        }
+        return this.dictation;
+      },
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -921,6 +944,7 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.models.state",
       "cmux.settings.models.run",
+      "cmux.settings.dictation.run",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
@@ -1023,6 +1047,17 @@ export class MockSettingsProvider {
     this.models = models;
     for (const ctx of this.modelsChanged) ctx.emit(models);
   }
+
+  /** The dictation engine as acpmux resolves the `agentPane.dictationEngine*` settings (mockDictation.ts). */
+  dictation: DictationState = mockDictationState("onDevice");
+  /** What Check Connection answers when a key is not missing. */
+  dictationCheck: DictationCheck = { ok: true };
+  /** Dictation gestures the page sent (pasted keys included, so tests can check what was sent). */
+  readonly dictationRuns: DictationRun[] = [];
+  /** While set, every dictation gesture waits for it (a check in flight). */
+  dictationHold: Promise<void> | null = null;
+  /** While set, every dictation gesture fails with this code (the app could not reach acpmux). */
+  dictationFails: string | null = null;
 
   /** Settings > Devices as the app serves it (texts already localized). */
   devices: DevicesState = mockDevicesState();

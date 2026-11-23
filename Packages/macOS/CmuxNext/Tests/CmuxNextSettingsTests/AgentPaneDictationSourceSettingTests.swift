@@ -71,6 +71,7 @@ struct AgentPaneDictationSourceSettingTests {
         let keys = SettingsPageLayout.specs.first { $0.id == "chat" }?.groups.flatMap(\.keys) ?? []
         let show = keys.firstIndex(of: "agentPane.showDictation")
         #expect(show != nil && keys.firstIndex(of: "agentPane.dictationSource") == show.map { $0 + 1 })
-        #expect(show != nil && keys.firstIndex(of: "agentPane.dictationShortcut") == show.map { $0 + 2 })
+        // The engine and its URL and model sit between the source and the shortcut.
+        #expect(show != nil && keys.firstIndex(of: "agentPane.dictationShortcut") == show.map { $0 + 5 })
     }
 }

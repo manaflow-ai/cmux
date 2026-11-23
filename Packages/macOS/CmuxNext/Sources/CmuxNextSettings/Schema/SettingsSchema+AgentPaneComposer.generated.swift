@@ -14,6 +14,15 @@ extension AgentPaneComposerSetting {
     /// `agentPane.dictationSource`: What the composer's mic dictates with (agentPane.dictationSource): cmux's own dictation, or an app the person already dictates with (design/composer-dictation.md). Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's thing ... Or, like, maybe you can map the button to that thing, perhaps?"
     public nonisolated static let dictationSourcePath = ["agentPane", "dictationSource"]
     public nonisolated static let dictationSourceDefault: AgentPaneDictationSource = .cmux
+    /// `agentPane.dictationEngine`: What turns speech into text when agentPane.dictationSource is cmux: Apple's on-device engine, or a provider the person brings with their own key, run by acpmux's cmux-voice catalog (these values are its provider ids). Leo, 2026-11-22: "people should be able to add their own api keys/whatever and toggle that voice mode and whatever to link up to their provider of choice. just like our mic thing. whisprflow or parakeet or whatever ... they want. anything."
+    public nonisolated static let dictationEnginePath = ["agentPane", "dictationEngine"]
+    public nonisolated static let dictationEngineDefault: AgentPaneDictationEngine = .onDevice
+    /// `agentPane.dictationEngineURL`: The base URL of the dictation provider in agentPane.dictationEngine; empty uses the provider's default. A saved key is tied to this URL's origin, so changing it never sends the key elsewhere.
+    public nonisolated static let dictationEngineURLPath = ["agentPane", "dictationEngineURL"]
+    public nonisolated static let dictationEngineURLDefault = ""
+    /// `agentPane.dictationEngineModel`: The model name sent to the dictation provider in agentPane.dictationEngine; empty uses the provider's default.
+    public nonisolated static let dictationEngineModelPath = ["agentPane", "dictationEngineModel"]
+    public nonisolated static let dictationEngineModelDefault = ""
     /// `agentPane.dictationShortcut`: The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.
     public nonisolated static let dictationShortcutPath = ["agentPane", "dictationShortcut"]
     public nonisolated static let dictationShortcutDefault = ""
@@ -98,6 +107,43 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 ]),
                 default: .string(AgentPaneComposerSetting.dictationSourceDefault.rawValue),
                 keywords: ["dictation", "dictate", "microphone", "mic", "voice", "speech", "chatgpt", "claude", "gemini", "wispr", "flow", "superwhisper", "macos", "composer"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationEnginePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationEngine", "Dictation Engine"),
+                help: SettingsText.keyed("settings.agentPane.dictationEngine.help", "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."),
+                kind: .choice([
+                    SettingChoice(AgentPaneDictationEngine.onDevice.rawValue, SettingsText.keyed("settings.choice.dictationEngineOnDevice", "On This Mac")),
+                    SettingChoice(AgentPaneDictationEngine.openai.rawValue, SettingsText.keyed("settings.choice.dictationEngineOpenai", "OpenAI")),
+                    SettingChoice(AgentPaneDictationEngine.groq.rawValue, SettingsText.keyed("settings.choice.dictationEngineGroq", "Groq")),
+                    SettingChoice(AgentPaneDictationEngine.localServer.rawValue, SettingsText.keyed("settings.choice.dictationEngineLocalServer", "Local Server")),
+                    SettingChoice(AgentPaneDictationEngine.whisperCpp.rawValue, SettingsText.keyed("settings.choice.dictationEngineWhisperCpp", "whisper.cpp Server")),
+                    SettingChoice(AgentPaneDictationEngine.custom.rawValue, SettingsText.keyed("settings.choice.dictationEngineCustom", "Custom Endpoint")),
+                ]),
+                default: .string(AgentPaneComposerSetting.dictationEngineDefault.rawValue),
+                keywords: ["dictation", "dictate", "voice", "speech", "transcription", "whisper", "parakeet", "openai", "groq", "api key", "provider", "engine"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationEngineURLPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationEngineURL", "Dictation Server URL"),
+                help: SettingsText.keyed("settings.agentPane.dictationEngineURL.help", "Where the dictation service lives. Empty uses the engine's default."),
+                kind: .text,
+                default: .string(AgentPaneComposerSetting.dictationEngineURLDefault),
+                keywords: ["dictation", "voice", "speech", "server", "url", "endpoint", "whisper", "parakeet"]
+            ),
+            SettingDescriptor(
+                AgentPaneComposerSetting.dictationEngineModelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.dictationEngineModel", "Dictation Model"),
+                help: SettingsText.keyed("settings.agentPane.dictationEngineModel.help", "The model the dictation service uses. Empty uses the engine's default."),
+                kind: .text,
+                default: .string(AgentPaneComposerSetting.dictationEngineModelDefault),
+                keywords: ["dictation", "voice", "speech", "model", "whisper", "transcription"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.dictationShortcutPath,

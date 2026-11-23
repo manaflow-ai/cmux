@@ -187,6 +187,130 @@
           }
         },
         {
+          "key": "agentPane.dictationEngine",
+          "note": "What turns speech into text when agentPane.dictationSource is cmux: Apple's on-device engine, or a provider the person brings with their own key, run by acpmux's cmux-voice catalog (these values are its provider ids). Leo, 2026-11-22: \"people should be able to add their own api keys/whatever and toggle that voice mode and whatever to link up to their provider of choice. just like our mic thing. whisprflow or parakeet or whatever ... they want. anything.\"",
+          "title": {
+            "key": "settings.agentPane.dictationEngine",
+            "text": "Dictation Engine"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationEngine.help",
+            "text": "What turns speech into text when Dictate With is cmux. On This Mac needs no key and sends nothing. The others send each recording to the service you pick, with your own key."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "onDevice",
+              "title": {
+                "key": "settings.choice.dictationEngineOnDevice",
+                "text": "On This Mac"
+              },
+              "note": "Apple's on-device engine, as before."
+            },
+            {
+              "value": "openai",
+              "title": {
+                "key": "settings.choice.dictationEngineOpenai",
+                "text": "OpenAI"
+              }
+            },
+            {
+              "value": "groq",
+              "title": {
+                "key": "settings.choice.dictationEngineGroq",
+                "text": "Groq"
+              }
+            },
+            {
+              "value": "localServer",
+              "title": {
+                "key": "settings.choice.dictationEngineLocalServer",
+                "text": "Local Server"
+              },
+              "note": "A server on this Mac or the LAN speaking the OpenAI-style /v1/audio/transcriptions route, such as a local Whisper or Parakeet server."
+            },
+            {
+              "value": "whisperCpp",
+              "title": {
+                "key": "settings.choice.dictationEngineWhisperCpp",
+                "text": "whisper.cpp Server"
+              }
+            },
+            {
+              "value": "custom",
+              "title": {
+                "key": "settings.choice.dictationEngineCustom",
+                "text": "Custom Endpoint"
+              },
+              "note": "Any OpenAI-style endpoint; needs agentPane.dictationEngineURL."
+            }
+          ],
+          "default": "onDevice",
+          "keywords": [
+            "dictation",
+            "dictate",
+            "voice",
+            "speech",
+            "transcription",
+            "whisper",
+            "parakeet",
+            "openai",
+            "groq",
+            "api key",
+            "provider",
+            "engine"
+          ],
+          "swift_enum": {
+            "name": "AgentPaneDictationEngine"
+          }
+        },
+        {
+          "key": "agentPane.dictationEngineURL",
+          "note": "The base URL of the dictation provider in agentPane.dictationEngine; empty uses the provider's default. A saved key is tied to this URL's origin, so changing it never sends the key elsewhere.",
+          "title": {
+            "key": "settings.agentPane.dictationEngineURL",
+            "text": "Dictation Server URL"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationEngineURL.help",
+            "text": "Where the dictation service lives. Empty uses the engine's default."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "dictation",
+            "voice",
+            "speech",
+            "server",
+            "url",
+            "endpoint",
+            "whisper",
+            "parakeet"
+          ]
+        },
+        {
+          "key": "agentPane.dictationEngineModel",
+          "note": "The model name sent to the dictation provider in agentPane.dictationEngine; empty uses the provider's default.",
+          "title": {
+            "key": "settings.agentPane.dictationEngineModel",
+            "text": "Dictation Model"
+          },
+          "help": {
+            "key": "settings.agentPane.dictationEngineModel.help",
+            "text": "The model the dictation service uses. Empty uses the engine's default."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "dictation",
+            "voice",
+            "speech",
+            "model",
+            "whisper",
+            "transcription"
+          ]
+        },
+        {
           "key": "agentPane.dictationShortcut",
           "note": "The chord the mic sends for an app source, such as ctrl+opt+space, when the person bound the app to one other than its default; empty uses the app's. AgentPaneDictationShortcut parses it.",
           "title": {

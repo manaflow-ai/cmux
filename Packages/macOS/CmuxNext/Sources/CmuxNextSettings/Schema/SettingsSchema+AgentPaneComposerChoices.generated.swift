@@ -22,12 +22,15 @@ public nonisolated enum AgentPaneDictationSource: String, Sendable, Hashable, Ca
     case superwhisper
 }
 
-/// How the composer and sent messages show attachments (agentPane.attachmentView). Only the look: a draft's text, its attachments and their order are the same in all.
-public nonisolated enum AgentPaneAttachmentView: String, Sendable, Hashable, CaseIterable {
-    /// Each attachment in the text where it was added, as Messages does.
-    case inline
-    /// The attachments together in a row.
-    case strip
-    /// In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: "ALSO show the top displayed attachments alongside the inline attachments").
-    case both
+/// What turns speech into text when agentPane.dictationSource is cmux: Apple's on-device engine, or a provider the person brings with their own key, run by acpmux's cmux-voice catalog (these values are its provider ids). Leo, 2026-11-22: "people should be able to add their own api keys/whatever and toggle that voice mode and whatever to link up to their provider of choice. just like our mic thing. whisprflow or parakeet or whatever ... they want. anything."
+public nonisolated enum AgentPaneDictationEngine: String, Sendable, Hashable, CaseIterable {
+    /// Apple's on-device engine, as before.
+    case onDevice
+    case openai
+    case groq
+    /// A server on this Mac or the LAN speaking the OpenAI-style /v1/audio/transcriptions route, such as a local Whisper or Parakeet server.
+    case localServer
+    case whisperCpp
+    /// Any OpenAI-style endpoint; needs agentPane.dictationEngineURL.
+    case custom
 }
