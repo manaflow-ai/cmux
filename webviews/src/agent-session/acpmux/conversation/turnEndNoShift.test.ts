@@ -145,3 +145,73 @@ test("a bookkeeping turn's end moves nothing above its fold", () => {
     expect(Math.abs(after.get(id)! - before.get(id)!)).toBeLessThanOrEqual(0.5);
   }
 });
+
+// The same jump, inside the live turn. `concluding` reads the ask out of an answer whose text is
+// still arriving, and a half-written ask parses differently with every delta: for this fixture the
+// question comes first (a yes-or-no ask: Yes / Not now), then one listed answer (a list of one is no
+// answer list, so the card goes away), then the second (it comes back with both). Each swap moves the
+// followed transcript -- the same class of shift as the turn's end -- and the middle readings offer
+// answers the agent never wrote. A streaming reply really does carry the phase: direct.ts stamps
+// `assistantPhase` from the first chunk's `_meta.codex.phase` (Codex's `item/started`) and keeps it
+// while the row's text grows under `streaming: true`. Its completion signal is the second stamp, on
+// `item/completed` (`textComplete`), which arrives before `turn_result`, so the card is still drawn
+// before the turn ends and the end still appends nothing.
+const ASK_FRAMES = ASK.split("\n").map((_, at, lines) => lines.slice(0, at + 1).join("\n"));
+
+const answering = (text: string, extra: Partial<AcpmuxRow>): AcpmuxRow[] => [
+  ...earlier,
+  ...ending.slice(0, -1),
+  row("a1", "assistant", 20_000, { text, assistantPhase: "final_answer", ...extra }),
+];
+
+for (const agentFamily of ["codex", "claude"])
+  test(`${agentFamily}: a streaming final answer draws no ask card that comes, goes and comes back`, () => {
+    const options = { now: 60_000, agentFamily };
+    // The deltas, then `item/completed`, then the turn's end: the row streams until the end.
+    const frames: { rows: AcpmuxRow[]; working: boolean }[] = [
+      ...ASK_FRAMES.map((text) => ({ rows: answering(text, { streaming: true }), working: true })),
+      { rows: answering(ASK, { streaming: true, textComplete: true }), working: true },
+      { rows: [...answering(ASK, { textComplete: true }), summary], working: false },
+    ];
+    const drawn = frames.map(({ rows, working }) => turnView(rows, new Set(), { ...options, working }));
+    const ids = drawn.map((rows) => rows.map((each) => each.id));
+
+    // The fixture has to actually stream: the last listed answer arrives only in the last frames.
+    expect(ASK_FRAMES.length).toBeGreaterThan(3);
+
+    // No row id that was drawn ever disappears and returns: each id's frames are one run.
+    const seen = new Map<string, number[]>();
+    ids.forEach((frame, at) => {
+      for (const id of new Set(frame)) seen.set(id, [...(seen.get(id) ?? []), at]);
+    });
+    const returned = [...seen]
+      .map(([id, at]) => ({ id, at }))
+      .filter(({ at }) => at.at(-1)! - at[0]! + 1 !== at.length);
+    expect(returned).toEqual([]);
+
+    // And the content never gets shorter: a shrink under a pinned bottom drops every row above it.
+    const heights = drawn.map(bottom);
+    const shrank = heights
+      .map((height, at) => ({ at, was: heights[at - 1] ?? height, now: height }))
+      .filter((each) => each.now < each.was - 0.5);
+    expect(shrank).toEqual([]);
+  });
+
+// The card is read live, as the PR's other tests pin: once the answer's text is whole
+// (`item/completed`) and before `turn_result`, so the turn's end still appends nothing.
+test("codex: the ask card is drawn as soon as the answer's text is whole, before the turn ends", () => {
+  const options = { now: 60_000, agentFamily: "codex" };
+  const options_ = { ...options, working: true };
+  const streaming = turnView(answering(ASK, { streaming: true }), new Set(), options_).map((each) => each.id);
+  const complete = turnView(answering(ASK, { streaming: true, textComplete: true }), new Set(), options_).map(
+    (each) => each.id,
+  );
+  const ended = turnView([...answering(ASK, { textComplete: true }), summary], new Set(), {
+    ...options,
+    working: false,
+  }).map((each) => each.id);
+  const card = complete.find((id) => id.startsWith("nextStep-"));
+  expect(card).toBeDefined();
+  expect(streaming).not.toContain(card!);
+  expect(ended).toContain(card!);
+});

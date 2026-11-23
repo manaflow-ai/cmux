@@ -1968,15 +1968,28 @@ function shapeTurn(
   // Another agent's message that opens the next turn answers nothing: the question was the person's
   // to answer, and it stays theirs (Leo, 2026-11-06, on a question the next agent's message took
   // back: "we want to keep these things rendered, and perhaps persistent at the bottom").
+  // The concluding projection runs while the answer's text is still arriving, and a half-written ask
+  // parses differently with every delta: for a "Should ...?" ask the question alone reads as
+  // yes-or-no (Yes / Not now), its first listed answer as no answer list at all, the second as the
+  // list. Drawing each reading in turn would put the card on screen, take it away and bring it back
+  // under a reader whose bottom is pinned -- the shift Leo named (ask-2447b44f40) -- and would offer
+  // answers the agent never wrote. So the ask is read only once the answer's own completion signal
+  // says its text is whole: `textComplete` (direct.ts, Codex's `item/completed`), or a row that is no
+  // longer streaming. An ended turn (`!live`) reads it as before.
+  const answerComplete = answer === undefined || answer.textComplete === true || answer.streaming !== true;
   const tagged =
-    (!live || concluding) && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
+    (!live || concluding) && answerComplete && !wrapUp && summary.status === "completed"
+      ? nextStepAsk(answer?.text)
+      : undefined;
   // A tagged ask another message cut off: the agent asked, another agent's message steered into the
   // turn before it ended, and the agent went on to answer that message, so the ask is no longer the
   // turn's last word. It is still the person's question (Leo, 2026-11-06: "It was about you asking a
   // question to me that had a question-answer response and then another message from another agent
   // interrupted you and then there's nothing now"): its card draws under the reply that asked it.
   const cutOff =
-    (!live || concluding) && !wrapUp && !tagged && summary.status === "completed" ? steeredAsk(body) : undefined;
+    (!live || concluding) && answerComplete && !wrapUp && !tagged && summary.status === "completed"
+      ? steeredAsk(body)
+      : undefined;
   const nextStep = live && !concluding ? undefined : (wrapUp ?? tagged ?? cutOff?.ask);
   // The turn's last browser walkthrough, read once the turn has ended; drawn once, under the answer.
   const walked = live && !concluding ? undefined : lastWalkthrough(worked);
