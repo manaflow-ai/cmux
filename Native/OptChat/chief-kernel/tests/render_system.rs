@@ -238,7 +238,7 @@ fn the_cloud_base_names_no_tool_it_does_not_offer() {
         "Decide, do not ask",
         "zoom",
     ] {
-        assert!(before_compactions.contains(present), "{present:?} missing");
+        assert!(before_instructions.contains(present), "{present:?} missing");
     }
 }
 
