@@ -226,3 +226,9 @@ button.kit-row:focus-visible {
 .kit-field-note[data-error] {
   color: var(--ds-color-danger);
 }
+
+/* GLASS: a region on the page's glass at a level (Glass.tsx; ui/glass/glass.css "PUBLIC GLASS
+   LEVELS"). The card radius unless the caller gives one; paint only, so no padding of its own. */
+.kit-glass {
+  border-radius: var(--ds-radius-lg);
+}

@@ -632,6 +632,76 @@ export type TeamAgentKeysState = {
   agents: TeamAgentKeyRow[];
 };
 
+/** A member's Chief tier (Settings > Team > Compute). */
+export type ChiefTier = "standard" | "plus" | "max";
+
+/**
+ * The team's monthly Cloud allotment as the backend keeps it (Settings > Team > Compute). Micros are
+ * millionths of a US dollar. Every seat includes $25 a month of pooled usage; `commit_micros` is the
+ * extra pooled usage the admin commits to, in $25 steps at 20% off. Field names are the wire's.
+ */
+export interface TeamAllotment {
+  commit_micros: number;
+  mode: "ask" | "auto";
+  auto_max_micros: number | null;
+  tiers: Record<string, ChiefTier>;
+  snoozed_until: number | null;
+  changed_at: number;
+  changed_by: string;
+}
+
+/** One member's Cloud use over this month and the last 14 days. `spare_micros` is warm-spare time,
+ * the platform's cost, shown to the team as $0. */
+export interface MemberUse {
+  member: string;
+  tier: ChiefTier;
+  month_micros: number;
+  usd14_micros: number;
+  active_days14: number;
+  share_micros: number;
+  rank: number;
+  over_share14: number;
+  plan_limit_ms14: number;
+  spare_micros: number;
+}
+
+/** Why the scheduler proposes what it proposes. */
+export type AllotmentReason =
+  | { kind: "unused"; members: string[] }
+  | { kind: "over"; member: string; count: number }
+  | { kind: "runaway"; member: string; rate_micros_h: number }
+  | { kind: "tier"; member: string; to: ChiefTier; costs_micros: number };
+
+/** The scheduler's proposal: `position` and the commit it would set (`to_commit_micros`).
+ * `allot_micros` = included + tier credits + commit. Members are never refused by the allotment. */
+export interface AllotmentDecision {
+  allot_micros: number;
+  forecast_micros: number;
+  position: "down" | "hold" | "up";
+  to_commit_micros: number;
+  reasons: AllotmentReason[];
+  members: MemberUse[];
+  order: string[];
+  apply: boolean;
+}
+
+/** `cmux.settings.cloud.allotment.get` and `.set`'s answer. `allotment` is null before an admin
+ * ever set one. */
+export interface AllotmentView {
+  allotment: TeamAllotment | null;
+  decision: AllotmentDecision;
+  hard_cap_micros: number | null;
+  as_of: number;
+}
+
+export type AllotmentPosition = AllotmentDecision["position"];
+
+/** One gesture of the Compute card: up and down apply the decision's `to_commit_micros`; hold
+ * snoozes proposals 14 days. `auto` sets the mode. */
+/** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
+ * cloud.allotment.set does. `hold` snoozes proposals. */
+export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
+
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
 export type ModelConnectionKind =
   | "codex-login"
@@ -1393,6 +1463,87 @@ export type McpServersState = {
 /** One MCP Servers gesture; sign in and remove run only on a click. */
 export type McpServersRun = { action: "refresh" } | { action: "signin" | "remove"; name: string };
 
+/** A coding agent whose own settings Settings > Agents > Claude Code & Codex shows. */
+export type AgentConfigAgent = "claude" | "codex";
+
+/** One config file the agent reads (`cmux agent-config settings get`): its scope (`managed`,
+ * `user`, `project`, `local`, `profile:NAME`), whether it exists and how many keys it holds. */
+export type AgentConfigFile = {
+  scope: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  writable: boolean;
+  keys: number;
+  error: string | null;
+};
+
+/** One effective leaf setting: `display` is short and already masked for secrets (`masked`). */
+export type AgentConfigEntry = {
+  key: string;
+  display: string;
+  scope: string;
+  path: string;
+  overridden: { scope: string; display: string }[];
+  masked: boolean;
+  curated: boolean;
+};
+
+/** One setting the card edits: `choice` offers only `choices`; for `text` they are suggestions.
+ * `value` and `scope` are null when unset (the agent's default applies). */
+export type AgentConfigCurated = {
+  key: string;
+  title: string;
+  kind: "text" | "choice";
+  choices: string[];
+  value: string | null;
+  scope: string | null;
+  writableScopes: string[];
+};
+
+/** `cmux --json agent-config settings get --agent A`: the agent's settings as it sees them. */
+export type AgentConfigState = {
+  agent: AgentConfigAgent;
+  files: AgentConfigFile[];
+  entries: AgentConfigEntry[];
+  curated: AgentConfigCurated[];
+  /** Codex's NAME.config.toml files; an older cmux leaves it out for Claude Code. */
+  profiles?: { name: string; path: string; keys: number }[];
+  notes: string[];
+  keysOnDisk: number;
+  keysShown: number;
+};
+
+/** `set` / `unset`'s answer: the file written and its backup. */
+export type AgentConfigChange = {
+  ok: true;
+  agent: AgentConfigAgent;
+  key: string;
+  scope: string;
+  path: string;
+  backup: string | null;
+};
+
+/** One Claude Code & Codex settings call. `get` only reads; `set`, `unset` and `open` (a path a
+ * fresh `get` lists in `files`) run only on the person's click. */
+export type AgentConfigRun = {
+  verb: "get" | "set" | "unset" | "open";
+  agent: AgentConfigAgent;
+  key?: string;
+  value?: string;
+  scope?: string;
+  path?: string;
+};
+
+/** What the host answers: the state, a change, `{ok}` for an open, `{enabled: false}` while
+ * `labs.agentCustomization` is off, or the CLI's refusal envelope. */
+export type AgentConfigAnswer =
+  | AgentConfigState
+  | AgentConfigChange
+  | { ok: true }
+  | { enabled: false }
+  | { code: string; message: string };
+
 /** One skill or slash command an agent loads (`cmux agent-config skills list --json`). */
 export type AgentSkillRow = {
   agent: "claude" | "codex";
@@ -1699,6 +1850,8 @@ export type SettingsOps = {
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
+  /** Native: General > Language's Relaunch: the app relaunches so its menus take app.language (the person's gesture only). */
+  "cmux.settings.language.relaunch": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
   /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
@@ -1735,6 +1888,12 @@ export type SettingsOps = {
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
   "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
+  /** Settings > Team > Compute: the team's Cloud allotment, who uses what, and the scheduler's
+   * proposal (the backend's `cloud.allotment.get`). Only the mock provider serves it today. */
+  "cmux.settings.cloud.allotment.get": [Record<string, never>, AllotmentView];
+  /** Settings > Team > Compute, an admin's one click: scale down, hold or scale up, and Auto (the
+   * backend's `cloud.allotment.set`); answers the view after it. */
+  "cmux.settings.cloud.allotment.set": [AllotmentSet, AllotmentView];
   /** Native: this Mac's chat shares (Settings > Privacy and Security > Shared Links). */
   "cmux.settings.shares.list": [Record<string, never>, SharesState];
   /** Native: the share stops working and its guests leave at once; a daemon refusal rejects. */
@@ -1774,6 +1933,9 @@ export type SettingsOps = {
   "cmux.settings.mcp.state": [Record<string, never>, McpServersState];
   /** Native: one MCP Servers gesture (`optchat-chief integrations --json signin|remove`, or a refresh). */
   "cmux.settings.mcp.run": [McpServersRun, unknown];
+  /** Native: Settings > Agents > Claude Code & Codex, one `cmux --json agent-config settings`
+   * verb through the bundled CLI; `{enabled: false}` while labs.agentCustomization is off. */
+  "cmux.settings.agentConfig": [AgentConfigRun, AgentConfigAnswer];
   /** Native: Claude Code's and Codex's skills and slash commands (Settings > Agents, Labs `labs.agentCustomization`). */
   "cmux.settings.agentSkills.state": [Record<string, never>, AgentSkillsState];
   /** Native: one Skills gesture (`cmux agent-config skills on|off FILE`, open, reveal, or a refresh). */

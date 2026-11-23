@@ -554,6 +554,52 @@ describe("G1 excludes a source-fenced staging skip", () => {
   })
 })
 
+describe("G1 reads staging runs over GraphQL when the REST hour is spent", () => {
+  // 2026-11-21 16:22Z: the repository token's REST hour ran out 29 minutes before its 16:51Z reset, too far to wait
+  // for. GraphQL has its own hour (about 550 of 5,000 used at 16:23Z), and one query answers the run list and every
+  // run's three jobs, so G1 still decides.
+  it("a REST refusal with a far reset answers from one GraphQL read: pushes to feat-cmux-next only, latest attempt", async () => {
+    const savedFetch = globalThis.fetch
+    const savedToken = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+    const check = (name: string, conclusion: string, steps: Array<[string, string]> = []) =>
+      ({ nodes: [{ name, conclusion, completedAt: "2026-11-21T15:00:00Z", steps: { nodes: steps.map(([n, c]) => ({ name: n, conclusion: c })) } }] })
+    const run = (id: number, sha: string, event: string, branch: string, deploy: string, smoke: string, status = "COMPLETED") => ({
+      databaseId: id, event, checkSuite: { status, branch: { name: branch }, commit: { oid: sha },
+        deploy: check("deploy-staging", deploy, [["Newer deployment inputs already queued; skip", "SKIPPED"], ["Smoke the API Worker; roll back on red", smoke]]),
+        test: check("test", "SUCCESS"), guard: check("migrations-push-guard", "SUCCESS") },
+    })
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      calls.push(`${init?.method ?? "GET"} ${url.pathname}`)
+      if (url.pathname.endsWith("/backend.yml/runs")) return new Response(JSON.stringify({ message: "API rate limit exceeded for installation." }), {
+        status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 29 * 60) },
+      })
+      if (url.pathname === "/graphql") return Response.json({ data: { node: { runs: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+        run(9, "pr", "pull_request", "lane/x", "SUCCESS", "SUCCESS"),
+        run(8, "running", "push", "feat-cmux-next", "SUCCESS", "SUCCESS", "IN_PROGRESS"),
+        run(7, "green", "push", "feat-cmux-next", "SUCCESS", "SUCCESS"),
+        run(6, "other", "push", "main", "SUCCESS", "SUCCESS"),
+        run(5, "red", "push", "feat-cmux-next", "FAILURE", "FAILURE"),
+        run(4, "skipped", "push", "feat-cmux-next", "SKIPPED", "SKIPPED"),
+      ] } } } })
+      throw new Error(`unexpected GitHub path ${url.pathname}`)
+    }) as typeof fetch
+    try {
+      expect(await stagingRuns()).toEqual([
+        { sha: "green", at: Date.parse("2026-11-21T15:00:00Z"), green: true },
+        { sha: "red", at: Date.parse("2026-11-21T15:00:00Z"), green: false },
+      ])
+      expect(calls).toEqual(["GET /repos/manaflow-ai/cmux/actions/workflows/backend.yml/runs", "POST /graphql"])
+    } finally {
+      globalThis.fetch = savedFetch
+      if (savedToken === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = savedToken
+    }
+  })
+})
+
 describe("gates after a rollback (no person needed to move forward)", () => {
   /** main(["gates"]) against the fake Cloudflare above and a fake GitHub: staging proved `greenSha`, one open P0 issue (G2 stops there). */
   const gates = async (greenSha: string, hold?: string) => {
