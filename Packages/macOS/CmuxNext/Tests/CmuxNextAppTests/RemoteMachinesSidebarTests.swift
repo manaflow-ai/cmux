@@ -36,14 +36,15 @@ struct RemoteMachinesSidebarTests {
         #expect(machine.chats[0].activity == .working)
     }
 
-    @Test func anUnreachablePeerIsOfflineWithNoChatsAndAListedPeerWithNoneStillShows() {
+    @Test func anUnreachablePeerIsDimmedWithNoChatsOrOfflineWordAndAListedPeerWithNoneStillShows() {
         let peers = [AcpmuxPeerList.Peer(name: "big-red", connected: false), AcpmuxPeerList.Peer(name: "air-blue", connected: true)]
         let machines = RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "big-red", .working)], peers: peers)
         #expect(machines.map(\.peer) == ["air-blue", "big-red"])
         #expect(machines[0].online && machines[0].chats.isEmpty)
         #expect(!machines[1].online && machines[1].chats.isEmpty)
         let header = Self.rows(machines)[1].info
-        #expect(header.isMissing && header.badge == nil && header.title.contains("big-red"))
+        // Dimmed under its name alone: the header offers nothing to do about the link, so it says no "Offline".
+        #expect(header.isMissing && header.badge == nil && header.title == "big-red")
     }
 
     @Test func foldedByDefaultWithTheCloudIconAndALiveCount() {
@@ -227,7 +228,7 @@ struct RemoteMachinesSidebarTests {
         let rows = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue", "big-red"], pages: [:], resources: .row,
                                               displayName: { _ in nil })
         #expect(rows.map(\.info.title) == ["huge-blue", "31 GB free · CPU 12/32", "a", RemoteMachinesStrings.older,
-                                            RemoteMachinesStrings.offline("big-red")])
+                                            "big-red"])
         #expect(rows[1].info.indent == 1)
         // VoiceOver names the machine on its room row.
         #expect(rows[1].info.accessibilityTitle == "huge-blue: 31 GB free · CPU 12/32")
@@ -237,9 +238,9 @@ struct RemoteMachinesSidebarTests {
         let folded = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .row, displayName: { _ in nil })
         #expect(folded.count == 2)
         let header = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .header, displayName: { _ in nil })
-        #expect(header.map(\.info.title) == ["huge-blue · 31 GB free", RemoteMachinesStrings.offline("big-red")])
+        #expect(header.map(\.info.title) == ["huge-blue · 31 GB free", "big-red"])
         let off = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], resources: .off, displayName: { _ in nil })
-        #expect(off.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.older, RemoteMachinesStrings.offline("big-red")])
+        #expect(off.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.older, "big-red"])
         var hot = room
         hot.over = true
         hot.diskFreeGB = 8

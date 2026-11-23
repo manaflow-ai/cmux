@@ -11,6 +11,7 @@ import class CmuxNextDaemonService.RemoteFilePageFiles
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import class CmuxNextWakeups.QuietHold
 import Foundation
 import Testing
 import struct CmuxNextBrowser.TerminalLinkResolver
@@ -209,8 +210,13 @@ struct CloudFileViewerTests {
         machine.set(path, "two\n")
         await watch.check()
         #expect(changes.compactMap { $0?.text } == ["two\n"])
-        // The machine drops off: one notice naming it, not a deletion.
+        // The machine drops off: nothing while the drop is younger than the shared quiet time (the page keeps its
+        // text), then one notice naming it, not a deletion.
         machine.offline = true
+        for _ in 1..<RemoteFileChangeWatch.quietPolls { await watch.check() }
+        #expect(notices.isEmpty, "a drop under the shared quiet time said something: \(notices)")
+        #expect(RemoteFileChangeWatch.interval * (RemoteFileChangeWatch.quietPolls - 1) < QuietHold.connectionDelay)
+        #expect(RemoteFileChangeWatch.interval * RemoteFileChangeWatch.quietPolls >= QuietHold.connectionDelay)
         await watch.check()
         await watch.check()
         #expect(notices.count == 1)

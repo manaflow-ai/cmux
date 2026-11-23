@@ -88,8 +88,8 @@ import Testing
     }
 
     @Test func theRestoringCardsDetailsIsOptIn() {
-        #expect(SidebarNoticeCard.restoring("Restoring sessions… 4m 12s").actions.isEmpty)
-        let card = SidebarNoticeCard.restoring("Restoring sessions… 4m 12s", withDetails: true)
+        #expect(SidebarNoticeCard.restoring("Restoring your sessions…").actions.isEmpty)
+        let card = SidebarNoticeCard.restoring("Restoring your sessions…", withDetails: true)
         #expect(card.actions.map(\.id) == [SidebarNoticeCard.detailsAction] && card.actions.allSatisfy { !$0.prominent })
     }
 
@@ -100,7 +100,7 @@ import Testing
         let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "app-health-indicator-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        let restoring = SidebarNoticeCard.restoring("Restoring sessions… 4m 12s", withDetails: true)
+        let restoring = SidebarNoticeCard.restoring("Restoring your sessions…", withDetails: true)
         var columns: [[CGImage]] = []
         for dark in [true, false] {
             var images: [CGImage] = []

@@ -15,7 +15,8 @@ public import Observation
 /// a header row with the cloud icon, the machine's name and its live chats' count, folded by
 /// default; unfolded, its live chats newest first, a page at a time. A click on a chat opens its
 /// chat in a tab (the Priority view's path), never a terminal and never a new workspace. A peer
-/// the daemon cannot reach shows as offline, with no rows.
+/// the daemon cannot reach shows dimmed under its name alone, with no rows: its header offers nothing to do about the
+/// link, so it says no "Offline" (Leo, 2026-11-22: "entire classes of bullshit fucking error/status bullshit").
 ///
 /// Peers hold hundreds of chats and their agents change lanes many times a second, so the rows
 /// never follow an event: a lane change marks the groups stale, and they are rebuilt at most once
@@ -367,7 +368,7 @@ public final class RemoteMachinesSidebar {
             let title = if let room, style == .header { RemoteMachinesStrings.named(name, RemoteMachinesStrings.ramFree(room.ramFreeGB)) }
                 else { name }
             // The machine's own device glyph (cmux-device-kind's SF Symbol); an older peer keeps the cloud.
-            var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: machine.symbol ?? "cloud",
+            var header = SidebarItemInfo(title: machine.online ? title : name, symbol: machine.symbol ?? "cloud",
                                          icon: machine.symbol == nil ? .cloud : nil,
                                          badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
             header.activity = activity(machine.chats)
@@ -419,10 +420,6 @@ public final class RemoteMachinesSidebar {
 }
 
 enum RemoteMachinesStrings {
-    /// A machine's group header while this Mac's acpmux cannot reach it.
-    static func offline(_ name: String) -> String {
-        String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .localizedModule), name)
-    }
     /// A machine's room on one line that fits the sidebar: "31 GB free · CPU 12/32", led by "Busy"
     /// when its own budget says it is over, and ending with its free disk only when that is low.
     /// "CPU n/m" names no counted noun, so it reads right for any count.

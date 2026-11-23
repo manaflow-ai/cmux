@@ -13,9 +13,9 @@ import CmuxNextWakeups
 /// while not yet connected, so a fast launch replaces it first. Once the startup deadline
 /// passes, it shows the failure at once, in plain words, with the raw error
 /// behind Copy Details for a bug report, Retry Now and, for a stuck owner,
-/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1). While the session owner restores, the title says
-/// so and how long it has taken ("Restoring sessions… 4m 12s", ``DaemonRecovery/restoring``), at once and in
-/// either state (Leo, 2026-11-08: a 30-minute restore read only that the service isn't connected).
+/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1). Once the session owner has restored for the shared
+/// connection quiet time, the title says so with no clock ("Restoring your sessions…", ``DaemonRecovery/restoringText``)
+/// in either state (Leo, 2026-11-08: a 30-minute restore read only that the service isn't connected).
 public final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = ChromeLabel(labelWithString: "")
@@ -162,11 +162,12 @@ public final class DaemonConnectingView: NSView {
             copyDetailsButton.isHidden = false
             recoveryControls?.isOffered = true
         }
-        if state != .connected, let restoring = recovery?.restoring {
-            // The owner is restoring: say so now, with how long, in place of "Starting cmux…" or the restore timeout.
+        if state != .connected, let restoring = recovery?.restoringText {
+            // The owner has been restoring for the shared quiet time: say so, with no clock, in place of "Starting cmux…"
+            // or the restore timeout (``DaemonRecovery/restoringText`` draws nothing under it).
             cancelStagger()
             statusDue = true
-            titleLabel.stringValue = RefusalStrings.restoringSessions(waitedMs: restoring.waitedMs)
+            titleLabel.stringValue = restoring
             titleLabel.alphaValue = 1
         }
         setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))

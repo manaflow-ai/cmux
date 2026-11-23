@@ -4,8 +4,9 @@ import CmuxNextWakeups
 
 /// A chat clicked while this Mac's sessions are not ready waits and opens once they are, instead of doing
 /// nothing (Leo, 2026-11-08: "me trying to click into any other chat in the sidebar doesn't work ... it fixes
-/// itself"). One open waits at a time (``PendingOpenSlot``): a newer click replaces it, and a quiet toast says it
-/// opens when the sessions are restored. It runs when the local daemon is connected and its mirror loaded,
+/// itself"). One open waits at a time (``PendingOpenSlot``): a newer click replaces it, and nothing is said while it
+/// waits (Leo, 2026-11-22: "entire classes of bullshit fucking error/status bullshit. fuck em. remove them all"): the
+/// sidebar's restoring card says the sessions are restoring once that lasts the shared quiet time. It runs when the local daemon is connected and its mirror loaded,
 /// followed by Observation, never polled. The App's Open Chat (`ChatsOpenCoordinator`) and the Chief sidebar's
 /// subagent open go through it.
 ///
@@ -61,7 +62,6 @@ public final class PendingSessionOpen {
         origin = window
         hadOrigin = window != nil
         slot.hold(open, at: now())
-        show(RefusalStrings.pendingOpenWaits)
         expiry.schedule(after: PendingOpenPatience.limit) { @MainActor [weak self] in
             _ = self?.advance()
         }
@@ -103,8 +103,6 @@ public final class PendingSessionOpen {
 }
 
 nonisolated extension RefusalStrings {
-    /// A chat clicked while this Mac's sessions restore (``PendingSessionOpen``): it opens once they are ready.
-    public static var pendingOpenWaits: String { text("refusal.daemon.pendingOpenWaits", "Opens when your sessions are restored.") }
     /// That chat's open was dropped: its window closed, or the sessions were not ready within 10 minutes.
     public static var pendingOpenDropped: String { text("refusal.daemon.pendingOpenDropped", "Stopped waiting to open the chat you clicked.") }
 }

@@ -44,6 +44,17 @@ import Testing
         view.show(machine: "studio", state: .offline, snapshot: nil)
         #expect(!view.reconnectHold.held)
         #expect(view.statusText == RemoteStrings.placeholderOffline("studio"))
+        #expect(view.statusDrawn, "offline with its Connect is said with the button")
+    }
+
+    /// Leo, 2026-11-22: "entire classes of bullshit fucking error/status bullshit. fuck em. remove them all."
+    /// "{machine} is offline" with no Connect offers nothing to do: the saved screen draws alone.
+    @Test func offlineWithNothingToDoSaysNothing() {
+        let view = Self.placeholder(ParkedClock())
+        view.onConnect = nil
+        view.show(machine: "studio", state: .offline, snapshot: "$ make test")
+        #expect(!view.statusDrawn, "offline with no action drew its line")
+        #expect(view.snapshotText == "$ make test")
     }
 }
 
