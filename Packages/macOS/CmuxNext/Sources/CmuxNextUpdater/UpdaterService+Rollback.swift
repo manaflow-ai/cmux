@@ -164,6 +164,8 @@ extension UpdaterService {
         recordPick(target.build, picksBuild: picksBuild)
         controller?.skipsBuildsThrough = current
         log.append("rolled back \(current) -> \(target.build) (swap \(started.duration(to: .now)))")
+        // A staged newer build would install on this quit (`updates.installOnQuit`) and undo the go-back.
+        if cancelStaged() { log.append("rollback: cancelled the staged update so the quit does not install it") }
         willRelaunch?()
         relaunch(bundle)
         return target
