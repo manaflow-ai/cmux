@@ -1,6 +1,8 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { useFold } from "./conversation/fold";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
+import { useHeightsSettledFor } from "./conversation/unsettledHeights";
+import { PANE_PAINTED_MARK } from "./firstLoadWatch";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
   useCallback,
@@ -255,7 +257,12 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { tuckTray } from "./subagents/trayPullTabModel";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
-import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
+import {
+  type BackgroundPanel,
+  backgroundPanelFor,
+  isBackgroundPane,
+  openBackgroundPane,
+} from "./backgroundTasks/backgroundPane";
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { settleTrayExit } from "./subagents/trayMotionModel";
@@ -596,6 +603,7 @@ import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { copyShowsRunningTurn, showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
+import { snapshotDraft } from "./chatSnapshot/restoredDraft";
 import { watchLaunchSettle } from "./launchSettle";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -1269,17 +1277,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // menu: the chat's right column, docked under the side panel when that is open. It is the open
   // chat's, as the side panel is; another chat closes it. `dismissed` holds the ended groups Clear
   // finished cleared. Closed, it reads nothing: its groups are derived only while it is open.
-  const [backgroundPanel, setBackgroundPanel] = useState<{
-    sessionId?: string;
-    expanded: boolean;
-    dismissed: ReadonlySet<string>;
-  }>();
-  if (backgroundPanel && snapshot.sessionId !== backgroundPanel.sessionId) setBackgroundPanel(undefined);
+  const [backgroundPanel, setBackgroundPanel] = useState<BackgroundPanel>();
   /// This page is the chat's Background tasks tab in the right column (a `subagent:` reveal of the
   /// reserved pane id, backgroundTasks/backgroundPane.ts): it shows the panel alone, filling the tab.
   const [ownBackgroundPane, setOwnBackgroundPane] = useState(false);
-  if (ownBackgroundPane && !backgroundPanel && snapshot.sessionId)
-    setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set<string>() });
+  // One idempotent step, not two guarded sets that undo each other (a during-render pair made the
+  // pane fail to draw once Background tasks opened in its split; Leo, 2026-11-22).
+  const reconciledBackgroundPanel = backgroundPanelFor(backgroundPanel, snapshot.sessionId, ownBackgroundPane);
+  if (reconciledBackgroundPanel !== backgroundPanel) setBackgroundPanel(reconciledBackgroundPanel);
   const backgroundOpen = backgroundPanel !== undefined;
   const backgroundCache = useRef<TaskCache>(new WeakMap());
   const artifactSession = snapshot.sessionId;
@@ -2747,6 +2752,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   // The app's toasts lift above this stack; they never move it (toastAvoidance.ts).
   useEffect(() => (dock ? reportToastAvoidance(dock) : undefined), [dock]);
+  // A focused composer lifts the edge of every part of the stack (composerStates.css): the dock's
+  // `data-focused`, written as the composer reports focus-visible in its card while its prompt is not
+  // the shell's (Composer.tsx `onFocusEdge`), never a `.acpmux-dock:has(... :focus-visible)` checked
+  // again for every node a keystroke or a streamed chunk inserts (transcript-motion-model step 7).
+  const dockLit = useRef(false);
+  const dockNow = useRef<HTMLElement | null>(null);
+  const markDockEdge = useCallback((lit: boolean) => {
+    dockLit.current = lit;
+    dockNow.current?.toggleAttribute("data-focused", lit);
+  }, []);
+  useLayoutEffect(() => {
+    dockNow.current = dock;
+    dock?.toggleAttribute("data-focused", dockLit.current);
+  }, [dock]);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
     // The side panel and Background tasks take the right column: the Summary stays a popover then.
@@ -3440,6 +3459,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       elsewhere: chatElsewhere,
       sessionId: snapshot.sessionId,
       harness: snapshot.summary?.harness,
+      model: snapshot.summary?.model,
       supported: directClient.current?.supportsAgentLogin === true,
       gesture: (intent) =>
         postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
@@ -3512,6 +3532,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chatElsewhere,
     snapshot.sessionId,
     snapshot.summary?.harness,
+    snapshot.summary?.model,
     snapshot.switching?.phase,
     snapshot.switching?.code,
     snapshot.switching?.harness,
@@ -6418,8 +6439,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // report follows, once per chat opened.
   const settledSession =
     clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
+  // The first report waits for the rows' parts that draw a moment late (math, diagrams, images the
+  // host reads) to settle, at most OPEN_SETTLE_MAX_MS: the host shows the page at its final layout,
+  // not one that moves under the reader as they land (https://github.com/manaflow-ai/cmux/issues/48498).
+  const heightsSettled = useHeightsSettledFor(showsWhatItIs);
   useEffect(() => {
-    if (!showsWhatItIs) return;
+    if (!showsWhatItIs || (!paintReported.current && !heightsSettled())) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
     if (paintReported.current && !settledNow) return;
     const first = !paintReported.current;
@@ -6434,6 +6459,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     requestAnimationFrame(() =>
       setTimeout(() => {
         if (settledNow) document.documentElement.dataset.acpmuxSettledDrawn = "true";
+        // When the host is told the page shows the chat, beside the report itself: the flicker log's
+        // first-load record counts what moved after it apart, what the reader saw (firstLoadWatch.ts
+        // `seen`); what moved before it was still under the host's cover.
+        if (first) performance.mark?.(PANE_PAINTED_MARK);
         // The perf watch's page-load span ends here (perfReporter.ts): once per page.
         if (first) acpmuxPerf.markLaunch("painted");
         void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
@@ -6444,7 +6473,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         void loadEditDiffHunks();
       }, 0),
     );
-  }, [showsWhatItIs, drewKeptTail, settledSession, newTab]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, newTab]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
@@ -6458,7 +6487,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // relaunch's attach no longer meets (Leo, 2026-11-08: "what you saw when you clicked the
       // restart button ... here's literally what you just had").
       directClient.current?.handOverCurrentTail();
-      return callNative("chat.snapshot.put", params);
+      // The prompt the markup shows, as text: the next launch's composer holds it from its first
+      // frame (chatSnapshot/restoredDraft.ts), so the copy's composer and the live one are one size.
+      // A miss (a copy too large to keep) carries it too; a forget carries nothing.
+      const draft =
+        "html" in params || "miss" in params ? snapshotDraft(composerHandle.current?.draft().text) : undefined;
+      return callNative("chat.snapshot.put", draft ? { ...params, draft } : params);
     });
   }, [snapshotSession]);
   const summary = snapshot.summary;
@@ -9049,6 +9083,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : null;
   const goalAtFoot = goalNode !== null && goalHatPlaceArm === "foot";
+  // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
+  // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
+  const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
   // The managed banner's Hide: the chat is the person's again, and the composer takes the focus.
   const hideManaged = (sessionId: string) => {
     takeOverManaged(sessionId);
@@ -9056,6 +9093,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     composerHandle.current?.focus();
   };
   const composer = drawPaneComposer({
+    markDockEdge,
     readOnlySubagent,
     subagentDraftKey,
     shownSubagentTarget,
@@ -9743,13 +9781,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     closeInspector,
     sendPerf,
     setDock,
+    dockFoot,
     paneToasts,
     toastTop,
     asks,
     dotGridArm,
     hostLine,
     forkPendingLine,
-    sandboxDraftMoved,
     composer,
     artifact,
     liveArtifact,

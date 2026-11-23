@@ -553,6 +553,24 @@
   text-align: center;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* A failed read's Retry under the note: a small button on the slot's own surface. */
+.cv-user__image-retry {
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.cv-user__image-retry:hover {
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+.cv-user__image-retry:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--agent-text);
+  outline-offset: 1px;
+}
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
    Copy at the line's trailing end (App.tsx). The summary keeps the Copy's width free, so the label
@@ -6694,26 +6712,29 @@ a.cv-sha:focus-visible {
      the roll out, so the call's name leaves the line before it lands in its row, never drawn twice
      (thinking-tool-swap-frames.test.ts), and fades in on the exit lead, so the hand-over rests about
      as soon as a row arriving alone would (`wait`: on the full arrival step, 50 ms later). The
-     gallery's other looks (the hand-over above). */
-  .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+     gallery's other looks (the hand-over above). `data-live-line` is the scroller's mark that the live
+     line is mounted (VirtualTranscript `liveLineMounted`), doubled to keep the specificity of the `:has()` it
+     replaces. Never a `:has()` on the scroller: every
+     node inserted under it checks again. */
+  .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: var(--agent-motion-arrive, 80ms);
     animation-duration: var(--cv-exit-lead);
   }
-  [data-live-swap="wait"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  [data-live-swap="wait"] .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: var(--cv-exit-lead);
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  [data-live-swap="quick"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  [data-live-swap="quick"] .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-duration: var(--cv-exit-lead);
   }
-  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
     animation-delay: 0s;
     animation-duration: var(--agent-motion-arrive, 80ms);
   }
-  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
+  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll[data-live-line][data-live-line] .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
     animation-delay: 0s;
   }
   .acpmux-row__message-presentation {
