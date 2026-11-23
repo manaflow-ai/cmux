@@ -91,22 +91,26 @@ extension DaemonService {
 
     /// What the local daemon's supervisor needs from this app at launch: the
     /// first-party app packages shipped in the app bundle (its default apps) and the App Store
-    /// examples (third-party packages the person may install).
+    /// packages in `AppPlatform/store` (`CMUX_APPS_DIRS`). The daemon puts cmux's own store apps
+    /// (`cmux/` ids: the clock, weather, calendar and to-do widgets) on Discover and the SDK samples
+    /// on the developers-only Examples shelf (apps/store.rs `Shelf`; Leo, 2026-11-16: "stop shipping
+    /// these into the app store if they're f***ing busted").
     /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
     /// cmux-tui spec/transports.md "App listener and page files").
     /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``).
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
         var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path,
-                           // The App Store examples: listed, installed only by the person.
+                           // App Store packages: cmux's store apps on Discover, samples under Examples.
                            "CMUX_APPS_DIRS": AppPlatformResources.storeExamples.path]
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
         let process = ProcessInfo.processInfo.environment
         environment.merge(DaemonDiagnosticKnobs(processEnvironment: process).daemonEnvironment) { own, _ in own }
         // The settings file the app reads, when a launch names another than the default
-        // (`CMUX_NEXT_CONFIG_FILE`, a tagged or test launch): the daemon's settings owner, the file's
-        // one writer, then serves the same file (settings-react.md section 7, item 1). A captured
-        // login environment would not carry it.
-        if let config = process["CMUX_NEXT_CONFIG_FILE"], !config.isEmpty { environment["CMUX_NEXT_CONFIG_FILE"] = config }
+        // (`CMUX_NEXT_CONFIG_FILE`, a DEV build's own or a test launch's): the daemon's settings owner, the
+        // file's one writer, then serves the same file (settings-react.md section 7, item 1). With it the
+        // DEV build's other files (BuildStatePaths: customize, automations, host budget). A captured
+        // login environment would not carry them.
+        environment.merge(BuildStatePaths.childEnvironment(from: process)) { _, file in file }
         return environment
     }
 

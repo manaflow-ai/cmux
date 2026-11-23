@@ -1,7 +1,7 @@
 // The prompt coach card (promptCoach.ts; Leo, 2026-11-08: "go think of things/look at things, esp
 // valuable things that people would think \"wow this is awesome\""). After a chat in which the person
 // corrected the agent three or more times before moving on, one quiet hairline card under the turn the
-// rewrite landed in: "Here's how this could have landed in one shot", after how many corrections, and
+// rewrite landed in: "A one-shot version of this", after how many corrections, and
 // the chat's first prompt rewritten with what the person said later, selectable, its line breaks kept,
 // in a block that scrolls past eight lines (so the row's height is known before it draws, model.ts).
 // Copy puts the rewrite on the clipboard (CopyButton). The × hides it and the chat never draws one

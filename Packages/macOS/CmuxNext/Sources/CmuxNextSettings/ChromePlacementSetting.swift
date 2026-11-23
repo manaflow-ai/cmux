@@ -27,7 +27,7 @@ public nonisolated struct ChromePlacementSetting {
         _ = SidebarSurfaceSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applySidebarSurface`)
         _ = TitleAreaContrastSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaContrast`)
         _ = TitleAreaToneSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaTone`)
-        _ = TabShapeSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTabShape`)
+        _ = CornerFlushSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyCornerFlush`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -58,6 +58,6 @@ extension SettingsApplier {
         applySidebarSurface(snapshot, to: design)
         applyTitleAreaContrast(snapshot, to: design)
         applyTitleAreaTone(snapshot, to: design)
-        applyTabShape(snapshot, to: design)
+        applyCornerFlush(snapshot, to: design)
     }
 }

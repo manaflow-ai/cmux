@@ -100,6 +100,10 @@ export type AcpmuxSessionEntry = {
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
   waitingOn?: SessionWaiting;
   forkSeq?: number;
+  /** acpmux forks and edits it through any completed turn, not only its latest (`forksAnyTurn`:
+   *  its harness cuts a conversation at a turn, by kind, whatever its family is named). Unset
+   *  from an older acpmux. */
+  forksAnyTurn?: boolean;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
@@ -358,6 +362,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    ...(typeof session.forksAnyTurn === "boolean" && { forksAnyTurn: session.forksAnyTurn }),
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
       session.lastPrompt === null &&
@@ -524,6 +529,15 @@ export function isAgentHome(cwd: string | undefined): boolean {
   return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
 }
 
+/**
+ * A system temporary folder (`/tmp`, `/private/tmp`, `/var/folders`, anything under `/private/var`):
+ * a harness's scratchpad or a script's chat runs there, so it is never a project (cmux#49610: the
+ * New Tab composer started on "tmp", the folder of the newest agent chat, instead of the last one used).
+ */
+export function isTemporaryFolder(cwd: string | undefined): boolean {
+  return /^\/(?:tmp|var\/tmp|var\/folders|private\/tmp|private\/var)(?:\/|$)/.test(cwd ?? "");
+}
+
 /// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
 /// folder of its own starts. Not a private agent-home folder, the home folder or `/`, and not a chat
 /// on another machine (a peer or a Cloud host). With `known` (the host's project list, which drops
@@ -598,36 +612,132 @@ export class SessionsBy {
 }
 
 /// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
-/// folder, where it runs, whether it is listed, and when it was last active.
-export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+/// folder, where it runs, whether it is listed, and when it was last active. The time only of a chat
+/// on this Mac: no folder list orders another machine's chats by it, and at Leo's scale those were
+/// most of the changes (another machine's lanes working), each building every page's project list
+/// again from 10K chats (bench/session-scale-typing.bench.ts).
+/// Where a session works, without when: the folders a list names, not their order.
+export const placeFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
   session.cwd,
   session.host,
   session.hostKind,
   session.peer,
   listed(session),
-  activityTime(session),
+];
+
+export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  ...placeFields(session),
+  !session.peer && (!session.hostKind || session.hostKind === "local") ? activityTime(session) : undefined,
 ];
 
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
 export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
-  const local = sessions.filter((session) => {
-    const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
-    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
-  });
-  const folders = new Set<string>();
-  for (const session of byRecency(local)) {
-    folders.add(session.cwd!.replace(/\/+$/, ""));
-    if (folders.size >= limit) break;
-  }
-  return [...folders];
+  return recentFolders(sessions, localFolder, limit);
 }
 
-/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
-/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
-/// answered and lists no project (every one removed or missing), so no folder is one.
+/// The folders `folderOf` names, of the newest chat first, each once (a tie keeps the list's order).
+/// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
+/// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
+/// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
+/// (bench/session-scale-scroll.bench.ts).
+export function recentFolders(
+  sessions: readonly AcpmuxSessionEntry[],
+  folderOf: (session: AcpmuxSessionEntry) => string | undefined,
+  limit = Infinity,
+): string[] {
+  const newest = new Map<string, { at: number; index: number }>();
+  sessions.forEach((session, index) => {
+    const folder = folderOf(session);
+    if (folder === undefined) return;
+    const at = activityTime(session) ?? 0;
+    const kept = newest.get(folder);
+    if (!kept || at > kept.at) newest.set(folder, { at, index });
+  });
+  const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
+  return folders.slice(0, limit).map(([folder]) => folder);
+}
+
+/// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
+export function localFolder(session: AcpmuxSessionEntry): string | undefined {
+  const cwd = session.cwd?.replace(/\/+$/, "");
+  if (!cwd || cwd === "~" || isAgentHome(cwd)) return undefined;
+  return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session) ? cwd : undefined;
+}
+
+/// `recentFolders` of a list that changes one chat at a time, kept as the list changes: a chat on
+/// this Mac working moves its folder to the front, without sorting every chat again. The same array
+/// while the order holds. Anything else (a chat added or gone, one moved to another folder, a time
+/// that went back or ties another folder's) builds it again from the whole list. Leo, 2026-11-18,
+/// "typing in the composer still slow 😞 there must be a lot of open stuff?": each page sorted all
+/// 10K chats on every event of a chat on this Mac (bench/session-scale-typing.bench.ts).
+export class FolderRecency {
+  constructor(private readonly folderOf: (session: AcpmuxSessionEntry) => string | undefined = localFolder) {}
+
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+  private order: string[] = [];
+  private newest = new Map<string, number>();
+  private seen = new Map<string, { folder: string | undefined; at: number }>();
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly string[] {
+    if (sessions === this.last) return this.order;
+    const replaced = this.last === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    if (!replaced || !replaced.every((at) => this.moved(sessions[at]!))) this.build(sessions);
+    return this.order;
+  }
+
+  private build(sessions: readonly AcpmuxSessionEntry[]) {
+    this.order = recentFolders(sessions, this.folderOf);
+    this.newest = new Map();
+    this.seen = new Map();
+    for (const session of sessions) {
+      const folder = this.folderOf(session);
+      const at = activityTime(session) ?? 0;
+      this.seen.set(session.sessionId, { folder, at });
+      if (folder !== undefined && at > (this.newest.get(folder) ?? -Infinity)) this.newest.set(folder, at);
+    }
+  }
+
+  /// Applies one replaced session; false when the whole list must be read again.
+  private moved(session: AcpmuxSessionEntry): boolean {
+    const before = this.seen.get(session.sessionId);
+    const folder = this.folderOf(session);
+    const at = activityTime(session) ?? 0;
+    if (!before || before.folder !== folder || at < before.at) return false;
+    this.seen.set(session.sessionId, { folder, at });
+    if (folder === undefined || at === before.at) return true;
+    const newest = this.newest.get(folder)!;
+    if (at < newest) return true;
+    // Its folder's newest time again, from another chat: a tie with another folder may order otherwise.
+    if (at === newest) return false;
+    this.newest.set(folder, at);
+    const from = this.order.indexOf(folder);
+    if (from < 0) return false;
+    // Its new place: after every folder newer than it. A tie keeps the list's own order: build again.
+    let to = 0;
+    while (to < this.order.length) {
+      const other = this.order[to]!;
+      if (other !== folder) {
+        const time = this.newest.get(other)!;
+        if (time === at) return false;
+        if (time < at) break;
+      }
+      to += 1;
+    }
+    if (to >= from) return true;
+    const next = this.order.slice();
+    next.splice(from, 1);
+    next.splice(to, 0, folder);
+    this.order = next;
+    return true;
+  }
+}
+
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder or a temporary
+/// folder, and with `known` (the host's project list; absent or empty is not loaded yet) one in it.
+/// `null`: the host answered and lists no project (every one removed or missing), so no folder is one.
 export function firstProject(
   folders: readonly string[],
   home?: string,
@@ -636,13 +746,16 @@ export function firstProject(
   if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
-  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
+  return folders.find((cwd) => cwd !== homeFolder && !isTemporaryFolder(cwd) && (!projects || projects.has(cwd)));
 }
 
-/** A project's name for its header: the folder's last component, `~` for a home folder. */
+/**
+ * A project's name for its header: the folder's last component, `~` for a home folder, `/` for the
+ * filesystem root. Only no folder at all reads No folder: a folder is never called that.
+ */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
-  if (!trimmed) return t("project.noFolder");
+  if (!trimmed) return cwd ? "/" : t("project.noFolder");
   const parts = trimmed.split("/").filter(Boolean);
   if (parts.length === 2 && (parts[0] === "Users" || parts[0] === "home")) return "~";
   return parts[parts.length - 1] ?? trimmed;
@@ -651,11 +764,6 @@ export function projectLabel(cwd: string | undefined, t: Translate = translate):
 /** A folder for display, with a home folder's prefix written `~` as a shell prompt does. */
 export function homePath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
-}
-
-/** Newest first. */
-function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
@@ -706,4 +814,17 @@ export function shortAge(updatedAt: number | undefined, now: number, t: Translat
   if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
   return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
+}
+
+/** First shared wall-clock minute where shortAge's text changes (clock.ts useLabelClock), so its
+ *  label wakes then and not every minute. */
+export function nextShortAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const elapsed = Math.max(0, now - at);
+  const size = elapsed < hour ? minute : elapsed < day ? hour : elapsed < 14 * day ? day : 7 * day;
+  const change = at + (Math.floor(elapsed / size) + 1) * size;
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
 }

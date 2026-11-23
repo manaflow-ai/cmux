@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR 3e71a7376b792f9f519eef3582eef785ab28df1e74af3a9e9600596fd9cde9e9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -86,6 +86,10 @@ pub struct AttachSurfaceRequest {
     pub replay_history_rows: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub replay_history_start: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub resume_offset: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1999,15 +2003,39 @@ pub struct HistorySearchResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct HomeInboxRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ids: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owners: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub scope: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub since: Optional<u64>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeInboxResult {
     pub cloud: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub full: Option<bool>,
     pub me: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub order: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
     pub rows: Vec<T::HomeInboxRow>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub window: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3447,6 +3475,8 @@ pub struct SendRequest {
     pub expect_foreground: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub flow: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub key: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -3923,6 +3953,8 @@ pub struct ShutdownDaemonRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
     pub generation: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_idle: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep_layout: Option<bool>,
     pub pid: u32,
@@ -4495,6 +4527,12 @@ impl CmuxClient {
         }
         if !request.replay_history_start.is_missing() {
             self.require_capability_field("attach-surface", "attach-replay-history-window-v1")?;
+        }
+        if !request.resume_generation.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-v1")?;
+        }
+        if !request.resume_offset.is_missing() {
+            self.require_capability_field("attach-surface", "terminal-resume-v1")?;
         }
         if !request.rows.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
@@ -5784,6 +5822,9 @@ impl CmuxClient {
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
         }
+        if !request.key.is_missing() {
+            self.require_capability_field("send", "send-key-v1")?;
+        }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }
@@ -6022,6 +6063,10 @@ impl CmuxClient {
         if request.force.is_some() {
             self.require_protocol_field("shutdown-daemon", 10)?;
             self.require_capability_field("shutdown-daemon", "daemon-handoff-force-v1")?;
+        }
+        if request.if_idle.is_some() {
+            self.require_protocol_field("shutdown-daemon", 12)?;
+            self.require_capability_field("shutdown-daemon", "daemon-stop-if-idle-v1")?;
         }
         if request.keep_layout.is_some() {
             self.require_protocol_field("shutdown-daemon", 12)?;

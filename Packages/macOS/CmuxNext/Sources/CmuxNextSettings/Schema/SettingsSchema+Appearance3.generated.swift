@@ -4,6 +4,44 @@
 public import CmuxNextDesign
 
 extension AppearanceSettingsSchema {
+    static var tuning: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
+        return [
+            SettingDescriptor(
+                AppearanceTuningSetting.glassTransparencyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
+                help: SettingsText.keyed("settings.appearance.glassTransparency.help", "How much of the desktop or wallpaper shows through the glass."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction)),
+                default: .number(AppearanceTuningSetting.glassTransparencyDefault),
+                keywords: ["glass", "transparency", "alpha", "clear"]
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
+            SettingDescriptor(
+                AppearanceTuningSetting.huePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.hue", "Hue"),
+                help: SettingsText.keyed("settings.appearance.hue.help", "Shift the tint color around the hue wheel."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.hueRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.huePlaceholder)),
+                default: .number(AppearanceTuningSetting.hueDefault),
+                keywords: ["tint", "color", "colour"]
+            ),
+            SettingDescriptor(
+                AppearanceTuningSetting.saturationPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.saturation", "Saturation"),
+                help: SettingsText.keyed("settings.appearance.saturation.help", "Increase or reduce the tint color intensity."),
+                kind: .number(SettingNumber(AppearanceTuningSetting.saturationRange, step: 0.05, unit: .fraction, placeholder: AppearanceTuningSetting.saturationPlaceholder)),
+                default: .number(AppearanceTuningSetting.saturationDefault),
+                keywords: ["tint", "color", "colour", "intensity"]
+            ),
+        ]
+    }
+}
+
+extension AppearanceSettingsSchema {
     static var look: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         return [
@@ -56,11 +94,11 @@ extension AppearanceSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.appearance.textSize", "Text Size"),
-                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of tabs, the sidebar and chat. Terminals have their own size."),
+                help: SettingsText.keyed("settings.appearance.textSize.help", "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."),
                 kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: InterfaceSizeSetting.placeholder)),
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
-                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize"]
+                keywords: ["font", "text", "size", "density", "interface size", "chromeFontSize", "sidebar font size", "menu", "interface font", "bigger", "larger", "readable", "accessibility"]
             ),
             SettingDescriptor(
                 FontSmoothingSetting.configPath,
@@ -162,6 +200,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["border", "hairline", "separator", "outline", "line"]
             ),
             SettingDescriptor(
+                LiquidGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.liquidGlass", "Liquid Glass"),
+                help: SettingsText.keyed("settings.appearance.liquidGlass.help", "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."),
+                kind: .toggle,
+                default: .bool(LiquidGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "blur", "frost", "translucent", "transparency", "solid", "plain", "material"]
+            ),
+            SettingDescriptor(
                 PaneFocusSettings.focusIndicatorPath,
                 section: .appearance,
                 group: group,
@@ -250,19 +298,42 @@ extension AppearanceSettingsSchema {
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
             ),
             SettingDescriptor(
-                TabShapeSetting.configPath,
+                TwoToneSetting.configPath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.appearance.tabShape", "Tab Shape"),
-                help: SettingsText.keyed("settings.appearance.tabShape.help", "The selected tab and sidebar row: a block, a rounded capsule, or gooey, flowing into the pane."),
-                summary: SettingsText.keyed("settings.appearance.tabShape.summary", "Block, rounded or gooey tabs and sidebar rows"),
+                title: SettingsText.keyed("settings.appearance.twoTone", "Two-Tone"),
+                help: SettingsText.keyed("settings.appearance.twoTone.help", "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme."),
+                summary: SettingsText.keyed("settings.appearance.twoTone.summary", "A second tone for the sidebar and tab bar"),
                 kind: .choice([
-                    SettingChoice(TabShape.block.rawValue, SettingsText.keyed("settings.choice.tabShape.block", "Block")),
-                    SettingChoice(TabShape.rounded.rawValue, SettingsText.keyed("settings.choice.tabShape.rounded", "Rounded")),
-                    SettingChoice(TabShape.gooey.rawValue, SettingsText.keyed("settings.choice.tabShape.gooey", "Gooey")),
+                    SettingChoice(TwoTone.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(TwoTone.auto.rawValue, SettingsText.keyed("settings.choice.twoTone.auto", "From Theme")),
+                    SettingChoice(TwoTone.inkSakura.rawValue, SettingsText.keyed("settings.choice.twoTone.inkSakura", "Ink & Sakura")),
+                    SettingChoice(TwoTone.charcoalRose.rawValue, SettingsText.keyed("settings.choice.twoTone.charcoalRose", "Charcoal & Rose")),
+                    SettingChoice(TwoTone.inkMagenta.rawValue, SettingsText.keyed("settings.choice.twoTone.inkMagenta", "Ink Blue & Magenta")),
+                    SettingChoice(TwoTone.creamForest.rawValue, SettingsText.keyed("settings.choice.twoTone.creamForest", "Cream & Forest")),
+                    SettingChoice(TwoTone.navySand.rawValue, SettingsText.keyed("settings.choice.twoTone.navySand", "Navy & Sand")),
+                    SettingChoice(TwoTone.boneOxblood.rawValue, SettingsText.keyed("settings.choice.twoTone.boneOxblood", "Bone & Oxblood")),
+                    SettingChoice(TwoTone.slateMatcha.rawValue, SettingsText.keyed("settings.choice.twoTone.slateMatcha", "Slate & Matcha")),
+                    SettingChoice(TwoTone.plumAmber.rawValue, SettingsText.keyed("settings.choice.twoTone.plumAmber", "Plum & Amber")),
                 ]),
-                default: .string(TabShapeSetting.fallback.rawValue),
-                keywords: ["tab", "tabs", "shape", "block", "rounded", "pill", "capsule", "gooey", "goo", "folder", "flare", "two tone", "sidebar", "row", "selection"]
+                default: .string(TwoToneSetting.fallback.rawValue),
+                keywords: ["two tone", "two-tone", "duotone", "tone", "pairing", "sidebar", "tab bar", "chrome", "color", "sakura", "pink", "magenta", "forest", "sand", "oxblood", "matcha", "amber", "palette"]
+            ),
+            SettingDescriptor(
+                CornerFlushSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.cornerFlush", "Selected Tab Shape"),
+                help: SettingsText.keyed("settings.appearance.cornerFlush.help", "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."),
+                summary: SettingsText.keyed("settings.appearance.cornerFlush.summary", "Pill, flush or goo for the selected tab"),
+                kind: .choice([
+                    SettingChoice(CornerFlush.off.rawValue, SettingsText.keyed("settings.choice.cornerFlush.off", "Pill")),
+                    SettingChoice(CornerFlush.flush.rawValue, SettingsText.keyed("settings.choice.cornerFlush.flush", "Flush")),
+                    SettingChoice(CornerFlush.tight.rawValue, SettingsText.keyed("settings.choice.cornerFlush.tight", "Flush, Tight to the Sidebar")),
+                    SettingChoice(CornerFlush.goo.rawValue, SettingsText.keyed("settings.choice.cornerFlush.goo", "Goo")),
+                ]),
+                default: .string(CornerFlushSetting.fallback.rawValue),
+                keywords: ["corner", "flush", "goo", "gooey", "folder tab", "fillet", "pill", "selected tab", "tab shape", "card", "material"]
             ),
         ]
     }

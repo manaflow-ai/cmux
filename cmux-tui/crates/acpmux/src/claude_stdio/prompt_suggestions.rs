@@ -13,6 +13,13 @@
 //! `promptSuggestionEnabled: false`, and fewer after 20 go unused in a row (its back-off, which a
 //! forced `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=1` would turn off, so acpmux never sets it).
 //!
+//! Only a turn a person's own prompt started gets one (`_meta.acpmux.personTurn`,
+//! `hub/prompt_sender.rs`): before any other turn's prompt (another agent's message, a notice, a
+//! trigger's delivery, a continuation) acpmux pauses them, and lifts the pause before the
+//! person's next prompt. Each suggestion is a model call that reads the whole conversation, and
+//! no agent reads one: on the team gateway 84% of them followed such turns (15,315 a day, about
+//! $0.10 each at list price; sr2 audit 2026-11-20).
+//!
 //! The line is marked internal in Claude Code's schema: a line without a usable `suggestion`
 //! string is dropped, never an error.
 
@@ -22,6 +29,12 @@ use super::*;
 pub const SETTING: &str = "agents.promptSuggestions";
 /// The chat's own switch, a config option with values `on` and `off`.
 pub const OPTION: &str = "prompt-suggestions";
+/// The `_meta.acpmux` key that says a person's own prompt started the turn
+/// (`hub/prompt_sender.rs`, which sets it).
+pub const PERSON_TURN: &str = "personTurn";
+/// The `initialize` field (`_meta.acpmux`) that asks for no suggestions in this process: the hub
+/// sends it for a start no person asked for (`hub/host_level.rs` `start_params`).
+pub const NO_SUGGESTIONS: &str = "noPromptSuggestions";
 /// Longest suggestion passed on; a longer one is not a next prompt.
 const MAX_CHARS: usize = 2_000;
 
@@ -88,8 +101,25 @@ impl Translator {
     /// is on, then pauses them at once when the chat has them off.
     pub(super) fn suggestion_init(&self, id: &Id, global: bool) -> Option<Value> {
         self.suggestions_offered.store(global, Ordering::SeqCst);
-        (global && !self.prompt_suggestions.load(Ordering::SeqCst))
-            .then(|| pause_line(&format!("boot-psp-{id}"), true))
+        let paused = global && !self.prompt_suggestions.load(Ordering::SeqCst);
+        self.suggestions_paused.store(paused, Ordering::SeqCst);
+        paused.then(|| pause_line(&format!("boot-psp-{id}"), true))
+    }
+
+    /// Before a turn's prompt (`params`, the hub's `session/prompt`): the pause line that lets
+    /// Claude Code suggest a next prompt after this turn only when a person's own prompt started
+    /// it and the chat has suggestions on, or `None` when Claude Code already has that state.
+    /// Its answer (`turnpsp-*`) needs no reply.
+    pub(super) fn suggestion_turn(&self, params: &Value, line_id: &str) -> Option<Value> {
+        if !self.suggestions_offered.load(Ordering::SeqCst) {
+            return None;
+        }
+        let by_person =
+            params.pointer(&format!("/_meta/acpmux/{PERSON_TURN}")).and_then(Value::as_bool)
+                == Some(true);
+        let paused = !by_person || !self.prompt_suggestions.load(Ordering::SeqCst);
+        (self.suggestions_paused.swap(paused, Ordering::SeqCst) != paused)
+            .then(|| pause_line(&format!("turnpsp-{line_id}"), paused))
     }
 
     /// The chat's `prompt-suggestions` option, while the global switch offers it.
@@ -127,6 +157,7 @@ impl Translator {
             ));
         }
         self.prompt_suggestions.store(on, Ordering::SeqCst);
+        self.suggestions_paused.store(!on, Ordering::SeqCst);
         self.pending.lock().await.insert(id.to_string(), Pending::Suggestions);
         Outbound::Lines(vec![pause_line(&format!("psp-{id}"), !on)])
     }

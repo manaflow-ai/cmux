@@ -19,6 +19,25 @@ struct AgentPaneGitHubRequestTests {
         #expect(AgentPaneRequest(body: ["method": "github.nope"]) == .unsupported("github.nope"))
     }
 
+    /// `github.repos.checkout`: an `owner/name`, a key, and only absolute folders the page knows for it.
+    @Test func decodesCheckoutAndRefusesAnythingButARepositoryAndFolders() {
+        let checkout = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "github.repos.checkout", "params": params]) }
+        #expect(checkout(["repo": "acme/api", "idempotency_key": "k1"]) == .gitHub(.checkout(repo: "acme/api", candidates: [], key: "k1")))
+        #expect(checkout(["repo": "acme/api", "candidates": ["/Users/me/api"], "idempotency_key": "k1"])
+            == .gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/api"], key: "k1")))
+        for bad: [String: Any] in [
+            ["repo": "acme/api"],
+            ["repo": "https://github.com/acme/api", "idempotency_key": "k1"],
+            ["repo": "../api", "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": ["relative/api"], "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": "/Users/me/api", "idempotency_key": "k1"],
+        ] {
+            #expect(checkout(bad) == .unsupported("github.repos.checkout"), "\(bad)")
+        }
+        #expect(AgentPaneRequest.gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/secret"], key: "k1")).description
+            == "github.repos.checkout")
+    }
+
     @Test func thePageHostServesThem() {
         for method in AgentPaneGitHubRequest.methods {
             #expect(AgentPageOps.method(for: AgentPageOps.namespace + method) == method)
@@ -46,6 +65,27 @@ struct AgentPaneGitHubRequestTests {
         #expect((none["value"] as? [String: Any])?["state"] as? String == "unavailable")
         #expect((none["value"] as? [String: Any])?["repos_scope"] is NSNull)
         #expect((none["value"] as? [String: Any])?["reason"] as? String == "unreachable")
+    }
+
+    @Test func statusSaysWhyConnectIsNeededAgain() async {
+        let cases: [(CloudGitHubPicker.Status, String, String)] = [
+            (.needsReauth(detail: "the GitHub App was uninstalled"), "needs_reauth", "the GitHub App was uninstalled"),
+            (.needsReauth(detail: nil), "needs_reauth", AgentPaneModel.gitHubReauthMessage),
+            (.linking, "linking", AgentPaneModel.gitHubConnectPendingMessage),
+            (.error, "error", AgentPaneModel.gitHubConnectionErrorMessage),
+            (.linkRefused(reason: nil), "link_refused", AgentPaneModel.gitHubLinkExpiredMessage),
+            (.linkRefused(reason: "Only an owner can connect GitHub."), "link_refused", "Only an owner can connect GitHub."),
+        ]
+        for (status, problem, message) in cases {
+            let reply = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: status)) { false }
+            let value = reply["value"] as? [String: Any]
+            #expect(value?["state"] as? String == "not_connected")
+            #expect(value?["problem"] as? String == problem)
+            #expect(value?["message"] as? String == message)
+        }
+        let plain = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .notConnected)) { false }
+        #expect((plain["value"] as? [String: Any])?["problem"] is NSNull)
+        #expect((plain["value"] as? [String: Any])?["message"] is NSNull)
     }
 
     /// Unavailable says why, so the picker can still offer Connect GitHub (sign in first, or not set up here).
