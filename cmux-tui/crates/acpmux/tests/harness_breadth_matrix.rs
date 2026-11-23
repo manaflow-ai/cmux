@@ -103,7 +103,7 @@ fn scratch() -> PathBuf {
         let script = format!(
             "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\0' \"$a\"; done >> {log}\nprintf '\\001' >> {log}\nexec python3 {} \"$@\"\n",
             daemon_env::sh_quote(row.stand_in),
-            log = daemon_env::sh_quote(&log.to_string_lossy()),
+            log = daemon_env::sh_quote(log.to_string_lossy()),
         );
         std::fs::write(&bin, script).unwrap();
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
