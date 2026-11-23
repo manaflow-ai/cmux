@@ -337,6 +337,19 @@ fn pause_all_on_an_unloaded_list_is_a_retry_not_a_success() {
     assert!(not_loaded(&json!({"machines": []})).is_none());
 }
 
+/// Review F1 on #52664: with no app, `pause --all` must not fall through to the VM API, which
+/// has no `--all`; `run_if_requested` refuses it when `pause_all_requested` holds.
+#[test]
+fn pause_all_is_recognised_for_pause_and_shutdown_only() {
+    for verb in ["pause", "shutdown"] {
+        let short = parse(&words(&["vm", verb, "--all"])).expect("parses");
+        assert!(pause_all_requested(&short), "{verb}");
+        assert!(short.api_verb, "{verb} would otherwise go to the VM API");
+    }
+    let one = parse(&words(&["vm", "pause", "dev"])).expect("parses");
+    assert!(!pause_all_requested(&one));
+}
+
 /// Review F2 on #48221: `vm pause --all --minutes 15` was a silent mass pause; it is refused.
 #[test]
 fn pause_all_refuses_other_words() {
