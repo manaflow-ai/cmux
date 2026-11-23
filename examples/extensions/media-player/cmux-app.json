@@ -29,9 +29,12 @@
     "media:read": "Show the current track, artwork and playback position.",
     "media:control": "Play, pause, change tracks or seek when you press a control."
   },
-  "variants": [
-    { "id": "layout", "title": {"en": "Sidebar layout", "de": "Seitenleistenlayout", "fr": "Disposition dans la barre latérale", "ar": "تخطيط الشريط الجانبي", "es": "Diseño de la barra lateral", "zh-Hant": "側邊欄版面", "zh-Hans": "侧边栏布局", "ko": "사이드바 레이아웃", "ja": "サイドバーのレイアウト"}, "values": ["compact", "card"], "default": "compact" }
-  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "layout": { "type": "string", "title": "Sidebar layout", "enum": ["compact", "card"], "default": "compact" }
+    }
+  },
   "activation": ["onInterface:cmux.section/1", "onInterface:cmux.pane/1"],
   "strings": "strings",
   "files": ["dist/", "strings/"]

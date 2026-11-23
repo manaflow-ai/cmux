@@ -4,6 +4,7 @@ import {
 } from "cmux-extension-sdk"
 
 type Track = NonNullable<Awaited<ReturnType<typeof cmux.media.get>>["track"]>
+type Timeline = "running" | "paused" | "unknown"
 type Command = Parameters<typeof cmux.media.control>[0]
 type Layout = "compact" | "card" | "pane"
 
@@ -23,22 +24,22 @@ function clock(seconds: number): string {
   return `${minutes}:${String(whole % 60).padStart(2, "0")}`
 }
 
-function player(track: () => Track, layout: Layout, ticking: boolean): View {
+function player(track: () => Track, layout: Layout, timelineState: Timeline): View {
   const compact = layout === "compact"
   const coverSize = side[layout]
   const [now, setNow] = signal(Date.now())
-  if (ticking) cmux.timer.every(1000, () => setNow(Date.now()))
+  if (timelineState === "running") cmux.timer.every(1000, () => setNow(Date.now()))
   const elapsed = computed(() => position(track(), now()))
 
-  const cover = () => {
+  const cover = VStack({ alignment: "center" }, [() => {
     const art = track().artwork
     const image = art ? Image(art) : Icon("record.circle").size(coverSize * 0.55).secondary()
     return image.frame({ width: coverSize, height: coverSize }).background(cmux.theme.hover).cornerRadius(compact ? 6 : 12)
-  }
+  }]).frame({ width: coverSize, height: coverSize })
   const metadata = VStack({ alignment: compact ? "leading" : "center", spacing: 3 }, [
     Text(() => track().title || labels("untitled", "Untitled track"))
       .font(layout === "pane" ? "title" : compact ? "headline" : "title3").weight("semibold").lineLimit(compact ? 1 : 2),
-    () => track().artist ? Text(track().artist).font(compact ? "caption" : "subheadline").secondary().lineLimit(1) : null
+    Text(() => track().artist).font(compact ? "caption" : "subheadline").secondary().lineLimit(1)
   ])
 
   const [problem, setProblem] = signal("")
@@ -57,19 +58,19 @@ function player(track: () => Track, layout: Layout, ticking: boolean): View {
     Spacer(),
     button("backward.end.fill", labels("previous", "Previous"), () => send({ command: "previous" }))
       .disabled(() => !track().can_previous),
-    () => timed(track()) ? button("gobackward.15", labels("back", "Back 15 seconds"), () => seek(-15)) : null,
+    timelineState !== "unknown" ? button("gobackward.15", labels("back", "Back 15 seconds"), () => seek(-15)) : null,
     Button(Icon(() => track().playing ? "pause.circle.fill" : "play.circle.fill")
       .size(compact ? 23 : 30).color(cmux.theme.accent), () => send({ command: "play_pause" }))
       .help(() => track().playing ? labels("pause", "Pause") : labels("play", "Play")),
-    () => timed(track()) ? button("goforward.15", labels("forward", "Forward 15 seconds"), () => seek(15)) : null,
+    timelineState !== "unknown" ? button("goforward.15", labels("forward", "Forward 15 seconds"), () => seek(15)) : null,
     button("forward.end.fill", labels("next", "Next"), () => send({ command: "next" }))
       .disabled(() => !track().can_next),
     Spacer()
   ])
-  const timeline = () => timed(track()) ? VStack({ spacing: 4 }, [
+  const timeLabel = (seconds: () => number) => Text(() => clock(seconds())).font("caption2").monospaced().secondary()
+  const timeline = timelineState !== "unknown" ? VStack({ spacing: 4 }, [
     ProgressView(() => elapsed() / track().duration!),
-    HStack([Text(() => clock(elapsed())), Spacer(), Text(() => clock(track().duration!))])
-      .font("caption2").monospaced().secondary()
+    HStack([timeLabel(elapsed), Spacer(), timeLabel(() => track().duration!)])
   ]) : null
   const body = [
     compact ? HStack({ spacing: 10 }, [cover, metadata.layoutPriority(1)]) :
@@ -89,12 +90,13 @@ function render(inPane: boolean): View {
     const track = media.value()?.track
     if (!track || media.error()) return []
     const layout: Layout = inPane ? "pane" : cmux.app.settings().layout === "card" ? "card" : "compact"
-    return [{ track, layout, ticking: track.playing && track.rate !== 0 && timed(track) }]
+    const timeline: Timeline = !timed(track) ? "unknown" : track.playing && track.rate !== 0 ? "running" : "paused"
+    return [{ track, layout, timeline }]
   })
   return VStack([
     // Each layout owns its clock. Pausing, losing the timeline or closing the view disposes it.
-    ForEach({ items: rows, key: (row) => row.layout + (row.ticking ? "-playing" : "-still") },
-      (row) => player(() => row().track, row().layout, row().ticking)),
+    ForEach({ items: rows, key: (row) => row.layout + row.timeline },
+      (row) => player(() => row().track, row().layout, row().timeline)),
     () => {
       if (rows().length) return null
       const error = media.error()
