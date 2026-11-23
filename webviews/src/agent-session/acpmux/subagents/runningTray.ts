@@ -18,6 +18,7 @@ import { arrivalKey, type BackgroundCommand } from "../session-info/processes";
 import { nestAgents } from "./agentsPillModel";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD, SUBAGENT_STARTED } from "./subagentRows";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
+import { subagentNamed } from "./subsessions";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
@@ -219,15 +220,44 @@ const STARTED_STATES = new Set(["running", "completed", "failed", "cancelled", "
 const hasStarted = (agent: Subagent) =>
   agent.id.trim() !== "" && Number.isFinite(agent.startedAt) && STARTED_STATES.has(agent.state);
 
-function startedLine(group: AcpmuxRow, cache: DoneLineCache, made: Set<string>, workflows: boolean): AcpmuxRow[] {
-  const agents = (group.subagents ?? []).filter((agent) => hasStarted(agent) && !(workflows && isWorkflow(agent)));
-  if (!agents.length) return [];
+/// The most subagents a start line names; the rest it counts ("+8 more"), and the count's hover card
+/// lists them. Leo, 2026-11-22, on start lines of six to twelve chips, each cut to an empty pill or a
+/// letter: "ENTIRE THING FUCKING BLANKED AND FUCKING SHIFTED".
+export const STARTED_LINE_NAMES = 3;
+
+/// What a turn's start line says, decided here so the line only draws it: the subagents it names
+/// (each named by its task or name, its start read by this pane), and how many more started with them.
+export type StartedLineModel = { named: Subagent[]; more: Subagent[] };
+
+/// The start line of `agents` (every group of one turn, in order): a subagent this pane did not see
+/// start (`startUnseen`: met first through its progress or its end, after a page, a lag's re-read or
+/// a reconnect began past its spawn) is not on it; one that nothing names yet waits off it until a
+/// record names it. Undefined when no subagent is left: no line, never a row of empty pills.
+export function startedLineModel(agents: readonly Subagent[], workflows: boolean): StartedLineModel | undefined {
+  const shown = agents.filter(
+    (agent) => hasStarted(agent) && !agent.startUnseen && subagentNamed(agent) && !(workflows && isWorkflow(agent)),
+  );
+  if (!shown.length) return undefined;
+  return { named: shown.slice(0, STARTED_LINE_NAMES), more: shown.slice(STARTED_LINE_NAMES) };
+}
+
+function startedLine(
+  group: AcpmuxRow,
+  agents: readonly Subagent[],
+  cache: DoneLineCache,
+  made: Set<string>,
+  workflows: boolean,
+): AcpmuxRow[] {
+  const line = startedLineModel(agents, workflows);
+  if (!line) return [];
+  const all = [...line.named, ...line.more];
   const id = `${SUBAGENT_STARTED}:${group.id}`;
-  const at = Math.min(...agents.map((agent) => agent.startedAt));
+  const at = Math.min(...all.map((agent) => agent.startedAt));
   const key = JSON.stringify([
     at,
     group.inBackground,
-    agents.map(({ id, name, task, kind, prompt, harness }) => [id, name, task, kind, prompt, harness]),
+    line.named.length,
+    all.map(({ id, name, task, kind, prompt, harness }) => [id, name, task, kind, prompt, harness]),
   ]);
   made.add(id);
   const kept = cache.get(id);
@@ -237,7 +267,8 @@ function startedLine(group: AcpmuxRow, cache: DoneLineCache, made: Set<string>, 
     kind: SUBAGENT_STARTED,
     at,
     version: versionOf(key),
-    subagents: agents,
+    subagents: all,
+    startedNamed: line.named.length,
     ...(group.inBackground !== undefined && { inBackground: group.inBackground }),
   };
   cache.set(id, { key, row });
@@ -451,12 +482,30 @@ export function withSubagentLines(
   // The rows drawn other than as they are: the groups' starts and workflow cards, and the reports
   // of a reported subagent (its line); and where the done lines go.
   const changed = new Map<number, (row: AcpmuxRow) => readonly AcpmuxRow[]>();
+  // One start line a turn: every group a turn started (one per batch between the agent's words)
+  // joins the line of its first, which keeps its place; the others draw none (Leo, 2026-11-22: fifteen
+  // "started working" lines filled the screen). A background turn's groups keep a line of their own.
+  const turnOpeners = openerReads.read(rows).from;
+  const lineOf = new Map<number, Subagent[]>();
+  const firstOf = new Map<string, number>();
+  for (const index of groups) {
+    const row = rows[index]!;
+    if (isRunGroup(row)) continue;
+    const key = `${openerBefore(turnOpeners, index)}\u0000${row.inBackground ?? ""}`;
+    const first = firstOf.get(key);
+    if (first === undefined) {
+      firstOf.set(key, index);
+      lineOf.set(index, [...(row.subagents ?? [])]);
+    } else lineOf.get(first)!.push(...(row.subagents ?? []));
+  }
   for (const index of groups)
-    if (!isRunGroup(rows[index]!))
+    if (!isRunGroup(rows[index]!)) {
+      const agents = lineOf.get(index);
       changed.set(index, () => [
-        ...startedLine(rows[index]!, cache, made, workflowCards),
+        ...(agents ? startedLine(rows[index]!, agents, cache, made, workflowCards) : NO_ROWS),
         ...(cards.get(index) ?? NO_ROWS),
       ]);
+    }
   reportPass.items.forEach((origin, at) => {
     const agent = reported.get(origin);
     if (agent) {
@@ -563,6 +612,21 @@ const NO_ROWS: readonly AcpmuxRow[] = [];
 /// The subagent groups of a transcript, by index (withSubagentLines).
 const groupReads = new PrefixFlatCache<AcpmuxRow, true>((row) => (isSubagentGroup(row) ? YES : NOTHING));
 const YES: readonly true[] = [true];
+/// The rows that open a turn (a prompt or a message, not a steer into a running one), by index.
+const openerReads = new PrefixFlatCache<AcpmuxRow, true>((row) =>
+  row.kind === "user" && row.steer === undefined && !row.continues ? YES : NOTHING,
+);
+/// The index of the last turn opener before `index` in `openers` (sorted), or -1.
+function openerBefore(openers: readonly number[], index: number): number {
+  let low = 0;
+  let high = openers.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (openers[mid]! < index) low = mid + 1;
+    else high = mid;
+  }
+  return low === 0 ? -1 : openers[low - 1]!;
+}
 const NOTHING: readonly never[] = [];
 /// The subagent each report answers (`reportOrigin`), by index.
 const reportReads = new PrefixFlatCache<AcpmuxRow, string>((row) => {
