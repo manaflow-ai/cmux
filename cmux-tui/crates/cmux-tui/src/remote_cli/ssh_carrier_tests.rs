@@ -31,7 +31,7 @@ fn carrier_and_ssh_flags_choose_the_way_and_leave_the_rest() {
 
 #[test]
 fn only_a_bare_machine_name_with_no_option_tries_the_carrier() {
-    assert_eq!(carrier_host(&words(&["gcp-agent-lane-2"])), Some("gcp-agent-lane-2"));
+    assert_eq!(carrier_host(&words(&["buildbox"])), Some("buildbox"));
     assert_eq!(carrier_host(&words(&["air-blue.local"])), Some("air-blue.local"));
     for ssh_only in [
         words(&["leo@box"]),
