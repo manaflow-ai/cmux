@@ -674,7 +674,12 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
-        _ => fallback.to_owned(),
+        // A session with a given name reads by it, with the name it was known by
+        // (`Mango · HOST/NAME`, `prompt_provenance::display_label`).
+        _ => crate::prompt_provenance::display_label(
+            sender.get("displayName").and_then(Value::as_str),
+            fallback,
+        ),
     }
 }
 
@@ -2482,6 +2487,8 @@ impl Hub {
 
     /// `_acpmux/inbox_threads`: the chat's threads, the one with the newest message first.
     pub fn inbox_threads(&self, session: &Session) -> Value {
+        // Read before the inbox lock: the journal's read pruning takes it.
+        let held_now = self.surge_held_now(session);
         let inbox = session.inbox();
         let mut threads: Vec<(&str, Vec<&Item>)> = Vec::new();
         for item in &inbox.items {
@@ -2516,12 +2523,26 @@ impl Hub {
                     "unread": unread.len(), "new": list.iter().filter(|i| !i.noticed).count(),
                     "count": list.len(), "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
+                    // The held bar's "need you" filter: an unread message for the person.
+                    // A program's notice that is no FIRE never is, held before that rule or not.
+                    "needYou": unread.iter().any(|i| {
+                        crate::surge_triage::needs_person(
+                            i.class.as_str(), &i.text, super::presence::owner_name())
+                            && !crate::surge_triage::program_fyi(&json!({
+                                "fromSession": i.from_session, "sender": i.sender, "text": i.text}))
+                    }),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
             })
             .collect();
-        let counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).json();
+        let counts = {
+            let mut counts = inbox.surge_counts.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((held, through)) = held_now {
+                counts.settle_held(held, through);
+            }
+            counts.json()
+        };
         json!({"sessionId": session.id, "threads": rows, "surge": counts})
     }
 

@@ -99,6 +99,12 @@ impl Held {
     pub fn fyi_by_rule(&self) -> bool {
         self.program && !fire_text(&self.text)
     }
+
+    /// Whether this message needs the person, not only this chat's agent ([`needs_person`]).
+    /// A program's notice that is no FIRE never does ([`Self::fyi_by_rule`]).
+    pub fn needs_person(&self, owner: &str) -> bool {
+        !self.fyi_by_rule() && needs_person(&self.class, &self.text, owner)
+    }
 }
 
 /// Whether a held `inbox` record's sender is a program: no agent session sent it. Its sender
@@ -115,6 +121,12 @@ pub fn program_notice(msg: &Value) -> bool {
         || named(sender.and_then(|s| s.pointer("/relay/session")));
     let text = msg.get("text").and_then(Value::as_str).unwrap_or_default();
     !session && !broker_relayed_agent(text)
+}
+
+/// A program's notice that is no FIRE: an inbox fyi whatever its class ([`Held::fyi_by_rule`]),
+/// for a message held before that rule filed it as one (`{fromSession, sender, text}`).
+pub fn program_fyi(msg: &Value) -> bool {
+    program_notice(msg) && !fire_text(msg.get("text").and_then(Value::as_str).unwrap_or_default())
 }
 
 /// The lane-gh broker's header on an agent's message it relays: `[message ID from HOST/NAME
@@ -158,6 +170,55 @@ pub fn fire_text(text: &str) -> bool {
         rest = after.trim_start();
     }
     rest.split(|c: char| !c.is_ascii_alphanumeric()).next() == Some("FIRE")
+}
+
+/// Words that address the person (`owner` is the host user's name too).
+const PERSON_WORDS: &[&str] =
+    &["@person", "the person", "the owner", "the user", "the human", "a human", "@owner"];
+
+/// Asks only the person can answer: a permission, an approval or a secret.
+const PERSON_ASKS: &[&str] = &[
+    "permission",
+    "approve",
+    "approval",
+    "consent",
+    "sign in",
+    "sign-in",
+    "log in",
+    "login",
+    "password",
+    "credential",
+    "api key",
+    "2fa",
+    "one-time code",
+    "your call",
+    "your ok",
+    "your decision",
+    "your go-ahead",
+    "sign off",
+    "sign-off",
+];
+
+/// Whether a held message needs the person ("12 need you" counts only these; Leo, 2026-11-23:
+/// "not only do thees probably not need me"). A message needs the person when both hold:
+/// - its class is `block` or `question`: status, results and FYIs never do;
+/// - it addresses the person (the owner's name as a word, "the person", "the user", "@person",
+///   ...) or asks for what only the person gives: a permission, an approval or sign-off,
+///   consent, a sign-in, a password, credential, API key or 2FA code, "your call".
+///
+/// An agent's question to this chat's agent ("which branch?") is the agent's to answer, so it
+/// stays out of the count.
+pub fn needs_person(class: &str, text: &str, owner: &str) -> bool {
+    if !matches!(class, "block" | "question") {
+        return false;
+    }
+    let text = text.to_lowercase();
+    let owner = owner.trim().to_lowercase();
+    let named = owner.chars().count() >= 2
+        && text
+            .split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+            .any(|w| w.trim_start_matches('@') == owner);
+    named || PERSON_WORDS.iter().chain(PERSON_ASKS).any(|w| text.contains(w))
 }
 
 /// The `inbox` record `msg` the surge holder wrote, if it is a held one with an id and thread.

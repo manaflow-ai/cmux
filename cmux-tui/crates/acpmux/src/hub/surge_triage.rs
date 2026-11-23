@@ -167,6 +167,8 @@ pub(crate) struct Journal {
     /// Held messages filed fyi by rule ([`triage::Held::fyi_by_rule`]) until their triage
     /// record is read: an older pass's `needs_this_session` for one never opens it.
     pub(super) fyi: BTreeSet<String>,
+    /// Held messages that need the person ([`triage::needs_person`]), by prompt id.
+    pub(super) person: BTreeSet<String>,
 }
 
 impl Journal {
@@ -179,6 +181,9 @@ impl Journal {
                 {
                     if h.fyi_by_rule() {
                         self.fyi.insert(h.prompt_id.clone());
+                    }
+                    if h.needs_person(super::presence::owner_name()) {
+                        self.person.insert(h.prompt_id.clone());
                     }
                     self.held.push(h);
                 }
@@ -552,7 +557,7 @@ impl Hub {
                 let mut record = triage::triaged_record(batch, d, Some(&id));
                 triage::set_key(&mut record, "at", json!(now));
                 journal.read(triage::RECORD_KIND, &record, now);
-                let open = self.surge_open_topics(session, journal);
+                let open = self.surge_need_you(session, journal);
                 self.surge_persist(session, record, open)?;
             }
         }
@@ -573,7 +578,7 @@ impl Hub {
             let into = triage::digest_id(&session.id, &all);
             let record = json!({"coalesced": ids, "into": into, "items": []});
             journal.read(triage::RECORD_KIND, &record, crate::store::now_ms());
-            let open = self.surge_open_topics(session, journal);
+            let open = self.surge_need_you(session, journal);
             self.surge_persist(session, record, open)?;
         }
         let owed: Vec<(String, Vec<Line>)> = journal
@@ -600,12 +605,12 @@ impl Hub {
                 triage::set_key(&mut marker, "redirected", json!(redirected));
             }
             journal.read(triage::RECORD_KIND, &marker, crate::store::now_ms());
-            let open = self.surge_open_topics(session, journal);
+            let open = self.surge_need_you(session, journal);
             self.surge_persist(session, marker, open)?;
         }
         // needYou as the journal counts it now: a read since, or a rule that files what an
         // older pass opened as fyi, lowers it with no new item.
-        let open = self.surge_open_topics(session, journal);
+        let open = self.surge_need_you(session, journal);
         if open != session.inbox().surge_counts_need_you() {
             self.surge_persist(session, json!({"items": []}), open)?;
         }
@@ -633,7 +638,7 @@ impl Hub {
             self.append(session, "mux", READ_KIND, msg.clone());
             journal.read(READ_KIND, &msg, crate::store::now_ms());
         }
-        let open = self.surge_open_topics(session, &mut journal);
+        let open = self.surge_need_you(session, &mut journal);
         if open != session.inbox().surge_counts_need_you() {
             let _ = self.persist_surge_triage(session, json!({"items": []}), open);
         }
@@ -652,6 +657,35 @@ impl Hub {
             }
         }
         let threads: BTreeSet<&String> = journal.open.values().collect();
+        threads.len() as u64
+    }
+
+    /// The undecided held messages the journal counts, and the record seq it read through:
+    /// what the held bar's count is, fork-aware and once per prompt id (`Counts::settle_held`).
+    /// It reads the cached projection's tail, and puts it back unless a pass cached a newer one.
+    pub(crate) fn surge_held_now(&self, session: &Session) -> Option<(u64, u64)> {
+        let cached = {
+            let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+            all.remove(&session.id)
+        };
+        let mut journal = cached.unwrap_or_default();
+        self.surge_journal_tail(session, &mut journal).ok()?;
+        let now = (journal.held.len() as u64, journal.cursor);
+        let mut all = self.surge_triage_journals.lock().unwrap_or_else(|e| e.into_inner());
+        all.entry(session.id.clone()).or_insert(journal);
+        Some(now)
+    }
+
+    /// The held bar's "need you": the open topics with a message that needs the person
+    /// ([`triage::needs_person`]), not every one this chat's agent must act on.
+    fn surge_need_you(&self, session: &Session, journal: &mut Journal) -> u64 {
+        self.surge_open_topics(session, journal);
+        let threads: BTreeSet<&String> = journal
+            .open
+            .iter()
+            .filter(|(id, _)| journal.person.contains(*id))
+            .map(|(_, thread)| thread)
+            .collect();
         threads.len() as u64
     }
 

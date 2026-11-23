@@ -249,6 +249,14 @@ fn a_sender_with_no_session_is_a_program() {
         "\n[message 7461 from gcp-agent-lane-10/router-x (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message 7461]\"]\n\nState: blocked"
     );
     assert!(!program_notice(&relayed), "the broker relays agents with no session too");
+    // The listing's needYou reads items held before the rule: a program's ask is no ask.
+    let mut ask = base.clone();
+    ask["text"] = json!("blocked: need permission from leo to merge #12");
+    assert!(needs_person("block", ask["text"].as_str().unwrap(), "leo"));
+    assert!(program_fyi(&ask));
+    ask["text"] = json!("[notice from runner-vars \u{b7} FIRE] target down; leo, approve a restart");
+    assert!(!program_fyi(&ask), "a FIRE still wakes");
+    assert!(!program_fyi(&relayed));
     relayed["text"] = json!(
         "\n[message 31f6 from gcp-agent-lane-2 (a program with no session, not Leo; answer ...), relayed by the lane-gh broker]\n\n[asks-router] Continue"
     );
@@ -341,4 +349,24 @@ fn a_programs_blocker_notices_are_fyi_however_many() {
     let d = known(&b, None, &Owners::default());
     assert!(d.iter().all(|d| (d.category, d.decided_by) == (Category::Fyi, DecidedBy::Rule)));
     assert_eq!(actionable_topics(&lines_of(&b, &d)), 0);
+}
+
+#[test]
+fn only_a_permission_or_a_question_to_the_person_needs_the_person() {
+    // Status, results and FYIs never need the person, whatever they say.
+    assert!(!needs_person("fyi", "leo: CI is green, permission granted", "leo"));
+    assert!(!needs_person("result", "PR 812 merged; the user can try it", "leo"));
+    // A question for the chat's agent is the agent's to answer.
+    assert!(!needs_person("question", "which branch did you push?", "leo"));
+    assert!(!needs_person("block", "blocked on base red, retrying in 5 min", "leo"));
+    // Addressed to the person, by name or role.
+    assert!(needs_person("question", "Leo, ship the dark theme or the light one?", "leo"));
+    assert!(needs_person("question", "@leo which icon?", "leo"));
+    assert!(needs_person("question", "can the person pick a name?", "cmux"));
+    // An ask only the person can grant.
+    assert!(needs_person("block", "need permission to force-push main", "cmux"));
+    assert!(needs_person("block", "the Vercel login expired; sign in again", "cmux"));
+    assert!(needs_person("question", "approve the $40 spend?", "cmux"));
+    // The owner's name inside another word is not the person.
+    assert!(!needs_person("question", "is cleopatra.rs yours?", "leo"));
 }
