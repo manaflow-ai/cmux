@@ -38,6 +38,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
   linkUp,
+  sameDrawnConnection,
   SINCE_DIVIDER,
   type AcpmuxPlanEntry,
 } from "./model";
@@ -445,6 +446,8 @@ import {
   cloudSendAfterCheck,
   composerCloudStartFolder,
   pageOnOtherMachine,
+  pickOnlyNewChat,
+  pickedChatCloudCall,
 } from "./cloudRun";
 import { promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
 import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
@@ -743,7 +746,9 @@ export function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): numbe
   const after = next as unknown as Record<string, unknown>;
   const keys = Object.keys(after);
   if (keys.length !== Object.keys(before).length) return -1;
-  for (const key of keys) if (key !== "rows" && !Object.is(before[key], after[key])) return -1;
+  for (const key of keys)
+    if (key !== "rows" && !Object.is(before[key], after[key]))
+      if (key !== "connection" || !sameDrawnConnection(before[key], after[key])) return -1;
   if (streamingRowBlocked()) return -1;
   const at = textOnlyRow(drawn.rows, next.rows);
   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;

@@ -61,7 +61,7 @@ import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
-import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveToolOutput, streamedWithToolOutput, toolOutputOnly } from "../liveToolOutput";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
 import type { FolderContinuation } from "../folderContinuation";
@@ -1196,6 +1196,17 @@ export function paneSnapshotEffect({
               : undefined;
           if (call) {
             liveToolOutput.set(call.id, call.output, call.before);
+            return;
+          }
+          // The reply's text and a running call's output grew in the same frame (a reply streaming
+          // while a command prints): each goes to its own row, and the pane keeps what it drew.
+          const both =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? streamedWithToolOutput(drawn, received, next)
+              : undefined;
+          if (drawn && both) {
+            streamingRow.set(next.rows[both.at]!, drawn.rows[both.at]!);
+            if (both.call) liveToolOutput.set(both.call.id, both.call.output, both.call.before);
             return;
           }
           streamingRow.clear();
