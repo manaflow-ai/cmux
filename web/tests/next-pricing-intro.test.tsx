@@ -5,6 +5,11 @@ import { createTranslator, type AbstractIntlMessages } from "use-intl/core";
 import enMessages from "../messages/en.json";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { CLOUD_INTRO_BILLING_COPY } from "../services/billing/cloudIntro";
+import {
+  CLOUD_PROOF_BURST_LAST_READY_SECONDS,
+  CLOUD_PROOF_BURST_MACHINES,
+  cloudIntroProofStats,
+} from "../services/billing/cloudIntroProof";
 import { cloudIntroBillingCode, cloudIntroLayout, cloudIntroOfferFacts } from "../services/billing/cloudIntroOffer";
 
 // The $1 pass as /pricing shows it, and its /pricing notices. The page-level
@@ -161,5 +166,35 @@ describe("the $1 pass /pricing notices", () => {
     expect(renderBanner("cancelled", true)).toContain(enMessages.pricing.billingCancelled);
     expect(renderBanner("cancelled", false)).toContain(enMessages.pricing.billingCancelled);
     expect(cloudIntroBillingCode("toString")).toBeNull();
+  });
+});
+
+describe("the proof strip on the $1 pass", () => {
+  test("the constants are the measured figures", () => {
+    expect(cloudIntroProofStats()).toEqual([
+      { id: "newMachine", seconds: 9.5 },
+      { id: "burst", seconds: 19.8, machines: 10 },
+      { id: "chatMove", seconds: 158 },
+    ]);
+  });
+
+  test("each standalone layout shows each number from the constants, and only those", () => {
+    for (const layout of ["a", "c"] as const) {
+      const html = renderPass(layout);
+      const strip = html.match(/data-testid="cloud-intro-proof"[\s\S]*?<\/dl>/)?.[0];
+      if (!strip) throw new Error(`no proof strip in layout ${layout}`);
+      const shown = [...strip.matchAll(/<dt[^>]*>([^<]*)<\/dt>/g)].map((m) => m[1]);
+      expect(shown).toEqual(cloudIntroProofStats().map((stat) => `${stat.seconds} s`));
+      expect(strip).toContain(`${CLOUD_PROOF_BURST_MACHINES} machines`);
+      expect(shown).toContain(`${CLOUD_PROOF_BURST_LAST_READY_SECONDS} s`);
+      expect(html).toContain(`up to ${cloudIntroOfferFacts().concurrentMachines} machines at once`);
+    }
+  });
+
+  test("the strip names no vendor", () => {
+    const strings = JSON.stringify(enMessages.nextPricing.proof);
+    for (const word of [/stripe/i, /freestyle/i, /vercel/i, /\baws\b/i, /anthropic/i, /openai/i, /google/i, /\$/, /margin/i, /\bcost/i]) {
+      expect(strings).not.toMatch(word);
+    }
   });
 });
