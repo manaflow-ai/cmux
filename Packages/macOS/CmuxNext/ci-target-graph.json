@@ -18,7 +18,8 @@
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
     "CmuxUpdater": "Packages/macOS/CmuxUpdater",
-    "CmuxVNC": "Packages/Shared/CmuxVNC"
+    "CmuxVNC": "Packages/Shared/CmuxVNC",
+    "CmuxVisibleRows": "Packages/Shared/CmuxVisibleRows"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -189,7 +190,8 @@
         "CmuxNextWindowRules"
       ],
       "packages": [
-        "CmuxAppAttest"
+        "CmuxAppAttest",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextAgentPaneTests": {
@@ -213,7 +215,9 @@
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxVisibleRows"
+      ],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
@@ -390,7 +394,8 @@
         "CmuxAppAttest",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextAppCore": {
@@ -529,7 +534,8 @@
         "CmuxMessagesLab",
         "CmuxTheme",
         "CmuxUpdater",
-        "CmuxVNC"
+        "CmuxVNC",
+        "CmuxVisibleRows"
       ],
       "reads": [
         "Native/OptChat/optchat-chief/inspector/index.html",
@@ -1855,8 +1861,7 @@
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
-        "CmuxNextTestSupport",
-        "CmuxNextWakeupsTestSupport"
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -2198,7 +2203,8 @@
         "CmuxNextWakeups"
       ],
       "packages": [
-        "CmuxAgentBrands"
+        "CmuxAgentBrands",
+        "CmuxVisibleRows"
       ]
     },
     "CmuxNextSidebarActions": {

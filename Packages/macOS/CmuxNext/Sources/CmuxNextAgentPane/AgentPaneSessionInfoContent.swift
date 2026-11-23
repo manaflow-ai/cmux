@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextWakeups
+import CmuxVisibleRows
 
 /// What a section or row needs from the panel: its colors and how a click reaches the page. A value,
 /// not the store, so a row holds no reference to it.
@@ -166,7 +167,10 @@ final class AgentPaneSessionInfoContent: NSView {
         super.init(frame: .zero)
         let clip = SessionInfoClipView(frame: .zero)
         scroll.contentView = clip
-        clip.onGeometryChange = { [weak self] in self?.updateEdgeFades() }
+        clip.onGeometryChange = { [weak self] in
+            self?.updateEdgeFades()
+            self?.list.scrolled()
+        }
         scroll.drawsBackground = false
         // No scroller at all, as Claude Code's panel: the list scrolls by wheel, trackpad and keyboard,
         // and the edge fades say there is more (Leo, 2026-11-03: "i mean there's literally no scrollbar
@@ -224,6 +228,12 @@ final class AgentPaneSessionInfoContent: NSView {
     /// The list's views, for tests.
     var lines: [SessionInfoLineView] { list.subviews.compactMap { $0 as? SessionInfoLineView } }
 
+    /// The list, for the visible-rows contract (AgentPaneSessionInfoVisibleRowsTests).
+    var rows: SessionInfoListView { list }
+
+    /// The scroll view over the list, for the visible-rows contract.
+    var scrollView: NSScrollView { scroll }
+
     private func reload() {
         guard let store else { return }
         let items = store.info?.items ?? []
@@ -262,10 +272,35 @@ private final class SessionInfoClipView: NSClipView {
     }
 }
 
-/// The list's document view: its items laid out top down at the scroll view's width.
+/// The list's document view: its items laid out top down at the scroll view's width. Only the items in
+/// view and one viewport each side have views (Leo, 2026-11-18: "we draw the visible area, right?");
+/// every other item is a slot height, measured once its view has been, estimated until then. A model
+/// change rebuilds only the mounted lines whose value changed and moves no view that kept its slot.
 final class SessionInfoListView: NSView {
     override var isFlipped: Bool { true }
+    /// The list's row work: lines configured, measured or moved, and items compared, per event.
+    let listWork = ListWorkMeter()
+    /// Keys measured in this placing pass: a line measured and framed in one pass is laid out once.
+    private var laidThisPass: Set<String> = []
     private var items: [SessionInfoItem] = []
+    /// Each item's key (its line's id, else its kind and place), and each key's index.
+    private var keys: [String] = []
+    private var indexByKey: [String: Int] = [:]
+    /// Each item's slot: its top and the room it takes, by index, and the items in view (RowSlots).
+    private var slots = RowSlots(start: Double(SessionInfoMetrics.padding))
+    /// View heights measured at `measuredWidth`, by key; an item without one has its estimate.
+    private var measured: [String: CGFloat] = [:]
+    private var measuredWidth: CGFloat = -1
+    /// The list's views by key: the realized items, and a line outside them that holds the keyboard,
+    /// a drag or a menu.
+    private var mounted: [String: NSView] = [:]
+    /// Mounted keys the last model may have changed: each is compared once, when next realized.
+    private var stale: Set<String> = []
+    /// Single-line text heights by font, for the estimates.
+    private var textHeights: [NSFont: CGFloat] = [:]
+    private var fit: (width: CGFloat, height: CGFloat)?
+    private var placing = false
+    private var scrolledWhilePlacing = false
     private var ink = SessionInfoInk(colors: AgentPaneSessionInfoColors(), act: { _, _ in }, rect: { _ in nil }, move: { _, _, _ in }, flush: {})
     private var pendingItems: [SessionInfoItem]?
     private var pendingInk: SessionInfoInk?
@@ -274,10 +309,14 @@ final class SessionInfoListView: NSView {
     var width: CGFloat = 0 { didSet { if width != oldValue { place() } } }
     /// The list's height changed (new items, a fold, a new width): the panel's frame follows it.
     var onHeightChange: (() -> Void)?
+    /// A list in no sized scroll view yet realizes this much, about a panel's height.
+    private static let unsizedViewport: CGFloat = 800
+
+    private var mountedLines: [SessionInfoLineView] { subviews.compactMap { $0 as? SessionInfoLineView } }
 
     @discardableResult
     func show(_ items: [SessionInfoItem], ink: SessionInfoInk) -> Bool {
-        if subviews.compactMap({ $0 as? SessionInfoLineView }).contains(where: { $0.isDragging || $0.isMenuOpen }) {
+        if mountedLines.contains(where: { $0.isDragging || $0.isMenuOpen }) {
             pendingItems = items
             pendingInk = ink
             return false
@@ -287,65 +326,32 @@ final class SessionInfoListView: NSView {
         let focusedIdentity = focusedLine?.line.id
         let focusedButton = firstResponder as? SessionInfoButtonView
         let focusedButtonLine = focusedButton.flatMap { button in
-            subviews.compactMap { $0 as? SessionInfoLineView }.first { $0.buttons.contains { $0 === button } }
+            mountedLines.first { $0.buttons.contains { $0 === button } }
         }
         let focusedButtonAction = focusedButton?.button.action
-        let origin = enclosingScrollView?.contentView.bounds.origin
-        let existingLines = subviews.compactMap { $0 as? SessionInfoLineView }
-            .reduce(into: [String: SessionInfoLineView]()) { result, line in
-                guard let identity = line.line.id, result[identity] == nil else { return }
-                result[identity] = line
-            }
+        let old = Dictionary(zip(keys, self.items), uniquingKeysWith: { first, _ in first })
         self.items = items
         self.ink = ink
-        subviews.forEach { $0.removeFromSuperview() }
-        for item in items {
-            switch item {
-            case .title(let title, let action, let backLabel):
-                let label: NSView
-                if let action {
-                    let line = SessionInfoLine(
-                        id: "title", kind: .title, symbol: "chevron.left", title: backLabel ?? title,
-                        detail: nil, action: action)
-                    if let old = existingLines[line.id ?? ""] {
-                        if !old.matches(line: line, ink: ink) { old.update(line: line, ink: ink) }
-                        label = old
-                    } else {
-                        label = SessionInfoLineView(line: line, ink: ink)
-                    }
-                } else {
-                    let plain = ChromeLabel(labelWithString: title)
-                    plain.font = Typography.bodyEmphasized
-                    plain.textColor = ink.colors.primary
-                    plain.lineBreakMode = .byTruncatingTail
-                    label = plain
-                }
-                addSubview(label)
-            case .separator:
-                let line = NSView()
-                line.wantsLayer = true
-                line.layer?.backgroundColor = ink.colors.separator.cgColor
-                addSubview(line)
-            case .line(let value):
-                if let identity = value.id, let old = existingLines[identity] {
-                    if !old.matches(line: value, ink: ink) { old.update(line: value, ink: ink) }
-                    addSubview(old)
-                } else {
-                    addSubview(SessionInfoLineView(line: value, ink: ink))
-                }
-            }
-        }
+        keys = Self.keys(for: items)
+        indexByKey = Dictionary(keys.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        // An unchanged item keeps its measured height; a changed or new one is estimated until shown.
+        // The keys and slots above are an index over the page's snapshot; the compares are the work.
+        listWork.walked(measured.count)
+        let kept = RowKeyDiff.unchanged(measured.keys, old: old, index: indexByKey, items: items)
+        measured = measured.filter { kept.contains($0.key) }
+        slots.reset(items.indices.map { Double(extent(at: $0)) })
+        stale = Set(mounted.keys)
+        fit = nil
+        // Views stay in the list across a model change, so the scroll position and focus stay with them.
         place()
-        if let origin, let scroll = enclosingScrollView {
-            scroll.contentView.scroll(to: origin)
-            scroll.reflectScrolledClipView(scroll.contentView)
-        }
         if let focusedButtonLine, let focusedButtonAction,
-           let line = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedButtonLine.line.id }),
-           let button = line.buttons.first(where: { $0.button.action == focusedButtonAction }) {
+           let line = mountedLines.first(where: { $0.line.id == focusedButtonLine.line.id }),
+           let button = line.buttons.first(where: { $0.button.action == focusedButtonAction }),
+           window?.firstResponder !== button {
             FocusRoute(.system, "Session Info rows changed: keep the focused row").moveKeyboard(in: window, to: button)
         } else if let focusedIdentity,
-                  let focused = subviews.compactMap({ $0 as? SessionInfoLineView }).first(where: { $0.line.id == focusedIdentity }) {
+                  let focused = mountedLines.first(where: { $0.line.id == focusedIdentity }),
+                  window?.firstResponder !== focused {
             FocusRoute(.system, "Session Info rows changed: keep the focused row").moveKeyboard(in: window, to: focused)
         }
         pendingItems = nil
@@ -358,28 +364,31 @@ final class SessionInfoListView: NSView {
         _ = show(pendingItems, ink: pendingInk)
     }
 
+    /// The scroll view moved or resized: realize the items now in view.
+    func scrolled() {
+        if placing { scrolledWhilePlacing = true; return }
+        place()
+    }
+
     func move(from id: String, view: NSView, point: NSPoint) {
         let drop = convert(point, from: view)
-        let candidates = subviews.compactMap { $0 as? SessionInfoLineView }
-            .filter { ($0.line.kind == .header || $0.line.reorderable) && $0.line.id != nil }
-            .sorted { $0.frame.minY < $1.frame.minY }
-        let target = candidates.first { drop.y < $0.frame.midY }
-        let before = target?.line.id
+        var before: String?
+        if !items.isEmpty {
+            for index in slots.index(at: Double(drop.y))..<items.count {
+                guard case .line(let line) = items[index], line.kind == .header || line.reorderable, let candidate = line.id else { continue }
+                if Double(drop.y) < slots.tops[index] + slots.extents[index] / 2 { before = candidate; break }
+            }
+        }
         guard before != id else { return }
         ink.act("move:\(id):\(before ?? "end")", ink.rect(view))
         flushPending()
     }
 
     func reveal(section: String) {
-        guard let index = items.firstIndex(where: {
-            if case .line(let line) = $0 { return line.id == section }
-            return false
-        }), index < subviews.count,
-        let scroll = enclosingScrollView else { return }
-        let target = subviews[index]
-        let rect = target.frame
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, rect.minY - SessionInfoMetrics.rowHeight)))
+        guard let index = indexByKey[section], case .line = items[index], let scroll = enclosingScrollView else { return }
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, CGFloat(slots.tops[index]) - SessionInfoMetrics.rowHeight)))
         scroll.reflectScrolledClipView(scroll.contentView)
+        guard let target = mounted[keys[index]] else { return }
         target.layer?.backgroundColor = ink.colors.hover.withAlphaComponent(0.8).cgColor
         revealTimer.schedule(after: .milliseconds(350)) { @MainActor [weak target] in
             target?.layer?.backgroundColor = nil
@@ -387,46 +396,296 @@ final class SessionInfoListView: NSView {
     }
 
     /// The list's height at `width` with its current items, without moving a view: the panel hugs
-    /// it (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON").
-    func height(forWidth width: CGFloat) -> CGFloat { arrange(width: width, apply: false) }
+    /// it (Leo, 2026-11-02: "IT IS TAKING THIS STUPID FUCKING SPACE FOR NO REASON"). Mounted items are
+    /// measured at `width`; the rest keep their slots, as they will until they are shown there.
+    func height(forWidth width: CGFloat) -> CGFloat {
+        if width == self.width, measuredWidth == width { return total }
+        if let fit, fit.width == width { return fit.height }
+        let inner = Self.inner(width)
+        var height = total
+        for (key, view) in mounted {
+            guard let index = indexByKey[key], let measure = measure(view, inner: inner) else { continue }
+            listWork.laidOut()
+            height += Self.extent(items[index], height: measure) - CGFloat(slots.extents[index])
+        }
+        fit = (width, height)
+        return height
+    }
 
+    private var total: CGFloat {
+        CGFloat(slots.end) + SessionInfoMetrics.padding
+    }
+
+    private static func inner(_ width: CGFloat) -> CGFloat { max(0, width - 2 * SessionInfoMetrics.edge) }
+
+    /// Realizes the items in view at the current width: makes or refreshes their views, measures each
+    /// once, restacks the slots under any whose estimate was off, and frames the views that moved.
     private func place() {
-        let height = arrange(width: width, apply: true)
+        placing = true
+        defer {
+            placing = false
+            laidThisPass = []
+        }
+        // Another width's fit measured the mounted views, which this pass may change.
+        fit = nil
+        if measuredWidth != width {
+            measuredWidth = width
+            measured = [:]
+            slots.reset(items.indices.map { Double(extent(at: $0)) })
+        }
+        for _ in 0..<4 {
+            scrolledWhilePlacing = false
+            let clip = enclosingScrollView?.contentView.bounds
+            // The first item in view keeps its place on screen when an estimate above it was off.
+            let anchor = clip.flatMap { clip in items.isEmpty || clip.minY <= 0 ? nil : slots.index(at: Double(clip.minY)) }
+            let anchorTop = anchor.map { slots.tops[$0] }
+            let changed = realize()
+            if let changed { slots.restack(from: changed) }
+            resize()
+            if let anchor, let anchorTop, let scroll = enclosingScrollView, slots.tops[anchor] != anchorTop {
+                let origin = scroll.contentView.bounds.origin
+                scroll.contentView.scroll(to: NSPoint(x: origin.x, y: origin.y + CGFloat(slots.tops[anchor] - anchorTop)))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+            guard changed != nil || scrolledWhilePlacing else { break }
+        }
+        frameMounted()
+    }
+
+    private func resize() {
+        let height = total
         let changed = abs(frame.height - height) >= 0.5
-        setFrameSize(NSSize(width: width, height: height))
+        if changed || frame.width != width { setFrameSize(NSSize(width: width, height: height)) }
         if changed { onHeightChange?() }
     }
 
-    @discardableResult
-    private func arrange(width: CGFloat, apply: Bool) -> CGFloat {
-        var y = SessionInfoMetrics.padding
-        let inner = max(0, width - 2 * SessionInfoMetrics.edge)
-        for (item, view) in zip(items, subviews) {
-            switch item {
-            case .title:
-                let height: CGFloat
-                if let line = view as? SessionInfoLineView {
-                    height = line.height(forWidth: inner)
-                    if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
-                } else {
-                    height = (view as? ChromeLabel)?.naturalSize.height ?? 16
-                    if apply { view.frame = CGRect(x: SessionInfoMetrics.inset, y: y + 6, width: max(0, width - 2 * SessionInfoMetrics.inset), height: height) }
-                }
-                y += height + 12
-            case .separator:
-                y += SessionInfoMetrics.groupGap
-                if apply { view.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: 1) }
-                y += 1 + SessionInfoMetrics.groupGap
-            case .line:
-                guard let line = view as? SessionInfoLineView else { continue }
-                let height = line.height(forWidth: inner)
-                if apply { line.frame = CGRect(x: SessionInfoMetrics.edge, y: y, width: inner, height: height) }
-                y += height
+    /// The items in view and one viewport each side.
+    private func realizedRange() -> Range<Int> {
+        let clip = enclosingScrollView?.contentView.bounds ?? .zero
+        let viewport = clip.height >= 1 ? clip.height : Self.unsizedViewport
+        return slots.range(top: Double(clip.minY), height: Double(viewport))
+    }
+
+    /// Unmounts what left the realized range and mounts what entered it. Returns the first index
+    /// whose measured slot differs from its estimate, if any.
+    private func realize() -> Int? {
+        let range = realizedRange()
+        let responder = window?.firstResponder as? NSView
+        var kept: [Int] = []
+        for (key, view) in mounted {
+            guard let index = indexByKey[key] else {
+                view.removeFromSuperview()
+                mounted[key] = nil
+                continue
+            }
+            guard !range.contains(index) else { continue }
+            if let line = view as? SessionInfoLineView,
+               line.isDragging || line.isMenuOpen || responder.map({ $0.isDescendant(of: line) }) == true {
+                kept.append(index)
+                continue
+            }
+            view.removeFromSuperview()
+            mounted[key] = nil
+        }
+        stale.formIntersection(mounted.keys)
+        var changed: Int?
+        // Last to first, so a new view goes in just below the next one: the list keeps item order.
+        var next: NSView?
+        for index in (kept + Array(range)).sorted(by: >) {
+            if mount(index, below: next) { changed = min(changed ?? index, index) }
+            next = mounted[keys[index]]
+        }
+        return changed
+    }
+
+    /// Makes or refreshes item `index`'s view and measures it once at this width. True when its
+    /// measured slot differs from the one it had.
+    private func mount(_ index: Int, below next: NSView?) -> Bool {
+        let key = keys[index], item = items[index]
+        if let view = mounted[key], !Self.fits(view, item) {
+            view.removeFromSuperview()
+            mounted[key] = nil
+        }
+        if let view = mounted[key] {
+            if stale.remove(key) != nil { refresh(view, item) }
+        } else {
+            let view = make(item)
+            if let next { addSubview(view, positioned: .below, relativeTo: next) } else { addSubview(view) }
+            mounted[key] = view
+        }
+        guard measured[key] == nil, let view = mounted[key], let height = measure(view, inner: Self.inner(width)) else { return false }
+        if laidThisPass.insert(key).inserted { listWork.laidOut() }
+        measured[key] = height
+        return slots.set(index, extent: Double(Self.extent(item, height: height)))
+    }
+
+    /// Frames every mounted view at its slot, and keeps them in item order (accessibility, the tests).
+    private func frameMounted() {
+        for (key, view) in mounted {
+            guard let index = indexByKey[key] else { continue }
+            let frame = slotFrame(items[index], top: CGFloat(slots.tops[index]), height: measured[key] ?? 0)
+            if view.frame != frame {
+                view.frame = frame
+                if laidThisPass.insert(key).inserted { listWork.laidOut() }
             }
         }
-        return y + SessionInfoMetrics.padding
+        // Items moved (a section dragged to a new place): put the kept views back in item order.
+        if !zip(subviews, subviews.dropFirst()).allSatisfy({ $0.frame.minY <= $1.frame.minY }) {
+            subviews = subviews.sorted { $0.frame.minY < $1.frame.minY }
+        }
+    }
+
+    /// Item `index`'s slot: its measured height's, else its estimate's.
+    private func extent(at index: Int, measuredOnly: Bool = true) -> CGFloat {
+        let item = items[index]
+        if measuredOnly, let height = measured[keys[index]] { return Self.extent(item, height: height) }
+        switch item {
+        case .title(let title, let action, let label):
+            return Self.extent(item, height: action == nil ? textHeight(Typography.bodyEmphasized)
+                                : estimate(Self.titleLine(title, action: action, label: label)))
+        case .separator:
+            return Self.extent(item, height: 1)
+        case .line(let line):
+            return Self.extent(item, height: estimate(line))
+        }
+    }
+
+    /// A line's height without a view: exact for a one-line row, the subtitle taken as one line.
+    private func estimate(_ line: SessionInfoLine) -> CGFloat {
+        var height = textHeight(line.font)
+        if line.subtitle ?? line.progress != nil { height += 1 + textHeight(Typography.caption) }
+        if line.segments?.isEmpty == false || line.meter != nil { height += 6 }
+        return SessionInfoLineView.rowHeight(content: height)
+    }
+
+    private func textHeight(_ font: NSFont) -> CGFloat {
+        if let height = textHeights[font] { return height }
+        let label = ChromeLabel(labelWithString: "Ag")
+        label.font = font
+        let height = label.naturalSize.height
+        textHeights[font] = height
+        return height
+    }
+
+    /// The room an item's view of `height` takes.
+    private static func extent(_ item: SessionInfoItem, height: CGFloat) -> CGFloat {
+        switch item {
+        case .title: height + 12
+        case .separator: 2 * SessionInfoMetrics.groupGap + 1
+        case .line: height
+        }
+    }
+
+    private func slotFrame(_ item: SessionInfoItem, top: CGFloat, height: CGFloat) -> CGRect {
+        let inner = Self.inner(width)
+        switch item {
+        case .title(_, let action, _):
+            return action != nil ? CGRect(x: SessionInfoMetrics.edge, y: top, width: inner, height: height)
+                : CGRect(x: SessionInfoMetrics.inset, y: top + 6, width: max(0, width - 2 * SessionInfoMetrics.inset), height: height)
+        case .separator:
+            return CGRect(x: SessionInfoMetrics.edge, y: top + SessionInfoMetrics.groupGap, width: inner, height: 1)
+        case .line:
+            return CGRect(x: SessionInfoMetrics.edge, y: top, width: inner, height: height)
+        }
+    }
+
+    /// A view's height at `inner`; nil for a hairline, whose height is fixed.
+    private func measure(_ view: NSView, inner: CGFloat) -> CGFloat? {
+        if let line = view as? SessionInfoLineView { return line.height(forWidth: inner) }
+        if let label = view as? ChromeLabel { return label.naturalSize.height }
+        return nil
+    }
+
+    private static func titleLine(_ title: String, action: String?, label: String?) -> SessionInfoLine {
+        SessionInfoLine(id: "title", kind: .title, symbol: "chevron.left", title: label ?? title, detail: nil, action: action)
+    }
+
+    private static func fits(_ view: NSView, _ item: SessionInfoItem) -> Bool {
+        switch item {
+        case .title(_, let action, _): action != nil ? view is SessionInfoLineView : view is ChromeLabel
+        case .separator: view is SessionInfoHairline
+        case .line: view is SessionInfoLineView
+        }
+    }
+
+    private func make(_ item: SessionInfoItem) -> NSView {
+        switch item {
+        case .title(let title, let action, let label):
+            if action != nil {
+                listWork.configured()
+                return SessionInfoLineView(line: Self.titleLine(title, action: action, label: label), ink: ink)
+            }
+            let plain = ChromeLabel(labelWithString: title)
+            plain.font = Typography.bodyEmphasized
+            plain.textColor = ink.colors.primary
+            plain.lineBreakMode = .byTruncatingTail
+            return plain
+        case .separator:
+            let line = SessionInfoHairline()
+            line.wantsLayer = true
+            line.layer?.backgroundColor = ink.colors.separator.cgColor
+            return line
+        case .line(let value):
+            listWork.configured()
+            return SessionInfoLineView(line: value, ink: ink)
+        }
+    }
+
+    /// Brings a kept view to its item's value; a line that already matches is left alone.
+    private func refresh(_ view: NSView, _ item: SessionInfoItem) {
+        switch item {
+        case .title(let title, let action, let label):
+            if let line = view as? SessionInfoLineView {
+                let value = Self.titleLine(title, action: action, label: label)
+                if !line.matches(line: value, ink: ink) {
+                    line.update(line: value, ink: ink)
+                    listWork.configured()
+                }
+            } else if let plain = view as? ChromeLabel {
+                if plain.stringValue != title { plain.stringValue = title }
+                plain.textColor = ink.colors.primary
+            }
+        case .separator:
+            view.layer?.backgroundColor = ink.colors.separator.cgColor
+        case .line(let value):
+            guard let line = view as? SessionInfoLineView, !line.matches(line: value, ink: ink) else { return }
+            line.update(line: value, ink: ink)
+            listWork.configured()
+        }
+    }
+
+    /// Each item's key: its line's id, a separator by the item under it, the rest by kind and place;
+    /// a repeated key gets its index.
+    private static func keys(for items: [SessionInfoItem]) -> [String] {
+        var keys: [String] = []
+        keys.reserveCapacity(items.count)
+        var used = Set<String>()
+        for (index, item) in items.enumerated() {
+            var key: String
+            switch item {
+            case .title: key = "title"
+            case .separator:
+                if index + 1 < items.count, case .line(let next) = items[index + 1], let id = next.id { key = "separator:\(id)" }
+                else { key = "separator#\(index)" }
+            case .line(let line): key = line.id ?? "line#\(index)"
+            }
+            if !used.insert(key).inserted {
+                key += "#\(index)"
+                used.insert(key)
+            }
+            keys.append(key)
+        }
+        return keys
     }
 }
+
+extension SessionInfoListView: VisibleRowsList {
+    /// Line views alive: the realized rows, and a line kept for the keyboard, a drag or a menu.
+    var rowViewsAlive: Int { mounted.count }
+}
+
+/// A hairline between the list's groups.
+private final class SessionInfoHairline: NSView {}
 
 /// A running row's three-dot wave. The page supplies the index and cadence; Motion only gates
 /// whether the supplied loop may run, and Core Animation owns the repeating work.
@@ -764,8 +1023,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         var height = title.naturalSize.height
         if let subtitle { height += 1 + subtitle.size(forWidth: max(1, textWidth(width))).height }
         if meter != nil || segmentedMeter != nil { height += 6 }
-        // A one-line row is the grid's 28; a taller one grows by whole 4 pt steps.
-        return max(SessionInfoMetrics.rowHeight, ((height + 12) / LayoutGrid.base).rounded(.up) * LayoutGrid.base)
+        return Self.rowHeight(content: height)
+    }
+
+    /// A line's height for content `height` tall: a one-line row is the grid's 28; a taller one grows
+    /// by whole 4 pt steps.
+    static func rowHeight(content height: CGFloat) -> CGFloat {
+        max(SessionInfoMetrics.rowHeight, ((height + 12) / LayoutGrid.base).rounded(.up) * LayoutGrid.base)
     }
 
     private func trailingWidth(_ width: CGFloat) -> CGFloat {
@@ -895,7 +1159,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         return visibleRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
     }
 
-    // A refresh takes every line out of the list and puts it back: out of the window, a line is never lit.
+    // A line scrolled out of the list's realized rows, or whose row is gone, leaves the window: out of it,
+    // a line is never lit.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil, hovered { hovered = false }
@@ -958,7 +1223,12 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
         // Keyboard focus only (the web's :focus-visible): a click that focuses a header leaves no chevron.
-        if accepted, NSApp.isFullKeyboardAccessEnabled { focused = true }
+        // The list holds views only near what is in view: a line Tab reaches scrolls into view, so the
+        // lines past it are made and Tab can go on to them.
+        if accepted, NSApp.isFullKeyboardAccessEnabled {
+            focused = true
+            scrollToVisible(bounds)
+        }
         return accepted
     }
     override func resignFirstResponder() -> Bool {
