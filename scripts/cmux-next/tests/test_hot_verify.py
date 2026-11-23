@@ -1749,5 +1749,23 @@ class LookKitErrorTest(unittest.TestCase):
         self.assertIn("RuntimeError: window 7; CuaDriver: daemon is not running", written["errors"])
 
 
+
+class LaunchBound(unittest.TestCase):
+    """side-instance.sh launch waits for the Mac's memory budget before it opens the copy (Air Blue,
+    2026-11-23): its bound covers that wait, so the launcher's own "budget stayed full" error reaches the
+    person instead of a bare TimeoutExpired."""
+
+    def test_the_launch_bound_covers_the_budget_wait(self):
+        self.assertEqual(hv.launch_seconds({}), 1800 + hv.LAUNCH_SECONDS)
+        self.assertEqual(hv.launch_seconds({"SIDE_INSTANCE_BUDGET_WAIT_S": "60"}), 60 + hv.LAUNCH_SECONDS)
+        self.assertEqual(hv.launch_seconds({"SIDE_INSTANCE_BUDGET_WAIT_S": "0"}), hv.LAUNCH_SECONDS)
+        self.assertEqual(hv.launch_seconds({"SIDE_INSTANCE_BUDGET_WAIT_S": "soon"}), 1800 + hv.LAUNCH_SECONDS)
+
+    def test_every_launch_uses_the_budget_aware_bound(self):
+        source = ENGINE.read_text()
+        self.assertNotIn('side.run("launch", timeout=LAUNCH_SECONDS)', source)
+        self.assertGreaterEqual(source.count('side.run("launch", timeout=launch_seconds())'), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
