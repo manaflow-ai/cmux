@@ -319,11 +319,11 @@ fn lane_mut<'a>(lanes: &'a mut HashMap<String, Lane>, id: &str) -> &'a mut Lane 
 /// Drops marks older than [`RETAIN_MS`] before `now`, keeping the last one before the cut.
 fn prune(marks: &mut VecDeque<Mark>, now: u64) {
     let cut = now.saturating_sub(RETAIN_MS);
-    while marks.len() > 1 && marks[1].at <= cut {
+    while marks.get(1).is_some_and(|next| next.at <= cut) {
         marks.pop_front();
     }
     // A lone old idle mark says nothing any more.
-    if marks.len() == 1 && marks[0].at <= cut && marks[0].state == State::Idle {
+    if marks.len() == 1 && marks.front().is_some_and(|m| m.at <= cut && m.state == State::Idle) {
         marks.clear();
     }
 }

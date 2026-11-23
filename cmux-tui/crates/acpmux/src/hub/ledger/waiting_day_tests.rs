@@ -262,7 +262,7 @@ fn waiting_day_duress() {
         .collect();
     let gate =
         |r: &EventRecord| r.dir == "mux" && matches!(r.kind.as_str(), "status" | "turn_started");
-    let mut best = |on: bool| {
+    let best = |on: bool| {
         (0..5)
             .map(|_| {
                 let day = WaitingDay::open(None, DAY);
