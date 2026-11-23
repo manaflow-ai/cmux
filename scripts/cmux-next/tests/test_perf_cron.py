@@ -3694,6 +3694,21 @@ class HostGoneSignalTests(unittest.TestCase):
         self.assertTrue(cron.host_gone(state, "cmux21", at(1)))
         self.assertIsNone(cron.tip_pin_host({**state, "regressions": [{"name": "cmd_d.e2e@cmux21"}]}, at(1)))
 
+    def test_a_tip_pins_only_to_a_host_the_controller_calls_idle(self):
+        """cmuxterm-hq#19352: every Mac row was @cmux20-bench, so every tip pinned to it while it was leased."""
+        state = cron.empty_state(T0)
+        state["pending"] = {"x.e2e@cmux20-bench": {"at": cron.iso(T0)}}
+        self.assertEqual(cron.tip_pin_host(state, at(1)), "cmux20-bench", "feed not read: pinned as before")
+        self.assertIsNone(cron.tip_pin_host(state, at(1), {"cmux21"}), "busy: any idle measure host")
+        self.assertIsNone(cron.tip_pin_host(state, at(1), set()), "no host idle: not pinned either")
+        self.assertEqual(cron.tip_pin_host(state, at(1), {"cmux20-bench"}), "cmux20-bench")
+        self.assertEqual(cron.idle_hosts_from({"hosts": {"cmux20-bench": {"idle": False, "why": "leased"},
+                                                         "cmux21": {"idle": True, "why": ""}, "bad": "x"}}), {"cmux21"})
+        self.assertIsNone(cron.idle_hosts_from({"error": "not found"}))
+        self.assertIsNone(cron.idle_hosts_from([]))
+        with mock.patch.object(cron, "http_json", side_effect=urllib.error.URLError("404")):
+            self.assertIsNone(cron.controller_idle_hosts(), "no route yet: nothing changes")
+
     def test_a_host_that_runs_a_part_after_gone_is_back(self):
         state = cron.empty_state(T0)
         cron.mark_host(state, "cmux21", gone_at=cron.iso(at(1)))
@@ -4488,7 +4503,8 @@ class BatchTests(unittest.TestCase):
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
-                mock.patch.object(cron, "supported_parts_at", lambda sha: parts):
+                mock.patch.object(cron, "supported_parts_at", lambda sha: parts), \
+                mock.patch.object(cron, "controller_idle_hosts", lambda *a, **k: None):
             cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out,
                                              controller=True))
         with open(out) as f:
