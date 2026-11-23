@@ -1645,6 +1645,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// the person (Leo, 2026-11-23 05:09Z: state is only relevant "when you may need to
     /// investigate/take action").
     static let quietCatchUpFailures: Duration = .seconds(90)
+
+    /// Whether a run of failed catch-ups says so now: once it outlasted the quiet retries
+    /// (`quietCatchUpFailures`), or on the second try of a refusal that is not a timeout (a
+    /// timeout on a loaded Mac is answered by the retry; a refusal is not). `failures`: the
+    /// failed tries before this one.
+    static func saysCatchUpFailure(failingFor: Duration, timeout: Bool, failures: Int) -> Bool {
+        failingFor >= quietCatchUpFailures || (!timeout && failures >= 1)
+    }
     /// The next attach after a failed one (`scheduleRetry`).
     private var retryTask: Task<Void, Never>?
     /// The attach running (`linkUp`), cancelled when the link drops.
@@ -2056,9 +2064,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             let since = catchUpFailingSince ?? now
             if catchUpFailingSince == nil { catchUpFailingSince = now; catchUpFailureSaid = false }
             let timeout = (failure as? LinkError)?.isTimeout == true
-            if !catchUpFailureSaid, since.duration(to: now) >= Self.quietCatchUpFailures || (!timeout && failures >= 1) {
+            if !catchUpFailureSaid, Self.saysCatchUpFailure(failingFor: since.duration(to: now), timeout: timeout, failures: failures) {
                 catchUpFailureSaid = true
-                emit(.clientError(Self.message(failure)))
+                emit(.catchUpFailed(Self.message(failure)))
             }
             // A first attach's page is the newest records, with a gap before them until the
             // older pages are in: nothing of it is applied. A reattach's is the oldest after
@@ -2490,7 +2498,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent, .historyLoading:
+        case .clientError, .catchUpFailed, .promptNotSent, .historyLoading:
             // Not history: a later reader learns the load state from `events()` itself.
             break
         default:

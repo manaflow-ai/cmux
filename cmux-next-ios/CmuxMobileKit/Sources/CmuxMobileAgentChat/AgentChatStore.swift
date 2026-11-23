@@ -393,9 +393,15 @@ public final class AgentChatStore {
         return nil
     }
 
-    /// Feeds ``quietStatus`` from the link state.
+    /// Feeds ``quietStatus`` from the link state: the link down, or a chat still loading from a
+    /// Mac the source can't reach (its empty loading state then says "Connecting", ``loadingText``).
+    /// A catch-up on a live link never raises it.
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected)
+        quietStatus.update(down: Self.linkDown(summary.status, offline: isOffline, loading: isLoadingHistory))
+    }
+
+    static func linkDown(_ status: AgentSessionSummary.Status, offline: Bool, loading: Bool) -> Bool {
+        status == .disconnected || offline && loading
     }
 
     /// The notice a failing catch-up said, cleared when the catch-up finishes.
@@ -407,7 +413,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected)
+        quietStatus.update(down: Self.linkDown(source.summary.status, offline: source.isOffline, loading: source.loadsHistory))
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -1203,7 +1209,9 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
-            catchUpNotice = isLoadingHistory ? message : nil
+        case .catchUpFailed(let message):
+            clientError = message
+            catchUpNotice = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }

@@ -67,14 +67,15 @@ import Testing
     @Test func aCatchUpNoticeGoesWhenTheCatchUpFinishes() {
         let store = makeStore()
         store.apply(.historyLoading(true))
-        store.apply(.clientError("Can't reach your Mac right now."))
+        store.apply(.catchUpFailed("Can't reach your Mac right now."))
         #expect(store.clientError != nil)
         store.apply(.historyLoading(false))
         #expect(store.clientError == nil, "the catch-up finished: the notice is no longer true")
-        // Another notice (not said during a catch-up) stays until dismissed.
-        store.apply(.clientError("Couldn't read a.png."))
+        // Another call's notice, even one said while a catch-up runs, stays until dismissed.
+        store.apply(.historyLoading(true))
+        store.apply(.clientError("Approve it on the Mac."))
         store.apply(.historyLoading(false))
-        #expect(store.clientError == "Couldn't read a.png.")
+        #expect(store.clientError == "Approve it on the Mac.")
     }
 
     @Test func aBlipShorterThanTheThresholdNeverShowsALine() async throws {

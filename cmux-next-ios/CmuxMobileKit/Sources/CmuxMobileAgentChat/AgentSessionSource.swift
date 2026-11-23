@@ -128,6 +128,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case status(AgentSessionSummary.Status)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
+    /// The source's catch-up with the Mac kept failing past its quiet retries: a notice like
+    /// ``clientError(_:)``, taken back by the store once that catch-up finishes
+    /// (``historyLoading(_:)`` false), so no other call's notice goes with it.
+    case catchUpFailed(String)
     /// A prompt that never reached the agent (an attachment upload failed, the
     /// link was down): the composer gets the draft back with the reason.
     /// `promptID` is the prompt's acpmux id: sent again with it, the Mac runs it at most once.

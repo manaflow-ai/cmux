@@ -371,12 +371,46 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         await Self.waitUntil { calls.attaches.count == 2 }
         // Well past the quiet gate, with the catch-up still unanswered.
+        await Self.waitUntil { store.summary.status != .disconnected }
         try await Task.sleep(for: .milliseconds(400)) // test: lets the gate's 50 ms pass
         #expect(calls.attaches == [0, Chat.turns * 5], "the reattach is still waiting on the Mac")
         #expect(store.summary.status != .disconnected, "the link is up")
         #expect(store.connectionLine == nil, "no \"Connecting\" over a live link")
         #expect(store.clientError == nil, "no \"reconnecting to the Mac\" notice")
         #expect(!store.quietStatus.isShown)
+    }
+
+    /// The other half: a catch-up the Mac keeps refusing does say so, once (cmux#52533 review).
+    @Test(.timeLimit(.minutes(1))) func aCatchUpTheMacKeepsRefusingSaysSoOnItsSecondTry() async throws {
+        let calls = Calls()
+        let log = Self.log(turns: Chat.turns)
+        let link = Self.fake(calls, log: log, reattach: { id, _, _ in
+            [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"session store is locked"}}"#.utf8)]
+        }, events: { _, _, _ in [] })
+        let hub = AcpmuxHub()
+        defer { withExtendedLifetime(hub) {} }
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .milliseconds(50)))
+        await Self.waitUntil { store.turns.count == Chat.turns }
+        await hub.bind(nil)
+        await Self.waitUntil { store.summary.status == .disconnected }
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await Self.waitUntil { store.clientError != nil }
+        #expect(calls.attaches.count >= 3, "the first refusal was retried quietly")
+        #expect(store.clientError?.isEmpty == false, "said as a notice by the composer")
+        #expect(store.connectionLine == nil, "one indicator at a time")
+    }
+
+    /// When a failing catch-up speaks: a timeout only after the quiet retries, a refusal on
+    /// its second try, never on a first try.
+    @Test func aFailingCatchUpSpeaksOnlyWhenItWillNotHealItself() {
+        let quiet = AcpmuxSessionSource.quietCatchUpFailures
+        #expect(!AcpmuxSessionSource.saysCatchUpFailure(failingFor: .zero, timeout: true, failures: 0))
+        #expect(!AcpmuxSessionSource.saysCatchUpFailure(failingFor: .seconds(60), timeout: true, failures: 1))
+        #expect(AcpmuxSessionSource.saysCatchUpFailure(failingFor: quiet, timeout: true, failures: 2))
+        #expect(!AcpmuxSessionSource.saysCatchUpFailure(failingFor: .zero, timeout: false, failures: 0))
+        #expect(AcpmuxSessionSource.saysCatchUpFailure(failingFor: .milliseconds(250), timeout: false, failures: 1))
     }
 
     /// A notice is a sentence, never a status line's lower-case fragment.
