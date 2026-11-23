@@ -8,6 +8,7 @@ import Observation
 /// `cmuxConfig.<name>`, live: the settings watcher reloads the snapshot.
 /// The palette, shortcuts and the CLI run them. The tab strip draws no
 /// buttons for them (TAB-STRIP-TRAILING-BUTTONS-REMOVED).
+@MainActor
 public final class ConfigActionsController {
     private var commands: CommandActionSet
     private var task: Task<Void, Never>?
@@ -42,6 +43,7 @@ public final class ConfigActionsController {
 
 /// Commands registered as actions under their `actionID`s: a new list replaces the last one,
 /// unbinding the ids it no longer has.
+@MainActor
 struct CommandActionSet {
     let registry: ActionRegistry
     let run: @MainActor (ConfigCommandAction, ActionInvocation) -> Void
