@@ -24,6 +24,13 @@ name: iOS App Review readiness
 # gate run: 28 waiters on 11-20 held 168 runner-hours and all timed out with no
 # verdict (CI 10x, T1; Leo, 2026-11-21 03:45Z: "clearly we need to be hitting a
 # 10x improvement in not running useless jobs"). A dispatch keeps its own group.
+#
+# The store-declarations job diffs ios/AppStoreReview/store-declarations.json (the age rating and App Privacy
+# answers, cmuxterm-hq#18638) against App Store Connect for cmux (com.cmux.app, ASC 6783338052) on every main
+# push: a declared age-rating field that differs, or an ASC field nobody declared, turns the run red with the
+# exact age-rating-patch attributes that fix it. App Privacy has no ASC API, so its step summary carries the
+# declared answers as the block to enter by hand. It needs main's ASC key (the `release` environment, which
+# deploys from main), reads only, and runs scripts/ci/ios_asc_ops.py from this main commit.
 
 on:
   push:
@@ -41,6 +48,37 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  store-declarations:
+    name: Store declarations match App Store Connect
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    environment: release
+    steps:
+      - name: Checkout the script and the declarations
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            ios/AppStoreReview/metadata
+
+      - name: Diff the declarations against App Store Connect
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          key_dir="$RUNNER_TEMP/asc"; mkdir -p "$key_dir"; chmod 700 "$key_dir"
+          trap 'rm -rf "$key_dir"' EXIT
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key_dir/AuthKey.p8"
+          chmod 600 "$key_dir/AuthKey.p8"
+          ASC_PRIVATE_KEY_PATH="$key_dir/AuthKey.p8" python3 -I scripts/ci/ios_asc_ops.py declarations-check \
+            --app 6783338052
+
   review-gate:
     name: NEXT App Review gate
     if: github.repository == 'manaflow-ai/cmux'

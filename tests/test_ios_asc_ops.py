@@ -400,6 +400,59 @@ class PriceBookTest(unittest.TestCase):
                     self.assertLessEqual(len(description), 55, description)
 
 
+class DeclarationsTest(unittest.TestCase):
+    def setUp(self):
+        self.declared = ops.load_declarations()
+        self.client = FakeClient()
+        self.client.decl = dict(self.declared["ageRating"]["attributes"])
+
+    def test_matching_age_rating_passes_and_prints_the_privacy_block(self):
+        code, out = run(["declarations-check"], self.client)
+        self.assertEqual(code, 0)
+        result = out["result"]
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["agePatch"], {})
+        self.assertEqual(result["ageRating"]["checked"], ["i2"])  # the editable appInfo only
+        block = result["appPrivacy"]["block"]
+        self.assertIn("collect data from this app? Yes", block)
+        self.assertIn("- Identifiers > Device ID: collected Yes; linked to the user's identity Yes; used for "
+                      "tracking No; purposes: App Functionality", block)
+        self.assertIn("Purchases > Purchase History: collected Yes; linked to the user's identity Yes; used for "
+                      "tracking No; purposes: App Functionality, Analytics", block)
+        self.assertIn("Not collected: Health & Fitness", block)
+        self.assertTrue(all(m == "GET" for m, _, _ in self.client.calls))
+
+    def test_difference_fails_with_the_fixing_patch(self):
+        self.client.decl["messagingAndChat"] = False
+        self.client.decl["unrestrictedWebAccess"] = False
+        code, out = run(["declarations-check"], self.client)
+        self.assertEqual(code, 1)
+        self.assertEqual(out["result"]["agePatch"], {"messagingAndChat": True, "unrestrictedWebAccess": True})
+        self.assertEqual(len(out["result"]["errors"]), 2)
+
+    def test_undeclared_asc_field_fails(self):
+        self.client.decl["newQuestion2027"] = "NONE"
+        code, out = run(["declarations-check"], self.client)
+        self.assertEqual(code, 1)
+        self.assertIn("newQuestion2027", out["result"]["errors"][0])
+
+    def test_app_not_declared_is_refused(self):
+        with self.assertRaises(SystemExit):
+            ops.declarations_check(self.client, "6757092429", self.declared)
+
+    def test_declarations_are_the_16_plus_answers(self):
+        attrs = self.declared["ageRating"]["attributes"]
+        self.assertTrue(attrs["unrestrictedWebAccess"])
+        self.assertTrue(attrs["messagingAndChat"])
+        self.assertEqual(attrs["ageRatingOverrideV2"], "NONE")
+        self.assertIn("6783338052", self.declared["apps"])
+        privacy = self.declared["appPrivacy"]
+        self.assertFalse(privacy["tracking"])
+        self.assertFalse(any(item["tracking"] for item in privacy["collected"]))
+        collected = {item["type"] for item in privacy["collected"]}
+        self.assertFalse(collected & set(privacy["notCollected"]))
+
+
 class JwtTest(unittest.TestCase):
     def test_der_to_raw(self):
         der = bytes([0x30, 0x08, 0x02, 0x02, 0x00, 0x81, 0x02, 0x02, 0x01, 0x02])
@@ -416,6 +469,14 @@ class WorkflowTest(unittest.TestCase):
             self.assertIn(f"- {op}", text)
         self.assertIn("environment: release", text)
         self.assertIn("github.ref == 'refs/heads/main'", text)
+
+    def test_readiness_runs_the_declarations_check_on_main_push(self):
+        text = (ROOT / ".github/workflows/ios-app-review-readiness.yml").read_text(encoding="utf-8")
+        job = text.split("  store-declarations:", 1)[1].split("\n  review-gate:", 1)[0]
+        self.assertIn("environment: release", job)
+        self.assertIn("declarations-check", job)
+        self.assertIn("--app 6783338052", job)
+        self.assertIn("ios/AppStoreReview", job)  # cone mode also checks out store-declarations.json
 
 
 if __name__ == "__main__":
