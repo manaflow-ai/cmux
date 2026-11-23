@@ -1,9 +1,11 @@
 // l10n-allow-file: gallery fixtures (public-safe sample Cloud data), not shipped UI.
 import { cloudPageEntry } from "../../gallery/format";
-import { sampleMachines, sampleSnapshots } from "./mockData";
+import { sampleMachines, sampleSnapshots, sampleSurge } from "./mockData";
 import type { CloudDiskHealth, CloudMachine, CloudRetention, CloudSnapshot, PortForward } from "./ops";
 
 const machines = sampleMachines();
+const surgeDone = sampleSurge(25);
+const surgeStarting = sampleSurge(25, 7);
 const snapshots = sampleSnapshots();
 const diskReport = (
   free_mb: number,
@@ -202,6 +204,18 @@ export default cloudPageEntry({
       machines,
       snapshots,
       ports: samplePorts,
+    },
+    "surge-drained": {
+      note: "After a surge of 25 machines: all ready, the last one 33 s after the start, queue drained.",
+      machines: [...surgeDone.machines, ...machines],
+      surge: surgeDone.surge,
+      snapshots,
+    },
+    "surge-starting": {
+      note: "A surge of 25 machines with 7 still provisioning: the card counts what is still starting.",
+      machines: [...surgeStarting.machines, ...machines],
+      surge: surgeStarting.surge,
+      snapshots,
     },
     "disk-healthy": {
       note: "Fresh disk reports show free and used capacity with the configured floor and top users.",

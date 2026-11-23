@@ -227,6 +227,36 @@ select {
   padding: 14px 0 6px;
 }
 
+/* The surge card (SurgeCard.tsx): one line above the machine list after a surge. */
+.cloud-surge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--cloud-separator);
+  border-left: 3px solid var(--cloud-text-2);
+  border-radius: 6px;
+  background: var(--cloud-elevated);
+}
+
+.cloud-surge.is-drained {
+  border-left-color: var(--cloud-ok);
+}
+
+.cloud-surge-title {
+  font-weight: 600;
+}
+
+.cloud-surge-ready {
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-surge-part {
+  font-variant-numeric: tabular-nums;
+}
+
 .cloud-section-title {
   margin: 0;
   font-size: 13px;

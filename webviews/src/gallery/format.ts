@@ -408,6 +408,8 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The latest surge the list's last page reports (the surge card on Machines). */
+  surge?: import("../pages/cloud/ops").CloudSurge;
   machines: CloudMachine[];
   snapshots: CloudSnapshot[];
 };

@@ -37,6 +37,7 @@ import {
   type CloudMachine,
   type CloudPlan,
   type CloudSnapshot,
+  type CloudSurge,
   type CloudTeam,
   type CreateMachineArgs,
   type MachineEvent,
@@ -134,6 +135,8 @@ export interface CloudState {
   transfers: FileTransfer[];
   /** The team's archive snapshots (`archive_of`), newest first: restorable machines the platform deleted. */
   archives: CloudSnapshot[];
+  /** The latest surge as the last list read it (the surge card); absent when none. */
+  surge?: CloudSurge;
   /** Retention notices dismissed in this browser (`machine:notice.at`); each shows once. */
   dismissed: ReadonlySet<string>;
   /** The cleanup settings' last save. */
@@ -894,7 +897,12 @@ export class CloudStore {
         revision = event.revision;
       }
       buffer = null;
-      this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
+      this.setMirror(machines, revision, {
+        loading: false,
+        connection: "connected",
+        error: undefined,
+        surge: page.surge ?? undefined,
+      });
       void this.readArchives(session);
     } catch (error) {
       buffer = null;
