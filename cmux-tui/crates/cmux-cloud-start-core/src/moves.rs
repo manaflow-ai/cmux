@@ -10,6 +10,7 @@ pub mod folder;
 pub mod ledger;
 pub mod pin;
 pub mod place;
+pub mod priority;
 pub mod seed;
 pub mod targets;
 pub mod wait;
