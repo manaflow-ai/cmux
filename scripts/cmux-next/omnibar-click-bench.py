@@ -18,6 +18,7 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -93,7 +94,15 @@ def pct(values, q):
 def start_load():
     for _ in range(os.cpu_count() or 8):
         LOAD.append(subprocess.Popen(["yes"], stdout=subprocess.DEVNULL))
-    time.sleep(3)  # test harness: let the load ramp
+    # The load ramped: every `yes` alive and, on average, ps shows each using most of a core.
+    def ramped():
+        if any(proc.poll() is not None for proc in LOAD):
+            return False
+        out = subprocess.run(["ps", "-o", "%cpu=", "-p", ",".join(str(proc.pid) for proc in LOAD)], capture_output=True, text=True).stdout
+        cpu = [float(v) for v in out.split()]
+        return len(cpu) == len(LOAD) and sum(cpu) / len(cpu) >= 50
+    if not wait_until(ramped, "the yes load at most of a core each", timeout=15, interval=0.2, raise_on_timeout=False):
+        print("load: the yes processes did not reach 50% CPU each in 15 s; going on", flush=True)
 
 
 def stop_load():
@@ -113,7 +122,11 @@ def open_page(engine):
     reply = rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
     print(f"open {engine}:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: "error" not in (rpc("debug.omnibar") or {"error": 1}), 60)
-    time.sleep(1.5)  # test harness: let the page finish its first paint
+    # The page finished loading and the omnibar's state stopped changing (its first paint and the address shown).
+    wait_until(lambda: (rpc("browser.page.eval", {"script": "document.readyState === 'complete'"}) or {}).get("value") is True,
+               f"the {engine} page loaded", timeout=30, interval=0.1, raise_on_timeout=False)
+    wait_stable(lambda: json.dumps(rpc("debug.omnibar"), sort_keys=True), f"the {engine} omnibar", timeout=10, interval=0.1,
+                reads=4, raise_on_timeout=False)
     return ok
 
 
@@ -215,10 +228,16 @@ def main():
         app = launcher.process
     SOCKET = launcher.socket
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
-    time.sleep(2)  # test harness: first launch settles
+    # The first launch settled: the focus report (windows, key window, first responders) reads the same several times.
+    settle_focus = lambda what: wait_stable(lambda: rpc("debug.focus") or {}, what, timeout=15, interval=0.1, reads=4,  # noqa: E731
+                                            raise_on_timeout=False)
+    settle_focus("the focus report after launch")
     if opts.activate:
         subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
-        time.sleep(1)  # test harness: activation settles
+        if not wait_until(lambda: (rpc("debug.focus") or {}).get("app_active"), "the app to become active", timeout=10,
+                          raise_on_timeout=False):
+            print("warning: the app never reported itself active", flush=True)
+        settle_focus("the focus report after activation")
     rows = []
     for engine in opts.engines.split(","):
         if not open_page(engine):
