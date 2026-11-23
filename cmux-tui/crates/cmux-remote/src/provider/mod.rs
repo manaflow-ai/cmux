@@ -48,7 +48,8 @@ pub use iroh_config::{
 };
 #[cfg(unix)]
 pub use machine_pipe::{
-    MACHINE_PIPE_METHOD, MachinePipeDialer, machine_pipe_reply, machine_pipe_request,
+    MACHINE_PIPE_METHOD, MachinePipeDialer, TERMINAL_REFUSALS, machine_pipe_reply,
+    machine_pipe_request,
 };
 pub use relay::{
     BoundCredential, RegistrationState, RelayClientConfig, RelayCredentialSource,
