@@ -173944,26 +173944,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "إخفاء تلميحات كتابة الرسالة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Sakrij savjete za pisanje"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Skjul skrivehjælp"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Eingabehinweise ausblenden"
           }
         },
         "en": {
@@ -173974,98 +173974,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Ocultar sugerencias de escritura"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Masquer les conseils de saisie"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Nascondi suggerimenti di scrittura"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "入力のヒントを非表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "លាក់គន្លឹះសរសេរសារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "입력 힌트 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Skjul skrivehint"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Ukryj wskazówki wpisywania"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Ocultar dicas de escrita"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Скрыть подсказки ввода"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "ซ่อนคำแนะนำการเขียนข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Yazma ipuçlarını gizle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Приховати підказки введення"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "Ẩn gợi ý soạn tin"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "隐藏输入提示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hide composer hints"
+            "state": "translated",
+            "value": "隱藏輸入提示"
           }
         }
       }
@@ -174076,26 +174076,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "إظهار تلميحات كتابة الرسالة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Prikaži savjete za pisanje"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Vis skrivehjælp"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Eingabehinweise anzeigen"
           }
         },
         "en": {
@@ -174106,98 +174106,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Mostrar sugerencias de escritura"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Afficher les conseils de saisie"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Mostra suggerimenti di scrittura"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "入力のヒントを表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "បង្ហាញគន្លឹះសរសេរសារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "입력 힌트 표시"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Vis skrivehint"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Pokaż wskazówki wpisywania"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Mostrar dicas de escrita"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Показать подсказки ввода"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "แสดงคำแนะนำการเขียนข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Yazma ipuçlarını göster"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Показати підказки введення"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "Hiện gợi ý soạn tin"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "显示输入提示"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show composer hints"
+            "state": "translated",
+            "value": "顯示輸入提示"
           }
         }
       }
@@ -174208,26 +174208,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "اكتب / للأوامر و@ للملفات؛ اضغط Return لاختيار صف."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Upišite / za naredbe i @ za datoteke; Return bira red."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Skriv / for kommandoer og @ for filer; Retur vælger en række."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Tippe / für Befehle und @ für Dateien; die Eingabetaste wählt eine Zeile aus."
           }
         },
         "en": {
@@ -174238,98 +174238,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Escribe / para comandos y @ para archivos; Intro selecciona una fila."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Tapez / pour les commandes et @ pour les fichiers ; Retour sélectionne une ligne."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Digita / per i comandi e @ per i file; Invio seleziona una riga."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "/ でコマンド、@ でファイルを表示し、Return で行を選択します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "វាយ / សម្រាប់ពាក្យបញ្ជា និង @ សម្រាប់ឯកសារ; ចុច Return ដើម្បីជ្រើសរើសជួរដេក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "명령어는 /, 파일은 @를 입력하세요. Return 키로 행을 선택합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Skriv / for kommandoer og @ for filer; Retur velger en rad."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Wpisz /, aby wybrać polecenie, lub @, aby wybrać plik; Return wybiera wiersz."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Digite / para comandos e @ para arquivos; Return seleciona uma linha."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Введите / для команд и @ для файлов; Return выбирает строку."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "พิมพ์ / สำหรับคำสั่งและ @ สำหรับไฟล์ กด Return เพื่อเลือกแถว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Komutlar için /, dosyalar için @ yazın; Return bir satır seçer."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Введіть / для команд і @ для файлів; Return вибирає рядок."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "Nhập / để chọn lệnh và @ để chọn tệp; Return chọn một hàng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "输入 / 查看命令，输入 @ 查看文件；按 Return 选择一行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Type / for commands and @ for files; Return picks a row."
+            "state": "translated",
+            "value": "輸入 / 查看指令，輸入 @ 查看檔案；按 Return 選取一列。"
           }
         }
       }
@@ -174340,26 +174340,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "الأوامر والملفات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Naredbe i datoteke"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Kommandoer og filer"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Befehle und Dateien"
           }
         },
         "en": {
@@ -174370,98 +174370,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Comandos y archivos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Commandes et fichiers"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Comandi e file"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "コマンドとファイル"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "ពាក្យបញ្ជា និងឯកសារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "명령어 및 파일"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Kommandoer og filer"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Polecenia i pliki"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Comandos e arquivos"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Команды и файлы"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "คำสั่งและไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Komutlar ve dosyalar"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Команди та файли"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "Lệnh và tệp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "命令和文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Commands and files"
+            "state": "translated",
+            "value": "指令和檔案"
           }
         }
       }
@@ -175792,26 +175792,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "راسل {agent}"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Pošaljite poruku agentu {agent}"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Skriv til {agent}"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Nachricht an {agent}"
           }
         },
         "en": {
@@ -175822,98 +175822,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Enviar un mensaje a {agent}"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Écrire à {agent}"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Invia un messaggio a {agent}"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "{agent} にメッセージを送信"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "ផ្ញើសារទៅ {agent}"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "{agent}에게 메시지 보내기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Send melding til {agent}"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Wyślij wiadomość do {agent}"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Enviar mensagem para {agent}"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Написать {agent}"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "ส่งข้อความถึง {agent}"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "{agent} için mesaj yazın"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Написати {agent}"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "Nhắn tin cho {agent}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "给 {agent} 发消息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent}"
+            "state": "translated",
+            "value": "傳送訊息給 {agent}"
           }
         }
       }
@@ -175924,26 +175924,26 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "راسل {agent} · / للأوامر، @ للملفات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Pošaljite poruku agentu {agent} · / za naredbe, @ za datoteke"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Skriv til {agent} · / for kommandoer, @ for filer"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Nachricht an {agent} · / für Befehle, @ für Dateien"
           }
         },
         "en": {
@@ -175954,98 +175954,98 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Enviar un mensaje a {agent} · / para comandos, @ para archivos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Écrire à {agent} · / pour les commandes, @ pour les fichiers"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Invia un messaggio a {agent} · / per i comandi, @ per i file"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "{agent} にメッセージを送信 · / でコマンド、@ でファイル"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "ផ្ញើសារទៅ {agent} · / សម្រាប់ពាក្យបញ្ជា, @ សម្រាប់ឯកសារ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "{agent}에게 메시지 보내기 · / 명령어, @ 파일"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Send melding til {agent} · / for kommandoer, @ for filer"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Wyślij wiadomość do {agent} · / — polecenia, @ — pliki"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Enviar mensagem para {agent} · / para comandos, @ para arquivos"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Написать {agent} · / для команд, @ для файлов"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "ส่งข้อความถึง {agent} · / สำหรับคำสั่ง, @ สำหรับไฟล์"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "{agent} için mesaj yazın · komutlar için /, dosyalar için @"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Написати {agent} · / для команд, @ для файлів"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "Nhắn tin cho {agent} · / cho lệnh, @ cho tệp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "给 {agent} 发消息 · / 查看命令，@ 查看文件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Message {agent} · / for commands, @ for files"
+            "state": "translated",
+            "value": "傳送訊息給 {agent} · / 查看指令，@ 查看檔案"
           }
         }
       }

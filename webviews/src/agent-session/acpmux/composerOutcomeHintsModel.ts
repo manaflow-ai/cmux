@@ -1,6 +1,6 @@
 // The composer outcome hints' on-demand arms (composerOutcomeHints.experiment.ts; Leo 2026-11-22
-// 09:50Z: "this is good as tips"): whether the / and @ lists show every row's description and the
-// Return keycap, and which placeholder the empty composer shows, for the arm in force.
+// 09:50Z: "this is good as tips"): whether the / and @ lists show keyboard action hints,
+// and which placeholder the empty composer shows, for the arm in force.
 import { useSyncExternalStore } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { composerOutcomeHints } from "./composerOutcomeHints.experiment";
@@ -9,7 +9,7 @@ import { useOptionHeld } from "./useOptionHeld";
 export type OutcomePlaceholder = "agent" | "modes" | undefined;
 
 export interface OutcomeHints {
-  /** Every / row's description and the highlighted / or @ row's Return keycap. */
+  /** Keyboard action hints on the highlighted / or @ row. */
   rows: boolean;
   /** The placeholder naming the agent ("agent") or the agent and both lists ("modes"). */
   placeholder: OutcomePlaceholder;
