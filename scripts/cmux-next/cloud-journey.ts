@@ -2849,16 +2849,50 @@ export type GithubConnectionFacts = {
 
 const repoName = (r: unknown): string => (typeof r === "string" ? r : typeof (r as any)?.full_name === "string" ? (r as any).full_name : "");
 
+/** Answers the sandbox lookup reads (GET /v1/integrations/github/repos?query=, then each `cursor`) before it says unknown. */
+export const GITHUB_SANDBOX_PAGES = 5;
+
+/** The sandbox's entry in the team's repository list, or null; complete when the list ended (no `cursor` left). */
+export type GithubSandboxLookup = { repo: unknown | null; pages: number; complete: boolean };
+
+/**
+ * The sandbox in the team's repository list, wherever it sits: the API's `query` filter (a case-insensitive match on
+ * full_name, which it keeps across its cursors) with the sandbox's name, following `cursor` for up to
+ * GITHUB_SANDBOX_PAGES answers. Null when a read fails.
+ */
+export async function githubSandboxLookup(
+  get: (route: string) => Promise<{ status: number; body: any }>,
+  team: string | undefined,
+  sandbox: string,
+): Promise<GithubSandboxLookup | null> {
+  const lower = sandbox.toLowerCase();
+  let cursor: string | null = null;
+  for (let pages = 1; pages <= GITHUB_SANDBOX_PAGES; pages++) {
+    const q = new URLSearchParams({ ...(team ? { team } : {}), query: sandbox, ...(cursor ? { cursor } : {}) });
+    const r = await get(`/v1/integrations/github/repos?${q}`);
+    if (r.status !== 200 || !Array.isArray(r.body?.repos)) return null;
+    const repo = r.body.repos.find((x: unknown) => repoName(x).toLowerCase() === lower);
+    cursor = typeof r.body.cursor === "string" && r.body.cursor ? r.body.cursor : null;
+    if (repo) return { repo, pages, complete: true };
+    if (!cursor) return { repo: null, pages, complete: true };
+  }
+  return { repo: null, pages: GITHUB_SANDBOX_PAGES, complete: false };
+}
+
 /**
  * What GET /v1/integrations/github/status and GET /v1/integrations/github/repos say about the team's GitHub
  * connection, as counts and yes/no: no token and no repository name (the sandbox is matched, never listed).
  */
-export function githubConnectionFacts(status: any, repos: any | null, sandbox?: string): GithubConnectionFacts {
+export function githubConnectionFacts(status: any, repos: any | null, sandbox?: string, lookup?: GithubSandboxLookup | null): GithubConnectionFacts {
   const c = status?.connection && typeof status.connection === "object" ? status.connection : null;
   const account = typeof c?.account === "string" && /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(c.account) ? c.account : null;
   const list: any[] | null = Array.isArray(repos?.repos) ? repos.repos : null;
   const lower = sandbox?.toLowerCase();
-  const hit = lower && list ? list.find((r) => repoName(r).toLowerCase() === lower) : undefined;
+  // The first page counts; the sandbox is matched there or in its own lookup (the list's later pages). A lookup that
+  // stopped at its page cap without it is unknown, never "not listed".
+  const onPage = lower && list ? list.find((r) => repoName(r).toLowerCase() === lower) : undefined;
+  const hit: any = onPage ?? lookup?.repo ?? undefined;
+  const known = Boolean(hit) || (lookup ? lookup.complete : list !== null && repos?.cursor == null);
   const picked = Array.isArray(c?.repos) ? c.repos : null;
   return {
     configured: status?.configured === true,
@@ -2869,7 +2903,7 @@ export function githubConnectionFacts(status: any, repos: any | null, sandbox?: 
     selected: picked ? picked.length : c && c.repos === null ? "all" : null,
     listed: list ? list.length : null,
     private_listed: list ? list.filter((r) => r?.private !== false && typeof r === "object").length : null,
-    sandbox_listed: lower && list ? Boolean(hit) : null,
+    sandbox_listed: lower && (list || lookup) && known ? Boolean(hit) : null,
     sandbox_private: hit && typeof hit === "object" ? hit.private !== false : null,
   };
 }
@@ -2898,18 +2932,36 @@ export function githubConnectionBlocker(f: GithubConnectionFacts, sandbox: strin
   return null;
 }
 
+/**
+ * Stops a session's turn that is still running: `acp cancel`, then `acp wait` up to 60 s for the turn to end; a turn
+ * still running after that has its session stopped. Says which, for the step's detail.
+ */
+export async function stopAgentTurn(exec: (cmd: string, timeoutMs?: number) => Promise<{ stdout: string }>, session: string): Promise<string> {
+  const s = shq(session);
+  const r = await exec(
+    `${GUEST}"$c" acp cancel ${s} >/dev/null 2>&1; echo "@@cancel $?"; "$c" acp wait ${s} --timeout 60 >/dev/null 2>&1; w=$?; echo "@@wait $w"; ` +
+      `if [ "$w" != 0 ]; then "$c" acp stop ${s} >/dev/null 2>&1; echo "@@stop $?"; fi`,
+    90_000,
+  ).catch(() => ({ stdout: "" }));
+  const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
+  if (wait === "0") return "the turn was cancelled and ended";
+  const stop = /@@stop (\d+)/.exec(r.stdout)?.[1];
+  return stop === "0" ? `the turn did not end after cancel (wait exit ${wait ?? "?"}); the session was stopped` : `the turn could not be confirmed stopped (wait exit ${wait ?? "?"}, stop exit ${stop ?? "?"})`;
+}
+
 /** What the journey asks the agent to do in the sandbox repository, and the branch and file it reads back. */
-export function githubAgentAsk(sandbox: string, tag: string): { prompt: string; branch: string; file: string } {
+export function githubAgentAsk(sandbox: string, tag: string): { prompt: string; branch: string; file: string; line: string } {
   const safe = tag.replace(/[^A-Za-z0-9-]/g, "-").slice(0, 40);
   const branch = `cmux-agent-e2e/${safe}`;
   const file = `cmux-e2e/agent-${safe}.md`;
+  const line = `cmux agent e2e ${safe}`;
   const prompt = [
     `In the GitHub repository ${sandbox}, using git and gh on this machine:`,
-    `clone it into a new folder, create the branch ${branch}, add the file ${file} with the one line "cmux agent e2e ${safe}",`,
+    `clone it into a new folder, create the branch ${branch}, add the file ${file} with the one line "${line}",`,
     `commit it, push the branch, and open a draft pull request from ${branch} into the default branch titled "cmux agent e2e ${safe}".`,
     "Change nothing else. Answer with the pull request URL only.",
   ].join(" ");
-  return { prompt, branch, file };
+  return { prompt, branch, file, line };
 }
 /**
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
@@ -3189,15 +3241,23 @@ export function loginPathAfterClaim(o: { receipt: boolean; launchCredential: boo
  * `_meta.acpmux.credentials: {env: {NAME: value}}`, as the guest cmux-tui's `agent-session-start` relays it from the
  * owner's app. acpmux takes a credential only from its own unix socket with no caller token, which a program run
  * through the machine's exec is. The value goes on stdin (the heredoc), never on a command line.
+ *
+ * `prompt`: the chat's first prompt, sent on the same socket right after `session/new` answers, as the app's page
+ * sends its first `session/prompt` on the link its start opened (RemoteAcpmuxWire.startChat keeps that client). The
+ * program returns once acpmux accepted it (`_acpmux/prompt_accepted`, as `acp send --no-wait` waits) and prints
+ * `@@prompted`; the turn runs on in the daemon. Without it the journey's send was a second exec and a fresh
+ * `cmux-tui acp send` process (2.4 to 3.2 s on the 11-23 stub legs), a path no person's first send takes.
  */
-export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string): string {
+export function launchCredentialStartProgram(session: string, agent: string, name: string, value: string, prompt?: string): string {
   const slash = agent.indexOf("/");
   const meta: Record<string, unknown> = { name: session, harness: slash < 0 ? agent : agent.slice(0, slash), credentials: { env: { [name]: value } } };
   if (slash >= 0) meta.model = agent.slice(slash + 1);
   const params = JSON.stringify({ mcpServers: [], _meta: { acpmux: meta } });
+  const first = prompt === undefined ? "None" : JSON.stringify(prompt);
   return `python3 -I - <<'CMUX_JOURNEY_START'
-import json, os, socket, sys
+import json, os, socket, sys, uuid
 params = json.loads(${JSON.stringify(params)})
+first = ${first}
 params['cwd'] = os.environ.get('HOME') or '/home/cmux'
 home = params['cwd']
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/.acpmux/acpmux.sock') if p]
@@ -3223,10 +3283,33 @@ for path in paths:
         f = s.makefile('r')
         call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
         r = call(f, s, 2, 'session/new', params)
-        print('@@session ' + str((r or {}).get('sessionId')))
-        sys.exit(0)
+        sid = (r or {}).get('sessionId')
+        print('@@session ' + str(sid), flush=True)
     except Exception as e:
         errors.append(path + ': ' + str(e))
+        continue
+    if first is None:
+        sys.exit(0)
+    # The session exists now: a failed prompt never starts a second session on another socket.
+    try:
+        pid = str(uuid.uuid4())
+        s.sendall((json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'session/prompt', 'params': {'sessionId': sid, 'prompt': [{'type': 'text', 'text': first}], '_meta': {'acpmux': {'steer': False, 'promptId': pid, 'resend': False}}}}) + '\\n').encode())
+        while True:
+            line = f.readline()
+            if not line:
+                raise RuntimeError('session/prompt: the daemon closed the connection')
+            m = json.loads(line)
+            if m.get('method') == '_acpmux/prompt_accepted' and (m.get('params') or {}).get('promptId') == pid:
+                break
+            if m.get('id') == 3:
+                if m.get('error'):
+                    raise RuntimeError('session/prompt: ' + json.dumps(m['error'])[:400])
+                break
+        print('@@prompted', flush=True)
+        sys.exit(0)
+    except Exception as e:
+        print('@@noprompt ' + str(e))
+        sys.exit(2)
 print('@@nostart ' + ('; '.join(errors) or 'no acpmux socket at ' + ', '.join(paths)))
 sys.exit(1)
 CMUX_JOURNEY_START`;
@@ -4661,10 +4744,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const q = ghTeam ? `?team=${encodeURIComponent(ghTeam)}` : "";
           const s = await api.raw("GET", `/v1/integrations/github/status${q}`, undefined, 20_000);
           if (s.status !== 200) throw new Error(`status: HTTP ${s.status} ${short(s.body?.error ?? s.body)}`);
-          const listed = s.body?.connection?.status === "active" ? await api.raw("GET", `/v1/integrations/github/repos${q}`, undefined, 20_000) : null;
-          const facts = githubConnectionFacts(s.body, listed?.status === 200 ? listed.body : null, sandbox ?? undefined);
+          const active = s.body?.connection?.status === "active";
+          const listed = active ? await api.raw("GET", `/v1/integrations/github/repos${q}`, undefined, 20_000) : null;
+          // The first page is bounded: the sandbox is looked up by name, across the list's cursors, when it is not on it.
+          const first = listed?.status === 200 ? listed.body : null;
+          const onFirst = sandbox && Array.isArray(first?.repos) && first.repos.some((r: unknown) => repoName(r).toLowerCase() === sandbox.toLowerCase());
+          const lookup = active && sandbox && !onFirst ? await githubSandboxLookup((route) => api.raw("GET", route, undefined, 20_000), ghTeam, sandbox) : null;
+          const facts = githubConnectionFacts(s.body, first, sandbox ?? undefined, lookup);
           const bad = sandbox ? githubConnectionBlocker(facts, sandbox) : null;
-          const detail = `${githubConnectionDetail(facts)}${listed && listed.status !== 200 ? `; repos: HTTP ${listed.status}` : ""}${bad ? `; ${bad}` : ""}`;
+          const looked = lookup ? `; sandbox looked up in ${lookup.pages} page(s)${lookup.complete ? "" : " (list not ended)"}` : "";
+          const detail = `${githubConnectionDetail(facts)}${listed && listed.status !== 200 ? `; repos: HTTP ${listed.status}` : ""}${looked}${bad ? `; ${bad}` : ""}`;
           J.record({ step: GITHUB_STATUS_STEP, status: bad ? "fail" : "pass", ms: Date.now() - statusAt, detail });
         } catch (e) {
           // A read the hourly stub run cannot make is recorded, never red; with a sandbox named it is the live cells' blocker.
@@ -5052,13 +5141,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
       J.firstText.mark("session_start");
+      let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
-          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login)}`, 120_000);
+          // The first prompt follows session/new on the same acpmux link, as the app's first send does.
+          const r = await exec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt)}`, 120_000);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
-          if (r.code !== 0 || !id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
+          if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
-          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential)` };
+          if (r.code !== 0 || !/@@prompted/.test(r.stdout)) throw new Error(`session ${session} started, but its first prompt was not taken: ${scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login])}`);
+          promptedWithStart = true;
+          // One exec carries both: send and sent fall at its return, after session_ready, as the trace's spans read them.
+          J.firstText.mark("send");
+          J.firstText.mark("sent");
+          return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start` };
         }
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
@@ -5067,6 +5163,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
+        if (promptedWithStart) return { value: null, detail: `${prompt.slice(0, 80)} (went with the agent's start, on its link)` };
         J.firstText.mark("send");
         await send(prompt);
         J.firstText.mark("sent");
@@ -5257,8 +5354,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           said = (await laterTurn(ask.prompt)).detail;
         } catch (e) {
           turnError = String((e as Error)?.message ?? e).slice(0, 300);
+          // A turn cut off by the journey's wait keeps running: stop it before the read back closes the PR and deletes
+          // the branch, or the agent could push or open a PR after the cleanup.
+          turnError += `; ${await stopAgentTurn(exec, session)}`;
         }
-        const r = await exec(`${GUEST}sh ${shq(GITHUB_E2E_GUEST)} --agent-pr ${shq(sandbox)} ${shq(ask.branch)} ${shq(ask.file)} 2>&1`, 180_000);
+        const r = await exec(`${GUEST}sh ${shq(GITHUB_E2E_GUEST)} --agent-pr ${shq(sandbox)} ${shq(ask.branch)} ${shq(ask.file)} ${shq(ask.line)} 2>&1`, 180_000);
         const cells = e2eLines(r.stdout) || r.stdout.slice(-400);
         if (turnError) throw new Error(`the agent's turn: ${turnError}; read back: ${cells}`);
         if (r.code !== 0) throw new Error(`read back exit ${r.code}: ${cells}; the agent said: ${said.slice(0, 160)}`);
