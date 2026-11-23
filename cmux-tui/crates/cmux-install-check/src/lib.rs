@@ -241,14 +241,14 @@ struct Request {
 }
 
 fn record_path(args: &[String]) -> Result<PathBuf, String> {
-    args.windows(2)
-        .find(|pair| pair[0] == "--record")
-        .map(|pair| PathBuf::from(&pair[1]))
-        .ok_or_else(|| "missing --record FILE".to_string())
+    flag(args, "--record").map(PathBuf::from).ok_or_else(|| "missing --record FILE".to_string())
 }
 
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
-    args.windows(2).find(|pair| pair[0] == name).map(|pair| pair[1].as_str())
+    args.windows(2).find_map(|pair| match pair {
+        [key, value] if key == name => Some(value.as_str()),
+        _ => None,
+    })
 }
 
 /// The `__install-check` mode. `due --record FILE --build B [--nightly]`

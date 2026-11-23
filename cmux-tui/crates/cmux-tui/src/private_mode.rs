@@ -28,7 +28,7 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // cmux NEXT NIGHTLY's install check after an update: whether this
         // build is due its canary chat, and what its result decides
         // (cmux-install-check).
-        Some("__install-check") => Some(install_check(&args[1..])),
+        Some("__install-check") => Some(install_check(args.get(1..).unwrap_or_default())),
         // cmux NEXT's one-time adoption of its pre-isolation homes, run by the
         // app before it starts acpmux or the Chief owner (build_adopt.rs).
         #[cfg(unix)]
