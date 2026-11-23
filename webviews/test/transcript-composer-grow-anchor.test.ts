@@ -17,6 +17,8 @@ import { COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors
 type Frame = { box: number; t: number; scrollTop: number; fromEnd: number; gap: number };
 
 const ENGINE_NAME = process.env.ANCHOR_ENGINE === "chromium" ? "chromium" : "webkit";
+// Where a frame is read: "late" after the frame's ResizeObservers (what paints), "raf" in rAF (before them).
+const SAMPLE_LATE = process.env.ANCHOR_SAMPLE !== "raf";
 const ENGINE = ENGINE_NAME === "chromium" ? chromium : webkit;
 
 await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => {
@@ -82,7 +84,7 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
   };
 
   const startSampling = (page: Page) =>
-    page.evaluate(() => {
+    page.evaluate((late) => {
       const frames: Frame[] = [];
       const own = window as unknown as { __frames: Frame[]; __stop: boolean };
       own.__frames = frames;
@@ -100,10 +102,28 @@ await requireBrowserLane("transcript-composer-grow-anchor.test.ts", async () => 
           fromEnd: Math.round((scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop) * 10) / 10,
           gap: Math.round((box.getBoundingClientRect().top - last.getBoundingClientRect().bottom) * 10) / 10,
         });
-        if (!own.__stop) requestAnimationFrame(tick);
+        if (!own.__stop && !late) requestAnimationFrame(tick);
       };
+      if (late) {
+        // Read after the frame's ResizeObservers (the field's growth starts in one since #48134), as
+        // near the paint as script gets: a sentinel resized in each rAF reports to an observer made
+        // after the app's, so it is told last, after their microtasks (the transcript's room).
+        const sentinel = document.body.appendChild(document.createElement("div"));
+        sentinel.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none";
+        const observer = new ResizeObserver(() => {
+          if (own.__stop) return observer.disconnect();
+          tick();
+        });
+        observer.observe(sentinel);
+        const flip = () => {
+          sentinel.style.width = sentinel.style.width === "1px" ? "2px" : "1px";
+          if (!own.__stop) requestAnimationFrame(flip);
+        };
+        requestAnimationFrame(flip);
+        return;
+      }
       requestAnimationFrame(tick);
-    });
+    }, SAMPLE_LATE);
   const stopSampling = (page: Page) =>
     page.evaluate(async () => {
       const own = window as unknown as { __frames: Frame[]; __stop: boolean };
