@@ -20,9 +20,11 @@ struct RemoteChatEventsTests {
         events.linkChanged(peer: nil, state: "connected")
         events.linkChanged(peer: "walk-remote", state: "")
         events.linkChanged(peer: "walk-remote", state: "connected")
-        events.livePainted(session: "walk-remote/chat")
-        events.livePainted(session: "local-chat")
-        events.livePainted(session: nil)
+        var last = events.livePainted(session: "walk-remote/chat", last: nil)
+        last = events.livePainted(session: "walk-remote/chat", last: last) // a repaint of the same chat
+        #expect(last == "walk-remote/chat")
+        #expect(events.livePainted(session: "local-chat", last: last) == "local-chat")
+        #expect(events.livePainted(session: nil, last: last) == "walk-remote/chat")
 
         #expect(published.events.map(\.name) == [RemoteChatEvents.linkEvent, RemoteChatEvents.linkEvent, RemoteChatEvents.livePaintEvent])
         #expect(published.events[0].payload["state"] == .string("reconnecting"))
@@ -30,6 +32,18 @@ struct RemoteChatEventsTests {
         let paint = published.events[2].payload
         #expect(paint["session"] == .string("walk-remote/chat") && paint["peer"] == .string("walk-remote"))
         #expect(paint["link"] == .string("connected"))
+    }
+
+    @Test func aPaneThatShowsAnotherChatAndComesBackPublishesAgain() {
+        let published = Published()
+        let events = RemoteChatEvents()
+        events.publish = { published.events.append(($0, $1)) }
+        events.peerOf = { _ in "walk-remote" }
+        var last = events.livePainted(session: "walk-remote/a", last: nil)
+        last = events.livePainted(session: "walk-remote/b", last: last)
+        last = events.livePainted(session: "walk-remote/b", last: last)
+        _ = events.livePainted(session: "walk-remote/a", last: last)
+        #expect(published.events.map { $0.payload["session"] } == [.string("walk-remote/a"), .string("walk-remote/b"), .string("walk-remote/a")])
     }
 
     @Test func eachMachineLinkCarriesItsEvents() {
