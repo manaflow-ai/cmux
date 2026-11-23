@@ -126,10 +126,10 @@ fn top_level(rows: &[Row]) -> Vec<Entry> {
     for folder in MENU_FOLDERS {
         let members: Vec<Row> =
             roots.iter().filter(|r| r.placement.folder == Some(folder.id)).copied().collect();
-        if members.len() == 1 {
-            add_row(members[0], &mut items);
-        } else if !members.is_empty() {
-            folders.push((folder.id, members));
+        match members.as_slice() {
+            [] => {}
+            [only] => add_row(*only, &mut items),
+            _ => folders.push((folder.id, members)),
         }
     }
     for (folder, members) in folders {

@@ -52,18 +52,18 @@ pub fn group_web(url: &str) -> Option<DeepLink> {
         return None;
     }
     let segments = c.segments();
-    if segments.len() < 2 || segments[0] != "g" || !is_group_id(&segments[1]) {
-        return None;
-    }
-    if segments.len() == 2 {
-        return Some(DeepLink::new(Target::Group { id: segments[1].clone(), workspace: None }));
-    }
-    (segments.len() == 4 && segments[2] == "w" && is_resource_id(&segments[3], "ws_")).then(|| {
-        DeepLink::new(Target::Group {
-            id: segments[1].clone(),
-            workspace: Some(segments[3].clone()),
-        })
-    })
+    let workspace = match segments.as_slice() {
+        [g, id] if g == "g" && is_group_id(id) => (id, None),
+        [g, id, w, workspace] if g == "g" && is_group_id(id) => {
+            if w != "w" || !is_resource_id(workspace, "ws_") {
+                return None;
+            }
+            (id, Some(workspace.clone()))
+        }
+        _ => return None,
+    };
+    let (id, workspace) = workspace;
+    Some(DeepLink::new(Target::Group { id: id.clone(), workspace }))
 }
 
 /// A cmux.com locale segment (`en`, `zh-CN`): ICU's `^[a-z]{2}(-[A-Z]{2})?$`, whose `$` also
@@ -74,12 +74,13 @@ fn is_locale(segment: &str) -> bool {
         .find_map(|end| segment.strip_suffix(end))
         .unwrap_or(segment);
     let b = body.as_bytes();
-    match b.len() {
-        2 => b.iter().all(u8::is_ascii_lowercase),
-        5 => {
-            b[..2].iter().all(u8::is_ascii_lowercase)
-                && b[2] == b'-'
-                && b[3..].iter().all(u8::is_ascii_uppercase)
+    match b {
+        [l1, l2] => l1.is_ascii_lowercase() && l2.is_ascii_lowercase(),
+        [l1, l2, b'-', r1, r2] => {
+            l1.is_ascii_lowercase()
+                && l2.is_ascii_lowercase()
+                && r1.is_ascii_uppercase()
+                && r2.is_ascii_uppercase()
         }
         _ => false,
     }
@@ -100,8 +101,10 @@ fn agent_web_query(c: &Components) -> Option<Vec<QueryItem>> {
         return None;
     }
     let segments = c.segments();
-    let path =
-        if segments.len() == 3 && is_locale(&segments[0]) { &segments[1..] } else { &segments[..] };
+    let path = match segments.as_slice() {
+        [locale, rest @ ..] if rest.len() == 2 && is_locale(locale) => rest,
+        all => all,
+    };
     (path == ["deeplink", "agent"]).then(|| c.query_items().unwrap_or_default())
 }
 
@@ -116,7 +119,7 @@ pub fn agent_web(url: &str) -> Option<DeepLink> {
     let query = agent_web_query(&Components::parse(url))?;
     let one = |name: &str| {
         let items = named(&query, name);
-        if items.len() == 1 { items[0].value.clone() } else { None }
+        if let [only] = items.as_slice() { only.value.clone() } else { None }
     };
     let harness = one("harness")?;
     let session = one("session")?;
@@ -173,7 +176,8 @@ pub fn agent_web_session(url: &str) -> Option<String> {
         return None;
     }
     let sessions = named(&query, "session");
-    let session = (sessions.len() == 1).then(|| sessions[0].value.clone()).flatten()?;
+    let [only] = sessions.as_slice() else { return None };
+    let session = only.value.clone()?;
     is_agent_session(&session).then_some(session)
 }
 
@@ -204,7 +208,8 @@ pub fn agent_reference(url: &str, link_scheme: &str) -> Option<String> {
         return None;
     }
     let ids = named(&query, "id");
-    let id = (ids.len() == 1).then(|| ids[0].value.clone()).flatten()?;
+    let [only] = ids.as_slice() else { return None };
+    let id = only.value.clone()?;
     is_agent_reference(&id).then_some(id)
 }
 

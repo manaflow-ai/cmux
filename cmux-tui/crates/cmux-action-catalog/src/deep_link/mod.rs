@@ -426,13 +426,9 @@ pub(crate) fn read_components(components: &Components, scheme: &str) -> Option<P
         let machines: Vec<&String> =
             machine_items.iter().filter_map(|q| q.value.as_ref()).collect();
         if target.is_agent() {
-            if machines.len() == 1
-                && machine_items.len() == 1
-                && is_resource_id(machines[0], "machine_")
-            {
-                machine = Some(machines[0].clone());
-            } else {
-                ignored.push(MACHINE_KEY.to_owned());
+            match (machines.as_slice(), machine_items.len()) {
+                ([only], 1) if is_resource_id(only, "machine_") => machine = Some((*only).clone()),
+                _ => ignored.push(MACHINE_KEY.to_owned()),
             }
         } else if let Some(first) = machines.first() {
             if !is_resource_id(first, "machine_") {
@@ -446,11 +442,9 @@ pub(crate) fn read_components(components: &Components, scheme: &str) -> Option<P
         // A hint cmux cannot use is dropped and named; a repeated one has no single value.
         let mut hint = |name: &str, fits: fn(&str) -> bool| -> Option<String> {
             let items: Vec<&QueryItem> = query.iter().filter(|q| q.name == name).collect();
-            if items.is_empty() {
-                return None;
-            }
-            match (items.len(), items[0].value.as_deref()) {
-                (1, Some(value)) if fits(value) => Some(value.to_owned()),
+            match items.as_slice() {
+                [] => None,
+                [only] if only.value.as_deref().is_some_and(fits) => only.value.clone(),
                 _ => {
                     ignored.push(name.to_owned());
                     None
@@ -476,88 +470,94 @@ fn target(
     fragment: Option<&str>,
 ) -> Option<Target> {
     let first = segments.first()?;
-    match host {
-        "workspace" => {
+    let no_fragment = fragment.is_none();
+    match (host, segments) {
+        ("workspace", _) => {
             if let Some(workspace) = uuid(first) {
                 if fragment.is_some() {
                     return None;
                 }
                 return legacy(workspace, segments, query);
             }
-            (segments.len() == 1 && fragment.is_none() && is_resource_id(first, "ws_"))
+            (segments.len() == 1 && no_fragment && is_resource_id(first, "ws_"))
                 .then(|| Target::Workspace(first.clone()))
         }
-        "pane" => (segments.len() == 1 && fragment.is_none() && is_resource_id(first, "pane_"))
-            .then(|| Target::Pane(first.clone())),
-        "tab" => (segments.len() == 1 && fragment.is_none() && is_resource_id(first, "tab_"))
-            .then(|| Target::Tab(first.clone())),
-        "chief" => (segments.len() == 3
-            && segments[1] == "session"
-            && fragment.is_none()
-            && is_chief_home(first)
-            && is_token(&segments[2]))
-        .then(|| Target::ChiefSession { home: first.clone(), session: segments[2].clone() }),
-        "group" => {
+        ("pane", [only]) => {
+            (no_fragment && is_resource_id(only, "pane_")).then(|| Target::Pane(only.clone()))
+        }
+        ("tab", [only]) => {
+            (no_fragment && is_resource_id(only, "tab_")).then(|| Target::Tab(only.clone()))
+        }
+        ("chief", [home, kind, session]) => {
+            (kind == "session" && no_fragment && is_chief_home(home) && is_token(session))
+                .then(|| Target::ChiefSession { home: home.clone(), session: session.clone() })
+        }
+        ("group", _) => {
             if fragment.is_some() || !is_group_id(first) {
                 return None;
             }
-            if segments.len() == 1 {
-                return Some(Target::Group { id: first.clone(), workspace: None });
+            match segments {
+                [_] => Some(Target::Group { id: first.clone(), workspace: None }),
+                [_, kind, workspace] => {
+                    (kind == "workspace" && is_resource_id(workspace, "ws_")).then(|| {
+                        Target::Group { id: first.clone(), workspace: Some(workspace.clone()) }
+                    })
+                }
+                _ => None,
             }
-            (segments.len() == 3
-                && segments[1] == "workspace"
-                && is_resource_id(&segments[2], "ws_"))
-            .then(|| Target::Group { id: first.clone(), workspace: Some(segments[2].clone()) })
         }
-        "cloud" => cloud_target(segments, fragment),
-        "agent" => (segments.len() == 2
-            && fragment.is_none()
-            && is_harness(first)
-            && is_agent_session(&segments[1]))
-        .then(|| Target::Agent { harness: first.clone(), session: segments[1].clone() }),
-        "session" => {
-            if segments.len() != 1 || !is_token(first) {
+        ("cloud", _) => cloud_target(segments, fragment),
+        ("agent", [harness, session]) => {
+            (no_fragment && is_harness(harness) && is_agent_session(session))
+                .then(|| Target::Agent { harness: harness.clone(), session: session.clone() })
+        }
+        ("session", [only]) => {
+            if !is_token(only) {
                 return None;
             }
             let Some(fragment) = fragment else {
-                return Some(Target::Session { id: first.clone(), turn: None });
+                return Some(Target::Session { id: only.clone(), turn: None });
             };
             let turn = fragment.strip_prefix(TURN_FRAGMENT_PREFIX)?;
             is_token(turn)
-                .then(|| Target::Session { id: first.clone(), turn: Some(turn.to_owned()) })
+                .then(|| Target::Session { id: only.clone(), turn: Some(turn.to_owned()) })
         }
-        // Includes `auth-callback`, the sign-in callback.
+        // Includes `auth-callback`, the sign-in callback, and a known host with the wrong
+        // number of segments.
         _ => None,
     }
 }
 
 /// `cloud/<session|workspace>/<team>/<vm>/<id>`'s target.
 fn cloud_target(segments: &[String], fragment: Option<&str>) -> Option<Target> {
-    if fragment.is_some() || segments.len() != 4 {
+    let [kind, team, machine, session] = segments else {
+        return None;
+    };
+    if fragment.is_some() {
         return None;
     }
-    let kind = CloudSessionKind::from_raw(&segments[0])?;
-    (is_team_id(&segments[1]) && is_cloud_vm(&segments[2]) && is_cloud_session_id(&segments[3]))
-        .then(|| Target::CloudSession {
-            team: segments[1].clone(),
-            machine: segments[2].clone(),
-            session: segments[3].clone(),
+    let kind = CloudSessionKind::from_raw(kind)?;
+    (is_team_id(team) && is_cloud_vm(machine) && is_cloud_session_id(session)).then(|| {
+        Target::CloudSession {
+            team: team.clone(),
+            machine: machine.clone(),
+            session: session.clone(),
             kind,
-        })
+        }
+    })
 }
 
 /// Nightly's grammar: `workspace/<uuid>`, optionally `pane/<uuid>`, `surface/<uuid>` or `panel/<uuid>`.
 fn legacy(workspace: String, segments: &[String], query: &[QueryItem]) -> Option<Target> {
     let fallback_workspace = stable_id("stable_workspace_id", query)?;
     let fallback_surface = stable_id("stable_surface_id", query)?;
-    if segments.len() == 1 {
-        return Some(Target::LegacyWorkspace { workspace, fallback: fallback_workspace });
-    }
-    if segments.len() != 3 {
-        return None;
-    }
-    let child = uuid(&segments[2])?;
-    match segments[1].to_lowercase().as_str() {
+    let (kind, child) = match segments {
+        [_] => return Some(Target::LegacyWorkspace { workspace, fallback: fallback_workspace }),
+        [_, kind, child] => (kind, child),
+        _ => return None,
+    };
+    let child = uuid(child)?;
+    match kind.to_lowercase().as_str() {
         "pane" => Some(Target::LegacyPane { workspace, pane: child }),
         "surface" | "panel" => Some(Target::LegacySurface {
             workspace,
@@ -581,19 +581,16 @@ pub fn cloud_session(text: &str) -> Option<DeepLink> {
     let trimmed = text.trim();
     if let Some(key) = trimmed.strip_prefix("cloud:") {
         let parts: Vec<&str> = key.split('/').collect();
-        if parts.len() == 3
-            && is_team_id(parts[0])
-            && is_cloud_vm(parts[1])
-            && is_cloud_session_id(parts[2])
-        {
-            return Some(DeepLink::new(Target::CloudSession {
-                team: parts[0].to_owned(),
-                machine: parts[1].to_owned(),
-                session: parts[2].to_owned(),
-                kind: CloudSessionKind::Chat,
-            }));
+        let [team, machine, session] = parts.as_slice() else { return None };
+        if !(is_team_id(team) && is_cloud_vm(machine) && is_cloud_session_id(session)) {
+            return None;
         }
-        return None;
+        return Some(DeepLink::new(Target::CloudSession {
+            team: (*team).to_owned(),
+            machine: (*machine).to_owned(),
+            session: (*session).to_owned(),
+            kind: CloudSessionKind::Chat,
+        }));
     }
     let components = Components::parse(trimmed);
     let scheme = components.scheme.clone()?;

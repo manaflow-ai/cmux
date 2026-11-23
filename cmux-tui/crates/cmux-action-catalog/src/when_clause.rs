@@ -78,15 +78,25 @@ impl Parser<'_> {
         ParseError { message, offset: self.index }
     }
 
-    fn skip_space(&mut self) {
-        while self.index < self.bytes.len() && matches!(self.bytes[self.index], b' ' | b'\t') {
+    /// The byte at the cursor; nil at the end.
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.index).copied()
+    }
+
+    /// Moves past bytes while `keep` holds.
+    fn skip_while(&mut self, keep: impl Fn(u8) -> bool) {
+        while self.peek().is_some_and(&keep) {
             self.index += 1;
         }
     }
 
+    fn skip_space(&mut self) {
+        self.skip_while(|byte| matches!(byte, b' ' | b'\t'));
+    }
+
     fn take(&mut self, token: &str) -> bool {
         self.skip_space();
-        if self.bytes[self.index..].starts_with(token.as_bytes()) {
+        if self.bytes.get(self.index..).is_some_and(|rest| rest.starts_with(token.as_bytes())) {
             self.index += token.len();
             true
         } else {
@@ -108,7 +118,7 @@ impl Parser<'_> {
     }
 
     fn text(&self, start: usize, end: usize) -> String {
-        String::from_utf8_lossy(&self.bytes[start..end]).into_owned()
+        String::from_utf8_lossy(self.bytes.get(start..end).unwrap_or_default()).into_owned()
     }
 
     fn parse_or(&mut self) -> Result<WhenClause, ParseError> {
@@ -129,9 +139,8 @@ impl Parser<'_> {
 
     fn parse_unary(&mut self) -> Result<WhenClause, ParseError> {
         self.skip_space();
-        if self.index + 1 < self.bytes.len()
-            && self.bytes[self.index] == b'!'
-            && self.bytes[self.index + 1] != b'='
+        if let Some([b'!', next, ..]) = self.bytes.get(self.index..)
+            && *next != b'='
         {
             self.index += 1;
             return Ok(WhenClause::Not(Box::new(self.parse_unary()?)));
@@ -180,9 +189,7 @@ impl Parser<'_> {
     fn parse_key(&mut self) -> Result<String, ParseError> {
         self.skip_space();
         let start = self.index;
-        while self.index < self.bytes.len() && is_word_byte(self.bytes[self.index]) {
-            self.index += 1;
-        }
+        self.skip_while(is_word_byte);
         if self.index == start {
             return Err(self.error("expected a context key"));
         }
@@ -197,10 +204,8 @@ impl Parser<'_> {
         if quote == b'\'' || quote == b'"' {
             self.index += 1;
             let start = self.index;
-            while self.index < self.bytes.len() && self.bytes[self.index] != quote {
-                self.index += 1;
-            }
-            if self.index >= self.bytes.len() {
+            self.skip_while(|byte| byte != quote);
+            if self.peek().is_none() {
                 return Err(self.error("unterminated string"));
             }
             let text = self.text(start, self.index);
@@ -208,9 +213,7 @@ impl Parser<'_> {
             return Ok(ContextValue::String(text));
         }
         let start = self.index;
-        while self.index < self.bytes.len() && is_value_byte(self.bytes[self.index]) {
-            self.index += 1;
-        }
+        self.skip_while(is_value_byte);
         if self.index == start {
             return Err(self.error("expected a value"));
         }
@@ -232,23 +235,26 @@ impl Parser<'_> {
         }
         self.index += 1;
         let mut pattern = Vec::new();
-        while self.index < self.bytes.len() && self.bytes[self.index] != b'/' {
-            if self.bytes[self.index] == b'\\' && self.index + 1 < self.bytes.len() {
-                pattern.push(self.bytes[self.index]);
-                self.index += 1;
+        loop {
+            match self.bytes.get(self.index..).unwrap_or_default() {
+                [] => return Err(self.error("unterminated /regex/")),
+                [b'/', ..] => break,
+                // An escape keeps its next byte, a `/` included.
+                [b'\\', escaped, ..] => {
+                    pattern.extend_from_slice(&[b'\\', *escaped]);
+                    self.index += 2;
+                }
+                [byte, ..] => {
+                    pattern.push(*byte);
+                    self.index += 1;
+                }
             }
-            pattern.push(self.bytes[self.index]);
-            self.index += 1;
-        }
-        if self.index >= self.bytes.len() {
-            return Err(self.error("unterminated /regex/"));
         }
         self.index += 1;
-        let mut has_i = false;
-        while self.index < self.bytes.len() && is_word_byte(self.bytes[self.index]) {
-            has_i |= self.bytes[self.index] == b'i';
-            self.index += 1;
-        }
+        let flags_start = self.index;
+        self.skip_while(is_word_byte);
+        let has_i =
+            self.bytes.get(flags_start..self.index).is_some_and(|flags| flags.contains(&b'i'));
         let text = String::from_utf8_lossy(&pattern).into_owned();
         Ok(if has_i { format!("(?i){text}") } else { text })
     }
@@ -257,13 +263,13 @@ impl Parser<'_> {
 /// `text` as a number, as Swift's `Double(text)` reads it: decimal with an optional sign and
 /// exponent, `inf`/`infinity`/`nan` in any case, or a hexadecimal float (`0x1p3`, `0x1A`).
 pub fn parse_double(text: &str) -> Option<f64> {
-    let (negative, body) = match text.as_bytes().first() {
-        Some(b'-') => (true, &text[1..]),
-        Some(b'+') => (false, &text[1..]),
-        _ => (false, text),
+    let (negative, body) = match text.strip_prefix('-') {
+        Some(body) => (true, body),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
     };
-    let magnitude = if body.len() > 2 && (body.starts_with("0x") || body.starts_with("0X")) {
-        parse_hex(&body[2..])?
+    let hex = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")).filter(|h| !h.is_empty());
+    let magnitude = if let Some(hex) = hex {
+        parse_hex(hex)?
     } else {
         // Rust takes no second sign and no hex; it reads the rest as Swift does.
         if body.starts_with(['+', '-']) {
@@ -276,8 +282,8 @@ pub fn parse_double(text: &str) -> Option<f64> {
 
 /// A hexadecimal float's digits after `0x`: `h[.h][p[+-]d]`.
 fn parse_hex(text: &str) -> Option<f64> {
-    let (mantissa, exponent) = match text.find(['p', 'P']) {
-        Some(at) => (&text[..at], Some(&text[at + 1..])),
+    let (mantissa, exponent) = match text.split_once(['p', 'P']) {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
         None => (text, None),
     };
     let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
