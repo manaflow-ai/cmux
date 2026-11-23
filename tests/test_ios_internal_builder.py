@@ -7,6 +7,7 @@ runner. Design: plans/cmux-next/ios-testflight-builder-DESIGN.md.
 """
 from __future__ import annotations
 
+import re
 import contextlib
 import datetime as dt
 import importlib.util
@@ -658,13 +659,13 @@ class PackagesLiveInTheAppTests(unittest.TestCase):
 
 
 class TriggerRunnerTests(unittest.TestCase):
-    def test_push_decision_reads_the_linux_pool(self):
+    def test_push_decision_takes_the_one_linux_label(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
         runs_on = next(line.strip() for line in workflow.splitlines()
                        if line.strip().startswith("runs-on:"))
         self.assertIn("'ubuntu-24.04'", runs_on)
-        # The reconciled Linux pool, never a fixed Blacksmith size that can stall
-        # (tests/test_ci_linux_single_size.py).
+        # The one Linux label (scripts/ci/one_linux_label.py), an owned pool sized by load, never a fixed
+        # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
         self.assertNotIn("32vcpu", runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         # Only a member of the Linux pool, so the nightly runner label policy can read it (HQ

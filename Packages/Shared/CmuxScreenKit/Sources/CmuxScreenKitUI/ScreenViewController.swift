@@ -45,6 +45,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private var streamAgent: CGPoint?
     private var cursor = VNCCursor(width: 0, height: 0, hotspotX: 0, hotspotY: 0, pixels: [])
     private var hostCursorImage: CGImage?
+    /// A screen stream's cursor shape, the Mac's own image (nil: none yet, or a Mac that sends none).
+    private var streamCursor: ScreenStreamCursor?
     private let keyInput = KeyInputView()
     private var frameSize = CGSize.zero
     private var scrollRemainder = CGPoint.zero
@@ -148,6 +150,10 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         if session.isStream { installVideo() }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
         session.onTelepointers = { [weak self] person, agent in self?.setTelepointers(person: person, agent: agent) }
+        session.onStreamCursor = { [weak self] cursor in
+            self?.streamCursor = cursor
+            self?.updateCursor()
+        }
         session.onScreens = { [weak self] screens in
             self?.screensFromServer = true
             self?.setScreens(screens)
@@ -321,36 +327,57 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         fraction.map { CGPoint(x: $0.x * frameSize.width, y: $0.y * frameSize.height) }
     }
 
-    /// Draws the cursor at the pointer: the server's shape (local cursor),
-    /// and in trackpad mode or under a hovering mouse the shape or, when
-    /// the server sends none (a screen stream), a plain arrow. Otherwise a
-    /// screen stream's cursor is where the Mac says its pointer is (the
-    /// video carries none); the agent's pointer is drawn beside it.
+    /// Draws the cursor at the pointer, exactly as the Mac shows it: a
+    /// screen stream's cursor image from the Mac at the Mac's size, the RFB
+    /// server's shape (local cursor), else macOS's own arrow. In trackpad
+    /// mode or under a hovering mouse it follows the local pointer;
+    /// otherwise a screen stream's cursor is where the Mac says its pointer
+    /// is (the video carries none). The agent's pointer is drawn beside it.
     private func updateCursor() {
         updateAgentPointer()
         let relative = inputMode == .trackpad || trackpadPadActive
-        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || relative)
-        let local = hostShape || relative || pointerHovering
+        let rfbShape = !cursor.isEmpty && (session.preferences.localCursor || relative)
+        let local = rfbShape || relative || pointerHovering
         let remote = local ? nil : streamPixels(streamPerson)
         let visible = frameSize != .zero && (local || remote != nil)
         cursorLayer.isHidden = !visible
         guard visible else { return }
-        let fallback = Self.fallbackCursor
-        let image = hostShape ? hostCursorImage : fallback.image
-        let size = hostShape ? CGSize(width: cursor.width, height: cursor.height) : fallback.size
-        let hotspot = hostShape ? CGPoint(x: cursor.hotspotX, y: cursor.hotspotY) : fallback.hotspot
         let pointer = remote ?? session.pointer
+        var rfb: (image: CGImage?, cursor: VNCCursor)?
+        if rfbShape { rfb = (image: hostCursorImage, cursor: cursor) }
+        let look = Self.cursorLook(stream: session.isStream ? streamCursor : nil, rfb: rfb, at: pointer, frame: frameSize)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if (cursorLayer.contents as AnyObject?) !== image {
-            cursorLayer.contents = image
-            cursorLayer.bounds = CGRect(origin: .zero, size: size)
-        }
-        cursorLayer.position = CGPoint(x: pointer.x - hotspot.x + size.width / 2, y: pointer.y - hotspot.y + size.height / 2)
-        // Keep the cursor a readable size when zoomed out.
-        let scale = max(1, 0.75 / max(scrollView.zoomScale, 0.01))
-        cursorLayer.transform = CATransform3DMakeScale(scale, scale, 1)
+        if (cursorLayer.contents as AnyObject?) !== look.image { cursorLayer.contents = look.image }
+        cursorLayer.bounds = CGRect(origin: .zero, size: look.rect.size)
+        cursorLayer.position = CGPoint(x: look.rect.midX, y: look.rect.midY)
+        cursorLayer.transform = CATransform3DIdentity
+        // The shadow macOS draws under its cursor, in the Mac's points.
+        let shadow = ScreenCursorShape.shadow
+        cursorLayer.shadowColor = UIColor.black.cgColor
+        cursorLayer.shadowOpacity = Float(shadow.opacity)
+        cursorLayer.shadowRadius = shadow.blur / 2 * look.pixelsPerPoint
+        cursorLayer.shadowOffset = CGSize(width: 0, height: shadow.offsetDown * look.pixelsPerPoint)
         CATransaction.commit()
+    }
+
+    /// The cursor's image and its rectangle in frame pixels, and frame
+    /// pixels per Mac point: the stream's shape, the RFB shape (frame
+    /// pixels, one per point), or macOS's arrow at one frame pixel a point.
+    static func cursorLook(stream: ScreenStreamCursor?, rfb: (image: CGImage?, cursor: VNCCursor)?, at pointer: CGPoint,
+                           frame: CGSize) -> (image: CGImage?, rect: CGRect, pixelsPerPoint: CGFloat) {
+        if let stream {
+            let placement = stream.placement(at: pointer, frame: frame)
+            return (stream.image, placement.rect, placement.pixelsPerPoint)
+        }
+        if let rfb {
+            let size = CGSize(width: rfb.cursor.width, height: rfb.cursor.height)
+            let origin = CGPoint(x: pointer.x - CGFloat(rfb.cursor.hotspotX), y: pointer.y - CGFloat(rfb.cursor.hotspotY))
+            return (rfb.image, CGRect(origin: origin, size: size), 1)
+        }
+        let size = MacArrowCursor.points
+        let origin = CGPoint(x: pointer.x - MacArrowCursor.hotspot.x, y: pointer.y - MacArrowCursor.hotspot.y)
+        return (MacArrowCursor.image, CGRect(origin: origin, size: size), 1)
     }
 
     /// The agent's marker at its pointer, kept a readable size when zoomed out.

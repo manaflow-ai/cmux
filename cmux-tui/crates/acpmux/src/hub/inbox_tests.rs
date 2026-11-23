@@ -37,6 +37,7 @@ fn item(
         sender: Value::Null,
         class,
         report: false,
+        waited: false,
         at,
         text: text.to_owned(),
         details: None,
@@ -637,6 +638,56 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     urgent.fire = fire_notice(urgent.tool_notice.as_ref());
     assert!(wakes(&session.meta(), &urgent));
     assert!(!ordinary_fyi(&urgent));
+}
+
+#[tokio::test]
+async fn a_thread_read_finds_the_surge_held_messages_that_left_memory() {
+    // The surge notice's link, `acpmux session inbox ID --thread T`, answered "no messages" for
+    // a busy chat's held thread while `--search` found them (2026-11-23).
+    let (hub, session) = hub_with_chat("busy-thread");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-thread",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(hub.hold_surge_message(&session, "first", "cli", &body, &opts).unwrap().is_none());
+    let receipt = hub.hold_surge_message(&session, "held", "cli", &body, &opts).unwrap().unwrap();
+    let thread = receipt["threadId"].as_str().unwrap().to_owned();
+    // A burst of other unread messages: `trim` lets the held one go first.
+    {
+        let mut inbox = session.inbox();
+        for n in 0..KEEP {
+            let other = item(&format!("o{n}"), "other", "lane", PromptClass::Fyi, n as u64, "x");
+            inbox.items.push(other);
+        }
+        trim(&mut inbox);
+        assert!(inbox.items.iter().all(|i| i.prompt_id != "held"), "evicted");
+    }
+    assert_eq!(hub.inbox_thread(&session, &thread, false)["messages"], json!([]));
+    let whole = hub.inbox_thread_whole(&session, &thread, false).unwrap();
+    let messages = whole["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "{whole}");
+    assert_eq!(messages[0]["promptId"], "held");
+    assert_eq!(messages[0]["text"], body[0]["text"]);
+    assert_eq!(messages[0]["surgeHeld"], true);
+    // A thread with nothing evicted reads memory alone.
+    let other = hub.inbox_thread_whole(&session, "other", false).unwrap();
+    assert_eq!(other["messages"].as_array().unwrap().len(), KEEP);
 }
 
 #[test]

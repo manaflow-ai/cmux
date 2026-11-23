@@ -1,10 +1,11 @@
 //! Subagent attribution for session updates.
 //!
-//! Harnesses report subagents three ways: native ACP subagent sessions
+//! Harnesses report subagents four ways: native ACP subagent sessions
 //! (draft agentclientprotocol/agent-client-protocol#1992: `subagent_spawned`,
 //! `subagent_state_update`, and the child's updates under its own session
-//! id), Codex's legacy `spawnAgent` collaboration calls, and Codex's legacy
-//! subagent activity items. The hub forwards every update under its own
+//! id), Codex's legacy `spawnAgent` collaboration calls, Codex's legacy
+//! subagent activity items, and OpenCode's `task` tool calls
+//! (`subagents_opencode.rs`). The hub forwards every update under its own
 //! session id, so the child's id would be lost; this module writes one model
 //! into each update's `_meta.acpmux` instead:
 //!
@@ -51,7 +52,7 @@ pub fn is_subagents(params: &Value) -> bool {
 
 /// The subagents seen in one session, each mapped to its parent subagent
 /// (`None` for the session's own).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SubagentTree {
     parents: HashMap<String, Option<String>>,
     /// Children whose sender was not in the replay window yet. Once that sender
@@ -90,7 +91,7 @@ pub struct SubagentTree {
     expiry: Expiry,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct ChildPreview {
     text: String,
     message_id: Option<String>,
@@ -627,7 +628,10 @@ impl SubagentTree {
                 self.label(&id, &mut event);
                 vec![Value::Object(event)]
             }
-            Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),
+            Some("tool_call" | "tool_call_update") => match self.opencode_task(update, owner) {
+                Some(events) => events,
+                None => self.codex_legacy(update, owner),
+            },
             _ => vec![],
         }
     }
@@ -1803,3 +1807,6 @@ mod codex_tests {
 #[cfg(test)]
 #[path = "subagents_background_tests.rs"]
 mod background_tests;
+
+#[path = "subagents_opencode.rs"]
+mod opencode;
