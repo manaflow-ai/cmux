@@ -10,8 +10,9 @@ export const HOVER_LOOK_SWITCH = "hoverLook";
 export const HOVER_LOOK_ATTRIBUTE = "data-hover-look";
 
 /// The hover surfaces the restyle paints itself, off the App's glass (ui/glass/hostGlass.ts): a
-/// Base UI tooltip and hover card, a title tooltip, a toolbar hint.
-export const HOVER_LOOK_SURFACES = ".ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card";
+/// Base UI tooltip and hover card, a title tooltip, a toolbar hint, a chart's tooltip (the same list
+/// ui/hoverLook.css paints).
+export const HOVER_LOOK_SURFACES = ".ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip";
 
 /// How tooltips and hover cards look once the switch is on (Leo, ask-68c2ce3e90: "i recall a lot of
 /// our existing hovers and errors and whatnot look like shit"). Every arm is paint only: the
