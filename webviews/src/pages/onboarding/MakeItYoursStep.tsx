@@ -27,12 +27,7 @@ import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
 import { Switch } from "../../ui/Switch";
 import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
-import type {
-  MakeItYoursBackground,
-  MakeItYoursMaterial,
-  MakeItYoursState,
-  WorkStyle,
-} from "./ops";
+import type { MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import {
   LOOK_BUNDLES,
@@ -54,8 +49,7 @@ import {
 import { Faces } from "./walkLook";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
-export type MakeItYoursLook =
-  "preview" | "segmented" | "form" | "cards" | "rows";
+export type MakeItYoursLook = "preview" | "segmented" | "form" | "cards" | "rows";
 export const DEFAULT_MAKE_IT_YOURS_LOOK: MakeItYoursLook = "preview";
 
 const WORK_STYLES: readonly WorkStyle[] = ["gui", "terminal"];
@@ -86,21 +80,11 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 /** Opacity, as Settings' row: a drag previews in the slider and is written once on release (the host
  * takes one write per click or key); an arrow key writes its step at once. A value sent shows until the
  * host's state answers it, so the thumb never jumps back and two quick keys step twice. */
-function OpacitySlider({
-  value,
-  label,
-  disabled,
-}: {
-  value: number;
-  label: string;
-  disabled: boolean;
-}) {
+function OpacitySlider({ value, label, disabled }: { value: number; label: string; disabled: boolean }) {
   const { store } = useOnboarding();
   const [drag, setDrag] = useState<number | null>(null);
   // The value sent while the host still shows `base`.
-  const [sent, setSent] = useState<{ value: number; base: number } | null>(
-    null,
-  );
+  const [sent, setSent] = useState<{ value: number; base: number } | null>(null);
   const dragging = useRef(false);
   const pending = useRef<number | null>(null);
   const current = sent !== null && sent.base === value ? sent.value : value;
@@ -164,8 +148,7 @@ function OpacitySlider({
 function useWalk() {
   const { store } = useOnboarding();
   return (writes: WalkWrite[]) => {
-    if (writes.length > 0)
-      store.call("cmux.onboarding.makeItYours.walk", { writes });
+    if (writes.length > 0) store.call("cmux.onboarding.makeItYours.walk", { writes });
   };
 }
 
@@ -181,13 +164,7 @@ const NOISE_KEYS = {
 } as const;
 
 /** Screen 1: the five look tiles (House, what the person has, first) and Tidy, off unless already set. */
-function LookScreen({
-  opened,
-  current,
-}: {
-  opened: WalkValues;
-  current: WalkValues;
-}) {
+function LookScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
   const { strings } = useOnboarding();
   const walk = useWalk();
   const picked = pickedBundle(opened, current);
@@ -195,11 +172,7 @@ function LookScreen({
   const tidy = tidyOn(current);
   return (
     <>
-      <fieldset
-        className="onb-make-group onb-walk"
-        data-screen="look"
-        data-layout="grid"
-      >
+      <fieldset className="onb-make-group onb-walk" data-screen="look" data-layout="grid">
         <legend className="onb-make-label">
           {strings.t("onboarding.makeItYours.look.label")}
           {pickedName && (
@@ -212,11 +185,7 @@ function LookScreen({
           {LOOK_BUNDLES.map((bundle) => {
             const checked = bundle.id === picked;
             return (
-              <label
-                key={bundle.id}
-                className="onb-make-option onb-walk-look"
-                data-checked={checked || undefined}
-              >
+              <label key={bundle.id} className="onb-make-option onb-walk-look" data-checked={checked || undefined}>
                 <input
                   type="radio"
                   name="look"
@@ -228,12 +197,8 @@ function LookScreen({
                 />
                 <Faces bundle={bundle} />
                 <span className="onb-walk-look-text">
-                  <span className="onb-walk-look-name">
-                    {strings.t(bundle.nameKey)}
-                  </span>
-                  <span className="onb-walk-line">
-                    {strings.t(bundle.lineKey)}
-                  </span>
+                  <span className="onb-walk-look-name">{strings.t(bundle.nameKey)}</span>
+                  <span className="onb-walk-line">{strings.t(bundle.lineKey)}</span>
                 </span>
               </label>
             );
@@ -245,17 +210,13 @@ function LookScreen({
           <span className="onb-make-option-title" id="onb-walk-tidy-label">
             {strings.t("onboarding.makeItYours.tidy")}
           </span>
-          <span className="onb-make-option-detail">
-            {strings.t("onboarding.makeItYours.tidy.detail")}
-          </span>
+          <span className="onb-make-option-detail">{strings.t("onboarding.makeItYours.tidy.detail")}</span>
         </span>
         <Switch
           size="sm"
           checked={tidy}
           aria-labelledby="onb-walk-tidy-label"
-          onCheckedChange={(on: boolean) =>
-            walk(tidyWrites(on, opened, current))
-          }
+          onCheckedChange={(on: boolean) => walk(tidyWrites(on, opened, current))}
         />
       </div>
     </>
@@ -264,13 +225,7 @@ function LookScreen({
 
 /** Screen 3: how much agents may do (each mode explained; Full Access, as cmux ships, preselected on a
  * new Mac) and how loudly cmux tells you, each as radios with their line. */
-function TrustScreen({
-  opened,
-  current,
-}: {
-  opened: WalkValues;
-  current: WalkValues;
-}) {
+function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkValues }) {
   const { strings } = useOnboarding();
   const walk = useWalk();
   const mode = permission(current);
@@ -278,16 +233,10 @@ function TrustScreen({
   return (
     <>
       <fieldset className="onb-make-group onb-make-work" data-screen="trust">
-        <legend className="onb-make-label">
-          {strings.t("onboarding.makeItYours.permission.label")}
-        </legend>
+        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.permission.label")}</legend>
         <div className="onb-make-options">
           {PERMISSIONS.map((value) => (
-            <label
-              key={value}
-              className="onb-make-option"
-              data-checked={mode === value || undefined}
-            >
+            <label key={value} className="onb-make-option" data-checked={mode === value || undefined}>
               <input
                 type="radio"
                 name="permission"
@@ -297,28 +246,18 @@ function TrustScreen({
                 onChange={() => walk(permissionWrites(value, opened, current))}
               />
               <span className="onb-make-option-text">
-                <span className="onb-make-option-title">
-                  {strings.t(PERMISSION_KEYS[value])}
-                </span>
-                <span className="onb-make-option-detail">
-                  {strings.t(`${PERMISSION_KEYS[value]}.line`)}
-                </span>
+                <span className="onb-make-option-title">{strings.t(PERMISSION_KEYS[value])}</span>
+                <span className="onb-make-option-detail">{strings.t(`${PERMISSION_KEYS[value]}.line`)}</span>
               </span>
             </label>
           ))}
         </div>
       </fieldset>
       <fieldset className="onb-make-group onb-make-work">
-        <legend className="onb-make-label">
-          {strings.t("onboarding.makeItYours.noise.label")}
-        </legend>
+        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.noise.label")}</legend>
         <div className="onb-make-options">
           {NOISES.map((value) => (
-            <label
-              key={value}
-              className="onb-make-option"
-              data-checked={loud === value || undefined}
-            >
+            <label key={value} className="onb-make-option" data-checked={loud === value || undefined}>
               <input
                 type="radio"
                 name="noise"
@@ -328,12 +267,8 @@ function TrustScreen({
                 onChange={() => walk(noiseWrites(value, opened, current))}
               />
               <span className="onb-make-option-text">
-                <span className="onb-make-option-title">
-                  {strings.t(NOISE_KEYS[value])}
-                </span>
-                <span className="onb-make-option-detail">
-                  {strings.t(`${NOISE_KEYS[value]}.line`)}
-                </span>
+                <span className="onb-make-option-title">{strings.t(NOISE_KEYS[value])}</span>
+                <span className="onb-make-option-detail">{strings.t(`${NOISE_KEYS[value]}.line`)}</span>
               </span>
             </label>
           ))}
@@ -345,11 +280,7 @@ function TrustScreen({
 
 /** Looks whose tiles carry no name: the chosen work's full name shows once, under the row or the
  * preview, instead of six names cut to a word each. */
-const CAPTIONED: ReadonlySet<MakeItYoursLook> = new Set([
-  "preview",
-  "segmented",
-  "form",
-]);
+const CAPTIONED: ReadonlySet<MakeItYoursLook> = new Set(["preview", "segmented", "form"]);
 
 export function MakeItYoursStep({
   choices,
@@ -379,10 +310,7 @@ export function MakeItYoursStep({
   const askWork = screen === "all" || screen === "work";
   const askTune = screen === "all" || screen === "tune";
   const walkScreen = screen === "all" ? undefined : screen;
-  const backgrounds: MakeItYoursBackground[] = [
-    { id: NO_BACKGROUND, name: "", preview: null },
-    ...choices.backgrounds,
-  ];
+  const backgrounds: MakeItYoursBackground[] = [{ id: NO_BACKGROUND, name: "", preview: null }, ...choices.backgrounds];
   const backgroundLabel = (id: string, name: string) =>
     id === NO_BACKGROUND
       ? strings.t("onboarding.makeItYours.background.none")
@@ -390,9 +318,7 @@ export function MakeItYoursStep({
         ? strings.t("onboarding.makeItYours.background.shuffle")
         : name;
   const chosenId = choices.background ?? NO_BACKGROUND;
-  const chosen =
-    backgrounds.find((background) => background.id === chosenId) ??
-    backgrounds[0];
+  const chosen = backgrounds.find((background) => background.id === chosenId) ?? backgrounds[0];
   const chosenLabel = backgroundLabel(chosen.id, chosen.name);
   const captioned = CAPTIONED.has(look);
   // The preview names the work under itself; the other captioned looks name it under the tiles.
@@ -401,18 +327,10 @@ export function MakeItYoursStep({
   const noPicture = chosenId === NO_BACKGROUND;
 
   const work = (
-    <Group
-      look={look}
-      className="onb-make-work"
-      label={strings.t("onboarding.makeItYours.work.label")}
-    >
+    <Group look={look} className="onb-make-work" label={strings.t("onboarding.makeItYours.work.label")}>
       <div className="onb-make-options">
         {WORK_STYLES.map((style) => (
-          <label
-            key={style}
-            className="onb-make-option"
-            data-checked={choices.workStyle === style || undefined}
-          >
+          <label key={style} className="onb-make-option" data-checked={choices.workStyle === style || undefined}>
             <input
               type="radio"
               name="workStyle"
@@ -425,21 +343,15 @@ export function MakeItYoursStep({
                 })
               }
             />
-            {look === "preview" && (
-              <span className="onb-make-option-mark" aria-hidden="true" />
-            )}
+            {look === "preview" && <span className="onb-make-option-mark" aria-hidden="true" />}
             <span className="onb-make-option-text">
               <span className="onb-make-option-title">
                 {strings.t(WORK_KEYS[style].title)}
                 {style === "gui" && (
-                  <span className="onb-make-badge">
-                    {strings.t("onboarding.makeItYours.recommended")}
-                  </span>
+                  <span className="onb-make-badge">{strings.t("onboarding.makeItYours.recommended")}</span>
                 )}
               </span>
-              <span className="onb-make-option-detail">
-                {strings.t(WORK_KEYS[style].detail)}
-              </span>
+              <span className="onb-make-option-detail">{strings.t(WORK_KEYS[style].detail)}</span>
             </span>
           </label>
         ))}
@@ -447,22 +359,12 @@ export function MakeItYoursStep({
     </Group>
   );
   const density = (
-    <Group
-      look={look}
-      className="onb-make-density"
-      label={strings.t("onboarding.makeItYours.density.label")}
-    >
+    <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
       <div
         className="onb-make-segments ui-slide-host"
-        style={
-          { "--onb-make-count": choices.densities.length } as CSSProperties
-        }
+        style={{ "--onb-make-count": choices.densities.length } as CSSProperties}
       >
-        <SlidingIndicator
-          selected={choices.density}
-          selector="[data-checked]"
-          className="onb-make-thumb"
-        />
+        <SlidingIndicator selected={choices.density} selector="[data-checked]" className="onb-make-thumb" />
         {choices.densities.map((item) => (
           <label
             key={item.id}
@@ -488,11 +390,7 @@ export function MakeItYoursStep({
     </Group>
   );
   const background = (
-    <Group
-      look={look}
-      className="onb-make-background"
-      label={strings.t("onboarding.makeItYours.background.label")}
-    >
+    <Group look={look} className="onb-make-background" label={strings.t("onboarding.makeItYours.background.label")}>
       <div className="onb-make-tiles">
         {backgrounds.map((item) => {
           const label = backgroundLabel(item.id, item.name);
@@ -519,14 +417,9 @@ export function MakeItYoursStep({
               />
               <HostIcon
                 image={item.preview}
-                className={cx(
-                  "onb-make-tile-image",
-                  item.id === NO_BACKGROUND && "is-none",
-                )}
+                className={cx("onb-make-tile-image", item.id === NO_BACKGROUND && "is-none")}
               />
-              {look === "cards" && (
-                <span className="onb-make-tile-name">{label}</span>
-              )}
+              {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
             </label>
           );
         })}
@@ -544,20 +437,12 @@ export function MakeItYoursStep({
             disabled={noPicture}
           />
         )}
-        <div
-          className="onb-make-adjust-row"
-          role="radiogroup"
-          aria-labelledby="onb-make-material-label"
-        >
+        <div className="onb-make-adjust-row" role="radiogroup" aria-labelledby="onb-make-material-label">
           <span className="onb-make-adjust-label" id="onb-make-material-label">
             {strings.t("onboarding.makeItYours.material")}
           </span>
           <div className="onb-make-chips ui-slide-host">
-            <SlidingIndicator
-              selected={choices.material}
-              selector="[data-checked]"
-              className="onb-make-thumb"
-            />
+            <SlidingIndicator selected={choices.material} selector="[data-checked]" className="onb-make-thumb" />
             {choices.materials.map((material) => (
               <label
                 key={material}
@@ -626,11 +511,7 @@ function Group({
   return (
     <fieldset className={cx("onb-make-group", className)}>
       <legend className="onb-make-label">{label}</legend>
-      {look === "form" ? (
-        <div className="onb-make-control">{children}</div>
-      ) : (
-        children
-      )}
+      {look === "form" ? <div className="onb-make-control">{children}</div> : children}
     </fieldset>
   );
 }
@@ -653,10 +534,7 @@ function MakeItYoursPreview({
       data-work={choices.workStyle}
       data-art={image != null || undefined}
     >
-      <HostIcon
-        image={image}
-        className={cx("onb-make-window-art", image == null && "is-none")}
-      />
+      <HostIcon image={image} className={cx("onb-make-window-art", image == null && "is-none")} />
       <div className="onb-make-window-bar">
         <span />
         <span />
@@ -665,11 +543,7 @@ function MakeItYoursPreview({
       <div className="onb-make-window-body">
         <div className="onb-make-pane onb-make-pane-side">
           {[0, 1, 2, 3, 4].map((row) => (
-            <span
-              key={row}
-              className="onb-make-line"
-              data-on={row === 1 || undefined}
-            />
+            <span key={row} className="onb-make-line" data-on={row === 1 || undefined} />
           ))}
         </div>
         {gui ? (
@@ -693,11 +567,7 @@ function MakeItYoursPreview({
             {[0, 1, 2, 3, 4, 5].map((row) => (
               <span
                 key={row}
-                className={cx(
-                  "onb-make-line",
-                  row % 3 === 0 && "is-prompt",
-                  row % 3 === 2 && "is-short",
-                )}
+                className={cx("onb-make-line", row % 3 === 0 && "is-prompt", row % 3 === 2 && "is-short")}
               />
             ))}
           </div>
