@@ -12,7 +12,7 @@ import Testing
 /// (the model's ladder, then a retry once its window lets go), and the window draws no line, dot or badge for it.
 /// The native card opens only when the person asks (the Restoring sessions card's Details).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHasNoHealthLineTests {
-    static let linked = AppHealth().isModelLinked
+    nonisolated static let linked = AppHealth().isModelLinked
     /// A label no other view in the window has, so any text that names the part is app health's line.
     static let label = "Agent chat 51772"
 
@@ -49,13 +49,17 @@ import Testing
         let headline = try #require(health.headline, "the part is not quiet, so the old sidebar drew a line for it")
         #expect(headline.partID == AppHealth.pageHostID)
 
-        // Main-actor hops the old indicator took to follow the snapshot.
-        for _ in 0..<8 { await Task.yield() }
         window.contentView?.layoutSubtreeIfNeeded()
 
+        // The window controller mounts what it shows at once: the deleted line (AppHealthIndicatorView,
+        // `cmux.sidebar.appHealth`) was in the sidebar from the first frame, hidden or not. Any view of app health,
+        // by its type or its accessibility id, is the line coming back.
         let root = try #require(window.contentView)
-        let healthViews = Self.views(under: root).filter { String(describing: type(of: $0)).contains("Health") }
+        let healthViews = Self.views(under: root).filter {
+            String(describing: type(of: $0)).contains("Health") || $0.accessibilityIdentifier().localizedCaseInsensitiveContains("health")
+        }
         #expect(healthViews.isEmpty, "no app health view in the window: \(healthViews.map { type(of: $0) })")
+        // And nothing in the window names the stuck part: its text, its accessibility label, its tooltip.
         let named = Self.views(under: root).compactMap(Self.text).filter { $0.contains(Self.label) }
         #expect(named.isEmpty, "nothing in the window names the stuck part: \(named)")
     }
