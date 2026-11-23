@@ -445,3 +445,15 @@ test("a reloaded running turn draws its read-at-open finished calls folded, and 
   const live = turnView([reloaded[0]!, watched], new Set(), { now: 5_000, working: true, turnStartedAtMs: 1_000 });
   expect(live.flatMap((row) => tools(row))).toContain("old-1");
 });
+
+test("a running turn with a tool call and a streaming reply draws (no ReferenceError)", () => {
+  // shapeLiveRows read `foldsPrompt` from shapeLiveTurn's scope, so every live turn that reached it threw
+  // and the pane showed "could not be drawn" (#49052).
+  const rows: AcpmuxRow[] = [
+    user(1_000),
+    { id: "tool", version: 1, at: 2_000, kind: "activity", title: "Read file", status: "completed" } as AcpmuxRow,
+    { id: "answer", version: 1, at: 3_000, kind: "assistant", text: "streaming" },
+  ];
+  const shown = turnView(rows, new Set(), { now: 10_000, working: true, turnStartedAtMs: 1_000 });
+  expect(shown.length).toBeGreaterThan(0);
+});

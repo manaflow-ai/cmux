@@ -114,6 +114,8 @@ export function mockSummary(
     permissionWaitMaxMs: days.length ? 14 * 60_000 + 20_000 : 0,
     limitErrors: days.length ? 3 : 0,
     workingMs,
+    // Three agents most of the day: about 3.4 hours of agent work per hour on the clock.
+    busyMs: Math.round(workingMs / 3.4),
     waitingMs: Math.round(workingMs * 0.04),
     peakParallel: days.length ? 5 : 0,
     peakParallelAt: days.length ? until - 2 * DAY_MS : null,
