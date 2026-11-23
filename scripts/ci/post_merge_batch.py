@@ -346,14 +346,15 @@ def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since
     """The suites a batch run calls: every one the commits since the newest earlier batch run reach.
     Only a run whose judge succeeded counts: one whose plan died (drill run 44881749105, rate limit)
     tested nothing, and planning past it skipped the suites its commits reached. A hot swap out drill
-    branch (lane/post-merge-drill-pieces-*) with no earlier batch run calls only the drill suite: its
-    first batch is the green the drill's red is new against, and every other suite there is cost."""
+    branch (lane/post-merge-drill-pieces-*) calls only the drill suite on every batch: its first batch is
+    the green the drill's red is new against, and every other suite there is cost (the judge waits for
+    the whole batch: run 45037084940 held the drill's red 85 minutes behind web shards)."""
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
     tested = next((r for r in earlier if judged(r["id"])), None)
     base = tested["head_sha"] if tested else ""
     files = files_since(base) if base else None
     picked = [key for key, suite in suites.items() if files is None or suite.reached(files)]
-    if files is None and branch.startswith(PIECES_DRILL) and "drill" in suites:
+    if branch.startswith(PIECES_DRILL) and "drill" in suites:
         picked = ["drill"]
     return {"base": base, "suites": picked, "files": None if files is None else len(files)}
 
@@ -391,7 +392,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         # tip is still tested; the next batch's judge compares against this run as usual.
         print(f"plan: earlier batch runs unreadable, running every suite: {err}", file=sys.stderr)
         summary(args.summary, "- Earlier batch runs could not be read (rate limit): every suite runs.")
-        plan = plan_batch(args.sha, [], suites, lambda base: [])
+        plan = plan_batch(args.sha, [], suites, lambda base: [], branch=args.branch)
     write_outputs(
         args.github_output,
         {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"]},
