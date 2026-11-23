@@ -4503,6 +4503,10 @@ SCRATCH_SWEEP_AGE_SECONDS = 2 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_AGE_NO_PROC_SECONDS = 6 * GATE_LIMIT_MAX_SECONDS
 SCRATCH_SWEEP_OFF = "CMUX_NEXT_PREPUSH_SCRATCH_SWEEP"  # "0" turns the start-up sweep off; delete on finish stays
 _LIVE_SCRATCH: list[str] = []
+# The process whose scratch _LIVE_SCRATCH lists. A fork (the crash ratchet's scan pool) inherits the list and the
+# SIGTERM handler; Pool.terminate() then SIGTERMs every worker, whose handler removed the parent's live scratch
+# mid-scan (FileNotFoundError on every push big enough to fork, a base merge's). Only this pid removes it.
+_SCRATCH_PID = os.getpid()
 
 
 def _process_start(pid: int) -> str | None:
@@ -4569,7 +4573,10 @@ def scratch_dir(prefix: str = SCRATCH_PREFIX):
 
 
 def remove_live_scratch() -> None:
-    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step)."""
+    """Remove every scratch dir this run still has (a signal handler's or the watchdog's last step). A forked child
+    removes none: the dirs are its parent's, still in use."""
+    if os.getpid() != _SCRATCH_PID:
+        return
     for path in list(_LIVE_SCRATCH):
         try:
             _remove_scratch(path)

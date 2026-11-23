@@ -92,6 +92,24 @@ class ScratchDirTest(unittest.TestCase):
         self.assertFalse(os.path.lexists(tmp))
 
 
+    def test_a_forked_worker_stopped_by_sigterm_leaves_the_parents_scratch(self):
+        # Pool.terminate() SIGTERMs the crash ratchet's fork workers; their inherited handler removed the
+        # parent's live scratch, and the parent's next read of it failed.
+        code = (
+            "import importlib.util, multiprocessing, os, sys, time\n"
+            f"spec = importlib.util.spec_from_file_location('g', {str(GATE)!r})\n"
+            "g = importlib.util.module_from_spec(spec); sys.modules['g'] = g; spec.loader.exec_module(g)\n"
+            "g.remove_scratch_on_signals()\n"
+            "with g.scratch_dir() as tmp:\n"
+            "    child = multiprocessing.get_context('fork').Process(target=time.sleep, args=(30,))\n"
+            "    child.start(); time.sleep(0.5); child.terminate(); child.join(20)\n"
+            "    print(os.path.isdir(tmp), flush=True)\n"
+        )
+        env = dict(os.environ, TMPDIR=str(self.root))
+        out = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout.strip(), "True")
+
 class SweepTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="sweep-test-")).resolve()
