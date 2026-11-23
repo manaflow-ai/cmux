@@ -33,6 +33,7 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+mod spans;
 mod start_chat_cli;
 mod state;
 pub(crate) mod sync_cli;
