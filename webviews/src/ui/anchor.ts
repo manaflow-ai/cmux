@@ -83,6 +83,33 @@ export function resolveUiSide(
       : "below";
 }
 
+/** A right-click menu keeps a corner at the pointer wherever the whole menu fits. When neither
+ * side fits, the menu can cross the pointer so every row that fits in the window stays visible. */
+export function resolvePointerMenuPosition(
+  point: { x: number; y: number },
+  size: UiOverlaySize,
+  viewport: UiViewport,
+  margin = 4,
+): UiOverlayPosition {
+  // Give up the edge inset before making a menu scroll.
+  const insetX = Math.min(margin, Math.max(0, (viewport.width - size.width) / 2));
+  const insetY = Math.min(margin, Math.max(0, (viewport.height - size.height) / 2));
+  const side = resolveUiSide({ top: point.y, bottom: point.y }, size.height, viewport.height, {
+    gap: 0,
+    margin: insetY,
+  });
+  const right = viewport.width - insetX - point.x;
+  const left = point.x - insetX;
+  const x = right >= size.width || right >= left ? point.x : point.x - size.width;
+  const y = side === "above" ? point.y - size.height : point.y;
+  return {
+    left: Math.max(insetX, Math.min(x, viewport.width - insetX - size.width)),
+    top: Math.max(insetY, Math.min(y, viewport.height - insetY - size.height)),
+    side,
+    maxHeight: viewport.height - 2 * insetY,
+  };
+}
+
 /**
  * Resolve an overlay in viewport coordinates. Both inputs are DOM rects, so a
  * page zoom or a device scale factor cannot introduce a second coordinate
