@@ -985,7 +985,7 @@ class SeedRoot(unittest.TestCase):
             block = block[:block.index("\n      - name:", 10)]
             self.assertIn("working-directory: ${{ matrix.workspace }}", block, name)
         self.assertEqual(NEXT_WORKFLOW.read_text().count(
-            "CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT == '0' && '0' || '' }}"), 2)
+            "CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  #"), 2)
 
     def test_a_restored_seed_is_reported_seeded(self):
         temp = Path(self.tmp.name) / "runner-temp"
