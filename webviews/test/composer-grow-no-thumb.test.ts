@@ -182,6 +182,24 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
         await page.evaluate(async () => {
           for (let left = 12; left > 0; left--) await new Promise((resolve) => requestAnimationFrame(resolve));
         });
+        console.log(
+          "DBG_WHEEL",
+          JSON.stringify(
+            await page.evaluate((selector) => {
+              const f = document.querySelector<HTMLElement>(selector)!;
+              return {
+                attrs: [...f.attributes].map((a) => a.name),
+                style: f.getAttribute("style"),
+                top: f.scrollTop,
+                sh: f.scrollHeight,
+                ch: f.clientHeight,
+                ink: getComputedStyle(f).getPropertyValue("--cmux-shown-scroller-ink"),
+                fadeIn: getComputedStyle(f).getPropertyValue("--cmux-scroller-fade-in"),
+                root: document.documentElement.hasAttribute("data-cmux-scroller-fade"),
+              };
+            }, FIELD),
+          ),
+        );
         expect(await laneInk(page)).toBeGreaterThanOrEqual(24);
         const scrolled = await page.evaluate((selector) => {
           const field = document.querySelector<HTMLElement>(selector)!;

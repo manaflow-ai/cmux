@@ -175,8 +175,12 @@ export function followShownScrollerFade(
       : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
     view.cancelAnimationFrame(frame);
     if (ms <= 0) return settle();
-    const start = view.performance.now();
+    // The fade's clock is the frames' own: a frame's time can run on a clock other than
+    // performance.now (a page whose animations are slowed or paused through the inspector), and a
+    // start read from performance.now then left the fade at its first step for good.
+    let start: number | undefined;
     const step = (now: number) => {
+      start ??= now;
       const t = Math.min(1, Math.max(0, (now - start) / ms));
       if (t >= 1) return settle();
       // A fade in eases out, as the pane's other fades (--agent-ease-out). A fade out eases in and
@@ -189,7 +193,7 @@ export function followShownScrollerFade(
       element.style.setProperty(NEAR_PROPERTY, drawn.near.toFixed(3));
       frame = view.requestAnimationFrame(step);
     };
-    step(start);
+    frame = view.requestAnimationFrame(step);
   };
   const marks = new view.MutationObserver(fade);
   marks.observe(element, { attributes: true, attributeFilter: [SCROLLING_ATTRIBUTE, NEAR_ATTRIBUTE] });
