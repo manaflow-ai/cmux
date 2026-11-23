@@ -109,7 +109,6 @@ test("a background turn's reply gets its action row with the ended record, and k
     for (let tries = 0; tries < 200 && !ready(); tries += 1)
       await new Promise<void>((resolve) => {
         wakes.push(resolve);
-        setTimeout(resolve, 20);
       });
     expect(ready()).toBe(true);
   };
@@ -183,7 +182,6 @@ test("a late chunk of the reply after its turn ended goes on in the same row", a
     )
       await new Promise<void>((resolve) => {
         wakes.push(resolve);
-        setTimeout(resolve, 20);
       });
     // The mock's own scripted chat comes first; the background turn's rows are this one reply.
     expect(
