@@ -1,0 +1,85 @@
+name: Cloud journey (a new teammate, staging)
+
+# A new person's first Cloud agent, end to end, on staging (scripts/cmux-next/cloud-journey.ts --fresh-account):
+# sign up a brand-new account on the dev Stack project, sign in, create a machine, start an agent, first chat,
+# first reply, a second chat's own VM (one VM per agent), pause after idle, resume by a message, reply again,
+# delete. Each step's time is in the job summary.
+#
+# No secret: the account is new on every run (cmux-journey+fresh-<nonce>@example.com), never Leo's and never the
+# shared agent test account. --fresh-account refuses production's Stack project.
+#
+# model=real (the default) passes no Claude login, so the first reply is the new person's own: it needs the team
+# gateway's capped route for an account with no Claude account (RFD 0053 row 1a; cmux#51367, then staging's
+# CLOUD_CODEROUTER_EDGE_HOST in cmux-platform). Until both are on staging, its "reply" step fails with "no model
+# route": that is kink K1, this run's red by design. model=stub runs the rest of the walk on the shared model stub.
+#
+# idle_pause turns the fresh team's cloud.idlePause on (off by default for a new team, kink K8) and waits for the
+# machine to pause on its own after that many idle seconds; 0 leaves the idle pause out.
+#
+# Leo, 2026-11-23: "we need to be able to get this working from the perspective of a teammate. a new person using
+# cloud."
+
+on:
+  # A push that changes this walk runs it once at the branch tip, on the stub (a real-model run is red until K1 is
+  # fixed on staging, and a push must not turn the branch red for it); a manual run picks.
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - .github/workflows/cloud-journey-teammate.yml
+      - scripts/cmux-next/cloud-journey-teammate.test.ts
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "real (no login: the first reply through the team gateway) or stub"
+        type: choice
+        options: [real, stub]
+        default: real
+      idle_pause:
+        description: "Seconds idle before the machine should pause on its own (0: leave out)"
+        type: string
+        default: "120"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-journey-teammate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  walk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: A new teammate's Cloud walk (staging)
+        env:
+          JOURNEY_MODEL: ${{ inputs.model || 'stub' }}
+          IDLE_PAUSE: ${{ inputs.idle_pause || '120' }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-journey-teammate"
+          mkdir -p "$out"
+          args=(--backend staging --fresh-account --skip sync --out "$out")
+          if [ "$JOURNEY_MODEL" = stub ]; then args+=(--model stub); fi
+          case "$IDLE_PAUSE" in ''|0) ;; *[!0-9]*) echo "::error::idle_pause is a number of seconds"; exit 1 ;; *) args+=(--idle-pause "$IDLE_PAUSE") ;; esac
+          rc=0
+          bun scripts/cmux-next/cloud-journey.ts "${args[@]}" || rc=$?
+          { echo "### A new teammate's Cloud walk (model=$JOURNEY_MODEL, idle_pause=$IDLE_PAUSE)"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+      - name: Keep the step table
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cloud-journey-teammate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cloud-journey-teammate/journey.json
+            ${{ runner.temp }}/cloud-journey-teammate/summary.md
+          if-no-files-found: warn
+          retention-days: 7
