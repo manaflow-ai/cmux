@@ -40,6 +40,7 @@ pub mod refusal;
 pub mod render;
 pub mod schema;
 pub mod session_worktrees;
+pub mod shipped;
 pub mod sidebar_look;
 pub mod store;
 pub mod text;

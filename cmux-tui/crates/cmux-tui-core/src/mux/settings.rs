@@ -97,6 +97,18 @@ impl Mux {
     /// daemon, the detached owner inherits it, and a `server restart`
     /// carries it to the next owner (`CarriedLaunch` in cmux-tui).
     pub fn start_default_settings_owner(self: &Arc<Self>) -> bool {
+        // The shipped theme files and sidebar looks this binary embeds, for
+        // the Mac app to read under its daemon state directory
+        // (`CMUX_TUI_STATE_DIR`, cmux_config::shipped): before the first
+        // client, since `attach` starts the owner before it serves. A durable
+        // session only: an in-memory one writes nothing on disk.
+        if !cfg!(test)
+            && self.session_state_directory().is_some()
+            && let Some(state_root) = crate::platform::workspace_state_dir()
+            && let Err(error) = cmux_config::shipped::write(&state_root)
+        {
+            eprintln!("cmux-tui: shipped resources: not written: {error}");
+        }
         self.start_settings_owner(self.default_settings_paths())
     }
 

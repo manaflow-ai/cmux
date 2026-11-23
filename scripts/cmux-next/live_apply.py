@@ -11,7 +11,8 @@ Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heavies
   strings     plus string catalogs (.xcstrings): a copy of the NIGHTLY shows the change's web pages
               (gen-strings.mjs reads the catalogs) and Swift's source strings; Swift's translations
               wait for the next build
-  daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary
+  daemon      plus Rust (cmux-tui, acpmux) and the Resources files cmux-tui owns (shipped-resources.json: theme
+              files, sidebar looks): a daemon or CLI restart with the change's binary
   swift-live  plus app Swift changed only inside function bodies and computed properties, or new
               Swift files (the patch carries them: Prototypes/ViewShell/inject.sh), in a module the
               live code build patches (LIVE_MODULE)
@@ -69,6 +70,27 @@ LIVE_PACKAGE = re.compile(r"(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packa
                           r"|(?:^|/)Prototypes/ViewShell/Sources/")
 SWIFT_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/")
 CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
+# Resources folders whose .json files cmux-tui owns: the daemon embeds them and writes them where the Mac app reads
+# them (cmux-config src/shipped.rs), so a change to one is daemon, not a resource rebuild. An app built before that
+# reads its bundle's copy, so it needs one build first (hot-apply-more-kinds.md step 5 in cmuxterm-hq docs/design).
+SHIPPED_MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                                "cmux-tui", "crates", "cmux-config", "shipped-resources.json")
+
+
+def owned_folders(manifest=SHIPPED_MANIFEST):
+    try:
+        with open(manifest) as handle:
+            return tuple(json.load(handle).get("folders", []))
+    except (OSError, ValueError):
+        return ()
+
+
+OWNED_FOLDERS = owned_folders()
+
+
+def owned_resource(path):
+    folder, _, name = path.rpartition("/")
+    return folder in OWNED_FOLDERS and name.endswith(".json")
 
 # Heaviest first: a change takes the verdict of its heaviest file.
 ORDER = ["rebuild", "swift-live", "daemon", "web-live", "strings", "ios-only", "no-app"]
@@ -125,6 +147,8 @@ def classify(files, diffs):
             note("web-live", path)
         elif STRINGS.search(path):
             note("strings", path)
+        elif owned_resource(path):
+            note("daemon", path)
         elif REBUILD_FILE.search(path):
             note("rebuild", path, "resource or manifest")
         elif RUST.search(path):

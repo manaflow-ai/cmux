@@ -131,6 +131,18 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("M", "Resources/en.lproj/Localizable.strings")]), "rebuild")
         self.assertEqual(self.verdict([("M", "Packages/iOS/CmuxMobile/Resources/Localizable.xcstrings")]), "ios-only")
 
+    def test_resources_files_cmux_tui_owns_are_daemon(self):
+        # The daemon embeds the shipped theme files and sidebar looks and writes them where the app reads them
+        # (cmux-config src/shipped.rs, its manifest shipped-resources.json).
+        self.assertEqual(live_apply.OWNED_FOLDERS, ("Resources/theme-files", "Resources/sidebar-looks"))
+        self.assertEqual(self.verdict([("M", "Resources/theme-files/teal.json")]), "daemon")
+        self.assertEqual(self.verdict([("A", "Resources/sidebar-looks/studio.json")]), "daemon")
+        # Another Resources folder, or a file under a subfolder, stays a rebuild.
+        self.assertEqual(self.verdict([("M", "Resources/cmux-themes/x.json")]), "rebuild")
+        self.assertEqual(self.verdict([("M", "Resources/theme-files/sub/x.json")]), "rebuild")
+        # A missing manifest owns nothing.
+        self.assertEqual(live_apply.owned_folders("/nonexistent/shipped-resources.json"), ())
+
     def test_typescript_only_the_web_bundles_import_is_web_live(self):
         generated = "clients/ts/cloud/src/generated.ts"
         result = live_apply.classify([("M", generated)], {})

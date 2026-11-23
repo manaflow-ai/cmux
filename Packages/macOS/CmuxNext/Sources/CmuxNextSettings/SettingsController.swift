@@ -146,8 +146,10 @@ public final class SettingsController {
     /// `untilWritable` returns once the writer can take a write (the app: the home daemon is live);
     /// those two launch writes wait for it (``launchWrite(after:_:)``). Nil: they go at once.
     public func start(announcingDiagnostics: Bool = false, rotatingFavoriteThemes: Bool = false,
-                      untilWritable: (@MainActor @Sendable () async -> Void)? = nil) {
+                      untilWritable: (@MainActor @Sendable () async -> Void)? = nil,
+                      isDaemonLive: (@MainActor @Sendable () -> Bool)? = nil) {
         guard watcher == nil else { return }
+        if let isDaemonLive { followShippedResources(isLive: isDaemonLive) }
         if announcingDiagnostics, diagnosticToasts == nil {
             let toasts = SettingsDiagnosticToasts(registry: applier.registry)
             diagnosticToasts = toasts
@@ -456,10 +458,11 @@ public final class SettingsController {
         effective.root = buildDefaults.filling(effective.root)
         // The theme file applies over the user's file and under managed values (ThemeFileOverlay).
         let themes = ThemeFilesRead(effective.root, configDirectory: configDirectory, managed: Set(effective.managedKeys.keys),
-                                    lastGood: lastGoodTheme, listing: listingThemes)
+                                    lastGood: lastGoodTheme, listing: listingThemes,
+                                    bundled: buildDefaults.shippedFolder(named: ThemeFileSetting.shippedFolderName))
         effective.root = themes.applied
         // The sidebar look fills only what every layer above leaves unset (SidebarLookPreset).
-        effective.root = SidebarLookPreset.filling(effective.root)
+        effective.root = SidebarLookPreset.filling(effective.root, folder: buildDefaults.shippedFolder(named: SidebarLookPreset.folderName))
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
@@ -540,12 +543,13 @@ extension SettingsController {
         /// Reads the active theme file and, `listing`, every file in the folder (for the palette and
         /// previews). File I/O: off the main thread, except the launch read, which reads only the
         /// active file (as it reads cmux-next.json) so the first window draws in its look.
-        init(_ root: JSONValue, configDirectory: URL, managed: Set<String>, lastGood: ThemeFileInput?, listing: Bool) {
+        init(_ root: JSONValue, configDirectory: URL, managed: Set<String>, lastGood: ThemeFileInput?, listing: Bool,
+             bundled: URL? = ThemeFileSetting.bundledFolder) {
             base = root
             var sources: [String: String] = [:]
             if listing {
-                for name in ThemeFileSetting.names(configDirectory: configDirectory).prefix(Self.listLimit) {
-                    if let text = try? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)?.get() { sources[name] = text }
+                for name in ThemeFileSetting.names(configDirectory: configDirectory, bundled: bundled).prefix(Self.listLimit) {
+                    if let text = try? ThemeFileOverlay.source(named: name, configDirectory: configDirectory, bundled: bundled)?.get() { sources[name] = text }
                 }
             }
             self.sources = sources
@@ -563,7 +567,7 @@ extension SettingsController {
                 return
             }
             let source = sources[name].map { Result<String, any Error>.success($0) }
-                ?? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)
+                ?? ThemeFileOverlay.source(named: name, configDirectory: configDirectory, bundled: bundled)
             let folder = ThemeFileSetting.folder(configDirectory: configDirectory)
             var overlay = ThemeFileOverlay(name: name, source: source, base: root, folder: folder)
             activeSource = try? source?.get()

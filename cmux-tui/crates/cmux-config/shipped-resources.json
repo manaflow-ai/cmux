@@ -1,0 +1,4 @@
+{
+  "about": "Resources folders whose .json files cmux-tui owns: the daemon embeds them and writes them to <state root>/shipped/, the Mac app reads that copy, so hot-apply ships a change to them with the daemon (cmux-config src/shipped.rs, scripts/cmux-next/live_apply.py).",
+  "folders": ["Resources/theme-files", "Resources/sidebar-looks"]
+}

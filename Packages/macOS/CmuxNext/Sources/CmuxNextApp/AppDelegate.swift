@@ -146,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config
         // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
         let settingsRead = SettingsController.readAtLaunch(
-            file: CmuxConfigFile.launchFile(), buildDefaults: .thisBuild)
+            file: CmuxConfigFile.launchFile(), buildDefaults: .thisBuild.shipping(daemonStateDirectory: environment.daemonStateDirectory)) // theme files, looks: the daemon's copy
         TerminalThemeSetting.prime(settingsRead.snapshot)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
@@ -362,7 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }) // fresh-install Glass, theme rotation: written once the daemon is live
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true, untilWritable: { [daemon = services.daemon] in await daemon.untilLive() }, isDaemonLive: { [daemon = services.daemon] in daemon.isLive }) // fresh-install Glass, theme rotation: written once the daemon is live; a daemon shipping other theme files reloads them
         CustomizeDoctorNotice(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settingsFile: { [weak settings] in settings?.file.url }, untilWindow: { [firstFrame] in await firstFrame.opened() }, present: CustomizeDoctorNotice.toast { [weak registry] in // `customize doctor --announce` after each load; Review opens its card
             _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["route": .string(CustomizeDoctorNotice.route)], origin: .user)) }).follow(settings)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, isFirstLaunch: OnboardingWindowPresenter.isFirstLaunch(), firstWindow: { [firstFrame] in await firstFrame.opened() })

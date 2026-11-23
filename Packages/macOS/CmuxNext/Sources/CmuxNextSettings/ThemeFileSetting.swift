@@ -14,7 +14,9 @@ public nonisolated struct ThemeFileSetting: Sendable {
     public static let maximumBytes = 256 * 1024
     /// The theme files cmux ships (`Resources/theme-files`, `<app>/Contents/Resources/theme-files`): listed
     /// with the user's and read when the user has no file of the same name, which wins. Nil outside an app.
-    public static let bundledFolder: URL? = Bundle.main.resourceURL?.appending(path: "theme-files", directoryHint: .isDirectory)
+    public static let bundledFolder: URL? = Bundle.main.resourceURL?.appending(path: shippedFolderName, directoryHint: .isDirectory)
+    /// The shipped files' folder in the bundle and in the daemon's copy (``ShippedResourceFolder``).
+    public static let shippedFolderName = "theme-files"
 
     public init() {}
 

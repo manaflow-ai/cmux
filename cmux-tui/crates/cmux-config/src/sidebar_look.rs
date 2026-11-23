@@ -55,7 +55,7 @@ pub const GRID_KEYS: [&str; 12] = [
 /// Keys a file reads that are not settings.
 const RESERVED_KEYS: [&str; 3] = ["name", "description", "$schema"];
 
-const SHIPPED: [(&str, &str); 3] = [
+pub(crate) const SHIPPED: [(&str, &str); 3] = [
     ("claude", include_str!("../../../../Resources/sidebar-looks/claude.json")),
     ("codex", include_str!("../../../../Resources/sidebar-looks/codex.json")),
     ("studio", include_str!("../../../../Resources/sidebar-looks/studio.json")),

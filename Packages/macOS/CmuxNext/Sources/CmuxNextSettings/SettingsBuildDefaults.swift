@@ -7,6 +7,9 @@ import Foundation
 /// Settings shows them as the value in effect, and Reset returns to them.
 public nonisolated struct SettingsBuildDefaults: Sendable, Equatable {
     public var values: [[String]: JSONValue]
+    /// Where the shipped theme files and sidebar looks are read: the daemon's copy
+    /// (``shipping(daemonStateDirectory:)``), else the app bundle's when nil.
+    public var shipped: ShippedResourceFolder?
 
     public static let none = SettingsBuildDefaults(values: [:])
 
