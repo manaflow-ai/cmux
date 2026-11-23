@@ -140,6 +140,15 @@ way. Never change a `computerUse.*` setting yourself. When the person takes
 over the mouse or keyboard, acting calls pause (`person_in_control`); wait and
 try again later, do not fight them.
 
+System alerts (a crash notice, a sign-in reminder, a privacy ask) belong to
+protected processes. When the person has turned on `computerUse.alerts`,
+`list_alerts` reads them (owner, text, buttons, a `class`, and `put_off`: the
+buttons that only put the alert off) and `dismiss_alert {alert_id, button}`
+presses one `put_off` button. It never presses a button that allows, opens,
+resets or submits, and an alert with an empty `put_off` is for the person:
+report its `class`, owner and text and leave it. `alerts_off` means the
+setting is off; do not look for another way to reach the alert.
+
 A transport hiccup is not a refusal: the bridge retries a call itself while
 Computer Use restarts, and a retried call never runs twice.
 
@@ -155,7 +164,15 @@ Shortcuts).
 ## From a shell
 
 `cmux computer-use status|tools|call <tool> --args JSON|screenshot --out FILE
-[--window ID]|record --out FILE --seconds N|approvals list|machines` reaches the same worker as the CLI
-caller. `cmux computer-use mcp` serves the tools alone, as the
+[--window ID | --display ID]|record --out FILE --seconds N|displays|doctor|approvals list|machines`
+reaches the same worker as the CLI caller. `displays` (the `list_displays` tool) gives
+each display's id, the string `screenshot`'s `display` takes, with its frame,
+scale and which is main. `doctor [--machine M] [--json]` says whether capture
+and input would work and, for each thing that would stop them, the one step
+that fixes it; it only reads (no OS prompt) and exits 0 when all pass. When a
+call is refused for a missing grant, a lock screen or the mode, run `doctor`
+and tell the person its fix line. `cmux computer-use alerts [--json] [--machine M]`
+lists system alerts and `cmux computer-use alerts dismiss ID --button TITLE` puts
+one off (both need `computerUse.alerts`). `cmux computer-use mcp` serves the tools alone, as the
 `cmux-computer-use` MCP server, for an MCP client outside cmux. Settings go through `cmux settings`, which an agent may not use for
 `computerUse.*` keys.
