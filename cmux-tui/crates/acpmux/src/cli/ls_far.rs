@@ -272,6 +272,7 @@ pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
 
 /// Starts `ls --refresh-relay-cache` detached, unless one started within the relay's own
 /// deadline is still marked. Not in tests: this process is the test binary there.
+#[cfg_attr(test, allow(clippy::needless_return))]
 fn refresh_detached(cache: &Path) {
     let mark = cache.with_file_name(REFRESH_MARK);
     let now = crate::store::now_ms();
