@@ -4,10 +4,10 @@
 //!   host     --listen-systemd --peer-uid 0 [--display :99] [--xauthority PATH] [--idle-exit-s 120] [--codec openh264] [--no-udp-link] [--link-stun HOST:PORT,...]
 //!            (Linux, the production Cloud mode: the socket comes from systemd; src/systemd.rs;
 //!            media moves to a UDP link when the viewer offers one: src/hybrid.rs)
-//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
+//!   host     [--browser URL (Linux) [--browser-bin google-chrome] [--browser-cdp-port N]] --owner USER --token-fd N [--bind 127.0.0.1] [--single-tenant-overlay 1] [--display :99 | --display main|N on macOS] [--port 4103] [--max-fps N (default: the display's refresh rate, else 60)] [--input-frame-now 1] [--rtt-tail-probe 1] [--resolution-ladder 1 [--max-qp N (default 40)]] [--max-width PX (macOS)] [--codec auto|vaapi|openh264|x264|videotoolbox (auto: VAAPI on a GPU, else openh264)] [--openh264-lib PATH] [--profile high|baseline] [--upstream-record DIR]
 //!            [--source synthetic|synthetic-still|synthetic-tick [--synthetic-size WxH] [--synthetic-scene bars|text|noise|churn]] (macOS bench builds, `host` and `serve`:
 //!            a generated picture with the marker instead of the display; no grants needed; src/synthetic.rs)
-//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
+//!   bench    --addr HOST:4103 --token-fd N [--carrier udp|stream] [--input key|click|scroll|none] [--samples 300] [--duration-s 30 (none)] [--marker-log 1 (none: each marker change with its decode time)] [--rtt-nack-retry 1] [--user USER] [--upstream mic|camera|screen] [--at X,Y] [--marker-origin X,Y] [--caps video.scaled (read a smaller picture scaled up to the stream)] [--decoder videotoolbox|openh264 (macOS)] [--snapshot FILE.ppm] [--record FILE.h264] [--present :N (Linux: draws each decoded frame in a window on that X display)]
 //!   observe  --mode passive --pid VIEWER_PID --window CGWINDOW_ID --start-file PATH --marker-origin X,Y --cell-size N [--expected-nonce 32 lowercase hex] [--duration-s 10] [--interval-ms 1000]
 //!   testapp  --display :99 --workload marker|text|motion|idle
 //!   serve    one device hub session over the secure link, driven by the app in JSON lines on
@@ -52,6 +52,8 @@ mod carrier;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod clipboard;
 mod clock;
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
+pub mod computer_use_worker;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod connect;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -93,6 +95,8 @@ mod pipewire_capture;
 mod portal;
 #[cfg(all(feature = "bench", target_os = "linux"))]
 mod present;
+#[cfg(all(feature = "bench", any(target_os = "linux", target_os = "macos")))]
+mod scaled;
 // The device hub client of the desktop hosts (`linux-host`, `windows-host`).
 #[cfg(any(all(feature = "link", target_os = "linux"), windows))]
 mod screen_host;
@@ -100,6 +104,8 @@ mod screen_host;
 mod selftest;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod serve_wish;
 #[cfg(target_os = "linux")]
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -108,6 +114,8 @@ mod stream;
 mod synthetic;
 #[cfg(target_os = "linux")]
 mod systemd;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod test_loss;
 #[cfg(target_os = "linux")]
 mod testapp;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -129,10 +137,17 @@ mod wire;
 mod workload;
 #[cfg(target_os = "linux")]
 mod x11;
+#[cfg(target_os = "linux")]
+mod x11_view;
 #[cfg(feature = "x264")]
 mod x264;
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+/// cmux Computer Use's screenshots through ScreenCaptureKit, for the helper's Computer Use worker
+/// mode to hand to the engine's macOS desktop (`src/mac/cu_host.rs`).
+#[cfg(all(target_os = "macos", feature = "computer-use"))]
+pub use mac::cu_host::computer_use_host_services;
 
 /// Runs one `cmux-rd` subcommand (`args[0]`) with its options. Returns the process exit
 /// code: 0 on success, 1 when the command failed, 2 for a usage error.
@@ -185,13 +200,73 @@ pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]";
+
+/// Commands the usage line names that a build may leave out (by feature or platform).
+const KNOWN_COMMANDS: &[&str] = &[
+    "host",
+    "bench",
+    "observe",
+    "observe-cpu",
+    "testapp",
+    "serve",
+    "connect",
+    "view",
+    "permissions",
+    "request-permission",
+    "linux-host",
+    "windows-host",
+    "windows-selftest",
+    "encode-selftest",
+    "openh264-install",
+];
+
+/// A command this build has no handler for: say whether it is a real command left out
+/// of this build (release builds ship without `bench`) or a typo.
+fn unknown_command(cmd: &str) -> String {
+    if !KNOWN_COMMANDS.contains(&cmd) {
+        return format!("unknown command {cmd}\n{USAGE}");
+    }
+    let bench_only = matches!(cmd, "bench" | "observe" | "observe-cpu");
+    if bench_only && !cfg!(feature = "bench") {
+        return "not in this build: release builds of cmux-rd ship without the bench feature; \
+                build one with `cargo build --release --features bench` in cmux-tui/crates/cmux-rd-host"
+            .to_string();
+    }
+    let link_only = matches!(cmd, "serve" | "connect" | "view" | "linux-host");
+    if link_only && !cfg!(feature = "link") {
+        return "not in this build: it needs the link feature \
+                (`cargo build --release --features link`)"
+            .to_string();
+    }
+    if cmd == "view" && cfg!(target_os = "linux") && !cfg!(feature = "openh264") {
+        return "not in this build: it needs the openh264 feature \
+                (`cargo build --release --features link,openh264`)"
+            .to_string();
+    }
+    if cmd == "openh264-install" && !cfg!(feature = "openh264") {
+        return "not in this build: it needs the openh264 feature \
+                (`cargo build --release --features openh264`)"
+            .to_string();
+    }
+    format!("not in this build: cmux-rd {cmd} is not built for {}", std::env::consts::OS)
+}
+
 pub fn run_cli(args: &[String]) -> i32 {
     let Some(cmd) = args.first() else {
-        eprintln!(
-            "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]"
-        );
+        eprintln!("{USAGE}");
         return 2;
     };
+    // The Computer Use worker the cmux-tui daemon starts on a Mac with no cmux Remote: its stdin
+    // and stdout are the daemon's control channel, so nothing else may print there.
+    #[cfg(all(target_os = "macos", feature = "computer-use"))]
+    if cmd == computer_use_worker::MODE {
+        return computer_use_worker::run(&args[1..]);
+    }
+    if matches!(cmd.as_str(), "-h" | "--help" | "help") {
+        println!("{USAGE}");
+        return 0;
+    }
     // Subcommands and positional words of its own (`share on`, `approve SESSION`).
     #[cfg(all(feature = "link", target_os = "linux"))]
     if cmd == "linux-host" {
@@ -268,13 +343,50 @@ pub fn run_cli(args: &[String]) -> i32 {
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]
         "openh264-install" => encoder::install_openh264(&opts),
-        other => Err(format!("unknown command {other}").into()),
+        other => Err(unknown_command(other).into()),
     };
     match result {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("cmux-rd {cmd}: {e}");
             1
+        }
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn help_prints_usage_and_succeeds() {
+        for flag in ["-h", "--help", "help"] {
+            assert_eq!(run_cli(&[flag.to_string()]), 0, "{flag}");
+        }
+    }
+
+    #[test]
+    fn a_typo_is_an_unknown_command_with_usage() {
+        let msg = unknown_command("bnech");
+        assert!(msg.starts_with("unknown command bnech"), "{msg}");
+        assert!(msg.contains(USAGE), "{msg}");
+    }
+
+    #[test]
+    fn a_left_out_command_says_it_is_not_in_this_build() {
+        let msg = unknown_command("bench");
+        assert!(msg.starts_with("not in this build"), "{msg}");
+        if !cfg!(feature = "bench") {
+            assert!(msg.contains("--features bench"), "{msg}");
+        }
+        assert!(unknown_command("windows-host").starts_with("not in this build"));
+    }
+
+    #[test]
+    fn every_usage_command_is_known() {
+        let list = USAGE.trim_start_matches("usage: cmux-rd ").split(' ').next().unwrap();
+        for cmd in list.split('|') {
+            assert!(KNOWN_COMMANDS.contains(&cmd), "{cmd}");
         }
     }
 }

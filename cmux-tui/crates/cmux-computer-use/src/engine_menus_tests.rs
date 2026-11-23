@@ -61,7 +61,7 @@ fn rig(menus: MenuMode) -> (Arc<FakeDesktop>, Engine) {
     });
     parts.clock = Arc::new(move || Duration::from_millis(b.load(Ordering::SeqCst)));
     parts.takeover = Arc::new(Quiet);
-    parts.config = PolicyConfig { menus, ..PolicyConfig::default() };
+    parts.config = PolicyConfig { menus, settle: SettleMode::Adaptive, ..PolicyConfig::default() };
     (d, Engine::new(parts))
 }
 

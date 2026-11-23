@@ -510,12 +510,39 @@ async fn wait_match_once(
 /// `acpmux ensure NAME`: the session if it exists, else create it.
 /// `HARNESS[/MODEL]` → (harness, model). The first slash splits; the model
 /// keeps its own slashes (`opencode/zai/glm-5.1` → `opencode`, `zai/glm-5.1`).
+///
+/// A Claude Code or Codex model is read as the bundled catalog names it, and the rewrite is said
+/// on stderr (`model fable-5.2 -> claude-fable-5-2`, `model_catalog.rs`); the daemon reads it
+/// again against its own catalog, so a name only the fresher catalog knows still folds there.
 pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
+    let (harness, model) = split_target_raw(spec);
+    let model = model.map(|m| match canonical_cli_model(&harness, &m) {
+        Some(canonical) => {
+            eprintln!("{}", canonical.line());
+            canonical.model
+        }
+        None => m,
+    });
+    (harness, model)
+}
+
+/// `HARNESS[/MODEL]` as written.
+fn split_target_raw(spec: &str) -> (String, Option<String>) {
     match spec.split_once('/') {
         Some((h, m)) if !m.is_empty() => (h.to_owned(), Some(m.to_owned())),
         Some((h, _)) => (h.to_owned(), None),
         None => (spec.to_owned(), None),
     }
+}
+
+/// `model` for the harness `harness` as the bundled catalog names it, when that is a rewrite.
+/// An ambiguous name is left for the daemon to refuse with its choices.
+pub(crate) fn canonical_cli_model(
+    harness: &str,
+    model: &str,
+) -> Option<crate::model_catalog::Canonical> {
+    let entry = crate::model_catalog::bundled_harness(harness)?;
+    crate::model_catalog::canonical_model(&entry, model).ok().filter(|c| c.changed())
 }
 
 /// Parse repeatable creation tags once, before a session is made.
@@ -1002,71 +1029,7 @@ async fn turn_stats(client: &Arc<Client>, id: &str) -> (Option<u64>, u64) {
     )
 }
 
-/// `acpmux session tail NAME [--since CURSOR] [--last N] [-f]`.
-pub(crate) async fn tail(
-    client: Arc<Client>,
-    key: &str,
-    last: u64,
-    since: Option<String>,
-    follow: bool,
-    suppress_reads: bool,
-) -> Result<()> {
-    let id = resolve_id(&client, &expand_session_key(key)?).await?;
-    let mut notes =
-        client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let events: Vec<Value> = match since {
-        Some(cursor) => {
-            let seq = parse_cursor(&cursor, &id)?;
-            // Subscribe before reading from the cursor, so an event written
-            // in between arrives live; the seq check below drops repeats.
-            client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            events_after(&client, &id, seq, usize::MAX).await?
-        }
-        None => with_older(&client, json!({"sessionId": id, "limit": last})).await?,
-    };
-    let stdout = std::io::stdout();
-    let mut sup = ReadSuppressor::default();
-    let filter = |sup: &mut ReadSuppressor, e: Value| if suppress_reads { sup.apply(e) } else { e };
-    // The newest seq printed: a live event at or below it was in the page.
-    let mut printed_seq = 0u64;
-    for e in events {
-        printed_seq = printed_seq.max(e.get("seq").and_then(Value::as_u64).unwrap_or(0));
-        let mut lock = stdout.lock();
-        let _ = writeln!(lock, "{}", with_cursor(&id, filter(&mut sup, e)));
-    }
-    if !follow {
-        return Ok(());
-    }
-    while let Some(m) = notes.recv().await {
-        if let Message::Notification { method: m, params } = m {
-            if m == method::MUX_DISCONNECTED {
-                return Err(client.closed("following the session"));
-            }
-            let p = params.unwrap_or(Value::Null);
-            if crate::cli::resolve::routed_id(&p).ok().as_deref() != Some(id.as_str()) {
-                continue;
-            }
-            let seq = if m == method::MUX_EVENT {
-                p.get("seq").and_then(Value::as_u64)
-            } else {
-                p.pointer("/_meta/acpmux/seq").and_then(Value::as_u64)
-            };
-            if seq.is_some_and(|s| s <= printed_seq) {
-                continue;
-            }
-            let mut lock = stdout.lock();
-            let line = if m == method::MUX_EVENT {
-                with_cursor(&id, filter(&mut sup, p))
-            } else if m == method::SESSION_UPDATE && suppress_reads {
-                json!({"method": m, "params": sup.apply_update(p)})
-            } else {
-                json!({"method": m, "params": p})
-            };
-            let _ = writeln!(lock, "{line}");
-        }
-    }
-    Ok(())
-}
+// `acpmux session tail` streams a chat's events: `session_tail.rs`.
 
 /// A cursor is `<sessionId>:<seq>` or a bare seq.
 pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
@@ -1092,13 +1055,6 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
         )
         .into()
     })
-}
-
-fn with_cursor(id: &str, mut e: Value) -> Value {
-    if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
-    }
-    e
 }
 
 /// --suppress-reads: blank read-tool payloads but keep the message shape.
