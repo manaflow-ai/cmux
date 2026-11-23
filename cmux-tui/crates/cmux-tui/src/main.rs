@@ -2044,7 +2044,8 @@ fn run_main() {
     // beside it when that is this build (macOS; host_exe.rs).
     #[cfg(unix)]
     cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
-    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`) runs acpmux in
+    // `cmux acp …` (and `cmux harness|chats …` = `cmux acp harness|chats …`, and the session
+    // verbs cli/engine_words.rs moved to plain `cmux`, `cmux last X`) runs acpmux in
     // this process. It needs none of the mux's provider credentials or signal handlers.
     // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this
     // machine's daemon device at the device hub (acpmux `share-host`), with no app needed.
@@ -2056,6 +2057,7 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
         && (matches!(head, "acp" | "harness" | "chats" | "board")
+            || cli::engine_words::requested(&raw_args)
             || cli::agent_engine_requested(&raw_args))
     {
         discard_provider_secret_environment();
