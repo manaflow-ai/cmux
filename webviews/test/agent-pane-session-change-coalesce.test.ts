@@ -108,6 +108,10 @@ class FakeAcpmux {
   sessions = Array.from({ length: SESSIONS }, (_, n) => summary(n + 1));
   watches = 0;
   readyState = 0;
+  /// Records the chat has past the attach's transcript, as `_acpmux/events` reads them back.
+  log: Record<string, unknown>[] = [];
+  /// Set: a read of the log waits here until the test lets it answer, with the log as it was when asked.
+  heldReads?: (() => void)[];
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
@@ -122,6 +126,21 @@ class FakeAcpmux {
     const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
     if (message.id === undefined) return;
     if (message.method === "_acpmux/watch") this.watches += 1;
+    if (message.method === "_acpmux/events" && message.params?.afterSeq !== undefined && this.log.length) {
+      const after = Number(message.params.afterSeq);
+      const events = this.log.filter((event) => Number(event.seq) > after);
+      const answer = () =>
+        this.onmessage?.({
+          data: JSON.stringify({
+            jsonrpc: "2.0",
+            id: message.id,
+            result: { events, hasMore: false, lastSeq: Number(events.at(-1)?.seq ?? after) },
+          }),
+        });
+      if (this.heldReads) this.heldReads.push(answer);
+      else queueMicrotask(answer);
+      return;
+    }
     const result =
       message.method === "initialize"
         ? { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } }
@@ -399,7 +418,7 @@ function record(socket: FakeAcpmux, seq: number, kind: string, msg: Record<strin
 
 /// A chunk of the shown chat's reply, as acpmux records it (its kind is the update's).
 function chunk(socket: FakeAcpmux, seq: number): void {
-  socket.notify("_acpmux/event", {
+  const event = {
     sessionId: SELECTED,
     seq,
     at: seq,
@@ -412,7 +431,9 @@ function chunk(socket: FakeAcpmux, seq: number): void {
         update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word ${seq} ` } },
       },
     },
-  });
+  };
+  socket.log.push(event);
+  socket.notify("_acpmux/event", event);
 }
 
 // A hidden page leaves its reply and turn state for when it shows. It does no snapshot work while
@@ -544,6 +565,60 @@ test("a hidden stream catches up to the same rows as an eager fold", async () =>
     expect(hidden.latest().rows).not.toEqual(eagerRows);
     setVisibility("visible");
     flushFrames();
+    expect(hidden.latest().rows).toEqual(eagerRows);
+  } finally {
+    hidden.client.close();
+    setVisibility("visible");
+  }
+});
+
+// A hidden stream longer than the hidden queue leaves a gap that the pane reads back when shown. The
+// reader can hide the pane again before that read answers, and more of the reply streams meanwhile:
+// the next show must still draw every word, as a pane that was never hidden does.
+test("a gap read that answers after the pane hid again still draws the whole reply on the next show", async () => {
+  const first = 401;
+  const long = 300; // past the hidden queue, so the pane drops to a readback gap
+  const more = 20; // streamed after the read was asked, while hidden again
+  const stream = (socket: FakeAcpmux, from: number, count: number) => {
+    for (let seq = from; seq < from + count; seq++) chunk(socket, seq);
+  };
+  const turn = (socket: FakeAcpmux) => {
+    const opened = { sessionId: SELECTED, seq: first - 1, at: first - 1, dir: "mux", kind: "turn_started", msg: {} };
+    socket.log.push(opened);
+    socket.notify("_acpmux/event", opened);
+  };
+
+  const eager = await openPane();
+  turn(eager.socket);
+  stream(eager.socket, first, long + more);
+  flushFrames();
+  const eagerRows = eager.latest().rows;
+  eager.client.close();
+
+  resetKeptTailsForTests();
+  const hidden = await openPane();
+  const internal = hidden.client as any;
+  try {
+    turn(hidden.socket);
+    setVisibility("hidden");
+    stream(hidden.socket, first, long);
+    expect(internal.hiddenGapAfterSeq).toBeDefined();
+    hidden.socket.heldReads = [];
+    setVisibility("visible");
+    expect(hidden.socket.heldReads.length).toBe(1);
+    setVisibility("hidden");
+    stream(hidden.socket, first + long, more);
+    // The read answers hidden, with the log as it was when asked: without the last words.
+    hidden.socket.heldReads.shift()!();
+    hidden.socket.heldReads = undefined;
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    // The next show reads and draws what the first read could not hold.
+    setVisibility("visible");
+    for (let i = 0; i < 5; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      flushFrames();
+    }
+    expect(internal.hiddenGapAfterSeq).toBeUndefined();
     expect(hidden.latest().rows).toEqual(eagerRows);
   } finally {
     hidden.client.close();
