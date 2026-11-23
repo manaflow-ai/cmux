@@ -880,7 +880,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
             shownDisclosures = disclosures
         }
         // Find in Chat's current match moved: the rows losing and taking the mark draw again.
-        let marked = surface.find?.currentMatch.map { findTarget(block: $0.block, position: $0.position).id }
+        let marked = surface.find?.currentBlock.map(Self.rowID(findBlock:))
         if marked != lookup.findMarked {
             for id in [lookup.findMarked, marked].compactMap(\.self) where rows[id] != nil { forced.insert(id) }
             lookup.findMarked = marked
@@ -1322,25 +1322,6 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The transcript row that draws Find in Chat's block `key` (`AgentChatFind.promptKey`:
     /// the turn's prompt bubble; `AgentChatFind.steerKey`: a steered message's row;
     /// `AgentChatFind.blockKey`: one block of an answer).
-    /// The row that draws Find in Chat's match, and the match's place in that row's text (0 the
-    /// top, 1 the end): a long paragraph is several rows (`ChatParagraphParts`), and the match's
-    /// place in the paragraph says which.
-    func findTarget(block key: String, position: Double) -> (id: String, position: Double) {
-        let id = Self.rowID(findBlock: key)
-        guard rows["\(id).1"] != nil, let row = rows[id], case .block(let messageID, let first) = row.kind,
-              let paragraph = MarkdownDocument(parsing: lookup.context.messageText(messageID)).blocks.first(where: { $0.id == first.id }),
-              case .paragraph(let text) = paragraph.kind else { return (id, position) }
-        // The parts' lengths in the paragraph's own text (a forced split adds marks to the rows).
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        let ranges = ChatParagraphParts.partLines(paragraph)
-        guard ranges.count > 1 else { return (id, position) }
-        let lengths = ranges.map { lines[$0].joined(separator: "\n").count }
-        let found = ChatParagraphParts.locate(offset: Int((position * Double(max(text.count, 1))).rounded(.down)), partLengths: lengths)
-        let partID = found.part == 0 ? id : "\(id).\(found.part)"
-        guard rows[partID] != nil else { return (id, position) }
-        return (partID, min(1, Double(found.offset) / Double(max(lengths[found.part], 1))))
-    }
-
     static func rowID(findBlock key: String) -> String {
         guard let bar = key.lastIndex(of: "|") else { return key }
         let owner = key[..<bar], part = key[key.index(after: bar)...]

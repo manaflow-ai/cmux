@@ -144,8 +144,6 @@ final class ChatTranscriptBuilder {
         /// The first block's gap (what came before the answer sets it).
         var firstGap: Double
         var rows: [ChatRow]
-        /// Rows each block made (a long paragraph makes several, `ChatParagraphParts`).
-        var perBlock: [Int]
     }
     private var generation = 0
     /// The chat's senders' tones: each session that sent a message, from when the chat first heard
@@ -324,33 +322,20 @@ final class ChatTranscriptBuilder {
                 // the one or two rows at the answer's end, not one per block of the answer.
                 let firstGap = nextGap
                 var answerRows: [ChatRow] = []
-                var perBlock: [Int] = []
                 if let made = blockRows[key], made.messageID == messageID, made.turnID == turnID, made.firstGap == firstGap {
-                    let kept = min(parse.unchangedDisplayed, made.perBlock.count)
-                    perBlock = Array(made.perBlock.prefix(kept))
-                    answerRows = Array(made.rows.prefix(perBlock.reduce(0, +)))
+                    answerRows = Array(made.rows.prefix(parse.unchangedDisplayed))
                 }
                 reused += answerRows.count
                 answerRows.reserveCapacity(parse.displayed.count)
-                let blocks = parse.displayed
-                for (blockIndex, block) in blocks.enumerated().dropFirst(perBlock.count) {
-                    // A long paragraph is several rows, each a few lines (a layer holds a few
-                    // thousand points, and a 240-line log as one row reset the list under the
-                    // reader); the streaming tail stays one row until the answer finishes.
-                    let streamingTail = running && isLastRow && blockIndex == blocks.count - 1
-                    let parts = streamingTail ? [block] : ChatParagraphParts.split(block)
-                    for (number, part) in parts.enumerated() {
-                        let id = number == 0 ? "\(row.id)#\(block.id)" : "\(row.id)#\(block.id).\(number)"
-                        let gap = number > 0 ? ChatParagraphParts.lineGap : (blockIndex == 0 ? firstGap : 12)
-                        answerRows.append(ChatRow(id: id, turnID: turnID, kind: .block(messageID: messageID, block: part), gap: gap))
-                    }
-                    perBlock.append(parts.count)
+                for (blockIndex, block) in parse.displayed.enumerated().dropFirst(answerRows.count) {
+                    answerRows.append(ChatRow(id: "\(row.id)#\(block.id)", turnID: turnID, kind: .block(messageID: messageID, block: block),
+                                              gap: blockIndex == 0 ? firstGap : 12))
                 }
                 if !answerRows.isEmpty {
                     rows += answerRows
                     nextGap = 10
                 }
-                blockRows[key] = BlockRows(messageID: messageID, turnID: turnID, firstGap: firstGap, rows: answerRows, perBlock: perBlock)
+                blockRows[key] = BlockRows(messageID: messageID, turnID: turnID, firstGap: firstGap, rows: answerRows)
                 if index == finalReply { replyRows.formUnion(answerRows.map(\.id)) }
                 if let ask {
                     let answer = context.nextPrompt.map { ask.chosenAnswer($0) }
