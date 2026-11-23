@@ -35,8 +35,10 @@ export type Cell = {
   signIn: string;
   proof: "live" | "stubbed" | "expect" | "start" | "bench";
   args: string[];
-  /** Environment the cell needs; absent, the cell is skipped with this reason. */
-  needs?: { env: string; why: string };
+  /** Environment the cell needs (one name or several); any absent, the cell is skipped with this reason. */
+  needs?: { env: string | string[]; why: string };
+  /** Journey steps that must run and pass: a skipped one fails the cell, so a cell never passes without its proof. */
+  must?: string[];
   /** For `expect` cells: the step that must fail, its error, and the most it may take. */
   expect?: { step: string; error: RegExp; withinMs: number };
 };
@@ -59,6 +61,17 @@ export const CELLS: Cell[] = [
     proof: "live",
     args: ["--agent", "codex"],
     needs: { env: "CODEX_AUTH_JSON", why: "a Codex ChatGPT sign-in (auth.json) of the test account's own" },
+  },
+  {
+    id: "codex-github-live",
+    agent: "codex",
+    signIn: "ChatGPT subscription (codex login), the app's copy",
+    proof: "live",
+    // cloud-journey's live GitHub step asks this agent to clone, branch, commit, push and open a draft PR.
+    args: ["--agent", "codex"],
+    needs: { env: ["CODEX_AUTH_JSON", "CMUX_JOURNEY_GITHUB_REPO"], why: "a Codex ChatGPT sign-in (auth.json) and the GitHub sandbox repository for the live GitHub agent cell" },
+    // cloud-journey.ts's names (JOURNEY_ONLY_STEPS); the matrix test holds them to it.
+    must: ["GitHub on the machine (live)", "GitHub by the agent (live)"],
   },
   {
     id: "codex-model-plane",
@@ -184,6 +197,10 @@ export function judge(cell: Cell, steps: Step[], exit: number): Row {
   }
   if (failed.length) return { cell, verdict: "fail", why: `${failed[0]!.step}: ${(failed[0]!.detail ?? "").slice(0, 200)}`, ms, reply };
   if (exit !== 0) return { cell, verdict: "fail", why: `journey exit ${exit}`, ms, reply };
+  for (const name of cell.must ?? []) {
+    const s = steps.find((x) => x.step === name);
+    if (s?.status !== "pass") return { cell, verdict: "fail", why: `${name} did not run: ${(s?.detail ?? "not run").slice(0, 200)}`, ms, reply };
+  }
   return { cell, verdict: "pass", why: "every step passed", ms, reply };
 }
 
@@ -232,9 +249,10 @@ export function main(argv: string[]): number {
   // A bench cell's own table (start-bench.md) follows the matrix, so the job summary carries it.
   const extra: string[] = [];
   for (const cell of cells) {
-    if (cell.needs && !process.env[cell.needs.env]) {
-      rows.push({ cell, verdict: "skip", why: `no ${cell.needs.env}: ${cell.needs.why}`, ms: {} });
-      console.log(`SKIP ${cell.id}: no ${cell.needs.env}`);
+    const missing = cell.needs ? [cell.needs.env].flat().filter((name) => !process.env[name]) : [];
+    if (cell.needs && missing.length) {
+      rows.push({ cell, verdict: "skip", why: `no ${missing.join(", ")}: ${cell.needs.why}`, ms: {} });
+      console.log(`SKIP ${cell.id}: no ${missing.join(", ")}`);
       continue;
     }
     const dir = path.join(out, cell.id);
