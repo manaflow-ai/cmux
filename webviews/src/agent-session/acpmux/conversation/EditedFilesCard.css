@@ -5,7 +5,8 @@
   font-size: var(--text-content);
   line-height: var(--text-title--line-height);
 }
-.acpmux-edited .acpmux-edited-title .acpmux-diff-counts {
+.acpmux-edited .acpmux-edited-title .acpmux-diff-counts,
+.acpmux-edited .acpmux-edited-undo {
   font-size: var(--text-content);
   letter-spacing: normal;
 }
@@ -46,72 +47,16 @@ div.acpmux-edited {
   color: var(--agent-muted);
 }
 
-/* The head: the glyph, the words (they take what is left of the line), the quiet icons, the chevron.
-   Nothing is ever drawn over the name: the icons are their own fixed-size boxes after it, and the
-   name gives way first, dropping its middle (Leo, 2026-11-22: "overlapping text via the buttosn when
-   the pane is small"; 2026-11-23: "you have a line, a potentailly long file name, and buttons. why
-   buttons here"). */
-.acpmux-edited .acpmux-edited-title {
-  flex: 1 1 0;
+/* The head's words and Undo (cardFit.css): one line while the card is wide, Undo under the words
+   when it is narrow, its icon alone when narrower still. The name ends in an ellipsis, its whole
+   path in its tooltip; nothing is drawn over it (Leo, 2026-11-22: "overlapping text via the buttosn
+   when the pane is small"). */
+.acpmux-edited .acpmux-edited-main {
+  flex: 1 1 auto;
   min-width: 0;
 }
 .acpmux-edited .acpmux-edited-name {
   max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
-}
-/* A cut name (MiddleCut): its start ends in an ellipsis, its end (the extension and the word before
-   it) stays whole, so a short line reads "Edited objective-…-cases.md". */
-.acpmux-edited .acpmux-edited-cut {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-}
-.acpmux-edited .acpmux-edited-cut-fixed,
-.acpmux-edited .acpmux-edited-cut-end {
-  flex: none;
-  white-space: pre;
-}
-.acpmux-edited .acpmux-edited-cut-start {
-  display: block;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: pre;
-}
-/* Undo: an icon in the muted ink, no frame and no words (its name is its tooltip), lit under the
-   pointer. */
-.acpmux-edited .acpmux-edited-quiet {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--ds-space-1);
-}
-.acpmux-edited .acpmux-edited-quiet > .acpmux-edited-icon-action {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--ds-control-row);
-  height: var(--ds-control-row);
-  padding: 0;
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: transparent;
-  color: var(--agent-muted);
-  cursor: default;
-}
-.acpmux-edited .acpmux-edited-quiet > .acpmux-edited-icon-action:hover:not(:disabled) {
-  background: var(--ds-surface-hover);
-  color: var(--agent-text);
-}
-.acpmux-edited .acpmux-edited-quiet > .acpmux-edited-icon-action:disabled {
-  opacity: 0.5;
-}
-.acpmux-edited .acpmux-edited-quiet > .acpmux-edited-icon-action:focus-visible {
-  outline: 1.5px solid var(--agent-muted);
-  outline-offset: 1px;
 }
 /* The one sign that the card opens; the whole head is its target (headerToggle.ts). */
 .acpmux-edited-head[data-interactive]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-chevron {

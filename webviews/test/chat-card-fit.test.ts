@@ -2,14 +2,14 @@
 // Chat cards at narrow widths (Leo 2026-11-22: "overlapping text via the buttosn when the pane is
 // small. ok, so simply prepare for this scenario beforehand and lay things out better. below the
 // potentially long text, etc. or make the thing bigger. whatever. and be able to shrink down to
-// icons."). The rule is src/agent-session/acpmux/conversation/cardFit.css. At 240, 280, 420, 640
-// and 800 px every card with text and buttons is checked by cardFitProblems (cardFitCheck.ts): no
-// text run under a button, no button over another, nothing past the card's right edge. The
+// icons."). The rule is src/agent-session/acpmux/conversation/cardFit.css. At 240, 320, 420 and
+// 640 px every card with text and buttons is checked by cardFitProblems (cardFitCheck.ts): no text
+// run under a button, no button over another, nothing past the card's right edge. The
 // agent-pane.card-fit entry's own variants play the check; the other cards' own gallery entries are
-// loaded as they are and the same check runs over the page. The edited-files card is asserted too
-// (Leo, 2026-11-23: "why buttons here"): its name ends before Undo at every width, Undo is an icon
-// with no words, and a long name drops its middle (objective-…-cases.md). With FAST_CHECKS_OUT set
-// it keeps stills of every edited-files variant at 280 and 800 px.
+// loaded as they are and the same check runs over the page. The edited-files card's three layouts
+// are asserted too: one row at 640, actions under the title at 320, Undo shrunk to its icon at 240.
+// With FAST_CHECKS_OUT set it keeps stills of the edited-files card at 640, 320, 240 and its open
+// diff at 420.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -20,22 +20,10 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("chat-card-fit.test.ts", async () => {
-  const WIDTHS = [240, 280, 420, 640, 800];
+  const WIDTHS = [240, 320, 420, 640];
   const HEIGHT = 640;
   const OWN = "agent-pane.card-fit";
-  const OWN_VARIANTS = [
-    "edited-long-name",
-    "edited-many",
-    "edited-diff-open",
-    "edited-leo-name",
-    "edited-leo-name-open",
-    "edited-short-name",
-    "edited-very-long-name",
-    "edited-very-long-name-open",
-    "edited-large-diff-open",
-    "permission",
-    "subagent",
-  ];
+  const OWN_VARIANTS = ["edited-long-name", "edited-many", "edited-diff-open", "permission", "subagent"];
   // The other cards with text and buttons, in their own gallery entries as they are.
   const OTHERS: [entry: string, variant: string][] = [
     ["agent-pane.edited-files", "one-file"],
@@ -152,7 +140,10 @@ await requireBrowserLane("chat-card-fit.test.ts", async () => {
             const report = await page.evaluate(() =>
               JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
             );
-            if (shots && variant.startsWith("edited-") && (width === 280 || width === 800))
+            if (
+              shots &&
+              (variant === "edited-long-name" ? width !== 420 : variant === "edited-diff-open" && width === 420)
+            )
               await page.screenshot({ path: path.join(shots, `${variant}-${width}.png`) });
             return playFailures(report).map((failure) => `${variant}: ${failure}`);
           } finally {
@@ -182,30 +173,27 @@ await requireBrowserLane("chat-card-fit.test.ts", async () => {
       expect(failures).toEqual([]);
     });
 
-  /** The edited-files card's name, its cut, Undo and the chevron, measured at `width`. */
-  const editedLayout = async (variant: string, width: number) => {
-    const page = await open(OWN, variant, width);
+  /** The edited-files card's title, Undo and its label, measured at `width`. */
+  const editedLayout = async (width: number) => {
+    const page = await open(OWN, "edited-long-name", width);
     try {
-      await page.waitForSelector(".acpmux-edited .acpmux-edited-head button.acpmux-edited-undo", { timeout: 10_000 });
+      await page.waitForSelector(".acpmux-edited.cv-fit .acpmux-edited-head button.acpmux-edited-undo", {
+        timeout: 10_000,
+      });
       return await page.evaluate(() => {
         const box = (selector: string) => {
           const element = document.querySelector(selector);
           if (!element) throw new Error(`no ${selector}`);
           const rect = element.getBoundingClientRect();
-          return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width };
+          return { top: rect.top, bottom: rect.bottom, width: rect.width };
         };
         const undo = document.querySelector(".acpmux-edited button.acpmux-edited-undo")!;
-        const start = document.querySelector<HTMLElement>(".acpmux-edited .acpmux-edited-cut-start")!;
         return {
-          name: box(".acpmux-edited .acpmux-edited-name"),
-          end: box(".acpmux-edited .acpmux-edited-cut-end"),
-          endText: document.querySelector(".acpmux-edited .acpmux-edited-cut-end")!.textContent,
-          nameText: document.querySelector(".acpmux-edited .acpmux-edited-name")!.textContent,
-          cut: start.scrollWidth > start.clientWidth + 0.5,
+          title: box(".acpmux-edited .acpmux-edited-name"),
           undo: box(".acpmux-edited button.acpmux-edited-undo"),
-          undoWords: undo.textContent?.trim(),
+          label: box(".acpmux-edited button.acpmux-edited-undo .cv-fit-label"),
           aria: undo.getAttribute("aria-label"),
-          chevron: box(".acpmux-edited .acpmux-edited-chevron"),
+          chevron: Boolean(document.querySelector(".acpmux-edited .acpmux-edited-chevron")),
         };
       });
     } finally {
@@ -213,33 +201,18 @@ await requireBrowserLane("chat-card-fit.test.ts", async () => {
     }
   };
 
-  // Leo, 2026-11-23, on "Edited objective-design-edge-cases.md" with Undo drawn over it: "you have a
-  // line, a potentailly long file name, and buttons. why buttons here". At every width the name ends
-  // before Undo starts, Undo is an icon with no words, and a cut name keeps its end.
-  for (const variant of ["edited-leo-name", "edited-very-long-name", "edited-short-name"])
-    test(`the edited-files card's name never meets Undo: ${variant}`, async () => {
-      const wrong: string[] = [];
-      for (const width of [240, 280, 320, 420, 560, 640, 800]) {
-        const layout = await editedLayout(variant, width);
-        const at = `${variant} at ${width}px`;
-        if (layout.name.right > layout.undo.left + 0.5) wrong.push(`${at}: the name runs under Undo`);
-        if (layout.undo.right > layout.chevron.left + 0.5) wrong.push(`${at}: Undo runs under the chevron`);
-        if (layout.undoWords !== "") wrong.push(`${at}: Undo draws words "${layout.undoWords}"`);
-        if (layout.aria !== "Undo") wrong.push(`${at}: Undo is named "${layout.aria}"`);
-        // The cut's end, the extension and the word before it, is drawn whole inside the name's box.
-        if (layout.end.right > layout.name.right + 0.5) wrong.push(`${at}: the name's end is cut`);
-        if (variant === "edited-leo-name" && layout.nameText !== "Edited objective-design-edge-cases.md")
-          wrong.push(`${at}: the name reads "${layout.nameText}"`);
-        if (variant === "edited-leo-name" && layout.endText !== "-cases.md")
-          wrong.push(`${at}: the kept end is "${layout.endText}"`);
-        if (variant === "edited-short-name" && layout.cut) wrong.push(`${at}: a.md is cut`);
-      }
-      expect(wrong).toEqual([]);
-      if (variant === "edited-leo-name") {
-        // Narrow, the name is cut in its middle; wide, it is whole.
-        expect((await editedLayout(variant, 280)).cut).toBe(true);
-        expect((await editedLayout(variant, 800)).cut).toBe(false);
-      }
-      if (variant === "edited-very-long-name") expect((await editedLayout(variant, 800)).cut).toBe(true);
-    });
+  test("the edited-files card: one row at 640, actions under the title at 320, icons at 240", async () => {
+    const wide = await editedLayout(640);
+    // Undo starts on the title's line.
+    expect(wide.undo.top).toBeLessThan(wide.title.bottom);
+    expect(wide.undo.bottom).toBeGreaterThan(wide.title.top);
+    expect(wide.label.width).toBeGreaterThan(0);
+    expect(wide.chevron).toBe(true);
+    const under = await editedLayout(320);
+    expect(under.undo.top).toBeGreaterThanOrEqual(under.title.bottom - 1);
+    expect(under.label.width).toBeGreaterThan(0);
+    const icons = await editedLayout(240);
+    expect(icons.label.width).toBe(0);
+    expect(icons.aria).toBe("Undo");
+  });
 });

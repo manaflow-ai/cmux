@@ -183,9 +183,7 @@ test("cards keep only Undo in their actions, with no View changes or Second opin
     const actions = card.querySelector(".acpmux-edited-actions")!;
     const buttons = [...actions.querySelectorAll("button")];
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Undo"]);
-    // Undo is a quiet icon: no words drawn, its name in its label and tooltip (Leo, 2026-11-23: "why buttons here").
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual([""]);
-    expect(buttons.map((button) => button.getAttribute("title"))).toEqual(["Undo"]);
+    expect(buttons.map((button) => button.querySelector(".cv-fit-label")?.textContent)).toEqual(["Undo"]);
     // Every button the card shows at rest: Undo and the one chevron, never a second way to the diff.
     expect([...card.querySelectorAll("button")].map((button) => button.getAttribute("aria-label"))).toEqual([
       "Undo",
