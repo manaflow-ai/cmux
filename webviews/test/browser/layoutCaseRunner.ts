@@ -224,7 +224,7 @@ export async function runLayoutCase(id: string, host: CaseHost): Promise<LayoutC
             const rect = element.getBoundingClientRect();
             return rect.height > 0 && (!port || (rect.top >= port.top && rect.bottom <= port.bottom));
           });
-          if (row) row.style.cssText += ";position:relative;top:24px;left:24px";
+          if (row) row.style.marginLeft = "24px";
         });
       case "scroll-burst":
         await judged(step, kind, async () => {

@@ -52,7 +52,7 @@ export const PERTURBATIONS = {
   "duplicate-redelivery": { provoked: false, about: "the same rows delivered again as new objects" },
   "planted-jump": {
     provoked: false,
-    about: "the control: one row on screen jumps 24 px down and 24 px right with no act; it must flag",
+    about: "the control: one row on screen jumps 24 px sideways with no act; it must flag",
   },
 } as const;
 export type Perturbation = keyof typeof PERTURBATIONS;
