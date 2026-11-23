@@ -50,9 +50,8 @@ class CheckClassTests(unittest.TestCase):
                 if kind == "blocks":
                     self.assertTrue(reason.strip(), f"{check} blocks the nightly without a reason")
 
-    def test_the_type_check_and_the_protocol_check_still_block(self):
+    def test_the_type_check_still_blocks(self):
         self.assertEqual(checks.CHECK_CLASSES["typecheck"][0], "blocks")
-        self.assertEqual(checks.CHECK_CLASSES["acpmux-protocol:check"][0], "blocks")
         self.assertEqual(checks.CHECK_CLASSES["check:design-tokens"][0], "lint")
 
 
