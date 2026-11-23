@@ -94,7 +94,16 @@ const readThread = async (threadId: string): Promise<InboxMessage[]> => {
   return [{ promptId: `${threadId}-1`, from: thread.from[0]!, at: thread.newestAt, text: thread.newestPreview }];
 };
 
-function Stage({ look = "counts", design = "stack", cards = false, held, needYou, open = false, failing, unmarked }: Props) {
+function Stage({
+  look = "counts",
+  design = "stack",
+  cards = false,
+  held,
+  needYou,
+  open = false,
+  failing,
+  unmarked,
+}: Props) {
   const list = failing ? () => Promise.reject(FAILURES[failing]) : unmarked ? unmarkedList : listThreads;
   useLayoutEffect(() => {
     if (!cards) return;
@@ -134,7 +143,9 @@ const listed: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-surge-threads .cv-inbox"));
 };
 const noted: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-surge-failed[role="alert"], .acpmux-surge-note[data-empty]'));
+  await ctx.waitFor(() =>
+    ctx.document.querySelector('.acpmux-surge-failed[role="alert"], .acpmux-surge-note[data-empty]'),
+  );
 };
 
 export default componentEntry<Props>({
