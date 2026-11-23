@@ -150,26 +150,34 @@ const TOOL_TITLES = new Set([
   "Write",
 ]);
 
-function scrub(value: unknown, key: string | undefined): unknown {
+/** An id's word parts are its kind (`bg-done-`, `call-`, `toolu_`): only the parts with a digit (the
+ *  unique part) are replaced. */
+const scrubId = (value: string) =>
+  value.replace(/[\p{L}\p{N}]+/gu, (token) => (/\d/.test(token) ? standIn(token) : token));
+
+function scrub(value: unknown, key: string | undefined, chat: string | undefined): unknown {
   if (typeof value === "string") {
+    // The chat's own id, and a subagent's under it (`<chat>/toolu_...`, where its lines stream and
+    // which its progress names as id and parent): the chat's becomes the stand-in session, so the
+    // replay still routes a subagent's lines into its fold (subagentFold.ts `ownerOf`), never into
+    // the chat's own rows.
+    if (chat && value === chat) return SIM_SESSION;
+    if (chat && value.startsWith(`${chat}/`)) return `${SIM_SESSION}/${scrubId(value.slice(chat.length + 1))}`;
     if (key && KEEP_KEYS.has(key) && ENUM.test(value)) return value;
     if (key === "title" && TOOL_TITLES.has(value)) return value;
     // Who sent an incoming message, as the pane reads it (incomingMessage.ts): a named agent, or a
     // session by id after `acp:`.
     if (key === "from" && value === "fromAgent") return value;
-    // An id's word parts are its kind (`bg-done-`, `call-`, `toolu_`): only the parts with a digit (the
-    // unique part) are replaced.
     if (key === "sessionId") return SIM_SESSION;
-    if (key && /id$/i.test(key) && value.length <= 120)
-      return value.replace(/[\p{L}\p{N}]+/gu, (token) => (/\d/.test(token) ? standIn(token) : token));
+    if (key && /id$/i.test(key) && value.length <= 120) return scrubId(value);
     return scrubText(value.length > MAX_TEXT && key !== "text" ? value.slice(0, MAX_TEXT) : value);
   }
-  if (Array.isArray(value)) return value.map((item) => scrub(item, key));
+  if (Array.isArray(value)) return value.map((item) => scrub(item, key, chat));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [name, item] of Object.entries(value)) {
       const safeName = /^[A-Za-z_$][A-Za-z0-9_$]{0,40}$/.test(name) ? name : scrubText(name);
-      out[safeName] = scrub(item, name);
+      out[safeName] = scrub(item, name, chat);
     }
     return out;
   }
@@ -192,14 +200,28 @@ export function sanitizeRecords(records: readonly EventRecord[], options: Saniti
     .sort((a, b) => a.seq - b.seq)
     .slice(0, options.limit ?? Number.POSITIVE_INFINITY);
   const first = kept[0]?.at ?? 0;
+  const chat = chatOf(kept);
   return kept.map((record, index) => ({
     sessionId: SIM_SESSION,
     seq: index + 1,
     at: SIM_START + (record.at - first),
     dir: record.dir,
     kind: record.kind,
-    msg: scrub(record.msg, undefined) as Record<string, any>,
+    msg: scrub(record.msg, undefined, chat) as Record<string, any>,
   }));
+}
+
+/// The chat's own session id: the records' own, else the one their updates name most that is no
+/// subagent's (`<chat>/...`).
+function chatOf(records: readonly EventRecord[]): string | undefined {
+  const named = new Map<string, number>();
+  for (const record of records) {
+    const own = (record as { sessionId?: unknown }).sessionId;
+    if (typeof own === "string" && own) return own;
+    const session = record.msg?.params?.sessionId;
+    if (typeof session === "string" && !session.includes("/")) named.set(session, (named.get(session) ?? 0) + 1);
+  }
+  return [...named].sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
 /// Reads NDJSON records (one per line; blank and broken lines skipped).

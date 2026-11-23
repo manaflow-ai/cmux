@@ -233,8 +233,9 @@ export type BandFinding = {
   step: number;
   label: string;
   /** `first-frame`: read in the frame the rows changed, before the stack corrects its estimates;
-   *  `settled`: two frames later. */
-  frame: "first-frame" | "settled";
+   *  `settled`: two frames later; `+N ms`: N ms after a turn's action row came, frame by frame while
+   *  its end plays (the fold, the reply's last lines, the chase). */
+  frame: string;
   /** `band`: blank space over a row, ink to ink; `empty-row`: a row with height and nothing drawn in it;
    *  `bare-actions`: a turn's action row with nothing of its turn drawn between its opening row and it. */
   kind: "band" | "empty-row" | "bare-actions";
@@ -281,7 +282,9 @@ function bandsNow(
         found.push({ ...where, kind: "empty-row", row: row.id, px: row.bottom - row.top, rows: around(at) });
       continue;
     }
-    if (inkBottom !== undefined && row.ink.top - inkBottom > min)
+    // The gap over a prompt is the turns' boundary, which its own rule holds
+    // (transcript-turn-boundary-gaps.test.ts): a band is blank space inside a turn.
+    if (inkBottom !== undefined && kind !== "user" && row.ink.top - inkBottom > min)
       found.push({ ...where, kind: "band", row: row.id, px: row.ink.top - inkBottom, rows: around(at) });
     if (kind === "turnSummary" && since === 0)
       found.push({ ...where, kind: "bare-actions", row: row.id, px: 0, rows: around(at) });
@@ -295,6 +298,9 @@ function bandsNow(
  *  blank bands over `min` px, rows with height and nothing drawn, and an action row with nothing of its
  *  turn over it (Leo, 2026-11-22 22:08Z: "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU
  *  SENT SHIT"). The pane is tall enough that every row draws. */
+/** How long a turn's end is read for after its action row came: past its fold and the reveal's drain. */
+const END_PLAY_MS = 900;
+
 async function bands(name: string, min = 48): Promise<{ steps: number; found: BandFinding[] }> {
   const scenario = await scenarioNamed(name);
   let sends = 0;
@@ -303,12 +309,14 @@ async function bands(name: string, min = 48): Promise<{ steps: number; found: Ba
   const seen = new Set<string>();
   const keep = (each: BandFinding[]) => {
     for (const finding of each) {
-      const key = `${finding.frame}:${finding.kind}:${finding.row}:${Math.round(finding.px / 8)}`;
+      const frame = finding.frame.startsWith("+") ? "end" : finding.frame;
+      const key = `${frame}:${finding.kind}:${finding.row}:${Math.round(finding.px / 8)}`;
       if (seen.has(key)) continue;
       seen.add(key);
       found.push(finding);
     }
   };
+  const footers = new Set<string>();
   const result = await runSimulationAsync(scenario, async (rows, step, index, state) => {
     if (state.turn !== turn) {
       turn = state.turn;
@@ -320,6 +328,18 @@ async function bands(name: string, min = 48): Promise<{ steps: number; found: Ba
     await frame();
     await frame();
     keep(bandsNow(byId, min, { step: index, label: step.label, frame: "settled" }));
+    // A turn's action row just came: its end plays over real frames (the fold, the reply's last
+    // lines revealing, the chase), so it is read frame by frame while that runs.
+    const newFooter = rows.some((row) => row.kind === "turnSummary" && !footers.has(row.id));
+    for (const row of rows) if (row.kind === "turnSummary") footers.add(row.id);
+    if (newFooter) {
+      const start = performance.now();
+      while (performance.now() - start < END_PLAY_MS) {
+        await frame();
+        const ms = Math.round((performance.now() - start) / 50) * 50;
+        keep(bandsNow(byId, min, { step: index, label: step.label, frame: `+${ms} ms` }));
+      }
+    }
     const boxes = new Map(drawnRows().map((row) => [row.id, { top: row.top, bottom: row.bottom }]));
     return rows.map((row) => boxes.get(row.id));
   });
