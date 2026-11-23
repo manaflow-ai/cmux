@@ -104,6 +104,29 @@ struct AttentionRingTimingTests {
         #expect(model.attention[pane] == nil, "the ring came back after the read")
     }
 
+    /// The switch's own frame: switching back to b, whose ring stays (cmux is in the back, nothing reads it), draws
+    /// no ring with that frame. The ring sits on the overlay window, which synced in the switch's pass, before b's
+    /// pages and terminals drew: the ring showed on the old workspace's picture. It draws once that frame committed.
+    @Test func switchingToAWorkspaceDrawsItsRingsOnlyAfterTheSwitchsFrame() async throws {
+        let fixture = try await Self.open(active: false)
+        defer { fixture.close() }
+        let pane = LayoutPaneID(fixture.ringing.id)
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.b }, report: { "workspace b never showed" })
+        let model = try #require(fixture.controller.content?.layoutModel)
+        try await PinnedPageTests.until({ model.attention[pane] != nil }, report: { "b's unread pane never rang" })
+        fixture.controller.showWorkspace(requested: fixture.a.id)
+        try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.a })
+
+        fixture.controller.showWorkspace(requested: fixture.b.id)
+        // The same pass: no await between the switch and these reads.
+        #expect(fixture.controller.content?.layoutModel === model, "b did not come back from its parked content")
+        #expect(model.attention[pane] != nil, "b's ring was read though nothing looks at it")
+        #expect(model.holdsAttentionUntilShown, "the switch's own frame draws b's ring before b's content")
+        try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "b's ring never drew after the switch" })
+        #expect(model.attention[pane] != nil, "b's ring went instead of drawing")
+    }
+
     /// Case 2 of the issue, from the sidebar: a press on b's row switches to it. The press is on the
     /// sidebar, not on the pane, so it is no click that reads the pane later: the pane is gone into now.
     @Test func switchingFromASidebarPressBlinksTheShownPanesRingOut() async throws {

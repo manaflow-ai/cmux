@@ -775,7 +775,7 @@ extension LayoutRootView.Snapshot {
         self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
                   focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
-                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention,
+                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.holdsAttentionUntilShown ? [:] : model.attention,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
     }
 }
