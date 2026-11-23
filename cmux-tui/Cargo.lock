@@ -1500,6 +1500,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
+ "cmux-egress",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1832,6 +1833,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "toml",
+]
+
+[[package]]
+name = "cmux-egress"
+version = "1.0.0"
+dependencies = [
+ "reqwest",
+ "tokio",
 ]
 
 [[package]]

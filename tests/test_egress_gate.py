@@ -32,12 +32,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_classic_cloud_routes import clean, in_scope  # noqa: E402
-from test_outbound_hosts import SCAN  # noqa: E402
+from test_outbound_hosts import DOC, SCAN, listed  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 UNGATED = ROOT / "tests" / "egress_ungated.json"
-# The gate's own sources: the only place a raw client may be made. Empty until each runtime's gate lands.
-GATES: tuple[str, ...] = ()
+# The gate's own sources: the only place a raw client may be made (Rust: cmux-egress; Swift next).
+GATES: tuple[str, ...] = ("cmux-tui/crates/cmux-egress/",)
+# The `connects` hosts the Rust gate lets through, generated from docs/privacy.md (--write).
+GATE_HOSTS = ROOT / "cmux-tui" / "crates" / "cmux-egress" / "hosts.txt"
 FORMS = {
     ".rs": {
         "reqwest-client": r"reqwest::(?:blocking::)?Client(?:Builder)?::(?:new|builder)\(",
@@ -107,6 +109,13 @@ def problems(found: dict[str, dict[str, int]], listed: dict[str, dict[str, int]]
     return out
 
 
+def gate_hosts_text(doc: str) -> str:
+    rows, _ = listed(doc)
+    hosts = sorted(h for h, (kind, _) in rows.items() if kind == "connects")
+    return ("# docs/privacy.md's `connects` hosts: what the egress gate lets through. Generated: "
+            "python3 tests/test_egress_gate.py --write\n" + "".join(f"{h}\n" for h in hosts))
+
+
 def summary(files: dict[str, dict[str, int]]) -> dict:
     by_lang: dict[str, int] = {}
     for rel, forms in files.items():
@@ -116,6 +125,7 @@ def summary(files: dict[str, dict[str, int]]) -> dict:
 
 
 def write(found: dict[str, dict[str, int]]) -> None:
+    GATE_HOSTS.write_text(gate_hosts_text(DOC.read_text()))
     UNGATED.write_text(json.dumps({
         "about": "Outbound sites in cmux NEXT that do not go through the egress gate. Only shrinks; "
                  "tests/test_egress_gate.py keeps it exact.",
@@ -126,6 +136,10 @@ class EgressGate(unittest.TestCase):
     def test_no_new_ungated_site(self):
         bad = problems(scan(), load())
         self.assertFalse(bad, "\n" + "\n".join(bad))
+
+    def test_the_gate_lets_through_exactly_the_doc_hosts(self):
+        self.assertEqual(GATE_HOSTS.read_text(), gate_hosts_text(DOC.read_text()),
+                         "cmux-egress/hosts.txt differs from docs/privacy.md's connects rows: run --write")
 
     def test_the_counts_are_the_sum(self):
         data = json.loads(UNGATED.read_text())
