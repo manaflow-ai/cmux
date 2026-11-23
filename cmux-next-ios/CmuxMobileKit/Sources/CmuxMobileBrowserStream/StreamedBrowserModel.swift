@@ -22,9 +22,15 @@ public protocol BrowserTabState: AnyObject {
     func reloadOrStop()
     func navigate(to text: String)
     func takeSnapshot()
+    /// Whether the card already has a picture of the page.
+    var hasSnapshot: Bool { get }
+    /// `takeSnapshot()` after `settleDelay` seconds (the grid's zoom), unless a newer request replaces it.
+    func takeSnapshot(settleDelay: TimeInterval)
 }
 
 extension BrowserTabState {
+    public var hasSnapshot: Bool { false }
+    public func takeSnapshot(settleDelay: TimeInterval) { takeSnapshot() }
     /// Schemes the address bar hands the Mac as typed. The Mac decides what loads and says
     /// why it refuses the rest (`rb.navigate.refused`, PROTOCOL.md `browser`), so a typed
     /// `javascript:` or `chrome:` is never turned into a search.

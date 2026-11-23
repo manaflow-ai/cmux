@@ -1240,7 +1240,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let tab = workspaceTab(id), tab.kind == .browser {
             // A card that already has a picture keeps it through the zoom; the refresh waits for the zoom to land.
             let model = browser(tab)
-            model.takeSnapshot(settleDelay: model.snapshot == nil ? 0 : 0.7)
+            model.takeSnapshot(settleDelay: model.hasSnapshot ? 0.7 : 0)
         }
         if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }

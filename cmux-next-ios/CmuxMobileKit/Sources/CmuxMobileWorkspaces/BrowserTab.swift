@@ -212,7 +212,11 @@ public final class BrowserTabModel: BrowserTabState {
     /// (the grid's zoom). WebKit renders the snapshot with a synchronous call to the render server
     /// on the main thread (20-30 ms in the simulator, `CARenderServerSnapshot` in the hitch stacks
     /// of BrowserButtonMotionBenchUITests), which landed inside the zoom's first frames.
-    public func takeSnapshot(settleDelay: TimeInterval = 0) {
+    public var hasSnapshot: Bool { snapshot != nil }
+
+    public func takeSnapshot() { takeSnapshot(settleDelay: 0) }
+
+    public func takeSnapshot(settleDelay: TimeInterval) {
         if settleDelay > 0 {
             pendingSnapshot?.cancel()
             // task-owner: this model; cancelled by the next snapshot request
