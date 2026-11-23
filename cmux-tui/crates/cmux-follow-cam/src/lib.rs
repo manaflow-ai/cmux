@@ -18,6 +18,8 @@
 //! - Manual: [`Camera::manual`] (a pinch or drag) holds the crop where the
 //!   person put it and keeps its size; [`Camera::resume`] (a tap) pans back
 //!   to the focus from there.
+//! - Lookahead: a recording's cut ([`path`]) knows what comes next, so it
+//!   can see caret and pointer moves [`Config::lookahead_us`] early.
 //!
 //! No I/O, no threads, no clock: every time is the caller's monotonic clock
 //! in microseconds, and the same events give the same path at any frame
@@ -141,6 +143,12 @@ pub struct Config {
     /// recording, where a new scene's first typing can come a second later.
     #[serde(default = "default_cut_settle_us")]
     pub cut_settle_us: u64,
+    /// For a recording cut ([`path`]) only: how far ahead the caret and the
+    /// pointer are seen, so a pan to a far caret ends as its typing starts
+    /// instead of setting off then. It never reaches back past a cut. 0 (live,
+    /// where nothing is known ahead) is off.
+    #[serde(default)]
+    pub lookahead_us: u64,
 }
 
 fn default_cut_settle_us() -> u64 {
@@ -159,6 +167,7 @@ impl Default for Config {
             damage_hold_us: 800_000,
             damage_max_share: 0.4,
             cut_settle_us: CUT_SETTLE_US,
+            lookahead_us: 0,
         }
     }
 }
@@ -523,9 +532,10 @@ pub fn path(
     let (Some(first), Some(last)) = (events.first(), events.last()) else {
         return Vec::new();
     };
+    let ahead = look_ahead(events, config.lookahead_us);
     let frame_us = 1e6 / fps.max(1.0);
     let mut frames = Vec::new();
-    let mut next = events.iter().peekable();
+    let mut next = ahead.iter().peekable();
     for i in 0.. {
         let t = first.t_us + (f64::from(i) * frame_us).round() as u64;
         if t > last.t_us {
@@ -537,4 +547,35 @@ pub fn path(
         frames.push(Frame { t_us: t, rect: camera.advance(t) });
     }
     frames
+}
+
+/// A trace with every caret and pointer signal `lookahead_us` earlier, but
+/// never before the cut (a window switch, a [`Signal::Cut`], a new screen
+/// size) it follows, so no shot shows what comes after the next cut.
+fn look_ahead(events: &[Event], lookahead_us: u64) -> Vec<Event> {
+    if lookahead_us == 0 {
+        return events.to_vec();
+    }
+    let mut window = None;
+    let mut cut_us = 0;
+    let mut moved: Vec<(bool, Event)> = events
+        .iter()
+        .map(|event| {
+            let t = event.t_us;
+            match event.signal {
+                Signal::Window { id, .. } if window != Some(id) => {
+                    window = Some(id);
+                    cut_us = t;
+                }
+                Signal::Cut | Signal::Source { .. } => cut_us = t,
+                _ => {}
+            }
+            let intent = matches!(event.signal, Signal::Caret { .. } | Signal::Pointer { .. });
+            let t_us = if intent { t.saturating_sub(lookahead_us).max(cut_us) } else { t };
+            (intent, Event { t_us, ..*event })
+        })
+        .collect();
+    // Stable: at one time a cut goes before the intent moved onto it.
+    moved.sort_by_key(|(intent, event)| (event.t_us, *intent));
+    moved.into_iter().map(|(_, event)| event).collect()
 }

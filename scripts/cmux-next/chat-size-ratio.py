@@ -61,6 +61,9 @@ import time
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 PREFIX = "chat_size."
 BASE = "mb1"
 DEFAULT_SIZES = "mb1,mb100,gb1,gb4"
@@ -348,6 +351,39 @@ def open_workspace(app, sock: str, session: str) -> dict:
         time.sleep(0.005)  # test script: the workspace is not listed yet
 
 
+def quiet(bm, pid: int, app_path: str, what: str, timeout: float) -> bool:
+    """Waits, bounded, until the bundle's processes went quiet: over two 0.5 s windows in a row their summed CPU
+    stayed under a tenth of a core and their summed footprint moved under 2 MB. The launch's (or the open's) own
+    work has ended then, so the memory read next reads the settled app. False (and said) when it never did."""
+    def totals():
+        cpu = footprint = 0
+        for proc in bm.owned(pid, app_path):
+            got = bm.usage(proc)
+            if got is not None:
+                footprint += got[1]
+                cpu += got[3]
+        return cpu, footprint, time.monotonic()
+
+    previous = totals()
+    calm = 0
+
+    def calmer():
+        nonlocal previous, calm
+        time.sleep(0.5)  # sleep-ok: the 0.5 s window the CPU and footprint deltas are read over
+        now = totals()
+        elapsed = max(1e-3, now[2] - previous[2])
+        busy = (now[0] - previous[0]) / 1e9 / elapsed
+        grew = abs(now[1] - previous[1]) / (1 << 20)
+        previous = now
+        calm = calm + 1 if busy < 0.1 and grew < 2 else 0
+        return calm >= 2
+
+    if wait_until(calmer, what, timeout=timeout, interval=0, raise_on_timeout=False):
+        return True
+    say(f"{what} never went quiet in {timeout:g} s; reading it anyway")
+    return False
+
+
 def typing(sock: str, keys: int) -> dict:
     """Keys typed into the open chat's composer, a fast typist's pace; the page's typing_stats (agent-engine-bench)."""
     pane(sock, "reset_typing")
@@ -360,8 +396,10 @@ def typing(sock: str, keys: int) -> dict:
     for index in range(keys):
         reply = rpc(sock, "debug.key", dict(target, key=letters[index % len(letters)]))
         errors += bool(isinstance(reply, dict) and reply.get("error"))
-        time.sleep(0.08)  # test script: about a fast typist's pace
-    time.sleep(0.5)  # test script: the last key's frame lands
+        time.sleep(0.08)  # sleep-ok: the gap between keys is a fast typist's pace, the measured input
+    # The last key's frame lands: the page's typing stats stop changing.
+    wait_stable(lambda: pane(sock, "typing_stats"), "the typing stats after the last key", timeout=10, interval=0.1,
+                reads=4, raise_on_timeout=False)
     stats = pane(sock, "typing_stats")
     return {"composer_focused": focused, "engine": engine.get("engine"), "key_errors": errors, "stats": stats,
             "to_paint_p95_ms": stat_p95(stats.get("to_paint")) if not errors else None}
@@ -380,7 +418,7 @@ def one_launch(bm, app_path: str, home: str, session: str, opts) -> dict:
         deadline = time.monotonic() + 60
         while not app.ping() and time.monotonic() < deadline:
             time.sleep(0.5)  # test script: the app's socket answers once it runs
-        time.sleep(opts.settle)  # test script: the launch settles before the chat is read
+        quiet(bm, pid, app_path, "the launched app", max(20.0, 3 * opts.settle))
 
         def alive(step):
             if bm.gone(pid):
@@ -406,7 +444,7 @@ def one_launch(bm, app_path: str, home: str, session: str, opts) -> dict:
             out["error"] = why
             return out
         out["open_ms"] = number(trace["first_content_ms"])
-        time.sleep(opts.settle)  # test script: the open chat settles before its memory is read
+        quiet(bm, pid, app_path, "the app with the chat open", max(20.0, 3 * opts.settle))
         loaded = bm.sample(pid, app_path, "loaded", 1)
         out["daemon_loaded_mb"] = kinds_mb(loaded, DAEMON_KINDS)
         out["app_mb"] = kinds_mb(loaded, RENDER_KINDS)
@@ -494,7 +532,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--flings", type=int, default=2)
     parser.add_argument("--fling-seconds", type=float, default=3)
     parser.add_argument("--keys", type=int, default=40)
-    parser.add_argument("--settle", type=float, default=8)
+    parser.add_argument("--settle", type=float, default=8,
+                        help="the app goes quiet before each memory read; it waits at most max(20, 3x this) s")
     parser.add_argument("--open-timeout", type=float, default=120, help="seconds an open may take to first content")
     parser.add_argument("--seed-timeout", type=float, default=1800)
     parser.add_argument("--acpmux", help="the acpmux that seeds (default: the app's own)")
