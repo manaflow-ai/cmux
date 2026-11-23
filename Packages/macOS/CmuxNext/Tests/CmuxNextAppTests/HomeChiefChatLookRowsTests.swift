@@ -41,7 +41,7 @@ import Testing
         return Harness(settings: settings, url: url)
     }
 
-    func popover(_ settings: SettingsController, opened: @escaping () -> Void = {}) -> (HomeChiefSettingsView, HomeChiefChatLookRows) {
+    func popover(_ settings: SettingsController, opened: @escaping @MainActor () -> Void = {}) -> (HomeChiefSettingsView, HomeChiefChatLookRows) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-chat-look-brain-\(UUID().uuidString)")
         let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
         let rows = HomeChiefChatLookRows(settings: { settings }, openColors: opened)
