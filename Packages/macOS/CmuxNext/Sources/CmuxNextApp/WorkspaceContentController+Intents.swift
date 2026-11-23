@@ -257,9 +257,7 @@ extension WorkspaceContentController: DividerWorkspace {
         case .newTabPage: NewTabPage.split(pane, edge: horizontal ? .right : .bottom, insertion: insertion)
         case .agentChat: // the sizing shows with its pane, goes with a refusal (as a New Tab page split's)
             let sizing = layoutModel.showSplitSizing(insertion.sizing), model = layoutModel
-            let started = pane.services.agentTabs.openTab(in: pane, split: horizontal ? .right : .down, around: insertion.around) { _ in
-                model.commitSplitSizing(sizing)
-            } failed: { model.cancelSplitSizing(sizing) }
+            let started = pane.services.agentTabs.openTab(in: pane, split: horizontal ? .right : .down, around: insertion.around) { _ in model.commitSplitSizing(sizing) } failed: { model.cancelSplitSizing(sizing) }
             if started { applyCurrent() } else { model.cancelSplitSizing(sizing) }
         }
         return nil

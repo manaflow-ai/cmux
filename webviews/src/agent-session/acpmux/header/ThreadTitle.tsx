@@ -1,5 +1,8 @@
 import { Fragment } from "react";
 import { useExperimentSwitch } from "../../../experiments/switches";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
+import { AgentIdentityChip, type FkaTreatment } from "../AgentIdentityChip";
+import { intl } from "../../../ui/intl";
 import { usePaneLanguage, useT } from "../i18n";
 import { GLASS_TOOLBAR_SWITCH } from "./glassToolbar.experiment";
 import { useHeaderState } from "./headerState";
@@ -19,17 +22,29 @@ import { useHeaderState } from "./headerState";
  * (headerState.ts `headerBreadcrumb`: repository, branch) leads the title as one monospace slash path,
  * `repo / branch / title`, its separators fainter. The title segment stays the rename target. With no
  * trail the title draws exactly as before.
+ *
+ * The chat's identity (Leo, 2026-11-22: "BUT WHO IS MANGO?"): the icon it set (acpmux `icon`) else
+ * its harness's mark before the name, and the newest name it had before a rename as a quiet "fka"
+ * after it (AgentIdentityChip.tsx); the tooltip lists every former name.
  */
 export function ThreadTitle({
   title,
   onRename,
   trail,
   glass,
+  icon,
+  harness,
+  formerNames,
+  fka,
 }: {
   title: string;
   onRename?: () => void;
   trail?: readonly string[];
   glass?: boolean;
+  icon?: HarnessIconSpec;
+  harness?: string;
+  formerNames?: readonly string[];
+  fka?: FkaTreatment;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -37,26 +52,36 @@ export function ThreadTitle({
   const { workspace } = useHeaderState();
   if ((glass ?? glassSwitch) && workspace)
     return (
-      <span className="acpmux-thread-title acpmux-glass-title" title={title} onDoubleClick={onRename}>
+      <span className="acpmux-thread-title acpmux-glass-title" onDoubleClick={onRename}>
         <span className="acpmux-glass-title-name">{workspace.title}</span>
         <span className="acpmux-glass-title-detail">
           {t("header.glassChats", {
             n: workspace.chats,
-            count: new Intl.NumberFormat(language).format(workspace.chats),
+            count: intl.NumberFormat(language).format(workspace.chats),
           })}
         </span>
       </span>
     );
-  // With a trail the title segment carries no tooltip of its own: the path's full-path tooltip shows
-  // over it too.
-  const name = (tooltip: string | undefined) => (
-    <span className="acpmux-thread-title" title={tooltip} onDoubleClick={onRename}>
-      {title}
+  // No tooltip on the title or the path: their text shows (the tooltip cuts: a tooltip only names a
+  // control that shows no text of its own).
+  const name = (
+    <span className="acpmux-thread-title" onDoubleClick={onRename}>
+      {icon || harness || formerNames?.length ? (
+        <AgentIdentityChip
+          name={title}
+          {...(icon && { icon })}
+          {...(harness && { harness })}
+          {...(formerNames && { formerNames })}
+          {...(fka && { fka })}
+        />
+      ) : (
+        title
+      )}
     </span>
   );
-  if (!trail?.length) return name(title);
+  if (!trail?.length) return name;
   return (
-    <span className="acpmux-thread-crumbs" title={[...trail, title].join(" / ")}>
+    <span className="acpmux-thread-crumbs">
       {trail.map((part, index) => (
         <Fragment key={index}>
           <span className="acpmux-thread-crumb">{part}</span>
@@ -65,7 +90,7 @@ export function ThreadTitle({
           </span>
         </Fragment>
       ))}
-      {name(undefined)}
+      {name}
     </span>
   );
 }
