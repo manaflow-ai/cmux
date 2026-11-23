@@ -28,6 +28,10 @@ public final class WebDevOverrideWatcher {
     /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
     /// superseded does not finish.
     private var reloadGeneration = 0
+    /// Reloads each Chromium page at its safe point, under a picture of itself.
+    let pageReload = PageGracefulReload()
+    /// Reloads the served views each at its own safe point (``reloadPages(live:hosting:pages:served:watcher:)``).
+    let gracefulReload = WebBundleGracefulReload()
 
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
@@ -111,7 +115,7 @@ public final class WebDevOverrideWatcher {
     ///   - served: The WebKit views the scheme handlers served.
     ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
     ///   - why: What changed, for the log line that counts the views reloaded.
-    /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
+    /// - Returns: The work still running for pages that change engine or reload in Chromium, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
@@ -122,7 +126,11 @@ public final class WebDevOverrideWatcher {
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
-        let webKit = served.reloadServed()
+        // Each served view reloads at its own safe point under a picture of itself, keeping the
+        // composer's draft and keyboard (``WebBundleGracefulReload``), not all of them blank at once.
+        let shown = served.shown
+        watcher.gracefulReload.reload(shown, to: WebBundleOverlay.shared.activeTree, served: served)
+        let webKit = shown.count
         let pages = pages ?? PageRegistry.pages()
         // The counts of what follows: pages that move to WebKit, or Chromium pages that reload.
         let moves = live && !chromiumLive && hosting != nil
@@ -146,10 +154,10 @@ public final class WebDevOverrideWatcher {
                 for move in moves { await move.value }
             }
         }
-        // Chromium pages reload when they serve the loop now or did until now.
+        // Chromium pages reload when they serve the loop now or did until now, each at its safe point
+        // under a picture of itself (``PageGracefulReload``), as the WebKit views do.
         guard chromiumLive || watcher.chromiumServedLive else { return nil }
-        for page in pages where page.chromiumPage != nil { page.reload() }
-        return nil
+        return watcher.pageReload.reload(pages.filter { $0.chromiumPage != nil })
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
