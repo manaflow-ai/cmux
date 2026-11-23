@@ -71,6 +71,12 @@ pub trait PlatformApi {
     fn share_team(&self, slug: &str, team: &str) -> Result<(), ApiError>;
     /// `GET /v1/cloud/apps/{slug}`: `{app, versions}`, newest version first.
     fn app(&self, slug: &str) -> Result<Value, ApiError>;
+    /// `POST /v1/cloud/apps/{slug}/process-env` `{machine}`: the secrets the person attached to
+    /// this one app, for the process this machine is about to start. Empty when the app has
+    /// none, or the platform does not know the app yet (404 `cloud.app.not_found`: a first
+    /// publish, whose app is made at promote). The values go only into that process's start;
+    /// never to disk, a log, or version state.
+    fn process_env(&self, slug: &str, machine: &str) -> Result<Vec<(String, String)>, ApiError>;
 }
 
 /// [`PlatformApi`] through this machine's agent (`apps.call`), which holds the `vm-self`
@@ -200,5 +206,24 @@ impl PlatformApi for PlatformClient<'_> {
 
     fn app(&self, slug: &str) -> Result<Value, ApiError> {
         self.call("GET", &format!("{APPS}/{slug}"), None, None, 1)
+    }
+
+    fn process_env(&self, slug: &str, machine: &str) -> Result<Vec<(String, String)>, ApiError> {
+        let body = json!({"machine": machine});
+        let answer =
+            match self.call("POST", &format!("{APPS}/{slug}/process-env"), Some(&body), None, 1) {
+                Ok(answer) => answer,
+                Err(e) if e.status == 404 && e.code == "cloud.app.not_found" => return Ok(vec![]),
+                Err(e) => return Err(e),
+            };
+        let malformed = || {
+            local("cloud.app.process_env_invalid", "process-env answered no {env: {NAME: value}}")
+        };
+        let Some(env) = answer.get("env").and_then(Value::as_object) else {
+            return Err(malformed());
+        };
+        env.iter()
+            .map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())).ok_or_else(malformed))
+            .collect()
     }
 }
