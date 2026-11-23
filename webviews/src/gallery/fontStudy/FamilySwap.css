@@ -29,12 +29,14 @@
   padding-bottom: 12px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--swap-rule);
-  font: 13px/18px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
 }
 
 .family-swap-button {
   font: inherit;
-  padding: 2px 10px;
+  padding: var(--grid-half-step) var(--ds-space-3);
   border: 1px solid var(--swap-rule);
   border-radius: 6px;
   background: transparent;
@@ -74,6 +76,8 @@
 
 .family-swap-top {
   align-self: start;
-  font: 11px/14px ui-monospace, monospace;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   text-align: right;
 }

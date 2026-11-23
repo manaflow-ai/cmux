@@ -31,6 +31,21 @@ pub(super) fn installed(svc: &Services<'_>) -> Option<SessionUnit> {
     parse_session_unit(&text)
 }
 
+/// The session of the installed session unit, as the steps that render or
+/// run it need it (uninstall renews the unit as cmux renders it, and on
+/// macOS runs the binary to end the session's terminals). Its binary is the
+/// one install places (`$HOME/SESSION_BINARY`), never the path the file
+/// names: a unit cmux renders for another binary still counts as cmux's only
+/// through the ownership record, and no other binary runs.
+pub(super) fn installed_host(ctx: &Context<'_>, svc: &Services<'_>) -> Option<SessionHost> {
+    if svc.layout.mode != InstallMode::User {
+        return None;
+    }
+    let unit = installed(svc)?;
+    let binary = Path::new(ctx.env.home.as_deref()?).join(SESSION_BINARY);
+    Some(SessionHost { binary: binary.to_str()?.to_owned(), session: unit.session })
+}
+
 pub(super) fn install(
     ctx: &Context<'_>,
     args: &Args,
