@@ -64,6 +64,17 @@ public nonisolated struct BrowserCommentThread: Sendable, Equatable {
     }
 }
 
+/// Where a thread's design mode pick is: its browser tab's key and the element's selector.
+public nonisolated struct BrowserCommentPick: Sendable, Equatable {
+    public var tab: String
+    public var selector: String
+
+    public init(tab: String, selector: String) {
+        self.tab = tab
+        self.selector = selector
+    }
+}
+
 /// Why a browser comment was not sent.
 public nonisolated enum BrowserCommentSendFailure: Error, Sendable, Equatable {
     /// Sending needs a real click or key.
@@ -89,12 +100,47 @@ public final class BrowserCommentThreads {
 
     /// Where each thread lives: the host's store and the worktree root it is keyed by.
     private var homes: [String: (store: any DiffCommentsStoring, root: String)] = [:]
+    /// Each thread's pick on its page, while the thread lasts.
+    public private(set) var picks: [String: BrowserCommentPick] = [:]
+    /// Per browser tab key, whether its pages were last told that sending is available.
+    private var offered: [String: Bool] = [:]
     /// Nil: no polling of its own (tests call ``refresh()``).
     private let pollInterval: Duration?
     private let polling = DemandTimer(owner: "browser-comment-threads.poll")
 
     public init(pollInterval: Duration? = .seconds(2)) {
         self.pollInterval = pollInterval
+    }
+
+    /// The key of the thread whose pick is `pick`.
+    public func key(of pick: BrowserCommentPick) -> String? {
+        picks.first { $0.value == pick }?.key
+    }
+
+    /// Records that tab `tab` can (or cannot) send; true when that changed and the page must hear it.
+    /// A nil `available` forgets the tab (design mode turned off).
+    public func offer(_ available: Bool?, on tab: String) -> Bool {
+        guard offered[tab] != available else { return false }
+        offered[tab] = available
+        return available != nil
+    }
+
+    /// ``send(_:key:store:root:acpSession:opid:userGesture:)`` for pick `pick`, on the worktree
+    /// root of chat folder `folder` (its repository's root, read through `git`; else the folder).
+    @discardableResult
+    public func send<Git: DiffGitRunning & DiffCommentsStoring>(_ comment: BrowserComment, key: String, pick: BrowserCommentPick,
+                                                                git: Git, folder: String?, acpSession: String,
+                                                                opid: String) async throws(BrowserCommentSendFailure) -> BrowserCommentThread {
+        picks[key] = pick
+        var root = folder ?? ""
+        if let folder, let repository = try? await DiffPageRuntime.repository(at: URL(fileURLWithPath: folder, isDirectory: true), git: git) {
+            root = repository.root
+        }
+        guard root.hasPrefix("/") else {
+            update(key, BrowserCommentThread(commentID: nil, state: .failed))
+            throw .host(.failed)
+        }
+        return try await send(comment, key: key, store: git, root: root, acpSession: acpSession, opid: opid, userGesture: true)
     }
 
     /// Whether any thread waits for the agent's reply.
@@ -151,9 +197,7 @@ public final class BrowserCommentThreads {
             // The thread may have been resolved while the list was read.
             guard threads[key]?.commentID == id else { continue }
             guard let record = asked[place]?.arrayValue?.first(where: { $0["id"]?.stringValue == id }) else {
-                threads[key] = nil
-                homes[key] = nil
-                onChange?(key, nil)
+                drop(key)
                 continue
             }
             let state = record["thread"]?["state"]?.stringValue
@@ -172,9 +216,15 @@ public final class BrowserCommentThreads {
         if let id = thread.commentID, let home = homes[key] {
             _ = try await home.store.deleteComments(root: home.root, ids: [id], versions: [:], key: UUID().uuidString)
         }
+        drop(key)
+    }
+
+    /// Thread `key` is gone: its observers hear it while its pick is still known.
+    private func drop(_ key: String) {
         threads[key] = nil
         homes[key] = nil
         onChange?(key, nil)
+        picks[key] = nil
     }
 
     private func update(_ key: String, _ thread: BrowserCommentThread) {
