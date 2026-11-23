@@ -76135,6 +76135,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -89048,19 +89050,27 @@
             "enumeration" : [
               {
                 "title" : "Status",
-                "value" : "status"
+                "value" : "status",
+                "subtitle" : null,
+                "symbol" : null
               },
               {
                 "title" : "Take Over",
-                "value" : "take_over"
+                "value" : "take_over",
+                "subtitle" : null,
+                "symbol" : null
               },
               {
                 "title" : "Give Back to Chief",
-                "value" : "hand_back"
+                "value" : "hand_back",
+                "subtitle" : null,
+                "symbol" : null
               },
               {
                 "title" : "Ask the Person to Take Over",
-                "value" : "request_human"
+                "value" : "request_human",
+                "subtitle" : null,
+                "symbol" : null
               }
             ]
           },
@@ -89117,6 +89127,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
@@ -89215,6 +89227,8 @@
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
       "requires" : [
 
       ],
