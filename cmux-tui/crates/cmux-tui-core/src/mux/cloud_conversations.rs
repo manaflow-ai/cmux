@@ -16,6 +16,9 @@ pub(crate) struct CloudServices {
     pub(crate) feed: OnceLock<crate::feed_client::FeedClient>,
     /// How `feed.reports.reply` reaches acpmux, installed by the binary.
     pub(crate) feed_reply: OnceLock<crate::feed_client::ReplySender>,
+    /// The Cloud machines' state sockets (`apps-machine-state-watch`).
+    #[cfg(unix)]
+    pub(crate) machine_state: crate::server::machine_state_push::MachineStatePush,
 }
 
 impl Mux {

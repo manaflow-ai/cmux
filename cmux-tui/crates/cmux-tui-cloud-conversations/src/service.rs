@@ -1695,7 +1695,7 @@ fn valid_selfhost_user(user: &str) -> bool {
 
 #[path = "owner_wire.rs"]
 mod owner_wire;
-pub use owner_wire::{OwnerWire, OwnerWireError};
+pub use owner_wire::{LeaseBearer, OwnerWire, OwnerWireError};
 
 #[cfg(test)]
 mod presence_order_tests {

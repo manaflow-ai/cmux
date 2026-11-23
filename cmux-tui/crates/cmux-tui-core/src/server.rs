@@ -229,6 +229,8 @@ mod history_search;
 mod home;
 mod icon_assets;
 mod launch_snapshot;
+#[cfg(unix)]
+pub(crate) mod machine_state_push;
 pub(crate) use launch_snapshot::{LAUNCH_SNAPSHOT_FILE, MAX_LAUNCH_SNAPSHOT_BYTES};
 #[cfg(unix)]
 mod carrier_role;
