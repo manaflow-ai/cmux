@@ -593,8 +593,11 @@ test("switching away from a chat twice before its detaches answer attaches it af
     expect(settled).toBe(false);
     expect(attachesOfA()).toBe(before);
     daemon.releaseDetach();
-    // The switch the first detach held was superseded and attached nothing.
-    expect(await first).toBeUndefined();
+    // The switch the first detach held sent no attach of its own: it was superseded. It reports the
+    // newer switch's outcome, not undefined, because that one did attach the chat (`select`'s
+    // `sameChatAfter` in direct.ts, issue 44964: a superseded open read as undefined made a New Tab's
+    // first send say "cmux did not start a session" with the chat on screen).
+    expect(await first).toBe(A);
     expect(await back).toBe(A);
     expect(attachesOfA()).toBe(before + 1);
     const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);
