@@ -1174,7 +1174,17 @@ jobs:
           poll=0
           deferred=false
           unmarked=false
-          if [[ -n "$OWNER_RUN_ID" ]]; then
+          # The CDN first (no API call): a tree already published and
+          # daemon-tested leaves nothing the owner's state could change, so
+          # the owner and builder reads below are skipped. They spend the
+          # routing App installation's budget (164690637), which ran out on
+          # 2026-11-21 with runner placement waiting on it.
+          if [[ -n "$OWNER_RUN_ID" ]] && tree_ready &&
+              curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/tree/$KEY/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
+            echo "Tree $KEY is published and daemon-tested; owner run $OWNER_RUN_ID is not read, and this run builds nothing."
+            takeover=false
+          elif [[ -n "$OWNER_RUN_ID" ]]; then
             # One look, no waiting (cx-urd.26). Polling a live owner for up to
             # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
             # 765 waits built the key anyway after a chain of failed owners.
@@ -1391,6 +1401,11 @@ jobs:
       # taken over through the claim, as in the wait step. An owner whose
       # hand-off already started may have missed the marker: wait (bounded)
       # for it to end, then decide. Any other live owner sees the marker.
+      #
+      # The CDN is read first (no API call) and before each owner read; the
+      # owner run is read at most 5 times. Until 2026-11-21 a hand-off held
+      # this step in a 15 s loop of up to 13 owner reads on the routing App
+      # installation's budget (164690637), which runner placement needs.
       - name: Re-check the owner after leaving the marker
         id: recheck
         if: steps.wait.outputs.deferred == 'true'
@@ -1418,12 +1433,19 @@ jobs:
               python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("key") == sys.argv[2] else 1)' \
                 "$RUNNER_TEMP/cmux-tui-recheck-completion.json" "$KEY" 2>/dev/null
           }
-          state="$(owner_state)"
-          if [[ "$state" != completed ]] &&
+          state=unread
+          if ! published; then
+            state="$(owner_state)"
+          fi
+          if [[ "$state" != completed && "$state" != unread ]] &&
               api "actions/runs/$OWNER_RUN_ID/jobs?per_page=100" | python3 -c 'import json,sys; sys.exit(0 if any(j.get("name") == "report an unpublished cmux-tui tree to cmux-next" and j.get("status") in ("in_progress", "completed") for j in json.load(sys.stdin).get("jobs", [])) else 1)' 2>/dev/null; then
-            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting for it to end."
-            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              sleep 15
+            # The hand-off job lists the markers, re-runs one run and ends;
+            # the run ends with it. Same 3-minute bound as before, a third of
+            # the owner reads, and none once the CDN shows the tree.
+            echo "Owner run $OWNER_RUN_ID is handing tree $KEY off; waiting (at most 4 looks, 45 s apart) for it to end."
+            for _ in 1 2 3 4; do
+              sleep 45
+              published && break
               state="$(owner_state)"
               [[ "$state" == completed ]] && break
             done
@@ -5130,7 +5152,7 @@ jobs:
     needs: [publish, verify-publish, adopt-commit-manifest]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.verify-publish.result == 'success' || (needs.adopt-commit-manifest.result == 'success' && (needs.adopt-commit-manifest.outputs.state == 'adopted' || needs.adopt-commit-manifest.outputs.state == 'present'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 50  # 15 for the Cloud machine channel, at most 15 more each for the Linux release and Mac live update files
+    timeout-minutes: 70  # 15 for the Cloud machine channel, at most 15 more each for the Linux release and Mac live update files, 20 for the Screen Sharing helper
     permissions:
       contents: read
       actions: read  # the Linux release file: this run's own build artifacts (gh run download)
@@ -5234,6 +5256,11 @@ jobs:
       # purpose cmux-mac-live-update. It names the commit's darwin daemon binaries from the manifest (the Cloud
       # machine channel's trust: the darwin build is not this job's) and live_from, the app commits that can take
       # them live. Failure fails this delivery job so it can be retried and alerted; builds do not wait on it.
+      # It also names the NIGHTLY's signed Screen Sharing helper of the commit's helper source key under the
+      # top-level key screen_sharing_helper (never in targets, which every older `cmux app try` refuses to grow),
+      # when cmux-tui-team-signed.yml signed one within 20 minutes (scripts/ci/mac-live-screen-sharing-helper.sh):
+      # the app runs screen sharing only from its helper, so a cmux-rd host change goes live only with it. A helper
+      # that could not be copied is a warning: the file still goes out, carrying none.
       - name: Sign the Mac live update file
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -5245,15 +5272,24 @@ jobs:
           set -euo pipefail
           ml="$RUNNER_TEMP/mac-live"
           mkdir -p "$ml" && chmod 700 "$ml"
+          helper=() status=0
+          record="$(timeout 1260 scripts/ci/mac-live-screen-sharing-helper.sh "$GITHUB_SHA" "$ml" 1200)" || status=$?
+          if [[ "$status" != 0 ]]; then
+            echo "::warning::the Screen Sharing helper of $GITHUB_SHA was not copied (exit $status); its Mac live update file carries none"
+          elif [[ -n "$record" ]]; then
+            helper=(--screen-sharing-helper "$record")
+          else
+            echo "The Mac live update file of $GITHUB_SHA carries no Screen Sharing helper."
+          fi
           export ml GITHUB_SHA GITHUB_RUN_ID
           timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
                  python3 scripts/cmux-next/hot-apply.py live-from "$GITHUB_SHA" > "$ml/live-from.json"
                  python3 scripts/ci/cmux-machine-channel.py payload --purpose mac-live --manifest "$ml/manifest.json" \
                    --live-from "$ml/live-from.json" --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
-                   --download-dir "$ml/binaries" --out "$ml/payload.json"
+                   --download-dir "$ml/binaries" --out "$ml/payload.json" "$@"
                  rm -rf "$ml/binaries"
-                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"'
+                 scripts/ci/cmux-machine-channel-point.sh "$ml/payload.json" "$ml"' _ ${helper[@]+"${helper[@]}"}
 
   # The fallback for publish's "Request the Cloud VM image roll": only when that dispatch failed, after the
   # read-back of the same commit manifests point-machine-channel reads. The roll's plan decides whether the

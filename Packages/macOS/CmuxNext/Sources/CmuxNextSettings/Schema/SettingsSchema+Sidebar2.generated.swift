@@ -335,6 +335,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "settle", "settled", "finished", "done", "read", "seen", "fold", "chats", "threads", "tidy"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.showAutomaticSessionsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.showAutomaticSessions", "Show Automatic Sessions"),
+                help: SettingsText.keyed("settings.sidebar.showAutomaticSessions.help", "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.showAutomaticSessionsDefault),
+                keywords: ["sidebar", "automatic", "auto", "script", "automation", "background", "hidden", "hide", "fold", "sessions", "tidy"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showColorsPath,
                 section: .appearance,
                 group: group,
@@ -366,16 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showLocalMachineDefault),
                 keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderMemberCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help", "A collapsed group shows how many workspaces it holds."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
-                keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
             ),
         ]
     }

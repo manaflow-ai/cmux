@@ -36,6 +36,7 @@
 //!   every subagent below it: a client never waits on one for the turn's end.
 
 use crate::protocol::merge_mux_meta;
+use expiry::Expiry;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -85,6 +86,8 @@ pub struct SubagentTree {
     /// conversation names a new root, so every root learned is kept: replayed
     /// history still names the earlier ones.
     root_threads: HashSet<String>,
+    /// What ends a subagent its harness never said ended (`expiry.rs`).
+    expiry: Expiry,
 }
 
 #[derive(Debug, Default)]
@@ -271,6 +274,8 @@ impl SubagentTree {
             }
             let state = event.get("state").and_then(Value::as_str);
             let ended = matches!(state, Some("completed" | "failed" | "cancelled"));
+            // A replayed `running` is history, not news of it.
+            let running = state == Some("running");
             if state == Some("completed")
                 && event.get("result").is_none()
                 && !preview.result_cut
@@ -281,6 +286,11 @@ impl SubagentTree {
             }
             if ended {
                 preview.free_result();
+            }
+            if (live || !running)
+                && let Some(id) = event.get("id").and_then(Value::as_str).map(str::to_owned)
+            {
+                self.expiry_event(&id, running);
             }
         }
         let mut fields = Map::new();
@@ -338,6 +348,7 @@ impl SubagentTree {
             }
         }
         self.root_threads.extend(log.root_threads);
+        self.adopt_expiry(log.expiry, &known);
     }
 
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
@@ -378,6 +389,7 @@ impl SubagentTree {
 
     /// The harness is gone, and its background subagents with it.
     pub fn end_background(&mut self) {
+        self.expiry_harness_exit();
         self.background.clear();
         self.running.clear();
     }
@@ -779,6 +791,7 @@ impl SubagentTree {
         }
         if let Some(v) = text("agentId") {
             self.previews.entry(id.to_owned()).or_default().agent_id = Some(v.to_owned());
+            self.expiry_agent(id, v);
         }
     }
 
@@ -968,6 +981,9 @@ fn truncate_last_message(text: &str) -> String {
         value
     }
 }
+
+#[path = "subagent_expiry.rs"]
+pub mod expiry;
 
 #[cfg(test)]
 mod codex_tests {
