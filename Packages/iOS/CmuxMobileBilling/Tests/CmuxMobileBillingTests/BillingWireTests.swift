@@ -29,20 +29,24 @@ import Testing
 
     /// The production answer to a TestFlight or dev build (msg: "i cant see
     /// plans in the plan section"): no products, so the screen must still
-    /// describe the paid plans.
+    /// describe the paid plans, and they are the NEXT plans this app sells, not
+    /// the classic Pro and Max ("we do want to deal with the billing/etc/pricing
+    /// and show that in ios tho").
     @Test func ineligibleAccountStillListsPaidPlans() throws {
         let json = Data("""
         {
           "appAccountToken": "6f9619ff-8b86-d011-b42d-00c04fc964ff",
           "eligible": false,
           "reason": "purchases_unavailable",
-          "currentPlan": { "planId": "pro", "source": "none" },
+          "currentPlan": { "planId": "next_pro", "source": "none" },
           "products": []
         }
         """.utf8)
         let account = try JSONDecoder().decode(BillingAccount.self, from: json)
         #expect(account.reason == .purchasesUnavailable)
-        #expect(account.catalogPlanIDs == [.pro, .max])
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
+        let allNext = account.catalogPlanIDs.allSatisfy(\.isNext)
+        #expect(allNext)
     }
 
     @Test func catalogAddsGoOnlyWhenCurrentOrOnSale() {
@@ -55,13 +59,20 @@ import Testing
                 products: products
             )
         }
-        #expect(account(current: .free).catalogPlanIDs == [.pro, .max])
-        #expect(account(current: .go).catalogPlanIDs == [.go, .pro, .max])
-        #expect(account(current: BillingPlanID(rawValue: "team")).catalogPlanIDs == [.pro, .max])
+        let next: [BillingPlanID] = [.nextPlus, .nextPro, .nextMax]
+        #expect(account(current: .free).catalogPlanIDs == next)
+        #expect(account(current: .go).catalogPlanIDs == [.go] + next)
+        #expect(account(current: BillingPlanID(rawValue: "team")).catalogPlanIDs == next)
         #expect(account(
             current: .free,
             products: [BillingProductReference(productID: "com.cmux.app.go.monthly", planID: .go)]
-        ).catalogPlanIDs == [.go, .pro, .max])
+        ).catalogPlanIDs == [.go] + next)
+        // A classic subscriber still sees the plan they are on, ahead of NEXT's
+        // rather than between NEXT Pro and Max under the same name.
+        #expect(account(current: .pro).catalogPlanIDs == [.pro] + next)
+        #expect(account(current: .max).catalogPlanIDs == [.max] + next)
+        #expect(!account(current: .free).catalogPlanIDs.contains(.pro))
+        #expect(!account(current: .free).catalogPlanIDs.contains(.max))
     }
 
     @Test func decodesIneligibleResponseWithoutProducts() throws {
