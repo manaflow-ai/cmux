@@ -556,7 +556,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         composer.sizingOptions = [.intrinsicContentSize]
         jumpRow.sizingOptions = [.intrinsicContentSize]
         bottomStack.addSubview(keyBarClip)
-        for host in [keyBar as UIViewController, composer, jumpRow] {
+        for host in [keyBar as UIViewController, composer] {
             host.view.backgroundColor = .clear
             host.view.translatesAutoresizingMaskIntoConstraints = false
             addChild(host)
@@ -591,6 +591,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomFade)
         view.addSubview(bottomStack)
+        // Jump to bottom floats over the page's last rows, just above the
+        // stack, and takes no space (Leo, 2026-11-23: "bring it back down to
+        // where it was"). Its host is its tap target's size.
+        jumpRow.view.backgroundColor = .clear
+        jumpRow.view.translatesAutoresizingMaskIntoConstraints = false
+        addChild(jumpRow)
+        view.addSubview(jumpRow.view)
+        jumpRow.didMove(toParent: self)
+        NavigationPopExclusion.shared.exclude(jumpRow.view)
         // The bottom soft edge follows the composer like a system toolbar.
         let edge = UIScrollEdgeElementContainerInteraction()
         edge.scrollView = scrollView
@@ -708,12 +717,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             stackRestingLimit,
             // Rest on the chrome's line when nothing pins the stack higher.
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor), .defaultLow),
-            jumpRow.view.topAnchor.constraint(equalTo: bottomStack.topAnchor),
-            jumpRow.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
-            jumpRow.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
-            // Empty, the row has no intrinsic height; this keeps it at 0 pt.
-            prioritized(jumpRow.view.heightAnchor.constraint(equalToConstant: 0), .fittingSizeLevel),
-            keyBarClip.topAnchor.constraint(equalTo: jumpRow.view.bottomAnchor),
+            jumpRow.view.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
+            jumpRow.view.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            jumpRow.view.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor),
+            keyBarClip.topAnchor.constraint(equalTo: bottomStack.topAnchor),
             keyBarClip.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             keyBarClip.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight), .defaultHigh),
@@ -1348,33 +1355,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         applyScroll()
     }
 
-    /// The Jump to bottom row's SwiftUI height changed: the stack and the
-    /// page's insets follow in this pass, like the composer card's.
+    /// The Jump to bottom pill's SwiftUI size changed: its floating host
+    /// follows in this pass. The page's insets do not: it takes no space.
     func jumpRowHeightChanged(_ height: CGFloat) {
         guard let host = jumpRowHost else { return }
         host.view.invalidateIntrinsicContentSize()
         host.view.setNeedsLayout()
-        view.setNeedsLayout()
         view.layoutIfNeeded()
-        updateBottomBacking()
-        applyScroll()
     }
 
-    /// The Jump to bottom button's tap target moved, in the row's own
-    /// coordinates (`.null` while hidden). Touches in the row outside it go
-    /// to the terminal (`TerminalBottomStack`).
-    func jumpTargetChanged(_ frame: CGRect) {
-        bottomStack.jumpTarget = frame
-    }
-
-    private var jumpRowHeight: CGFloat { jumpRowHost?.view.bounds.height ?? 0 }
-
-    /// The solid background under the stack shows while any row of it does:
-    /// the key row, the composer, or the Jump to bottom pill (with Hide
-    /// Toolbar on, the pill alone; without it the scrolled rows drew under the
-    /// pill's glass, CMUX-10 review).
+    /// The solid background under the stack shows while a row of it does:
+    /// the key row or the composer. Jump to bottom draws its own opaque fill
+    /// and adds none (Leo, 2026-11-23: "dont add blur there").
     private func updateBottomBacking() {
-        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer && jumpRowHeight == 0
+        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
     }
 
     private var composerGrowth: CGFloat {
@@ -3583,7 +3577,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let visible = requested && !following && glide == nil
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
-        // The stack's top row shows Jump to bottom (`TerminalJumpToBottomRow`).
+        // Jump to bottom floats above the stack (`TerminalJumpToBottomRow`).
         // A hide is laid out now, in this transaction, so the frame that
         // shows the moved rows never still draws the row (round 11 N4: 4 of
         // 250 jumps drew it on the first moved frame; SwiftUI's own pass
@@ -4571,7 +4565,9 @@ final class DisplayLinkProxy: NSObject {
 /// weird dead zones in the jump to bottom in terminal... dont add blur
 /// there"). Before, those touches hit the row's host or the stack and did
 /// nothing: about 200 pt of a 402 pt iPhone's width, 56 pt tall. Nothing is
-/// drawn there for this (no blur, no new backing).
+/// drawn there for this (no blur, no new backing). Since the pill floats in
+/// a host the size of its target, above the stack (#52323), no row spans
+/// the width; this stays a guard should a row of the stack return.
 final class TerminalBottomStack: UIView {
     /// The Jump to bottom row's host view.
     weak var jumpRow: UIView?
