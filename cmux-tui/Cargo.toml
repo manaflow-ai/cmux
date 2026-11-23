@@ -28,6 +28,7 @@ members = [
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-session-cloud",
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-apps",
@@ -356,6 +357,7 @@ await_holding_refcell_ref = "deny"
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-session-cloud = { path = "crates/cmux-session-cloud" }
 cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
