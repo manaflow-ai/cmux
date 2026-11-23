@@ -14,7 +14,7 @@
   background: none;
   box-shadow: none;
   font-family: var(--font-ui, inherit);
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
   font-style: normal;
   font-weight: var(--weight-regular, 400);
   font-variant-numeric: tabular-nums;
