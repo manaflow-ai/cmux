@@ -555,9 +555,9 @@ final class TopHomePageView: NSView {
 
     func presentNewChief() {
         guard let services else { return }
-        let home = services.home
-        let sheet = HomeNewChiefSheet()
+        let home = services.home, sheet = HomeNewChiefSheet()
         sheet.onCreate = { name, backend in await home.createChief(named: name, backend: backend) }
+        sheet.onCreateOnMachine = HomeMachineChiefStart(cli: services.bundledCLI, auth: services.cloud.auth, socket: { [weak services] in await services?.machines.local.connection?.endpoint?.socketPath }).create(opened: { [weak home] in home?.pendingSelection = $0 })
         sheet.onCreateOnThisMac = { name, backend in await home.createChief(named: name, backend: backend, onThisMac: true) }
         present(sheet)
     }
