@@ -39,21 +39,19 @@ nonisolated public enum UpdateTrack: String, Sendable, CaseIterable, Codable {
         return false
     }
 
-    /// `updates.downloadAutomatically` for an install that never set it. On cmux NEXT's nightly ring
-    /// (NEXT, the tip app) it is on: a new nightly downloads, is verified and is unpacked in the
-    /// background, and the Update Ready card's Restart to Update is the one click left (Leo
-    /// 2026-11-08: "did we do the thing where the update, like, auto downloads, auto installs in the
-    /// background and all that stuff, and then it's just you click the button and that just simply
-    /// restarts the app really quickly?"; 2026-11-10: "the nightly automatically downloads and
-    /// installs/unpacks and you simply click and it restarts with the new version"). The relaunch
-    /// still waits for that click (the nightly restart policy keeps the idle install off).
-    /// Elsewhere it stays off, so a found update asks before it downloads: stable and RC (claude-sr2
-    /// 2026-10-26, relaying Leo: "maybe better as an opt in for normal users"), classic NIGHTLY and
-    /// tagged DEV builds (Leo 2026-10-27: "ask before the download + install step").
+    /// `updates.downloadAutomatically` for an install that never set it: on, on every channel. A
+    /// found update downloads in the background, and the staged update waits on the Update Ready
+    /// card for Restart to Update (the nightly restart policy, which keeps the idle install and the
+    /// install on quit off). Leo 2026-11-07, on "download in the background by default, but only
+    /// install when you click restart": "Yeah, let's do that, man. Let's get it done." It was off
+    /// on every channel from Leo 2026-10-27 ("ask before the download + install step"). Turning
+    /// it off makes a found update wait on the Update Available step for its Update click.
+    /// cmux NEXT's nightly ring had it on first (Leo 2026-11-10: "the nightly automatically downloads
+    /// and installs/unpacks and you simply click and it restarts with the new version"); every
+    /// channel now does the same.
     public var downloadsAutomaticallyByDefault: Bool {
         switch self {
-        case .nightlyNext: true
-        case .stable, .rc, .nightly, .development: false
+        case .stable, .rc, .nightly, .nightlyNext, .development: true
         }
     }
 }

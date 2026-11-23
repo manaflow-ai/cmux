@@ -49,6 +49,8 @@ pub const MIN_FORCED_IDR_INTERVAL_US: u64 = 250_000;
 pub const TAIL_PROBE_US: u64 = 250_000;
 /// Probes before the host stops resending and starts over from a keyframe.
 pub const TAIL_PROBES: u32 = 3;
+/// With [`EngineConfig::rtt_tail_probe`], the shortest wait before a tail probe.
+pub const TAIL_PROBE_MIN_US: u64 = 5_000;
 /// The window the idle-link copy measures the host's recent sends over (one
 /// second: its bytes compare with the target's bits per second).
 pub const IDLE_COPY_WINDOW_US: u64 = 1_000_000;
@@ -93,6 +95,13 @@ pub struct EngineConfig {
     /// (`cmux_rd_core::flow::INPUT_FRAME_WINDOW_US`), so the input's effect goes out as soon
     /// as the capture delivers it instead of on the next interval.
     pub input_frame_now: bool,
+    /// Tail-loss probes wait a round trip, not [`TAIL_PROBE_US`] (design D6): the first
+    /// probe goes `max(2 x smoothed ack RTT + 4 x its deviation, TAIL_PROBE_MIN_US)`
+    /// after the frame's last datagram left (at most [`TAIL_PROBE_US`]), each later one
+    /// twice the one before (at most [`TAIL_PROBE_US`]), and the keyframe that ends the
+    /// probes comes when it does today, `(TAIL_PROBES + 1) x TAIL_PROBE_US` after the
+    /// frame went out. Off by default: probes sent sooner add resends to the path.
+    pub rtt_tail_probe: bool,
     /// The resolution ladder for the main stream (design D5): below the bits-per-pixel
     /// floor its encoded picture gets smaller, not blurrier, and each request carries the
     /// picture and its QP ceiling. `None` (the default): every frame is the full stream.
@@ -114,6 +123,7 @@ impl Default for EngineConfig {
             stream: 0,
             frames_in_flight: 1,
             input_frame_now: false,
+            rtt_tail_probe: false,
             resolution_ladder: None,
         }
     }
@@ -356,6 +366,14 @@ struct StreamState {
     probe_from_us: Option<u64>,
     /// Tail-loss probes sent for the newest frame.
     probes: u32,
+    /// When the newest frame went out (its encode), while it is unacknowledged:
+    /// with `rtt_tail_probe`, the probes end in a keyframe this long after as today.
+    unacked_since_us: Option<u64>,
+    /// The newest frame's last datagram: its departure starts the probe wait.
+    last_seq: Option<u16>,
+    /// When each recent frame's last datagram first left, for the probe's RTT
+    /// samples (a probed frame's entry is dropped: its ack is ambiguous).
+    departed_at_us: BTreeMap<u32, u64>,
     /// Host monotonic send time for recent frames, used to measure the
     /// viewer's cumulative acknowledgement round trip on carriers that do
     /// not expose a path probe (the development socket/proxy path).
@@ -385,6 +403,9 @@ impl StreamState {
             tile_of: None,
             probe_from_us: None,
             probes: 0,
+            unacked_since_us: None,
+            last_seq: None,
+            departed_at_us: BTreeMap::new(),
             sent_at_us: BTreeMap::new(),
             last_keyframe_bytes: 0,
             refine_due_us: None,
@@ -425,6 +446,10 @@ pub struct MediaEngine {
     clock: Option<ClockEstimate>,
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
+    /// Smoothed frame-ack round trip and its deviation, from the frame's last
+    /// departure when the host reports it (`datagram_sent`), else its encode.
+    ack_srtt_us: Option<u64>,
+    ack_rttvar_us: u64,
     /// Recent frames' send time and bytes (every stream), for the idle-link copy.
     recent_sends: VecDeque<(u64, u64)>,
     /// The bytes in `recent_sends`.
@@ -461,6 +486,8 @@ impl MediaEngine {
             keyframes: 0,
             clock: None,
             ack_rtts: VecDeque::new(),
+            ack_srtt_us: None,
+            ack_rttvar_us: 0,
             recent_sends: VecDeque::new(),
             recent_bytes: 0,
             upstreams: BTreeMap::new(),
@@ -553,7 +580,53 @@ impl MediaEngine {
             {
                 self.cc.on_departed(header.transport_seq, now_us);
             }
+            if matches!(header.kind, DatagramKind::Video | DatagramKind::Fec) {
+                let rtt_probe = self.cfg.rtt_tail_probe;
+                if let Some(state) = self.streams.get_mut(&header.stream)
+                    && header.frame == state.last_frame
+                    && state.last_seq == Some(header.transport_seq)
+                {
+                    // The newest frame's last datagram (or a resend of it) left: the
+                    // viewer can answer from here on, so the probe waits from here.
+                    if rtt_probe && state.probe_from_us.is_some() {
+                        state.probe_from_us = Some(now_us);
+                    }
+                    if state.probes == 0 {
+                        state.departed_at_us.entry(header.frame).or_insert(now_us);
+                    }
+                }
+            }
         }
+    }
+
+    /// The tail-probe wait before probe number `probes + 1` (`rtt_tail_probe`).
+    fn rtt_probe_wait_us(&self, probes: u32) -> u64 {
+        let first = self.ack_srtt_us.map_or(TAIL_PROBE_US, |srtt| {
+            srtt.saturating_mul(2)
+                .saturating_add(self.ack_rttvar_us.saturating_mul(4))
+                .clamp(TAIL_PROBE_MIN_US, TAIL_PROBE_US)
+        });
+        first.saturating_mul(1 << probes.min(16)).min(TAIL_PROBE_US)
+    }
+
+    /// When a stream's tail probe (or the keyframe that ends the probes) is due,
+    /// while its newest frame is unacknowledged.
+    fn tail_probe_due_us(&self, s: &StreamState) -> Option<u64> {
+        let from = s.probe_from_us.filter(|_| s.gate.in_flight() > 0)?;
+        if !self.cfg.rtt_tail_probe {
+            return Some(from.saturating_add(TAIL_PROBE_US));
+        }
+        let probe = from.saturating_add(self.rtt_probe_wait_us(s.probes));
+        Some(match s.unacked_since_us {
+            Some(since) => probe.min(since.saturating_add(Self::probe_give_up_us())),
+            None => probe,
+        })
+    }
+
+    /// How long the newest frame stays unacknowledged before its probes end in a
+    /// keyframe: today's fixed schedule, `TAIL_PROBES` probes and one more wait.
+    fn probe_give_up_us() -> u64 {
+        TAIL_PROBE_US.saturating_mul(u64::from(TAIL_PROBES) + 1)
     }
 
     /// The controller's target now (all display streams together).
@@ -747,11 +820,7 @@ impl MediaEngine {
             .filter_map(|s| s.gate.next_deadline_us())
             .chain(self.applier.next_deadline_us())
             .chain(self.upstreams.values().filter_map(Upstream::next_deadline_us))
-            .chain(self.streams.values().filter_map(|s| {
-                s.probe_from_us
-                    .filter(|_| s.gate.in_flight() > 0)
-                    .map(|t| t.saturating_add(TAIL_PROBE_US))
-            }))
+            .chain(self.streams.values().filter_map(|s| self.tail_probe_due_us(s)))
             .chain(
                 self.streams
                     .values()
@@ -872,6 +941,15 @@ impl MediaEngine {
         while state.sent_at_us.len() > HISTORY_FRAMES {
             state.sent_at_us.pop_first();
         }
+        while state.departed_at_us.len() > HISTORY_FRAMES {
+            state.departed_at_us.pop_first();
+        }
+        state.last_seq = packets
+            .datagrams
+            .last()
+            .and_then(|d| DatagramHeader::decode(d).ok())
+            .map(|(h, _)| h.transport_seq);
+        state.unacked_since_us = Some(now_us);
         while state.history.len() > HISTORY_FRAMES {
             state.history.pop_first();
         }
@@ -967,9 +1045,30 @@ impl MediaEngine {
             && let Some(sent_at_us) = state.sent_at_us.remove(&fb.acked_frame)
         {
             let sample = now_us.saturating_sub(sent_at_us);
+            // The probe's round trip counts from the frame's last departure, so a
+            // large frame's pacing does not stretch it; a probed frame has no entry.
+            let probed = state.probes > 0 && fb.acked_frame == state.last_frame;
+            let probe_sample = match state.departed_at_us.get(&fb.acked_frame) {
+                Some(&departed) => Some(now_us.saturating_sub(departed)),
+                None if !probed => Some(sample),
+                None => None,
+            };
             // Sample each cumulative ACK once. Repeated keepalives and reordered
             // feedback must not turn an old frame's age into a new RTT sample.
             state.sent_at_us.retain(|frame, _| *frame > fb.acked_frame);
+            state.departed_at_us.retain(|frame, _| *frame > fb.acked_frame);
+            if let Some(s) = probe_sample {
+                match self.ack_srtt_us {
+                    None => {
+                        self.ack_srtt_us = Some(s);
+                        self.ack_rttvar_us = s / 2;
+                    }
+                    Some(srtt) => {
+                        self.ack_rttvar_us = (3 * self.ack_rttvar_us + srtt.abs_diff(s)) / 4;
+                        self.ack_srtt_us = Some((7 * srtt + s) / 8);
+                    }
+                }
+            }
             self.ack_rtts.retain(|(at, _)| now_us.saturating_sub(*at) <= ACK_RTT_WINDOW_US);
             self.ack_rtts.push_back((now_us, sample));
             while self.ack_rtts.len() > ACK_RTT_SAMPLES {
@@ -1021,29 +1120,46 @@ impl MediaEngine {
 
     /// Tail-loss recovery: a stream whose newest frame has gone unacknowledged
     /// for [`TAIL_PROBE_US`] gets that frame resent, up to [`TAIL_PROBES`] times;
-    /// then the gate opens for a keyframe. An ack ends it (the gate has nothing
-    /// in flight), so a stream that is acknowledged never probes.
+    /// then the gate opens for a keyframe. With `rtt_tail_probe` the probes come a
+    /// round trip apart, backing off, and the keyframe at the same time as without.
+    /// An ack ends it (the gate has nothing in flight), so a stream that is
+    /// acknowledged never probes.
     fn probe_tails(&mut self, now_us: u64, out: &mut Output) {
         let ids: Vec<u16> = self.streams.keys().copied().collect();
+        let rtt_probe = self.cfg.rtt_tail_probe;
         for stream in ids {
+            let due = self.streams.get(&stream).and_then(|s| self.tail_probe_due_us(s));
             let Some(state) = self.streams.get_mut(&stream) else { continue };
             if state.gate.in_flight() == 0 {
                 state.probe_from_us = None;
+                state.unacked_since_us = None;
                 continue;
             }
-            let Some(from) = state.probe_from_us else { continue };
-            if now_us < from.saturating_add(TAIL_PROBE_US) {
+            let Some(due) = due else { continue };
+            if now_us < due {
                 continue;
             }
             if self.cc.frozen() {
                 // The path is away (D12): a probe would only join the hold. The wait
                 // starts over when it is back, and a long hold spends no probes.
                 state.probe_from_us = Some(now_us);
+                if rtt_probe {
+                    state.unacked_since_us = Some(now_us);
+                }
                 continue;
             }
-            if state.probes < TAIL_PROBES {
+            let probe = if rtt_probe {
+                state
+                    .unacked_since_us
+                    .is_none_or(|since| now_us.saturating_sub(since) < Self::probe_give_up_us())
+            } else {
+                state.probes < TAIL_PROBES
+            };
+            if probe {
                 state.probes = state.probes.saturating_add(1);
                 state.probe_from_us = Some(now_us);
+                // The ack of a probed frame may answer either copy: no RTT sample.
+                state.departed_at_us.remove(&state.last_frame);
                 if let Some(datagrams) = state.history.get(&state.last_frame) {
                     for d in datagrams.iter().take(MAX_RESENDS_PER_FEEDBACK) {
                         if let Ok((header, _)) = DatagramHeader::decode(d) {
@@ -1059,6 +1175,7 @@ impl MediaEngine {
                 continue;
             }
             state.probe_from_us = None;
+            state.unacked_since_us = None;
             state.last_forced_idr_us = Some(now_us);
             state.force_idr = Some(IdrReason::TailProbe);
             state.gate.clear_in_flight();
