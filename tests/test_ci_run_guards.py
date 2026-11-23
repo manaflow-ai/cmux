@@ -342,6 +342,43 @@ class ParallelUnittest(unittest.TestCase):
         self.assertIn("1 passed, 1 failed", self.run_fixture("2").stdout)
 
 
+ALONE_FIXTURE = """jobs:
+  workflow-guard-tests:
+    strategy:
+      matrix:
+        group: [ci]
+    steps:
+      - name: Scratch writer
+        run: touch scratch.txt && sleep 3 && rm scratch.txt
+      - name: Run canonical CMUX CI guard profile
+        run: sleep 1 && test -z "$(git status --porcelain --untracked-files=all)"
+"""
+
+
+@unittest.skipUnless(sys.platform == "linux", "off Linux the profile step runs its portable substitute")
+class CleanTreeStepRunsAlone(unittest.TestCase):
+    """The workload profile refuses a checkout with untracked files, so it must
+    not run beside a step that writes scratch files there (run 45122790288,
+    "checkout has non-ignored source changes")."""
+
+    def test_the_profile_step_waits_for_the_parallel_steps(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / ".github/workflows/ci-guards.yml").write_text(ALONE_FIXTURE)
+            for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                        "commit", "-qm", "fixture"]):
+                subprocess.run(["git", *args], cwd=root, check=True)
+            completed = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/run_ci_guards.py"), "--root", str(root), "--jobs", "4"],
+                cwd=root, capture_output=True, text=True, timeout=120,
+                env={**os.environ, "CMUX_GUARDS_BASE_SHA": "none"},
+            )
+            output = completed.stdout + completed.stderr
+            self.assertRegex(output, r"  ok .*: Run canonical CMUX CI guard profile", output)
+            self.assertLess(output.index("Scratch writer"), output.index("Run canonical CMUX CI guard profile"), output)
+
+
 class FastWorkflowReportsOnMainPush(unittest.TestCase):
     def test_main_push_keeps_the_standalone_last_green_guard(self) -> None:
         workflow = run_ci_guards.load_yaml(FAST_WORKFLOW)
