@@ -174,6 +174,10 @@ public final class SettingsStore {
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    /// Settings → Cloud → Auto (the Mac's `cloud.autoMode`; off by default): Cloud chats lists the
+    /// account's Auto chats, read and sent to through the Cloud service with no Mac
+    /// (`plans/cmux-next/auto-mode/DESIGN.md`). This phone's own choice: it does not follow a Mac's.
+    public var cloudAutoMode: Bool { didSet { save(cloudAutoMode, "cloudAutoMode") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
@@ -227,6 +231,7 @@ public final class SettingsStore {
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        cloudAutoMode = bool("cloudAutoMode", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)

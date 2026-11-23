@@ -196,6 +196,34 @@
         "ko": {"stringUnit": {"state": "translated", "value": "Mobile을 다시 활성화하거나 해당 Mac에서 다시 로그인하세요."}},
         "ja": {"stringUnit": {"state": "translated", "value": "Mobile を再び有効にするか、その Mac で再度サインインしてください。"}}
       }
+    },
+    "mobile.settings.cloudAutoMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Auto"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Automatisch"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Automatique"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تلقائي"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Automático"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自動"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自动"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "자동"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自動"}}
+      }
+    },
+    "mobile.settings.cloudAutoMode.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Auto shows the chats that keep running in the Cloud when your Mac sleeps or goes offline."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Automatisch zeigt die Chats, die in der Cloud weiterlaufen, wenn dein Mac schläft oder offline geht."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Automatique affiche les discussions qui continuent dans le Cloud lorsque votre Mac est en veille ou hors ligne."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يعرض الوضع التلقائي المحادثات التي تستمر في العمل في السحابة عندما يدخل الـ Mac في وضع السكون أو ينقطع اتصاله."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Automático muestra los chats que siguen ejecutándose en la nube cuando tu Mac entra en reposo o se desconecta."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "自動會顯示在 Mac 睡眠或離線時仍在雲端執行的聊天。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "自动会显示在 Mac 睡眠或离线时仍在云端运行的聊天。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "자동은 Mac이 잠자거나 오프라인일 때 클라우드에서 계속 실행되는 채팅을 표시합니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "自動は、Mac がスリープまたはオフラインのときもクラウドで実行され続けるチャットを表示します。"}}
+      }
     }
   },
   "version": "1.0"

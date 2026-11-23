@@ -621,6 +621,692 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * One open chat. Every answer is the JSON of a batch: `{chat: row, records: [record],
+ * caughtUp, ended, retryAfterMs}`. `records` are transcript records to draw, oldest first.
+ */
+public protocol AutoChatProtocol: AnyObject, Sendable {
+
+    /**
+     * The app left the chat: a held `next` answers `ended` now, and so does every later one.
+     */
+    func close()
+
+    /**
+     * Keeps the chat in the Cloud when a Mac returns, or stops keeping it.
+     */
+    func keep(keepInCloud: Bool) async throws  -> String
+
+    /**
+     * The next records. The call is held until the chat changes, or about 25 s, so the app
+     * calls it again as soon as it answers, until a batch says `ended`. After a read that got
+     * no answer it waits before it reads again; the app does not time anything. An error is
+     * the service refusing the chat.
+     */
+    func next() async throws  -> String
+
+    /**
+     * Reads the chat and its first page of records.
+     */
+    func `open`() async throws  -> String
+
+    /**
+     * Sends `text` under `message_id`. The same id again is not a second message, so a send
+     * that failed is sent again with the id it had.
+     */
+    func send(messageId: String, text: String) async throws  -> String
+
+}
+/**
+ * One open chat. Every answer is the JSON of a batch: `{chat: row, records: [record],
+ * caughtUp, ended, retryAfterMs}`. `records` are transcript records to draw, oldest first.
+ */
+open class AutoChat: AutoChatProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_autochat(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_autochat(handle, $0) }
+    }
+
+
+
+
+    /**
+     * The app left the chat: a held `next` answers `ended` now, and so does every later one.
+     */
+open func close()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_autochat_close(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+
+    /**
+     * Keeps the chat in the Cloud when a Mac returns, or stops keeping it.
+     */
+open func keep(keepInCloud: Bool)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochat_keep(
+                    self.uniffiCloneHandle(),
+                    FfiConverterBool.lower(keepInCloud)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+    /**
+     * The next records. The call is held until the chat changes, or about 25 s, so the app
+     * calls it again as soon as it answers, until a batch says `ended`. After a read that got
+     * no answer it waits before it reads again; the app does not time anything. An error is
+     * the service refusing the chat.
+     */
+open func next()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochat_next(
+                    self.uniffiCloneHandle()
+
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+    /**
+     * Reads the chat and its first page of records.
+     */
+open func `open`()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochat_open(
+                    self.uniffiCloneHandle()
+
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+    /**
+     * Sends `text` under `message_id`. The same id again is not a second message, so a send
+     * that failed is sent again with the id it had.
+     */
+open func send(messageId: String, text: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochat_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(messageId),FfiConverterString.lower(text)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoChat: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = AutoChat
+
+    public static func lift(_ handle: UInt64) throws -> AutoChat {
+        return AutoChat(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: AutoChat) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoChat {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: AutoChat, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoChat_lift(_ handle: UInt64) throws -> AutoChat {
+    return try FfiConverterTypeAutoChat.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoChat_lower(_ value: AutoChat) -> UInt64 {
+    return FfiConverterTypeAutoChat.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The person's Auto chats.
+ */
+public protocol AutoChatsProtocol: AnyObject, Sendable {
+
+    /**
+     * One chat, to open.
+     */
+    func chat(id: String)  -> AutoChat
+
+    /**
+     * Whether the person has a Cloud machine for Auto chats to run on.
+     */
+    func hasMachine() async throws  -> Bool
+
+    /**
+     * The person's open chats, newest first, and the repositories they work in: the JSON of
+     * `{chats: [row], repos: [{remote, branch}], more}`. A row is `{id, title, harness, place,
+     * keepInCloud, inCloud, repo, updatedAt, closed}`; `place` is `cloud`, `resuming`,
+     * `coming_back`, `on_mac`, `idle` or `no_machine`.
+     */
+    func list() async throws  -> String
+
+    /**
+     * Starts a chat in `remote` at `branch` with a first message. `message_id` is made once
+     * for the message: the same call again reaches the chat the first one made. The JSON of
+     * `{outcome: "chat", chat: row}`, `{outcome: "no_machine"}` or `{outcome: "incomplete"}`.
+     */
+    func start(remote: String, branch: String, messageId: String, text: String) async throws  -> String
+
+}
+/**
+ * The person's Auto chats.
+ */
+open class AutoChats: AutoChatsProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_autochats(self.handle, $0) }
+    }
+public convenience init(http: AutoHttp) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_autochats_new(
+        FfiConverterTypeAutoHttp_lower(http),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_autochats(handle, $0) }
+    }
+
+
+
+
+    /**
+     * One chat, to open.
+     */
+open func chat(id: String) -> AutoChat  {
+    return try!  FfiConverterTypeAutoChat_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_autochats_chat(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+
+    /**
+     * Whether the person has a Cloud machine for Auto chats to run on.
+     */
+open func hasMachine()async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochats_has_machine(
+                    self.uniffiCloneHandle()
+
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_i8,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+    /**
+     * The person's open chats, newest first, and the repositories they work in: the JSON of
+     * `{chats: [row], repos: [{remote, branch}], more}`. A row is `{id, title, harness, place,
+     * keepInCloud, inCloud, repo, updatedAt, closed}`; `place` is `cloud`, `resuming`,
+     * `coming_back`, `on_mac`, `idle` or `no_machine`.
+     */
+open func list()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochats_list(
+                    self.uniffiCloneHandle()
+
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+    /**
+     * Starts a chat in `remote` at `branch` with a first message. `message_id` is made once
+     * for the message: the same call again reaches the chat the first one made. The JSON of
+     * `{outcome: "chat", chat: row}`, `{outcome: "no_machine"}` or `{outcome: "incomplete"}`.
+     */
+open func start(remote: String, branch: String, messageId: String, text: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autochats_start(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(remote),FfiConverterString.lower(branch),FfiConverterString.lower(messageId),FfiConverterString.lower(text)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeAutoChatError_lift
+        )
+}
+
+
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoChats: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = AutoChats
+
+    public static func lift(_ handle: UInt64) throws -> AutoChats {
+        return AutoChats(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: AutoChats) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoChats {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: AutoChats, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoChats_lift(_ handle: UInt64) throws -> AutoChats {
+    return try FfiConverterTypeAutoChats.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoChats_lower(_ value: AutoChats) -> UInt64 {
+    return FfiConverterTypeAutoChats.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The app's HTTP path to the Cloud service as the signed-in person.
+ */
+public protocol AutoHttp: AnyObject, Sendable {
+
+    func send(request: AutoHttpRequest) async throws  -> AutoHttpReply
+
+}
+/**
+ * The app's HTTP path to the Cloud service as the signed-in person.
+ */
+open class AutoHttpImpl: AutoHttp, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_autohttp(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_autohttp(handle, $0) }
+    }
+
+
+
+
+open func send(request: AutoHttpRequest)async throws  -> AutoHttpReply  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_autohttp_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeAutoHttpRequest_lower(request)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeAutoHttpReply_lift,
+            errorHandler: FfiConverterTypeAutoHttpError_lift
+        )
+}
+
+
+
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceAutoHttp {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceAutoHttp = UniffiVTableCallbackInterfaceAutoHttp(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeAutoHttp.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface AutoHttp: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeAutoHttp.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface AutoHttp: handle missing in uniffiClone")
+            }
+        },
+        send: { (
+            uniffiHandle: UInt64,
+            request: RustBuffer,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutDroppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+        ) in
+            let makeCall = {
+                () async throws -> AutoHttpReply in
+                guard let uniffiObj = try? FfiConverterTypeAutoHttp.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.send(
+                     request: try FfiConverterTypeAutoHttpRequest_lift(request)
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: AutoHttpReply) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: FfiConverterTypeAutoHttpReply_lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeAutoHttpError_lower,
+                droppedCallback: uniffiOutDroppedCallback
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceAutoHttp> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceAutoHttp>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitAutoHttp() {
+    uniffi_cmux_mobile_link_ffi_fn_init_callback_vtable_autohttp(UniffiCallbackInterfaceAutoHttp.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoHttp: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<AutoHttp>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = AutoHttp
+
+    public static func lift(_ handle: UInt64) throws -> AutoHttp {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return AutoHttpImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: AutoHttp) -> UInt64 {
+         if let rustImpl = value as? AutoHttpImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoHttp {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: AutoHttp, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttp_lift(_ handle: UInt64) throws -> AutoHttp {
+    return try FfiConverterTypeAutoHttp.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttp_lower(_ value: AutoHttp) -> UInt64 {
+    return FfiConverterTypeAutoHttp.lower(value)
+}
+
+
+
+
+
+
+/**
  * Receives a browser stream's frames and messages on a library thread.
  * Implementations should hand off quickly (a decode queue).
  */
@@ -1348,8 +2034,9 @@ public protocol FollowCameraProtocol: AnyObject, Sendable {
     /**
      * One message of the `focus` channel (a JSON event), received at
      * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-     * replaced by `now_us`. A message that is not an event is refused and
-     * changes nothing.
+     * replaced by `now_us`, except that events sharing one Mac `t_us` (the
+     * rects of one redraw) all take the phone time the first of them got.
+     * A message that is not an event is refused and changes nothing.
      */
     func pushJson(line: String, nowUs: UInt64) throws 
     
@@ -1475,8 +2162,9 @@ open func mode() -> FollowCameraMode  {
     /**
      * One message of the `focus` channel (a JSON event), received at
      * `now_us` on the phone's clock. Its own `t_us` (the Mac's clock) is
-     * replaced by `now_us`. A message that is not an event is refused and
-     * changes nothing.
+     * replaced by `now_us`, except that events sharing one Mac `t_us` (the
+     * rects of one redraw) all take the phone time the first of them got.
+     * A message that is not an event is refused and changes nothing.
      */
 open func pushJson(line: String, nowUs: UInt64)throws   {try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
     uniffi_cmux_mobile_link_ffi_fn_method_followcamera_push_json(
@@ -2937,6 +3625,140 @@ public func FfiConverterTypeTerminalProjection_lower(_ value: TerminalProjection
 
 
 /**
+ * The service's answer, whatever its status.
+ */
+public struct AutoHttpReply: Equatable, Hashable {
+    public var status: UInt16
+    public var body: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(status: UInt16, body: String) {
+        self.status = status
+        self.body = body
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AutoHttpReply: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoHttpReply: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoHttpReply {
+        return
+            try AutoHttpReply(
+                status: FfiConverterUInt16.read(from: &buf),
+                body: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoHttpReply, into buf: inout [UInt8]) {
+        FfiConverterUInt16.write(value.status, into: &buf)
+        FfiConverterString.write(value.body, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttpReply_lift(_ buf: RustBuffer) throws -> AutoHttpReply {
+    return try FfiConverterTypeAutoHttpReply.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttpReply_lower(_ value: AutoHttpReply) -> RustBuffer {
+    return FfiConverterTypeAutoHttpReply.lower(value)
+}
+
+
+/**
+ * One request to the Cloud service. `path` starts with `/v1/auto-sessions`.
+ */
+public struct AutoHttpRequest: Equatable, Hashable {
+    public var method: String
+    public var path: String
+    /**
+     * A JSON body, when the request has one.
+     */
+    public var body: String?
+    /**
+     * Give up after this long. A held request asks for more than an ordinary one.
+     */
+    public var timeoutMs: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(method: String, path: String,
+        /**
+         * A JSON body, when the request has one.
+         */body: String?,
+        /**
+         * Give up after this long. A held request asks for more than an ordinary one.
+         */timeoutMs: UInt64) {
+        self.method = method
+        self.path = path
+        self.body = body
+        self.timeoutMs = timeoutMs
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension AutoHttpRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoHttpRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoHttpRequest {
+        return
+            try AutoHttpRequest(
+                method: FfiConverterString.read(from: &buf),
+                path: FfiConverterString.read(from: &buf),
+                body: FfiConverterOptionString.read(from: &buf),
+                timeoutMs: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AutoHttpRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.method, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterOptionString.write(value.body, into: &buf)
+        FfiConverterUInt64.write(value.timeoutMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttpRequest_lift(_ buf: RustBuffer) throws -> AutoHttpRequest {
+    return try FfiConverterTypeAutoHttpRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttpRequest_lower(_ value: AutoHttpRequest) -> RustBuffer {
+    return FfiConverterTypeAutoHttpRequest.lower(value)
+}
+
+
+/**
  * One complete video frame.
  */
 public struct BrowserFrame: Equatable, Hashable {
@@ -4207,6 +5029,194 @@ public func FfiConverterTypeTimingMark_lift(_ buf: RustBuffer) throws -> TimingM
 #endif
 public func FfiConverterTypeTimingMark_lower(_ value: TimingMark) -> RustBuffer {
     return FfiConverterTypeTimingMark.lower(value)
+}
+
+
+/**
+ * Why a call failed.
+ */
+public enum AutoChatError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+
+
+    /**
+     * No answer arrived. The same call may work later.
+     */
+    case Unreachable(message: String
+    )
+    /**
+     * The service answered with an error: its status, its code (`auto.no_machine`,
+     * `not_found`, `auth.forbidden`; empty when it gave none) and its words.
+     */
+    case Refused(status: UInt16, code: String, message: String
+    )
+    /**
+     * An answer this build cannot read.
+     */
+    case Unreadable(message: String
+    )
+
+
+
+
+
+
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+
+}
+
+#if compiler(>=6)
+extension AutoChatError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoChatError: FfiConverterRustBuffer {
+    typealias SwiftType = AutoChatError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoChatError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+
+
+
+        case 1: return .Unreachable(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Refused(
+            status: try FfiConverterUInt16.read(from: &buf),
+            code: try FfiConverterString.read(from: &buf),
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Unreadable(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AutoChatError, into buf: inout [UInt8]) {
+        switch value {
+
+
+
+
+
+        case let .Unreachable(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+
+
+        case let .Refused(status,code,message):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt16.write(status, into: &buf)
+            FfiConverterString.write(code, into: &buf)
+            FfiConverterString.write(message, into: &buf)
+
+
+        case let .Unreadable(message):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(message, into: &buf)
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoChatError_lift(_ buf: RustBuffer) throws -> AutoChatError {
+    return try FfiConverterTypeAutoChatError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoChatError_lower(_ value: AutoChatError) -> RustBuffer {
+    return FfiConverterTypeAutoChatError.lower(value)
+}
+
+
+/**
+ * A request that got no answer: no network, a timeout, no sign-in to send it with.
+ */
+public enum AutoHttpError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+
+
+    case Failed(message: String
+    )
+
+
+
+
+
+
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+
+}
+
+#if compiler(>=6)
+extension AutoHttpError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAutoHttpError: FfiConverterRustBuffer {
+    typealias SwiftType = AutoHttpError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AutoHttpError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+
+
+
+        case 1: return .Failed(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: AutoHttpError, into buf: inout [UInt8]) {
+        switch value {
+
+
+
+
+
+        case let .Failed(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttpError_lift(_ buf: RustBuffer) throws -> AutoHttpError {
+    return try FfiConverterTypeAutoHttpError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAutoHttpError_lower(_ value: AutoHttpError) -> RustBuffer {
+    return FfiConverterTypeAutoHttpError.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -5660,6 +6670,96 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
         print("uniffiFutureContinuationCallback invalid handle")
     }
 }
+private func uniffiTraitInterfaceCallAsync<T>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
+    let task = Task {
+        // Note: it's important we call either `handleSuccess` or `handleError` exactly once.  Each
+        // call consumes an Arc reference, which means there should be no possibility of a double
+        // call.  The following code is structured so that will will never call both `handleSuccess`
+        // and `handleError`, even in the face of weird errors.
+        //
+        // On platforms that need extra machinery to make C-ABI calls, like JNA or ctypes, it's
+        // possible that we fail to make either call.  However, it doesn't seem like this is
+        // possible on Swift since swift can just make the C call directly.
+        var callResult: T
+        do {
+            callResult = try await makeCall()
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+            return
+        }
+        handleSuccess(callResult)
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
+}
+
+private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    lowerError: @escaping (E) -> RustBuffer,
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
+    let task = Task {
+        // See the note in uniffiTraitInterfaceCallAsync for details on `handleSuccess` and
+        // `handleError`.
+        var callResult: T
+        do {
+            callResult = try await makeCall()
+        } catch let error as E {
+            handleError(CALL_ERROR, lowerError(error))
+            return
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+            return
+        }
+        handleSuccess(callResult)
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
+}
+
+// Borrow the callback handle map implementation to store foreign future handles
+// TODO: consolidate the handle-map code (https://github.com/mozilla/uniffi-rs/pull/1823)
+fileprivate let UNIFFI_FOREIGN_FUTURE_HANDLE_MAP = UniffiHandleMap<UniffiForeignFutureTask>()
+
+// Protocol for tasks that handle foreign futures.
+//
+// Defining a protocol allows all tasks to be stored in the same handle map.  This can't be done
+// with the task object itself, since has generic parameters.
+fileprivate protocol UniffiForeignFutureTask {
+    func cancel()
+}
+
+extension Task: UniffiForeignFutureTask {}
+
+private func uniffiForeignFutureDroppedCallback(handle: UInt64) {
+    do {
+        let task = try UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.remove(handle: handle)
+        // Set the cancellation flag on the task.  If it's still running, the code can check the
+        // cancellation flag or call `Task.checkCancellation()`.  If the task has completed, this is
+        // a no-op.
+        task.cancel()
+    } catch {
+        print("uniffiForeignFutureDroppedCallback: handle missing from handlemap")
+    }
+}
+
+// For testing
+public func uniffiForeignFutureHandleCountCmuxMobileLinkFfi() -> Int {
+    UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
+}
 /**
  * The library version.
  */
@@ -6092,6 +7192,36 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkobserver_on_event() != 31759) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochat_close() != 18716) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochat_keep() != 8256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochat_next() != 22254) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochat_open() != 23115) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochat_send() != 25406) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochats_chat() != 48755) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochats_has_machine() != 54071) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochats_list() != 45058) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autochats_start() != 5186) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_autohttp_send() != 44430) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_frame() != 17549) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6134,7 +7264,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_mode() != 38203) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 58022) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_push_json() != 54911) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_followcamera_resume() != 43594) {
@@ -6215,6 +7345,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_autochats_new() != 34463) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_followcamera_new() != 52189) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6225,6 +7358,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitAutoHttp()
     uniffiCallbackInitBrowserObserver()
     uniffiCallbackInitLinkObserver()
     return InitializationResult.ok

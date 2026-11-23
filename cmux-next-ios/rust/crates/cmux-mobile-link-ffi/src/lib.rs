@@ -14,6 +14,7 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod auto_chats;
 mod browser;
 mod classic_leftovers;
 mod follow_camera;
@@ -22,6 +23,9 @@ mod terminal_chat;
 mod terminal_prediction;
 mod terminal_projection;
 
+pub use auto_chats::{
+    AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
+};
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};

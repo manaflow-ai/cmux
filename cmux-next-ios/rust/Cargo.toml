@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi"]
+members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi", "crates/cmux-mobile-auto"]
 
 [workspace.package]
 edition = "2024"
@@ -18,6 +18,10 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
+# Auto chats from the phone with no Mac (plans/cmux-next/auto-mode/DESIGN.md, slice E), and the
+# shared core they use: the Cloud store's wire types and the store as a trait.
+cmux-mobile-auto = { path = "crates/cmux-mobile-auto" }
+cmux-auto-session = { path = "../../cmux-tui/crates/cmux-auto-session" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }

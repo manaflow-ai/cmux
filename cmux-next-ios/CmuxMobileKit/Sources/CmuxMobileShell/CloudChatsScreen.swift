@@ -20,6 +20,11 @@ struct CloudChatsScreen: View {
     /// No Mac to read Cloud chats through: the state offers Connect a Mac, not Retry.
     @State private var needsMac = false
     @State private var refresh = 0
+    /// The account's Auto chats, listed first while Settings > Cloud > Auto is on (no Mac needed).
+    @State private var auto = AutoChatsPresentation()
+
+    /// The list shows the Auto section: the setting is on, and this is not one chat from a notification.
+    private var showsAuto: Bool { attention == nil && shell.settings.cloudAutoMode }
 
     private var macID: String {
         selectedMac.isEmpty ? shell.live?.focusedMacID ?? shell.store.activeTeam?.macs.first?.id ?? "" : selectedMac
@@ -41,6 +46,7 @@ struct CloudChatsScreen: View {
     var body: some View {
         NavigationStack {
             List {
+                if showsAuto { AutoChatsSection(auto: auto) }
                 if attention == nil, let macs = shell.store.activeTeam?.macs, !macs.isEmpty {
                     Picker("Mac", selection: Binding(get: { macID }, set: { selectedMac = $0 })) {
                         ForEach(macs) { mac in Text(mac.name).tag(mac.id) }
@@ -82,6 +88,7 @@ struct CloudChatsScreen: View {
                 CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
                                         macName: macName(location.macID), preferredSession: attention?.sessionID)
             }
+            .modifier(AutoChatsHost(auto: auto, enabled: showsAuto, refresh: refresh) { openCloudMachines() })
             .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
                            live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
                 shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
@@ -131,6 +138,13 @@ struct CloudChatsScreen: View {
         shell.cloudChats = nil
         shell.tab = .settings
         shell.settingsPath = [.devices]
+    }
+
+    /// The existing place to make a Cloud machine: Settings → Cloud Machines.
+    private func openCloudMachines() {
+        shell.cloudChats = nil
+        shell.tab = .settings
+        shell.settingsPath = [.cloudMachines]
     }
 }
 
