@@ -32,6 +32,12 @@
       "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
     },
     {
+      "id": "grid",
+      "addon": "grid",
+      "builtIn": null,
+      "pending": "An outside-only look on a strict grid (zero corners, 1 px rules, one accent): there is no built-in twin."
+    },
+    {
       "id": "claude",
       "surface": "composer",
       "addon": null,

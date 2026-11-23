@@ -428,6 +428,14 @@ pub const RECIPES: &[Recipe] = &[
         includes: look!("dot-grid"),
     },
     Recipe {
+        name: "grid",
+        title: "Grid",
+        group: Group::Look,
+        ask: "make it a strict grid: square corners, thin rules, one accent",
+        profile: include_str!("../recipes/grid.json"),
+        includes: look!("grid"),
+    },
+    Recipe {
         name: "aero-sky",
         title: "Aero sky",
         group: Group::Look,

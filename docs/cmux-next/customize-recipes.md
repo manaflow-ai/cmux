@@ -203,6 +203,16 @@ cmux customize use ~/.local/state/cmux/customize/recipes/dot-grid.json
 
 Or ask: "put a moving dot grid behind a black and white window"
 
+### Grid
+
+A Swiss grid: zero corners, 1 px rules instead of shadows, one signal-yellow accent on black, no glass, heavy grotesk type. It ships its theme file (`themes/grid.json`).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/grid.json
+```
+
+Or ask: "make it a strict grid: square corners, thin rules, one accent"
+
 ### Aero sky
 
 The living Aero wallpaper behind light glass, sky blue and a bright blue accent, floating panes. It ships its theme file (`themes/aero-sky.json`).
