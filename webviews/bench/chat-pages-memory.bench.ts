@@ -51,7 +51,10 @@ const NOCHAT = process.env.NOCHAT === "1";
 // newest display:none, and closes the page before it.
 const SHARED = process.env.SHARED === "1";
 // SHARED_HIDE=cv: hidden views use content-visibility:hidden (keeps layout and scroll) instead of display:none.
-const SHARED_HIDE = process.env.SHARED_HIDE === "cv" ? "cv" : "none";
+// SHARED_HIDE=vis: visibility:hidden (keeps style and layout; nothing paints).
+const SHARED_HIDE = ["cv", "vis"].includes(process.env.SHARED_HIDE ?? "")
+  ? (process.env.SHARED_HIDE as "cv" | "vis")
+  : "none";
 if (COUNTS.some((n) => !Number.isInteger(n) || n < 1) || !Number.isInteger(TURNS) || TURNS < 1) {
   console.error("usage: bun bench/chat-pages-memory.bench.ts [counts=1,10,30] [turns=100]");
   process.exit(2);
@@ -370,6 +373,7 @@ try {
         for (const el of mounts) el.style.cssText = "position:absolute;inset:0";
         for (const el of mounts.slice(0, -1)) {
           if (mode === "cv") el.style.contentVisibility = "hidden";
+          else if (mode === "vis") el.style.visibility = "hidden";
           else el.style.display = "none";
         }
       }, SHARED_HIDE);
@@ -520,6 +524,7 @@ try {
         const mounts = [...document.querySelectorAll<HTMLElement>("[data-pane-mount]")];
         const hide = (el: HTMLElement, hidden: boolean) => {
           if (mode === "cv") el.style.contentVisibility = hidden ? "hidden" : "";
+          else if (mode === "vis") el.style.visibility = hidden ? "hidden" : "";
           else el.style.display = hidden ? "none" : "";
         };
         const scroller = (root: HTMLElement) =>
