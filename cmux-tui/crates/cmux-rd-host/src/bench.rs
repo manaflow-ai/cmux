@@ -22,7 +22,7 @@ use crate::wire::{
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::clock::ClockEstimator;
-use cmux_rd_core::input::InputSender;
+use cmux_rd_core::input::{seq_at_or_before, InputSender};
 use cmux_rd_core::ledger::StageLedger;
 use cmux_rd_core::reassembly::Reassembler;
 use cmux_rd_core::service::caps;
@@ -227,6 +227,7 @@ struct Viewer {
     h264_gate: cmux_encode::h264_profile::ProfileGate,
     h264_gate_said: bool,
     sender: InputSender,
+    input_ack: u32,
     arrivals: Vec<Arrival>,
     marker: Option<u16>,
     marker_at_ns: u64,
@@ -568,8 +569,11 @@ impl Viewer {
                 }
             }
             DatagramKind::InputAck if payload.len() >= 4 => {
-                self.sender
-                    .ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
+                let ack = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+                self.sender.ack(ack);
+                if seq_at_or_before(self.input_ack, ack) {
+                    self.input_ack = ack;
+                }
             }
             _ => {}
         }
@@ -902,7 +906,15 @@ fn bench_decodes_with_openh264(decoder: Option<&str>) -> bool {
     }
 }
 
+fn session_mode(opts: &Opts) -> Res<&str> {
+    match opts.get("mode").unwrap_or("control") {
+        mode @ ("view" | "control") => Ok(mode),
+        other => Err(format!("--mode expects view or control, got {other:?}").into()),
+    }
+}
+
 pub fn run(opts: &Opts) -> Res<()> {
+    let mode = session_mode(opts)?;
     // The first decoder session in a process is the slow one: create a throwaway one now,
     // in parallel with connecting, so the first IDR does not pay for it.
     #[cfg(target_os = "macos")]
@@ -972,6 +984,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         h264_gate: Default::default(),
         h264_gate_said: false,
         sender: InputSender::new(),
+        input_ack: 0,
         arrivals: Vec::new(),
         marker: None,
         marker_at_ns: 0,
@@ -1086,7 +1099,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     })?;
     v.io.send_control(&Control::Start {
         key: format!("bench-{pid}-{}", now_ns()),
-        mode: "control".into(),
+        mode: mode.into(),
     })?;
     // `--input none` (a passive window): no marker on screen, so wait for the first frame.
     if input == "none" {
@@ -1155,26 +1168,29 @@ pub fn run(opts: &Opts) -> Res<()> {
     // breakdown against the host's CMUX_RD_TIMING_LOG (scripts/screen-share-vs.py).
     let mut sample_times = Vec::new();
     let mut lost = 0usize;
+    let initial_changes = v.marker_changes;
+    let mut last_input = None;
     while g2g.len() + lost < samples && v.ended.is_none() {
         let expected = v.marker.unwrap_or(0).wrapping_add(1);
         let t0 = now_ns();
-        match input.as_str() {
+        let last_seq = match input.as_str() {
             // The cloud browser's marker page counts mousedown and wheel as well as keydown.
             "click" => {
                 v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 v.sender.push(InputEvent::Button { button: 0, down: true });
-                v.sender.push(InputEvent::Button { button: 0, down: false });
+                v.sender.push(InputEvent::Button { button: 0, down: false })
             }
             "scroll" => {
                 v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 let dy = if g2g.len() % 2 == 0 { -300 } else { 300 };
-                v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false });
+                v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false })
             }
             _ => {
                 v.sender.push(InputEvent::Key { usage: KEY_A, down: true });
-                v.sender.push(InputEvent::Key { usage: KEY_A, down: false });
+                v.sender.push(InputEvent::Key { usage: KEY_A, down: false })
             }
-        }
+        };
+        last_input = Some(last_seq);
         // Send at once; pump() resends until the host acknowledges.
         v.send_input()?;
         loop {
@@ -1217,6 +1233,10 @@ pub fn run(opts: &Opts) -> Res<()> {
         "addr": addr.to_string(),
         "carrier": carrier,
         "input": input,
+        "mode": mode,
+        "input_sent": g2g.len() + lost,
+        "input_acked": last_input.is_some_and(|seq| seq_at_or_before(seq, v.input_ack)),
+        "marker_changes": v.marker_changes - initial_changes,
         "welcome": v.welcome,
         "first_frame_ms": first_frame_ms,
         "first_frame_times": first_frame_times,
@@ -1496,6 +1516,23 @@ mod link_line_tests {
             link_line(100, 150, 10_150, Some(reason)),
             json!({"link": {"answer_us": 100, "first_send_us": 150, "failed_us": 10_150, "failed": reason}})
         );
+    }
+}
+
+#[cfg(test)]
+mod mode_tests {
+    use super::*;
+
+    #[test]
+    fn bench_session_mode_defaults_to_control_and_accepts_only_wire_modes() {
+        let parse = |args: &[&str]| {
+            Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
+        };
+        assert_eq!(session_mode(&parse(&[])).unwrap(), "control");
+        for mode in ["view", "control"] {
+            assert_eq!(session_mode(&parse(&["--mode", mode])).unwrap(), mode);
+        }
+        assert!(session_mode(&parse(&["--mode", "viewer"])).is_err());
     }
 }
 
