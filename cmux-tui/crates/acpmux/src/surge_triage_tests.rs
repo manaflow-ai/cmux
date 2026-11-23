@@ -244,6 +244,15 @@ fn a_sender_with_no_session_is_a_program() {
     let mut machine_only = base.clone();
     machine_only["sender"]["relay"] = json!({"machine":"gcp-agent-lane-4"});
     assert!(program_notice(&machine_only), "a lane VM tool relays only its machine");
+    let mut relayed = machine_only.clone();
+    relayed["text"] = json!(
+        "\n[message 7461 from gcp-agent-lane-10/router-x (an agent, not Leo), relayed by the lane-gh broker; its text ends at \"[end of message 7461]\"]\n\nState: blocked"
+    );
+    assert!(!program_notice(&relayed), "the broker relays agents with no session too");
+    relayed["text"] = json!(
+        "\n[message 31f6 from gcp-agent-lane-2 (a program with no session, not Leo; answer ...), relayed by the lane-gh broker]\n\n[asks-router] Continue"
+    );
+    assert!(program_notice(&relayed));
     for agent in [
         json!({"fromSession":"s1"}),
         json!({"sender":{"session":"s1"}}),

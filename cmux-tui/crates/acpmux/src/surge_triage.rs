@@ -102,15 +102,30 @@ impl Held {
 }
 
 /// Whether a held `inbox` record's sender is a program: no agent session sent it. Its sender
-/// record names no session and no relayed session (a lane VM tool through the broker relays
-/// only its machine), and the message names no `fromSession`. Read from the record alone, so
-/// the messages held before this rule are judged the same.
+/// record names no session and no relayed session, the message names no `fromSession`, and
+/// its text is not an agent's report the lane-gh broker relayed ([`broker_relayed_agent`]):
+/// the broker sends every lane VM message from its host with no session, agents' and
+/// programs' alike. Read from the record alone, so messages held before this rule are judged
+/// the same.
 pub fn program_notice(msg: &Value) -> bool {
     let named = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|s| !s.is_empty());
     let sender = msg.get("sender");
-    !(named(msg.get("fromSession"))
+    let session = named(msg.get("fromSession"))
         || named(sender.and_then(|s| s.get("session")))
-        || named(sender.and_then(|s| s.pointer("/relay/session"))))
+        || named(sender.and_then(|s| s.pointer("/relay/session")));
+    let text = msg.get("text").and_then(Value::as_str).unwrap_or_default();
+    !session && !broker_relayed_agent(text)
+}
+
+/// The lane-gh broker's header on an agent's message it relays: `[message ID from HOST/NAME
+/// (an agent, not Leo), relayed by the lane-gh broker; ...]` on one of its first lines (a
+/// program's reads `(a program with no session, ...)`). Text alone, so a sender could write
+/// it; that only sends its message through the model, as before this rule.
+pub fn broker_relayed_agent(text: &str) -> bool {
+    text.lines().take(4).any(|l| {
+        let l = l.trim_start();
+        l.starts_with("[message ") && l.contains(" (an agent") && l.contains("lane-gh broker")
+    })
 }
 
 /// A FIRE keeps its waking class (notice-flood.md rule 1): the word `FIRE` in capitals,

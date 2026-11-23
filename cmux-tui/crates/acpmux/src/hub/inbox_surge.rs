@@ -262,7 +262,7 @@ impl Hub {
         // (hq docs/handbook/notice-flood.md rule 1).
         let program = notice.is_some()
             || crate::surge_triage::program_notice(
-                &json!({"fromSession": from_session, "sender": sender}),
+                &json!({"fromSession": from_session, "sender": sender, "text": text}),
             );
         let class = if program && !crate::surge_triage::fire_text(&text) {
             PromptClass::Fyi
