@@ -426,6 +426,58 @@ async fn a_rollback_that_cannot_be_marked_says_the_build_will_be_tried_again() {
     assert!(matches!(&again, Prepared::Ready(_)), "the next run tries it again");
 }
 
+/// A fleet Linux host, 2026-11-23 10:53Z: the old daemon saw its binary
+/// replaced and handed over itself (`systemctl --user restart --no-block
+/// acpmux.service`), so the update found the unit not active, shut the
+/// daemon down, and then read the unit's new daemon, on the new build, as
+/// the old one that "did not shut down". The good build was rolled back and
+/// marked, and every later run skipped it. The unit's own daemon is the
+/// takeover done: the update succeeds.
+#[tokio::test]
+async fn a_daemon_the_unit_already_restarted_on_the_new_build_is_not_read_as_the_old_one() {
+    let peer = FakePeer::new("self-unit-takes-over");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    // The unit is mid-restart (deactivating, not active) when the update's
+    // restart reads it, and its new daemon (pid 5252) comes up as the old
+    // one stops.
+    std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+    peer.write("unit-takes-over", "");
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.exists("agents"), "the agents are kept");
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
+}
+
+/// A daemon that really does not stop is still refused (exit 4), and the
+/// update rolls back; but a restart that failed before the build was
+/// checked says nothing against the build, so it is not marked: the next
+/// run tries it again instead of waiting for a newer one for good.
+#[tokio::test]
+async fn a_restart_that_failed_before_the_build_was_checked_is_tried_again() {
+    let peer = FakePeer::new("self-restart-failed");
+    // The new build's shutdown leaves the old daemon (pid 4242, not the
+    // unit's) running.
+    let new = fake_acpmux(NEW, Some(NEW))
+        .replace(r#""daemon shutdown"*) rm -f "$HOME/daemon";"#, r#""daemon shutdown"*) :;"#);
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("restartFailed")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("did not shut down"), "{up:?}");
+    assert!(!peer.exists(&format!(".acpmux/update/{}/{ROLLED_BACK}", sha_of(&new))));
+    drop(plan);
+    let again = prepared(&peer, &serving(&new)).await;
+    assert!(matches!(&again, Prepared::Ready(_)), "the next run tries the build again");
+}
+
 #[tokio::test]
 async fn one_self_update_runs_at_a_time_and_the_opt_out_stops_them() {
     let peer = FakePeer::new("self-lock");
