@@ -675,7 +675,7 @@ fn header_folder(text: &str, home: &str) -> Option<String> {
     path.starts_with('/').then(|| prefix(&path, MAXIMUM_OPEN_TAB_TEXT))
 }
 
-/// `pane.action {id, cwd?, mode?, url?}`; the diff viewer's own turn and patch stay the host's.
+/// `pane.action {id, cwd?, mode?, url?}`; the diff viewer's turn and patch are the host's (`paneDiff`).
 fn pane_action(method: &str, params: Params<'_>, home: &str) -> Option<Decoded> {
     let toggle = params.string("mode") == Some("toggle");
     if params.string("id") == Some("preview") {
@@ -696,10 +696,14 @@ fn pane_action(method: &str, params: Params<'_>, home: &str) -> Option<Decoded> 
     let Some(id) = id_chars(params.string("id"), 128) else {
         return Some(Decoded::Case(unsupported(method)));
     };
-    if id == "openDiffViewer" {
-        return None;
-    }
     let cwd = params.string("cwd").and_then(|cwd| header_folder(cwd, home));
+    if id == "openDiffViewer" {
+        // The diff's turn or patch is a host type: the host builds it from the body.
+        return Some(Decoded::Case(case_with(
+            "paneDiff",
+            [("cwd", json!(cwd)), ("toggle", json!(toggle))],
+        )));
+    }
     Some(Decoded::Case(case_with(
         "paneAction",
         [("_0", json!(id)), ("cwd", json!(cwd)), ("toggle", json!(toggle))],

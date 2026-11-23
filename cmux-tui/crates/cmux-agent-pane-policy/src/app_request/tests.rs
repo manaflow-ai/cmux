@@ -197,3 +197,20 @@ fn replies_keep_their_keys_and_caps() {
     rejects("environment.list", json!({"x": 1}));
     assert_eq!(run("environment.save", json!({})), json!({"delegate": true}));
 }
+
+#[test]
+fn pane_action_routes_the_diff_viewer_and_previews() {
+    let out = accepts(
+        "pane.action",
+        json!({"id": "openDiffViewer", "cwd": "~/x", "mode": "toggle"}),
+        "paneDiff",
+    );
+    assert_eq!(*field(&out, "cwd"), json!("/Users/me/x"));
+    assert_eq!(*field(&out, "toggle"), json!(true));
+    accepts("pane.action", json!({"id": "other"}), "paneAction");
+    rejects("pane.action", json!({"id": ""}));
+    rejects("pane.action", json!({"id": "a".repeat(129)}));
+    accepts("pane.action", json!({"id": "preview"}), "preview");
+    accepts("pane.action", json!({"id": "preview", "url": "http://localhost:1/"}), "preview");
+    rejects("pane.action", json!({"id": "preview", "url": "https://example.com"}));
+}
