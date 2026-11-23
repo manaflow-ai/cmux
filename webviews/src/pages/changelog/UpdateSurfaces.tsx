@@ -205,6 +205,19 @@ function PopoverHead({
  * the look before). Gallery variants. */
 export type WhatsNewPlacement = "title" | "top-right" | "button";
 
+/** How many lines the resting card has (Leo 2026-11-23, ask-33e37575cb: "the fuck is a pill with 2
+ * lines supposed to be for anyways? the fuck kind of information are you showing with a single
+ * fucking line of content?"). The card says one thing, that cmux updated, so it is one line: `row`
+ * (shipped) is "Updated to Nightly" with What's New at its trailing end, and every change of the
+ * update is one hover away (the preview beside the sidebar, or above the card). `row-change` keeps
+ * the update's top change on that one line after the title, cut at the edge. `two-line` is the look
+ * before (title over the top change, the composer's height), now with the card corner instead of
+ * the composer's near-capsule. Each is the one-line composer's box (48; Leo 2026-11-07: "the exact
+ * same height as the composer") at the layout grid's card corner (--grid-card-radius, 16: a third
+ * of the box, never a capsule), not the composer's 22, which is half its round controls plus the
+ * inset and reads as a pill on a card with no round controls in it. Gallery variants. */
+export type UpdatedCardShape = "row" | "row-change" | "two-line";
+
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
 
@@ -218,6 +231,7 @@ export function UpdatedCard({
   decoration,
   animate = true,
   placement = "title",
+  shape = "row",
   previewLayout = "header",
   previewMode,
   previewOpen,
@@ -245,8 +259,10 @@ export function UpdatedCard({
   decoration?: string | null;
   /** The doodle draws on (false: drawn from the start, for stills). */
   animate?: boolean;
-  /** Where What's New sits (gallery variants); `title` ships. */
+  /** Where What's New sits (gallery variants); `title` ships. A `row` card puts it at the line's end. */
   placement?: WhatsNewPlacement;
+  /** How many lines the resting card has (gallery variants); `row` ships. */
+  shape?: UpdatedCardShape;
   /** How the open hover preview is laid out (gallery variants); `header` ships. The sidebar host
       draws its x on the card's title line, wherever this layout puts it (SidebarUpdatedCardHost). */
   previewLayout?: PreviewLayout;
@@ -410,6 +426,7 @@ export function UpdatedCard({
       className="wn-card wn-updated"
       aria-labelledby={titleId}
       data-placement={placement}
+      data-shape={shape}
       data-layout={previewLayout}
       data-mode={mode}
       data-anchor={anchor}
@@ -434,7 +451,15 @@ export function UpdatedCard({
           {title}
           {/* The shipped title line is the title alone (Lawrence 2026-11-07: "Updated to ..." was cut
               to fit What's New beside it); What's New leads the open preview. */}
-          {placement === "top-right" && (
+          {shape === "row-change" && !preview.shown && (
+            <>
+              <span className="wn-card-sep" aria-hidden="true">
+                ·
+              </span>
+              {note}
+            </>
+          )}
+          {(placement === "top-right" || shape === "row") && (
             <button type="button" className="wn-card-link" onClick={openWhatsNew}>
               {strings.t("changelog.page.title")}
               <span aria-hidden="true"> ↗</span>
@@ -442,9 +467,11 @@ export function UpdatedCard({
           )}
         </div>
         {close}
-        {note}
+        {shape === "two-line" && note}
         {/* Open, the card's second line is the full version, in the note's place and height. */}
-        {preview.shown && name !== data.version && <p className="wn-card-version">{data.version}</p>}
+        {shape === "two-line" && preview.shown && name !== data.version && (
+          <p className="wn-card-version">{data.version}</p>
+        )}
         {placement === "button" && <div className="wn-card-actions">{whatsNew}</div>}
       </div>
     </section>
