@@ -44,9 +44,8 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     states: { open: { selector: TRAY, attr: "data-open" } },
   };
 
-  // Red on feat-cmux-next today; the plan-display-proper lane is fixing the tray's drag.
-  const FIX = "the plan-display-proper lane";
-  const SNAP = `${FIX}: the list stops between lines (it sizes to raw px)`;
+  // Green since the plan-display-proper fix (#50154): the rim lands on a whole line, a shaky hand folds
+  // it once, and a click on the rim changes nothing.
   const { scenario, testFor } = feelStage({
     entry: "agent-pane.feel-plan-tray",
     variant: "fifty",
@@ -55,16 +54,6 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     prepare: async (page) => {
       await page.evaluate(() => localStorage.removeItem("cmux.agentPane.hatListHeight"));
       await page.waitForSelector(`${TRAY}[data-open] ${LIST}`);
-    },
-    known: {
-      "drag-slow--60": SNAP,
-      "drag-fast--60": SNAP,
-      "drag-jitter--60": SNAP,
-      "drag-burst--60": SNAP,
-      "drag-slow-40": SNAP,
-      "fold-hysteresis": `${FIX}: a shaky hand at the fold point folds and opens it 9 times`,
-      "rim-click": `${FIX}: a click on the rim folds the hat`,
-      "rim-wobble-3px": `${FIX}: a click on the rim folds the hat`,
     },
   });
 
@@ -83,6 +72,26 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
       return tops.length > 1 ? tops[1]! - tops[0]! : 28;
     }, LIST);
 
+  /** How close the rim must come to a line's edge to settle on it mid-drag (trayResize.ts
+   *  `HAT_DETENT` on the plan-display-proper fix). Leo asked for "satisfying snap alongs", so a rim
+   *  resting on a line within this counts as on the hand; one that follows 1:1 passes too. */
+  const SNAP_ALONG = 5;
+
+  /** The tray-top positions where the list shows a whole number of lines (each line's bottom edge,
+   *  plus its 2 px of padding): the rests a snap-along rim may settle on. */
+  const lineRests = async (page: Page, line: number) => {
+    const tray = (await page.locator(".acpmux-running-tray").boundingBox())!;
+    const list = (await page.locator(LIST).boundingBox())!;
+    const count = await page.locator(`${LIST} > *`).count();
+    const at = Array.from({ length: count }, (_, i) => tray.y + (list.height - ((i + 1) * line + 2)));
+    return { at, within: SNAP_ALONG };
+  };
+
+  /** What the rim did after release, beyond landing on the nearest whole line (a snap-along rim
+   *  moves up to half a line to land; any more, or a move that lands off a line, counts). */
+  const strayAfterRelease = (report: { releaseMove: number; releaseLanded: boolean }, line: number) =>
+    report.releaseLanded ? Math.max(0, report.releaseMove - line / 2) : report.releaseMove;
+
   /** A drag of the rim by `dy` px (negative: up) in `style`, judged on the tray's top edge. */
   const dragScenario = (style: DragStyle, dy: number) =>
     testFor(`drag-${style}-${dy}`)(
@@ -91,13 +100,14 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
         const verdicts = await scenario(`drag-${style}-${dy}`, async (page, v) => {
           const { x, y } = await rimCentre(page);
           const line = await pitch(page);
+          const detents = await lineRests(page, line);
           const trace = await record(page, SPEC, () =>
             drag(page, { x, y }, dragPath({ x, y }, { x, y: y + dy }, style)),
           );
-          const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
+          const report = follow(trace, { box: "tray", edge: "top", slop: 8, detents });
           v.atMost("rim offset from the grab point (max)", report.maxError, 3, " px");
           v.atMost("jumps (frames off the hand by over 4 px)", report.jumps.length, 0);
-          v.atMost("move after release", report.releaseMove, 1, " px");
+          v.atMost("move after release, beyond landing on a line", strayAfterRelease(report, line), 1, " px");
           // A rim that never moves is "never off the hand" too: it must cover the way the hand went.
           v.atLeast("rim travel / hand travel", report.coverage, 0.9);
           const list = trace.frames.at(-1)!.boxes.list;
@@ -123,13 +133,15 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
     test("past the end and back: the rim waits at its limit and picks up again under the hand", async () => {
       const verdicts = await scenario("overshoot", async (page, v) => {
         const { x, y } = await rimCentre(page);
+        const line = await pitch(page);
+        const detents = await lineRests(page, line);
         const trace = await record(page, SPEC, () =>
           drag(page, { x, y }, dragPath({ x, y }, { x, y: Math.max(20, y - 420) }, "overshoot")),
         );
-        const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
+        const report = follow(trace, { box: "tray", edge: "top", slop: 8, detents });
         v.atMost("rim offset from the grab point (max)", report.maxError, 3, " px");
         v.atMost("jumps", report.jumps.length, 0);
-        v.atMost("move after release", report.releaseMove, 1, " px");
+        v.atMost("move after release, beyond landing on a line", strayAfterRelease(report, line), 1, " px");
         return report;
       });
       expectPass(verdicts);
@@ -208,6 +220,7 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
         let jumps = 0;
         for (const dy of [-30, 30, -50, 20, -10]) {
           const { x, y } = await rimCentre(page);
+          const detents = await lineRests(page, await pitch(page));
           const trace = await record(
             page,
             SPEC,
@@ -216,7 +229,7 @@ await requireBrowserLane("feel-plan-tray.test.ts", async () => {
               settleFrames: 6,
             },
           );
-          const report = follow(trace, { box: "tray", edge: "top", slop: 8 });
+          const report = follow(trace, { box: "tray", edge: "top", slop: 8, detents });
           worst = Math.max(worst, report.maxError);
           jumps += report.jumps.length;
         }
