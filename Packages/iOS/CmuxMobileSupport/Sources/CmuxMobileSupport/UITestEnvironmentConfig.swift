@@ -27,6 +27,16 @@ public struct UITestEnvironmentConfig: Equatable, Sendable {
         #endif
     }
 
+    /// Whether the onboarding preview stands in for the App Review
+    /// demonstration account.
+    public var onboardingDemonstrationAccountEnabled: Bool {
+        #if DEBUG
+        return environment["CMUX_UITEST_ONBOARDING_DEMONSTRATION_ACCOUNT"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the deterministic pairing-scanner preview is enabled.
     public var pairingScannerPreviewEnabled: Bool {
         #if DEBUG

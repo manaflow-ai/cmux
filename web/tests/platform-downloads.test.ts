@@ -34,9 +34,9 @@ const DOWNLOAD_BUTTON_SOURCE = fileURLToPath(
 );
 
 describe("Windows and Linux downloads", () => {
-  test("publishes Linux without leaking the private product repository", () => {
-    expect(DOWNLOAD_PLATFORMS).toEqual(["linux"]);
-    expect(WAITLIST_PLATFORMS).toEqual(["android", "windows"]);
+  test("keeps Linux and Windows waitlist-only without leaking the private product repository", () => {
+    expect(DOWNLOAD_PLATFORMS).toEqual([]);
+    expect(WAITLIST_PLATFORMS).toEqual(["linux", "android", "windows"]);
 
     expect(PLATFORM_DOWNLOADS.windows.primary.url).toBe(
       "/api/download/browser-nightly/windows-x64/installer",
@@ -141,7 +141,7 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
-  test("publishes Linux and keeps unavailable Windows out of the sitemap", () => {
+  test("keeps waitlist-only Linux and Windows out of the sitemap", () => {
     expect(
       sitemap().filter((entry) =>
         new URL(entry.url).pathname.endsWith(BROWSER_NIGHTLY_PAGE),
@@ -156,7 +156,7 @@ describe("Windows and Linux downloads", () => {
       sitemap().filter((entry) =>
         new URL(entry.url).pathname.endsWith("/linux"),
       ),
-    ).toHaveLength(locales.length);
+    ).toEqual([]);
   });
 
   test("makes Browser downloads discoverable without enabling unsigned platforms", async () => {

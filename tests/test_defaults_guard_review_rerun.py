@@ -41,7 +41,8 @@ def receipt_script():
 
 
 class Rerun(unittest.TestCase):
-    def invoke(self, status="completed", *, missing=False, error="", post_error=False):
+    def invoke(self, status="completed", *, missing=False, error="", post_error=False, conclusion=None,
+               event="issue_comment", action="created", review_state="", reviews=(), reviews_error=False):
         self.assertIsNotNone(shutil.which("jq"), "this shell harness needs jq")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -61,16 +62,25 @@ class Rerun(unittest.TestCase):
                     query = args[args.index("--jq") + 1]
                     result = subprocess.run(["jq", "-r", query], input=os.environ["RUNS"], text=True)
                     sys.exit(result.returncode)
+                if endpoint.endswith("/pulls/7/reviews?per_page=100"):
+                    if os.environ["REVIEWS_ERROR"] == "1":
+                        sys.exit("gh: HTTP 500")
+                    query = args[args.index("--jq") + 1]
+                    result = subprocess.run(["jq", "-r", query], input=os.environ["REVIEWS"], text=True)
+                    sys.exit(result.returncode)
                 if args[1:3] == ["-X", "POST"] and endpoint.endswith("/runs/123/rerun"):
                     sys.exit(1 if os.environ["POST_ERROR"] == "1" else 0)
                 sys.exit("unexpected API read or mutation: " + repr(args))
                 '''))
             gh.chmod(0o755)
-            runs = [] if missing else [{"id": 123, "status": status}]
+            runs = [] if missing else [{"id": 123, "status": status, "conclusion": conclusion}]
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
                    "REPO": REPO, "HEAD_SHA": HEAD, "CALL_LOG": str(log),
                    "RUNS": json.dumps({"workflow_runs": runs}), "API_ERROR": error,
-                   "POST_ERROR": "1" if post_error else "0"}
+                   "POST_ERROR": "1" if post_error else "0", "EVENT_NAME": event, "EVENT_ACTION": action,
+                   "REVIEW_STATE": review_state, "PR_NUMBER": "7",
+                   "REVIEWS": json.dumps([{"state": st} for st in reviews]),
+                   "REVIEWS_ERROR": "1" if reviews_error else "0"}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", rerun_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -82,6 +92,40 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(calls), 2, calls)
         self.assertEqual(calls[1], ["api", "-X", "POST", f"repos/{REPO}/actions/runs/123/rerun"])
+
+    def test_red_run_is_rerun(self):
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                result, calls = self.invoke(conclusion=conclusion)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2, calls)
+
+    def test_green_run_is_not_rerun_by_a_receipt_or_approval(self):
+        for event, action, state in (("issue_comment", "created", ""), ("issue_comment", "edited", ""),
+                                     ("pull_request_review", "submitted", "approved"),
+                                     ("pull_request_review", "submitted", "commented"),
+                                     ("pull_request_review", "edited", "approved")):
+            with self.subTest(event=event, action=action, state=state):
+                result, calls = self.invoke(conclusion="success", event=event, action=action, review_state=state)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2, calls)  # the runs read and the reviews read
+                self.assertIn("already passed", result.stdout)
+
+    def test_green_run_is_rerun_by_a_receipt_after_an_approval_was_taken_back(self):
+        for reviews, error in ((("APPROVED", "CHANGES_REQUESTED"), False), (("DISMISSED",), False), ((), True)):
+            with self.subTest(reviews=reviews, error=error):
+                result, calls = self.invoke(conclusion="success", reviews=reviews, reviews_error=error)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[-1], ["api", "-X", "POST", f"repos/{REPO}/actions/runs/123/rerun"])
+
+    def test_green_run_is_rerun_when_a_review_can_take_approval_back(self):
+        for action, state in (("submitted", "changes_requested"), ("dismissed", "dismissed"),
+                              ("dismissed", "approved")):
+            with self.subTest(action=action, state=state):
+                result, calls = self.invoke(conclusion="success", event="pull_request_review", action=action,
+                                            review_state=state)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), 2, calls)
 
     def test_active_run_is_not_polled_or_rerun(self):
         for status in ("queued", "in_progress", "pending", "waiting", "requested"):
@@ -141,7 +185,8 @@ class Rerun(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
 
-    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD):
+    def invoke_authoritative(self, *, event_association="MEMBER", fetched_association="MEMBER", fetched_head=HEAD,
+                             fetched_user=None):
         event = {"comment": {"body": f"Review (router): SHIP at {HEAD}\nEvidence: focused checks passed", "author_association": event_association}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -170,7 +215,8 @@ class Rerun(unittest.TestCase):
                    "PR_RESPONSE": json.dumps({"base": {"ref": "feat-cmux-next"},
                                               "head": {"repo": {"full_name": REPO}, "sha": fetched_head}}),
                    "COMMENT_RESPONSE": json.dumps({"author_association": fetched_association,
-                                                   "body": event["comment"]["body"]})}
+                                                   "body": event["comment"]["body"],
+                                                   **({"user": fetched_user} if fetched_user else {})})}
             result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", receipt_script()],
                                     env=env, text=True, capture_output=True, timeout=5)
             calls = log.read_text().splitlines()
@@ -202,6 +248,20 @@ class Rerun(unittest.TestCase):
         self.assertEqual(calls, ["called", "called"])
         self.assertIn("eligible=true", output)
 
+
+    def test_the_review_service_receipt_from_cmux_bot_wakes_the_guard(self):
+        # next-review's receipt, posted by the cmux-bot App (association NONE), is the review an author lane requests
+        # (`router-review manaflow-ai/cmux N --request`). Only the App by its node id counts; the guard judges it.
+        bot = {"type": "Bot", "login": "cmux-bot[bot]", "node_id": "BOT_kgDOFMYsLQ"}
+        result, _, output = self.invoke_authoritative(event_association="NONE", fetched_association="NONE",
+                                                      fetched_user=bot)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("eligible=true", output)
+        for user in (dict(bot, node_id="BOT_wrong"), dict(bot, login="other[bot]"), dict(bot, type="User")):
+            result, _, output = self.invoke_authoritative(event_association="NONE", fetched_association="NONE",
+                                                          fetched_user=user)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("eligible=true", output, user)
 
 if __name__ == "__main__":
     unittest.main()

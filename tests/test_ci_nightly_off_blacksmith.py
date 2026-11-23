@@ -107,15 +107,19 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
                                      else "glaeda-nightly-std-xcode-26.6")
         # Main uses the shared nightly slot; its admission hook does not
-        # accept RC or branch dogfood refs. Preserve their existing route.
+        # accept RC or branch dogfood refs. They take the one-job JIT nightly
+        # VM on a first attempt (no vendor queue, 2026-11-20) and keep their
+        # existing Blacksmith route on re-runs.
         for ref in ("refs/heads/rc/1.0", "refs/heads/lane/dogfood"):
             for event in ("push", "workflow_dispatch"):
-                with self.subTest(ref=ref, event=event):
-                    self.assertEqual(select(node, {"github.repository_owner": "manaflow-ai",
-                                                  "github.ref": ref, "github.event_name": event,
-                                                  "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "",
-                                                  "vars.CI_CLASSIC_NIGHTLY_MINI": ""}),
-                                     "blacksmith-2vcpu-ubuntu-2404")
+                for attempt, expected in (("1", "cmux-gcp-nightly-jit-x64"), ("2", "blacksmith-2vcpu-ubuntu-2404")):
+                    with self.subTest(ref=ref, event=event, attempt=attempt):
+                        self.assertEqual(select(node, {"github.repository_owner": "manaflow-ai",
+                                                      "github.run_attempt": attempt,
+                                                      "github.ref": ref, "github.event_name": event,
+                                                      "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "",
+                                                      "vars.CI_CLASSIC_NIGHTLY_MINI": ""}),
+                                         expected)
         # NEXT's push bootstrap uses the owned nightly control runner only on
         # its first attempt; retries keep the paid fallback route.
         for attempt in ("1", "2"):
@@ -240,7 +244,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
 
         2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
         hour while Blacksmith macOS served; these light jobs had nowhere else to go.
-        Unset, they keep their Blacksmith Linux default.
+        Unset, they keep their Blacksmith Linux default. A first attempt goes to
+        the one-job JIT nightly VM ahead of both (2026-11-20, nightly priority on
+        Linux); re-runs keep CI_CONTROL_RUNNER and then Blacksmith.
         """
         for name, job in (("nightly-next-tick.yml", "request"), ("nightly-next-feed-watch.yml", "watch")):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
@@ -248,6 +254,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
             with self.subTest(workflow=name):
                 self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                                          "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || "
                                           "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
 
     def test_the_tick_hashes_without_gnu_coreutils(self) -> None:

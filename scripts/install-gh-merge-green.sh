@@ -40,6 +40,14 @@ KEEP_SNAPSHOTS=3
 # submitter-only build role). There a main commit is installed once its main
 # push passed this check, the job that runs the gh-merge-green tests in CI.
 CI_TESTS_CHECK="CI fast guards / CI fast guards"
+# glaeda-gh answers only for heads some daemon reads. From 2026-11-04 to 11-18
+# it said "not read yet" for every main tip on one of Leo's Macs, so the tip never
+# "passed", the install stayed 14 days old, and the old snapshot's
+# `gh api --paginate` reads were refused by the gh-quota guard on every PR.
+# When the tip is not judged, the newest main commit whose main-push run of
+# this workflow passed is installed instead: one REST read, never paginated.
+CI_TESTS_WORKFLOW="ci-fast-guards.yml"
+CI_TESTS_REPO="manaflow-ai/cmux"
 
 say() { printf 'install-gh-merge-green: %s\n' "$*" >&2; }
 die() { say "error: $*"; exit 1; }
@@ -163,6 +171,12 @@ else:
     print("pending")' "$1" "$CI_TESTS_CHECK"
 }
 
+newest_green_main() { # the newest main commit whose main-push CI_TESTS_WORKFLOW run passed, or nothing
+  "${GH_MERGE_GREEN_GH:-gh}" api \
+    "repos/$CI_TESTS_REPO/actions/workflows/$CI_TESTS_WORKFLOW/runs?branch=main&event=push&status=success&per_page=1" \
+    --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null | head -n 1 || true
+}
+
 prune_snapshots() { # REPO: keep current and the newest others, never one younger than an hour
   local repo="$1" current snap kept=0
   current="$(cd "$GMG_HOME/current" 2>/dev/null && pwd -P || true)"
@@ -253,8 +267,23 @@ cmd_install() {
         printf '%s\n' "$sha" > "$GMG_HOME/failed"
         die "\"$CI_TESTS_CHECK\" failed at ${sha:0:10}; kept the current install" ;;
       *)
-        say "\"$CI_TESTS_CHECK\" has not passed at ${sha:0:10} yet; kept the current install, the next update checks again"
-        return 0 ;;
+        local green=""
+        [ "$sha" != "$main" ] || green="$(newest_green_main)"
+        # The tip itself may be the green one: glaeda-gh had not read it, the REST read did.
+        if [ -z "$green" ] || [ "$green" = "$(saved failed)" ] ||
+           ! git -C "$repo" merge-base --is-ancestor "$green" "$main" 2>/dev/null; then
+          say "\"$CI_TESTS_CHECK\" has not passed at ${sha:0:10} yet; kept the current install, the next update checks again"
+          return 0
+        fi
+        say "\"$CI_TESTS_CHECK\" is not judged at ${sha:0:10} yet; installing ${green:0:10}, the newest main commit it passed on"
+        sha="$green"
+        if [ "$force" = 0 ] && [ -d "$GMG_HOME/current" ] &&
+           [ "$(fingerprint "$repo" "$sha")" = "$(fingerprint "$GMG_HOME/current" HEAD)" ]; then
+          printf '%s\n' "$sha" > "$GMG_HOME/checked"
+          link_bin "$bin"
+          say "already current: $(git -C "$GMG_HOME/current" rev-parse --short HEAD) runs the same gh-merge-green as ${sha:0:10}"
+          return 0
+        fi ;;
     esac
   fi
 
@@ -335,7 +364,7 @@ cmd_status() {
   else
     printf 'current  (none)\n'
   fi
-  printf 'checked  %s\n' "$(saved checked)"
+  printf 'checked  %s (%s days ago)\n' "$(saved checked)" "$(( $(age_seconds "$GMG_HOME/checked") / 86400 ))"
   [ -f "$GMG_HOME/failed" ] && printf 'failed   %s (origin/main commit whose tests failed)\n' "$(saved failed)"
   printf 'command  %s -> %s\n' "$(saved bin)/gh-merge-green" "$(readlink "$(saved bin)/gh-merge-green" 2>/dev/null || echo '(missing)')"
 }

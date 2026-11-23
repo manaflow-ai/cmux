@@ -215,6 +215,10 @@ extension ControlSidebarContext {
     func controlSidebarStateSnapshot(tabArg: String?) -> ControlSidebarStateSnapshot? { nil }
     func controlSidebarReset(tabArg: String?) -> Bool { false }
 
+    func controlSidebarApplyLeftSidebarRemoteCommand(tokens: [String]) -> ControlSidebarLeftSidebarResolution {
+        .failure(message: "")
+    }
+
     func controlSidebarApplyRightSidebarRemoteCommand(tokens: [String]) -> ControlSidebarRightSidebarResolution {
         .failure(message: "")
     }

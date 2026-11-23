@@ -17,12 +17,12 @@ use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, MachinePublicId, PanePublicId, ResourceError,
     ResourceOperation, Selector, SessionPublicId, TabPublicId, TerminalPublicId,
 };
+use crate::resource_screen::{panes_by_id, public_screen_value, tabs_by_pane};
 use crate::sidebar_resource::{sidebar_snapshot, sidebar_view_id};
 use crate::workspace_registry::{
     FrontendProjection, RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserSource,
-    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
-    RegistryTerminal, RegistryViewport, ResourceEffectOutcome, ResourceEffectPreparation,
-    TerminalLifecycle,
+    RegistryBrowserStatus, RegistryTab, RegistryTerminal, ResourceEffectOutcome,
+    ResourceEffectPreparation, TerminalLifecycle,
 };
 use crate::{Mux, ResourceSelectors};
 
@@ -220,6 +220,7 @@ fn resolve_local_open_preparation(
             ResourceEffectOutcome::Failure(error) => Err(error),
         },
         ResourceEffectPreparation::Indeterminate => {
+            mux.report_resource_effect_indeterminate(key, "session.open", EARLIER_ATTEMPT_CAUSE);
             Err(local_indeterminate_error(key, "session.open"))
         }
         ResourceEffectPreparation::Execute { .. } => {
@@ -237,7 +238,12 @@ fn resolve_local_open_preparation(
                     &outcome,
                     Some(&json!([])),
                 )
-                .map_err(|_| {
+                .map_err(|error| {
+                    mux.report_resource_effect_indeterminate(
+                        key,
+                        "session.open",
+                        &format!("the outcome commit failed: {error:#}"),
+                    );
                     let _ = mux.mark_resource_effect_indeterminate(key);
                     local_indeterminate_error(key, "session.open")
                 })?;
@@ -260,6 +266,11 @@ fn local_mutation_result(
         "replayed":replayed,
     }))
 }
+
+/// Cause logged when a request replays a key whose earlier attempt left an
+/// indeterminate outcome.
+pub(crate) const EARLIER_ATTEMPT_CAUSE: &str =
+    "an earlier attempt with this key has an indeterminate outcome";
 
 fn local_indeterminate_error(key: &str, operation: &str) -> ResourceError {
     ResourceError::new(
@@ -448,6 +459,16 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
+    // `terminal-exit-status-v1`: the last command the shell finished (OSC
+    // 133 D), with its exit code when the shell sent one. Absent without
+    // shell integration, so a missing field never reads as success.
+    if durable.lifecycle == TerminalLifecycle::Running
+        && let Some(last) = surface.and_then(crate::Surface::terminal_last_command)
+    {
+        terminal["extra"] = json!({
+            "last_command": crate::terminal_command::last_command_json(last),
+        });
+    }
     if durable.lifecycle == TerminalLifecycle::Exited {
         terminal["exit"] =
             durable.exit.clone().context("exited terminal omitted its durable outcome")?;
@@ -481,6 +502,8 @@ pub(crate) fn public_session_snapshot_with_journal_head(
     let (sidebar_status, sidebar_last_size, sidebar_configured) =
         mux.sidebar_plugin_resource_status();
     let sidebar_surface = sidebar_status.surface.and_then(|surface| mux.surface(surface));
+    // Taken before the projection lock, like the sidebar status (memory only).
+    let last_sessions = mux.agent_last_sessions();
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
@@ -515,8 +538,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         };
 
         let tabs_by_pane = tabs_by_pane(&topology.tabs);
-        let panes_by_id =
-            topology.panes.iter().map(|pane| (&pane.public_id, pane)).collect::<HashMap<_, _>>();
+        let panes_by_id = panes_by_id(&topology.panes);
         let screens_by_id = topology
             .screens
             .iter()
@@ -553,19 +575,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let screens = topology
             .screens
             .iter()
-            .map(|screen| {
-                let focused = topology.active_workspace.as_ref() == Some(&screen.workspace_id)
-                    && active_screens.get(&screen.workspace_id).and_then(Option::as_ref)
-                        == Some(&screen.public_id);
-                Ok(json!({
-                    "id": screen.public_id,
-                    "workspace_id": screen.workspace_id,
-                    "name": screen.name,
-                    "index": checked_index(screen.position)?,
-                    "focused": focused,
-                    "layout": public_layout_document(screen, &tabs_by_pane, &panes_by_id)?,
-                }))
-            })
+            .map(|screen| public_screen_value(&topology, screen, &tabs_by_pane, &panes_by_id))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let panes = topology
@@ -674,6 +684,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
                 public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                    .map(|terminal| crate::mux::with_agent_session(terminal, &last_sessions))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -785,108 +796,6 @@ fn checked_index(index: usize) -> anyhow::Result<u32> {
     u32::try_from(index).map_err(|_| anyhow::anyhow!("resource index exceeds uint32"))
 }
 
-fn tabs_by_pane(tabs: &[RegistryTab]) -> HashMap<&PanePublicId, Vec<&RegistryTab>> {
-    let mut by_pane = HashMap::<_, Vec<_>>::new();
-    for tab in tabs {
-        by_pane.entry(&tab.pane_id).or_default().push(tab);
-    }
-    for pane_tabs in by_pane.values_mut() {
-        pane_tabs.sort_by_key(|tab| tab.position);
-    }
-    by_pane
-}
-
-fn public_layout_document(
-    screen: &RegistryScreen,
-    tabs_by_pane: &HashMap<&PanePublicId, Vec<&RegistryTab>>,
-    panes_by_id: &HashMap<&PanePublicId, &RegistryPane>,
-) -> anyhow::Result<Value> {
-    let root = if screen.viewport.columns.is_empty() {
-        public_layout_node(&screen.layout, tabs_by_pane, panes_by_id)?
-    } else {
-        public_viewport_node(&screen.viewport, tabs_by_pane, panes_by_id)?
-    };
-    Ok(json!({
-        "version": 1,
-        "screen_id": screen.public_id,
-        "active_pane_id": screen.active_pane,
-        "zoomed_pane_id": screen.zoomed_pane,
-        "root": root,
-    }))
-}
-
-fn public_viewport_node(
-    viewport: &RegistryViewport,
-    tabs_by_pane: &HashMap<&PanePublicId, Vec<&RegistryTab>>,
-    panes_by_id: &HashMap<&PanePublicId, &RegistryPane>,
-) -> anyhow::Result<Value> {
-    let base_width =
-        viewport.base_width.ok_or_else(|| anyhow::anyhow!("viewport has no base width"))?;
-    anyhow::ensure!(base_width.is_finite(), "viewport base width is not finite");
-    let columns = viewport
-        .columns
-        .iter()
-        .map(|column| {
-            anyhow::ensure!(column.width.is_finite(), "viewport column width is not finite");
-            Ok(json!({
-                "column_id": column.id,
-                "width": f64::from(column.width),
-                "root": public_layout_node(&column.layout, tabs_by_pane, panes_by_id)?,
-            }))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(json!({
-        "kind": "viewport",
-        "base_width": f64::from(base_width),
-        "columns": columns,
-    }))
-}
-
-fn public_layout_node(
-    node: &RegistryLayoutNode,
-    tabs_by_pane: &HashMap<&PanePublicId, Vec<&RegistryTab>>,
-    panes_by_id: &HashMap<&PanePublicId, &RegistryPane>,
-) -> anyhow::Result<Value> {
-    match node {
-        RegistryLayoutNode::Leaf { pane } => {
-            let tabs = tabs_by_pane.get(pane).cloned().unwrap_or_default();
-            let pane_record = panes_by_id
-                .get(pane)
-                .ok_or_else(|| anyhow::anyhow!("layout leaf is missing pane"))?;
-            let mut leaf = json!({
-                "kind": "leaf",
-                "pane_id": pane,
-                "tab_ids": tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
-            });
-            if let Some(active_tab) = &pane_record.active_tab {
-                leaf["active_tab_id"] = json!(active_tab);
-            }
-            Ok(leaf)
-        }
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
-            anyhow::ensure!(ratio.is_finite(), "layout split ratio is not finite");
-            let direction = match direction.as_str() {
-                "right" | "horizontal" => "horizontal",
-                "down" | "vertical" => "vertical",
-                other => anyhow::bail!("unsupported layout split direction {other:?}"),
-            };
-            Ok(json!({
-                "kind": "split",
-                "split_id": split,
-                "direction": direction,
-                "ratio": f64::from(*ratio),
-                "first": public_layout_node(first, tabs_by_pane, panes_by_id)?,
-                "second": public_layout_node(second, tabs_by_pane, panes_by_id)?,
-            }))
-        }
-        RegistryLayoutNode::Stack { panes, expanded } => Ok(json!({
-            "kind": "stack",
-            "pane_ids": panes,
-            "expanded_pane_id": expanded,
-        })),
-    }
-}
-
 fn public_browser_snapshot(
     tab: &RegistryTab,
     durable: &RegistryBrowser,
@@ -940,7 +849,10 @@ mod tests {
     use super::*;
     use crate::SurfaceOptions;
     use crate::resource::{ScreenPublicId, SplitPublicId, TabPublicId, WorkspacePublicId};
-    use crate::workspace_registry::RegistryViewportColumn;
+    use crate::resource_screen::public_layout_document;
+    use crate::workspace_registry::{
+        RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryViewport, RegistryViewportColumn,
+    };
 
     fn resource_request(
         mux: &Arc<Mux>,
@@ -1461,5 +1373,53 @@ mod tests {
         T: serde::de::DeserializeOwned,
     {
         serde_json::from_value(json!(format!("{prefix}_{value:032x}"))).unwrap()
+    }
+
+    #[test]
+    fn an_indeterminate_session_open_reports_its_cause_to_the_daemon_log() {
+        let mux = Mux::new_for_test("dev", SurfaceOptions::default());
+        let diagnostics = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        let context = mux.local_resource_context().unwrap();
+        let service = LocalResourceMachineService::new(Arc::downgrade(&mux));
+        let request = ResourceMachineRequest {
+            operation: ResourceOperation::SessionOpen,
+            selectors: ResourceSelectors {
+                machine: Some(context.machine_id.to_string()),
+                session: Some(context.session_id.to_string()),
+                ..Default::default()
+            },
+            fields: Map::new(),
+            idempotency_key: Some("session-open-cause".to_string()),
+        };
+        mux.reject_resource_effect_commits_for_test();
+
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(service.dispatch(&request).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        let reports = |cause: &str| {
+            diagnostics
+                .iter()
+                .filter(|message| {
+                    message.contains("session.open")
+                        && message.contains("session-open-cause")
+                        && message.contains(cause)
+                })
+                .count()
+        };
+        assert_eq!(
+            reports("injected outcome commit failure"),
+            1,
+            "the daemon log has no cause for the indeterminate open: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports("an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
+        );
     }
 }
