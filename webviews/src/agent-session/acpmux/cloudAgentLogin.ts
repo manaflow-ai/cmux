@@ -273,9 +273,12 @@ export function localApiKeyLogin(options: LoginOptions): CloudSignIn | undefined
 /// own login here (`_acpmux/agent_login/*`, which this Mac's socket and app may ask) in the card, its
 /// page beside the chat and its code in the card, instead of a terminal tab. Undefined for a chat
 /// elsewhere (``cloudAgentLogin``'s) and wherever ``agentLogin`` is: a daemon without `agent_login`
-/// (or, with no chat, without `agent_login_machine`) keeps the terminal login.
+/// (or, with no chat, without `agent_login_machine`) keeps the terminal login. Only the built-in
+/// `claude` and `codex` harnesses, as ``localApiKeyLogin``: a route (`claude-cr`, `claude-sr`) signs
+/// in its own way (its health's login), which the built-in agent's login would never reach.
 export function localAgentLogin(options: LoginOptions): CloudSignIn | undefined {
-  if (options.machineID || options.elsewhere) return undefined;
+  const harness = options.harness?.split("/").pop();
+  if (options.machineID || options.elsewhere || (harness !== "claude" && harness !== "codex")) return undefined;
   return agentLogin(options);
 }
 
