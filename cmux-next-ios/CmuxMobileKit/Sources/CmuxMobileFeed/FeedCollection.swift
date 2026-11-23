@@ -114,7 +114,8 @@ final class FeedCollectionView: UITableView {
 
 @MainActor
 final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
-    enum Section: Hashable { case header, events }
+    /// The chips and empty states, then one section per day of events (`FeedDaySection`).
+    enum Section: Hashable, Sendable { case header, day(FeedDaySection) }
     static let headerID = "feed.header"
     /// How many rows before the end the next page of spilled events is read.
     static let loadOlderLead = 30
@@ -134,6 +135,11 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var shownKeys: [String: FeedRowKey] = [:]
     /// `shownOrder` as a set, rebuilt only when the order changes.
     private var shownSet: Set<String> = []
+    /// The shown events by day, in order: the table's sections after the chips'.
+    private var shownGroups: [FeedDayGroup] = []
+    private var days = FeedDayContext()
+    /// Day labels on screen (a few): the one pinned under the bar shows on a material chip.
+    private var liveDayHeaders: [FeedDayHeaderView] = []
     /// Each shown row's height (its shown layout's), so a commit reads no layout it did not change.
     private var shownHeights: [String: CGFloat] = [:]
     /// The latest events from the store, applied once per run-loop turn.
@@ -203,6 +209,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
         view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         view.register(FeedFoldCell.self, forCellReuseIdentifier: FeedFoldCell.reuseID)
+        view.register(FeedDayHeaderView.self, forHeaderFooterViewReuseIdentifier: FeedDayHeaderView.reuseID)
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh] _ in
             Task { @MainActor in
@@ -250,10 +257,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 MainActor.assumeIsolated {
                     self?.measureHeader()
                     self?.relayoutAll()
+                    self?.refreshDayHeaders()
                 }
             }
         }
         followMinuteClock()
+        followDayChanges()
         #if DEBUG
         if FeedStressRig.shared.config.autoscrollPasses != nil { FeedScreenRig.scroller.attach(view) }
         #endif
@@ -269,6 +278,8 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.visibleCells.forEach { $0.refreshTime() }
+                // Past midnight: "Today" is "Yesterday".
+                if self.days.todayChanged() { self.refreshDayHeaders() }
                 self.followMinuteClock()
             }
         }
@@ -476,7 +487,12 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         guard let dataSource, let collectionView else { return }
         var plan = FeedListPlan(oldOrder: shownOrder, shown: shownKeys, new: keys, unchanged: unchanged)
         if reconfigureAll { plan.reconfigure = keys.map(\.0).filter { shownKeys[$0] != nil } }
-        for item in next where !unchanged.contains(item.id) { items[item.id] = item }
+        // An event whose time moved may belong to another day (the order can stay as it is).
+        var datesChanged = false
+        for item in next where !unchanged.contains(item.id) {
+            if let old = items[item.id], old.createdAt != item.createdAt { datesChanged = true }
+            items[item.id] = item
+        }
         // Read flags change no layout: those rows redraw their dot and actions in place.
         let reconfiguring = Set(plan.reconfigure)
         var redraw: [String] = []
@@ -491,7 +507,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
         let animated = animatesNextCommit && !UIAccessibility.isReduceMotionEnabled && !reconfigureAll
         animatesNextCommit = false
-        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
+        guard !plan.isEmpty || datesChanged || dataSource.snapshot().numberOfSections == 0 else { return }
         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
         // jump's animation short wherever it was (the pill then left the person mid-list).
         // A fold line's toggle keeps no anchor either: its rows come and go below it, under the table's animation.
@@ -512,19 +528,24 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             shownHeights[id] = height
         }
         var snapshot = dataSource.snapshot()
+        let previousGroups = shownGroups
+        if snapshot.numberOfSections == 0 || plan.orderChanged || datesChanged {
+            shownGroups = days.groups(next)
+        }
         if snapshot.numberOfSections == 0 {
             snapshot = NSDiffableDataSourceSnapshot<Section, String>()
-            snapshot.appendSections([.header, .events])
+            snapshot.appendSections([.header])
             snapshot.appendItems([Self.headerID], toSection: .header)
-            snapshot.appendItems(shownOrder, toSection: .events)
-        } else if plan.orderChanged {
+            Self.append(shownGroups, to: &snapshot)
+        } else if shownGroups != previousGroups {
             // Inserts and removals with the rest in order (a live event, a done swipe): edits, not a new
-            // snapshot of every row to diff. Anything else (a re-sort) rebuilds the section.
-            if !FeedListController.edit(&snapshot, from: previousOrder, to: shownOrder) {
-                snapshot.deleteSections([.events])
-                snapshot.appendSections([.events])
-                snapshot.appendItems(shownOrder, toSection: .events)
+            // snapshot of every row to diff. Anything else (a re-sort) rebuilds the day sections.
+            if !FeedListController.edit(&snapshot, from: previousGroups, to: shownGroups) {
+                snapshot.deleteSections(previousGroups.map { .day($0.section) })
+                Self.append(shownGroups, to: &snapshot)
             }
+            // Another day leads the list: which sections show a label (and its height) is read again.
+            if shownGroups.first?.section != previousGroups.first?.section { heightChanged = true }
         }
         // Reconfigured rows are shown rows by construction (the plan lists only ids it had shown); a
         // relayout's list may name rows the snapshot just removed.
@@ -564,15 +585,125 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
     }
 
-    /// Turns `old` into `new` with deletes and inserts when the rows both keep stay in the same order.
-    static func edit(_ snapshot: inout NSDiffableDataSourceSnapshot<Section, String>, from old: [String], to new: [String]) -> Bool {
-        let plan = FeedSnapshotEdit(old: old, new: new)
-        guard let plan else { return false }
+    /// Turns `old` into `new` with deletes and inserts when the rows both keep stay in the same
+    /// order and day (`FeedDayEdit`).
+    static func edit(_ snapshot: inout NSDiffableDataSourceSnapshot<Section, String>, from old: [FeedDayGroup], to new: [FeedDayGroup]) -> Bool {
+        guard let plan = FeedDayEdit(old: old, new: new) else { return false }
         if !plan.removed.isEmpty { snapshot.deleteItems(plan.removed) }
-        for group in plan.groups { snapshot.insertItems(group.ids, beforeItem: group.before) }
-        if !plan.tail.isEmpty { snapshot.appendItems(plan.tail, toSection: .events) }
+        for added in plan.addedSections {
+            snapshot.insertSections([.day(added.section)], afterSection: added.after.map { .day($0) } ?? .header)
+        }
+        for insert in plan.inserts {
+            if let before = insert.before {
+                snapshot.insertItems(insert.ids, beforeItem: before)
+            } else {
+                snapshot.appendItems(insert.ids, toSection: .day(insert.section))
+            }
+        }
+        if !plan.removedSections.isEmpty { snapshot.deleteSections(plan.removedSections.map { .day($0) }) }
         return true
     }
+
+    private static func append(_ groups: [FeedDayGroup], to snapshot: inout NSDiffableDataSourceSnapshot<Section, String>) {
+        snapshot.appendSections(groups.map { .day($0.section) })
+        for group in groups { snapshot.appendItems(group.ids, toSection: .day(group.section)) }
+    }
+
+    // MARK: Day labels
+
+    /// The day's first event is no longer where it was (a time zone or locale change, a significant
+    /// time change): the sections are grouped again and the labels read again.
+    private func followDayChanges() {
+        // Posted on the main thread; an observer by selector needs no removal.
+        for name in [UIApplication.significantTimeChangeNotification, NSNotification.Name.NSSystemTimeZoneDidChange,
+                     NSLocale.currentLocaleDidChangeNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(dayContextChanged), name: name, object: nil)
+        }
+    }
+
+    @objc private func dayContextChanged() {
+        days = FeedDayContext()
+        guard let dataSource, dataSource.snapshot().numberOfSections > 0 else { return }
+        let anchor = syncAtTop() || jumpingToTop ? nil : visibleAnchor()
+        let groups = days.groups(shownOrder.compactMap { items[$0] })
+        if groups != shownGroups {
+            var snapshot = dataSource.snapshot()
+            snapshot.deleteSections(shownGroups.map { .day($0.section) })
+            Self.append(groups, to: &snapshot)
+            shownGroups = groups
+            UIView.performWithoutAnimation { dataSource.apply(snapshot, animatingDifferences: false) }
+        }
+        refreshDayHeaders()
+        if let anchor { UIView.performWithoutAnimation { restore(anchor) } }
+    }
+
+    /// The labels' text or size changed (midnight, the text size): the ones on screen are drawn
+    /// again and the table reads their heights again.
+    private func refreshDayHeaders() {
+        guard let collectionView else { return }
+        days.forgetTitles()
+        for header in liveDayHeaders {
+            guard let section = header.section, let title = dayTitle(section) else { continue }
+            header.show(title, font: days.font(styles))
+        }
+        UIView.performWithoutAnimation { collectionView.performBatchUpdates(nil) }
+        updateDayHeaderPins()
+    }
+
+    private func dayGroup(at section: Int) -> FeedDayGroup? {
+        shownGroups.indices.contains(section - 1) ? shownGroups[section - 1] : nil
+    }
+
+    /// Every day section shows its label but today's at the top of the list.
+    private func showsDayLabel(_ section: FeedDaySection) -> Bool {
+        FeedDays.showsLabel(section, isFirst: shownGroups.first?.section == section, today: days.today)
+    }
+
+    private func dayTitle(_ section: FeedDaySection) -> FeedDayContext.Title? {
+        showsDayLabel(section) ? days.title(section.day, styles: styles) : nil
+    }
+
+    /// One height for every label (the text size's), so the table measures nothing for a day off screen.
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        guard let group = dayGroup(at: section), showsDayLabel(group.section) else { return 0 }
+        return days.headerHeight(styles)
+    }
+
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard let group = dayGroup(at: section), let title = dayTitle(group.section),
+              let header = tableView.dequeueReusableHeaderFooterView(withIdentifier: FeedDayHeaderView.reuseID) as? FeedDayHeaderView else { return nil }
+        header.section = group.section
+        header.show(title, font: days.font(styles))
+        return header
+    }
+
+    func tableView(_ tableView: UITableView, willDisplayHeaderView view: UIView, forSection section: Int) {
+        guard let header = view as? FeedDayHeaderView else { return }
+        if !liveDayHeaders.contains(where: { $0 === header }) { liveDayHeaders.append(header) }
+        header.setPinned(isPinned(header, in: tableView), resting: rowsSettled, animated: false)
+    }
+
+    func tableView(_ tableView: UITableView, didEndDisplayingHeaderView view: UIView, forSection section: Int) {
+        liveDayHeaders.removeAll { $0 === view }
+    }
+
+    /// The label floats over its day's rows (the table pins it under the bar) and is not where it
+    /// sits between two days.
+    private func isPinned(_ header: FeedDayHeaderView, in tableView: UITableView) -> Bool {
+        guard let section = header.section, let index = shownGroups.firstIndex(where: { $0.section == section }),
+              index + 1 < tableView.numberOfSections else { return false }
+        return tableView.contentOffset.y + tableView.adjustedContentInset.top > tableView.rectForHeader(inSection: index + 1).minY + 0.5
+    }
+
+    /// A pinned label shows on a material chip while the list moves, and leaves once it rests (it
+    /// covers the row under it); a label between two days is plain text, always there.
+    private func updateDayHeaderPins() {
+        guard !liveDayHeaders.isEmpty, let collectionView else { return }
+        for header in liveDayHeaders {
+            header.setPinned(isPinned(header, in: collectionView), resting: rowsSettled, animated: true)
+        }
+    }
+
 
     // MARK: Warm-up
 
@@ -763,7 +894,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private func visibleAnchor(excluding: Set<String> = []) -> Anchor? {
         guard let collectionView, let dataSource else { return nil }
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        let rows = (collectionView.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.sorted()
+        let rows = (collectionView.indexPathsForVisibleRows ?? []).filter { $0.section != 0 }.sorted()
         for indexPath in rows {
             let frame = collectionView.rectForRow(at: indexPath)
             guard frame.maxY > top, let id = dataSource.itemIdentifier(for: indexPath), !excluding.contains(id) else { continue }
@@ -889,7 +1020,9 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         // The row's top under the bars (scrollToItem(.top) ignores the safe area's top inset).
         let maxY = max(-collectionView.adjustedContentInset.top,
                        collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom)
-        let y = min(frame.minY - collectionView.adjustedContentInset.top, maxY)
+        // Under its day's label too, which the table pins there once the row's top passes it.
+        let label = tableView(collectionView, heightForHeaderInSection: indexPath.section)
+        let y = min(frame.minY - collectionView.adjustedContentInset.top - label, maxY)
         collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: animated)
     }
 
@@ -909,13 +1042,24 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             if CACurrentMediaTime() - cell.timeDrawnAt > 30 { cell.refreshTime() }
         }
         // Near the end: the events that left memory come back from disk before the person gets there.
-        if indexPath.section != 0, store.olderOnDisk > 0,
-           indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - Self.loadOlderLead {
+        if indexPath.section != 0, store.olderOnDisk > 0, rowsAfter(indexPath, in: tableView) < Self.loadOlderLead {
             store.loadOlder()
         }
         #if DEBUG
         if FeedCellTiming.enabled { FeedCellTiming.logger.notice("FEEDCELL willDisplay \(indexPath.row, privacy: .public) y=\(Int(tableView.contentOffset.y), privacy: .public)") }
         #endif
+    }
+
+    /// How many event rows follow `indexPath`, counted across the day sections after its own until
+    /// `loadOlderLead` is reached.
+    private func rowsAfter(_ indexPath: IndexPath, in tableView: UITableView) -> Int {
+        var after = tableView.numberOfRows(inSection: indexPath.section) - indexPath.row - 1
+        var section = indexPath.section + 1
+        while after < Self.loadOlderLead, section < tableView.numberOfSections {
+            after += tableView.numberOfRows(inSection: section)
+            section += 1
+        }
+        return after
     }
 
     // MARK: Scrolling
@@ -936,6 +1080,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             jumpingToTop = false
         }
         markMoving()
+        updateDayHeaderPins()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -976,6 +1121,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             self.settleTask = nil
             self.rowsSettled = true
             self.visibleCells.forEach { $0.scrollSettled() }
+            self.updateDayHeaderPins()
         }
     }
 
@@ -1276,6 +1422,154 @@ final class FeedTableDataSource: UITableViewDiffableDataSource<FeedListControlle
     override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
         // A stack's fold line has no swipe actions.
         indexPath.section != 0 && itemIdentifier(for: indexPath).map { !FeedStacks.isFold($0) } ?? true
+    }
+}
+/// The calendar, today and the day labels' text and metrics, as the list keeps them: made again
+/// when the time zone or the locale changes.
+@MainActor
+struct FeedDayContext {
+    struct Title { var text: String; var width: CGFloat }
+
+    let calendar: Calendar
+    private let labeler: FeedDayLabeler
+    private(set) var today: Date
+    private var titles: [Date: Title] = [:]
+    private var metrics: (textSize: UIContentSizeCategory, font: UIFont, height: CGFloat)?
+    /// DEBUG `CMUX_MOBILE_FEED_DAY_SEPARATORS=0`: one section, no labels (a "before" screenshot of the same events).
+    private let enabled: Bool
+
+    init(calendar: Calendar = .current, locale: Locale = .current, now: Date = Date()) {
+        self.calendar = calendar
+        labeler = FeedDayLabeler(calendar: calendar, locale: locale)
+        today = calendar.startOfDay(for: now)
+        #if DEBUG
+        enabled = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_DAY_SEPARATORS"] != "0"
+        #else
+        enabled = true
+        #endif
+    }
+
+    func groups(_ items: [FeedItem]) -> [FeedDayGroup] {
+        guard !items.isEmpty else { return [] }
+        guard enabled else { return [FeedDayGroup(section: .undated, ids: items.map(\.id))] }
+        // A stack's fold line has no time of its own: it stays in the day of the event it sits under.
+        return FeedDays.groups(carrying: items.lazy.map { (id: $0.id, date: FeedStacks.isFold($0.id) ? nil : $0.createdAt) }, calendar: calendar)
+    }
+
+    /// Whether the day changed since the last look (midnight).
+    mutating func todayChanged(now: Date = Date()) -> Bool {
+        let start = calendar.startOfDay(for: now)
+        guard start != today else { return false }
+        today = start
+        return true
+    }
+
+    mutating func forgetTitles() {
+        titles = [:]
+        metrics = nil
+    }
+
+    private mutating func measured(_ styles: NativeTextStyles) -> (font: UIFont, height: CGFloat) {
+        if let metrics, metrics.textSize == styles.category { return (metrics.font, metrics.height) }
+        let font = styles.font(.footnote, weight: .semibold)
+        let height = FeedDayHeaderView.height(font: font)
+        metrics = (styles.category, font, height)
+        titles = [:]
+        return (font, height)
+    }
+
+    mutating func font(_ styles: NativeTextStyles) -> UIFont { measured(styles).font }
+    mutating func headerHeight(_ styles: NativeTextStyles) -> CGFloat { measured(styles).height }
+
+    /// A day's label and its width at this text size, measured once per day shown.
+    mutating func title(_ day: Date, styles: NativeTextStyles) -> Title {
+        let font = measured(styles).font
+        if let title = titles[day] { return title }
+        let text = labeler.text(day: day, today: today)
+        let title = Title(text: text, width: ceil((text as NSString).size(withAttributes: [.font: font]).width))
+        titles[day] = title
+        return title
+    }
+}
+
+/// A day's label above its events: footnote semibold, secondary, at the rows' leading edge, no
+/// rule. The table pins it under the bar while its day scrolls; pinned, it sits on a material chip
+/// (it floats over rows) and fades away once the list rests.
+final class FeedDayHeaderView: UITableViewHeaderFooterView {
+    static let reuseID = "feed.day"
+    private static let top: CGFloat = 12, bottom: CGFloat = 4, leading: CGFloat = 16
+    private static let chipPadding = CGSize(width: 9, height: 3)
+
+    static func height(font: UIFont) -> CGFloat { top + ceil(font.lineHeight) + bottom }
+
+    var section: FeedDaySection?
+    private let label = UILabel()
+    private let chip = UIVisualEffectView(effect: nil)
+    private var textWidth: CGFloat = 0
+    private var pinned = false
+    private var hiddenAtRest = false
+
+    override init(reuseIdentifier: String?) {
+        super.init(reuseIdentifier: reuseIdentifier)
+        backgroundConfiguration = .clear()
+        // Touches go to the row under a pinned label.
+        isUserInteractionEnabled = false
+        chip.clipsToBounds = true
+        contentView.addSubview(chip)
+        label.textColor = .secondaryLabel
+        label.isAccessibilityElement = true
+        label.accessibilityTraits = .header
+        contentView.addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func show(_ title: FeedDayContext.Title, font: UIFont) {
+        label.font = font
+        label.text = title.text
+        textWidth = title.width
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let line = ceil(label.font.lineHeight)
+        let width = min(textWidth, bounds.width - 2 * Self.leading)
+        let x = effectiveUserInterfaceLayoutDirection == .rightToLeft ? bounds.width - Self.leading - width : Self.leading
+        label.frame = CGRect(x: x, y: Self.top, width: width, height: line)
+        chip.frame = label.frame.insetBy(dx: -Self.chipPadding.width, dy: -Self.chipPadding.height)
+        chip.layer.cornerRadius = chip.bounds.height / 2
+        chip.layer.cornerCurve = .continuous
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        section = nil
+        setPinned(false, resting: true, animated: false)
+    }
+
+    /// `pinned`: floating over its day's rows. `resting`: the list is not moving.
+    func setPinned(_ pinned: Bool, resting: Bool, animated: Bool) {
+        let hide = pinned && resting
+        guard pinned != self.pinned || hide != hiddenAtRest else { return }
+        let pinChanged = pinned != self.pinned
+        self.pinned = pinned
+        hiddenAtRest = hide
+        let effect: UIVisualEffect? = pinned ? UIBlurEffect(style: .systemThinMaterial) : nil
+        guard animated else {
+            contentView.layer.removeAllAnimations()
+            chip.effect = effect
+            contentView.alpha = hide ? 0 : 1
+            return
+        }
+        if pinChanged {
+            UIView.animate(withDuration: 0.18, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { self.chip.effect = effect }
+        }
+        // It stays a moment after the list stops, then leaves; a new scroll brings it back at once.
+        UIView.animate(withDuration: hide ? 0.3 : 0.12, delay: hide ? 0.8 : 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.contentView.alpha = hide ? 0 : 1
+        }
     }
 }
 #endif
