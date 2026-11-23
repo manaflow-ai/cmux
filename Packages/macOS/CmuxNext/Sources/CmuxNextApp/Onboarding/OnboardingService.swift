@@ -67,8 +67,7 @@ final class OnboardingService {
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
-    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
+    private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
     /// Settings > Agents' cmux Tools card: `agents.cmuxMcp` and `cmux setup mcp`'s report.
     private(set) lazy var agentTools = AgentToolsCLISource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
     /// Make cmux Yours' choices over the settings owner; density goes through its action (it applies the tokens); unset Opacity reads the window's; each Accent's swatch is the window's theme with it.
