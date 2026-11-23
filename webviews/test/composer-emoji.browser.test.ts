@@ -5,7 +5,8 @@
 // - `:tedd` lists 🧸 :teddy_bear: first, in a compact menu over the typed `:`, inside the composer;
 // - `:DD` lists 😆 first and never the middle finger;
 // - the first row is always highlighted and Return writes it, never sends (Leo, 2026-11-20: "i click
-//   enter and it should do it"); Esc or typing on keeps the text; a time or a URL opens nothing;
+//   enter and it should do it"); Esc or typing on keeps the text, and an edit back to the same text
+//   brings the list back; a time or a URL opens nothing;
 // - while the list shows, the system's own completion (autocorrect, inline predictions) is off.
 // With FAST_CHECKS_OUT set it writes 2x stills of every look, light and dark, before it asserts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -154,6 +155,7 @@ await requireBrowserLane("composer-emoji.browser.test.ts", async () => {
     "return-picks",
     "emoticon-tab",
     "arrows-escape",
+    "escape-retype",
     "type-past",
     "no-trigger",
     "heart",

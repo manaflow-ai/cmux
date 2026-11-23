@@ -30,12 +30,13 @@ test("App.tsx gates every line under the header by the record the transcript rea
   const app = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/App.tsx"), "utf8");
   expect(app).toContain("const soloUnder = runsUnderTabRow(soloTab, underHeader);");
   expect(app).toContain("checkpointReview: checkpoints.review != null,");
-  // The stage's lines between the header and the chat body.
-  const start = app.indexOf("{/* A feature tip under its header control");
-  const end = app.indexOf("{viewedSandbox ? (", start);
+  // The stage's lines between the header and the chat body, drawn in the pane body (pane/PaneBody.tsx).
+  const body = fs.readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/pane/PaneBody.tsx"), "utf8");
+  const start = body.indexOf("{/* A feature tip under its header control");
+  const end = body.indexOf("{viewedSandbox ? (", start);
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  const between = app.slice(start, end);
+  const between = body.slice(start, end);
   // Each top-level conditional there is a line under the header and reads `underHeader.`, except the ones that
   // float over the chat (a feature tip portals out, the summary card is a popover).
   const floating = [

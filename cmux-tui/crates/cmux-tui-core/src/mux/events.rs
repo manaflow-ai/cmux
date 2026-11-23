@@ -67,6 +67,9 @@ pub enum MuxEvent {
     /// The latest agent state for one surface changed.
     AgentChanged {
         surface: SurfaceId,
+        /// The terminal's public id (`term_…`): a client finds every tab that shows the terminal by
+        /// it, whatever surface a restore or a reopen gave the tab. `None` from an older daemon.
+        terminal_id: Option<Arc<str>>,
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
@@ -157,6 +160,12 @@ pub enum MuxEvent {
     SettingsChanged(cmux_config::Change),
     /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
     KeybindingsChanged(cmux_config::KeybindingsChange),
+    /// The link shares of acpmux session `session`'s chat changed
+    /// (`agent-session-share-events-v1`; server/agent_session_shares.rs): the
+    /// owner's Invite People sheet reads `agent-session-share-list` again.
+    AgentSessionShareChanged {
+        session: String,
+    },
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

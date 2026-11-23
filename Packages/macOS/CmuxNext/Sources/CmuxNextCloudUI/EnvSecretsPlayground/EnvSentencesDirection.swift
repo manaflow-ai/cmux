@@ -23,7 +23,7 @@ struct EnvSentencesDirection {
         case .revoke: cards(sample.saved) { revoke($0) }
         case .scopes: scopes()
         case .request: request()
-        case .cli: unhugged(EnvTerminalFrames().make())
+        case .cli: EnvTerminalFrames().content()
         }
         let column = fullV([header(), state], spacing: 16)
         let holder = NSView()
@@ -40,11 +40,6 @@ struct EnvSentencesDirection {
             column.widthAnchor.constraint(lessThanOrEqualTo: holder.widthAnchor, constant: -60),
             wide,
         ])
-        // The terminal frames scroll on their own, so that state fills the height instead of scrolling.
-        if model.scene == .cli {
-            state.setContentHuggingPriority(.init(1), for: .vertical)
-            return holder
-        }
         return envScroll(holder)
     }
 
@@ -91,21 +86,13 @@ struct EnvSentencesDirection {
         }
     }
 
-    /// `view` with every one-line label inside it no longer hugging its text, so the column sets the width.
-    /// The terminal frames stack their one-line title in a full-width stack; without this it narrows the column.
-    private func unhugged(_ view: NSView) -> NSView {
-        if let label = view as? NSTextField { label.setContentHuggingPriority(.defaultLow, for: .horizontal) }
-        for child in view.subviews { _ = unhugged(child) }
-        return view
-    }
-
     /// `view` at its own width on the left of a full-width row.
     private func lead(_ view: NSView) -> NSView { envH([view, envSpacer()], spacing: 0) }
 
-    /// A rounded card the full width of the column; `highlight` draws its border in that colour.
+    /// A rounded card the full width of the column; `highlight` draws its border in that colour, 1.5 points wide.
     private func card(_ views: [NSView], spacing: CGFloat = 8, highlight: NSColor? = nil) -> NSView {
         EnvBox(fullV(views, spacing: spacing), padding: envPad(14), fill: EnvInk.surface,
-               border: highlight?.withAlphaComponent(0.6) ?? EnvInk.line, corner: .radius(10))
+               border: highlight?.withAlphaComponent(0.6) ?? EnvInk.line, borderWidth: highlight == nil ? 1 : 1.5, corner: .radius(10))
     }
 
     private func title(_ entry: EnvSecretsEntry) -> NSView {
@@ -330,6 +317,7 @@ struct EnvSentencesDirection {
 
     private func request() -> NSView {
         let field = NSSecureTextField()
+        field.focusRingType = .none
         field.placeholderString = "Type or paste the value"
         field.bezelStyle = .roundedBezel
         field.font = .systemFont(ofSize: TypeScale.field)

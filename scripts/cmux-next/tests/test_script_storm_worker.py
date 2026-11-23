@@ -104,7 +104,7 @@ class StormWorkerTests(unittest.TestCase):
         first = json.loads(worker.stdout.readline())
         self.assertTrue(first.get("running"), first)
         start = time.clock_gettime(time.CLOCK_UPTIME_RAW)
-        time.sleep(seconds)  # the storm's length
+        time.sleep(seconds)  # sleep-ok: the storm's length, the measured window
         end = time.clock_gettime(time.CLOCK_UPTIME_RAW)
         out, err = worker.communicate(json.dumps({"window": [start, end]}) + "\n", timeout=120)
         self.assertEqual(worker.returncode, 0, err)

@@ -475,7 +475,15 @@ impl Hub {
                 Some(crate::config::TurnCut::Codex) => {
                     super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX)
                 }
-                _ => super::fork_at::claude_transcript_now(&homes.claude, &sid),
+                _ => {
+                    let streamed =
+                        running.as_ref().map(|t| self.streamed_reply(session, t.turn_seq));
+                    super::fork_at::claude_transcript_now(
+                        &homes.claude,
+                        &sid,
+                        streamed.as_deref().unwrap_or_default(),
+                    )
+                }
             };
             rules_at_copy = Some(session.read_meta(rules_of));
             drop(handoff);
@@ -653,6 +661,7 @@ impl Hub {
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
+            effort_request: parent_meta.effort_request.clone(),
             cwd,
             // A fork sees what its parent saw, but never its own folder twice.
             additional_directories: fork_dirs,
@@ -660,6 +669,8 @@ impl Hub {
             // with the parent.
             stop_condition: None,
             stop_condition_sent: false,
+            // A fork of a read-only chat stays read-only (`restricted.rs`).
+            restricted: parent_meta.restricted,
             // A fork is a new chat. Its parent transcript is authorized through parent_id; it
             // must not inherit the parent's historical native session ids as its own.
             previous_agent_session_ids: Vec::new(),
@@ -745,13 +756,17 @@ impl Hub {
             unread_turns: 0,
             last_return: None,
             away_recap: None,
+            rolling_summary: None,
             read_through: Default::default(),
             claude_unstored: false,
+            claude_unstored_work: false,
             // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
             wait_start: false,
             throwaway: false,
+            agent_behind_seq: None,
             hibernated_ms: 0,
             idle_launch: None,
+            start_level: None,
             moved_to: None,
             claude_profile: None,
             last_turn: None,
@@ -828,6 +843,7 @@ impl Hub {
             meta.family = Some(t.family.clone());
             meta.preset = None;
             meta.model_request = if t.spawn_model { t.model.clone() } else { None };
+            meta.effort_request = None;
             meta.agent_info = None;
             meta.agent_capabilities = None;
             meta.mode_set_by_cmux = None;
@@ -1182,6 +1198,42 @@ pub(super) struct SubsessionFork<'a> {
 
 /// A tool call `e` starts that has not settled, or one it settles: the running turn's calls
 /// still open when the fork cuts it.
+impl Hub {
+    /// The running turn (from its `turn_started` at `turn_seq`) of `session`'s own reply text as
+    /// the chat streamed it, by API message id, in order: what a fork of the working chat shows
+    /// of it, which Claude Code stores only once each message's text ends
+    /// (`fork_at::claude_transcript_now`). A subagent's chunks name its own session and are left
+    /// out, as are chunks with no message id: whether the transcript holds them is unknown.
+    fn streamed_reply(&self, session: &Session, turn_seq: u64) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        let scanned =
+            self.store.scan(&session.id, turn_seq.saturating_sub(1), &mut |e: EventRecord| {
+                if e.kind != "agent_message_chunk" {
+                    return true;
+                }
+                let params = e.msg.get("params");
+                if params.and_then(|p| p.get("sessionId")).and_then(Value::as_str)
+                    != Some(session.id.as_str())
+                {
+                    return true;
+                }
+                let update = params.and_then(|p| p.get("update"));
+                let message = update.and_then(|u| u.get("messageId")).and_then(Value::as_str);
+                let text = update.and_then(|u| u.pointer("/content/text")).and_then(Value::as_str);
+                let (Some(message), Some(text)) = (message, text) else { return true };
+                match out.iter_mut().find(|(m, _)| m == message) {
+                    Some((_, so_far)) => so_far.push_str(text),
+                    None => out.push((message.to_owned(), text.to_owned())),
+                }
+                true
+            });
+        if let Err(e) = scanned {
+            tracing::info!(session = %session.id, "fork of a working chat: its streamed reply unread: {e}");
+        }
+        out
+    }
+}
+
 fn note_open_tool(open_tools: &mut Vec<(String, String)>, e: &EventRecord) {
     let update = e.msg.pointer("/params/update");
     let call = update.and_then(|u| u.get("toolCallId")).and_then(Value::as_str);
