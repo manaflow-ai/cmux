@@ -112,7 +112,7 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
 
 
 # Inputs of the webviews checks outside webviews/, where ci-web's react-apps routing does not run them on a pull
-# request: check:catalog-keys reads every string catalog, acpmux-protocol:check the protocol spec.
+# request: check:catalog-keys reads every string catalog, typecheck the types generated from the protocol spec.
 CHECK_INPUTS_OUTSIDE_WEBVIEWS = re.compile(r"\.xcstrings$|^cmux-tui/crates/acpmux/spec/")
 
 

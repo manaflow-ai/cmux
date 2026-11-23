@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import CmuxNextCompat
 import CmuxNextWakeups
+import CryptoKit
 import Darwin
 import Foundation
 import os
@@ -12,11 +13,18 @@ import Security
 /// macOS 26 checks Screen Recording for a helper that runs from inside an app bundle as the
 /// outermost app, not as the helper. A copy outside any app is checked as itself.
 ///
-/// The copy lives at a stable path per app build (scope), so Settings keeps one row. It is reused
-/// while it matches the source (CFBundleVersion and code directory hash), and replaced atomically
-/// when the source changes: copied to a private temporary folder, checked, then swapped in. A copy
-/// that cannot be made or verified is never launched. Paths are never followed through a symlink:
-/// the folders must be this user's own real directories.
+/// The copy lives at ONE fixed path per helper bundle id,
+/// `~/Library/Application Support/cmux-next/helper/<bundle id>/<bundle name>.app`, for every
+/// build: macOS keeps a screen-capture approval per executable path (replayd's
+/// `ScreenCaptureApprovals.plist`), so a new path per build asked the person again after every
+/// update. The cmux-tui daemon and acpmux (Rust `cmux_signed_bundle::helper_folder`) stage the
+/// same helper at the same path; every stager takes the folder's `.lock` (flock) first, and the
+/// marker `.verified` holds the content digest Rust's stager checks. The copy is reused while it
+/// matches the source (CFBundleVersion and code directory hash), and replaced atomically when the
+/// source changes: copied to a private temporary folder, checked, then swapped in. A process of
+/// the old copy keeps its open files. A copy that cannot be made or verified is never launched.
+/// Paths are never followed through a symlink: the folders must be this user's own real
+/// directories.
 nonisolated struct SignedHelperStaging: Sendable {
     /// What decides that a copy is the same helper as its source.
     struct Stamp: Equatable, Sendable {
@@ -68,31 +76,44 @@ nonisolated struct SignedHelperStaging: Sendable {
         }
     }
 
-    /// The private folder that holds the copy (one per app build).
+    /// The private folder that holds the copy (one per helper bundle id, the same for every build).
     let folder: URL
     let operations: Operations
     let home: URL
     let fileSystem: FileSystem
     /// The folder every copy of this kind lives under (`folder` must be inside it).
     let root: URL
+    /// The folder builds before the fixed path kept this app's copy in, removed once (nil: none).
+    let legacy: URL?
 
-    init(folder: URL, home: URL, root: URL, operations: Operations = .system, fileSystem: FileSystem = .init()) {
+    init(folder: URL, home: URL, root: URL, legacy: URL? = nil, operations: Operations = .system, fileSystem: FileSystem = .init()) {
         self.folder = folder
         self.operations = operations
         self.home = home
         self.fileSystem = fileSystem
         self.root = root
+        self.legacy = legacy
     }
 
+    /// The name of the lock every stager of a folder flocks, and of the digest marker.
+    static let lockName = ".lock"
+    static let markerName = ".verified"
+    /// How long a stager waits for another one's lock.
+    static let lockBudget: TimeInterval = 120
+
     /// The Screen Sharing helper's copy (plans/cmux-next/screen-sharing-helper.md):
-    /// `~/Library/Application Support/cmux-next/screen-sharing/<scope>/<its name>` (NEXT's own
-    /// folder, ``NextSupport``), checked against the source's own designated requirement.
+    /// `~/Library/Application Support/cmux-next/helper/<bundleID>.screen-sharing/<its name>`
+    /// (NEXT's own folder, ``NextSupport``; the helper's bundle id is the app's plus
+    /// `.screen-sharing`), checked against the source's own designated requirement. The folder
+    /// builds before kept it in, `cmux-next/screen-sharing/<scope>`, is removed.
     static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                               home: URL = FileManager.default.homeDirectoryForCurrentUser) -> SignedHelperStaging {
         let support = NextSupport(applicationSupport: home.appending(path: "Library/Application Support", directoryHint: .isDirectory))
-        let root = support.folder.appending(path: "screen-sharing", directoryHint: .isDirectory)
-        return SignedHelperStaging(folder: root.appending(path: NextSupport.computerUseScope(bundleID), directoryHint: .isDirectory),
-                                   home: home, root: root)
+        let root = support.folder.appending(path: "helper", directoryHint: .isDirectory)
+        let legacy = support.folder.appending(path: "screen-sharing", directoryHint: .isDirectory)
+            .appending(path: NextSupport.computerUseScope(bundleID), directoryHint: .isDirectory)
+        return SignedHelperStaging(folder: root.appending(path: "\(bundleID).screen-sharing", directoryHint: .isDirectory),
+                                   home: home, root: root, legacy: legacy)
     }
 
     /// Where the copy of `source` goes.
@@ -108,13 +129,25 @@ nonisolated struct SignedHelperStaging: Sendable {
             logger.error("helper copy: \(folder.path, privacy: .public) is not a private directory of this user")
             return nil
         }
+        // The daemon's and acpmux's stagers take the same lock: one swap at a time.
+        guard let lock = await lockFolder() else {
+            logger.error("helper copy: cannot lock \(folder.path, privacy: .public)")
+            return nil
+        }
+        defer {
+            flock(lock, LOCK_UN)
+            close(lock)
+        }
         sweepStaleFolders()
+        removeLegacyFolder(logger: logger)
         guard let wanted = operations.stamp(source) else {
             logger.error("helper copy: cannot read the signature of \(source.path, privacy: .public)")
             return nil
         }
         let destination = destination(for: source)
+        let marker = folder.appending(path: Self.markerName, directoryHint: .notDirectory)
         if Self.isRealDirectory(destination.path), operations.stamp(destination) == wanted, operations.verify(destination, source) {
+            if access(marker.path, F_OK) != 0 { writeMarker(for: destination, at: marker) }
             return destination
         }
         let staging = folder.appending(path: ".staging-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -134,6 +167,8 @@ nonisolated struct SignedHelperStaging: Sendable {
         // Swap the new copy in, so a launch never sees a half-written helper;
         // the old copy then sits in the staging folder, which the defer removes.
         // Anything else in the way (a symlink, a file) is unlinked, never followed.
+        // The marker goes first, so it never names a copy it was not written for.
+        _ = unlink(marker.path)
         var existing = stat()
         var flags = RENAME_EXCL
         if lstat(destination.path, &existing) == 0 {
@@ -153,8 +188,68 @@ nonisolated struct SignedHelperStaging: Sendable {
             return nil
         }
         guard trustedFolder(create: false), Self.isRealDirectory(destination.path) else { return nil }
+        writeMarker(for: destination, at: marker)
         logger.notice("helper copied to \(destination.path, privacy: .public)")
         return destination
+    }
+
+    /// Opens the folder's `.lock` (never through a symlink) and takes its exclusive flock,
+    /// waiting up to ``lockBudget`` for another stager; the descriptor, or nil.
+    private func lockFolder() async -> Int32? {
+        let path = folder.appending(path: Self.lockName, directoryHint: .notDirectory).path
+        let descriptor = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { return nil }
+        let deadline = fileSystem.now().addingTimeInterval(Self.lockBudget)
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK, fileSystem.now() < deadline, !Task.isCancelled else {
+                close(descriptor)
+                return nil
+            }
+            // wakeup-allow: a bounded wait for another stager's flock; nothing signals its release.
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return descriptor
+    }
+
+    /// Writes the content digest Rust's stager checks (``contentDigest(_:)``) beside the copy, so
+    /// the daemon reuses the app's copy instead of making it again. Best effort: without it
+    /// the daemon only copies again.
+    private func writeMarker(for copy: URL, at marker: URL) {
+        guard let digest = Self.contentDigest(copy) else { return }
+        try? Data(digest.utf8).blockingWrite(to: marker, options: [.atomic])
+    }
+
+    /// Lowercase hex SHA-256 over the executable, the seal and the Info.plist, in that order:
+    /// Rust's `cmux_signed_bundle::digest_of` with `digest_parts`.
+    static func contentDigest(_ bundle: URL) -> String? {
+        let contents = bundle.appending(path: "Contents", directoryHint: .isDirectory)
+        guard let plistData = try? Data(blockingContentsOf: contents.appending(path: "Info.plist")),
+              let plist = (try? PropertyListSerialization.propertyList(from: plistData, format: nil)) as? [String: Any],
+              let executable = plist["CFBundleExecutable"] as? String, !executable.contains("/") else { return nil }
+        var hasher = SHA256()
+        for part in ["MacOS/\(executable)", "_CodeSignature/CodeResources", "Info.plist"] {
+            guard let data = try? Data(blockingContentsOf: contents.appending(path: part)) else { return nil }
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Removes the folder builds before the fixed path kept this app's copy in (``legacy``): its
+    /// copies (`*.app`) and staging folders, this user's real directories only, then the folder
+    /// and its parent once empty. Anything else in it stays, and so does the folder.
+    private func removeLegacyFolder(logger: Logger) {
+        guard let legacy, Self.isRealDirectory(legacy.path),
+              let entries = try? FileManager.checked.contentsOfDirectory(at: legacy, includingPropertiesForKeys: nil) else { return }
+        for entry in entries where entry.pathExtension == "app" || entry.lastPathComponent.hasPrefix(".staging-") {
+            guard Self.isRealDirectory(entry.path) else { continue }
+            if (try? FileManager.checked.removeItem(at: entry)) != nil {
+                logger.notice("helper copy: removed the old copy \(entry.path, privacy: .public)")
+            }
+        }
+        // rmdir fails, and so keeps, a folder that still holds anything.
+        if rmdir(legacy.path) == 0 {
+            _ = rmdir(legacy.deletingLastPathComponent().path)
+        }
     }
 
     /// Checks each parent before creating a child. Existing modes are never
