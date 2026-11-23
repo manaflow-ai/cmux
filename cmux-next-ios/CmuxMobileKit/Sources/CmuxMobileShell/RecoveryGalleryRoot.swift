@@ -312,11 +312,11 @@ public struct RecoveryGalleryRoot: View {
                 }
                 if showsVariant("b") {
                     galleryLabel("B · top leading")
-                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!) }
+                    list(.topLeading) { ConnectionChip(ConnectionBannerState.reconnecting(to: "Mac Studio").chip!, downSince: nil) }
                 }
                 if showsVariant("c") {
                     galleryLabel("C · symbol only, top trailing · Mac offline")
-                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!) }
+                    list(.topTrailing) { ConnectionChip.SymbolOnly(ConnectionBannerState.macOffline("Mac Studio").chip!, downSince: nil) }
                 }
             }
             .padding(.vertical, 60)
