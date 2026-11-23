@@ -21,7 +21,21 @@ fn hub_with(n: usize) -> Arc<Hub> {
     }
     hub.warm_list_order_for_test();
     std::thread::sleep(std::time::Duration::from_millis(2));
+    for i in 0..n {
+        let id = format!("s{i}");
+        let why = hub.kept_for_test(&id);
+        assert!(why.is_none(), "{id} would stay in memory: {why:?}");
+    }
     hub
+}
+
+impl Hub {
+    /// Why chat `id` stays in memory now, evicting nothing.
+    fn kept_for_test(&self, id: &str) -> Option<&'static str> {
+        let after = u64::try_from(self.evicted.after()?.as_nanos()).unwrap_or(u64::MAX);
+        let session = self.sessions.lock().unwrap().get(id).cloned()?;
+        self.kept_because(&session, self.clock_now(), after)
+    }
 }
 
 fn page(hub: &Hub) -> Vec<String> {
@@ -43,7 +57,8 @@ async fn an_evicted_chat_lists_as_it_did_and_counts_as_a_chat() {
     let hub = hub_with(4);
     let before = page(&hub);
     let whole = hub.session_list_text(&json!({}), false, true, usize::MAX).unwrap();
-    assert_eq!(hub.evict_idle_chats(), 4);
+    assert_eq!(hub.evict_now_for_test("s0"), None, "s0 leaves memory");
+    assert_eq!(hub.evict_idle_chats(), 3);
     assert!(!in_map(&hub, "s1"));
     assert_eq!(hub.session_count(), 4);
     assert_eq!(page(&hub), before, "the first page reads the same");
@@ -53,6 +68,7 @@ async fn an_evicted_chat_lists_as_it_did_and_counts_as_a_chat() {
         "the whole list reads the same"
     );
     assert_eq!(hub.eviction_counts(), (4, 4, 0));
+    assert_eq!(hub.evict_now_for_test("s0"), None, "an evicted chat is not in the map");
 }
 
 #[tokio::test]

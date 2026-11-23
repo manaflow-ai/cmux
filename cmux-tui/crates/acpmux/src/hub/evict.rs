@@ -194,35 +194,51 @@ impl Hub {
 
     /// Whether `session` may leave memory now (`now`: hub clock, `after`: its idle period).
     fn evictable(&self, session: &Session, now: u64, after: u64) -> bool {
-        if session.last_active.load(Ordering::SeqCst).saturating_add(after) > now {
-            return false;
-        }
-        let status = session.status();
-        let asleep = status == SessionStatus::Closed
-            || (status == SessionStatus::Idle && session.hibernated_at.load(Ordering::SeqCst) != 0);
-        asleep
-            && !self.stopping.load(Ordering::SeqCst)
-            && session.child.try_lock().is_ok_and(|c| c.is_none())
-            && session.attached.load(Ordering::SeqCst) == 0
-            && session.turn().is_none()
-            && !session.harness_turn.load(Ordering::SeqCst)
-            && session.queued() == 0
-            && session.asks_in_flight.load(Ordering::SeqCst) == 0
-            && session.agent_requests.load(Ordering::SeqCst) == 0
-            && session.pending_permissions().is_empty()
-            && !self.secrets.waiting_in(&session.id)
-            && !self.holds_work_below_read(session)
-            && !self.continuation_pending(session)
-            && session.moving.lock().is_ok_and(|m| m.is_none())
-            && !session.loading.load(Ordering::SeqCst)
-            && !session.restoring.load(Ordering::SeqCst)
-            && !session.closing.load(Ordering::SeqCst)
-            && !session.purging.load(Ordering::SeqCst)
-            && session.unflushed.lock().is_ok_and(|u| u.is_empty())
-            && session.parked.lock().is_ok_and(|p| p.is_none())
-            && session.read_meta(|m| {
-                m.watching.is_none() && views::next_tag_expiry(m, crate::store::now_ms()).is_none()
-            })
+        self.kept_because(session, now, after).is_none()
+    }
+
+    /// Why `session` stays in memory now, or None when it may leave.
+    pub(super) fn kept_because(
+        &self,
+        session: &Session,
+        now: u64,
+        after: u64,
+    ) -> Option<&'static str> {
+        let checks: [(&'static str, &dyn Fn() -> bool); 23] = [
+            ("recently active", &|| {
+                session.last_active.load(Ordering::SeqCst).saturating_add(after) > now
+            }),
+            ("awake", &|| {
+                let status = session.status();
+                !(status == SessionStatus::Closed
+                    || (status == SessionStatus::Idle
+                        && session.hibernated_at.load(Ordering::SeqCst) != 0))
+            }),
+            ("hub stopping", &|| self.stopping.load(Ordering::SeqCst)),
+            ("has an agent", &|| !session.child.try_lock().is_ok_and(|c| c.is_none())),
+            ("attached", &|| session.attached.load(Ordering::SeqCst) != 0),
+            ("in a turn", &|| session.turn().is_some()),
+            ("harness turn", &|| session.harness_turn.load(Ordering::SeqCst)),
+            ("queued", &|| session.queued() != 0),
+            ("asks in flight", &|| session.asks_in_flight.load(Ordering::SeqCst) != 0),
+            ("agent requests", &|| session.agent_requests.load(Ordering::SeqCst) != 0),
+            ("permissions pending", &|| !session.pending_permissions().is_empty()),
+            ("secret wait", &|| self.secrets.waiting_in(&session.id)),
+            ("work below", &|| self.holds_work_below_read(session)),
+            ("continuation", &|| self.continuation_pending(session)),
+            ("moving", &|| !session.moving.lock().is_ok_and(|m| m.is_none())),
+            ("loading", &|| session.loading.load(Ordering::SeqCst)),
+            ("restoring", &|| session.restoring.load(Ordering::SeqCst)),
+            ("closing", &|| session.closing.load(Ordering::SeqCst)),
+            ("purging", &|| session.purging.load(Ordering::SeqCst)),
+            ("unflushed", &|| !session.unflushed.lock().is_ok_and(|u| u.is_empty())),
+            ("parked", &|| !session.parked.lock().is_ok_and(|p| p.is_none())),
+            ("watching", &|| session.read_meta(|m| m.watching.is_some())),
+            ("tag expiry", &|| {
+                session.read_meta(|m| views::next_tag_expiry(m, crate::store::now_ms()).is_some())
+            }),
+        ];
+        checks.iter().find(|(_, kept)| kept()).map(|(why, _)| *why)
     }
 
     /// When the first resident chat's eviction falls due, on the hub clock (the idle reaper sleeps
@@ -248,15 +264,13 @@ impl Hub {
             .filter(|s| self.evictable(s, now, after))
             .take(EVICT_AT_ONCE)
             .collect();
-        due.into_iter().filter(|s| self.evict(s.clone(), now, after)).count()
+        due.into_iter().filter(|s| self.evict(s.clone(), now, after).is_ok()).count()
     }
 
     /// `session` leaves the map for a tier row, when nothing else holds it.
-    fn evict(&self, session: Arc<Session>, now: u64, after: u64) -> bool {
+    pub(super) fn evict(&self, session: Arc<Session>, now: u64, after: u64) -> Result<(), String> {
         // Everything it changed is on disk first: its rehydrate reads the store.
-        if self.meta_barrier(&session).is_err() {
-            return false;
-        }
+        self.meta_barrier(&session).map_err(|e| format!("meta barrier: {}", e.message))?;
         let list = self.own_row_text(&session, false);
         let full = self.own_row_text(&session, true);
         let row = Arc::new(Evicted { meta: session.meta(), list, full });
@@ -267,16 +281,20 @@ impl Hub {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         // Read again under the map lock: a request may have used it meanwhile.
         let held = sessions.get(&id).is_some_and(|s| Arc::ptr_eq(s, &session));
-        if !held || !self.evictable(&session, now, after) {
-            return false;
+        if !held {
+            return Err("not the map's session".into());
+        }
+        if let Some(why) = self.kept_because(&session, now, after) {
+            return Err(why.into());
         }
         let in_order = Self::order_evict(&mut order, &id, &row);
         // The map's handle and this one: nobody else may still write to it.
-        if Arc::strong_count(&session) != 2 {
+        let count = Arc::strong_count(&session);
+        if count != 2 {
             if in_order {
                 Self::order_restore(&mut order, &id, &session);
             }
-            return false;
+            return Err(format!("held elsewhere ({} handles)", count));
         }
         self.evicted.lock().insert(id.clone(), row);
         sessions.remove(&id);
@@ -286,7 +304,16 @@ impl Hub {
         self.chat_activity_cache.invalidate();
         self.evicted.evictions.fetch_add(1, Ordering::Relaxed);
         tracing::debug!(session = %id, "evicted: an idle chat is a row");
-        true
+        Ok(())
+    }
+
+    /// Why chat `id` would not leave memory now (None when it would, and then it has left): what
+    /// a test reads when an eviction it expects does not happen.
+    #[cfg(test)]
+    pub(crate) fn evict_now_for_test(&self, id: &str) -> Option<String> {
+        let after = u64::try_from(self.evicted.after()?.as_nanos()).unwrap_or(u64::MAX);
+        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        self.evict(session, self.clock_now(), after).err()
     }
 
     /// How many chats are evicted now, and how many were evicted and rehydrated since the start.
