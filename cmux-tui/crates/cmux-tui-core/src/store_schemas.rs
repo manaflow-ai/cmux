@@ -188,16 +188,27 @@ fn millis_of(time: SystemTime) -> Option<u64> {
     u64::try_from(since_1970.as_millis()).ok()
 }
 
-/// False only when the file at `path` is not there, or when its times say
-/// that nothing wrote it, made it or put it in its place at or after
-/// `limit_ms`. A file whose times cannot be read counts as written: each
-/// error but "not there" does. With `only_with_bytes`, a file of 0 bytes
-/// counts as a file that is not there.
+/// False only when the name at `path` is not there, or when it is a plain
+/// file whose times say that nothing wrote it, made it or put it in its
+/// place at or after `limit_ms`. A file whose times cannot be read counts as
+/// written: each error but "not there" does. With `only_with_bytes`, a plain
+/// file of 0 bytes counts as a file that is not there.
+///
+/// This follows no link. A name that is there and is no plain file by
+/// itself counts as written, and a link is such a name. SQLite follows a
+/// link that is a store's name and keeps the `-wal` file next to the file
+/// that the link names. A write through the link goes to that `-wal` file
+/// and changes no time of the file that the link names before a checkpoint:
+/// the times at the 2 names that [`changed_since`] looks at say nothing of
+/// such a write.
 fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
-    let metadata = match std::fs::metadata(path) {
+    let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) => return error.kind() != std::io::ErrorKind::NotFound,
     };
+    if !metadata.is_file() {
+        return true;
+    }
     if only_with_bytes && metadata.len() == 0 {
         return false;
     }
@@ -227,7 +238,9 @@ fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
 /// was written at or after `since_ms`: by the times of each store file, and
 /// of each store's `-wal` file that holds bytes (each store is in WAL mode:
 /// a write goes to the `-wal` file first, to the store file at a later
-/// time). This reads no store.
+/// time). This reads no store. A session with a store name or a `-wal` name
+/// that is a link counts as written in each pass ([`written_since`]), so
+/// each pass reads it again.
 ///
 /// The time of the folder and a `-wal` file of 0 bytes say nothing here. A
 /// plain read of a store that was closed makes a `-wal` file of 0 bytes and
@@ -531,9 +544,12 @@ fn side_file(path: &Path, tail: &str) -> PathBuf {
 }
 
 /// A look at the store at `path`. It opens no file and follows no link. Nil
-/// when the look cannot be sure: the store's name or the name of its `-wal`
-/// file is there and is no plain file by itself, or a name of the look gives
-/// an error other than "not there". A link is no plain file by itself.
+/// when the look cannot be sure: the store's name is not there, or is there
+/// and is no plain file by itself; the name of its `-wal` file is there and
+/// is no plain file by itself; or a name of the look gives an error (for the
+/// 2 side files: an error other than "not there"). A `-journal` name that
+/// is there counts as a `-journal` file, plain file or not. A link is no
+/// plain file by itself.
 /// SQLite follows a link that is a store's name and keeps the `-wal` file
 /// and the `-journal` file next to the file that the link names, and this
 /// look does not look there: so a store file that is a link gets no look.
