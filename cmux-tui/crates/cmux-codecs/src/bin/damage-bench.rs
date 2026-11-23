@@ -23,9 +23,11 @@ fn arg<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).map(String::as_str)
 }
 
-fn dims(s: &str) -> (usize, usize) {
-    let (w, h) = s.split_once('x').expect("WxH");
-    (w.parse().expect("w"), h.parse().expect("h"))
+type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+fn dims(s: &str) -> Res<(usize, usize)> {
+    let (w, h) = s.split_once('x').ok_or("expected WxH")?;
+    Ok((w.parse()?, h.parse()?))
 }
 
 fn crop(p: &I420, x: usize, y: usize, w: usize, h: usize) -> I420 {
@@ -59,12 +61,12 @@ fn pct(v: &mut [f64], q: f64) -> f64 {
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().collect();
-    let (rw, rh) = dims(arg(&args, "--rect").unwrap_or("640x32"));
+    let (rw, rh) = dims(arg(&args, "--rect").unwrap_or("640x32"))?;
     let mode = arg(&args, "--mode").unwrap_or("full").to_owned();
     let content = arg(&args, "--content").unwrap_or("typing").to_owned();
     let frames: usize = arg(&args, "--frames").and_then(|s| s.parse().ok()).unwrap_or(300);
     let threads: u16 = arg(&args, "--threads").and_then(|s| s.parse().ok()).unwrap_or(4);
-    let (w, h) = dims(arg(&args, "--size").unwrap_or("1920x1080"));
+    let (w, h) = dims(arg(&args, "--size").unwrap_or("1920x1080"))?;
     let (rw, rh) = (rw.min(w), rh.min(h));
     let (rx, ry) = if content == "typing" {
         (0, (h - rh) / 16 * 16)
