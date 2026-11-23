@@ -1283,6 +1283,27 @@
                 "key": "settings.choice.groupBackgroundSections",
                 "text": "Sections"
               }
+            },
+            {
+              "value": "chip",
+              "title": {
+                "key": "settings.choice.groupBackgroundChip",
+                "text": "Chips"
+              }
+            },
+            {
+              "value": "tree",
+              "title": {
+                "key": "settings.choice.groupBackgroundTree",
+                "text": "Tree"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.groupBackgroundCard",
+                "text": "Cards"
+              }
             }
           ],
           "default": "folder",
@@ -1301,7 +1322,14 @@
             "sections",
             "section",
             "heading",
-            "plain"
+            "plain",
+            "chip",
+            "chromium",
+            "rail",
+            "tree",
+            "guide",
+            "card",
+            "cards"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",
