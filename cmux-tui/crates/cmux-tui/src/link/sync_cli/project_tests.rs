@@ -152,7 +152,7 @@ fn a_quiet_refusal_is_a_failed_dial_and_the_redial_waits_half_a_second_flat() {
     });
     let (dialed, went_quiet) = redial(&socket, "p1", "/w", &[]);
     assert!(went_quiet);
-    let error = format!("{:#}", dialed.err().expect("an unanswered dial fails"));
+    let error = format!("{:#}", dialed.expect_err("an unanswered dial fails"));
     assert!(error.contains("without answering"), "{error}");
 
     let mut backoff = Duration::from_millis(200);
