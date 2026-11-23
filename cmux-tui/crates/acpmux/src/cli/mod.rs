@@ -13,6 +13,7 @@ pub(crate) use crate::bounded_child;
 pub mod account;
 pub mod bridge;
 pub mod chats;
+pub mod ci_wait;
 pub mod cli_agent;
 pub mod cloud_join;
 pub mod command;
@@ -71,6 +72,7 @@ pub mod output;
 pub mod pairing;
 pub mod peer_status;
 pub mod place;
+pub mod pr_wait;
 pub mod process;
 #[cfg(unix)]
 pub mod process_census;
