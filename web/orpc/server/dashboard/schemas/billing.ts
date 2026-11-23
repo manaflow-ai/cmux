@@ -58,6 +58,7 @@ const personalBillingSchema = z.object({
   goPlanEnabled: z.boolean(),
   hasPaidManualGrant: z.boolean(),
   vaultEnabled: z.boolean(),
+  cloudIntroEnabled: z.boolean().optional(),
 }) satisfies z.ZodType<PersonalBillingJson>;
 
 const billingTeamSummarySchema = z.object({

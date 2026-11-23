@@ -4,7 +4,7 @@ import Foundation
 /// Localized text of the Accounts screen (Localizable.xcstrings in this module).
 enum AccountsStrings {
     static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static func group(_ group: AIProvider.Group) -> String {
@@ -85,7 +85,7 @@ enum AccountsStrings {
     }
     static var pasteClaudeTitle: String { text("accounts.paste.claudeTitle", "Connect Claude Code") }
     static var pasteClaudeBody: String {
-        text("accounts.paste.claudeBody", "CodeRouter needs a long-lived token. Run claude setup-token, then paste the token here. It goes to CodeRouter only.")
+        text("accounts.paste.claudeBody", "CodeRouter needs a long-lived token. Run claude setup-token, then paste it here. It goes to CodeRouter only; Cloud chats use Settings > Cloud.")
     }
     static var pasteKeyBody: String {
         text("accounts.paste.keyBody", "The key goes to the macOS Keychain or to CodeRouter. cmux never writes it to cmux.json.")

@@ -156,7 +156,7 @@ class FakeRemote:
 def orchestrator(**kw):
     args = dict(source="synthetic", host="cmux20", viewer="cmux17", via="ssh", root="/Users/c/rd",
                 python="/usr/bin/python3", out=None, shape="wifi-away", viewer_ip="10.0.0.7",
-                shape_max_s=900, shape_sudo="sudo -n")
+                shape_max_s=900, shape_sudo="sudo -n", host_ip="10.0.0.5")
     args.update(kw)
     o = vs.Orchestrator(types.SimpleNamespace(**args))
     o.host = FakeRemote()
