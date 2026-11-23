@@ -254,6 +254,52 @@
             "codex",
             "agents"
           ]
+        },
+        {
+          "key": "agents.appControl",
+          "name": "appControl",
+          "note": "Whether agents in cmux may change the app or only read it, enforced by the daemon (cmux-tui-core server/agent_app_control.rs): on read, every app-changing request from a process in a cmux terminal (socket-peer ancestry or its launch credential) or from an agent chat (its ACP launch credential) is refused with origin.forbidden reason agents_read_only: new workspaces, tabs and panes, input to terminals, moves, closes, renames, settings writes. Reads, streams and an agent's own reports (hooks, notifications, status) still work. change (unset) is today's behavior. A process outside cmux (another terminal app, the app itself) is the person's and is never refused. The daemon reads it in cmux-tui-core mux/settings.rs.",
+          "title": {
+            "key": "settings.agents.appControl",
+            "text": "Agents Can Change cmux"
+          },
+          "help": {
+            "key": "settings.agents.appControl.help",
+            "text": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes."
+          },
+          "summary": {
+            "key": "settings.agents.appControl.summary",
+            "text": "Whether agents in cmux may drive and change the app"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "change",
+              "title": {
+                "key": "settings.agents.appControl.change",
+                "text": "Read and Change"
+              }
+            },
+            {
+              "value": "read",
+              "title": {
+                "key": "settings.agents.appControl.read",
+                "text": "Read Only"
+              }
+            }
+          ],
+          "default": "change",
+          "keywords": [
+            "agents",
+            "remote control",
+            "drive",
+            "control",
+            "read only",
+            "automation",
+            "socket",
+            "cli",
+            "permission"
+          ]
         }
       ]
     }
