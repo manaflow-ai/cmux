@@ -139,6 +139,8 @@ private final class FakeAcpmux: @unchecked Sendable {
     }
 
     var attachCount: Int { lock.withLock { attaches } }
+    /// Records in the chat's log (a cold attach pages all of them).
+    var logCount: Int { lock.withLock { log.count } }
 
     /// The ids the store shows after reattach `n` (1...): the missed turn and the live prompt.
     static func missedTurn(_ n: Int) -> String { "t\(2 + n)" }
@@ -218,6 +220,8 @@ private final class FakeMac: @unchecked Sendable {
     private var dialCount = 0
     private var keyArrival: ContinuousClock.Instant?
     private weak var latestLink: ChainLink?
+    private var down = 0
+    private var streamDown = 0
 
     init(macID: String) { self.macID = macID }
 
@@ -230,6 +234,10 @@ private final class FakeMac: @unchecked Sendable {
     var keyArrived: ContinuousClock.Instant? { lock.withLock { keyArrival } }
     func resetKey() { lock.withLock { keyArrival = nil } }
     func keyServed() { lock.withLock { if keyArrival == nil { keyArrival = .now } } }
+
+    /// Channel payload bytes that reached the phone (no link framing), and the duress stream's share of them.
+    var bytesDown: (all: Int, stream: Int) { lock.withLock { (down, streamDown) } }
+    func countDown(_ bytes: Int, stream: Bool) { lock.withLock { down += bytes; if stream { streamDown += bytes } } }
 
     var oneWay: Duration {
         get { lock.withLock { oneWayLatency } }
@@ -297,6 +305,9 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     private var nextID: UInt32 = 1
     private var paired = false
     private var closed = false
+    /// The path died while the phone was suspended (ResumeMatrixBenchTests): nothing crosses, nothing closes.
+    private var stalled = false
+    private var lostPongs: [CheckedContinuation<Void, any Error>] = []
     private var held: [@Sendable () -> Void] = []
     private var channels: [ChainChannel] = []
     /// acpmux request id -> method, to name the replies.
@@ -320,6 +331,7 @@ private final class ChainLink: MacLink, @unchecked Sendable {
             return channel
         }
         mac.marks.mark("\(service)_open", link: self)
+        guard !isStalled else { return channel }
         mac.lockstep.send(up: true) { [self] in macOpened(channel) }
         return channel
     }
@@ -327,13 +339,29 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     /// The pong, one round trip later like every other answer: a chain that waits on the probe
     /// pays that round trip. The probe's bound is on the coordinator's test clock, which the test
     /// never moves, so the probe never times out.
+    /// On a stalled link the ping is lost: no pong until the link is closed (then it throws).
     func ping() async throws -> UInt32 {
         let lockstep = mac.lockstep
-        await withCheckedContinuation { (pong: CheckedContinuation<Void, Never>) in
-            lockstep.send(up: true) { lockstep.send(up: false) { pong.resume() } }
+        try await withCheckedThrowingContinuation { (pong: CheckedContinuation<Void, any Error>) in
+            let fate = lock.withLock { () -> Int in
+                if closed { return 0 }
+                if stalled { lostPongs.append(pong); return 1 }
+                return 2
+            }
+            switch fate {
+            case 0: pong.resume(throwing: LinkError(code: "closed", message: "link closed"))
+            case 1: break
+            default: lockstep.send(up: true) { lockstep.send(up: false) { pong.resume() } }
+            }
         }
         return rttMillis
     }
+
+    /// Suspension's model: the phone was frozen past the path's life (a carrier NAT mapping, the
+    /// Mac's session), so from now on nothing crosses this link either way and nothing closes it:
+    /// the phone finds out only by a probe or a heartbeat that goes unanswered.
+    func stall() { lock.withLock { stalled = true } }
+    var isStalled: Bool { lock.withLock { stalled } }
 
     func probe(timeout: Duration) async throws -> UInt32? { try await ping() }
 
@@ -341,12 +369,17 @@ private final class ChainLink: MacLink, @unchecked Sendable {
 
     /// The Mac pushes `data` on this link's latest `service` channel (the duress stream).
     func push(service: String, _ data: Data) {
-        guard let channel = lock.withLock({ closed ? nil : channels.last { $0.service == service } }) else { return }
-        gated { [self] in toPhone(channel, data) }
+        guard let channel = lock.withLock({ closed || stalled ? nil : channels.last { $0.service == service } }) else { return }
+        gated { [self] in toPhone(channel, data, stream: true) }
     }
 
     func close() async {
-        let open = lock.withLock { () -> [ChainChannel] in closed = true; return channels }
+        let (open, lost) = lock.withLock { () -> ([ChainChannel], [CheckedContinuation<Void, any Error>]) in
+            closed = true
+            defer { lostPongs = [] }
+            return (channels, lostPongs)
+        }
+        for pong in lost { pong.resume(throwing: LinkError(code: "closed", message: "link closed")) }
         for channel in open { channel.end() }
         stateContinuation.yield(.disconnected(reason: "closed"))
         stateContinuation.finish()
@@ -355,6 +388,7 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     // MARK: Phone side
 
     func phoneSent(_ channel: ChainChannel, _ data: Data) {
+        guard !isStalled else { return } // lost on a dead path: no error, no answer
         switch channel.service {
         case "auth":
             mac.marks.mark("auth_signature_out", link: self)
@@ -371,7 +405,9 @@ private final class ChainLink: MacLink, @unchecked Sendable {
     }
 
     /// A message reaches the phone's channel.
-    private func arrived(_ channel: ChainChannel, _ data: Data) {
+    private func arrived(_ channel: ChainChannel, _ data: Data, stream: Bool = false) {
+        guard !isStalled else { return }
+        mac.countDown(data.count, stream: stream)
         channel.deliver(data)
         switch channel.service {
         case "auth":
@@ -392,8 +428,8 @@ private final class ChainLink: MacLink, @unchecked Sendable {
 
     // MARK: Mac side (runs when the phone's message arrives)
 
-    private func toPhone(_ channel: ChainChannel, _ data: Data) {
-        mac.lockstep.send(up: false) { [self] in arrived(channel, data) }
+    private func toPhone(_ channel: ChainChannel, _ data: Data, stream: Bool = false) {
+        mac.lockstep.send(up: false) { [self] in arrived(channel, data, stream: stream) }
     }
 
     /// Runs `work` now when `auth` passed, else when it does (`LinkAuth::gate`).
@@ -767,6 +803,328 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
             report.append(line)
         } }
         Attachment.record(report.joined(separator: "\n"), named: "resume-live.txt")
+    }
+}
+/// One phone process on the matrix's fake Mac: what survives a kill (the saved snapshot, the
+/// phone's keys, its identity) is kept here, so a relaunch is a new coordinator on the same disk.
+@MainActor private struct MatrixPhone {
+    let userID = "user-\(UUID().uuidString)"
+    let teamID = "t-matrix-\(UUID().uuidString.prefix(8))"
+    let macID = "mac-matrix-\(UUID().uuidString.prefix(8).lowercased())"
+    let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
+    let keyService = "test.matrix.\(UUID())"
+    let identity = DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString)
+    let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-matrix-\(UUID().uuidString)")
+    let secrets = MemorySecretStore()
+    let mac: FakeMac
+    let clock: LinkTestClock
+    var pick: String { "cmuxMobile.live.mac.\(teamID)" }
+
+    init(clock: LinkTestClock) {
+        self.clock = clock
+        mac = FakeMac(macID: macID)
+        ServiceStub.install(host: host) { _ in nil }
+    }
+
+    /// The snapshot the app keeps on disk (the one ReconnectChainTimingTests.rig seeds).
+    func seed() {
+        let snapshots = LiveSnapshotStore(directory: directory)
+        snapshots.save(LiveSnapshot(
+            teamID: teamID, teamName: "One", macs: [MacDevice(id: macID, name: "Studio", isOnline: true)], linkedMacID: macID,
+            workspaces: [macID: .init(workspaces: [], savedAt: Date(timeIntervalSince1970: 1_000))]
+        ), accountID: userID)
+        snapshots.flush()
+    }
+
+    /// A process start: a new coordinator, store and snapshot reader on the same disk and keys.
+    func launch() -> LiveCoordinator {
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: identity,
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: ChainDialer(mac: mac),
+            feedStore: FeedStore(items: []),
+            keys: PhoneKeys(userID: userID, service: keyService, store: secrets, enclave: false),
+            snapshots: LiveSnapshotStore(directory: directory), secrets: secrets,
+            readMarks: FeedReadMarks(url: directory.appending(path: "read.json")),
+            pins: MacPins(file: nil), clock: clock
+        )
+        live.transcriptCache = nil
+        return live
+    }
+}
+
+/// The resume matrix (Leo, 2026-11-22: "s**t shouldnt somehow instantly dissipate after i navigate
+/// away for like one second ... there are many interaction patterns we need to map out"): six ways
+/// of being away (1 s, 5 s, 30 s, 5 min, a cold kill, a memory-pressure eviction) by four ways back
+/// (the app switcher, the lock screen, a notification tap, a share sheet's return), on the live
+/// bench's rig: the real coordinator, link controller, pairing, acpmux hub and terminal typing path
+/// against the fake Mac 80 ms away, in wall time. Per cell, 20 runs: first paint (the open chat's
+/// model holds content to draw; headless, not pixels), first key (the key typed through
+/// TerminalFeed.type reaching the Mac's daemon; a key lost on a dead link is typed again once the
+/// terminal is bound to a new connection, or after 3 s), reconnects (links dialed), and the
+/// channel payload bytes the phone received (with the duress stream's share).
+///
+/// Suspension is modeled, not slept: the away time is injected (`foreground(after:)`), and a
+/// process suspended for `pathDiesAfter` or longer finds its link stalled: from the moment it
+/// left, nothing crosses it either way and nothing closes it (a carrier's UDP NAT mapping or the
+/// Mac's session gone while the phone sent no keepalive). The coordinator's clock follows wall
+/// time here, so a probe of a dead link really times out. A cold kill and an eviction are a new
+/// coordinator on the same disk (snapshot, keys, identity); the eviction's process was killed in
+/// the background, its link stalled, never closed.
+///
+/// Every cell runs under duress: the Mac streams a live record every 10 ms on the chat from
+/// before the switch until the key lands, and the chat's log grows through the matrix (a cold
+/// attach pages all of it). Prints `RESUME_MATRIX` lines (a cell, or `not_modeled` and why) and
+/// one `RESUME_MATRIX_CLIFF`. Off by default (wall time, minutes, alone): CMUX_RESUME_LIVE_BENCH=1,
+/// or on the fleet the CMUX_TICK_HARNESS=1 `scripts/ci/cmux-next-ios-sim.sh` sets for an only=
+/// naming TickHarnessCellsTests: `--arg only=CmuxMobileLiveTests/ResumeMatrixBenchTests,CmuxMobileLiveTests/TickHarnessCellsTests/cellTickTenThousandReconnects`.
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(30)),
+       .enabled(if: ["CMUX_RESUME_LIVE_BENCH", "CMUX_TICK_HARNESS"].contains { ProcessInfo.processInfo.environment[$0] == "1" },
+                "runs alone: CMUX_RESUME_LIVE_BENCH=1")) struct ResumeMatrixBenchTests {
+    /// How long a suspended phone's path lives without keepalives (assumed: a carrier UDP NAT
+    /// mapping, commonly 30 s; RFC 4787 asks 2 min). The cliff the matrix names moves with it.
+    static let pathDiesAfter = 30
+    static let runs = 20
+    static let oneWayMillis = 40.0
+
+    enum Away: CaseIterable {
+        case s1, s5, s30, s300, coldKill, eviction
+        var name: String {
+            switch self {
+            case .s1: "1s"
+            case .s5: "5s"
+            case .s30: "30s"
+            case .s300: "300s"
+            case .coldKill: "cold_kill"
+            case .eviction: "memory_eviction"
+            }
+        }
+        var seconds: Int? {
+            switch self {
+            case .s1: 1
+            case .s5: 5
+            case .s30: 30
+            case .s300: 300
+            case .coldKill, .eviction: nil
+            }
+        }
+    }
+
+    enum Reentry: CaseIterable {
+        case appSwitcher, lockScreen, notificationTap, shareSheet
+        var name: String {
+            switch self {
+            case .appSwitcher: "app_switcher"
+            case .lockScreen: "lock_screen"
+            case .notificationTap: "notification_tap"
+            case .shareSheet: "share_sheet_return"
+            }
+        }
+    }
+
+    /// Why a cell has no headless number, or nil when it is measured.
+    static func notModeled(_ away: Away, _ reentry: Reentry) -> String? {
+        guard reentry == .shareSheet else { return nil }
+        switch away {
+        case .coldKill:
+            return "an in-app share sheet keeps the process in front; a kill from the switcher needs it backgrounded first (that is the app_switcher column)"
+        case .eviction:
+            return "an in-app share sheet keeps the process in front; memory-pressure eviction takes backgrounded processes (a foreground jetsam is a crash, not this path)"
+        default:
+            return nil
+        }
+    }
+
+    /// What the cell's headless model does beyond the coordinator calls, for the line.
+    static func model(_ away: Away, _ reentry: Reentry) -> String {
+        let link: String
+        if away.seconds == nil { link = "relaunch: new coordinator on the saved snapshot, keys and identity" }
+        else if reentry == .shareSheet { link = "no suspension (the sheet is in-process): link live, foreground(after: nil) only" }
+        else if away.seconds! >= pathDiesAfter { link = "suspended past the path's life: link stalled, never closed" }
+        else { link = "suspended: link alive" }
+        switch reentry {
+        case .appSwitcher: return link
+        case .lockScreen: return link + "; same coordinator calls as app_switcher (protected-data lock, keychain classes not modeled)"
+        case .notificationTap: return link + "; the tap's route opens the chat: a new chat store on the session, first paint read on it"
+        case .shareSheet: return link
+        }
+    }
+
+    static func millis(_ d: Duration) -> Double {
+        Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
+    }
+
+    func waitFor(_ what: String, within: Duration = .seconds(30), _ done: () -> Bool) async throws {
+        var watchdog = AwakeDeadline(within)
+        while !done(), watchdog.hasTimeLeft() { try await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
+        try #require(done(), "timed out waiting for \(what)")
+    }
+
+    static let summary = AgentSessionSummary(id: "s1", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",
+                                             workspaceTitle: "w", macName: "Studio")
+
+    @Test func resumeMatrix() async throws {
+        let clock = LinkTestClock()
+        // The coordinator's clock follows wall time, so heartbeats beat and a dead link's probe times out.
+        let pump = Task.detached(priority: .high) {
+            var last = ContinuousClock.now
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(5)) // test: the link clock's tick
+                let now = ContinuousClock.now
+                clock.advance(by: now - last)
+                last = now
+            }
+        }
+        let phone = MatrixPhone(clock: clock)
+        let mac = phone.mac
+        mac.oneWay = .milliseconds(Int(Self.oneWayMillis))
+        mac.lockstep.latency = .milliseconds(Int(Self.oneWayMillis))
+        phone.seed()
+        var live = phone.launch()
+        defer {
+            live.stop()
+            pump.cancel()
+            clock.stop()
+            UserDefaults.standard.removeObject(forKey: phone.pick)
+        }
+        let macID = phone.macID
+        try await waitFor("the first link") { live.session(macID: macID)?.pairingState == .paired }
+        try await waitFor("acpmux ready") { live.session(macID: macID)?.acpmux.isReady == true }
+        var session = try #require(live.session(macID: macID))
+        var chat = AgentChatStore(source: session.acpmux.source(sessionID: "s1", summary: Self.summary))
+        try await waitFor("the chat's first live record") { chat.turns.contains { $0.id == "l0" } }
+
+        var report: [String] = []
+        func emit(_ line: String) {
+            print(line)
+            report.append(line)
+        }
+        func settled() -> Bool {
+            session.pairingState == .paired && session.acpmux.isReady && session.workspaces.daemon != nil
+                && session.link.link != nil && !chat.turns.isEmpty
+        }
+        let fmt = ReconnectChainTimingTests.fmt
+        let pct = ReconnectChainTimingTests.percentile
+        var keyP95: [String: Double] = [:]
+        var reconnectsAt: [String: Int] = [:]
+
+        for away in Away.allCases { for reentry in Reentry.allCases {
+            let cell = #""away":"\#(away.name)","reentry":"\#(reentry.name)""#
+            if let why = Self.notModeled(away, reentry) {
+                emit(#"RESUME_MATRIX {\#(cell),"not_modeled":"\#(why)"}"#)
+                continue
+            }
+            var paints: [Double] = []
+            var keys: [Double] = []
+            var bytes: [Double] = []
+            var streamBytes: [Double] = []
+            var reconnects = 0
+            var lost = 0
+            var blanked = 0
+            for _ in 0..<Self.runs {
+                try await waitFor("the link to settle before a switch") { settled() }
+                try await Task.sleep(for: .milliseconds(200)) // test: lets the last switch's probe and replies drain
+                // Duress: the Mac streams a live record every 10 ms, from before the switch until the key lands.
+                let streaming = Task.detached(priority: .high) {
+                    while !Task.isCancelled {
+                        mac.currentLink?.push(service: "acpmux", mac.acpmux.streamRecord())
+                        try? await Task.sleep(for: .milliseconds(10)) // test: the stream's cadence
+                    }
+                }
+                try await Task.sleep(for: .milliseconds(50)) // test: the stream runs before the switch
+                mac.resetKey()
+                let dialsBefore = mac.dials
+                let bytesBefore = mac.bytesDown
+                let start: ContinuousClock.Instant
+                switch away.seconds {
+                case let seconds?:
+                    if reentry == .shareSheet {
+                        start = .now
+                        live.foreground(after: nil)
+                    } else {
+                        live.background()
+                        // Frozen past the path's life: the link died while the phone sent nothing.
+                        if seconds >= Self.pathDiesAfter { mac.currentLink?.stall() }
+                        start = .now
+                        live.foreground(after: .seconds(seconds))
+                        if reentry == .notificationTap {
+                            chat = AgentChatStore(source: session.acpmux.source(sessionID: "s1", summary: Self.summary))
+                        }
+                    }
+                case nil:
+                    if away == .eviction {
+                        // Killed while suspended: no close reaches the Mac.
+                        live.background()
+                        mac.currentLink?.stall()
+                    }
+                    live.stop()
+                    phone.seed()
+                    start = .now
+                    live = phone.launch()
+                }
+                // First paint and first key, until both landed.
+                var paint: Double?
+                var blank = false
+                var relaunched: MacSession? = away.seconds == nil ? nil : session
+                var openChat: AgentChatStore? = away.seconds == nil ? nil : chat
+                var attempt: KeyAttempt?
+                var attemptSerial = -1
+                var attemptAt = ContinuousClock.now
+                var watchdog = AwakeDeadline(.seconds(20))
+                while (mac.keyArrived == nil || paint == nil), watchdog.hasTimeLeft() {
+                    if relaunched == nil { relaunched = live.session(macID: macID) }
+                    if openChat == nil, let s = relaunched, s.acpmux.isReady {
+                        openChat = AgentChatStore(source: s.acpmux.source(sessionID: "s1", summary: Self.summary))
+                    }
+                    if paint == nil, let openChat, !openChat.turns.isEmpty { paint = Self.millis(ContinuousClock.now - start) }
+                    if paint != nil, let openChat, openChat.turns.isEmpty { blank = true } // painted, then cleared
+                    if mac.keyArrived == nil, let s = relaunched {
+                        let serial = s.workspaces.connectionSerial
+                        let stale = attempt.map { !$0.failed && (serial != attemptSerial || ContinuousClock.now - attemptAt > .seconds(3)) } ?? false
+                        if attempt == nil || attempt!.failed || stale {
+                            if stale { lost += 1 }
+                            let next = KeyAttempt()
+                            attempt = next
+                            attemptSerial = serial
+                            attemptAt = .now
+                            Task { @MainActor in
+                                guard let type = s.terminalFeed.type else { next.failed = true; return }
+                                do { try await type(1, Data("x".utf8), serial) } catch { next.failed = true }
+                            }
+                        }
+                    }
+                    try await Task.sleep(for: .milliseconds(1)) // test: polls the screen's model and the key
+                }
+                streaming.cancel()
+                if blank { blanked += 1 }
+                let landed = try #require(mac.keyArrived, "the first key never reached the Mac within 20 s (\(cell))")
+                keys.append(Self.millis(landed - start))
+                paints.append(try #require(paint, "the chat never had content within 20 s (\(cell))"))
+                session = try #require(relaunched)
+                chat = try #require(openChat)
+                try await waitFor("the link to settle after the key") { settled() }
+                reconnects += mac.dials - dialsBefore
+                let after = mac.bytesDown
+                bytes.append(Double(after.all - bytesBefore.all))
+                streamBytes.append(Double(after.stream - bytesBefore.stream))
+            }
+            keyP95[away.name + "/" + reentry.name] = pct(keys, 0.95)
+            reconnectsAt[away.name + "/" + reentry.name] = reconnects
+            emit(#"RESUME_MATRIX {\#(cell),"mode":"headless","duress":"mac streams a record every 10 ms through the switch; 80 ms RTT; chat log \#(mac.acpmux.logCount) records","n":\#(Self.runs),"first_paint_p50_ms":\#(fmt(pct(paints, 0.5))),"first_paint_p95_ms":\#(fmt(pct(paints, 0.95))),"first_key_p50_ms":\#(fmt(pct(keys, 0.5))),"first_key_p95_ms":\#(fmt(pct(keys, 0.95))),"reconnects":\#(reconnects),"keys_lost":\#(lost),"content_cleared_runs":\#(blanked),"bytes_down_p50":\#(Int(pct(bytes, 0.5))),"bytes_down_p95":\#(Int(pct(bytes, 0.95))),"stream_bytes_down_p50":\#(Int(pct(streamBytes, 0.5))),"path_dies_after_s":\#(Self.pathDiesAfter),"model":"\#(Self.model(away, reentry))"}"#)
+        } }
+        // The cliff: the first away time (app switcher) whose reconnects go above 0, and its cost.
+        let timed = Away.allCases.filter { $0.seconds != nil }
+        let base = keyP95["1s/app_switcher"] ?? 0
+        if let cliff = timed.first(where: { (reconnectsAt[$0.name + "/app_switcher"] ?? 0) > 0 }) {
+            let at = keyP95[cliff.name + "/app_switcher"] ?? 0
+            emit(#"RESUME_MATRIX_CLIFF {"away":"\#(cliff.name)","reentry":"app_switcher","first_key_p95_ms":\#(fmt(at)),"at_1s_p95_ms":\#(fmt(base)),"cost_ms":\#(fmt(at - base)),"path_dies_after_s":\#(Self.pathDiesAfter)}"#)
+        } else {
+            emit(#"RESUME_MATRIX_CLIFF {"away":"none","reentry":"app_switcher","path_dies_after_s":\#(Self.pathDiesAfter)}"#)
+        }
+        Attachment.record(report.joined(separator: "\n"), named: "resume-matrix.txt")
     }
 }
 #endif
