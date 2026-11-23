@@ -93,7 +93,7 @@
 
   // Two-tone, the quiet way: the sidebar and the tab strip are the page one luminance step
   // darker, same hue. Everything else is the page colour. The hairline stays.
-  "appearance.surfaces.sidebar.color": "#f4f2ec",
+  "appearance.surfaces.sidebar.color": "#fefcf6",
   "appearance.surfaces.sidebar.opacity": 1,
   "appearance.surfaces.tabBar.color": "#f4f2ec",
   "appearance.surfaces.tabBar.opacity": 1,
