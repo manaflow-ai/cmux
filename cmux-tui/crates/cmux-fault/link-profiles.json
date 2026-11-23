@@ -91,6 +91,22 @@
       "rtt_ms": 4,
       "disruption": { "kind": "internet_down" },
       "source": "The 'lan' row's link with the internet path dead (the home router's uplink is out): on Shaper::open_internet_path (TCP: signaling, token and ICE-config endpoints) live connections fall silent and new ones are refused, and on UdpShaper::open_internet_path (STUN, TURN) every datagram is dropped, while the LAN link keeps the 'lan' numbers and never drops."
+    },
+    {
+      "name": "relay-30",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 40000,
+      "rtt_ms": 30,
+      "source": "The relay hop between a signed-in Mac and its Cloud machine, for a Mac near the machine's region; used as the second hop (NETCOND_RELAY), behind a phone link. Rate: 5 MB/s, the low end of the relay throughput measured through the production relay (5 to 21 MB/s, RFD 0049 'What is our network', Measurements). RTT: assumed, about twice the 14.2 ms measured with the Mac side in the machine's own colo; no jitter or loss, the relay rides TCP inside a datacenter path."
+    },
+    {
+      "name": "relay-80",
+      "version": 1,
+      "down_kbit": 40000,
+      "up_kbit": 40000,
+      "rtt_ms": 80,
+      "source": "The 'relay-30' hop for a Mac a continent away from its Cloud machine (a machine lives in one region). RTT: assumed, a transcontinental round trip; rate as 'relay-30'."
     }
   ]
 }

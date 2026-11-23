@@ -21,6 +21,12 @@
 //! makes the table. `#[ignore]`d: the script runs it (`--ignored`), not every test run.
 //! Env: `NETCOND_PROFILES` (comma list, default every profile), `NETCOND_SCALES` (1x,10x,100x),
 //! `NETCOND_RUNS` (5), `NETCOND_SEED_BASE` (0), `NETCOND_PROFILES_FILE` (the crate's file).
+//!
+//! The Cloud machine peer: `NETCOND_RELAY=<profile>` puts a second shaped hop between the phone's
+//! link and the daemon, so the daemon stands for the one a Cloud machine runs and the hop for
+//! the relay between the signed-in Mac and that machine (PROTOCOL.md `cloud-acpmux`: the phone
+//! reaches a Cloud machine through the Mac's link to it). Each hop ends its own TCP connection,
+//! as the Mac does. Rows then name both hops: `lte@1+relay-80@1`.
 
 #![cfg(unix)]
 
@@ -65,6 +71,41 @@ fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name).ok().and_then(|value| value.trim().parse().ok()).unwrap_or(default)
 }
 
+/// The second hop of the Cloud machine peer (`NETCOND_RELAY`), if this run has one.
+static RELAY: std::sync::OnceLock<Option<LinkProfile>> = std::sync::OnceLock::new();
+
+fn relay() -> Option<&'static LinkProfile> {
+    RELAY
+        .get_or_init(|| {
+            let name =
+                std::env::var("NETCOND_RELAY").ok().filter(|name| !name.trim().is_empty())?;
+            let file = match std::env::var("NETCOND_PROFILES_FILE") {
+                Ok(path) => ProfileFile::load(Path::new(&path)).unwrap(),
+                Err(_) => ProfileFile::builtin(),
+            };
+            Some(
+                file.get(name.trim())
+                    .unwrap_or_else(|| panic!("no link profile {name} for NETCOND_RELAY"))
+                    .clone(),
+            )
+        })
+        .as_ref()
+}
+
+/// A row's profile: the phone's link, then the relay hop when the peer is a Cloud machine.
+fn label(profile: &LinkProfile) -> String {
+    profile.label(relay())
+}
+
+/// The phone's link to `upstream`, and the relay hop behind it when there is one.
+async fn link(
+    upstream: std::net::SocketAddr,
+    profile: &LinkProfile,
+    seed: u64,
+) -> std::io::Result<(Shaper, Option<Shaper>)> {
+    Shaper::start_through(upstream, profile.clone(), relay(), seed, &Trace::new()).await
+}
+
 fn emit(
     profile: &LinkProfile,
     phase: &str,
@@ -74,17 +115,14 @@ fn emit(
     run: u64,
     seed: u64,
 ) {
-    let row = json!({"surface": "terminal", "profile": format!("{}@{}", profile.name, profile.version),
+    let row = json!({"surface": "terminal", "profile": label(profile),
         "phase": phase, "scale": scale, "metric": metric,
         "value": value.map(|v| (v * 10.0).round() / 10.0), "run": run, "seed": seed});
     println!("NETCOND {row}");
 }
 
 fn error(profile: &LinkProfile, phase: &str, scale: &str, run: u64, what: &str) {
-    println!(
-        "NETCOND-ERROR terminal {}@{} {phase} {scale} run {run}: {what}",
-        profile.name, profile.version
-    );
+    println!("NETCOND-ERROR terminal {} {phase} {scale} run {run}: {what}", label(profile));
 }
 
 fn ms(duration: Duration) -> f64 {
@@ -527,9 +565,8 @@ impl Bench {
         run: u64,
         seed: u64,
     ) {
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "cold", scale, run, &format!("shaper: {e}")),
         };
         let started = Instant::now();
@@ -645,9 +682,8 @@ impl Bench {
 
     async fn reconnect(&self, profile: &LinkProfile, surface: u64, run: u64, seed: u64) {
         let scale = "1x";
-        let shaper = match Shaper::start(self.upstream, profile.clone(), seed, &Trace::new()).await
-        {
-            Ok(shaper) => shaper,
+        let (shaper, _relay) = match link(self.upstream, profile, seed).await {
+            Ok(link) => link,
             Err(e) => return error(profile, "reconnect", scale, run, &format!("shaper: {e}")),
         };
         let Ok(mut conn) = Conn::open(shaper.addr()).await else {
@@ -1607,8 +1643,7 @@ fn terminal_bytes_per_minute() {
                 "read go; seq 1 200000; i=0; while :; do i=$((i+1)); printf 'trickle %06d\\n' $i; sleep 1; done",
             );
             tokio::time::sleep(Duration::from_secs(1)).await;
-            let shaper =
-                Shaper::start(upstream, profile.clone(), 0, &Trace::new()).await.unwrap();
+            let (shaper, _relay) = link(upstream, &profile, 0).await.unwrap();
             let (Ok(mut control), Ok(mut conn)) =
                 (Conn::open(shaper.addr()).await, Conn::open(shaper.addr()).await)
             else {
