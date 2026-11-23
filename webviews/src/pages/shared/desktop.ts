@@ -7,6 +7,8 @@ import "./desktop.css";
 import "../../ui/glass/glass.css";
 // RUNNING-WAVE: the one shimmer across running indicators (ui/wave.ts).
 import "../../ui/wave.css";
+// TOOLTIP REFRESH: the opt-in look of every tooltip and hover card (experiments.hoverLook), after the glass.
+import "../../ui/hoverLook.css";
 import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
@@ -15,6 +17,7 @@ import { installBackdropFallback } from "../../ui/glass/glassState";
 import { installPageGlassBlur } from "../../ui/glass/pageGlassBlur";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
+import { installHoverLook } from "../../ui/hoverLook";
 import { installWave } from "../../ui/wave";
 import { installPageLoops } from "../../ui/pageLoops";
 import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
@@ -74,6 +77,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
+  // TOOLTIP REFRESH: data-hover-look follows experiments.hoverLook (off by default; ui/hoverLook.ts).
+  installHoverLook(doc);
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).

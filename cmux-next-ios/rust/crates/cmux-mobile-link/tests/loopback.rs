@@ -79,6 +79,8 @@ async fn exercise(kind: TransportKind, fake: FakeOptions) -> (LinkPath, u64) {
         Some(ChannelEvent::Closed(info)) => assert_eq!(info.code, "unknown_service"),
         other => panic!("unexpected {other:?}"),
     }
+    // On WireGuard the pings ride the tunnel's liveness datagrams.
+    assert_eq!(connected.link.pings_as_datagrams(), kind == TransportKind::WireGuard);
     let rtt = connected.link.ping().await.unwrap();
     assert!(rtt < Duration::from_secs(5));
     let path = *connected.path.borrow();
