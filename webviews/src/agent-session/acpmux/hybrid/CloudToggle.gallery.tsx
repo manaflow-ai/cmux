@@ -9,7 +9,8 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { ComposerFoot } from "../ComposerFoot";
 import { CloudToggle } from "./CloudToggle";
-import { clicked, type HybridLook, type HybridView } from "./hybridModel";
+import { CloudTriToggle } from "./CloudTriToggle";
+import { clicked, type HybridLook, type HybridPin, type HybridView } from "./hybridModel";
 
 type Props = {
   /// A chat (composer at the pane's bottom) or the New Tab page (composer under the hero).
@@ -20,6 +21,9 @@ type Props = {
   state: "off" | "on" | "waiting";
   /// Under the box: the cloud alone, or with its name.
   form?: "chip" | "icon";
+  /// The three-state control instead of the on/off cloud: its form and the mode it opens on.
+  tri?: "segments" | "cycle";
+  pin?: HybridPin;
 };
 
 const VIEWS: Record<Props["state"], HybridView> = {
@@ -28,9 +32,12 @@ const VIEWS: Record<Props["state"], HybridView> = {
   waiting: { lit: false, waiting: true, pin: "auto", at: "local", used: 3, total: 3 },
 };
 
-function Stage({ page, spot, look, state, form }: Props) {
+function Stage({ page, spot, look, state, form, tri, pin = "auto" }: Props) {
   const [view, setView] = useState(VIEWS[state]);
-  const toggle = (
+  const [mode, setMode] = useState(pin);
+  const toggle = tri ? (
+    <CloudTriToggle pin={mode} look={look} form={tri} named={spot === "above" || tri === "cycle"} onChange={setMode} />
+  ) : (
     <CloudToggle
       view={view}
       look={look}
@@ -109,6 +116,26 @@ for (const page of ["chat", "newtab"] as const) {
   };
 }
 
+// Leo, 11:08Z: the three-state control, a lead variant in every placement.
+const lead: Record<string, { note: string; props: Props }> = {};
+for (const page of ["chat", "newtab"] as const) {
+  for (const spot of ["above", "below"] as const) {
+    const where = `${page}-${spot}` as const;
+    lead[`${where}-three-state`] = {
+      note: `${SPOT_NOTES[where]} Lead: three states in one control. Hybrid (split cloud and computer, the default), Only in Cloud, Only on This Mac; the chosen one is lit.`,
+      props: { page, spot, look: "rainbow", state: "off", tri: "segments" },
+    };
+    lead[`${where}-three-state-cloud`] = {
+      note: `${SPOT_NOTES[where]} The three-state control on Only in Cloud, Sky look.`,
+      props: { page, spot, look: "sky", state: "off", tri: "segments", pin: "cloud" },
+    };
+    lead[`${where}-three-state-cycle`] = {
+      note: `${SPOT_NOTES[where]} Three states as one button: it shows the chosen glyph and name, and a click steps to the next.`,
+      props: { page, spot, look: "rainbow", state: "off", tri: "cycle" },
+    };
+  }
+}
+
 export default componentEntry<Props>({
   id: "agent-pane.hybrid-cloud-toggle",
   title: "Hybrid chats: the cloud button",
@@ -118,9 +145,10 @@ export default componentEntry<Props>({
   widths: { narrow: 400, normal: 720 },
   covers: [
     "agent-session/acpmux/hybrid/CloudToggle.tsx",
+    "agent-session/acpmux/hybrid/CloudTriToggle.tsx",
     "agent-session/acpmux/hybrid/cloudToggle.css",
     "agent-session/acpmux/hybrid/hybridModel.ts",
   ],
   load: async () => Stage,
-  variants,
+  variants: { ...lead, ...variants },
 });

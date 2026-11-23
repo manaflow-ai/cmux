@@ -223,3 +223,52 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
+
+/* The three-state control (CloudTriToggle.tsx): Hybrid, Only in Cloud, Only on This Mac. The chosen
+   glyph is lit in the look's color; the two others are dull. The cloud takes the color, the
+   computer stays in the text's ink, so Hybrid reads as half and half. */
+.acpmux-hybrid-tri--segments {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 0;
+  height: 22px;
+  color: var(--agent-muted);
+}
+.acpmux-hybrid-tri__segment { padding: 0 4px; }
+.acpmux-hybrid-tri__glyph { display: block; overflow: visible; }
+.acpmux-hybrid-tri__glyph path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.6;
+  transition:
+    opacity var(--cmux-motion-quick) var(--cmux-ease-out),
+    fill var(--cmux-motion-quick) var(--cmux-ease-out),
+    stroke var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"]) { color: var(--agent-text); }
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"]) .acpmux-hybrid-tri__glyph path { opacity: 1; }
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-look="rainbow"] .acpmux-hybrid-tri__cloud {
+  fill: var(--acpmux-hybrid-paint);
+  stroke: var(--acpmux-hybrid-paint);
+}
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-look="sky"] .acpmux-hybrid-tri__cloud {
+  fill: var(--agent-accent, var(--acpmux-hybrid-4));
+  stroke: var(--agent-accent, var(--acpmux-hybrid-4));
+}
+:is(.acpmux-hybrid-tri__segment[data-on], .acpmux-hybrid-tri[data-form="cycle"])[data-look="aurora"] .acpmux-hybrid-tri__cloud {
+  fill: currentColor;
+}
+.acpmux-hybrid-tri__glyph { transform-origin: 50% 60%; }
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-fresh] .acpmux-hybrid-tri__glyph {
+  animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+}
+.acpmux-hybrid-tri__name { margin-inline-start: 4px; color: var(--agent-text); }
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-tri__glyph,
+:root[data-cmux-motion="off"] .acpmux-hybrid-tri__glyph { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-hybrid-tri__glyph { animation: none; }
+}
