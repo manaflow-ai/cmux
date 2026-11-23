@@ -1,0 +1,44 @@
+// Hiroshige at dusk: Hiroshige's coast at Hota behind dark glass, warm paper ink and a vermilion accent, floating panes.
+// The print's slate sea at night (#1c1f24) with paper-colored ink and the vermilion of a seal. ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Hiroshige at dusk",
+  "description": "Hiroshige's coast at Hota behind dark glass, warm paper ink and a vermilion accent, floating panes.",
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#1c1f24",
+    "foreground": "#e8e2d4",
+    "selection": "#3a3f47",
+    "accent": "#d0784a"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #1c1f24",
+    "foreground = #e8e2d4",
+    "cursor-color = #d0784a",
+    "cursor-text = #1c1f24",
+    "selection-background = #3a3f47",
+    "selection-foreground = #e8e2d4",
+    "palette = 0=#383b40",
+    "palette = 1=#e18881",
+    "palette = 2=#77b779",
+    "palette = 3=#bfa14c",
+    "palette = 4=#74a7e8",
+    "palette = 5=#cc8bc5",
+    "palette = 6=#35b9c0",
+    "palette = 7=#b4b8be",
+    "palette = 8=#6e7278",
+    "palette = 9=#feaba4",
+    "palette = 10=#9cd69c",
+    "palette = 11=#ddc277",
+    "palette = 12=#98c7ff",
+    "palette = 13=#e9ade3",
+    "palette = 14=#6dd8dd",
+    "palette = 15=#e8e2d4"
+  ],
+  "appearance.background": "hiroshige-hota-coast",
+  "appearance.backgroundBlur": "glass",
+  "appearance.backgroundOpacity": 0.72,
+  "appearance.chromeStyle": "floating"
+}

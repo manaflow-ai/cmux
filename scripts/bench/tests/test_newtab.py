@@ -66,6 +66,21 @@ class Surfaces(unittest.TestCase):
         self.assertAlmostEqual(find(ctx, "first_paint_ms", arm="launch_warm_ref")["value"], 31.389417)
         self.assertEqual(find(ctx, "spare_missed", arm="launch_first")["value"], 0)
 
+    def test_an_open_that_took_an_idle_page_is_no_missed_spare(self):
+        # The app's record of an open that took the page of a new tab that the person did not use: `spare` false,
+        # `idle` true. A page was ready for it, so it is not a missed one; an open with neither is.
+        report = json.loads((FIX / "launch-pairs.json").read_text(encoding="utf-8"))
+        first = [r for r in report["runs"] if r.get("arm") == "first" and "opening" in r]
+        for r in first:
+            r["opening"] = {**r["opening"], "spare": False, "idle": True}
+        first[0]["opening"]["idle"] = False
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "launch-pairs.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            ctx = ingest(path)
+        self.assertGreater(len(first), 1)
+        self.assertEqual(find(ctx, "spare_missed", arm="launch_first")["value"], 1)
+
     def test_launch_pairs_log_matches_artifact(self):
         from_log = ingest("launch-pairs.log")
         from_json = ingest("launch-pairs.json")

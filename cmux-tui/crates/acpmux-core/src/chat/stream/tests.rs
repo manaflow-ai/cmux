@@ -6,7 +6,7 @@ use crate::chat::source::{self, Chunk, RawSource};
 use crate::chat::{ChatConfig, random_u64};
 use crate::conn::{self, ConnectionMetrics, MissingChatSource, Role, RouteSource, Source};
 use crate::registry::Registry;
-use crate::wire::{ChatDelta, ChatOp, Sub as SubRequest, decode_blob};
+use crate::wire::{ChatDelta, ChatOp, PresencePerson, Sub as SubRequest, decode_blob};
 use acpmux_book::checkpoint::Person;
 use acpmux_book::translate::Harness;
 use serde_json::{Value, json};
@@ -414,6 +414,33 @@ fn a_person_joining_mid_turn_a_thousand_times_holds_the_whole_reply() {
 
 fn window_bytes(window: &ChatWindow) -> u64 {
     Frame::json(FrameKind::Window, window).unwrap().encoded_len() as u64
+}
+
+#[test]
+fn presence_survives_closing_a_held_text_row_until_the_coalesce_flush() {
+    let chat = Chat::new(&turn(1, "hello"));
+    let mut state = ready_state(&chat);
+    let sink = Arc::new(Recorder::default());
+    state.subs.list.push(subscriber(&state, "s", sink.clone(), Phase::Live));
+    presence(
+        &mut state,
+        vec![PresencePerson {
+            id: "person".into(),
+            name: "Person".into(),
+            devices: 1,
+            viewing: true,
+            typing: false,
+        }],
+        0,
+    );
+    state.subs.text.insert(1, b"held".to_vec());
+    flush_text(&mut state, Some(1));
+    assert!(state.subs.presence.is_some(), "closing text must not strand presence");
+    assert!(state.subs.flush_at.is_some(), "the presence keeps the coalesce wake armed");
+    state.subs.flush_at = Some(Instant::now() - COALESCE);
+    step(&mut state).unwrap();
+    assert!(state.subs.presence.is_none(), "the set flushes at the armed boundary");
+    assert!(!sink.offers.lock().unwrap().is_empty());
 }
 
 /// A source whose reads give nothing, not at its end, until the test opens it.

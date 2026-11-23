@@ -618,6 +618,12 @@ fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
 }
 
 #[test]
+fn an_outdated_peer_is_passed_over_as_a_stale_disk_copy() {
+    let row = json!({"name": "vm", "connected": true, "state": "connected", "outdated": true});
+    assert_eq!(peer_down(&row), Some("outdated peer build (stale disk copy)".into()));
+}
+
+#[test]
 fn a_loaded_local_machine_says_why_and_the_pick_names_its_room() {
     // This machine is over its budget; a peer has room. The reply says both, so the composer can
     // say "This Mac is busy · Run on far" and "room for N" without reading the hosts list.

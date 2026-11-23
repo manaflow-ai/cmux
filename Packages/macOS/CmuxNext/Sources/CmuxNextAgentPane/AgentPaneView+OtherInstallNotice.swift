@@ -38,8 +38,15 @@ extension AgentPaneView {
 /// (``AgentPaneTransport/recoverPersonProof``); the line goes when a connection proves the person.
 extension AgentPaneView {
     func showPersonProof(_ proven: Bool) {
-        guard proven == (personUnprovenNotice != nil) else { return }
-        personUnprovenNotice = proven ? nil : AgentPaneNotice(id: "personUnproven", title: Self.personUnprovenMessage)
+        // Nothing the person can do about it: the line waits ``NoticeTiming/connectionQuiet`` before it shows, so a
+        // reconnect that proves them again inside it never pushes the composer up (Leo, 2026-11-21).
+        personUnprovenHold.update(!proven) { [weak self] in
+            guard let self, personUnprovenNotice == nil else { return }
+            personUnprovenNotice = AgentPaneNotice(id: "personUnproven", title: Self.personUnprovenMessage)
+            pushPaneNotices()
+        }
+        guard proven, personUnprovenNotice != nil else { return }
+        personUnprovenNotice = nil
         pushPaneNotices()
     }
 

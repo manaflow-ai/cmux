@@ -24,9 +24,16 @@ import newsreader from "./fonts/newsreader.woff2";
 import notoSans from "./fonts/noto-sans.woff2";
 import onest from "./fonts/onest.woff2";
 import publicSans from "./fonts/public-sans.woff2";
+import quilletMono from "./fonts/quillet-mono.woff2";
+import quilletSans from "./fonts/quillet-sans.woff2";
+import quilletSerif from "./fonts/quillet-serif.woff2";
 import recursive from "./fonts/recursive.woff2";
 import schibsted from "./fonts/schibsted-grotesk.woff2";
 import sourceSerif from "./fonts/source-serif-4.woff2";
+import cmuxFamilyDisplay from "./fonts/cmux-family-serif-display.woff2";
+import cmuxFamilyMono from "./fonts/cmux-family-mono.woff2";
+import cmuxFamilySans from "./fonts/cmux-family-sans.woff2";
+import cmuxFamilySerif from "./fonts/cmux-family-serif.woff2";
 import cmuxSansB from "./fonts/cmux-sans-b.woff2";
 import cmuxSansC from "./fonts/cmux-sans-c.woff2";
 import cmuxSansCG from "./fonts/cmux-sans-c-g.woff2";
@@ -78,6 +85,23 @@ export const FACES = {
     ],
   },
   publicSans: variable("Study Public Sans", publicSans),
+  // Quillet (fonts/OFL-Quillet.txt): our own family, Modified Versions of Hanken Grotesk, Newsreader
+  // and JetBrains Mono, the faces the Folio pack stands in with (chatFonts/FontPack.gallery.ts).
+  quilletMono: { family: "Study Quillet Mono", files: [{ url: quilletMono, weight: "100 800" }] },
+  quilletSans: variable("Study Quillet Sans", quilletSans),
+  quilletSerif: { family: "Study Quillet Serif", files: [{ url: quilletSerif, weight: "200 800" }] },
+  // The cmux family (fonts/OFL-cmux-family.txt): cmux Sans, cmux Serif (Text and Display) and cmux Mono,
+  // Modified Versions of Source Sans 3, Source Serif 4 and Source Code Pro, built by
+  // scripts/fonts/family/build.py from cmux-family.json on Quillet's line box, with the Selvedge axis
+  // (`WEFT` 0 to 100, threaded exit strokes) at its default 0, so they draw plain. The old cmux Sans presets above (cmuxSansB..) are the
+  // study's earlier single face; the chat's shipped cmux Sans choice is unchanged by this.
+  cmuxFamilyDisplay: {
+    family: "Study cmux Serif Display",
+    files: [{ url: cmuxFamilyDisplay, weight: "300 700" }],
+  },
+  cmuxFamilyMono: { family: "Study cmux Mono", files: [{ url: cmuxFamilyMono, weight: "300 700" }] },
+  cmuxFamilySans: { family: "Study cmux Sans (family)", files: [{ url: cmuxFamilySans, weight: "300 800" }] },
+  cmuxFamilySerif: { family: "Study cmux Serif", files: [{ url: cmuxFamilySerif, weight: "300 700" }] },
   recursive: variable("Study Recursive", recursive),
   roboto: variable("Study Roboto", roboto),
   schibsted: variable("Study Schibsted Grotesk", schibsted),
@@ -168,6 +192,15 @@ export const PAIRINGS: readonly Pairing[] = [
     why: "Vercel's grotesque and its mono, a tool's look.",
     ui: "geist",
     mono: "geistMono",
+  },
+  {
+    id: "quillet",
+    label: "Quillet Sans + Serif + Mono",
+    why: "Our own family on one line box: Hanken, Newsreader and JetBrains Mono with designed changes.",
+    ui: "quilletSans",
+    prose: "quilletSerif",
+    mono: "quilletMono",
+    proseSize: 15,
   },
   { id: "hanken", label: "Hanken Grotesk", why: "Warm, open grotesque, all sans.", ui: "hanken" },
   { id: "instrument", label: "Instrument Sans", why: "Crisp grotesque with a narrow, even rhythm.", ui: "instrument" },
