@@ -53,6 +53,10 @@ test("the categories are the approved ones, in order", () => {
     "accounts",
     // Mobile stays its own page (Lucas 2026-11-11).
     "mobile",
+    // Devices holds what Server showed, and its old id opens it (next test). It sits under Accounts
+    // and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-22: "i also
+    // couldnt find settings devices control").
+    "devices",
     // More: the pages a person opens less often.
     "newTab",
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
@@ -64,8 +68,6 @@ test("the categories are the approved ones, in order", () => {
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
     "keys",
-    // Devices holds what Server showed, and its old id opens it (next test).
-    "devices",
     "import",
     "privacy",
     "advanced",

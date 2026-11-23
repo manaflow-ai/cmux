@@ -75,6 +75,11 @@ export function t(key: string, ...args: Array<string | number>): string {
   return text;
 }
 
+/** A page string by key in English, whatever the page's language (search matches both). */
+export function english(key: string): string {
+  return catalogNow().en?.[key] ?? key;
+}
+
 /** A schema string: its catalog key when it has one, else the English text (proper names). */
 export function text(value: LocalizedText | null | undefined): string {
   if (!value) return "";
