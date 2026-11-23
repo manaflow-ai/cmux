@@ -3,7 +3,8 @@ import os
 
 /// The same-key calls of an approved Cloud create (or any approved op) after its approval was answered, while the
 /// server still runs the op and answers `approval.pending` (the app's `CloudMachineCreateFlow`).
-public nonisolated enum CloudApprovedRetry {
+public nonisolated struct CloudApprovedRetry {
+    public nonisolated init() {}
     /// 250 ms, 500 ms, then 1 s between the same-key calls. A pending call costs about 200 ms, and an op the server
     /// finishes while the flow waits is only seen at the next call: the old 1, 2, 4, 8 s (capped at 8 s) left a start
     /// whose server held the create 8 to 70 s waiting about 3.5 s past its machine (the chat probe's starts, 2026-11-21).
