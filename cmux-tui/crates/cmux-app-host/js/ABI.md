@@ -52,6 +52,18 @@ opens the file chooser for this draft. Unavailable actions stay hidden. The
 daemon lists buttons from enabled, visible apps in app-id and manifest order,
 taking the first occurrence of each action. A manifest reload updates open panes.
 
+## Message actions
+
+A manifest can add rows to a chat message's actions menu. Set
+`implements["cmux.chat.action/1"]` to
+`{"options":{"actions":[{"id":"issue","title":"Make an issue from this","op":"<family>.issue","roles":["assistant"]}]}}`.
+The daemon lists the rows for a message of a role (`apps.chat_actions.list {role}`) from enabled,
+visible apps in app-id and manifest order; `roles` defaults to both `user` and `assistant`. A
+picked row sends `apps-chat-action {app, action, message: {id, role, text, session?}, gesture?}`;
+the daemon checks the app still lists that row for the role, then runs its catalog `op` on the
+`apps-run` path with `{action, message}`, so the op's own grant and install checks apply. A
+manifest reload updates the menu.
+
 ## Composer chips
 
 A manifest can offer context chips in the agent chat composer with
