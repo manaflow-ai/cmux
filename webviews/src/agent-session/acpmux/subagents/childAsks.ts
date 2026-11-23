@@ -7,6 +7,7 @@
 // A chat its agent made another way (`spawnedBy`) is not answered so and stays in Needs you.
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WatchedAsk } from "../needsYou/model";
+import { findSession } from "../sessionIndex";
 
 /// One ask below the shown chat, and the sub-session that asked: its name and whether it is a
 /// direct child (`Sub-session · tests`) or further down (`Related · lint`).
@@ -32,7 +33,8 @@ export function childAsks(
   sessionId: string | undefined,
 ): ChildAsk[] {
   if (!sessionId || asks.length === 0) return [];
-  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  // Lookups through the list's shared index (sessionIndex.ts), never a map of every listed chat per ask.
+  const byId = { get: (id: string) => findSession(sessions, id) };
   const out: ChildAsk[] = [];
   for (const ask of asks) {
     if (ask.sessionId === sessionId) continue;
@@ -52,7 +54,7 @@ export function childAsks(
 
 /// How many `startedBy` steps lead from `id` up to `ancestor`; undefined when none do (another
 /// family, a loop of links, or a starter not listed).
-function depthBelow(byId: ReadonlyMap<string, Listed>, id: string, ancestor: string): number | undefined {
+function depthBelow(byId: { get(id: string): Listed | undefined }, id: string, ancestor: string): number | undefined {
   const seen = new Set<string>();
   let at: string | undefined = byId.get(id)?.startedBy;
   let depth = 1;

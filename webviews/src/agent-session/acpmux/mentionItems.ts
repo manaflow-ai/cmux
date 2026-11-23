@@ -5,6 +5,7 @@
 // of their title (titleMatch). Installed extensions add their own items (`cmux.composer.mention/1`,
 // composer/extensionMentions.ts): after the chats, or first when the word names their prefix (`@pr`).
 import { fuzzyScore } from "../../viewer-empty/fuzzy";
+import { translate } from "./i18n";
 import { matchRuns, type FileMatch, type Run } from "./fileSearchModel";
 import { mentionText } from "./mentionMenuModel";
 import { isAgentHome, listed, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -151,21 +152,70 @@ export function titleMatch(query: string, title: string): { score: number; index
   if (!q) return { score: 0, indexes: [] };
   const head = title.slice(0, MENTION_TITLE_CHARS);
   const t = folded(head);
+  const at = titleAt(q, head, t);
+  if (!at) return undefined;
+  return { score: at.score, indexes: titleIndexes(head, t, at.at, q.length) };
+}
+
+/// Where folded query `q` starts a word of a title's head already folded (`t`), as `titleMatch`
+/// matches it, and its score; no indexes, which only a shown row needs.
+function titleAt(
+  q: string,
+  head: string,
+  t: { text: string; at: number[] },
+): { score: number; at: number } | undefined {
   for (let at = t.text.indexOf(q); at >= 0; at = t.text.indexOf(q, at + 1)) {
     const index = t.at[at]!;
     // Not from the middle of one character's lowercase (the dot of `i̇`), and at a word's start.
     if ((at > 0 && t.at[at - 1] === index) || !wordStart(head, index)) continue;
-    const indexes = new Set<number>();
-    unfold(head, t, at, at + q.length, indexes);
-    return { score: index === 0 ? MENTION_TITLE_CHARS : MENTION_TITLE_CHARS - 1 - index, indexes: ascending(indexes) };
+    return { score: index === 0 ? MENTION_TITLE_CHARS : MENTION_TITLE_CHARS - 1 - index, at };
   }
   return undefined;
+}
+
+/// The string indexes of `head` that fold units `at` to `at + length` come from.
+function titleIndexes(head: string, t: { at: number[] }, at: number, length: number): number[] {
+  const indexes = new Set<number>();
+  unfold(head, t, at, at + length, indexes);
+  return ascending(indexes);
 }
 
 /// A chat's title on one line: a custom name may hold newlines, which would turn the inserted
 /// mention into markdown blocks (a heading, a list) and move the caret off its paragraph.
 const titleOf = (entry: AcpmuxSessionEntry) =>
   (entry.displayTitle?.trim() || sessionTitle(entry)).replace(/\s+/g, " ").trim();
+
+/// A chat's title, its head and the head's fold, made once per list entry: typing an `@` word runs
+/// `sessionItems` on every key over the whole chat history, and each of 10K titles read and folded
+/// again cost 12 ms a key. A changed chat is a new entry (direct.ts `sessionEntries`), so only it is
+/// read again. `newChat` is the untitled chat's title it was made with: a language change reads the
+/// titles again.
+type TitleFold = { title: string; head: string; fold: { text: string; at: number[] }; newChat: string };
+const titleFolds = new WeakMap<AcpmuxSessionEntry, TitleFold>();
+
+function titleFoldOf(entry: AcpmuxSessionEntry, newChat: string): TitleFold {
+  const kept = titleFolds.get(entry);
+  if (kept && kept.newChat === newChat) return kept;
+  const title = titleOf(entry);
+  const head = title.slice(0, MENTION_TITLE_CHARS);
+  const made = { title, head, fold: folded(head), newChat };
+  titleFolds.set(entry, made);
+  return made;
+}
+
+/// The chats the last `sessionItems` matched, in list order, for its list, chat and folded query: a
+/// longer query typed after it matches only among them (a run that starts a word holds every shorter
+/// run from the same place), so each key of a word reads the chats the word still names, not the
+/// whole history. A changed list is read whole again. It holds the one list it was made for.
+let lastMatched:
+  | {
+      sessions: readonly AcpmuxSessionEntry[];
+      chatId?: string;
+      q: string;
+      newChat: string;
+      matched: AcpmuxSessionEntry[];
+    }
+  | undefined;
 
 /// Other listed chats whose title matches `query`, best first; for no query, the most recent.
 function sessionItems(
@@ -175,26 +225,34 @@ function sessionItems(
 ): MentionItem[] {
   // One pass that keeps only the best MENTION_SESSIONS (ties keep history order): typing runs this
   // on every key over the whole chat history, so it never sorts the history.
-  const ranked: { entry: AcpmuxSessionEntry; title: string; score: number; indexes: number[] }[] = [];
-  for (const entry of sessions) {
-    if (entry.sessionId === chatId || !listed(entry)) continue;
-    const title = titleOf(entry);
-    const match = query ? titleMatch(query, title) : { score: entry.updatedAt ?? 0, indexes: [] };
+  const ranked: { entry: AcpmuxSessionEntry; fold: TitleFold; score: number; at: number }[] = [];
+  const q = folded(query).text;
+  const newChat = translate("sidebar.newChat");
+  const last = lastMatched;
+  const narrowed =
+    last && last.sessions === sessions && last.chatId === chatId && last.newChat === newChat && q.startsWith(last.q);
+  const matched: AcpmuxSessionEntry[] = [];
+  for (const entry of narrowed ? last.matched : sessions) {
+    if (!narrowed && (entry.sessionId === chatId || !listed(entry))) continue;
+    const fold = titleFoldOf(entry, newChat);
+    const match = q ? titleAt(q, fold.head, fold.fold) : { score: entry.updatedAt ?? 0, at: 0 };
     if (!match) continue;
-    const { score, indexes } = match;
+    matched.push(entry);
+    const { score } = match;
     if (ranked.length === MENTION_SESSIONS && score <= ranked[ranked.length - 1]!.score) continue;
     let at = ranked.length;
     while (at > 0 && ranked[at - 1]!.score < score) at--;
-    ranked.splice(at, 0, { entry, title, score, indexes });
+    ranked.splice(at, 0, { entry, fold, score, at: match.at });
     if (ranked.length > MENTION_SESSIONS) ranked.pop();
   }
-  return ranked.map(({ entry, title, indexes }) => ({
+  lastMatched = { sessions, chatId, q, newChat, matched };
+  return ranked.map(({ entry, fold: { title, head, fold }, at }) => ({
     kind: "session",
     key: `session:${entry.sessionId}`,
     sessionId: entry.sessionId,
     title,
     project: entry.cwd && !isAgentHome(entry.cwd) ? projectLabel(entry.cwd) : undefined,
-    name: textRuns(title, indexes),
+    name: textRuns(title, q ? titleIndexes(head, fold, at, q.length) : []),
   }));
 }
 

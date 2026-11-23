@@ -113,6 +113,22 @@ function placeOf(session: AcpmuxSessionEntry, peerKinds: Peers): RunLocation | u
 /// When a chat began, for "newest": its creation, else its last activity, else its last write.
 const startedAt = (session: AcpmuxSessionEntry) => session.createdAt ?? session.activityAt ?? session.updatedAt ?? 0;
 
+/// A listed chat's folder normalized, and as a Move to Cloud copy's (`withoutStartPlace`), made once
+/// per list entry: a fresh chat reads where its folder ran on every change of any chat, and splitting
+/// 10K folders again each time cost 2 ms a change. A changed chat is a new entry (direct.ts
+/// `sessionEntries`), so only it is read again. Null: no absolute folder.
+type Folder = { cwd: string; copy: string } | null;
+const folders = new WeakMap<AcpmuxSessionEntry, Folder>();
+
+function folderOf(session: AcpmuxSessionEntry): Folder {
+  const kept = folders.get(session);
+  if (kept !== undefined) return kept;
+  const cwd = normalizedFolder(session.cwd);
+  const made = cwd ? { cwd, copy: withoutStartPlace(cwd) } : null;
+  folders.set(session, made);
+  return made;
+}
+
 /// Where `folder`'s newest chat ran (undefined: the folder has none, or no folder). Only chats the
 /// lists show count (`listed`): a side chat follows its chat, and an archived chat is put away.
 export function folderRunLocation(
@@ -127,9 +143,10 @@ export function folderRunLocation(
   for (const session of sessions) {
     if (!listed(session)) continue;
     const where = placeOf(session, peerKinds);
-    const cwd = normalizedFolder(session.cwd);
-    if (!where || !cwd) continue;
-    const here = where === "local" ? cwd === local : remote.has(cwd) || remote.has(withoutStartPlace(cwd));
+    if (!where) continue;
+    const cwd = folderOf(session);
+    if (!cwd) continue;
+    const here = where === "local" ? cwd.cwd === local : remote.has(cwd.cwd) || remote.has(cwd.copy);
     if (!here) continue;
     const at = startedAt(session);
     if (!newest || at > newest.at) newest = { at, where };

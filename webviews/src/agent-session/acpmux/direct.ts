@@ -853,6 +853,32 @@ function namesChat(session: Session, name: string): boolean {
   );
 }
 
+/// The listed chats by id (the first listed with each) and every name one answers to (`namesChat`),
+/// made once per list: each addressed prompt a chat's rows fold asks who sent it, and a pass over
+/// 10K chats for each of them made a refold of 100 such prompts read the list 100 times. The pane's
+/// list is a new array on every change (`sessionChanged`), so a list's index never goes stale.
+export type ChatNames = { byId: ReadonlyMap<string, Session>; names: ReadonlySet<string> };
+const chatNamesOf = new WeakMap<readonly Session[], ChatNames>();
+
+export function chatNames(sessions: readonly Session[]): ChatNames {
+  const kept = chatNamesOf.get(sessions);
+  if (kept) return kept;
+  const byId = new Map<string, Session>();
+  const names = new Set<string>();
+  for (const session of sessions) {
+    if (!byId.has(session.sessionId)) byId.set(session.sessionId, session);
+    const listed = session.name?.trim();
+    if (listed !== undefined) names.add(listed);
+    const short = session.shortName?.trim();
+    if (short !== undefined) names.add(short);
+    const peer = session.peer ? `${session.peer}/` : undefined;
+    if (peer && listed?.startsWith(peer)) names.add(listed.slice(peer.length));
+  }
+  const made = { byId, names };
+  chatNamesOf.set(sessions, made);
+  return made;
+}
+
 /// The listed chat a tab's id names when it is no chat's session id: an agent opened the tab with
 /// the chat's name ("cloud-demo"), its short name, or its harness's own session id (acpmux's
 /// `agentSessionId`, which `acpmux ls --json` prints first) in place of acpmux's id, and the tab
@@ -7567,14 +7593,14 @@ export class AcpmuxDirectClient {
   private incomingContext(): IncomingContext {
     return {
       isThisChat: (name) => {
-        const listed = this.sessions.find((session) => session.sessionId === this.selectedSessionId);
+        const listed = this.selectedSessionId ? chatNames(this.sessions).byId.get(this.selectedSessionId) : undefined;
         const lower = name.toLowerCase();
         return [this.summary, listed].some((chat) =>
           [chat?.name, chat?.shortName].some((own) => typeof own === "string" && own.trim().toLowerCase() === lower),
         );
       },
       isChat: (name) => {
-        const known = this.sessions.some((session) => namesChat(session, name));
+        const known = chatNames(this.sessions).names.has(name);
         if (!known) this.unknownSenders.add(name);
         return known;
       },
