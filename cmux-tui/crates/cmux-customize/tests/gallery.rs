@@ -164,9 +164,10 @@ fn round_trip(dir: &Path, rel: &str) {
     assert!(status.problems.is_empty(), "{rel} would not apply: {:?}", status.problems);
     for (file, text) in &read.profile.files {
         let live = fs::read_to_string(home.path().join("config").join(file)).unwrap();
-        // The installer writes a JSON file in its own layout (keybindings.json pretty-printed),
-        // so a JSON file is the same when it parses to the same value; the rest match exactly.
-        let parse = |text: &str| serde_json::from_str::<Value>(text).ok();
+        // The installer writes a JSON file in its own layout (keybindings.json pretty-printed,
+        // without the look's `//` comments), so a JSON file is the same when it parses, as JSONC,
+        // to the same value; the rest match exactly.
+        let parse = |text: &str| cmux_config::jsonc::parse(text).ok();
         let same_json =
             file.ends_with(".json") && parse(&live).is_some() && parse(&live) == parse(text);
         assert!(

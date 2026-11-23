@@ -22,7 +22,8 @@ import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/rea
 import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { PageMenu, pageMenuKey, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import {
   isWorkspace,
   matchGroups,
@@ -36,6 +37,7 @@ import {
 import type { StashNotice, StashStore } from "./store";
 import type { StashGroup, StashMember } from "./types";
 import { intl } from "../../ui/intl";
+import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** Row and group-header heights before the first of their kind is measured (styles.css). */
 const ROW_ESTIMATE = 28;
@@ -94,7 +96,7 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
   const menuSession = useRef(0);
   const { t, language } = strings;
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const shown = useMemo(() => matchGroups(snap.groups, snap.query), [snap.groups, snap.query]);
   const list = useMemo(() => stashList(shown, snap.groups), [shown, snap.groups]);
   const time = useMemo(() => intl.DateTimeFormat(language, { timeStyle: "short" }), [language]);
@@ -282,11 +284,11 @@ export function StashPage({ store, strings }: { store: StashStore; strings: Stri
           </p>
         )}
       </header>
-      {down && !downLasting ? null : down ? (
-        <output className="stash-empty">{t("stash.disconnected")}</output>
-      ) : shown.length === 0 ? (
+      {/* The rows stay while the link is down; a corner mark says so once it lasts (ui/ConnectionChip.tsx). */}
+      {downLasting ? <ConnectionChip text={t("stash.disconnected")} /> : null}
+      {shown.length === 0 ? (
         <div className="stash-empty">
-          {snap.loading ? "" : t(snap.groups.length ? "stash.noMatches" : "stash.empty")}
+          {snap.loading || down ? "" : t(snap.groups.length ? "stash.noMatches" : "stash.empty")}
         </div>
       ) : (
         <div ref={setScroller} className="stash-list" onFocus={onFocus} onBlur={onBlur}>
@@ -478,20 +480,24 @@ const StashRow = memo(function StashRow({
       onContextMenu={(event) => onMenu(stash, member, event)}
       onKeyDown={(event) => onMenuKey(stash, member, event)}
     >
-      <button
-        type="button"
-        className="stash-row-main"
-        disabled={off}
-        title={workspace ? tabs.join("\n") : member.url}
-        onClick={() => onRestore(stash, member)}
-      >
-        <span className="stash-row-icon">
-          <Glyph path={workspace ? ICONS.workspace : ICONS.page} />
-        </span>
-        <span className="stash-row-title">{memberTitle(member, untitledWorkspace)}</span>
-        {aside && <span className="stash-row-aside">{aside}</span>}
-        <span className="stash-row-time">{time}</span>
-      </button>
+      <WithFacts facts={[{ value: (workspace ? tabs.join("\n") : member.url) ?? "" }]}>
+        {(facts) => (
+          <button
+            {...facts}
+            type="button"
+            className="stash-row-main"
+            disabled={off}
+            onClick={() => onRestore(stash, member)}
+          >
+            <span className="stash-row-icon">
+              <Glyph path={workspace ? ICONS.workspace : ICONS.page} />
+            </span>
+            <span className="stash-row-title">{memberTitle(member, untitledWorkspace)}</span>
+            {aside && <span className="stash-row-aside">{aside}</span>}
+            <span className="stash-row-time">{time}</span>
+          </button>
+        )}
+      </WithFacts>
     </div>
   );
 });

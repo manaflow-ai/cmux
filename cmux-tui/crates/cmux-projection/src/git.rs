@@ -558,6 +558,20 @@ impl CatFile {
     }
 }
 
+/// Reads blobs of a git object store by id, for a seed ([`crate::peers::serve`]).
+pub struct ObjectReader(CatFile);
+
+impl ObjectReader {
+    pub fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
+        Ok(Self(CatFile::spawn(git_dir)?))
+    }
+
+    /// The blob's bytes, or `None` when the store has no blob by that id.
+    pub fn blob(&mut self, oid: &str) -> Option<Vec<u8>> {
+        self.0.blob(oid).ok()
+    }
+}
+
 /// The most blobs kept in memory, and their bytes, so a file read in many pieces costs one
 /// object read.
 const RECENT_FILES: usize = 64;

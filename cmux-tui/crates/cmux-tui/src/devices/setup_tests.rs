@@ -594,6 +594,7 @@ fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Devic
         full_access: None,
         parked: false,
         screen: None,
+        hub_device: None,
     }
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { agentLoginSupported, cloudAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
+import { agentLoginSupported, cloudAgentLogin, localApiKeyLogin, localAgentLogin } from "./cloudAgentLogin";
 import { peerAgentLoginFromStatus } from "./environments";
 
 type Call = [string, ...unknown[]];
@@ -157,4 +157,14 @@ test("a chat with a session keeps naming it, whether or not its machine signs in
   const { calls, login } = options({ machineID: "vm-1", elsewhere: true }, "claude");
   await cloudAgentLogin({ ...login, machineLogin: true })!.start();
   expect(calls).toEqual([["start", "claude", "chat-1"]]);
+});
+
+test("a chat on this Mac gets the in-place card for its built-in agent; a route keeps its own Log In", () => {
+  // Logins done right: the built-in Claude Code and Codex sign in in the card; a route (`claude-sr`,
+  // `claude-cr`) signs in its own way, so it gets no card that would sign the built-in Claude in.
+  expect(localAgentLogin(options({}, "claude").login)?.agent).toBe("claude");
+  expect(localAgentLogin(options({}, "codex").login)?.agent).toBe("codex");
+  for (const route of ["claude-sr", "claude-cr"]) expect(localAgentLogin(options({}, route).login)).toBeUndefined();
+  expect(localAgentLogin(options({ elsewhere: true }, "claude").login)).toBeUndefined();
+  expect(localAgentLogin(options({ machineID: "m-1" }, "claude").login)).toBeUndefined();
 });

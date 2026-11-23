@@ -734,7 +734,7 @@ impl Peer {
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "canonicalEndpoint": canonical_endpoint(&self.url),
-            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| crate::build_info::lags(b, crate::hub::build())).unwrap_or(false),
             "state": link.state().as_str(),
             "link": observed.link,
             "carrier": observed.carrier,
