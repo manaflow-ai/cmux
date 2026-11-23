@@ -1328,6 +1328,8 @@ mod provider_channel;
 mod safe_mode;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_signal_source_tests.rs"]
+mod signal_sources;
 #[path = "supervisor_status_item_tests.rs"]
 mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
@@ -1345,6 +1347,9 @@ mod rollback_tolerance;
 mod budget;
 #[path = "supervisor_store_sections_tests.rs"]
 mod store_sections;
+
+#[path = "supervisor_meters_tests.rs"]
+mod meters;
 
 #[path = "supervisor_page_call_tests.rs"]
 mod page_calls;

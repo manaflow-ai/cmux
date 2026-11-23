@@ -76,7 +76,7 @@ nonisolated struct SidebarSnapshotFile: Sendable {
     /// other build `cmux-next/builds/<key>/` (``StateFolderMove`` moved both
     /// out of classic's `cmux`).
     static func buildDirectory(launch: LaunchIdentity) -> URL {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = NextSupport.applicationSupportDirectory()
         if !launch.build.keepsAppNames, let state = launch.build.daemonStateDirectory(appSupport: DaemonLauncher.nextSupport(support)) {
             return state.deletingLastPathComponent()
         }
