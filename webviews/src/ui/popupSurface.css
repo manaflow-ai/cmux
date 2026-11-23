@@ -18,8 +18,8 @@
      test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
   --ui-px: calc(1px * var(--cmux-interface-scale, 1));
   /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
-  --ui-popup-radius: var(--ds-radius-popup, 8px);
-  --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
+  --ui-popup-radius: var(--menu-radius, var(--ds-radius-popup, 8px));
+  --ui-popup-padding: var(--menu-padding, calc(var(--ds-space-1) * var(--cmux-interface-scale, 1)));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
      elevation in pages and in the app chrome. popup-surface.test.ts holds the two in step. The
@@ -28,14 +28,14 @@
      draws its own border. */
   /* The fallback is the same step, for a host that loads this sheet without desktop.css (the
      gallery shell): an undefined token would drop the whole shadow, rim included. */
-  --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
+  --ui-popup-drop: var(--menu-shadow, var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent)));
   --ui-popup-shadow:
     var(--ui-popup-drop),
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
-  --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
+  --ui-row-height: var(--menu-row-height, calc(var(--ds-control-row) * var(--cmux-interface-scale, 1)));
   /* A row's highlight is concentric with its popup (design/grid.md section 1: the outer radius minus the
      inset, never less than 4): 8 - 4 = 4. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
-  --ui-row-radius: max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px)));
+  --ui-row-radius: var(--menu-hover-radius, max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px))));
   --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   /* The fade-in a dialog and the find pill take. A popup, a menu, a tooltip and a hover card have
      none: they open and close in one frame (below, and pages/shared/desktop.css). The motion scale's
@@ -140,9 +140,13 @@
 }
 .ui-popup {
   --glass-elevation: var(--ui-popup-drop);
-  --glass-edge: var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
+  --glass-edge: var(--menu-border, var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent)));
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: var(--surface-popup);
+}
+/* appearance.borders none clears a look's menu edge (--menu-border) too, as it clears the default one. */
+:root[data-borders="none"] .ui-popup {
+  --glass-edge: transparent;
 }
 /* A floating glass surface that is not a .ui-popup (a toolbar, a preview, a suggestion list) falls
    back to the same opaque popup surface under Reduce Transparency. */
@@ -206,15 +210,17 @@
 :where(.ui-menu-group-label) {
   display: block;
   padding: 6px var(--ui-row-padding-inline) 2px;
-  color: color-mix(in srgb, currentColor 55%, transparent);
-  font-size: var(--text-caption);
+  color: var(--menu-label-color, color-mix(in srgb, currentColor 55%, transparent));
+  font-size: var(--menu-label-size, var(--text-caption));
   line-height: var(--text-caption--line-height);
-  font-weight: var(--weight-emphasis);
+  font-weight: var(--menu-label-weight, var(--weight-emphasis));
   letter-spacing: var(--text-caption--letter-spacing);
 }
 /* A menu's shortcut column and its search field use the type scale where the host loads no ui.css (the
    agent pane): a field does not inherit the page's font, so it drew the browser's 13.33 px. */
 :where(.ui-menu-shortcut) {
+  /* Unset, --menu-shortcut-color leaves the color to the row (an unset custom property inherits). */
+  color: var(--menu-shortcut-color);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
   line-height: var(--text-caption--line-height);
@@ -230,7 +236,7 @@
   height: 1px;
   margin: 4px var(--ui-row-padding-inline);
   border: 0;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+  background: var(--menu-separator, color-mix(in srgb, currentColor 12%, transparent));
 }
 
 /* Directional enter and exit (ui/presence.ts, Leo 2026-10-20): a surface comes in from the edge it
@@ -390,7 +396,10 @@
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) {
   --ui-menu-lead: var(--cmux-menu-icon-x);
   --ui-menu-icon-text: calc(var(--cmux-menu-icon-size) + var(--cmux-menu-icon-gap));
-  padding: var(--cmux-menu-highlight-inset);
+  /* A look's menu tokens (README "Menu tokens a look sets"): the panel's padding is the highlight's
+     inset, so a row's text stays on the grid's leading whatever the padding. Unset: the grid's. */
+  --ui-menu-inset: var(--menu-padding, var(--cmux-menu-highlight-inset));
+  padding: var(--ui-menu-inset);
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-check) {
   --ui-menu-lead: var(--cmux-menu-state-icon-x);
@@ -401,15 +410,15 @@
   gap: var(--cmux-menu-icon-gap);
   min-height: var(--ui-row-height);
   padding-block: 0;
-  padding-inline: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset))
-    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
-  border-radius: var(--cmux-menu-highlight-radius);
+  padding-inline: calc(var(--ui-menu-lead) - var(--ui-menu-inset))
+    calc(var(--cmux-menu-trailing) - var(--ui-menu-inset));
+  border-radius: var(--menu-hover-radius, var(--cmux-menu-highlight-radius));
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item .ui-menu-check {
   position: absolute;
   inset-block: 0;
   inset-inline-start: calc(
-    var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2
+    var(--cmux-menu-state-x) - var(--ui-menu-inset) - var(--cmux-menu-icon-size) / 2
   );
   display: inline-flex;
   align-items: center;
@@ -431,21 +440,41 @@
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)):has(.ui-menu-item > :is(.ui-menu-icon, .icon-menu-emoji))
   .ui-menu-item:not(:has(> :is(.ui-menu-icon, .icon-menu-emoji))) {
-  padding-inline-start: calc(var(--ui-menu-lead) + var(--ui-menu-icon-text) - var(--cmux-menu-highlight-inset));
+  padding-inline-start: calc(var(--ui-menu-lead) + var(--ui-menu-icon-text) - var(--ui-menu-inset));
 }
 /* A row with a second line (a folder's path) keeps its first line on the row's middle. */
-.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item:has(.acpmux-menu-description) {
+.ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-item:has(.acpmux-menu-description, .ui-menu-subtitle) {
   padding-block: calc((var(--ui-row-height) - var(--text-control--line-height)) / 2);
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-group-label {
-  padding-inline: calc(var(--ui-menu-lead) - var(--cmux-menu-highlight-inset))
-    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  padding-inline: calc(var(--ui-menu-lead) - var(--ui-menu-inset))
+    calc(var(--cmux-menu-trailing) - var(--ui-menu-inset));
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-menu-shortcut {
   padding-inline-start: var(--cmux-menu-shortcut-gap);
 }
 .ui-popup:is(.ui-menu, .ui-context-menu):not(.acpmux-quick-menu, .acpmux-scope-list, :has(.acpmux-access-item)) .ui-separator {
-  margin-inline: calc(var(--cmux-menu-separator-inset) - var(--cmux-menu-highlight-inset));
+  margin-inline: calc(var(--menu-separator-inset, var(--cmux-menu-separator-inset)) - var(--ui-menu-inset));
+}
+/* A look's destructive ink and disabled strength in every host (ui.css draws its own from the same
+   tokens). Unset, each leaves the row as it was: the color inherits, the opacity is its initial 1. */
+:where(.ui-menu-item-destructive) {
+  color: var(--menu-destructive);
+}
+:where(.ui-menu-item[data-disabled]) {
+  opacity: var(--menu-disabled-opacity);
+}
+/* A row's second line (MenuItem `subtitle`): under its title, quieter and smaller. */
+:where(.ui-menu-text) {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+:where(.ui-menu-subtitle) {
+  color: var(--menu-subtitle-color, color-mix(in srgb, currentColor 55%, transparent));
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 /* A menu opened from a field-like trigger (a select, the saved environment's Host field) is that
