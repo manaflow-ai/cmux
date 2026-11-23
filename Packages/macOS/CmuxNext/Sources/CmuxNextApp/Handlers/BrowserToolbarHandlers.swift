@@ -140,12 +140,11 @@ enum BrowserToolbarHandlers {
         let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let incognito = services.cache.browserTabs.isIncognitoTab(key)
         let workspace = services.workspaceID(ofTab: key)
-        // The header: the tab's profile as the button draws it, and why the tab has it. An incognito tab has none.
-        let header = incognito ? nil : profiles.toolbarBadge(forTab: key)?.menuHeader(BrowserProfileCascade.source(
+        // The header: the tab's profile as the button draws it (none when incognito), and why the tab has it.
+        let header = profiles.toolbarBadge(forTab: key)?.menuHeader(BrowserProfileCascade.source(
             tabProfile: current, workspace: profiles.workspaceDefault(workspace), room: profiles.roomDefault(workspace), known: profiles.isKnown))
         return services.registry.makeBrowserProfileMenu(
-            tabKey: key, current: current,
-            profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
+            tabKey: key, current: current, profiles: profiles.ordered.map { record in (record.id, record.icon.map { "\($0)  \(record.name)" } ?? record.name) },
             profileActions: !incognito, header: header, workspace: incognito ? nil : workspace)
     }
 

@@ -31,8 +31,7 @@ extension BrowserProfileService {
         return TabProfileBadge(name: record?.name ?? displayName(id), color: record?.color.flatMap(GroupColor.init(rawValue:)))
     }
 
-    /// The avatar the toolbar's profile button draws for tab `key`, with one profile too; nil for
-    /// incognito tabs (their window says incognito), which keep the plain glyph.
+    /// The avatar the toolbar's profile button draws for tab `key`; nil for incognito tabs (the plain glyph).
     func toolbarBadge(forTab key: String) -> BrowserProfileBadge? {
         guard !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
         let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
