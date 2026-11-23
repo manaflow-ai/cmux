@@ -1529,6 +1529,33 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(result["state"], "failed", "no row at all is no measurement")
 
 
+    def test_terminal_scroll_prepares_ghostty_and_zig_from_the_tip(self):
+        """A measured commit whose script predates #50961 has an empty ghostty-next and no Zig: the tip prepares both."""
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "scripts"))
+            open(os.path.join(root, "scripts", "install-zig-ci.sh"), "w").close()
+            calls = []
+
+            def run(argv, cwd, env, timeout):
+                calls.append(argv)
+                if argv[0] == "bash":
+                    with open(env["GITHUB_ENV"], "a") as f:
+                        f.write("CMUX_ZIG=/opt/zig/zig\n")
+                return "", "", 0
+            env, tail = cron.prepare_ghostty(root, {"PATH": ""}, run=run)
+            self.assertEqual(calls[0][:4], ["git", "submodule", "update", "--init"])
+            self.assertEqual(calls[1], ["bash", os.path.join(root, "scripts", "install-zig-ci.sh")])
+            self.assertEqual(env["CMUX_ZIG"], "/opt/zig/zig")
+            self.assertEqual(tail, ["ghostty-next checkout: exit 0", "zig install: exit 0"])
+            os.makedirs(os.path.join(root, "ghostty-next"))
+            open(os.path.join(root, "ghostty-next", "build.zig"), "w").close()
+            calls.clear()
+            env, tail = cron.prepare_ghostty(root, {"PATH": "", "CMUX_ZIG": "/z"}, run=run)
+            self.assertEqual((calls, tail), ([], []), "a checked-out engine and a Zig need nothing")
+            env, tail = cron.prepare_ghostty(root, {"PATH": ""}, run=lambda *a: ("", "no network", 1))
+            self.assertEqual(tail, ["zig install: exit 1", "no network"])
+            self.assertNotIn("CMUX_ZIG", env, "a failed install is recorded and the part still runs")
+
 class IncompleteTests(OneRunRule):
     def finish(self, state, sha, parts, rows, hours):
         state["current"] = cron.new_measurement(sha, "tip", [], at(hours))
@@ -3671,6 +3698,21 @@ class HostGoneSignalTests(unittest.TestCase):
         self.assertTrue(cron.host_gone(state, "cmux21", at(1)))
         self.assertIsNone(cron.tip_pin_host({**state, "regressions": [{"name": "cmd_d.e2e@cmux21"}]}, at(1)))
 
+    def test_a_tip_pins_only_to_a_host_the_controller_calls_idle(self):
+        """cmuxterm-hq#19352: every Mac row was @cmux20-bench, so every tip pinned to it while it was leased."""
+        state = cron.empty_state(T0)
+        state["pending"] = {"x.e2e@cmux20-bench": {"at": cron.iso(T0)}}
+        self.assertEqual(cron.tip_pin_host(state, at(1)), "cmux20-bench", "feed not read: pinned as before")
+        self.assertIsNone(cron.tip_pin_host(state, at(1), {"cmux21"}), "busy: any idle measure host")
+        self.assertIsNone(cron.tip_pin_host(state, at(1), set()), "no host idle: not pinned either")
+        self.assertEqual(cron.tip_pin_host(state, at(1), {"cmux20-bench"}), "cmux20-bench")
+        self.assertEqual(cron.idle_hosts_from({"hosts": {"cmux20-bench": {"idle": False, "why": "leased"},
+                                                         "cmux21": {"idle": True, "why": ""}, "bad": "x"}}), {"cmux21"})
+        self.assertIsNone(cron.idle_hosts_from({"error": "not found"}))
+        self.assertIsNone(cron.idle_hosts_from([]))
+        with mock.patch.object(cron, "http_json", side_effect=urllib.error.URLError("404")):
+            self.assertIsNone(cron.controller_idle_hosts(), "no route yet: nothing changes")
+
     def test_a_host_that_runs_a_part_after_gone_is_back(self):
         state = cron.empty_state(T0)
         cron.mark_host(state, "cmux21", gone_at=cron.iso(at(1)))
@@ -4204,16 +4246,21 @@ class UnreadPartFirstTests(unittest.TestCase):
     def test_a_tip_that_predates_an_unread_part_gives_its_mac_parts_up(self):
         state = self.mid_tip()
         self.assertEqual(cron.unread_parts(state), ["chat-size"])
-        d = cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        self.assertEqual(sorted(state["current"]["parts_todo"][:2]), ["power", "wake"],
+                         "a measurement under SUPERSEDE_AFTER_HOURS old keeps its Mac parts")
+        state["current"]["yield_hours"] = cron.SUPERSEDE_AFTER_HOURS  # the day went to nightlies, as on 2026-11-22
+        state["current"].pop("host_asked_since", None)  # and its host still takes parts
+        d = cron.decide(state, at(cron.SUPERSEDE_AFTER_HOURS + 1), None, None, self.supported, None, newest=self.NEW)
         cur = state["current"]
         self.assertEqual((d["part"], d["linux_part"]), ("", "coord-sim"), "the Linux parts still run")
         self.assertEqual({cur["parts"][n]["state"] for n in ("wake", "power")}, {"superseded"})
-        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(1))
-        d = cron.decide(state, at(1.5), None, None, self.supported, None, newest=self.NEW)
+        cron.record_part(cur, "coord-sim", {"state": "done", "worker": cron.LEGACY_LINUX_CLASS}, "u", at(26))
+        d = cron.decide(state, at(26.5), None, None, self.supported, None, newest=self.NEW)
         self.assertEqual(d["action"], "finish")
         state["current"] = None
-        cron.decide(state, at(2), self.NEW, None, self.supported, None)
-        order = cron.part_order(state, state["current"]["parts_todo"], at(2))
+        cron.decide(state, at(27), self.NEW, None, self.supported, None)
+        order = cron.part_order(state, state["current"]["parts_todo"], at(27))
         self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
 
     def test_an_unread_part_goes_ahead_of_a_stale_one(self):
@@ -4460,7 +4507,8 @@ class BatchTests(unittest.TestCase):
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
-                mock.patch.object(cron, "supported_parts_at", lambda sha: parts):
+                mock.patch.object(cron, "supported_parts_at", lambda sha: parts), \
+                mock.patch.object(cron, "controller_idle_hosts", lambda *a, **k: None):
             cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False, output=out,
                                              controller=True))
         with open(out) as f:
