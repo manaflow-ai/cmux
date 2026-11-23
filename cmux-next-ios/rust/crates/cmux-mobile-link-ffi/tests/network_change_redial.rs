@@ -215,8 +215,15 @@ fn stats(values: &[f64]) -> (f64, f64) {
     (percentile(&sorted, 0.5), percentile(&sorted, 0.95))
 }
 
-fn shaped_options() -> DialOptions {
+/// The options the app's dial gets: the tunnel shaped, and the STUN server `GET /v1/ice` names
+/// (the app passes the service's ICE servers; without them a roam gathers nothing).
+fn shaped_options(stun: &str) -> DialOptions {
     DialOptions {
+        ice_servers: vec![cmux_mobile_link::api::IceServer {
+            urls: vec![format!("stun:{stun}")],
+            username: None,
+            credential: None,
+        }],
         include_loopback: true,
         impair_inbound: Some(shape_by_profile),
         timeout: Duration::from_secs(40),
@@ -233,14 +240,17 @@ async fn network_change_to_redial() {
         let profile = LinkProfile::named(name);
         set_link_profile(Some(profile.clone()), 0x6e65_7463);
         let stun = stun_server(profile.clone(), 0x5455).await;
+        let stun_for_mac = stun.clone();
         let server =
-            FakeSignaling::start(FakeOptions { ice_stun: Some(stun), ..FakeOptions::default() }).await;
+            FakeSignaling::start(FakeOptions { ice_stun: Some(stun.clone()), ..FakeOptions::default() })
+                .await;
         let path = PhonePath::start(&server.base_url, profile.clone(), 0x7061_7468).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
         let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
         let mac_links = Arc::new(Mutex::new(Vec::<cmux_mobile_link::Link>::new()));
         {
             let mac_links = Arc::clone(&mac_links);
+            let stun = stun_for_mac;
             tokio::spawn(async move {
                 while let Some(session) = mac.next_session().await {
                     let events = SessionEvents {
@@ -248,11 +258,11 @@ async fn network_change_to_redial() {
                         session_id: session.first.session_id.clone(),
                         session: session.events,
                     };
-                    let (mac, mac_links) = (mac.clone(), Arc::clone(&mac_links));
+                    let (mac, mac_links, stun) = (mac.clone(), Arc::clone(&mac_links), stun.clone());
                     tokio::spawn(async move {
                         let config = LinkConfig { foreground_probe: false, ..LinkConfig::default() };
                         if let Ok(connected) =
-                            dial::answer(&mac, session.first, events, &shaped_options(), config).await
+                            dial::answer(&mac, session.first, events, &shaped_options(&stun), config).await
                         {
                             mac_links.lock().unwrap().push(connected.link.clone());
                             while connected.link.accept().await.is_some() {}
@@ -276,7 +286,7 @@ async fn network_change_to_redial() {
                 &phone,
                 &mac_id,
                 TransportKind::WireGuard,
-                &shaped_options(),
+                &shaped_options(&stun),
                 LinkConfig::default(),
             )
             .await
@@ -294,7 +304,8 @@ async fn network_change_to_redial() {
                 marks.iter().find(|mark| mark.name == "signaling:signaling_open").map(|mark| mark.millis);
             // The phone's roam on its own (a second one on the same session).
             let started = Instant::now();
-            let _ = wireguard::roam_session(&connected.session_id, true).await;
+            let roamed = wireguard::roam_session(&connected.session_id, true).await;
+            assert!(roamed.is_some(), "the phone's session is not live");
             let alone = ms(started.elapsed());
             println!(
                 "REDIAL_SAMPLE profile={name} call_ms={call:.1} signaling_open_ms={open:?} roam_alone_ms={alone:.1} marks={:?}",
