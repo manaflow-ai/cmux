@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -337,7 +338,14 @@ final class CloudService {
         // auto-pause may have parked machines while the lid was closed.
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                self?.autoMonitor?.slept(false)
                 await self?.refresh(ifOlderThan: .seconds(30))
+            }
+        })
+        // Auto starts its moves as the system is about to sleep.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
+                self?.autoMonitor?.slept(true)
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and

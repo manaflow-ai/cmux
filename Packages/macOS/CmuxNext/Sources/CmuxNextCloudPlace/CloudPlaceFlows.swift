@@ -13,12 +13,12 @@ import Observation
 /// An FFI that has no `cloud_move_place_*` op (an app FFI pinned before the lane landed) answers
 /// nil: the moves run as before, with no flow to show.
 @MainActor @Observable
-final class CloudPlaceFlows {
+public final class CloudPlaceFlows {
     /// What a reduced event asks of the app.
-    enum Next: String { case go, stop, ignore }
+    public enum Next: String { case go, stop, ignore }
 
     /// Who started a move, in the reducer's wire form (`person`, `evacuate`, `{"auto": reason}`).
-    enum Trigger: Equatable {
+    public enum Trigger: Equatable {
         case person, evacuate, auto(String)
 
         var json: Any {
@@ -30,7 +30,7 @@ final class CloudPlaceFlows {
         }
 
         /// The invocation argument that carries it (`trigger`): `person`, `evacuate` or `auto:<reason>`.
-        var argument: String {
+        public var argument: String {
             switch self {
             case .person: "person"
             case .evacuate: "evacuate"
@@ -38,7 +38,7 @@ final class CloudPlaceFlows {
             }
         }
 
-        init(argument: String?) {
+        public init(argument: String?) {
             switch argument {
             case "evacuate": self = .evacuate
             case let value? where value.hasPrefix("auto:"): self = .auto(String(value.dropFirst("auto:".count)))
@@ -48,13 +48,14 @@ final class CloudPlaceFlows {
     }
 
     /// What the chat carries, as the app reads it before the move starts (the reducer's `Cargo`).
-    struct Cargo: Equatable {
-        var turnRunning = false
-        var continuesTurn = false
-        var queued = 0
-        var hasDraft = false
-        var branch: String?
-        var dirtyFiles = 0
+    public struct Cargo: Equatable {
+        public init() {}
+        public var turnRunning = false
+        public var continuesTurn = false
+        public var queued = 0
+        public var hasDraft = false
+        public var branch: String?
+        public var dirtyFiles = 0
 
         var json: [String: Any] {
             var cargo: [String: Any] = ["turnRunning": turnRunning, "continuesTurn": continuesTurn, "queued": queued, "hasDraft": hasDraft, "dirtyFiles": dirtyFiles]
@@ -64,12 +65,12 @@ final class CloudPlaceFlows {
     }
 
     /// The reducer's op for one request and its reply bytes (`cloud_move_place_reduce`, `_view`); injected by tests.
-    typealias Core = @Sendable (_ operation: String, _ request: Data) -> Data?
+    public typealias Core = @Sendable (_ operation: String, _ request: Data) -> Data?
 
     /// Each session's move as the chat draws it (the reducer's `View`, as JSON), set on every step.
-    private(set) var views: [String: Data] = [:]
+    public private(set) var views: [String: Data] = [:]
     /// Each session's place mode (`local`, `cloud`, `auto`), kept across launches; none is Auto's default off.
-    private(set) var modes: [String: String] = [:]
+    public private(set) var modes: [String: String] = [:]
 
     /// Each session's flow, as the reducer last returned it.
     @ObservationIgnored private var flows: [String: Data] = [:]
@@ -78,7 +79,7 @@ final class CloudPlaceFlows {
     /// Sessions whose move Cancel stopped: the stop is no failure and offers no Retry.
     @ObservationIgnored private var cancelled: Set<String> = []
     /// Sessions Auto moved to Cloud (so Auto may bring them back; a person's Cloud stays), kept across launches.
-    @ObservationIgnored private(set) var autoMoved: Set<String> = []
+    @ObservationIgnored public private(set) var autoMoved: Set<String> = []
     /// Each running move's trigger and direction, to record who moved it once it landed.
     @ObservationIgnored private var started: [String: (auto: Bool, toCloud: Bool)] = [:]
     @ObservationIgnored private let core: Core
@@ -86,7 +87,7 @@ final class CloudPlaceFlows {
     @ObservationIgnored private let modesKey: String
     @ObservationIgnored private let clock: @Sendable () -> UInt64
 
-    init(defaults: UserDefaults = .standard, key: String = "cmux.cloud.placeModes", core: Core? = nil, clock: (@Sendable () -> UInt64)? = nil) {
+    public init(defaults: UserDefaults = .standard, key: String = "cmux.cloud.placeModes", core: Core? = nil, clock: (@Sendable () -> UInt64)? = nil) {
         self.defaults = defaults
         modesKey = key
         self.core = core ?? { operation, request in CloudStartCore().callData(operation, request) }
@@ -96,16 +97,16 @@ final class CloudPlaceFlows {
     }
 
     /// This computer's own name, as the move names the place it leaves or reaches.
-    nonisolated static var thisMac: String { MacName().hostName() }
+    public nonisolated static var thisMac: String { MacName().hostName() }
 
     /// Milliseconds on the monotonic clock every event of a flow is stamped with.
-    var nowMs: UInt64 { clock() }
+    public var nowMs: UInt64 { clock() }
 
     // MARK: Modes
 
-    func mode(of session: String) -> String { modes[session] ?? "local" }
+    public func mode(of session: String) -> String { modes[session] ?? "local" }
 
-    func setMode(_ mode: String, of session: String) {
+    public func setMode(_ mode: String, of session: String) {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
         modes[session] = mode
         if let data = try? JSONEncoder().encode(modes) { defaults.set(data, forKey: modesKey) }
@@ -115,7 +116,7 @@ final class CloudPlaceFlows {
 
     /// The move starts at `preflight`.
     @discardableResult
-    func begin(session: String, toCloud: Bool, trigger: Trigger, from: String, to: String, cargo: Cargo) -> Next {
+    public func begin(session: String, toCloud: Bool, trigger: Trigger, from: String, to: String, cargo: Cargo) -> Next {
         flows[session] = nil
         cancelled.remove(session)
         if case .auto = trigger { started[session] = (true, toCloud) } else { started[session] = (false, toCloud) }
@@ -125,15 +126,15 @@ final class CloudPlaceFlows {
 
     /// `step` starts (the steps before it are done).
     @discardableResult
-    func step(_ session: String, _ step: String) -> Next { report(session, ["event": "step", "step": step, "atMs": nowMs]) }
+    public func step(_ session: String, _ step: String) -> Next { report(session, ["event": "step", "step": step, "atMs": nowMs]) }
 
     /// The machine got its name.
     @discardableResult
-    func target(_ session: String, to name: String) -> Next { report(session, ["event": "target", "to": name]) }
+    public func target(_ session: String, to name: String) -> Next { report(session, ["event": "target", "to": name]) }
 
     /// The chat runs on the new place.
     @discardableResult
-    func live(_ session: String) -> Next {
+    public func live(_ session: String) -> Next {
         if let kind = started.removeValue(forKey: session) {
             // Auto may bring back only what Auto moved; a person's move either way ends that.
             if kind.auto && kind.toCloud { autoMoved.insert(session) } else { autoMoved.remove(session) }
@@ -143,14 +144,14 @@ final class CloudPlaceFlows {
     }
 
     @discardableResult
-    func failed(_ session: String, reason: String) -> Next {
+    public func failed(_ session: String, reason: String) -> Next {
         started[session] = nil
         return report(session, ["event": "failed", "reason": reason, "atMs": nowMs])
     }
 
     /// The next step of the move. Throws ``CancellationError`` when the reducer says stop (a Cancel it honours at this boundary), for
     /// steps before the chat lands; once the chat committed, use ``step(_:_:)``, which never stops the move.
-    func advance(_ session: String, _ step: String) throws {
+    public func advance(_ session: String, _ step: String) throws {
         guard self.step(session, step) != .stop else {
             cancelled.insert(session)
             throw CancellationError()
@@ -160,7 +161,7 @@ final class CloudPlaceFlows {
     /// The person pressed Cancel. When the reducer says `stop`, the move's Task is cancelled (the child
     /// processes die with it) and the chat stays where it was; past the last cancellable step the move finishes.
     @discardableResult
-    func cancel(_ session: String) -> Next {
+    public func cancel(_ session: String) -> Next {
         let next = report(session, ["event": "cancel", "atMs": nowMs])
         if next == .stop {
             cancelled.insert(session)
@@ -170,29 +171,29 @@ final class CloudPlaceFlows {
     }
 
     /// Whether Cancel ended the session's move (its stop shows no failure and keeps no Retry).
-    func wasCancelled(_ session: String) -> Bool { cancelled.contains(session) }
+    public func wasCancelled(_ session: String) -> Bool { cancelled.contains(session) }
 
     /// Registers what stops the session's move; ends with ``finished(_:)``.
-    func onCancel(_ session: String, _ stop: @escaping () -> Void) { stoppers[session] = stop }
+    public func onCancel(_ session: String, _ stop: @escaping () -> Void) { stoppers[session] = stop }
 
     /// The move's work ended (any way): its stopper goes.
-    func finished(_ session: String) {
+    public func finished(_ session: String) {
         stoppers[session] = nil
         started[session] = nil
         cancelled.remove(session)
     }
 
     /// Whether a flow of `session` is moving now (the reducer's own state, read from the kept view).
-    func isMoving(_ session: String) -> Bool { state(of: session) == "moving" }
+    public func isMoving(_ session: String) -> Bool { state(of: session) == "moving" }
 
     /// The session's view state (`moving`, `live`, `failed`, `cancelled`), nil with no flow.
-    func state(of session: String) -> String? {
+    public func state(of session: String) -> String? {
         guard let data = views[session], let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
         return object["state"] as? String
     }
 
     /// Drops the session's flow and view (a Live move's card goes once the chat shows it).
-    func clear(_ session: String) {
+    public func clear(_ session: String) {
         flows[session] = nil
         views[session] = nil
     }
@@ -215,7 +216,7 @@ final class CloudPlaceFlows {
     // MARK: The chat's place, for pane.tabState
 
     /// `place: {mode, at, cloudName?, move?}` for the chat header, as JSON; nil with no session.
-    func placeJSON(session: String?, onCloud: Bool, cloudName: String?) -> Data? {
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?) -> Data? {
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }

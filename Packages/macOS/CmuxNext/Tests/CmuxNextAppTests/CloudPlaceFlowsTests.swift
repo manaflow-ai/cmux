@@ -1,5 +1,5 @@
 import Foundation
-@testable import CmuxNextApp
+@testable import CmuxNextCloudPlace
 import Testing
 
 /// The move's flow reports each step to Rust's reducer in order, and Cancel stops the move's Task only when the reducer says stop.

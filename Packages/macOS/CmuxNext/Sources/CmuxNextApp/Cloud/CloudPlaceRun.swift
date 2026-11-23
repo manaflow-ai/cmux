@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCloud
+import CmuxNextCloudPlace
 import CmuxNextDaemon
 import Foundation
 
