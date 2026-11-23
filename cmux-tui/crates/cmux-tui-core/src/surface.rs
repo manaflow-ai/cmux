@@ -26,7 +26,7 @@ mod input;
 mod local_output;
 mod metadata;
 mod mirror_park;
-pub(crate) use mirror_park::{TerminalMirror, mirror_park_counts};
+pub(crate) use mirror_park::TerminalMirror;
 mod mouse_input;
 mod options;
 mod pending_bells;

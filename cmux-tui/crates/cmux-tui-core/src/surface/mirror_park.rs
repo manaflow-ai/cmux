@@ -50,14 +50,6 @@ pub(crate) struct TerminalMirror {
     is_parked: AtomicBool,
 }
 
-/// Parks and rebuilds since start, for tests and the measure harness.
-static PARKS: AtomicU64 = AtomicU64::new(0);
-static REBUILDS: AtomicU64 = AtomicU64::new(0);
-
-pub(crate) fn mirror_park_counts() -> (u64, u64) {
-    (PARKS.load(Ordering::Relaxed), REBUILDS.load(Ordering::Relaxed))
-}
-
 impl TerminalMirror {
     pub(crate) fn new(term: Box<Terminal>) -> Self {
         Self {
@@ -132,7 +124,6 @@ impl TerminalMirror {
         // see the placeholder.
         **term = placeholder;
         self.is_parked.store(true, Ordering::Release);
-        PARKS.fetch_add(1, Ordering::Relaxed);
         true
     }
 
@@ -145,7 +136,6 @@ impl TerminalMirror {
             return;
         };
         self.is_parked.store(false, Ordering::Release);
-        REBUILDS.fetch_add(1, Ordering::Relaxed);
         // Replaying the title must not read as a new title.
         let title_changed = parked.title_changed.clone();
         let was_changed = title_changed.load(Ordering::Relaxed);
@@ -244,3 +234,7 @@ impl Surface {
         self.as_pty().is_some_and(|pty| pty.term.is_parked())
     }
 }
+
+#[cfg(test)]
+#[path = "mirror_park_tests.rs"]
+mod tests;
