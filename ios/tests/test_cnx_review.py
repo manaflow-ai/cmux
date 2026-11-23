@@ -1558,5 +1558,53 @@ class TryScriptTests(unittest.TestCase):
             self.assertIn('built ahead or cached: n=1 p50=40 s', r.stdout)
             self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
 
+    def test_list_shows_the_iphone_prs_and_their_build_state(self):
+        check = 'cmux Dev try build (ahead)'
+        prs = [
+            {'number': 1, 'title': 'ios ahead', 'author': {'login': 'a'}, 'headRefOid': '1' * 40, 'updatedAt': '2026-11-22T01:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/x.swift'}],
+             'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]},
+            {'number': 2, 'title': 'web only', 'author': {'login': 'b'}, 'headRefOid': '2' * 40, 'updatedAt': '2026-11-22T02:00:00Z',
+             'isDraft': False, 'files': [{'path': 'webviews/x.ts'}], 'statusCheckRollup': []},
+            {'number': 3, 'title': 'ios building', 'author': {'login': 'c'}, 'headRefOid': '3' * 40, 'updatedAt': '2026-11-22T03:00:00Z',
+             'isDraft': True, 'files': [{'path': 'Packages/iOS/y.swift'}],
+             'statusCheckRollup': [{'name': check, 'status': 'IN_PROGRESS', 'conclusion': ''}]},
+            {'number': 4, 'title': 'ios cached', 'author': {'login': 'd'}, 'headRefOid': '4' * 40, 'updatedAt': '2026-11-22T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/z.swift'}], 'statusCheckRollup': []},
+            {'number': 5, 'title': 'ios failed', 'author': {'login': 'e'}, 'headRefOid': '5' * 40, 'updatedAt': '2026-11-21T00:00:00Z',
+             'isDraft': False, 'files': [], 'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, 'prs.json').write_text(json.dumps(prs))
+            gh = Path(temp, 'gh')
+            gh.write_text(f'#!/bin/sh\necho "$@" > "{temp}/gh-args"\ncat "{temp}/prs.json"\n')
+            gh.chmod(0o755)
+            Path(temp, 'cache', '4' * 40, 'device', 'CmuxMobileApp.app').mkdir(parents=True)
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertEqual(out['schema'], 'cmux.ios-try.list.v1')
+            self.assertEqual([(p['number'], p['build']) for p in out['prs']],
+                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed')])
+            self.assertTrue(out['prs'][0]['draft'])
+            self.assertIn('--base feat-cmux-next', Path(temp, 'gh-args').read_text())
+            gh.write_text('#!/bin/sh\nexit 1\n')
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('could not list pull requests', json.loads(r.stdout)['error'])
+
+    def test_the_ahead_workflow_submits_the_step_try_sh_attaches_to(self):
+        # Same script, scene, artifact and key as try_fleet: the controller answers try.sh's submit with that step.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        text = TRY.read_text()
+        for needle in ('--script scripts/ci/cmux-next-ios-sim.sh', '--artifact artifacts/ios-sim/evidence.zip',
+                       '--no-supersede', '--arg shots --arg try=dev'):
+            self.assertIn(needle, flow)
+        self.assertIn('--key "cnx-ios-try-try-${HEAD_SHA:0:12}"', flow)
+        self.assertIn('--key "cnx-ios-try-$mode-${SHA:0:12}', text)
+        self.assertIn('--background', flow)
+        self.assertIn('name: cmux Dev try build (ahead)', flow)
+        self.assertIn('TRY_AHEAD_CHECK="cmux Dev try build (ahead)"', text)
+
 if __name__ == '__main__':
     unittest.main()
