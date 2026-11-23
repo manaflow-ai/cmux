@@ -257,7 +257,13 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       const fold = foldOf(row);
       now.set(row.id, { row, fold, index: at });
       if (measured ? !measured[at] : layout.heights[at] === 0) continue;
-      const probe: RowProbe = { id: row.id, kind: row.kind, turn: own, gap: layout.gaps?.[at] ?? 0, fold };
+      const probe: RowProbe = {
+        id: row.id,
+        kind: row.kind,
+        turn: own,
+        gap: layout.gaps?.[at] ?? 0,
+        fold,
+      };
       if (isLive(row)) probe.live = true;
       if (opensTurn(row)) probe.opens = true;
       if (opensTurn(row) && (row.incoming || row.received)) probe.received = true;
@@ -281,7 +287,14 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
 
     const stepViolations: Violation[] = [];
     const flag = (rule: Violation["rule"], rowId: string, detail: string) =>
-      stepViolations.push({ rule, step: index, at: step.at - first, label: step.label, rowId, detail });
+      stepViolations.push({
+        rule,
+        step: index,
+        at: step.at - first,
+        label: step.label,
+        rowId,
+        detail,
+      });
 
     // (a) a turn's first row stands the turn gap under the turn before it, and its head a gap under that.
     for (let at = stable; at < rows.length; at += 1) {

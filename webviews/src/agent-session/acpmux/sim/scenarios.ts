@@ -10,7 +10,9 @@ const PARAGRAPH =
 function workTurn(b: SimBuilder, calls: number, { thoughts = true, middleText = true } = {}): SimBuilder {
   for (let call = 0; call < calls; call += 1) {
     if (thoughts) b.think(`Checking step ${call + 1} before running it.`);
-    b.tool(`rg -n "retry" src/api/part${call}.ts`, { ms: 600 + (call % 3) * 400 });
+    b.tool(`rg -n "retry" src/api/part${call}.ts`, {
+      ms: 600 + (call % 3) * 400,
+    });
     if (middleText && call === Math.floor(calls / 2)) b.say(PARAGRAPH, { chunks: 6 });
   }
   return b;
@@ -23,7 +25,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
       .think("Reading the helper first.")
       .tool("sed -n 1,80p src/api/client.ts", { kind: "read" })
       .say(PARAGRAPH)
-      .tool("bun test api/client.test.ts", { status: "failed", output: "1 fail" })
+      .tool("bun test api/client.test.ts", {
+        status: "failed",
+        output: "1 fail",
+      })
       .say("Fixed: the loop now makes exactly `attempts` calls.")
       .turnEnd()
       .build(),
@@ -62,7 +67,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     workTurn(b, 2);
     b.say("Done.");
     b.turnEnd();
-    b.wait(10_000).incoming("Can you also rebase on main?", { kind: "agent_message", fromName: "coord-deputy" });
+    b.wait(10_000).incoming("Can you also rebase on main?", {
+      kind: "agent_message",
+      fromName: "coord-deputy",
+    });
     b.tool("git fetch origin && git rebase origin/main", { ms: 2_000 });
     b.say("Rebased; the branch is up to date.");
     return b.turnEnd().build();
@@ -162,7 +170,9 @@ export function longRun(turns: number): SimScenario {
     const calls = 2 + (turn % 5);
     for (let call = 0; call < calls; call += 1) {
       if (call % 2 === 0) b.think(`Planning call ${call + 1}.`, { chunks: 2 });
-      b.tool(`run step ${turn}.${call}`, { ms: 500 + ((turn * 7 + call * 13) % 9) * 700 });
+      b.tool(`run step ${turn}.${call}`, {
+        ms: 500 + ((turn * 7 + call * 13) % 9) * 700,
+      });
       if (call === 1) b.say(`Progress on turn ${turn + 1}: ${PARAGRAPH}`, { chunks: 3 });
     }
     if (turn % 25 === 24) b.compaction();

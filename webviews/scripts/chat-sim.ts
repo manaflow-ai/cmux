@@ -12,11 +12,24 @@
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize out.ndjson   (a fixture safe to commit)
 //   bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/<name>.ndjson
 //   bun scripts/chat-sim.ts --sweep ~/.acpmux/sessions [--jobs 4]   (replay every chat there, grouped)
+//   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --last 5000 --report NAME --about "TEXT"
+//                                     (a reported chat: sanitized into test/fixtures/chat-sim/NAME.ndjson)
+//   bun scripts/chat-sim.ts --reported [--update]   (replay every reported chat; what changed per rule)
+//   bun scripts/chat-sim.ts --freshness [~/.acpmux/sessions] [--sessions 40]   (kinds no scenario plays)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import type { EventRecord } from "../src/agent-session/acpmux/direct";
+import {
+  countChanges,
+  fixtures,
+  freshness,
+  playedKinds,
+  readSessionRecords,
+  ruleCounts,
+  seenKinds,
+  type ReportedChat,
+} from "../src/agent-session/acpmux/sim/library";
 import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
@@ -34,26 +47,73 @@ function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
       .split("\n")
-      .slice(1, 16)
+      .slice(1, 20)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
   process.exit(code);
 }
 
-/** A session directory's records (events/*.ndjson), or one NDJSON file's. */
-function readRecords(path: string): EventRecord[] {
-  if (statSync(path).isDirectory()) {
-    const dir = existsSync(join(path, "events")) ? join(path, "events") : path;
-    return readdirSync(dir)
-      .filter((name) => name.endsWith(".ndjson"))
-      .sort()
-      .flatMap((name) => parseRecords(readFileSync(join(dir, name), "utf8")));
-  }
-  return parseRecords(readFileSync(path, "utf8"));
-}
+const home = (path: string) => path.replace(/^~/, process.env.HOME ?? "~");
+/** The committed fixtures: the sanitized replay and every reported chat (sim/README.md "Reported chats"). */
+const FIXTURES = join(import.meta.dir, "..", "test", "fixtures", "chat-sim");
 
 if (flag("--help") || flag("-h")) usage(0);
+
+if (flag("--freshness")) {
+  // The record kinds the newest real chats write that no scenario or fixture plays.
+  const root = home(
+    args.find((arg, at) => at > 0 && args[at - 1] === "--freshness" && !arg.startsWith("--")) ?? "~/.acpmux/sessions",
+  );
+  const started = performance.now();
+  const played = playedKinds(
+    scenarioNames().map((name) => SCENARIOS[name]!()),
+    FIXTURES,
+  );
+  const seen = seenKinds(root, number("--sessions") ?? 40);
+  const { missing, unseen } = freshness(played, seen.kinds);
+  console.log(
+    `freshness: ${seen.kinds.size} record kinds in the newest ${seen.chats} chats in ${root}; the simulator plays ${played.size}; ${missing.length} it never plays (${Math.round(performance.now() - started)} ms)`,
+  );
+  for (const [key, entry] of missing)
+    console.log(
+      `  ${key.padEnd(44)} ${String(entry.records).padStart(6)} records ${String(entry.chats.size).padStart(4)} chats  e.g. ${entry.example}`,
+    );
+  if (unseen.length && flag("--unseen")) console.log(`played but in none of those chats: ${unseen.join(", ")}`);
+  process.exit(missing.length ? 1 : 0);
+}
+
+if (flag("--reported")) {
+  // Every committed fixture, replayed: per chat, the rows breaking each rule now against when recorded.
+  let worse = 0;
+  for (const fixture of fixtures(FIXTURES)) {
+    const started = performance.now();
+    const result = runSimulation(replayScenario(fixture.name, parseRecords(readFileSync(fixture.path, "utf8"))), {
+      rowsInTraceUpTo: 0,
+    });
+    const now = ruleCounts(result);
+    const ms = Math.round(performance.now() - started);
+    const counts =
+      Object.entries(now)
+        .map(([rule, rows]) => `${rule}=${rows}`)
+        .join(" ") || "no violations";
+    if (!fixture.sidecar) {
+      console.log(`${fixture.name}: ${counts} (${result.steps} steps, ${ms} ms; no sidecar, so nothing to compare)`);
+      continue;
+    }
+    const changes = countChanges(fixture.sidecar.expect, now);
+    if (changes.some((change) => change.after > change.before)) worse += 1;
+    console.log(
+      `${fixture.name}: ${changes.length ? changes.map((c) => `${c.rule} ${c.before} -> ${c.after}`).join(", ") : `same (${counts})`} (${result.steps} steps, ${ms} ms)\n    ${fixture.sidecar.about}`,
+    );
+    if (flag("--update") && changes.length)
+      writeFileSync(
+        join(FIXTURES, `${fixture.name}.json`),
+        JSON.stringify({ ...fixture.sidecar, expect: now } satisfies ReportedChat, null, 2) + "\n",
+      );
+  }
+  process.exit(worse ? 1 : 0);
+}
 
 /// The class a violation belongs to across chats: its rule and its detail with the row ids, turn
 /// numbers, times and quoted text taken out, the gaps kept ("user opens turn N 16px under assistant
@@ -70,7 +130,7 @@ if (sweep) {
   // Every chat in the folder (each a session directory with events/), replayed in its own process
   // (a chat's records can be gigabytes), `--jobs` at a time; then one line per violation class: how
   // many rows broke it, in how many chats, and one place to look.
-  const root = sweep.replace(/^~/, process.env.HOME ?? "~");
+  const root = home(sweep);
   const chats = readdirSync(root)
     .map((name) => join(root, name))
     .filter((dir) => existsSync(join(dir, "events")));
@@ -99,7 +159,11 @@ if (sweep) {
       rowId: string;
     }[]) {
       const key = violationClass(violation);
-      const entry = classes.get(key) ?? { rows: 0, chats: new Set(), example: "" };
+      const entry = classes.get(key) ?? {
+        rows: 0,
+        chats: new Set(),
+        example: "",
+      };
       entry.rows += 1;
       entry.chats.add(chat);
       entry.example ||= `--replay ${dir}: step ${violation.step}, ${violation.rowId}`;
@@ -129,8 +193,50 @@ if (flag("--list")) {
 const scenarios: SimScenario[] = [];
 const replay = value("--replay");
 if (replay) {
-  const range = { from: number("--from"), to: number("--to"), limit: number("--limit") };
-  const raw = readRecords(replay.replace(/^~/, process.env.HOME ?? "~"));
+  const range = {
+    from: number("--from"),
+    to: number("--to"),
+    limit: number("--limit"),
+  };
+  const read = readSessionRecords(home(replay), {
+    ...range,
+    last: number("--last"),
+  });
+  const raw = read.records;
+  if (read.files > 1) console.error(`read ${read.filesRead} of ${read.files} event files (${raw.length} records)`);
+  const reportName = value("--report");
+  if (reportName) {
+    // A reported chat: sanitized into the fixtures with a sidecar saying what it reproduces and what it
+    // drew now, so `--reported` can say when a change fixes it (or breaks it more).
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(reportName)) {
+      console.error("--report NAME: lowercase letters, digits and dashes");
+      process.exit(2);
+    }
+    const clean = sanitizeRecords(raw, { limit: range.limit });
+    const path = join(FIXTURES, `${reportName}.ndjson`);
+    writeFileSync(path, clean.map((record) => JSON.stringify(record)).join("\n") + "\n");
+    const result = runSimulation(replayScenario(reportName, clean), {
+      rowsInTraceUpTo: 0,
+    });
+    const sidecar: ReportedChat = {
+      about: value("--about") ?? "(say what it reproduces: --about TEXT)",
+      source: {
+        session: replay.replace(/\/+$/, "").split("/").at(-1)!,
+        from: range.from,
+        to: range.to,
+        last: number("--last"),
+        records: clean.length,
+      },
+      recordedAt: new Date().toISOString(),
+      expect: ruleCounts(result),
+    };
+    writeFileSync(join(FIXTURES, `${reportName}.json`), JSON.stringify(sidecar, null, 2) + "\n");
+    console.log(summarize(result));
+    console.log(
+      `wrote ${path} (${clean.length} sanitized records of ${raw.length}) and its sidecar; look it over (grep it for names and hosts) before committing`,
+    );
+    process.exit(0);
+  }
   const sanitizeTo = value("--sanitize");
   if (sanitizeTo) {
     const clean = sanitizeRecords(raw, range);
@@ -171,7 +277,12 @@ for (const scenario of scenarios) {
       const key = `${violation.rule} ${violation.rowId}`;
       if (!first.has(key)) first.set(key, violation);
     }
-    console.log(JSON.stringify({ scenario: scenario.name, violations: [...first.values()] }));
+    console.log(
+      JSON.stringify({
+        scenario: scenario.name,
+        violations: [...first.values()],
+      }),
+    );
     continue;
   }
   console.log(summarize(result));

@@ -161,10 +161,14 @@ export type SanitizeOptions = {
   limit?: number;
 };
 
+/** Whether the pane reads a record at all: not the agent's stdin, not the harness's token stream. */
+export const paneReads = (record: Pick<EventRecord, "dir" | "kind">) =>
+  record.dir !== "out" && !DROP_KINDS.has(record.kind);
+
 /// A real session's records, made safe to commit: see the file header.
 export function sanitizeRecords(records: readonly EventRecord[], options: SanitizeOptions = {}): EventRecord[] {
   const kept = [...records]
-    .filter((record) => record.dir !== "out" && !DROP_KINDS.has(record.kind))
+    .filter(paneReads)
     .filter((record) => record.seq >= (options.from ?? 0) && record.seq <= (options.to ?? Number.POSITIVE_INFINITY))
     .sort((a, b) => a.seq - b.seq)
     .slice(0, options.limit ?? Number.POSITIVE_INFINITY);

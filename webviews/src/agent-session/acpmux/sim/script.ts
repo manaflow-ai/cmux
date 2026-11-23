@@ -97,7 +97,14 @@ export class SimBuilder {
   record(dir: string, kind: string, msg: Record<string, any>, after = 0, label = kind): this {
     this.now += after;
     this.seq += 1;
-    this.events.push({ sessionId: this.sessionId, seq: this.seq, at: this.now, dir, kind, msg });
+    this.events.push({
+      sessionId: this.sessionId,
+      seq: this.seq,
+      at: this.now,
+      dir,
+      kind,
+      msg,
+    });
     this.steps.push({ type: "event", seq: this.seq, at: this.now, label });
     return this;
   }
@@ -146,14 +153,24 @@ export class SimBuilder {
       ...(kind === "notice"
         ? {
             display: "line",
-            notice: { sender: fromName, severity: "info", title: options.title ?? value.slice(0, 60) },
+            notice: {
+              sender: fromName,
+              severity: "info",
+              title: options.title ?? value.slice(0, 60),
+            },
           }
         : {}),
     };
     this.record(
       "mux",
       "user_message",
-      { text: value, promptId: this.promptId, turnId: this.turnId, client: "acpmux-cli#1", _meta: { provenance } },
+      {
+        text: value,
+        promptId: this.promptId,
+        turnId: this.turnId,
+        client: "acpmux-cli#1",
+        _meta: { provenance },
+      },
       after,
       `incoming ${kind}: ${value.slice(0, 40)}`,
     );
@@ -236,7 +253,13 @@ export class SimBuilder {
   background(command: string, { ms = 5_000, after = 300 } = {}): this {
     const id = this.nextCallId();
     this.tool(command, { ms: 200, output: "Command running in background with ID: bg-1" }, after);
-    const task = { taskId: `bg-${id}`, toolCallId: id, command, description: command, origin: "bash" };
+    const task = {
+      taskId: `bg-${id}`,
+      toolCallId: id,
+      command,
+      description: command,
+      origin: "bash",
+    };
     this.record(
       "in",
       "background_task_update",
@@ -266,7 +289,12 @@ export class SimBuilder {
 
   /** A subagent call (Claude Code's Agent tool) that runs `ms` and reports. */
   subagent(description: string, { ms = 4_000, report = "Done: nothing found." } = {}): this {
-    return this.tool(description, { kind: "think", tool: "Agent", ms, output: report });
+    return this.tool(description, {
+      kind: "think",
+      tool: "Agent",
+      ms,
+      output: report,
+    });
   }
 
   /** The agent compacting its context: started, then completed `ms` later. */
@@ -281,7 +309,13 @@ export class SimBuilder {
     this.record(
       "mux",
       "turn_result",
-      { status, turnId: this.turnId, promptId: this.promptId, stopReason: "end_turn", outputTokens: 1200 },
+      {
+        status,
+        turnId: this.turnId,
+        promptId: this.promptId,
+        stopReason: "end_turn",
+        outputTokens: 1200,
+      },
       20,
       "turn_result",
     );
@@ -320,6 +354,11 @@ export function replayScenario(name: string, events: readonly EventRecord[], ses
     about: `replay of ${own.length} recorded records`,
     sessionId: id,
     events: own,
-    steps: own.map((event) => ({ type: "event", seq: event.seq, at: event.at, label: event.kind })),
+    steps: own.map((event) => ({
+      type: "event",
+      seq: event.seq,
+      at: event.at,
+      label: event.kind,
+    })),
   };
 }
