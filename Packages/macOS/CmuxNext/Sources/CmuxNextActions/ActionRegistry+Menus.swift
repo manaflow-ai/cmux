@@ -22,6 +22,17 @@ extension ActionRegistry {
         item.identifier = NSUserInterfaceItemIdentifier("cmux.action.\(id.rawValue)")
         return item
     }
+
+    /// A menu row invoking the same argument-bearing action as the palette or CLI.
+    public func makeMenuItem(for id: ActionID, arguments: [String: ActionValue]) -> NSMenuItem? {
+        let id = canonicalID(for: id)
+        guard let item = makeMenuItem(for: id) else { return nil }
+        item.representedObject = ActionMenuPayload(id: id, target: nil, arguments: arguments)
+        // A specialized row must not claim the action's unqualified keyboard shortcut.
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
+        return item
+    }
 }
 
 extension ActionRegistry {

@@ -1,29 +1,26 @@
 public import AppKit
-import CmuxNextActions
+public import CmuxNextActions
 public import CmuxNextSettings
-import os
 
 /// App menu > Customizations: every Experiments and Labs switch as a checkmark row, two clicks from
 /// anywhere (Leo 2026-11-22, ask-931361017e). The rows come from `SettingsSchema.quickToggleGroups`
 /// and are rebuilt each time the menu opens, so the checkmarks show the value in effect and a new
 /// schema row appears with no edit here. A click flips the switch through
-/// `SettingsController.flip` (the guarded `setSetting`); a managed row is disabled. The last row
-/// runs `openAll` (Settings > Customize).
+/// `palette.toggleSetting` (the guarded `setSetting`); a managed row is disabled. The last row
+/// runs `openSettings` at Settings > Customize.
 @MainActor
 public final class CustomizationsMenu: NSObject, NSMenuDelegate {
     private let settings: @MainActor () -> SettingsController?
-    private let openAll: @MainActor () -> Void
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "menu.customizations")
+    private let registry: ActionRegistry
 
-    private init(settings: @escaping @MainActor () -> SettingsController?, openAll: @escaping @MainActor () -> Void) {
+    private init(registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) {
         self.settings = settings
-        self.openAll = openAll
+        self.registry = registry
     }
 
     /// The submenu's item; it keeps its delegate alive (`representedObject`: `NSMenu.delegate` is weak).
-    public static func item(settings: @escaping @MainActor () -> SettingsController?,
-                            openAll: @escaping @MainActor () -> Void) -> NSMenuItem {
-        let owner = CustomizationsMenu(settings: settings, openAll: openAll)
+    public static func item(registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?) -> NSMenuItem {
+        let owner = CustomizationsMenu(registry: registry, settings: settings)
         let item = NSMenuItem(title: SettingsWindowStrings.customizationsMenu, action: nil, keyEquivalent: "")
         let menu = NSMenu(title: SettingsWindowStrings.customizationsMenu)
         menu.autoenablesItems = false
@@ -47,9 +44,9 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
         for group in SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled) {
             menu.addItem(.sectionHeader(title: group.title))
             for descriptor in group.rows {
-                let row = NSMenuItem(title: descriptor.title, action: #selector(flip(_:)), keyEquivalent: "")
-                row.target = self
-                row.representedObject = descriptor.id
+                guard let row = registry.makeMenuItem(for: "palette.toggleSetting",
+                    arguments: ["setting": .string(descriptor.id)]) else { continue }
+                row.title = descriptor.title
                 row.toolTip = descriptor.help
                 row.state = settings?.isOn(descriptor) == true ? .on : .off
                 row.isEnabled = settings.map { !$0.isLocked(descriptor) } ?? false
@@ -57,22 +54,9 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
             }
         }
         menu.addItem(.separator())
-        let all = NSMenuItem(title: SettingsWindowStrings.allCustomizations, action: #selector(openAllClicked(_:)), keyEquivalent: "")
-        all.target = self
-        menu.addItem(all)
-    }
-
-    @objc private func flip(_ sender: NSMenuItem) {
-        guard let settings = settings(), let id = sender.representedObject as? String,
-              let descriptor = SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init)) else { return }
-        Task {
-            do {
-                try await settings.flip(descriptor)
-            } catch {
-                Self.logger.error("customizations menu \(id, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            }
+        if let all = registry.makeMenuItem(for: "openSettings", arguments: ["setting": .string("card.customizeChecklist")]) {
+            all.title = SettingsWindowStrings.allCustomizations
+            menu.addItem(all)
         }
     }
-
-    @objc private func openAllClicked(_ sender: NSMenuItem) { openAll() }
 }
