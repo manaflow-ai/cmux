@@ -10,7 +10,7 @@
   {"title": "Contextual, new chat: panel toggle and menu only", "wait": 1},
   {"title": "A turn that edits three files and names http://localhost:5173/", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "worked-turn-page"}},
    "wait": 2, "shot": false},
-  {"title": "Contextual after the turn: Changes and the globe appear", "wait": 1.5},
+  {"title": "Contextual after the turn: Changes appears", "wait": 1.5},
   {"title": "Style: Standard", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "agentChat.headerIcons.contextual", "value": "standard"}},
    "wait": 1.5, "shot": false, "optional": "debug.tunables is DEBUG only"},
   {"title": "Standard (today) after the same turn", "wait": 1},

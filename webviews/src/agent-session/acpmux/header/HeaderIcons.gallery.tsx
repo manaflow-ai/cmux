@@ -128,14 +128,19 @@ export default componentEntry<Props>({
       play: style("contextual", [], expectShown("changes")),
     },
     "contextual-with-page": {
-      note: "Contextual once the chat starts a local page: the globe appears, and opens that page.",
+      note: "Contextual once the chat starts a local page: Changes alone. The globe always opens a blank browser (cmux#49640), so the page is the menu's Preview row.",
       props: withPage,
-      play: style("contextual", [], expectShown("changes", "browser")),
+      play: style("contextual", [], expectShown("changes")),
     },
     "contextual-terminal-open": {
       note: "Contextual with the chat's terminal open (from the menu or its shortcut): Terminal shows lit, so it can close it.",
       props: edited,
       play: style("contextual", ["splitRight"], expectShown("changes", "terminal")),
+    },
+    "contextual-browser-open": {
+      note: "Contextual with the chat's browser open: the globe shows lit, so it can close it.",
+      props: edited,
+      play: style("contextual", ["splitBrowserRight"], expectShown("changes", "browser")),
     },
     "contextual-asks": {
       note: "Contextual with an open ask: Needs You shows with its count.",
