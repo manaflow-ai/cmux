@@ -150,6 +150,9 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+/// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
+#[cfg(unix)]
+pub use joined_model_plane::install_github_source;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -225,6 +228,7 @@ pub mod pr_poller;
 pub mod pricing;
 pub mod probe_cleanup;
 pub mod probe_prompt;
+pub mod proc_exit;
 mod proc_start;
 pub mod prompt_cache_env;
 pub mod prompt_class;
@@ -303,6 +307,7 @@ mod single_shot_list_tests;
 mod source_scan_smoke;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
+pub(crate) mod ssh_forward_owners;
 pub mod stats;
 pub(crate) mod stderr;
 pub mod store;

@@ -88,7 +88,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
             *self.installed_sources(),
-            *self.copied_check_inputs(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -100,18 +100,6 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copyfile(source, target)
 
     @staticmethod
-    def copied_check_inputs():
-        """Every single-file source checks-copy-inputs names, so a new input line never leaves the fixture behind.
-
-        a37b6194810 added scripts/ci/generated_files_guard.py and ci_process_tree.py there and the stamp test read
-        a file the fixture never copied (FileNotFoundError); reading the inputs keeps the two in step. Folders
-        ("scripts/cmux-next/") stay out: their tree is copied from the list above.
-        """
-        text = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8")
-        sources = (line.split("->")[0].strip() for line in text.splitlines() if not line.lstrip().startswith("#"))
-        return sorted({source for source in sources if source and not source.endswith("/")})
-
-    @staticmethod
     def installed_sources():
         """Every scripts/ file the installer copies with `install`, so a new copy line never leaves the fixture behind.
 
@@ -120,6 +108,19 @@ class InstallGitHooksTests(unittest.TestCase):
         """
         text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
         return sorted(set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE)))
+
+    @staticmethod
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
+
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
+        """
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,

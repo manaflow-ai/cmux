@@ -161,10 +161,14 @@ extension IPhoneHostService {
     /// request by its fingerprint). It counts as the person's own Allow or Don't Allow, so a probe
     /// phone of the same account pairs with no gesture on this Mac. Only a request still waiting
     /// here with the same keys is answered, and only while the answering device is still paired.
+    /// `by` is this Mac's own device id when its owner answered with `cmux mobile pair-requests`
+    /// on this Mac (hostd's owner-only link socket, peer uid checked): the same OS user as this
+    /// app's Allow button.
     func answerFromPairedDevice(id: String, identityKey: String, approvalKey: String, allow: Bool, by: String) {
+        let byThisMac = state.deviceID == by
         guard let request = prompts.request(id: id), request.identityKey == identityKey,
-              request.approvalKey == approvalKey,
-              pairedStore.current?.hostdDevices.contains(where: { $0.id == by && $0.id != id }) == true
+              request.approvalKey == approvalKey, by != id,
+              byThisMac || pairedStore.current?.hostdDevices.contains(where: { $0.id == by }) == true
         else {
             Self.logger.info("phone \(id.prefix(8), privacy: .public) answer from \(by.prefix(8), privacy: .public) matched no waiting request")
             return
