@@ -144,6 +144,35 @@ public final class CloudSetup {
     /// The families the inference gateway of the team the start's machines are made in (the install's own) serves now (`cmux inference gateway status`'s `serves`), nil
     /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
     public var gateway: (@MainActor () async -> Set<String>?)?
+    /// The last read behind ``gateway``: the team it asked and the CLI's error code when it could not be read. A refusal
+    /// carries it (``Refusal/gateway``), so a refused start says which team's gateway it read and why it counted none (hq#19758).
+    public var gatewayRead: GatewayRead?
+
+    /// One `cmux inference gateway status --team` read (``CloudMoveCLI/inferenceGatewayStatus(team:token:apiOrigin:)``).
+    public struct GatewayRead: Equatable, Sendable {
+        /// The CLI ran past its bound (the read's 10 s).
+        public static let timedOut = "timed_out"
+        /// No install token, so no team to read.
+        public static let noInstallToken = "no_install_token"
+        public var team: String?
+        /// The agents it serves now; nil when unread.
+        public var serves: Set<String>?
+        /// Why it is unread: the CLI's `error.code` (`auth.no_token`, `api.unreachable`, ...), ``timedOut`` or ``noInstallToken``.
+        public var errorCode: String?
+
+        public init(team: String?, serves: Set<String>? = nil, errorCode: String? = nil) {
+            (self.team, self.serves, self.errorCode) = (team, serves, errorCode)
+        }
+
+        /// The gate's read of the install's own team gateway: the install token the app holds, with the owner API that issued it
+        /// (`apiOrigin`), goes to the CLI on stdin, so the read mints none (hq#19758: the CLI's own mint ran inside its 10 s bound).
+        public static func read(cli: CloudMoveCLI, identity: MacInstallIdentity, apiOrigin: URL) async -> GatewayRead {
+            guard let token = try? await identity.installToken(), let team = MacInstallIdentity.team(ofToken: token) else {
+                return GatewayRead(team: nil, errorCode: noInstallToken)
+            }
+            return await cli.inferenceGatewayStatus(team: team, token: token, apiOrigin: apiOrigin)
+        }
+    }
     /// Runs one of the card's ways in (Settings > Models' `cmux.settings.models.run` actions
     /// `connectChatGPT`, `claudeSetupToken`; `addKey` and `openSettings` open Settings > Models).
     public var run: (@MainActor (Action) async -> Void)?
@@ -193,6 +222,7 @@ public final class CloudSetup {
     /// this run found no model route (``unrouted(harness:model:account:)``).
     private func gatewayServes(_ family: String) async -> Bool {
         guard !unroutedGateway.contains(family) else { return false }
+        gatewayRead = nil // this read's own, never an earlier one's
         return await gateway?()?.contains(family) == true
     }
 
@@ -247,6 +277,8 @@ public final class CloudSetup {
         /// This Mac has a signed-in login of `family` that serves only this Mac (`serves_cloud: false`: the Claude
         /// Code or Codex CLI's own login), so the refusal says why that one does not count.
         public var localLogin: Bool
+        /// The team gateway read the refusal counted (``gatewayRead``); nil when none was read.
+        public var gateway: GatewayRead?
         /// The Settings > Cloud row that sets `family` up (``Action/settingsRow``).
         public var settingsRow: String { (family == "codex" ? Action.connectChatGPT : Action.setUpClaude).settingsRow ?? "" }
     }
@@ -258,7 +290,7 @@ public final class CloudSetup {
         let snapshot = routed(await read())
         guard case .setup(_, let model) = snapshot.choice(family: family, model: model, account: nil), !(await gatewayServes(family)) else { return nil }
         let local = snapshot.personal?.contains { $0.enabled && $0.signedIn && !$0.servesCloud && $0.families.contains(family) } == true
-        return Refusal(family: family, model: model, localLogin: local)
+        return Refusal(family: family, model: model, localLogin: local, gateway: gatewayRead)
     }
 
     /// The connections changed: every wait checks again.

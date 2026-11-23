@@ -309,15 +309,33 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
-    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s inference
-    /// gateway serves now, empty when it is off or offline; nil when the status could not be read (hq#15762). `team` is
-    /// the backend team the start's machines are made in (the install token's): a team's gateway serves only its own
-    /// machines, so the active team's would wave through a start no gateway serves.
-    public func inferenceGatewayServes(team: String) async -> Set<String>? {
-        guard let out = try? await output(["verb": "inference-gateway-status", "team": team]).stdout,
-              let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any], answer["ok"] as? Bool == true,
-              let serves = answer["serves"] as? [String] else { return nil }
-        return Set(serves)
+    /// `cmux inference gateway status --json --team <team> --token-stdin`'s `serves` (Rust `status_answer`): the agents `team`'s
+    /// inference gateway serves now, empty when it is off or offline; nil `serves` when the status could not be read, with the
+    /// CLI's `error.code` (or ``badAnswer``, ``CloudSetup/GatewayRead/timedOut``) (hq#15762). `team` is the backend team the start's
+    /// machines are made in (the install token's): a team's gateway serves only its own machines, so the active team's would wave
+    /// through a start no gateway serves. `token` is that install token, which the app already holds, with the API that issued
+    /// it (`apiOrigin`), on stdin: the CLI mints none, where its own `cmux auth token --team` (up to 25 s) ran inside this read's
+    /// 10 s bound and the gate refused a start the gateway served (hq#19758).
+    public func inferenceGatewayStatus(team: String, token: String, apiOrigin: URL) async -> CloudSetup.GatewayRead {
+        struct Call: Encodable { var verb = "inference-gateway-status"; var team: String; var held = true }
+        let held = (try? JSONSerialization.data(withJSONObject: ["access_token": token, "api_origin": apiOrigin.absoluteString])) ?? Data()
+        let out: Data
+        do {
+            out = try await output(Call(team: team), stdin: held).stdout
+        } catch let error as DaemonError {
+            if case .timedOut = error { return CloudSetup.GatewayRead(team: team, errorCode: CloudSetup.GatewayRead.timedOut) }
+            return CloudSetup.GatewayRead(team: team, errorCode: Self.badAnswer)
+        } catch {
+            return CloudSetup.GatewayRead(team: team, errorCode: Self.badAnswer)
+        }
+        guard let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any] else {
+            return CloudSetup.GatewayRead(team: team, errorCode: Self.badAnswer)
+        }
+        guard answer["ok"] as? Bool == true, let serves = answer["serves"] as? [String] else {
+            let code = (answer["error"] as? [String: Any])?["code"] as? String
+            return CloudSetup.GatewayRead(team: team, errorCode: code ?? Self.badAnswer)
+        }
+        return CloudSetup.GatewayRead(team: team, serves: Set(serves))
     }
 
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
