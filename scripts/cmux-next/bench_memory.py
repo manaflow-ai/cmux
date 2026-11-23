@@ -443,7 +443,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if SAMPLE_GPU:
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
-        time.sleep(measure)  # test script: the measured idle window
+        time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
         got = usage(pid)
@@ -2027,6 +2027,10 @@ def main():
         parser.error("--diff-tab takes one --workspaces count, --measure seconds and no --tabs")
     if args.diff_scroll and not args.diff_tab:
         parser.error("--diff-scroll needs --diff-tab")
+    if args.release_hidden_chats > 0 and args.socket:
+        # It turns agents.hiddenChats.discard on through settings.set, which writes the app's cmux.json: an attached
+        # app is the person's own, and it would keep discarding their hidden chats after the run.
+        parser.error("--release-hidden-chats needs an app that this run launches (no --socket)")
     if args.diff_tab and args.socket:
         # An attached app would keep the tab open on a repository that this run removes.
         parser.error("--diff-tab needs an app that this run launches (no --socket)")
@@ -2051,7 +2055,7 @@ def main():
         # are whole-Mac, so the app's own share is a window's reading minus this one (memory-agents-cron.py).
         sampler = GpuSampler(GPU_INTERVAL_S)
         sampler.start()
-        time.sleep(args.measure)  # test script: the no-app GPU window, before the launch
+        time.sleep(args.measure)  # sleep-ok: the no-app GPU baseline window, as long as the measured ones
         gpu_no_app = sampler.finish()
         print(f"== GPU with no app (whole Mac, ioreg, {args.measure:g} s): {json.dumps(gpu_no_app)}", flush=True)
     launched = scratch = None
@@ -2095,7 +2099,9 @@ def main():
         report["gpu_no_app"] = gpu_no_app
 
     def settle_and_sample(label, diff_tab=None):
-        time.sleep(args.settle)  # test script: let the app and its helpers go idle
+        # sleep-ok: the sample is defined as memory --settle s after the step (the report's settle_s); runs compare at the
+        # same age, so the duration is the measured condition, not a stand-in for an event.
+        time.sleep(args.settle)
         measure, scroller = args.measure, None
         if diff_tab is not None:
             # What the page says now decides the window: its timer is 4 s with the focus and 30 s without it.
