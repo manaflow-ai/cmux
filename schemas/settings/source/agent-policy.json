@@ -1392,6 +1392,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, new Codex chats run the binary in cmux's bundle folder instead of the installed CLI: only the person turns that on.",
+      "keys": [
+        "labs.bundledCodexAppServer"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
