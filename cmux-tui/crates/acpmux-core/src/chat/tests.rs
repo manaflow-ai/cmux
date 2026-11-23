@@ -1186,3 +1186,57 @@ fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
     let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
     assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
 }
+
+/// A Claude reply's image block of 40 KB settles out of line, and its row still names the
+/// image's size: the page reserves the box from the window alone, before it reads the blob, so a
+/// decoded image never changes a row's height (agent-transcript-clean-slate.md, "One row log").
+#[test]
+fn an_image_row_out_of_line_names_its_size_in_its_head() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path();
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend(640u32.to_be_bytes());
+    png.extend(160u32.to_be_bytes());
+    png.extend([8, 6, 0, 0, 0]);
+    png.resize(30_000, 7);
+    // Standard base64, so the test needs no encoder crate.
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut data = String::new();
+    for chunk in png.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..4 {
+            data.push(if i <= chunk.len() {
+                ABC[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    let lines = [
+        serde_json::json!({"type":"user","uuid":"u1","timestamp":"2026-11-23T00:00:00Z",
+            "message":{"role":"user","content":"draw it"}}),
+        serde_json::json!({"type":"assistant","uuid":"a1","timestamp":"2026-11-23T00:00:01Z",
+            "message":{"id":"m1","role":"assistant","content":[{"type":"image",
+                "source":{"type":"base64","media_type":"image/png","data":data}}],
+                "stop_reason":"end_turn"}}),
+    ];
+    let mut raw = Vec::new();
+    for line in &lines {
+        serde_json::to_writer(&mut raw, line).unwrap();
+        raw.push(b'\n');
+    }
+    fs::write(book.join("source.ndjson"), raw).unwrap();
+    let source = book.join("source.ndjson");
+    let config =
+        ChatConfig::new("chat", book, Harness::Claude).with_source_factory(Arc::new(move || {
+            source::FileSource::open(&source).map(|raw| Box::new(raw) as Box<dyn source::RawSource>)
+        }));
+    catch_up(config);
+    let image = rows(book)
+        .into_iter()
+        .map(|(_, text)| serde_json::from_slice::<serde_json::Value>(&text).unwrap())
+        .find(|row| row["kind"] == "image")
+        .expect("an image row");
+    assert!(image["blob"]["bytes"].as_u64().unwrap() > 16 * 1024, "{image}");
+    assert_eq!(image["body"], serde_json::json!({"h":160,"w":640}), "{image}");
+}
