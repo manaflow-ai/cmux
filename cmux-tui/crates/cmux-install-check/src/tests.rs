@@ -56,7 +56,7 @@ fn input(nightly: bool, canary: CanaryCase, recorded: Recorded, kept: &[KeptCase
         Recorded::No => {}
         Recorded::Passed => history.push(Entry { build: RUNNING.into(), result: Outcome::Passed }),
         Recorded::Refused => {
-            history.push(Entry { build: RUNNING.into(), result: Outcome::Refused })
+            history.push(Entry { build: RUNNING.into(), result: Outcome::Refused });
         }
     }
     for (index, case) in kept.iter().enumerate() {
@@ -70,14 +70,14 @@ fn input(nightly: bool, canary: CanaryCase, recorded: Recorded, kept: &[KeptCase
         match case {
             KeptCase::Unchecked => {}
             KeptCase::Refused => {
-                history.push(Entry { build: build.clone(), result: Outcome::Refused })
+                history.push(Entry { build: build.clone(), result: Outcome::Refused });
             }
             KeptCase::PassedPinned => {
                 history.push(Entry { build: build.clone(), result: Outcome::Passed });
                 pinned.push(build.clone());
             }
             KeptCase::PassedReads | KeptCase::PassedUnreadable => {
-                history.push(Entry { build: build.clone(), result: Outcome::Passed })
+                history.push(Entry { build: build.clone(), result: Outcome::Passed });
             }
             KeptCase::Running => {}
         }

@@ -17,7 +17,12 @@ typealias SidebarListViewComponents = SidebarListView
 
 final class SidebarListView: NSView {
     let model: SidebarModel
-    var displayed = SidebarLayout.empty
+    /// Every new layout (a reload, an apply, a drag's look) reads the row height for the pool's limit again
+    /// (`poolRowHeight`): a density change lays the rows out again, so the cached height never outlives it.
+    var displayed = SidebarLayout.empty { didSet { poolRowHeight = nil } }
+    /// The row height `fitToClip` sized the pool's limit with, read once per `displayed`: a window resize changes only
+    /// the clip's height, and reading `metrics` there (every density token) was most of `fitToClip` per resize step.
+    var poolRowHeight: CGFloat?
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
