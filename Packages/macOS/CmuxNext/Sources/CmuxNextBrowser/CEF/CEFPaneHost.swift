@@ -229,6 +229,8 @@ final class CEFPaneHost {
     @discardableResult
     func ensureCreated(_ tab: CEFTab) -> Bool { // perf-hot: 10ms new-tab (a new Chromium tab's browser)
         guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+        // `create_window` and `tab_add` navigate in the call: a profile's first tab waits for its ad blocker.
+        guard builtInExtensionsReady(for: tab) else { return false }
         switch window {
         case .none:
             let request = runtime.makeRequestToken()
@@ -376,6 +378,27 @@ final class CEFPaneHost {
         let waiting = tabs.filter { $0.browserID == nil && $0.isCreationPending }
         for tab in waiting { tab.isCreationPending = false }
         endOfTurn { [weak self] in self?.recreateWindow(for: waiting) }
+    }
+
+    /// Whether `tab`'s browser may be asked for now; false: it waits for its profile's built-in extensions
+    /// (``CEFBuiltInExtensionLoader``) and asks again, with the pane's other waiting tabs, once they answered
+    /// (out of that answer's delivery). No page of the profile loads before its ad blocker.
+    private func builtInExtensionsReady(for tab: CEFTab) -> Bool {
+        let ready = runtime.builtInLoader.ready(for: tab, in: self) { [weak self] in
+            self?.endOfTurn { [weak self] in self?.builtInExtensionsAnswered() }
+        }
+        // A tab asked again while it waits (a show, a move to another pane) adds one more resume; the
+        // first one asks for every waiting tab, the rest find none.
+        tab.awaitsBuiltInExtensions = !ready
+        return ready
+    }
+
+    /// The profile's built-in extensions answered: the tabs that waited ask for their browsers, the shown one first.
+    private func builtInExtensionsAnswered() {
+        let waiting = tabs.filter(\.awaitsBuiltInExtensions)
+        guard !waiting.isEmpty else { return }
+        for tab in waiting { tab.awaitsBuiltInExtensions = false }
+        recreateWindow(for: waiting)
     }
 
     private func recreateWindow(for waiting: [CEFTab]) {

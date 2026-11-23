@@ -199,8 +199,10 @@ final class CEFRuntime {
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
-    /// True when this Chromium started with the built-in uBlock Origin.
+    /// True when this Chromium runs the built-in uBlock Origin (loaded at start, or at each profile's first tab).
     private(set) var builtInAdBlockerLoaded = false
+    /// Loads the built-in extensions at each profile's first tab, not at Chromium's start (``CEFBuiltInExtensionLoader``).
+    private(set) lazy var builtInLoader = CEFBuiltInExtensionLoader(clock: clock)
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
@@ -646,11 +648,15 @@ final class CEFRuntime {
         // main thread (`prep`): no disk read here.
         let builtInPlan = prep.plan(CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting()),
                                     resources: Bundle.main.resourceURL)
+        // The built-in uBlock Origin loads at each profile's first tab when the fork can (decision d-e4f491bbb4:
+        // no extension renderer at idle), else at start through --load-extension, as before.
+        let placement = builtInLoader.begin(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported?() == 1
+                                                && shim.extLoadCommandLine != nil)
         var switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
-            builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
+            builtInExtensions: placement == .atStart ? builtInPlan.folders : [], keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
             asyncLiveResize: true,
@@ -668,8 +674,8 @@ final class CEFRuntime {
         // What this launch actually used, for `debug.cef` (a bench arm reads it to prove its switch landed).
         launchSwitches = switchSet.noFrameRateLimit ? CEFFramePacing.switches.sorted() : []
         noteStartupProfile(switchSet)
-        builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
-        logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
+        builtInAdBlockerLoaded = placement != .nothing
+        logger.notice("built-in extensions: \(builtInPlan.folders.count, privacy: .public) \(placement.rawValue, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
         // Chrome enterprise policies (URLBlocklist, ExtensionInstallForcelist, proxy, ...) Chromium enforces itself.

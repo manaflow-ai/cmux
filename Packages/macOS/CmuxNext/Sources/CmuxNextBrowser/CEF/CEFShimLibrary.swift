@@ -148,6 +148,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetPinned: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
     let extOpenOptions: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let extLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    /// 1 when the fork loads a built-in extension into one profile later (`CEFBuiltInExtensionLoader`); nil in a shim without it.
+    let extLoadLaterSupported: (@convention(c) () -> Int32)?
+    /// Starts a built-in extension's load into the profile of a context key; one CMUX_SHIM_REPLY under the reply id answers it.
+    let extLoadCommandLine: (@convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32)?
     let extCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let extCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32
@@ -430,6 +434,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extSetPinned = try r("cmux_shim_ext_set_pinned")
         extOpenOptions = try r("cmux_shim_ext_open_options")
         extLoadUnpacked = try r("cmux_shim_ext_load_unpacked")
+        extLoadLaterSupported = r.optional("cmux_shim_ext_load_later_supported")
+        extLoadCommandLine = r.optional("cmux_shim_ext_load_command_line")
         extCommands = try r("cmux_shim_ext_commands")
         extCommandRun = try r("cmux_shim_ext_command_run")
         tabMoveToWindow = try r("cmux_shim_tab_move_to_window")

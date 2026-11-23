@@ -575,6 +575,14 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_move_pinned(int browser_id, const char* exten
 CMUX_SHIM_EXPORT int cmux_shim_ext_set_pinned(int browser_id, const char* extension_id, int pinned);
 CMUX_SHIM_EXPORT int cmux_shim_ext_open_options(int browser_id, const char* extension_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_unpacked(int browser_id, const char* path);
+// Built-in extensions at a profile's first tab (cmux_ext_load_command_line_async, additive in the
+// fork; 0 on a fork without it). 1 when the fork has the call.
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
+// Loads the unpacked extension at `path` into the persistent profile whose request context has
+// `profile_cache_path`, as --load-extension does at start (not kept for the next start). Returns 1
+// when the load started; then exactly one CMUX_SHIM_REPLY under `reply` follows, a = 1 when the
+// extension is in (its background page through its first load), 0 when it failed.
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
 CMUX_SHIM_EXPORT char* cmux_shim_ext_commands(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_ext_command_run(int browser_id, const char* extension_id, const char* command);
 CMUX_SHIM_EXPORT int cmux_shim_tab_move_to_window(int browser_id, int window_browser_id, int index);

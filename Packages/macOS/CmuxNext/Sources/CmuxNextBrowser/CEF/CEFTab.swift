@@ -105,6 +105,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// manual clock.
     @ObservationIgnored var settleTimer = DemandTimer(owner: "CEFTab.settle")
     @ObservationIgnored var isCreationPending = false
+    /// Waits for its profile's built-in extensions before its browser is asked for (``CEFBuiltInExtensionLoader``).
+    @ObservationIgnored var awaitsBuiltInExtensions = false
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
