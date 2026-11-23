@@ -144,9 +144,18 @@ impl Sink {
     }
 }
 
+/// What a granted ticket does to the auto-off timer once the app's hub write succeeds
+/// (`agent.applied`): nothing happens to it on the decision alone.
+enum Pending {
+    Arm(Armed),
+    Cancel,
+}
+
 /// The daemon's agent-sharing state: open tickets, the auto-off timer and the decision log.
 pub(crate) struct AgentShare {
     tickets: Mutex<HashMap<String, Ticket>>,
+    /// Granted tickets whose change the app has not reported made yet, by ticket id.
+    pending: Mutex<HashMap<String, (Pending, Instant)>>,
     auto_off: Arc<AutoOff>,
     sink: Arc<Sink>,
     ttl: Duration,
@@ -196,7 +205,14 @@ impl AgentShare {
                 "idle_minutes": armed.idle.as_secs() / 60,
             }));
         }));
-        Self { tickets: Mutex::new(HashMap::new()), auto_off, sink, ttl, idle }
+        Self {
+            tickets: Mutex::new(HashMap::new()),
+            pending: Mutex::new(HashMap::new()),
+            auto_off,
+            sink,
+            ttl,
+            idle,
+        }
     }
 
     /// The call the timer makes to turn this Mac's sharing off (set once, by the daemon).
@@ -261,7 +277,9 @@ impl AgentShare {
     }
 
     /// `agent.redeem {ticket, allowed, account, this_device: {id, name}, target?: {id, name,
-    /// account}}` from the verified app: whether the change runs with no dialog.
+    /// account}, already_shared?}` from the verified app: whether the change runs with no dialog.
+    /// The timer waits for `agent.applied`: a hub write that fails arms nothing, and a share the
+    /// person already had on (`already_shared`) is never put on the agent's countdown.
     ///
     /// `{dialog: false, action, on, agent, device, target?, idle_minutes, notice}`: the app makes
     /// it with no dialog. `{dialog: true, reason}`: the app asks the person, as with no ticket.
@@ -348,17 +366,32 @@ impl AgentShare {
             "account": account,
             "via": "daemon",
         }));
-        if target.is_none() {
-            if on {
-                self.auto_off.arm(Armed {
-                    actor: ticket.actor.clone(),
-                    device: this_device.clone(),
-                    idle,
-                    deadline: None,
-                });
-            } else {
-                self.auto_off.cancel();
+        let already_shared = params.get("already_shared").and_then(Value::as_bool) == Some(true);
+        let pending = match (target.is_none(), on) {
+            (true, true) if !already_shared => Some(Pending::Arm(Armed {
+                actor: ticket.actor.clone(),
+                device: this_device.clone(),
+                idle,
+                deadline: None,
+            })),
+            (true, false) => Some(Pending::Cancel),
+            _ => None,
+        };
+        if let Some(pending) = pending {
+            let mut waiting = lock(&self.pending);
+            let ttl = self.ttl;
+            waiting.retain(|_, (_, granted)| granted.elapsed() < ttl);
+            while waiting.len() >= MAX_TICKETS {
+                let Some(oldest) = waiting
+                    .iter()
+                    .min_by_key(|(_, (_, granted))| *granted)
+                    .map(|(id, _)| id.clone())
+                else {
+                    break;
+                };
+                waiting.remove(&oldest);
             }
+            waiting.insert(id.clone(), (pending, Instant::now()));
         }
         let notice = self.sink.notice(json!({
             "kind": if on { "shared" } else { "unshared" },
@@ -378,6 +411,36 @@ impl AgentShare {
             "idle_minutes": idle.as_secs() / 60,
             "notice": notice,
         }))
+    }
+
+    /// `agent.applied {ticket, ok}` from the verified app: the hub write for a granted ticket
+    /// finished. Only a made change touches the timer: on arms it (unless the person's share was
+    /// already on), off cancels it; a failed write leaves the timer as it was.
+    pub(crate) fn applied(&self, caller: Caller, params: &Value) -> Result<Value, Refused> {
+        if caller != Caller::App {
+            return Err(refused(
+                "origin.forbidden",
+                "only the cmux app reports its own hub writes",
+            ));
+        }
+        let id = params.get("ticket").and_then(Value::as_str).unwrap_or_default();
+        let ok = params.get("ok").and_then(Value::as_bool) == Some(true);
+        let pending = lock(&self.pending)
+            .remove(id)
+            .filter(|(_, granted)| granted.elapsed() < self.ttl)
+            .map(|(pending, _)| pending);
+        let armed = match pending {
+            Some(Pending::Arm(armed)) if ok => {
+                self.auto_off.arm(armed);
+                true
+            }
+            Some(Pending::Cancel) if ok => {
+                self.auto_off.cancel();
+                false
+            }
+            _ => false,
+        };
+        Ok(json!({"armed": armed}))
     }
 
     /// Sharing went off through the daemon (`screen.share {on: false}`): the timer has nothing

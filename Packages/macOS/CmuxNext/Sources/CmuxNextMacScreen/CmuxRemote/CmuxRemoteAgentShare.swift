@@ -16,6 +16,8 @@ nonisolated struct CmuxRemoteAgentGrant: Sendable {
     var notice: CmuxNextDaemon.JSONValue
     /// The change the ticket was minted for (`share` or `unshare`), as the daemon bound it.
     var action: String = ""
+    /// The redeemed ticket: `agent.applied` names it once the hub write is done.
+    var ticket: String = ""
 }
 
 @MainActor
@@ -34,6 +36,8 @@ enum CmuxRemoteAgentShare {
             "account": .string(hub.me?.userId ?? ""),
             "this_device": .object(["id": .string(hub.identity.id), "name": .string(hub.thisDevice?.name ?? hub.deviceName)]),
         ]
+        // A share the person already has on stays theirs: the daemon puts no agent countdown on it.
+        if target == nil, hub.thisDevice?.macScreenShared == true { params["already_shared"] = .bool(true) }
         if let target {
             // Listed among this account's devices: the same account (the hub lists no other).
             params["target"] = .object(["id": .string(target.id), "name": .string(target.name), "account": .string(hub.me?.userId ?? "")])
@@ -49,7 +53,14 @@ enum CmuxRemoteAgentShare {
         guard answer["dialog"]?.boolValue == false else { return nil }
         return CmuxRemoteAgentGrant(session: answer["agent"]?["session"]?.stringValue ?? "",
                                     label: answer["agent_label"]?.stringValue ?? "",
-                                    notice: answer["notice"] ?? .null, action: answer["action"]?.stringValue ?? "")
+                                    notice: answer["notice"] ?? .null, action: answer["action"]?.stringValue ?? "", ticket: ticket)
+    }
+
+    /// Tells the daemon whether the granted change reached the hub: only a made change arms (or
+    /// cancels) the agent's auto-off timer.
+    static func applied(_ grant: CmuxRemoteAgentGrant, ok: Bool, remote: CmuxRemoteService) async {
+        guard remote.started, !grant.ticket.isEmpty else { return }
+        _ = try? await remote.call("agent.applied", .object(["ticket": .string(grant.ticket), "ok": .bool(ok)]))
     }
 
     /// The person turned sharing on or off themselves: an agent's share stops counting down.

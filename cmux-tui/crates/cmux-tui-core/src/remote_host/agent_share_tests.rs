@@ -71,8 +71,50 @@ fn the_owners_agent_with_the_permission_on_passes_with_no_dialog() {
     assert_eq!(rows[0]["account"], "user-a");
     // The ticket is single-use: a second redeem asks the person.
     assert_eq!(redeem(&share, &id, true)["dialog"], true);
-    // An agent's share is armed to turn itself off.
+    // The decision alone arms nothing; the made change arms the agent's countdown.
+    assert_eq!(share.status()["active"], false);
+    assert_eq!(applied(&share, &id, true)["armed"], true);
     assert_eq!(share.status()["active"], true);
+}
+
+fn applied(share: &AgentShare, ticket: &str, ok: bool) -> Value {
+    share.applied(Caller::App, &json!({"ticket": ticket, "ok": ok})).expect("the app reports")
+}
+
+#[test]
+fn agent_share_arms_only_after_a_made_change_and_never_on_the_persons_share() {
+    let (share, _) = share(Duration::from_secs(900));
+    // A failed hub write arms nothing.
+    let failed = ticket(&share, "share");
+    redeem(&share, &failed, true);
+    assert_eq!(applied(&share, &failed, false)["armed"], false);
+    assert_eq!(share.status()["active"], false);
+    // An agent repeating share on a Mac the person already shares leaves it uncounted.
+    let repeat = ticket(&share, "share");
+    share
+        .redeem(
+            Caller::App,
+            &json!({"ticket": repeat, "allowed": true, "account": "user-a", "already_shared": true,
+                    "this_device": {"id": "dev-studio", "name": "Studio"}}),
+        )
+        .unwrap();
+    assert_eq!(applied(&share, &repeat, true)["armed"], false);
+    assert_eq!(share.status()["active"], false);
+    // A report is single-use, and only the app makes it.
+    assert_eq!(applied(&share, &repeat, true)["armed"], false);
+    assert!(share.applied(AGENT, &json!({"ticket": repeat, "ok": true})).is_err());
+    // An unshare whose write failed keeps the agent's countdown; a made one cancels it.
+    let on = ticket(&share, "share");
+    redeem(&share, &on, true);
+    applied(&share, &on, true);
+    let off = ticket(&share, "unshare");
+    redeem(&share, &off, true);
+    applied(&share, &off, false);
+    assert_eq!(share.status()["active"], true);
+    let off = ticket(&share, "unshare");
+    redeem(&share, &off, true);
+    applied(&share, &off, true);
+    assert_eq!(share.status()["active"], false);
 }
 
 #[test]
@@ -248,7 +290,9 @@ fn auto_off_is_cancelled_when_the_person_takes_over() {
         *count.lock().unwrap() += 1;
         Ok(())
     }));
-    redeem(&share, &ticket(&share, "share"), true);
+    let id = ticket(&share, "share");
+    redeem(&share, &id, true);
+    applied(&share, &id, true);
     assert_eq!(share.person(Caller::App).unwrap()["cancelled"], true);
     let (timer, fired) = timer();
     timer.arm(armed(Duration::from_millis(40)));
@@ -267,7 +311,9 @@ fn auto_off_turns_sharing_off_and_writes_its_row_and_notice() {
         let _ = sender.lock().unwrap().send(());
         Ok(())
     }));
-    redeem(&share, &ticket(&share, "share"), true);
+    let id = ticket(&share, "share");
+    redeem(&share, &id, true);
+    applied(&share, &id, true);
     turned_off.recv_timeout(Duration::from_secs(10)).expect("the timer turns sharing off");
     // The row and the notice follow the call in the timer thread; the next status sees them.
     let deadline = std::time::Instant::now() + Duration::from_secs(10);

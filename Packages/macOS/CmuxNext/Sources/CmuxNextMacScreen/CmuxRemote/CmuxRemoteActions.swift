@@ -184,7 +184,7 @@ extension CmuxRemoteActionEnvironment {
                 return .followUp {
                     if let ticket, action != "access",
                        let grant = try await CmuxRemoteAgentShare.redeem(ticket, hub: hub, remote: remote) {
-                        // The daemon decided (and arms its timer) for the ticket's own change: make that one.
+                        // The daemon decided for the ticket's own change: make that one (its timer waits for the write).
                         guard grant.action == action else {
                             throw ControlError.invalidParams("the agent ticket is for \(grant.action), not \(action)")
                         }
@@ -206,7 +206,13 @@ extension CmuxRemoteActionEnvironment {
                               window: @escaping @MainActor () -> NSWindow?,
                               hubHost: @escaping @MainActor () -> MacScreenHubHost?) async throws -> String {
         let name = hub.thisDevice?.name ?? hub.deviceName
-        try await apply(action, device: "", scope: nil, hub: hub, remote: remote, agent: HubAgentActor(session: grant.session, device: name))
+        do {
+            try await apply(action, device: "", scope: nil, hub: hub, remote: remote, agent: HubAgentActor(session: grant.session, device: name))
+        } catch {
+            await CmuxRemoteAgentShare.applied(grant, ok: false, remote: remote)
+            throw error
+        }
+        await CmuxRemoteAgentShare.applied(grant, ok: true, remote: remote)
         announce(grant, hub: hub, remote: remote, window: window, hubHost: hubHost)
         return name
     }

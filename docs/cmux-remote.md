@@ -172,7 +172,8 @@ the app and not a page) turns sharing on or off with no dialog:
    `shared`/`unshared` row names the agent too. The app posts a notice ("Studio is now shared",
    with Turn Off) and the menu bar item says an agent shared this Mac until sharing goes off.
 4. Sharing an agent turned on turns itself off after `remote.agentShareIdleMinutes` (default 15)
-   minutes with no viewer: a daemon timer armed on the share, held while a viewer is connected (the
+   minutes with no viewer: a daemon timer armed once the app reports the hub write made
+   (`agent.applied`; never on a failed write, nor on a share the person already had on), held while a viewer is connected (the
    host's `busy`), re-armed when the last viewer leaves, and cancelled when the person turns sharing
    on or off (`agent.person`). It turns sharing off through cmux Remote's host session.
 

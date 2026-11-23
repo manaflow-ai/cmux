@@ -11,10 +11,11 @@
 //!   Use stopped, its cursor spotlit). Raising (sharing on, a viewer to Ask
 //!   from None, View or Full, an agent's Computer Use resumed) needs the
 //!   verified app: an agent in a terminal never grants a device access to
-//!   this Mac, nor lets a stopped agent act again. Three methods are the
+//!   this Mac, nor lets a stopped agent act again. Four methods are the
 //!   daemon's own, never the host's (`remote_host/agent_share.rs`):
 //!   `agent.ticket` (an agent asks for a single-use ticket for one share or
-//!   unshare), `agent.redeem` and `agent.person` (the verified app only): with
+//!   unshare), `agent.redeem`, `agent.applied` and `agent.person` (the verified
+//!   app only): with
 //!   the account's "My agents can turn screen sharing and control on my
 //!   machines" on, the app makes the agent's change with no dialog; the
 //!   permission itself is never a ticket.
@@ -171,6 +172,7 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
     let agent_answer = match method {
         "agent.ticket" => Some(agents.ticket(caller.agent_kind(), &params)),
         "agent.redeem" => Some(agents.redeem(caller.agent_kind(), &params)),
+        "agent.applied" => Some(agents.applied(caller.agent_kind(), &params)),
         "agent.person" => Some(agents.person(caller.agent_kind())),
         _ => None,
     };
