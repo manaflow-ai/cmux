@@ -6,9 +6,17 @@ import { componentEntry } from "../../../gallery/format";
 import { ChatSummaryLine, type ChatSummary } from "./ChatSummaryLine";
 import { ThreadTitle } from "./ThreadTitle";
 
-function SummaryHeaderGallery({ title, summary }: { title: string; summary: ChatSummary | null }) {
+function SummaryHeaderGallery({
+  title,
+  summary,
+  width,
+}: {
+  title: string;
+  summary: ChatSummary | null;
+  width?: number;
+}) {
   return (
-    <div className="acpmux-shell">
+    <div className="acpmux-shell" style={width ? { width, maxWidth: "100%" } : undefined}>
       <header className="acpmux-header">
         <div className="acpmux-header-status-slot">
           <span className="acpmux-header-status-content">
@@ -21,13 +29,13 @@ function SummaryHeaderGallery({ title, summary }: { title: string; summary: Chat
   );
 }
 
-export default componentEntry<{ title: string; summary: ChatSummary | null }>({
+export default componentEntry<{ title: string; summary: ChatSummary | null; width?: number }>({
   id: "agent-pane.chat-summary",
   title: "Chat summary and next action",
   area: "Agent pane",
   pane: true,
   height: 120,
-  widths: { w300: 300, w420: 420, w600: 600, w1100: 1100 },
+  widths: { narrow: 300, normal: 600, wide: 1100 },
   anchors: [{ selector: ".acpmux-header" }],
   covers: ["agent-session/acpmux/header/ChatSummaryLine.tsx#ChatSummaryLine"],
   styles: () => Promise.all([import("../styles.css"), import("./header.css")]),
@@ -46,6 +54,14 @@ export default componentEntry<{ title: string; summary: ChatSummary | null }>({
     "no-next": {
       props: { title: "Picnic menu", summary: { text: "The vegetarian picnic menu is final." } },
       note: "Nothing left to do: no arrow.",
+    },
+    "at-420": {
+      props: {
+        title: "Investigate the flaky reconnect path",
+        width: 420,
+        summary: { text: "Found the reconnect race in the link controller.", next: "Review the fix" },
+      },
+      note: "420px: the title keeps its room; the phrase shows 12+ characters with one ellipsis or is dropped.",
     },
     long: {
       props: {
