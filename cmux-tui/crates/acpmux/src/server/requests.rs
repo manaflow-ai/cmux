@@ -3090,6 +3090,9 @@ async fn dispatch_request_with_identity(
             }
             reply
         }
+        name if super::account_sign_in::METHODS.contains(&name) => {
+            heap(|| super::account_sign_in::handle(hub, conn.origin, name, &params)).await
+        }
         method::MUX_ACCOUNTS | method::MUX_ACCOUNT_SET | method::MUX_ACCOUNT_USAGE => {
             let reply = heap(|| super::accounts::handle(hub, conn.origin, m, &params)).await;
             if reply.is_ok() && super::connections::changes_connections(m) {
@@ -3299,7 +3302,11 @@ async fn dispatch_request_with_identity(
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
                 method::MUX_INBOX_THREAD => {
                     let mark = params.get("markRead").and_then(Value::as_bool).unwrap_or(false);
-                    Ok(hub.inbox_thread(&s, thread()?, mark))
+                    let (hub, thread) = (Arc::clone(hub), thread()?.to_owned());
+                    // Held messages that left memory are read from the log (`inbox_surge.rs`).
+                    tokio::task::spawn_blocking(move || hub.inbox_thread_whole(&s, &thread, mark))
+                        .await
+                        .map_err(|e| RpcError::internal(format!("inbox read stopped: {e}")))?
                 }
                 _ => {
                     let text = text_of("text")

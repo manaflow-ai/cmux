@@ -18,6 +18,7 @@
 //! as a theme file: applying it changes nothing.
 
 mod colors;
+pub mod contrast;
 pub mod render;
 pub mod two_tone;
 
@@ -647,5 +648,7 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     })
 }
 
+#[cfg(test)]
+mod contrast_tests;
 #[cfg(test)]
 mod tests;

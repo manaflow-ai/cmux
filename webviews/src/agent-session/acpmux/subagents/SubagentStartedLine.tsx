@@ -1,4 +1,5 @@
-import { Fragment, useContext, type ReactNode } from "react";
+import { Fragment, useContext, useState, type ReactNode } from "react";
+import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxRow } from "../model";
 import { usePaneLanguage, useT } from "../i18n";
 import { AgentTag } from "../conversation/AgentTag";
@@ -10,6 +11,7 @@ import { useSenderIconLook } from "./senderIconLook";
 import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import { subagentTaskLabel } from "./subsessions";
 import { SubagentChipPreview } from "./SubagentPreview";
+import { STARTED_CROWD_FROM, startedLineCrowd } from "./startedLineCrowd.experiment";
 import "./SubagentStartedLine.css";
 import { intl } from "../../../ui/intl";
 
@@ -20,6 +22,7 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
   const pane = useContext(SubagentPaneContext);
   const harness = useContext(SubagentHarnessContext);
   const { badge } = useSenderIconLook();
+  const [crowdArm] = useState(() => experimentArm(startedLineCrowd));
   const agents = row.subagents ?? [];
   if (!agents.length) return null;
   const open = pane ?? nav;
@@ -34,6 +37,68 @@ export function SubagentStartedLine({ row }: { row: AcpmuxRow }) {
       fallback={SUBAGENT_FALLBACK}
     />
   );
+  // Three or more at once (startedLineCrowd.experiment.ts; Leo, 2026-11-22: "this is so fucking
+  // awkward as ui"): seven chips on one line were a letter or two each, so the crowd reads as a count.
+  if (agents.length >= STARTED_CROWD_FROM && crowdArm !== "chips") {
+    const sentence = t("subagents.startedLine", { name: list.format(names) });
+    // Each icon names its subagent under the pointer and opens it, as the chips did.
+    const face = (index: number) => {
+      const agent = agents[index]!;
+      return (
+        <SubagentChipPreview key={agent.id} agent={agent} name={names[index]}>
+          <button
+            type="button"
+            className="cv-subagent-started__face"
+            aria-label={t("subagents.open", { name: names[index]! })}
+            disabled={!open}
+            onClick={open && (() => open(agent.id))}
+          >
+            {identity(index)}
+          </button>
+        </SubagentChipPreview>
+      );
+    };
+    const counted = t("subagents.startedLine", { name: t("subagents.count", { n: agents.length }) });
+    const [crowdBefore, crowdAfter] =
+      crowdArm === "first" ? t("subagents.startedLine", { name: "\u0000" }).split("\u0000") : [counted, undefined];
+    return (
+      <div className="cv-tools">
+        <TranscriptActivityRow
+          icon={face(0)}
+          className="cv-subagent-started"
+          attributes={{ "data-crowd": crowdArm }}
+          ariaLabel={sentence}
+          chevron={false}
+          before={
+            crowdArm === "first" ? (
+              <>
+                {crowdBefore}
+                <SubagentChipPreview agent={agents[0]!} name={names[0]}>
+                  <AgentTag
+                    name={names[0]!}
+                    className={!crowdBefore ? "cv-subagent-started__lead" : undefined}
+                    ariaLabel={t("subagents.open", { name: names[0]! })}
+                    onClick={open && (() => open(agents[0]!.id))}
+                  />
+                </SubagentChipPreview>{" "}
+                <span className="cv-subagent-started__more">{t("tools.more", { n: agents.length - 1 })}</span>
+              </>
+            ) : (
+              <>
+                {crowdArm === "faces" && (
+                  <span className="cv-subagent-started__faces">
+                    {agents.slice(1).map((_, index) => face(index + 1))}
+                  </span>
+                )}
+                {crowdBefore}
+              </>
+            )
+          }
+          after={crowdAfter || undefined}
+        />
+      </div>
+    );
+  }
   let agentIndex = 0;
   const taggedNames: ReactNode[] = [];
   for (const [index, part] of list.formatToParts(names).entries()) {
