@@ -723,18 +723,22 @@ async fn dispatch_brief(
         let row = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,
             "target":selected,"host":if forwarded {params.get("host").cloned().unwrap_or(json!("local"))}else{json!("local")},"stopCondition":stop,"fromSession":conn.caller()});
         if cancelling {
-            return Box::pin(workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
+            return heap(|| workflow_dispatch::cancel(hub, conn, &params, &id, row)).await;
         }
-        return Box::pin(workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
+        return heap(|| workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
-    let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
-            Ok(created) => created,
-            Err(error) => {
-                hub.briefs.release(&id);
-                return Err(error);
-            }
-        };
+    // On a task of its own (`request_cancel::on_own_task`): served on this stack, the nested
+    // session/new overflowed a 2 MiB worker.
+    let made = crate::request_cancel::on_own_task(nested_session_new(hub, conn, new_params, None))
+        .await
+        .unwrap_or_else(|e| Err(RpcError::internal(format!("dispatch session/new: {e}"))));
+    let created = match made {
+        Ok(created) => created,
+        Err(error) => {
+            hub.briefs.release(&id);
+            return Err(error);
+        }
+    };
     let sid = created
         .get("sessionId")
         .and_then(Value::as_str)
@@ -1188,6 +1192,22 @@ fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
     path.is_file()
 }
 
+/// A dispatch's nested session/new (with the durable dispatch's fixed id), for
+/// `request_cancel::on_own_task`. A plain fn, not inside the async fn that awaits it: that
+/// fn's future contains this one, and only outside it can the compiler prove this one `Send`.
+fn nested_session_new(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: Value,
+    fixed_id: Option<String>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, RpcError>> + Send>> {
+    let (hub, conn) = (hub.clone(), conn.clone());
+    Box::pin(async move {
+        dispatch_request_with_identity(&hub, &conn, method::SESSION_NEW, params, None, fixed_id)
+            .await
+    })
+}
+
 pub(super) async fn dispatch_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -1305,9 +1325,9 @@ async fn dispatch_request_with_identity(
         method::CHAT_FIX_FROM_LINK_PREPARE => {
             super::fix_from_link::handle(hub, conn, params, true).await
         }
-        // Boxed: dispatch_brief's future is large, and inline it widens every request's future
-        // (a debug test thread's stack overflowed on an unrelated request).
-        method::MUX_DISPATCH => Box::pin(dispatch_brief(hub, conn, params)).await,
+        // On the heap (`heap_future.rs`): dispatch_brief's future is large, and built in this frame
+        // it widens every request's poll frame; a 2 MiB worker overflowed serving it (request_stack).
+        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
