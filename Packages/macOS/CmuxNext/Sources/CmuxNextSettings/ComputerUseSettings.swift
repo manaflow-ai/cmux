@@ -39,7 +39,7 @@ public nonisolated enum ComputerUseMode: String, Sendable, Hashable, CaseIterabl
 /// - `showCursor` (on): the blue agent cursor shows where an agent acts.
 /// - `cursorTag` (`hover`): when an agent cursor shows its tag (the agent's workspace name, or a tag
 ///   the agent set): while the person's pointer is over it, always, or never.
-/// - `settle` (`adaptive`): what the engine waits for after each action before it looks again.
+/// - `settle` (`openai`: look at once; `adaptive` waits for the screen to settle): what the engine waits for after each action before it looks again.
 /// - `allowForeground` (off): agents may send input that takes focus or moves the real pointer.
 /// - `livePreview` (on): a chat shows a small live view of the app its agent uses.
 /// - `menus` (`open`): agents may open pop-up and context menus of background apps (`refuse`: never).

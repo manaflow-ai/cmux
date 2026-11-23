@@ -275,7 +275,7 @@
 /* The lens draws the stack as one glass: a seam between the queue, its fold, the strip and the card
    bends nothing (--glass-join, ui/glass/lens.ts). By default the queue stands on the strip or the
    card; under the tray it tucks under the card, which draws its whole rim over it. */
-:root:not([data-top-strip]) .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+:root:not([data-top-strip]) .acpmux-composer[data-queue] > .acpmux-composer-box {
   /* glass-opaque-allow: a keyword (top, bottom, both) the lens reads, not a color */
   --glass-join: top;
 }
@@ -322,7 +322,7 @@
 /* The rim is a layer of its own only on glass: Reduce Transparency keeps the one opaque ring and
    shadow, while both composer cards use the shared glass material on every window. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-reduce-transparency], [data-glass="off"]) :is(.acpmux-composer-box, .acpmux-composer-box:has(:focus-visible)),
+  :root:not([data-reduce-transparency], [data-glass="off"]) :is(.acpmux-composer-box, .acpmux-composer-box[data-focused]),
   :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"]) .nt-composer-surface {
     box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
@@ -330,7 +330,7 @@
      adds only the rim and the shadow. (0,6,0) here outranks the rule above whatever the stylesheet
      order. */
   :root:not([data-reduce-transparency], [data-glass="off"]):not([data-top-strip])
-    .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+    .acpmux-composer[data-queue] > .acpmux-composer-box {
     box-shadow: var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
 }
@@ -713,19 +713,25 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-composer-surface) {
   --acpmux-composer-edge-focus: transparent;
 }
-.acpmux-composer-box:has(:focus-visible),
-.nt-box:has(:focus-visible),
-body:has(.nt-box :focus-visible) .nt-popover {
+/* Focus-visible in a card is the card owner's `data-focused` (ComposerBox.tsx, NewTabScreen.tsx;
+   focusVisibleMark.ts), and the New Tab popover's `nt-popover-focused`, never a `:has(:focus-visible)`
+   on the card, the form, the dock or `body`: those were checked again for every node a keystroke or a
+   streamed chunk inserted under them (transcript-motion-model step 7, I8). A repeated attribute or
+   class keeps the specificity of the `:has()` it replaced, so the cascade is as it was. */
+.acpmux-composer-box[data-focused],
+.nt-box[data-focused],
+body .nt-popover.nt-popover-focused.nt-popover-focused {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
 /* The stack is one outline: a focused composer lifts the edge of every part joined to it (the Goal
    banner, the running tray, the queue, attachment tiles) with the card's, never the card's alone
-   (user 2026-11-20, "ensure all border colors are the same"). The dock is the `:has()` subject, as
-   bottomStack.css's rules are, never the pane. Under Increase Contrast, an inactive page and
+   (user 2026-11-20, "ensure all border colors are the same"). The dock's `data-focused` is written by
+   its owner (App.tsx) as the composer reports focus-visible in its card with no shell prompt
+   (Composer.tsx `onFocusEdge`); it is repeated to the `:has()`'s specificity. Under Increase Contrast, an inactive page and
    appearance.borders none the edge rests (the rules above). */
 @media not (prefers-contrast: more) {
   :root:not([data-page-inactive], [data-borders="none"])
-    .acpmux-dock:has(> .acpmux-composer:not([data-shell]) > .acpmux-composer-box :focus-visible) {
+    .acpmux-dock[data-focused][data-focused][data-focused][data-focused] {
     --acpmux-composer-edge: color-mix(in srgb, var(--agent-text) 26%, var(--agent-page-bg, var(--acpmux-base)));
   }
 }
@@ -738,8 +744,8 @@ body:has(.nt-box :focus-visible) .nt-popover {
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-strip,
-.nt-composer:has(.nt-box :focus-visible) .acpmux-composer-strip {
+.acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-strip,
+.nt-composer[data-focused][data-focused] .acpmux-composer-strip {
   --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
 /* The location controls live beside the card, so focusing one does not make the card
@@ -750,7 +756,7 @@ body:has(.nt-box :focus-visible) .nt-popover {
 }
 /* Queued prompts stack on the card's top edge (or the strip's) as part of the same outline, so their
    sides take the focused tone too (styles.css draws them in --acpmux-composer-edge). */
-.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
+.acpmux-composer:not([data-shell])[data-focused][data-focused] > .acpmux-composer-queue {
   box-shadow:
     inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge-focus),
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-composer-edge-focus),
@@ -781,8 +787,8 @@ body:has(.nt-box :focus-visible) .nt-popover {
 /* Under Increase Contrast the edge is already the text color, so the step above would not show:
    the box takes the shared focus ring, following its rounded corners. */
 @media (prefers-contrast: more) {
-  .acpmux-composer-box:has(:focus-visible),
-  .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
+  .acpmux-composer-box[data-focused],
+  .acpmux-composer[data-shell] .acpmux-composer-box[data-focused] {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -799,9 +805,9 @@ body:has(.nt-box :focus-visible) .nt-popover {
   caret-color: transparent;
 }
 @media (prefers-contrast: more) {
-  :root[data-page-inactive] .acpmux-composer-box:has(:focus-visible),
-  :root[data-page-inactive] .nt-box:is(:focus-visible, :has(:focus-visible)),
-  :root[data-page-inactive] body:has(.nt-box:focus-visible, .nt-box :focus-visible) .nt-popover {
+  :root[data-page-inactive] .acpmux-composer-box[data-focused],
+  :root[data-page-inactive] .nt-box:is(:focus-visible, [data-focused]),
+  :root[data-page-inactive] body .nt-popover.nt-popover-focused.nt-popover-focused {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
   }
 }

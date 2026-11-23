@@ -96,13 +96,10 @@
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-inline-end","values":{"11px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-inline-start","values":{"1px":1,"calc(9px - 2 * var(--acpmux-row-inset))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-left","values":{"5px":1,"6px":3}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-right","values":{"calc(2px * var(--cmux-interface-scale, 1))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"margin-top","values":{"1px":1,"2px":1,"9px":1,"20px":1,"18px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding","values":{"0 var(--acpmux-strip-inset, 3px)":1,"0 6px":1,"0 3px":1,"5px 4px":1,"4px 4px 2px":1,"0 5px":1,"0 calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset) - 6px) var(--acpmux-tray-tuck)":1,"0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset))":1,"6px 8px":1,"1px 4px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-bottom","values":{"2px":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-inline","values":{"calc(var(--acpmux-top-strip-edge) - 6px)":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"padding-right","values":{"calc( var(--acpmux-actions-width, 64px) + 8px + max(0px, calc(8px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px))) )":1}}
-{"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"right","values":{"calc(var(--acpmux-actions-width, 64px) + 8px + 8px * var(--cmux-interface-scale, 1))":1}}
 {"file":"agent-session/acpmux/composerLocation.css","kind":"spacing","property":"top","values":{"-5px":1,"-17px":1}}
 {"file":"agent-session/acpmux/composerLook.css","kind":"radius","property":"border-radius","values":{"14px 14px 0 0":1}}
 {"file":"agent-session/acpmux/ComposerPickers.gallery.css","kind":"height","property":"min-height","values":{"210px":1}}
