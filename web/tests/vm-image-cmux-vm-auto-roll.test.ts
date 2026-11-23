@@ -490,7 +490,8 @@ describe("auto-roll workflows", () => {
     expect(token.if).toContain("CMUX_VM_DEPLOY_ENABLED != '1'");
     expect(token.with).toMatchObject({ owner: "manaflow-ai", repositories: "cmux-platform", "permission-contents": "write" });
     const checkout = promote.steps.find((step) => step.with?.path === "cmux-platform");
-    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "main" });
+    // A checkout names its branch as refs/heads/X, so it fetches one branch (#51926).
+    expect(checkout?.with).toMatchObject({ repository: "manaflow-ai/cmux-platform", ref: "refs/heads/main" });
     expect(stepOf(promote, "push").env).toMatchObject({ PLATFORM_CHECKOUT: expect.stringContaining("cmux-platform") });
     expect(stepOf(promote, "push").run).toContain("--platform-checkout");
   });
