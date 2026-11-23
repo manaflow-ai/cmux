@@ -69,6 +69,53 @@ fn a_copy_survives_a_restart_and_keeps_each_seq_once() {
     assert!(again.copies[&key("m1")].head.from_start);
 }
 
+/// The file's inode, mtime and bytes: what a rewrite (a temporary file renamed in) changes.
+fn on_disk(path: &Path) -> (u64, std::time::SystemTime, Vec<u8>) {
+    use std::os::unix::fs::MetadataExt as _;
+    let meta = std::fs::symlink_metadata(path).unwrap();
+    (meta.ino(), meta.modified().unwrap(), std::fs::read(path).unwrap())
+}
+
+#[test]
+fn a_write_with_the_same_content_touches_nothing_and_a_changed_one_rewrites_the_file() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    let path = file(dir.path(), "m1");
+    keep(&mut store, "m1", 1..=10);
+    store.write_due(None, When::Last);
+    let first = on_disk(&path);
+    let captured = store.copies[&key("m1")].head.captured_at;
+    // The same records again (a page again): only the capture time moves.
+    std::thread::sleep(Duration::from_millis(20));
+    keep(&mut store, "m1", 1..=10);
+    assert!(store.copies[&key("m1")].head.captured_at > captured, "the live copy is fresh");
+    assert!(store.copies[&key("m1")].due.is_some(), "its write is due");
+    store.write_due(None, When::Last);
+    assert_eq!(on_disk(&path), first, "no rewrite: same inode, mtime and bytes");
+    assert!(store.copies[&key("m1")].due.is_none(), "the write is done, not retried");
+    let names = |d: &Path| std::fs::read_dir(d).unwrap().count();
+    assert_eq!(names(path.parent().unwrap()), 1, "no temporary file either");
+    // A new record changes the content: the file is written again.
+    keep(&mut store, "m1", 11..=11);
+    store.write_due(None, When::Last);
+    let second = on_disk(&path);
+    assert_ne!(second.2, first.2, "the new content is on disk");
+    assert_ne!((second.0, second.1), (first.0, first.1), "a rename put a new file in place");
+    assert_eq!(String::from_utf8_lossy(&second.2).lines().count(), 1 + 11);
+    // A file gone from under the store is written again, however same its content.
+    std::fs::remove_file(&path).unwrap();
+    keep(&mut store, "m1", 1..=11);
+    store.write_due(None, When::Last);
+    assert!(path.exists(), "the copy is back on disk");
+    let whole = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &whole[..whole.len() - 3]).unwrap();
+    keep(&mut store, "m1", 1..=11);
+    store.write_due(None, When::Last);
+    assert_eq!(std::fs::read(&path).unwrap().len(), whole.len(), "a cut file is written whole");
+    let mut again = store_at(dir.path());
+    assert_eq!(seqs(&mut again, "m1"), (1..=11).collect::<Vec<_>>());
+}
+
 #[test]
 fn a_record_past_the_session_bound_alone_goes_and_the_copy_covers_what_follows() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");

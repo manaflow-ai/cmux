@@ -108,6 +108,14 @@ const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 /// Row fields a copy never repeats: a countdown (`retry.nextAt`) from a peer that is not
 /// answering may already have fired.
 const VOLATILE_ROW_FIELDS: &[&str] = &["retry"];
+/// Row fields a copy leaves out, as a census row does (`views::CENSUS_LEAVES_OUT`, a list
+/// without tools): detail no reader of a copy uses (`read.rs`, `session_move_snapshot.rs`), and
+/// most of a row. A fleet host's rows came to 45 KB a copy on average, 134 KB at most, 83 KB of
+/// it `timeBreakdown` and 55 KB `tools` (a developer Mac, 2026-11-23): 74 copies' heads alone filled
+/// 80% of [`KEPT_TOTAL`], so each chat read ahead (`warm.rs`) evicted another, file and all,
+/// and the next round read and wrote it again: about 1,200-1,400 fseventsd events a minute under
+/// `peer-snapshots/`, and 61 copies gone and 44 new in 90 s.
+const LEFT_OUT_ROW_FIELDS: &[&str] = &[views::CENSUS_LEAVES_OUT, "tools", "toolsMutable"];
 /// What every op costs in the queue on top of its records, so empty ones are bounded too.
 const OP_BYTES: u64 = 256;
 /// What every copy costs in memory on top of its records and its head (its key, its retry
@@ -581,6 +589,7 @@ fn blocking<T>(f: impl FnOnce() -> T) -> T {
 }
 
 fn snapshot_row(mut row: Value) -> Value {
+    trim_row(&mut row);
     if let Some(obj) = row.as_object_mut() {
         for f in VOLATILE_ROW_FIELDS {
             obj.remove(*f);
@@ -588,6 +597,15 @@ fn snapshot_row(mut row: Value) -> Value {
         obj.insert("stale".into(), Value::Bool(true));
     }
     row
+}
+
+/// Leaves [`LEFT_OUT_ROW_FIELDS`] out of a kept row: one taken now, or one an older run wrote.
+fn trim_row(row: &mut Value) {
+    if let Some(obj) = row.as_object_mut() {
+        for f in LEFT_OUT_ROW_FIELDS {
+            obj.remove(*f);
+        }
+    }
 }
 
 /// Whether `record` is of session `key` (its `sessionId`): a page or a file holding another
@@ -645,6 +663,9 @@ struct Kept {
     fresh: BTreeSet<u64>,
     /// The newest link `fresh`'s records came on.
     fresh_link: Option<Link>,
+    /// [`disk::content_hash`] of the file this run last wrote for it: a write with the same
+    /// content (only `capturedAt` moved) leaves the file as it is. None: not written this run.
+    written: Option<u64>,
     /// The `since` the hook last took ([`Written`]); this run's only.
     told_since: u64,
 }
@@ -669,6 +690,7 @@ impl Kept {
             fresh,
             fresh_link: None,
             told_since: 0,
+            written: None,
         }
     }
 }
@@ -1723,6 +1745,7 @@ impl Store {
         let Some(c) = self.copies.get(key) else { return Ok(()) };
         let Some(records) = &c.records else { return Ok(()) };
         let bytes = disk::encode(&c.head, records);
+        let (hash, last) = (disk::content_hash(&c.head, &bytes), (c.written, c.disk));
         // Its head line as `encode` wrote it, not serialized again; an empty one did not serialize.
         let head = match bytes.iter().position(|b| *b == b'\n') {
             Some(0) | None => u64::MAX,
@@ -1737,13 +1760,28 @@ impl Store {
         if !self.evict_disk(Some(key), bytes.len() as u64) {
             anyhow::bail!("no room within the peer snapshots' total bound");
         }
-        let written = disk::write(self.write, &self.root, key, &bytes)?;
-        if let Some(path) = disk::path(&self.root, key) {
-            // The write took the place of a file whose removal was refused.
-            self.dead.remove(&path);
-        }
+        // The same content as the file this run wrote, but for its capture time: nothing on
+        // disk is touched (no temporary file, no rename), while that file is still there whole
+        // (a stat, no read; a file gone or cut from under the store is written again).
+        let path = disk::path(&self.root, key);
+        let size = bytes.len() as u64;
+        let same = last == (Some(hash), size)
+            && path.as_deref().is_some_and(|p| {
+                std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file() && m.len() == size)
+            });
+        let written = if same {
+            last.1
+        } else {
+            let written = disk::write(self.write, &self.root, key, &bytes)?;
+            if let Some(path) = path {
+                // The write took the place of a file whose removal was refused.
+                self.dead.remove(&path);
+            }
+            written
+        };
         if let Some(c) = self.copies.get_mut(key) {
             c.disk = written;
+            c.written = Some(hash);
             (c.due, c.retry, c.failures) = (None, None, 0);
         }
         if crate::hub::journal_restore::rules_of_a088() {
