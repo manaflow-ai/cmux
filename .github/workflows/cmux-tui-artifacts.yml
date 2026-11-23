@@ -1569,7 +1569,18 @@ jobs:
     # a runner suffix still count. Leo, 2026-10-27: "ok do NOT label stuff as
     # os=linux...": the name, steps and marker name no runner OS.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 60
+    # 60 was the green run's whole length: job 137409209815 (7d439038, 2026-11-23,
+    # cmux-runner-pool) took 59:56: setup 11 min (runner 2:20, checkout 2,
+    # supersede check 1:40, Zig packages 2:16), the test compile 22:40 on a
+    # partial cache hit (18 min of it the cmux-tui and cmux-tui-core lib test
+    # builds), the tests 15:04 (open_file_limit 293 s, cli 196 s, idle_wakeups
+    # 78 s), the cargo cache save 9:35. The next testing run, job 137459375926,
+    # restored no cargo cache (4 s) and was cut at 60 with cargo test 47:39 in,
+    # and a cut job never saves its cache, so the next run compiles cold and is
+    # cut the same way: the feat-cmux-next channel stayed at 7d439038
+    # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
+    # below, so a cut test step still leaves time to save what it compiled.
+    timeout-minutes: 90
     env:
       # Cargo's default registry retry is too small for a transient index DNS
       # outage. Keep the registry and git checkouts in the runner cache, then
@@ -1756,9 +1767,14 @@ jobs:
           workspaces: cmux-tui -> target
           shared-key: ${{ runner.os == 'macOS' && 'cmux-tui-macos' || 'cmux-tui-linux' }}
           cache-all-crates: true
+          # A red or cut test step still saves the compile, so the next run is warm
+          # (job 137459375926: a cut run saved nothing and the next ones compiled cold).
+          cache-on-failure: true
 
       - name: cargo test cmux_next_
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        # Below the job's 90: setup (about 12 min) + this + the cache save (about 10 min).
+        timeout-minutes: 65
         working-directory: cmux-tui
         shell: bash
         run: |
