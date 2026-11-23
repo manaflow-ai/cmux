@@ -190,6 +190,11 @@ final class TerminalDemoDriver {
         model.composerText = "widetable 180 12"
         model.send()
         await wait(2)
+        // `-CmuxMobileTerminalDemoWideView`: the page menu's Wide View, for the gallery.
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideView") {
+            model.openWideView()
+            await wait(1)
+        }
         mark("wide ready " + (model.controller?.wideProbe ?? "-"))
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {

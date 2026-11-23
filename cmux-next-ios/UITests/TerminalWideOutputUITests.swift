@@ -77,6 +77,48 @@ final class TerminalWideOutputUITests: XCTestCase {
                                  "a vertical drag kept the sideways pan: before \(panned["panX"] ?? -1), after \(demo)")
     }
 
+    /// The gallery's other variants, as screenshots: (b) Wide View, the
+    /// dedicated view (the page menu's Wide View: Wide on, the key row and
+    /// composer away), at its left edge and panned to the right end; (c) the
+    /// same turned to landscape. Rotation itself belongs to the landscape
+    /// work (`lane/ios-first-frame-landscape`): this only records what the
+    /// build shows, and asserts only the portrait steps.
+    @MainActor
+    func testWideViewGallery() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo", "-CmuxMobileTerminalDemoEmbedded",
+                                "-CmuxMobileTerminalDemoPhases", "wide", "-CmuxMobileTerminalDemoWideView"]
+        app.launch()
+        defer {
+            XCUIDevice.shared.orientation = .portrait
+            app.terminate()
+        }
+
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the terminal demo's step label")
+        var demo = wait(probe, timeout: 60) { $0.hasPrefix("wide ready") && (Self.values($0)["cols"] ?? 0) >= 180 }
+        attach(app, "gallery-b1-wide-view")
+        XCTAssertGreaterThanOrEqual(Self.values(demo)["cols"] ?? 0, 180, "Wide View is wide: \(demo)")
+        XCTAssertFalse(app.buttons["terminal.key.wide"].isHittable, "Wide View hides the key row")
+
+        let window = app.windows.firstMatch
+        for _ in 0..<4 {
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.40))
+                .press(forDuration: 0.02, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.10, dy: 0.42)),
+                       withVelocity: XCUIGestureVelocity(1500), thenHoldForDuration: 0.05)
+            demo = wait(probe, timeout: 1) { (Self.values($0)["lastCol"] ?? 0) >= 178 }
+            if (Self.values(demo)["lastCol"] ?? 0) >= 178 { break }
+        }
+        attach(app, "gallery-b2-wide-view-right-end")
+        XCTAssertGreaterThanOrEqual(Self.values(demo)["lastCol"] ?? 0, 178, "Wide View pans to the right end: \(demo)")
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        _ = wait(probe, timeout: 2) { _ in false }
+        attach(app, "gallery-c-wide-view-landscape")
+    }
+
     /// Reads the probe until `done` holds or `timeout` passes; returns the last label.
     @MainActor
     private func wait(_ probe: XCUIElement, timeout: TimeInterval, until done: (String) -> Bool) -> String {
