@@ -11,7 +11,7 @@ public import Foundation
 ///   `reconnecting`, `restarting`, `offline`...). The composer's machine-link row draws this push
 ///   (peerLink.ts), so its states and their times are the row's.
 /// - `agent.chat.live_paint` `{session, peer, link, at_ms}`: a chat of `peer` drew acpmux's settled
-///   view of itself (the page's `pane.painted` with `settled`, once per chat it opens): the live
+///   view of itself (the page's `pane.painted` with `settled`; the first one per chat a pane shows): the live
 ///   session is on screen. `link` is the peer's last state pushed before it.
 ///
 /// Nothing is drawn or changed for the person; a chat on this Mac publishes nothing. O(1) each.
@@ -37,12 +37,17 @@ public final class RemoteChatEvents {
         publish(Self.linkEvent, ["peer": .string(peer), "state": .string(state), "at_ms": atMilliseconds])
     }
 
-    public func livePainted(session: String?) {
-        guard let session, let peer = peerOf(session), !peer.isEmpty else { return }
+    /// A pane drew `session`'s settled view; `last` is the session its previous paint published for. Publishes
+    /// only the first settled paint of each chat a pane shows (the page reports one on every settled draw), so a
+    /// probe timing from it never reads a repaint. Returns the session the pane remembers.
+    public func livePainted(session: String?, last: String?) -> String? {
+        guard let session, session != last else { return last }
+        guard let peer = peerOf(session), !peer.isEmpty else { return session }
         publish(Self.livePaintEvent, [
             "session": .string(session), "peer": .string(peer),
             "link": links[peer].map(JSONValue.string) ?? .null, "at_ms": atMilliseconds,
         ])
+        return session
     }
 
     private var atMilliseconds: JSONValue { .number((now().timeIntervalSince1970 * 1000).rounded()) }
