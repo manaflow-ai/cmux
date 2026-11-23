@@ -200,9 +200,16 @@ impl Drop for Agent {
 /// after the resume failed or nearly did.
 const AWAY_WAIT: Duration = Duration::from_secs(5);
 
-/// Pauses the machine `pauses` times for `hold` each under a live agent; asserts every read
-/// after each resume worked within [`AWAY_WAIT`], then Bring Back.
-fn paused_under_an_agent(case: &str, quiet: bool, hold: Duration, pauses: usize) {
+/// Pauses the machine `pauses` times for `hold` each under a live agent, its link back
+/// `carrier_delay` after the machine resumes (the carrier reconnecting); asserts every read after
+/// each resume worked, the first within [`AWAY_WAIT`] of the link's return, then Bring Back.
+fn paused_under_an_agent(
+    case: &str,
+    quiet: bool,
+    hold: Duration,
+    pauses: usize,
+    carrier_delay: Duration,
+) {
     let t = match trip_with(case, true, Some(quiet), agent_files) {
         Ok(trip) => trip,
         Err(why) => {
@@ -226,6 +233,7 @@ fn paused_under_an_agent(case: &str, quiet: bool, hold: Duration, pauses: usize)
         let resumed = now_ns();
         signal("-CONT", &machine);
         signal("-CONT", &agent.group());
+        std::thread::sleep(carrier_delay);
         relay.resume();
         // The agent's next reads.
         std::thread::sleep(AWAY_WAIT + Duration::from_secs(3));
@@ -242,6 +250,7 @@ fn paused_under_an_agent(case: &str, quiet: bool, hold: Duration, pauses: usize)
         "pause-numbers: {}",
         serde_json::json!({
             "case": case, "quiet": quiet, "hold_ms": hold.as_millis(), "pauses": pauses,
+            "carrier_delay_ms": carrier_delay.as_millis(),
             "reads": reads.len(), "reads_ok": worked,
             "first_read_after_resume_ms": first_reads_ms, "failures_after_resume": failures,
         })
@@ -250,7 +259,7 @@ fn paused_under_an_agent(case: &str, quiet: bool, hold: Duration, pauses: usize)
     for first in &first_reads_ms {
         let first = first.expect("no read worked after a resume");
         assert!(
-            u128::from(first) < AWAY_WAIT.as_millis(),
+            u128::from(first) < (carrier_delay + AWAY_WAIT).as_millis(),
             "the first read took {first} ms after the resume"
         );
     }
@@ -264,13 +273,13 @@ fn paused_under_an_agent(case: &str, quiet: bool, hold: Duration, pauses: usize)
 /// A Cloud machine (a quiet socket beside the carrier's): paused briefly three times.
 #[test]
 fn a_cloud_machine_paused_under_an_agent_reads_and_brings_back_after_resume() {
-    paused_under_an_agent("pause-quiet", true, Duration::from_secs(3), 3);
+    paused_under_an_agent("pause-quiet", true, Duration::from_secs(3), 3, Duration::ZERO);
 }
 
 /// A Cloud machine paused long enough for any backoff to reach its ceiling.
 #[test]
 fn a_cloud_machine_paused_long_under_an_agent_reads_after_resume() {
-    paused_under_an_agent("pause-quiet-long", true, Duration::from_secs(30), 1);
+    paused_under_an_agent("pause-quiet-long", true, Duration::from_secs(30), 1, Duration::ZERO);
 }
 
 /// A machine of one's own, or an older carrier (no quiet socket): the Mac redials the socket
@@ -278,5 +287,19 @@ fn a_cloud_machine_paused_long_under_an_agent_reads_after_resume() {
 /// wait.
 #[test]
 fn a_machine_with_no_quiet_socket_paused_long_reads_after_resume() {
-    paused_under_an_agent("pause-plain-long", false, Duration::from_secs(30), 1);
+    paused_under_an_agent("pause-plain-long", false, Duration::from_secs(30), 1, Duration::ZERO);
+}
+
+/// A Cloud machine whose carrier reconnects 9 s after the resume (a Cloud machine's median is
+/// 8.4 s): the agent's reads in the meantime wait for the link rather than fail with `EHOSTDOWN`
+/// at the mount's 5 s wait.
+#[test]
+fn a_cloud_machine_whose_carrier_is_slow_after_resume_reads_without_failing() {
+    paused_under_an_agent(
+        "pause-slow-carrier",
+        true,
+        Duration::from_secs(3),
+        1,
+        Duration::from_secs(9),
+    );
 }
