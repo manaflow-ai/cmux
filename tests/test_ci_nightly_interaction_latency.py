@@ -63,6 +63,12 @@ class Tests(unittest.TestCase):
         self.assertEqual(nil.touched(["docs/x.md", "cmux-tui/src/lib.rs"]), {})
         self.assertEqual(set(nil.touched(["webviews/bun.lock"])), set(nil.INTERACTIONS))
         self.assertEqual(set(nil.touched(None)), set(nil.INTERACTIONS))
+        # Another bench's file touches nobody; a bench's own file touches its interaction; a helper touches all.
+        self.assertEqual(nil.touched(["webviews/bench/streaming-text-frames.bench.ts"]), {})
+        self.assertEqual(set(nil.touched(["webviews/bench/chat-open.bench.ts"])), {"chat_open"})
+        self.assertEqual(set(nil.touched(["webviews/bench/perfRow.ts"])), set(nil.INTERACTIONS))
+        self.assertEqual(nil.touched(["webviews/src/agent-session/acpmux/conversation/Markdown.test.tsx"]), {})
+        self.assertIn("chat_open", nil.touched(["webviews/test/support/papercutChat.ts"]))
 
     def test_first_run_measures_everything(self):
         planned = nil.plan(empty(), "h1", None, None)

@@ -53,7 +53,8 @@ SHARED = (
 )
 CHAT = ("webviews/src/agent-session/*", "webviews/test/support/papercutChat*")
 # {interaction: (web-ui-suite bench name, the person's words for it, its own globs besides SHARED)}. `*` crosses `/`.
-# The bench's own file is webviews/bench/<name>.bench.ts, inside SHARED's webviews/bench/*.ts.
+# A bench file (webviews/bench/<name>.bench.ts) touches only its own interaction; the other webviews/bench/*.ts files
+# are the shared harness and helpers (SHARED).
 INTERACTIONS = {
     "chat_open": ("chat-open", "open a chat", CHAT),
     "chat_switch": ("chat-switch", "switch between chats", CHAT),
@@ -87,14 +88,26 @@ def matches(path: str, globs) -> bool:
     return any(fnmatch.fnmatchcase(path, g) for g in globs)
 
 
+def is_test_file(path: str) -> bool:
+    """A unit test moves no shipped code (webviews/test/support/papercutChat*, a bench input, is not one)."""
+    name = path.rsplit("/", 1)[-1]
+    return ".test." in name or ".spec." in name
+
+
+def is_bench_file(path: str) -> bool:
+    return path.startswith("webviews/bench/") and (path.endswith(".bench.ts") or path.endswith(".bench.tsx"))
+
+
 def touched(changed: list[str] | None) -> dict[str, list[str]]:
     """{interaction: the changed files that touch it}. None (no known base) touches every interaction."""
     out = {}
-    for key, (_bench, _words, own) in INTERACTIONS.items():
+    for key, (bench, _words, own) in INTERACTIONS.items():
         if changed is None:
             out[key] = ["(no earlier nightly measured: every interaction)"]
             continue
-        hits = [p for p in changed if matches(p, SHARED) or matches(p, own)]
+        mine = f"webviews/bench/{bench}.bench."
+        hits = [p for p in changed if not is_test_file(p) and (p.startswith(mine) or matches(p, own)
+                or (not is_bench_file(p) and matches(p, SHARED)))]
         if hits:
             out[key] = hits[:TOUCHED_KEEP]
     return out
