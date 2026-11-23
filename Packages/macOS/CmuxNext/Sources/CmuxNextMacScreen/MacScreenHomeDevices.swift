@@ -33,6 +33,8 @@ struct MacScreenHomeSnapshot: Equatable {
         var access: MacScreenAccess
         /// The hub's online word is current (this Mac's own hub link is up); false: `online` may be stale.
         var onlineKnown = true
+        /// The hub's platform (nil: a record from before platforms; `glyph`, `viewable` read it).
+        var platform: DevicePlatform?
     }
 
     /// Your Devices: a note (signed out, loading, none shared) or the list.
@@ -152,7 +154,7 @@ struct MacScreenHomeSnapshot: Equatable {
     /// One hub device as the page shows it.
     static func device(_ device: HubDevice, access: MacScreenAccess, hubConnected: Bool) -> Device {
         Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
-               macScreenShared: device.macScreenShared, access: access, onlineKnown: hubConnected)
+               macScreenShared: device.macScreenShared, access: access, onlineKnown: hubConnected, platform: device.platform)
     }
 
     /// Whether the page opens with the first-use steps: until this Mac has shared or viewed once.
@@ -208,21 +210,6 @@ extension MacScreenHomeView {
         return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
     }
 
-    private func rowSeparator() -> NSView {
-        let line = MacScreenFill(\.separator)
-        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        let inset = NSView()
-        inset.translatesAutoresizingMaskIntoConstraints = false
-        inset.addSubview(line)
-        NSLayoutConstraint.activate([
-            line.leadingAnchor.constraint(equalTo: inset.leadingAnchor, constant: 50),
-            line.trailingAnchor.constraint(equalTo: inset.trailingAnchor),
-            line.topAnchor.constraint(equalTo: inset.topAnchor),
-            line.bottomAnchor.constraint(equalTo: inset.bottomAnchor),
-        ])
-        return inset
-    }
-
     // MARK: Quiet rows (Leo 2026-11-16: "this needs to shut up")
 
     /// What a row can do now, which is all it says.
@@ -233,6 +220,8 @@ extension MacScreenHomeView {
         case sharingOff
         /// Online, and it does not let this Mac in: one word, no buttons.
         case blocked
+        /// Online, and a screen this Mac cannot open yet (a Windows PC): one word, no buttons.
+        case notViewable
         /// Offline: the name alone, dim.
         case offline
     }
@@ -241,13 +230,14 @@ extension MacScreenHomeView {
         // Offline counts only while this Mac's hub link is up; until then the hub's word may be stale and the
         // row stays openable (the pane's Connect card says what it finds).
         guard device.online || !device.onlineKnown else { return .offline }
+        if !device.viewable { return .notViewable }
         if !device.access.allowsRequests { return .blocked }
         return device.macScreenShared ? .usable : .sharingOff
     }
 
     /// Viewable Macs first, then online ones that are not, then offline ones (folded, listed or counted by `look`).
     private func quietRows(_ list: [MacScreenHomeSnapshot.Device], look: MacScreenDevicesLook) -> [NSView] {
-        let order: [RowState] = [.usable, .sharingOff, .blocked]
+        let order: [RowState] = [.usable, .sharingOff, .blocked, .notViewable]
         var views = order.flatMap { state in list.filter { Self.rowState($0) == state }.map { quietRow($0, state: state) } }
         let offline = list.filter { Self.rowState($0) == .offline }
         guard !offline.isEmpty else { return views }
@@ -269,7 +259,7 @@ extension MacScreenHomeView {
 
     private func quietRow(_ device: MacScreenHomeSnapshot.Device, state: RowState) -> NSView {
         let offline = state == .offline
-        let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph,
+        let glyph = MacScreenGlyph(device.glyph, font: MacScreenType.glyph,
                                    ink: offline ? \.tertiary : \.secondary, width: 26)
         let name = MacScreenText(device.name, font: offline ? MacScreenType.body : MacScreenType.emphasized,
                                  ink: offline ? \.secondary : \.primary)
@@ -306,6 +296,8 @@ extension MacScreenHomeView {
                 let thisMac = MacScreenHostSetupGuide.ThisMac(id: hub.identity.id, name: hub.thisDevice?.name ?? hub.deviceName)
                 MacScreenHostSetupGuide(host: host, fix: fix, thisMac: thisMac).present(in: window)
             })
+        case .notViewable:
+            views.append(notViewableWord(device))
         case .offline:
             break
         }
@@ -348,7 +340,7 @@ extension MacScreenHomeView {
     // MARK: Classic rows (Debug Settings `macScreen.devicesLook` = classic)
 
     private func classicRow(_ device: MacScreenHomeSnapshot.Device) -> NSView {
-        let glyph = MacScreenGlyph(device.isPhone ? "iphone" : "desktopcomputer", font: MacScreenType.glyph, width: 26)
+        let glyph = MacScreenGlyph(device.glyph, font: MacScreenType.glyph, width: 26)
         let status = MacScreenStack.make(.horizontal, spacing: 6, alignment: .centerY, [
             MacScreenFill.dot(device.online ? \.success : \.tertiary, side: 7),
             MacScreenText(device.online ? L.t("macScreen.home.online", "Online") : L.t("macScreen.home.offline", "Offline"),

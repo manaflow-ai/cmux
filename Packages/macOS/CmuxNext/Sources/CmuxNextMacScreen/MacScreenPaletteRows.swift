@@ -35,7 +35,7 @@ extension MacScreenPages {
             PaletteItem(
                 id: "\(paletteProviderID):\(device.id)",
                 title: "\(actionTitle): \(device.name)",
-                symbol: device.platform == .ios ? "iphone" : "display",
+                symbol: MacScreenHomeView.glyph(device.platform ?? .macos),
                 keywords: [device.name, "screen sharing", "screen share", "share screen", "remote desktop", "vnc", "view", "device", "machine"],
                 primary: PaletteCommand(id: "open", title: connect, symbol: "return", effect: .perform {
                     perform(ActionInvocation(arguments: ["device": .string(device.id)], origin: .user))

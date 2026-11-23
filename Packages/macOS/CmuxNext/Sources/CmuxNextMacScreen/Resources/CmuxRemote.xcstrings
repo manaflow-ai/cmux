@@ -394,133 +394,133 @@
         }
       }
     },
-    "remote.confirm.share.body": {
+    "remote.confirm.share.bodyOwn": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يمكن لأجهزتك طلب رؤية جهاز Mac هذا أو التحكم فيه. أنت توافق على كل جهاز، ويعرض cmux Remote من هو متصل."
+            "state": "needs_review",
+            "value": "يمكن لأجهزتك على هذا الحساب رؤية هذا الـ Mac أو التحكم فيه. يعرض cmux Remote من هو متصل."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vaši uređaji mogu zatražiti da vide ovaj Mac računar ili upravljaju njime. Svaki odobravate vi, a cmux Remote prikazuje ko je povezan."
+            "state": "needs_review",
+            "value": "Vaši uređaji na ovom računu mogu vidjeti ili upravljati ovim Macom. cmux Remote pokazuje ko je povezan."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dine enheder kan bede om at se eller styre denne Mac. Du godkender hver enkelt, og cmux Remote viser, hvem der er forbundet."
+            "state": "needs_review",
+            "value": "Dine enheder på denne konto kan se eller styre denne Mac. cmux Remote viser, hvem der er forbundet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Deine Geräte können anfragen, diesen Mac zu sehen oder zu steuern. Du genehmigst jedes einzeln, und cmux Remote zeigt, wer verbunden ist."
+            "state": "needs_review",
+            "value": "Deine Geräte mit diesem Konto können diesen Mac sehen oder steuern. cmux Remote zeigt, wer verbunden ist."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your devices can ask to see or control this Mac. You approve each one, and cmux Remote shows who is connected."
+            "value": "Your devices on this account can see or control this Mac. cmux Remote shows who is connected."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tus dispositivos pueden pedir ver o controlar este Mac. Tú apruebas cada uno, y cmux Remote muestra quién está conectado."
+            "state": "needs_review",
+            "value": "Tus dispositivos en esta cuenta pueden ver o controlar este Mac. cmux Remote muestra quién está conectado."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vos appareils peuvent demander à voir ou contrôler ce Mac. Vous approuvez chacun d’eux, et cmux Remote indique qui est connecté."
+            "state": "needs_review",
+            "value": "Vos appareils sur ce compte peuvent voir ou contrôler ce Mac. cmux Remote indique qui est connecté."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "I tuoi dispositivi possono chiedere di vedere o controllare questo Mac. Li approvi uno per uno, e cmux Remote mostra chi è connesso."
+            "state": "needs_review",
+            "value": "I tuoi dispositivi su questo account possono vedere o controllare questo Mac. cmux Remote mostra chi è connesso."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "お使いのデバイスは、このMacの表示や操作をリクエストできます。デバイスごとに承認が必要で、接続中のデバイスは cmux Remote に表示されます。"
+            "state": "needs_review",
+            "value": "このアカウントのデバイスはこの Mac を表示または操作できます。接続中のデバイスは cmux Remote に表示されます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ឧបករណ៍របស់អ្នកអាចស្នើសុំមើល ឬគ្រប់គ្រង Mac នេះ។ អ្នកយល់ព្រមលើឧបករណ៍នីមួយៗ ហើយ cmux Remote បង្ហាញអ្នកដែលបានភ្ជាប់។"
+            "state": "needs_review",
+            "value": "ឧបករណ៍របស់អ្នកនៅលើគណនីនេះអាចមើល ឬគ្រប់គ្រង Mac នេះបាន។ cmux Remote បង្ហាញអ្នកដែលបានភ្ជាប់។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "내 기기에서 이 Mac을 보거나 제어하도록 요청할 수 있습니다. 각 기기를 직접 승인하며, cmux Remote에 연결된 기기가 표시됩니다."
+            "state": "needs_review",
+            "value": "이 계정의 기기는 이 Mac을 보거나 제어할 수 있습니다. 연결된 기기는 cmux Remote에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Enhetene dine kan be om å se eller styre denne Macen. Du godkjenner hver enkelt, og cmux Remote viser hvem som er tilkoblet."
+            "state": "needs_review",
+            "value": "Enhetene dine på denne kontoen kan se eller styre denne Macen. cmux Remote viser hvem som er tilkoblet."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Twoje urządzenia mogą prosić o podgląd tego Maca lub sterowanie nim. Każde zatwierdzasz osobno, a cmux Remote pokazuje, kto jest połączony."
+            "state": "needs_review",
+            "value": "Twoje urządzenia na tym koncie mogą widzieć ten Mac lub nim sterować. cmux Remote pokazuje, kto jest połączony."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Seus dispositivos podem pedir para ver ou controlar este Mac. Você aprova cada um, e o cmux Remote mostra quem está conectado."
+            "state": "needs_review",
+            "value": "Seus dispositivos nesta conta podem ver ou controlar este Mac. O cmux Remote mostra quem está conectado."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ваши устройства могут запрашивать просмотр этого Mac или управление им. Вы одобряете каждое, а cmux Remote показывает, кто подключён."
+            "state": "needs_review",
+            "value": "Ваши устройства в этой учётной записи могут видеть этот Mac или управлять им. cmux Remote показывает, кто подключён."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "อุปกรณ์ของคุณสามารถขอดูหรือควบคุม Mac เครื่องนี้ได้ คุณอนุมัติทีละเครื่อง และ cmux Remote จะแสดงว่าใครเชื่อมต่ออยู่"
+            "state": "needs_review",
+            "value": "อุปกรณ์ของคุณในบัญชีนี้สามารถดูหรือควบคุม Mac เครื่องนี้ได้ cmux Remote แสดงว่าใครเชื่อมต่ออยู่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cihazlarınız bu Mac’i görmek veya denetlemek için istekte bulunabilir. Her birini siz onaylarsınız ve cmux Remote kimin bağlı olduğunu gösterir."
+            "state": "needs_review",
+            "value": "Bu hesaptaki aygıtlarınız bu Mac'i görebilir veya denetleyebilir. cmux Remote kimin bağlı olduğunu gösterir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ваші пристрої можуть просити переглядати цей Mac або керувати ним. Ви схвалюєте кожен, а cmux Remote показує, хто під’єднаний."
+            "state": "needs_review",
+            "value": "Ваші пристрої в цьому обліковому записі можуть бачити цей Mac або керувати ним. cmux Remote показує, хто підключений."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Các thiết bị của bạn có thể yêu cầu xem hoặc điều khiển máy Mac này. Bạn duyệt từng thiết bị, và cmux Remote hiển thị ai đang kết nối."
+            "state": "needs_review",
+            "value": "Các thiết bị của bạn trên tài khoản này có thể xem hoặc điều khiển máy Mac này. cmux Remote cho biết ai đang kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你的设备可以请求查看或控制这台 Mac。每台设备都需你批准，cmux Remote 会显示谁已连接。"
+            "state": "needs_review",
+            "value": "你在此账户上的设备可以查看或控制这台 Mac。cmux Remote 会显示谁已连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你的裝置可以要求檢視或控制這台 Mac。每台裝置都需經你核准，cmux Remote 會顯示誰已連線。"
+            "state": "needs_review",
+            "value": "你在此帳號上的裝置可以檢視或控制這台 Mac。cmux Remote 會顯示誰已連線。"
           }
         }
       }

@@ -737,7 +737,7 @@ extension MacScreenDevicesSettings {
                 accessOptions: MacScreenAccess.all.map { Option(value: $0.value, title: $0.title) },
                 sharingSection: L.t("devices.section.sharing", "Mac Screen on This Mac"),
                 sharingToggle: L.t("macScreen.home.allowToggle", "Allow Mac Screen on this Mac"),
-                sharingDetail: L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."),
+                sharingDetail: L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect."),
                 openSettings: L.t("macScreen.home.openSettings", "Open System Settings"),
                 allowed: L.t("macScreen.home.granted", "Allowed"),
                 relaysSection: L.t("devices.section.relays", "Relays"),
