@@ -27,6 +27,8 @@
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
 //!
+//! `cmux app try <link>` opens a build someone shared with `cmux app share` (try_cmd/share.rs).
+//!
 //! `cmux app try .` (or `dir:PATH`) is the working-tree form (try_cmd/copy.rs): a fresh clone of the
 //! installed NIGHTLY (`--from APP`) beside the running app, the checkout swapped in; `--extract` keeps
 //! the code that went in, `--stop` deletes the clone. The running app is never changed.
@@ -41,11 +43,20 @@ use super::super::{GlobalArgs, OutputMode};
 use super::UsageError;
 use super::nightly::{self, Switched, Target};
 use crate::localization::TryMessages;
+use helper::{Prepared, Signing, WantedHelper};
 use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod copy;
+mod daemon_updates;
+mod helper;
 mod live;
 mod resolve;
+mod share;
+
+pub(crate) use daemon_updates::spawn as spawn_daemon_updates;
+
+pub(crate) use share::Command as ShareCommand;
+pub(super) use share::{parse as parse_share, run as run_share};
 
 /// `updates.builds` reads the feed's notes, verdicts and pulled list.
 const LIST_TIMEOUT: Duration = Duration::from_secs(35);
@@ -68,6 +79,11 @@ pub(crate) enum Command {
         tree: PathBuf,
         from: Option<PathBuf>,
         action: copy::Action,
+        dry_run: bool,
+    },
+    /// A `cmux app share` link (try_cmd/share.rs): the shared build, beside this cmux.
+    Link {
+        link: share::Link,
         dry_run: bool,
     },
     Undo {
@@ -164,6 +180,12 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             Ok(Command::Undo { dry_run })
         }
         [target] => {
+            if let Some(link) = share::parse_link(target) {
+                if app.is_some() {
+                    return Err(unexpected("--app"));
+                }
+                return Ok(Command::Link { link, dry_run });
+            }
             if resolve::classify(target).is_none() {
                 return Err(UsageError::new(messages().not_found.replace("{target}", target)));
             }
@@ -190,6 +212,9 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Copy { tree, from, action, dry_run } = command {
         return copy::run(global, tree, from.as_deref(), *action, *dry_run);
     }
+    if let Command::Link { link, dry_run } = command {
+        return share::open_link(global, link, *dry_run);
+    }
     // `status` and `undo` read the store of the app this CLI belongs to.
     let (app, _) = find_app(global, None);
     let Some(store) = store_for(app.as_deref()) else {
@@ -201,6 +226,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         | Command::Try { .. }
         | Command::Channel { .. }
         | Command::Copy { .. }
+        | Command::Link { .. }
         | Command::Status => status(global, &store),
     }
 }
@@ -216,7 +242,7 @@ fn store_for(app: Option<&Path>) -> Option<Store> {
 enum Live {
     Missing,
     Refused(String),
-    Found(LivePayload),
+    Found(Box<LivePayload>),
 }
 
 /// How much of the commit a live try brings: the whole app (the signed file proves every layer
@@ -247,7 +273,7 @@ impl Scope {
 /// The path a try takes.
 #[derive(Debug)]
 enum Plan {
-    Live { files: Vec<Wanted>, scope: Scope },
+    Live { files: Vec<Wanted>, helper: Option<WantedHelper>, scope: Scope },
     Full { build: Value, from: String },
     None { why: Vec<String> },
 }
@@ -295,10 +321,15 @@ fn choose(
             if !fits {
                 why.push(messages.why_not_live_from.replace("{app_commit}", app_commit));
             } else {
-                match live::wanted(payload, base) {
-                    Ok(files) if whole => return Plan::Live { files, scope: Scope::Whole },
-                    Ok(files) => {
-                        daemon = Some((files, Scope::Daemon(left_out(payload, app_commit))));
+                let helper =
+                    helper::wanted(payload.screen_sharing_helper.as_ref(), &payload.commit, base);
+                match live::wanted(payload, base).and_then(|files| Ok((files, helper?))) {
+                    Ok((files, helper)) if whole => {
+                        return Plan::Live { files, helper, scope: Scope::Whole };
+                    }
+                    Ok((files, helper)) => {
+                        daemon =
+                            Some((files, helper, Scope::Daemon(left_out(payload, app_commit))));
                     }
                     Err(error) => {
                         why.push(messages.why_live_refused.replace("{error}", &error));
@@ -335,8 +366,8 @@ fn choose(
             }
         }
     }
-    if let Some((files, scope)) = daemon {
-        return Plan::Live { files, scope };
+    if let Some((files, helper, scope)) = daemon {
+        return Plan::Live { files, helper, scope };
     }
     Plan::None { why }
 }
@@ -384,9 +415,13 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
         "app_commit": app_commit,
     });
     match plan {
-        Plan::Live { files, scope } => {
+        Plan::Live { files, helper, scope } => {
             set(&mut value, "scope", json!(scope.name()));
             set(&mut value, "left_out", json!(scope.left_out()));
+            let screen_helper = helper.as_ref().map(|helper| {
+                json!({ "bundle_id": helper.file.bundle_id, "sha256": helper.file.sha256, "size": helper.file.size })
+            });
+            set(&mut value, "screen_sharing_helper", json!(screen_helper));
             let files = files
                 .iter()
                 .map(|wanted| match &wanted.binary {
@@ -412,15 +447,24 @@ fn plan_json(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) ->
 fn plan_human(plan: &Plan, commit: &str, app: &Path, app_commit: Option<&str>) -> String {
     let messages = messages();
     match plan {
-        Plan::Live { files, scope } => match scope {
-            Scope::Whole => messages.plan_live,
-            Scope::Daemon(_) => messages.plan_live_daemon,
+        Plan::Live { files, helper, scope } => {
+            let mut text = match scope {
+                Scope::Whole => messages.plan_live,
+                Scope::Daemon(_) => messages.plan_live_daemon,
+            }
+            .replace("{commit}", short(commit))
+            .replace("{count}", &files.iter().filter(|w| w.binary.is_some()).count().to_string())
+            .replace("{app}", &app.to_string_lossy())
+            .replace("{app_commit}", app_commit.unwrap_or_default())
+            .replace("{left_out}", &scope.left_out().join("; "));
+            text.push('\n');
+            match helper {
+                Some(helper) => text
+                    .push_str(&messages.helper_plan.replace("{bundle_id}", &helper.file.bundle_id)),
+                None => text.push_str(messages.helper_plan_none),
+            }
+            text
         }
-        .replace("{commit}", short(commit))
-        .replace("{count}", &files.iter().filter(|w| w.binary.is_some()).count().to_string())
-        .replace("{app}", &app.to_string_lossy())
-        .replace("{app_commit}", app_commit.unwrap_or_default())
-        .replace("{left_out}", &scope.left_out().join("; ")),
         Plan::Full { build, from } => messages
             .plan_full
             .replace("{build}", build.get_str("build").unwrap_or_default())
@@ -485,7 +529,7 @@ fn read_live(commit: &str, base: &str) -> Live {
         Err(error) => Live::Refused(error),
         Ok(Some(body)) => {
             match live::verify(&body, &cmux_host::updater::channel::trusted_keys(), commit) {
-                Ok(payload) => Live::Found(payload),
+                Ok(payload) => Live::Found(Box::new(payload)),
                 Err(error) => Live::Refused(error),
             }
         }
@@ -753,21 +797,31 @@ fn run_try(
             }
             code
         }
-        Plan::Live { files, .. } => {
+        Plan::Live { files, helper, .. } => {
             let daemon = app_daemon(&app);
-            let result = try_live(&app, &files, store, &daemon, &mut phases);
+            let result = try_live(
+                &app,
+                &files,
+                helper.as_ref(),
+                store,
+                &daemon,
+                &helper::SystemSigning,
+                &mut phases,
+            );
             finish(global, store, receipt, result, phases, started, &commit, &app, changed_out)
         }
     }
 }
 
-/// Fetches and checks every file, then swaps them in: nothing in the app
-/// changes before every byte is here and checked.
+/// Fetches and checks every file and the Screen Sharing helper, then swaps them
+/// in: nothing in the app changes before every byte is here and checked.
 fn try_live(
     app: &Path,
     files: &[Wanted],
+    helper: Option<&WantedHelper>,
     store: &Store,
     daemon: &dyn Daemon,
+    signing: &dyn Signing,
     phases: &mut Phases,
 ) -> Result<live::Applied, String> {
     let t = Instant::now();
@@ -778,7 +832,54 @@ fn try_live(
         changes.push(Change { file: wanted.file.clone(), to: to.zip(sha), expect: None });
     }
     phases.add("fetch", t);
-    live::apply(app, &changes, store, daemon, phases)
+    let t = Instant::now();
+    let prepared = helper::prepare(app, helper, store, signing)?;
+    phases.add("helper_check", t);
+    apply_with_helper(app, &changes, &prepared, store, daemon, phases)
+}
+
+/// Swaps the Screen Sharing helper (when `helper` holds a swap), then `changes` with the
+/// daemon hand-off. The helper goes first: nothing runs it in place (the app and the daemon
+/// each run a checked copy, made again when the bundle changes), and a failed `apply` puts it
+/// back beside the `bin/` files it puts back.
+fn apply_with_helper(
+    app: &Path,
+    changes: &[Change],
+    helper: &Prepared,
+    store: &Store,
+    daemon: &dyn Daemon,
+    phases: &mut Phases,
+) -> Result<live::Applied, String> {
+    let t = Instant::now();
+    let swap = helper.swap();
+    if let Some(swap) = swap {
+        swap.keep(store)
+            .and_then(|()| swap.swap())
+            .map_err(|error| format!("the Screen Sharing helper: {error}"))?;
+    }
+    phases.add("helper_swap", t);
+    let mut applied = match live::apply(app, changes, store, daemon, phases) {
+        Ok(applied) => applied,
+        Err(error) => {
+            return Err(match swap.map(helper::Swap::put_back) {
+                Some(Err(back)) => {
+                    format!("{error}; putting the Screen Sharing helper back failed too: {back}")
+                }
+                Some(Ok(())) => format!("{error}; the Screen Sharing helper is back as it was"),
+                None => error,
+            });
+        }
+    };
+    match swap {
+        Some(swap) => {
+            let (step, undo) = swap.finish(store);
+            applied.helper_step = Some(step);
+            applied.helper_undo = Some(undo);
+            applied.changed = true;
+        }
+        None => applied.helper_step = helper.untouched_step(),
+    }
+    Ok(applied)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -815,8 +916,17 @@ fn finish(
     };
     set(&mut receipt, "ok", json!(true));
     set(&mut receipt, "changed", json!(applied.changed));
-    set(&mut receipt, "steps", applied.steps);
-    set(&mut receipt, "undo", json!({ "files": applied.prior }));
+    let helper_line = applied.helper_step.as_ref().map(helper_human);
+    let mut steps = applied.steps;
+    if let Some(step) = applied.helper_step {
+        set(&mut steps, helper::KEY, step);
+    }
+    set(&mut receipt, "steps", steps);
+    let mut undo_record = json!({ "files": applied.prior });
+    if let Some(record) = applied.helper_undo {
+        set(&mut undo_record, helper::KEY, record);
+    }
+    set(&mut receipt, "undo", undo_record);
     if let Some(changed_out) = changed_out {
         *changed_out = applied.changed;
     }
@@ -847,7 +957,20 @@ fn finish(
             .replace("{seconds}", &seconds),
     };
     println!("{line}");
+    if let Some(helper_line) = helper_line {
+        println!("{helper_line}");
+    }
     0
+}
+
+/// The line a receipt's `steps.screen_sharing_helper` prints: swapped, or left as is and why.
+fn helper_human(step: &Value) -> String {
+    let messages = messages();
+    if step.get_str("did") == Some("swapped") {
+        messages.helper_swapped.replace("{bundle}", step.get_str("bundle").unwrap_or_default())
+    } else {
+        messages.helper_untouched.replace("{why}", step.get_str("why").unwrap_or_default())
+    }
 }
 
 /// A daemon-only receipt's left-out reasons, joined; `None` for a whole-app one.
@@ -966,7 +1089,8 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
         Err(error) => return failure("try.undo_refused", &error, global.output),
     };
     if dry_run {
-        let value = json!({ "path": "live", "app": app.to_string_lossy(), "commit": commit, "files": files });
+        let helper = last.pointer("/undo/screen_sharing_helper").cloned().unwrap_or(Value::Null);
+        let value = json!({ "path": "live", "app": app.to_string_lossy(), "commit": commit, "files": files, "screen_sharing_helper": helper });
         if global.output == OutputMode::Human {
             println!(
                 "{}",
@@ -982,9 +1106,21 @@ fn undo(global: &GlobalArgs, store: &Store, dry_run: bool) -> i32 {
     }
     let mut phases = Phases::default();
     let daemon = app_daemon(&app);
-    let result = live::apply(&app, &changes, store, &daemon, &mut phases);
+    let helper = undo_helper(&last);
+    let result = apply_with_helper(&app, &changes, &helper, store, &daemon, &mut phases);
     let receipt = json!({ "schema": 1, "action": "undo", "path": "live", "commit": commit, "app": app.to_string_lossy(), "at": now() });
     finish(global, store, receipt, result, phases, started, &commit, &app, None)
+}
+
+/// The helper swap that puts back what the try `last` replaced. A helper that cannot go back
+/// (an update replaced it since, its copy is gone) is left as it is and says why; the `bin/`
+/// files still go back.
+fn undo_helper(last: &Value) -> Prepared {
+    match helper::undo(last) {
+        Ok(Some(swap)) => Prepared::Swap(swap),
+        Ok(None) => Prepared::Untouched("the try changed no Screen Sharing helper".to_owned()),
+        Err(why) => Prepared::Untouched(why),
+    }
 }
 
 /// Undoes the last live try into `app` with `daemon` (the testable core of `undo`).
@@ -993,7 +1129,8 @@ fn undo_live(store: &Store, daemon: &dyn Daemon) -> Result<live::Applied, String
     let last = store.last().ok_or("no receipt")?;
     let app = PathBuf::from(last.get_str("app").unwrap_or_default());
     let changes = live::undo_changes(&app, &last)?;
-    live::apply(&app, &changes, store, daemon, &mut Phases::default())
+    let helper = undo_helper(&last);
+    apply_with_helper(&app, &changes, &helper, store, daemon, &mut Phases::default())
 }
 
 fn status(global: &GlobalArgs, store: &Store) -> i32 {

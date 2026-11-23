@@ -362,6 +362,7 @@ public final class MacScreenDevicesSettings {
         switch platform {
         case .ios: L.t("devices.platform.ios", "iPhone")
         case .linux: L.t("devices.platform.linux", "Linux")
+        case .windows: L.t("devices.platform.windows", "Windows")
         case .macos, nil: L.t("devices.platform.mac", "Mac")
         }
     }

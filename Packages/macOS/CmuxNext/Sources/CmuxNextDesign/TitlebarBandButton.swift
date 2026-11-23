@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesignTokens
 
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
@@ -105,11 +106,14 @@ public final class TitlebarBandButton: ClickableButton {
         applyInk()
     }
 
-    /// Secondary text at rest, tertiary while disabled, in the button's scope.
+    /// Secondary text at rest, tertiary while disabled, in the button's scope; on a popover's glass each fit to the
+    /// glass over any page (``NSView/glassInk(_:minimum:)``: 2.01:1 and, disabled, 1.35:1 over a black page before).
     private func applyInk() {
         performWithTheme {
-            contentTintColor = isEnabled ? Palette.textSecondary : Palette.textTertiary
-            badgeLabel.textColor = Palette.textSecondary
+            let secondary = glassInk(\.textSecondary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textSecondary
+            contentTintColor = isEnabled ? secondary
+                : glassInk(\.textTertiary, minimum: CmuxDialogButtonLook.disabledMinimumContrast) ?? Palette.textTertiary
+            badgeLabel.textColor = secondary
         }
     }
 
