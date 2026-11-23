@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -161,7 +162,7 @@ private struct WorkingAgentCapsule: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Image(systemName: FeedRowCell.avatarSymbol(agent.harness))
+                Image(systemName: AgentAvatarMark.fallbackSymbol(agent.harness))
                     .font(.caption.weight(.semibold))
                     .frame(minWidth: 16, alignment: .leading)
                 Text(agent.workspaceTitle.isEmpty ? agent.agentName : agent.workspaceTitle)

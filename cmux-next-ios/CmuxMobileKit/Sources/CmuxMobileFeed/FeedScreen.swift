@@ -315,7 +315,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         for id in store.unseenNewIDs.suffix(24).reversed() {
             // Only events the current filter shows: the pill never names an agent the list hides.
             guard let item = store.item(id: id), !item.isDone, store.filter.matches(item) else { continue }
-            let symbol = FeedRowCell.avatarSymbol(item.harness)
+            let symbol = AgentAvatarMark.fallbackSymbol(item.harness)
             if seen.insert(symbol).inserted { glyphs.append(symbol) }
             if glyphs.count == 3 { break }
         }
