@@ -104,7 +104,9 @@ pub fn need_for(service: &str) -> Option<Need> {
         "file" | "file-preview" | "needs-you" | "appearance" | "appearance-wallpaper" => {
             Need::Grant(Grant::View)
         }
-        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => {
+        // Answering a pairing request waiting here (`pair_requests.rs`) is answering for the
+        // person, as `acpmux` answers agents.
+        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" | "pair-requests" => {
             Need::Grant(Grant::Control)
         }
         // Cloud chats ride the Mac's own Cloud session: a phone's lane only.

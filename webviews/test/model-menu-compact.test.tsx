@@ -96,6 +96,8 @@ async function mount(
   listed: unknown,
   options: {
     fast?: boolean;
+    /** The agent starts a new model on its own level and Fast off, as Codex does on a switch. */
+    modelResets?: boolean;
     refuse?: boolean;
     turnCount?: number;
     model?: string;
@@ -216,7 +218,9 @@ async function mount(
         pickerCatalog={picker.catalog}
         onModel={(model) => {
           sent.push({ method: "model", value: model });
-          setState((current) => ({ ...current, model }));
+          setState((current) =>
+            options.modelResets ? { ...current, model, effort: "medium", fast: "off" } : { ...current, model },
+          );
         }}
         onMode={() => undefined}
         onEffort={(id, value) => {
@@ -356,9 +360,8 @@ test("Effort lists the model's levels and a pick sends it", async () => {
   expect(levels().map(nameOf)).toEqual(["Low", "Medium", "High"]);
   await click(levels().find((level) => nameOf(level) === "High")!);
   expect(sent).toEqual([{ method: "effort", value: "high" }]);
-  // A click applies at once and closes the menu (David Beyer 2026-11-20); opened again, it checks High.
-  expect(cols()).toBeNull();
-  await open();
+  // A click applies at once and the menu stays open on the new level.
+  expect(cols()).not.toBeNull();
   expect(levels().find((level) => level.getAttribute("aria-checked") === "true")?.textContent).toContain("High");
 });
 
@@ -643,15 +646,15 @@ test("the rail tab and the typed filter survive the composer re-rendering", asyn
 
 // A row never takes the keyboard (the slash menu's pattern): the search field keeps it while a
 // click picks a model and while a filter replaces the rows. The pick has landed once the menu closes.
-test("a click picks a model and closes the menu; the search field keeps the keyboard as typing replaces the rows", async () => {
+test("the search field keeps the keyboard as a click picks a model and typing replaces the rows", async () => {
   const { sent } = await mount({ routes: [] });
   await open();
   const row = modelRows(cols()!)[1]!;
   const name = nameOf(row);
   await click(row);
-  // A click lands the model and closes the menu (David Beyer 2026-11-20).
-  expect(cols()).toBeNull();
-  await open();
+  // A click keeps the menu open and checks the picked row.
+  expect(cols()).not.toBeNull();
+  expect(row.getAttribute("aria-selected")).toBe("true");
   expect(doc().activeElement).toBe(field());
   await typeIn("ha");
   await settle();
@@ -877,6 +880,31 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
   await settle();
   expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
   expect(cols()).toBeNull();
+});
+
+// #48444: model, reasoning and Fast are independent. A plain model pick in the full picker keeps the
+// chat's level and Fast, also on an agent that resets both on a switch (Codex).
+test("a model picked in the full picker keeps the chat's level and Fast", async () => {
+  const { sent } = await mount({ routes: [] }, { effort: "high", fast: true, modelResets: true });
+  await open();
+  await click(fastSwitch()!);
+  expect(sent).toEqual([{ method: "effort", value: "on" }]);
+  sent.length = 0;
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  await settle();
+  const row = [...doc().querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"]')].find((item) =>
+    item.textContent?.includes("Fable 5.2"),
+  );
+  expect(row, "the Fable 5.2 row").toBeDefined();
+  await click(row!);
+  await settle();
+  expect(sent[0]).toEqual({ method: "model", value: "claude-fable-5-2" });
+  expect(sent.slice(1)).toContainEqual({ method: "effort", value: "high" });
+  expect(sent.slice(1)).toContainEqual({ method: "effort", value: "on" });
 });
 
 // Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….

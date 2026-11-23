@@ -525,20 +525,29 @@ def scenario_ticks(pid, size):
     time.sleep(2)
     busy = cpu_share(pid, 10)
     frames("start")
+    before = sidebar_perf()
     tr = Trace(pid, f"{size}-ticks", 12)
     tr.__enter__()
     t0 = time.monotonic()
+    if opts.no_trace:
+        time.sleep(12)  # the window the recording would take: the counters and frames still measure it
     tr.__exit__(None, None, None)
     wall = time.monotonic() - t0
+    work = perf_delta(before, sidebar_perf())
     stats = frames("stop")
     profile = main_thread_profile(tr.path)
     ticks = len(made["tickers"]) * (min(wall, 12) / TICK_S)
     per_tick = None
     if profile and profile.get("main_samples"):
         per_tick = round(profile["main_samples"] / ticks, 3) if ticks else None  # 1 ms per Time Profiler sample
+    # Rows the feed mapped per tick (`SidebarRowFeed`): one ticking workspace's change maps its own row, so this stays
+    # at or under 1 at 100 workspaces as at 1,000; a read every row shares (a global observable) shows as N per tick.
+    rows = {k: round(work[k] / ticks, 3) if ticks and k in work else None for k in ROW_KEYS}
     return {"tickers": len(made["tickers"]), "tick_hz_each": 1 / TICK_S, "idle": idle, "ticking": busy,
             "trace_window_s": 12, "ticks_in_trace": round(ticks), "main_ms_per_tick": per_tick,
             "main_ms_per_s": round(profile["main_samples"] / 12, 1) if profile and profile.get("main_samples") else None,
+            "sidebar_work": work, "per_tick": rows,
+            "feed_ms_per_s": round(work["main_ns"] / 1e6 / wall, 2) if work.get("main_ns") is not None and wall else None,
             "frames_while_ticking": stats, "trace": os.path.relpath(tr.path, OUT), "profile": profile}
 
 
@@ -824,8 +833,11 @@ def scenario_hitches(pid, size):
 
 
 # ---------------------------------------------------------------- customization: theme and extension sections
+# The row feed's own counters (rows marked dirty, rows mapped, rows mapped from their stores, flushes): per tick in the
+# ticks scenario.
+ROW_KEYS = ("row_invalidations", "row_maps", "rows_made", "row_maps_unchanged", "row_flushes", "row_patches")
 PERF_KEYS = ("rebuilds", "section_sets", "list_reloads", "layout_rows", "row_configures", "row_patches", "band_updates",
-             "scroll_realizes", "rows_walked", "main_ns")
+             "scroll_realizes", "rows_walked", "main_ns", *ROW_KEYS[:-1])
 
 
 def sidebar_perf():

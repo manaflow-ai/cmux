@@ -39,9 +39,22 @@ on:
     branches: [feat-cmux-next]
     # closed: a PR that merged with no look receipt gets one look at its merge commit (the `plan` job).
     types: [opened, synchronize, reopened, ready_for_review, closed]
-    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    # Path gate (2026-11-21, CI 10x; Leo: "Make each one advisory, after-merge or path-gated, unless it caught a real
+    # failure"). A look needs a layer the engine can put onto the running nightly with no build: web (webviews/,
+    # cmux-tui/frontends/web/) or rust (the cmux-tui tree build's inputs that live_apply.py sorts as daemon: cmux-tui/,
+    # acpmux/, Rust and Cargo manifests; scripts/cmux-next/cmux-tui-tree-inputs.txt). Any other change plans
+    # "nothing in the app changes" or "needs a build", so its head started a run, a Linux runner and a plan for no
+    # look (6,879 heads planned in 11-13..19, 1 own red). Only a change that can reach a layer starts it now, the
+    # merged (closed) half included; the `!` lines are scripts/ci/docs_only_paths.py's prose excludes. A change to the
+    # engine's layer rules (live_apply.py, hot-apply.py) updates this list in the same pull request.
     paths:
-      - "**"
+      - "webviews/**"
+      - "cmux-tui/**"
+      - "acpmux/**"
+      - "first-party-apps/cloud/server/**"
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - ".github/workflows/cmux-next-hot-verify.yml"
       - "!**/*.md"
       - "!docs/**/*.png"
       - "!docs/**/*.jpg"
@@ -51,43 +64,8 @@ on:
       - "!plans/**/*.jpg"
       - "!plans/**/*.gif"
       - "!plans/**/*.webp"
-      - "**/AGENTS.md"
-      - "**/CLAUDE.md"
-      - "**/SKILL.md"
-      - ".github/**"
-      - "**/skills/**"
-      - "**/references/**"
-      - "**/templates/**"
-      - "**/Resources/**"
-      - "**/fixtures/**"
-      - "**/testdata/**"
-      - "**/test/**"
-      - "**/tests/**"
-      - "CHANGELOG.md"
-      - "THIRD_PARTY_LICENSES.md"
-      - "release-notes/**"
-      - "docs/agent-hooks.md"
-      - "docs/chief-setup-prompts.md"
-      - "docs/configuration.md"
-      - "docs/ci/node-product-cache-maintenance.md"
-      - "plans/cmux-next/actions.md"
-      - "docs/mdm/managed-preferences.md"
-      - "docs/ci/health-report.md"
-      - "docs/privacy.md"
-      - "**/notices/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
-      - "cmux-tui/README.md"
-      - "docs/remote-agents-and-cloud.md"
-      - "docs/cmux-next/customize-recipes.md"
-      - "cmux-tui/crates/acpmux/README.md"
-      - "cmux-tui/crates/acpmux/docs/**"
-      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
-      - "cmux-tui/crates/cmux-extension-sdk/README.md"
-      - "cmux-tui/vendor/terminput-crossterm/README.md"
-      - "mux/packages/brain/conformance/README.md"
-    # docs-only paths: END
-  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
-  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  # docs-only-fallback.yml calls this in a pull request's own context when GitHub's `paths:` could have skipped it
+  # wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
   workflow_call:
   # GitHub dispatches only a workflow it knows on a branch; a push that changes this file registers it on
   # feat-cmux-next (its jobs skip), as cmux-tui-tree-request.yml does.
@@ -138,13 +116,18 @@ concurrency:
   group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}${{ inputs.look_result != '' && format('-result-{0}', inputs.head) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
+  # switches itself off at 2026-11-22 00:00 UTC.
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   # The pull request half: the engine's plan, on the PR head, with no secret. Drafts wait until they are ready,
   # forks never run, and CI_QUOTA_HOLD=1 pauses it while the GITHUB_TOKEN budget is held for the nightly.
   plan:
     name: plan the look
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -260,7 +243,7 @@ jobs:
     name: start the look on feat-cmux-next
     needs: plan
     if: ${{ needs.plan.outputs.eligible == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
     # actions: write starts the run; nothing here can write pr-media or the PR.
     permissions:
@@ -310,7 +293,7 @@ jobs:
   target:
     name: check the pull request
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -335,7 +318,10 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             /scripts/cmux-next/hot-verify-pr.sh
+            /scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:
@@ -357,7 +343,7 @@ jobs:
     name: web layer
     needs: target
     if: ${{ inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -378,7 +364,7 @@ jobs:
     name: rust layer
     needs: target
     if: ${{ inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.rust == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -418,7 +404,7 @@ jobs:
     needs: [target, rust]
     # After the rust job: skipped when the change has no rust layer.
     if: ${{ !cancelled() && inputs.look_result == '' && needs.target.outputs.ok == 'true' && (needs.rust.result == 'success' || needs.rust.result == 'skipped') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -443,7 +429,7 @@ jobs:
   publish:
     name: post the look
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.look_result != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 50  # 20, plus hot-verify-ci.py's QUOTA_WAIT_SECONDS (1800) for a post out of quota
     environment: pr-media
     # contents: write reaches the pr-media branch (the code branches are protected by their rulesets);
@@ -468,7 +454,10 @@ jobs:
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/hot-verify-ci.py
             scripts/cmux-next/hot-verify-pr.sh
+            scripts/ci/gh_budget_wait.sh
           sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
       - name: Read the pull request
         id: check
         env:

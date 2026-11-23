@@ -1517,6 +1517,46 @@ mark {
   margin-top: var(--ds-space-2);
 }
 
+/* The Background card's placement preview: the picture in a window-shaped frame, dragged into place. */
+.placement-preview {
+  display: grid;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-3);
+  max-width: var(--page-size-420);
+}
+
+.placement-frame {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.placement-frame[data-dragging] {
+  cursor: grabbing;
+}
+
+.placement-frame[aria-disabled="true"] {
+  cursor: default;
+}
+
+.placement-image {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+}
+
+.placement-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
 .backdrop-group-title {
   margin: var(--ds-space-3) 0 0;
   font-weight: 600;
@@ -2588,33 +2628,6 @@ button.menu-disclosure {
   min-width: 0;
 }
 
-/* Each Personalization panel has a heading and links to its related categories. */
-.personalization-part {
-  margin-bottom: var(--ds-space-6);
-}
-
-.personalization-part-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--ds-space-2) var(--ds-space-4);
-  margin: 0 0 var(--ds-space-5);
-}
-
-.personalization-part-header .section-title {
-  margin: 0;
-}
-
-.personalization-more {
-  color: var(--muted-text);
-}
-
-.personalization-more-links {
-  display: flex;
-  gap: var(--ds-space-1);
-}
-
 /* Settings > Models (ModelsCard.tsx): three groups, each title with its help and an optional + on the
    trailing edge; connection rows with a grip, the provider's mark, a switch and an overflow menu. */
 .models {
@@ -2745,7 +2758,7 @@ button.menu-disclosure {
   font-size: var(--text-detail);
 }
 
-/* Personalization > Customization Library (CustomizeLibraryCard): one row per entry, top first.
+/* Appearance > Customization Library (CustomizeLibraryCard): one row per entry, top first.
    The mark is the entry's swatches (its thumbnail is its colors and keys, never a capture); its
    order buttons show on hover and focus like the menu rows'; an entry that is off reads dimmed. */
 .library-mark {
@@ -2919,4 +2932,104 @@ button.menu-disclosure {
 .ask-cmux[data-look="link"]:hover {
   background: transparent;
   text-decoration: underline;
+}
+
+/* A font row's pictures (components/FontPreview.tsx): a tile per face choice, drawn in that face at the
+   surface's size and line height, under the row; the density tiles' look. */
+.font-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-150), 1fr));
+  gap: var(--page-size-10);
+  padding: var(--page-size-6) 0;
+}
+
+.font-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--page-size-6);
+  min-width: 0;
+  padding: var(--page-size-6);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-space-2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.font-tile[data-on] {
+  border-color: var(--text);
+}
+
+.font-tile-picture {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.font-tile-glyphs,
+.font-tile-line {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.font-tile-glyphs {
+  font-size: 1.6em;
+}
+
+.font-tile-name {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--page-size-6);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.font-tile-name small {
+  color: var(--muted-text);
+}
+
+.font-sample {
+  overflow: hidden;
+  margin: var(--page-size-6) 0;
+  padding: var(--page-size-6) var(--page-size-10);
+  border: 1px solid var(--border);
+  border-radius: var(--page-size-6);
+  background: var(--input-bg);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Settings > General's Text Size card (TextSizeCard): the picker on a card of its own, ahead of every row. */
+.text-size-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.text-size-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.text-size-card__head .group-title {
+  margin: 0;
+}
+
+.text-size-card__detail {
+  margin: 0;
+  color: var(--muted-text);
 }

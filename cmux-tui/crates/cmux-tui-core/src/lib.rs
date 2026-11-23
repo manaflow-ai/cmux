@@ -58,6 +58,8 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
@@ -79,6 +81,7 @@ use cmux_tui_remote_access::pairing;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
+mod paste_pacing;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;

@@ -424,3 +424,8 @@ webviews/test/chief-views-row-renders.test.tsx	sleep-then-assert	a zero-delay ma
 webviews/test/passwords-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
 webviews/test/stash-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
 webviews/test/markdown-save-scale.test.ts	assert-on-duration	debt (5b3a4b5d): a 2 s bound on a stress-bench match; move the bound to the bench, keep the correctness checks here
+webviews/test/cloud-files-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
+webviews/test/feed-diff-visible-only.test.tsx	sleep-then-assert	a zero-delay macrotask inside act() so the scroll handler's queued update commits; no real wait
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/NoBounceSpringsTests.swift	assert-on-duration	a.duration is the CAKeyframeAnimation's configured length, not a measured time; nothing here reads a clock
+Packages/Shared/CmuxMessagesLab/Tests/MessagesLabHomeTests/HomeComposerSendPrepTests.swift	sleep-then-assert	debt (847a5968a00): the 400 ms wait proves a dropped render never happens (a negative check); a slow runner only lengthens the window; move to a drain signal
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ChiefBrainWatchFilesHostTests.swift	sleep-then-assert	debt (03335b86d87): the 500 ms wait proves an unrelated host is never watched (a negative check); a slow runner only lengthens the window; move to a watch-tick signal

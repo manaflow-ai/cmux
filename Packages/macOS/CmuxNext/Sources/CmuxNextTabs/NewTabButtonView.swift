@@ -60,8 +60,9 @@ final class NewTabButtonView: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
         setAccessibilityIdentifier("cmux.tabs.newTab")
-        // The plus says what it does and that holding it opens the new tab menu (`TabNewTabHold`).
-        themedToolTip = Strings.newTabHoldHint
+        // The plus names what it does, with its shortcut (a1315: a tooltip is the name and the shortcut; holding it
+        // for the new tab menu, `TabNewTabHold`, is no tooltip's to explain).
+        themedToolTip = Strings.axNewTab
     }
 
     @available(*, unavailable)

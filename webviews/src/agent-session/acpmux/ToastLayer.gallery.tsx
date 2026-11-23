@@ -18,16 +18,41 @@
 // settle at lit, so the snap is never a surprise. `spring` is the same without the outlines (the
 // snap lands somewhere the person could not see coming); `rubber` leans the toast toward that
 // anchor as it moves, which tells the same thing but makes the toast lag the pointer.
-import { useMemo, useState } from "react";
+//
+// Toasts v2 (ui/toastsV2.experiment.ts; Leo 2026-11-19: "Promise toasts with Undo"): `promise-*`
+// is one toast for one piece of work (working, success, error, and `promise-play` running working
+// to success in place), `undo-*` the one-line toasts closing a tab or archiving a session leave.
+// Each is drawn in today's look and pinned to each v2 arm (`-mark`, `-tinted`, `-accent-bar`), and
+// the bare variants take the arm from the compare view.
+import { useEffect, useMemo, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { createNoticeQueue, type NoticeQueue, type StackLayout, type ToastSpec } from "../../ui/NoticeStack";
 import type { Anchor } from "../../ui/anchors";
 import type { DeckAlign, DragFeel } from "../../ui/NoticeDeck";
+import { toastsV2, type ToastLook } from "../../ui/toastsV2.experiment";
 import { ToastLayer } from "./ToastLayer";
 
-type Toasts = "single" | "stack" | "count" | "persistent";
-type Props = { toasts: Toasts; layout?: StackLayout; align?: DeckAlign; placement?: Anchor; drag?: DragFeel };
+type Toasts =
+  | "single"
+  | "stack"
+  | "count"
+  | "persistent"
+  | "promise-working"
+  | "promise-success"
+  | "promise-error"
+  | "promise-play"
+  | "undo-close-tab"
+  | "undo-archive";
+type Props = {
+  toasts: Toasts;
+  layout?: StackLayout;
+  align?: DeckAlign;
+  placement?: Anchor;
+  drag?: DragFeel;
+  /** Pins a toasts-v2 arm; without it the compare view's arm (or the default) draws. */
+  look?: ToastLook;
+};
 
 const noop = () => undefined;
 const FIXTURES: Record<Toasts, ToastSpec[]> = {
@@ -46,7 +71,17 @@ const FIXTURES: Record<Toasts, ToastSpec[]> = {
       actions: [{ id: "undo", label: "Undo", onSelect: noop }],
     },
   ],
+  // Drawn by `queue.promise` below.
+  "promise-working": [],
+  "promise-success": [],
+  "promise-error": [],
+  "promise-play": [],
+  "undo-close-tab": [{ message: "Closed “Build logs”", actions: [{ id: "undo", label: "Undo", onSelect: noop }] }],
+  "undo-archive": [{ message: "Archived “Fix login race”", actions: [{ id: "undo", label: "Undo", onSelect: noop }] }],
 };
+
+/** The play's signal that the promise variant's work is done. */
+const FINISH_EVENT = "toast-gallery-finish";
 
 const ROWS = [
   "Why does the relay fall over after a deploy?",
@@ -55,16 +90,52 @@ const ROWS = [
   "I agree on both, and I've passed them along.",
 ];
 
-function ToastLayerGallery({ toasts, layout = "stacked", align = "center", placement = "bottom", drag }: Props) {
+function ToastLayerGallery({ toasts, layout = "stacked", align = "center", placement = "bottom", drag, look }: Props) {
+  // The promise variants' work: settled at once for a result, never for `working`, and by the
+  // play's finish event for `promise-play`.
+  const work = useMemo(() => {
+    let finish: () => void = noop;
+    const promise =
+      toasts === "promise-success"
+        ? Promise.resolve()
+        : toasts === "promise-error"
+          ? Promise.reject(new Error("3 failed"))
+          : new Promise<void>((resolve) => {
+              finish = () => resolve();
+            });
+    return { promise, finish };
+  }, [toasts]);
   const queue: NoticeQueue = useMemo(() => {
     const made = createNoticeQueue();
     // The gallery holds them: nothing times out under a capture.
     for (const spec of FIXTURES[toasts]) made.show({ duration: 0, anchor: placement, ...spec });
+    if (toasts.startsWith("promise-")) {
+      const hold = { duration: 0, anchor: placement };
+      made.promise(
+        "tests",
+        {
+          loading: { ...hold, message: "Running tests…" },
+          success: { ...hold, message: "128 tests passed." },
+          error: {
+            ...hold,
+            title: "Tests failed",
+            message: "3 of 128 failed in auth.spec.ts.",
+            retry: { label: "Retry", onRetry: noop },
+          },
+        },
+        work.promise,
+      );
+    }
     return made;
-  }, [toasts, placement]);
+  }, [toasts, placement, work]);
+  useEffect(() => {
+    const finish = () => work.finish();
+    document.addEventListener(FINISH_EVENT, finish);
+    return () => document.removeEventListener(FINISH_EVENT, finish);
+  }, [work]);
   const [top, setTop] = useState<HTMLDivElement | null>(null);
   return (
-    <div className="acpmux-shell toast-gallery">
+    <div className="acpmux-shell toast-gallery" data-promise-play={toasts === "promise-play" ? "" : undefined}>
       <div className="acpmux-main" data-dock="float">
         <div ref={setTop} className="acpmux-toasts-top" />
         <div className="acpmux-stage toast-gallery-stage">
@@ -75,7 +146,7 @@ function ToastLayerGallery({ toasts, layout = "stacked", align = "center", place
           ))}
         </div>
         <div className="acpmux-dock">
-          <ToastLayer queue={queue} topHost={top} layout={layout} align={align} drag={drag} />
+          <ToastLayer queue={queue} topHost={top} layout={layout} align={align} drag={drag} look={look} />
           <div className="acpmux-composer">
             <div className="acpmux-composer-box ui-glass toast-gallery-composer">Ask for follow-up changes</div>
           </div>
@@ -95,6 +166,51 @@ const holding: Play = async (ctx) => {
 const spread: Play = async (ctx) => {
   await ctx.hover({ selector: ".ui-notice-deck-card[data-front]" });
   await ctx.waitFor(() => ctx.document.querySelector(".ui-notice-deck[data-expanded]"));
+};
+
+// The promise toast's one change: working, then the same card turns into its success in place.
+const finishWork: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('.ui-notice[data-state="working"]'));
+  ctx.document.dispatchEvent(new CustomEvent(FINISH_EVENT));
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelectorAll(".ui-notice").length === 1 &&
+      ctx.document.querySelector('.ui-notice[data-state="success"]'),
+  );
+};
+
+// A toast is up in the arm's look (the compare script for every v2 variant but the play).
+const toastUp: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".ui-notice-deck-card[data-front] .ui-notice"));
+};
+
+const V2_STATES = {
+  "promise-working": "A promise toast while its work runs: spinner, no timeout.",
+  "promise-success": "The promise toast's success, in the same card.",
+  "promise-error": "The promise toast's error, in the same card, Retry first.",
+  "undo-close-tab": "Closing a tab: one line, Undo at the trailing edge.",
+  "undo-archive": "Archiving a session: one line, Undo at the trailing edge.",
+} as const satisfies Partial<Record<Toasts, string>>;
+const V2_ARMS: Record<Exclude<ToastLook, "off">, string> = {
+  mark: "Recommended arm `mark`",
+  tinted: "Arm `tinted` (conflicts with never-red-slabs)",
+  "accent-bar": "Arm `accent-bar`",
+};
+const v2Variants: Record<string, { props: Props; note: string; play?: Play }> = {};
+for (const [toasts, note] of Object.entries(V2_STATES) as [keyof typeof V2_STATES, string][]) {
+  v2Variants[toasts] = { props: { toasts }, note: `${note} Today's look (arm off); compare for the others.` };
+  for (const [look, arm] of Object.entries(V2_ARMS) as [Exclude<ToastLook, "off">, string][])
+    v2Variants[`${toasts}-${look}`] = { props: { toasts, look }, note: `${arm}: ${note}` };
+}
+v2Variants["promise-play"] = {
+  props: { toasts: "promise-play" },
+  play: finishWork,
+  note: "Working → success in place: one card, no new toast, no jump.",
+};
+v2Variants["promise-play-mark"] = {
+  props: { toasts: "promise-play", look: "mark" },
+  play: finishWork,
+  note: "Recommended arm `mark`: working → success in place.",
 };
 
 export default componentEntry<Props>({
@@ -152,5 +268,20 @@ export default componentEntry<Props>({
       props: { toasts: "count", placement: "top-right", drag: "ghosts" },
       note: "A kind of toast dragged to the top right once shows there after.",
     },
+    ...v2Variants,
+  },
+  // Toasts v2 (Leo 2026-11-19, promise toasts with Undo): open a `promise-*` or `undo-*` variant
+  // in view `compare`. On `promise-play` the script finishes the work; elsewhere it shows the toast.
+  experiment: {
+    definition: toastsV2,
+    script: [
+      {
+        name: "Finish the work, or show the toast",
+        run: async (ctx) => {
+          if (ctx.document.querySelector(".toast-gallery[data-promise-play]")) await finishWork(ctx);
+          else await toastUp(ctx);
+        },
+      },
+    ],
   },
 });

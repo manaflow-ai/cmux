@@ -64,13 +64,10 @@ SINGLE_SIZE: dict[str, int] = {
     "backend.yml": 0,
     "ci-artifact-canary.yml": 0,
     "ci-artifact-transport.yml": 0,
-    "ci-cache-receipts.yml": 0,
     "ci-compile-attribution.yml": 0,
     "ci-fast-guards.yml": 0,
-    "ci-guard-attribution.yml": 0,
     "ci-guards.yml": 0,
     "ci-health-report.yml": 0,
-    "ci-hosted-queue-rescue.yml": 0,
     "ci-queue-janitor.yml": 0,
     "ci-repo-variables.yml": 0,
     "ci-web.yml": 0,
@@ -81,7 +78,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-canary.yml": 0,
     "cloud-vm-env-audit.yml": 0,
     "cloud-vm-guest-install.yml": 0,
-    "cloud-vm-image-auto-promote.yml": 0,
     "cloud-vm-image-bake.yml": 0,
     "cloud-vm-image-lock.yml": 0,
     "cloud-vm-image-promote.yml": 0,
@@ -109,8 +105,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-next-web-bundles.yml": 0,
     "cmux-next-web.yml": 0,
     "cmux-next.yml": 0,
-    "cmux-skill-contract.yml": 0,
-    "cmux-tui-artifacts-retry.yml": 0,
     "cmux-tui-nightly.yml": 0,
     "cmux-tui-release-cut.yml": 0,
     "cmux-tui-release-delivery.yml": 0,
@@ -123,12 +117,10 @@ SINGLE_SIZE: dict[str, int] = {
     "coderouter-release.yml": 0,
     "coderouter-verify-release.yml": 0,
     "docs-deploy-reusable.yml": 0,
-    "dogfood-artifact-publish.yml": 0,
     "feature-flag-review-drift.yml": 0,
     "fleet-artifact-cdn.yml": 0,
     "fleet-test-compile.yml": 0,
     "git-mirror-bundle.yml": 0,
-    "indexnow-tests.yml": 0,
     "indexnow.yml": 0,
     "ios-app-store.yml": 0,
     "ios-appstore-upload.yml": 0,
@@ -140,7 +132,6 @@ SINGLE_SIZE: dict[str, int] = {
     "iroh-v2-production-drift.yml": 0,
     "iroh-v2.yml": 0,
     "labels-sync.yml": 0,
-    "main-submodule-pin-watch.yml": 0,
     "merge-group-policy-checks.yml": 0,
     "mux.yml": 0,
     "nightly-next-canary.yml": 0,
@@ -155,7 +146,6 @@ SINGLE_SIZE: dict[str, int] = {
     "r2-binaries-prune.yml": 0,
     "r2-cache-prune.yml": 0,
     "r2-storage-census.yml": 0,
-    "r2-upload-tests.yml": 0,
     "relay-publish-npm.yml": 0,
     "release-rails.yml": 0,
     "release.yml": 0,
@@ -182,7 +172,6 @@ SINGLE_SIZE: dict[str, int] = {
     "tui-publish-npm.yml": 0,
     "tui-publish-pypi.yml": 0,
     "update-homebrew.yml": 0,
-    "vendored-agent-cursor.yml": 0,
     "vercel-auth-health.yml": 0,
 }
 
@@ -310,13 +299,15 @@ class FixedPairRuleTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_ghosttykit_release_check_reads_the_linux_pool(self) -> None:
+    def test_the_ghosttykit_release_check_takes_the_persistent_linux_pool(self) -> None:
+        # Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): never one Blacksmith size.
         document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
         cells = runs_on_cells(document["jobs"]["ghosttykit-release-check"], "ci.yml", "ghosttykit-release-check")
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
@@ -326,8 +317,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotIn("LINUX_RUNNER", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:
         found = counts()

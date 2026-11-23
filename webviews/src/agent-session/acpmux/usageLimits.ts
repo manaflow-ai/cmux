@@ -1,5 +1,6 @@
 import type { Translate } from "./i18n";
 import type { AcpmuxUsageLimits } from "./model";
+import { intl } from "../../ui/intl";
 
 type LimitWindow = AcpmuxUsageLimits["windows"][number];
 
@@ -68,15 +69,15 @@ function resetTime(seconds: number, locale?: string): string {
     timeZoneName: "short",
   };
   try {
-    return new Intl.DateTimeFormat(locale, options).format(seconds * 1000);
+    return intl.DateTimeFormat(locale, options).format(seconds * 1000);
   } catch {
-    return new Intl.DateTimeFormat(undefined, options).format(seconds * 1000);
+    return intl.DateTimeFormat(undefined, options).format(seconds * 1000);
   }
 }
 
 function percent(value: number, locale?: string): string {
   try {
-    return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
+    return intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
   } catch {
     return String(Math.round(value * 10) / 10);
   }
@@ -142,9 +143,9 @@ export function planResetLabel(
   const at = limit.resetsAt * 1000;
   const format = (options: Intl.DateTimeFormatOptions) => {
     try {
-      return new Intl.DateTimeFormat(locale, options).format(at);
+      return intl.DateTimeFormat(locale, options).format(at);
     } catch {
-      return new Intl.DateTimeFormat(undefined, options).format(at);
+      return intl.DateTimeFormat(undefined, options).format(at);
     }
   };
   const time = format({ hour: "numeric", minute: "2-digit" });
@@ -183,7 +184,7 @@ export function planCreditsLabel(
   let count = credits.balance;
   if (Number.isFinite(value)) {
     try {
-      count = new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
+      count = intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value);
     } catch {
       count = String(value);
     }

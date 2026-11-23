@@ -77,8 +77,9 @@ public final class OnboardingWindowPresenter {
     /// The Agents step's once flag; the Set Up cmux card (``FirstRunSetup``) sets it in its place.
     public static let agentsShownKey = "home.firstRun.agentsShown"
 
-    /// Bring your history's once flag (the App shows that page); unset, and no Set Up cmux card started, this Mac
-    /// never finished a first launch.
+    /// Set once this Mac finished its first launch: the first-run windows ran, or the Set Up cmux card ended. Unset,
+    /// and no Set Up cmux card started, this Mac never finished a first launch. The key keeps the name it had when
+    /// that last step was Bring your history (removed), so a Mac that finished one before is not asked again.
     public static let historyShownKey = "home.firstRun.historyImportShown"
 
     /// Whether this launch is the Mac's first, read before the first-run steps set their flags:
@@ -88,8 +89,8 @@ public final class OnboardingWindowPresenter {
     }
 
     /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
-    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (Bring your
-    /// history) once no tool window shows. Each keeps its own once flag.
+    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (the first launch is finished) once
+    /// no tool window shows. Each keeps its own once flag.
     public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
                                   defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
@@ -103,8 +104,9 @@ public final class OnboardingWindowPresenter {
     public enum LaunchSteps: Sendable, Equatable {
         /// Capture builds, the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`: nothing.
         case none
-        /// First-run onboarding off (Lawrence 2026-11-09), the default: no first-run windows, card or history page,
-        /// but the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
+        /// The default: the long first-run onboarding stays off (Lawrence 2026-11-09: no Agents window, card or
+        /// history page); a new person gets only the one short Make cmux Yours screen (cmux#48416) and then their
+        /// first chat, and the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
         /// starts get no cmux MCP server (`agents.cmuxMcp` stays `ask`), and a NIGHTLY that never asked left a
         /// teammate's Codex with no `cmux` (2026-11-19).
         case agentToolsOnly
@@ -126,17 +128,51 @@ public final class OnboardingWindowPresenter {
         public var skipsFirstRun: Bool { self != .firstRun }
     }
 
-    /// The launch's steps before the person's own work: none; only the cmux Tools question
-    /// (``askAgentToolsOnce(source:defaults:)``); or the first run, for which this returns true (the
-    /// first run asks the question among its steps).
-    public func showLaunchSteps(_ steps: LaunchSteps, agentTools: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async -> Bool {
+    /// The launch's steps before the person's own work: none; on a first run Make cmux Yours
+    /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``), then only the cmux Tools question
+    /// (``askAgentToolsOnce(source:defaults:)``); or, with onboarding on, the first run, for which this
+    /// returns true (the first run asks the question among its steps).
+    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, agentTools: (any AgentToolsSource)?,
+                                defaults: UserDefaults = .standard) async -> Bool {
         switch steps {
         case .none: return false
         case .agentToolsOnly:
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await untilClosed()
             await askAgentToolsOnce(source: agentTools, defaults: defaults)
             return false
-        case .firstRun: return true
+        case .firstRun:
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await untilClosed()
+            return true
         }
+    }
+
+    /// Set once a first run opened its new agent chat, or a launch was no first run (cmux#48416).
+    public static let firstChatOpenedKey = "home.firstRun.firstChatOpened"
+
+    /// Whether this launch opens the first-run agent chat, marking it decided when so: a first run, not a capture
+    /// build or the showcase (`.none`), not a person who picked terminal-first. An upgrade marks it and gets none.
+    public static func claimFirstChat(isFirstRun: Bool, steps: LaunchSteps, terminalFirst: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard steps != .none, !defaults.bool(forKey: firstChatOpenedKey) else { return false }
+        defaults.set(true, forKey: firstChatOpenedKey)
+        return isFirstRun && !terminalFirst
+    }
+
+    /// Make cmux Yours' once flag.
+    public static let makeItYoursShownKey = "home.firstRun.makeItYoursShown"
+
+    /// A new person's one setup screen (cmux#48416): how they work (GUI-first, recommended, or
+    /// terminal-first), the density and a background, once per app channel (`defaults`) and only on a
+    /// first run: an existing installation (`isFirstRun` false) keeps its settings and never sees it.
+    public func showMakeItYoursAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) async {
+        let key = Self.makeItYoursShownKey
+        guard !defaults.bool(forKey: key) else { return }
+        // An upgrade is no first run; a first run marks it only once the step showed.
+        guard isFirstRun else { return defaults.set(true, forKey: key) }
+        guard controller == nil else { return }
+        show(step: .makeItYours)
+        defaults.set(true, forKey: key)
     }
 
     /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its

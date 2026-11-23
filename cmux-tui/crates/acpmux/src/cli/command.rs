@@ -16,6 +16,53 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct MoveSessionsArgs {
+    /// The chats to move (ids or names); none with --all-idle.
+    #[arg(required_unless_present = "all_idle")]
+    pub sessions: Vec<String>,
+    /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
+    /// (never a reserved one), one machine per checkout. `--host` still works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
+    pub host: String,
+    /// Every open chat here that is between turns.
+    #[arg(long, conflicts_with = "sessions")]
+    pub all_idle: bool,
+    /// Stop a running turn at once, even mid tool call. Without it a running turn moves with
+    /// the chat: the move waits for its tool call in flight to end, and the turn goes on there.
+    #[arg(long, conflicts_with = "after_turn")]
+    pub interrupt: bool,
+    /// Let a running turn end on its own, then move: nothing is stopped or refused while it
+    /// runs, and prompts sent meanwhile move with the chat.
+    #[arg(long)]
+    pub after_turn: bool,
+    /// With --after-turn: the longest the move waits for a running turn to end, in seconds;
+    /// past it the move gives up (non-zero), naming the chat and the step.
+    #[arg(long, value_name = "SECS", default_value_t = 600)]
+    pub timeout: u64,
+    /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
+    #[arg(long)]
+    pub leave_dirty: bool,
+    /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
+    /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
+    /// keys) stay on this machine.
+    #[arg(long, conflicts_with = "leave_dirty")]
+    pub carry_changes: bool,
+    /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
+    /// and no branch pushed. For a folder outside this machine's home.
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<String>,
+    /// Say where each chat would go and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// The machine the chats are on, when not this one: this machine drives the move over
+    /// ssh to it and to the target, so two machines that cannot reach each other trade
+    /// chats. With it, `--machine local` brings them here.
+    #[arg(long, value_name = "MACHINE")]
+    pub from: Option<String>,
+}
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -301,7 +348,7 @@ pub enum Command {
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
         aliases = aliases::SEND,
-        after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
+        after_help = "A send that returns once handed off (--no-wait, an agent's send) prints one stable first line, `sent STATE id=ID to=TARGET`, where STATE is queued (in the outbox or behind the target's turn), held (in an idle receiver's inbox, read with its next turn), delivered or steered (into its running turn); the lines after it are for people. --json prints {\"ok\":true,\"state\":STATE,\"id\":ID,...}. Scripts and retry loops check the exit code, never the text.\n\nExit codes: 0 sent (every STATE above, or the reply of a send that waits), 1 any other failure, 2 usage, 3 timeout (the prompt may have been accepted: resend with --prompt-id), 4 no such session, 5 a permission refused (--on-permission fail), 7 the target refused the message at once and nothing was delivered.\n\nA name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
         /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
@@ -420,6 +467,19 @@ pub enum Command {
     /// `--json` with no filter is every session's full record.
     #[command(aliases = aliases::LS, after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
+    /// Archive chats: off the chat lists until unarchived; `ls --archived` lists them. One
+    /// archived already keeps its archive.
+    Archive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
+    /// Bring archived chats back to the lists. One that is not archived is left as it is.
+    Unarchive {
+        /// Session names or ids (`host/name` for a peer's).
+        #[arg(required = true)]
+        sessions: Vec<String>,
+    },
     /// Open the TUI on a session, or on the session list.
     #[command(aliases = aliases::ATTACH)]
     Attach {
@@ -509,6 +569,9 @@ pub enum Command {
     },
     /// Print the dashboard URL and open it in the browser.
     Web {
+        /// Open the shipped NEXT agent pane instead of the dashboard.
+        #[arg(long)]
+        app: bool,
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
@@ -544,11 +607,23 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
-    /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill,
-    /// background (Ctrl-B: move a chat's running work there).
-    #[command(subcommand, aliases = aliases::PROCESS)]
-    Process(crate::cli::process::ProcessCmd),
+    /// Read-only local branch board (Labs > Show Preview Features). Also `cmux board --json`.
+    Board,
+    /// With no subcommand (`acpmux ps`): every process acpmux started on this machine and the
+    /// state it keeps, with each one's owner now, session, age and state (in-use, idle,
+    /// orphaned, unknown) and why, read from the processes' own marks and their hosts' locks.
+    /// Subcommands: background processes agents left running (dev servers, watchers): list,
+    /// show (everything one printed, live with --follow), kill, background (Ctrl-B).
+    #[command(aliases = aliases::PROCESS)]
+    Process(crate::cli::process::ProcessArgs),
+    /// End what acpmux proves is orphaned: processes an ended agent host left behind and lock
+    /// files nothing holds. A dry run unless --apply; refuses anything a live host or session
+    /// still references; every end is logged with its reason in `process-kills.jsonl`.
+    Gc {
+        /// End them (default: only list what would be ended, and what is refused and why).
+        #[arg(long)]
+        apply: bool,
+    },
     /// This machine's git worktrees, cleaned up after the agents that made
     /// them: list, clean (archive work only there, then remove), restore,
     /// archives.
@@ -564,7 +639,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off.
+    /// This Mac's share host: the daemon serves screen shares with no app running. status, on, off, link.
     #[command(subcommand)]
     ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
@@ -608,6 +683,11 @@ pub enum Command {
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     AcpmuxMcp,
+    /// The inbox relay for the Claude Code session that starts it, as an MCP stdio server with no
+    /// tools (`claude_inbox_relay.rs`): acpmux's messages into that session come from its own
+    /// child, so the session does not hold them (not for people).
+    #[command(hide = true)]
+    InboxRelay,
     /// acpmux's own agent tool servers (secrets, offers, sub-sessions, forum, acpmux) in one
     /// MCP stdio process for one agent session: `cmux mcp serve` runs it once per chat
     /// (tools_mcp.rs; not for people).
@@ -625,15 +705,41 @@ pub enum Command {
         since: Option<String>,
     },
     #[command(hide = true)]
-    TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
+    TagCmd {
+        session: String,
+        assignments: Vec<String>,
+        #[arg(long)]
+        remove: Vec<String>,
+        #[arg(long)]
+        ttl: Option<u64>,
+    },
     #[command(hide = true)]
     SessionSearch(crate::cli::session_search::SearchArgs),
     #[command(hide = true)]
-    RulesCmd { session: String, rules: Option<String>, clear: bool },
+    RulesCmd {
+        session: String,
+        rules: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true)]
-    LimitsCmd { session: String, max: Option<u32>, clear: bool },
+    LimitsCmd {
+        session: String,
+        #[arg(long)]
+        max: Option<u32>,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true)]
-    TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    TurnCapCmd {
+        session: String,
+        #[arg(long)]
+        minutes: Option<u64>,
+        #[arg(long)]
+        off: bool,
+        #[arg(long)]
+        clear: bool,
+    },
     #[command(hide = true, subcommand)]
     QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
@@ -664,6 +770,12 @@ pub enum Command {
     },
     #[command(hide = true)]
     RestartAgent { session: String },
+    #[command(hide = true)]
+    RouteDeath { facts: PathBuf },
+    #[command(hide = true)]
+    PauseAgent { session: String },
+    #[command(hide = true)]
+    WakeAgent { session: String },
     #[command(hide = true)]
     ResumeQueue {
         session: String,
@@ -696,15 +808,22 @@ pub enum Command {
     /// `acpmux send` takes the first step itself, as claude-desktop-<first 8 of its session id>,
     /// so a chat that messages an agent gets the code without asking
     #[command(
-        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'"
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'\n  # In a Claude Code SessionStart and Stop hook: reachable again after a restart\n  acpmux register --renew"
     )]
     Register {
         /// The name, e.g. desktop-zoe.
-        name: String,
+        #[arg(required_unless_present = "renew")]
+        name: Option<String>,
         /// The one-time code acpmux delivered into this session's inbox after a first
         /// `acpmux register NAME`: the second step, run by the session that received it.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "renew")]
         code: Option<String>,
+        /// For a Claude Code hook (SessionStart, Stop): hand a registered chat's new token to
+        /// acpmux after Claude Code restarted with `--resume`, so its name reaches it again with
+        /// no one running `register`. Silent, never fails, and delivers nothing to a chat that
+        /// never registered.
+        #[arg(long)]
+        renew: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
@@ -750,18 +869,10 @@ pub enum Command {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// `session move`'s flat form, also typed as `acpmux move-sessions`: the same grammar, one
+    /// struct, so the two spellings cannot drift apart again.
     #[command(hide = true)]
-    MoveSessions {
-        sessions: Vec<String>,
-        host: String,
-        all_idle: bool,
-        interrupt: bool,
-        leave_dirty: bool,
-        carry_changes: bool,
-        cwd: Option<String>,
-        dry_run: bool,
-        from: Option<String>,
-    },
+    MoveSessions(MoveSessionsArgs),
     #[command(hide = true)]
     Transfer {
         session: String,
@@ -773,6 +884,8 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         interrupt: bool,
+        #[arg(long)]
+        after_turn: bool,
     },
     #[command(hide = true)]
     Harnesses,
@@ -787,12 +900,23 @@ pub enum Command {
     },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    DaemonStart {
+        #[arg(long)]
+        person_key_fd: Option<i32>,
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon enroll`: give the running daemon the person key (the VM provisioning exec).
     #[command(hide = true)]
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
+    #[command(hide = true)]
+    DaemonPrune {
+        #[arg(long)]
+        apply: bool,
+    },
     #[command(hide = true)]
     DaemonService {
         #[command(subcommand)]
@@ -1113,11 +1237,28 @@ pub enum SessionCmd {
         #[command(flatten)]
         condition: StopIf,
     },
+    /// Pause an idle session: its agent process and MCP servers exit now, as after 2 idle
+    /// minutes, and the chat keeps its transcript and conversation. Its next prompt, opening it,
+    /// or `session wake` resumes the same conversation. Refused (exit 6) while it is busy.
+    Pause { session: String },
+    /// Resume a paused session now: its agent starts on the same conversation, and the time it
+    /// took is printed. A prompt resumes it too, without this.
+    Wake { session: String },
     /// Restart the agent process in the same conversation: now when the
     /// session is between turns, else when its turn ends (never cancelled).
     /// It then runs the installed version and gets a new caller token (after
     /// a daemon restart left it the earlier daemon's).
     Restart { session: String },
+    /// Decide what happens next to a session that died while it owned work: restart it in
+    /// place, move it, start its host, start it again on a healthy host, start a successor,
+    /// wait, or hand its work off. Reads FACTS (a JSON file, `-` for stdin: its host, how it
+    /// died, what was tried, which hosts admit one more session) and prints one JSON step,
+    /// `{"step": "restart"|"move"|"successor"|...}`. Runs nothing; the caller runs the step
+    /// (`session restart`, `session move`) and asks again on its next pass.
+    Route {
+        #[arg(long, value_name = "FILE")]
+        facts: PathBuf,
+    },
     /// Rename a session.
     Rename {
         session: String,
@@ -1202,41 +1343,7 @@ pub enum SessionCmd {
     /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
-    Move {
-        /// The chats to move (ids or names); none with --all-idle.
-        #[arg(required_unless_present = "all_idle")]
-        sessions: Vec<String>,
-        /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
-        /// (never a reserved one), one machine per checkout. `--host` still works.
-        #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
-        host: String,
-        /// Every open chat here that is between turns.
-        #[arg(long, conflicts_with = "sessions")]
-        all_idle: bool,
-        /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
-        interrupt: bool,
-        /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
-        #[arg(long)]
-        leave_dirty: bool,
-        /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
-        /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
-        /// keys) stay on this machine.
-        #[arg(long, conflicts_with = "leave_dirty")]
-        carry_changes: bool,
-        /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
-        /// and no branch pushed. For a folder outside this machine's home.
-        #[arg(long, value_name = "PATH")]
-        cwd: Option<String>,
-        /// Say where each chat would go and change nothing.
-        #[arg(long)]
-        dry_run: bool,
-        /// The machine the chats are on, when not this one: this machine drives the move over
-        /// ssh to it and to the target, so two machines that cannot reach each other trade
-        /// chats. With it, `--machine local` brings them here.
-        #[arg(long, value_name = "MACHINE")]
-        from: Option<String>,
-    },
+    Move(MoveSessionsArgs),
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1249,8 +1356,11 @@ pub enum SessionCmd {
         #[arg(long, short)]
         name: Option<String>,
         /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "after_turn")]
         interrupt: bool,
+        /// Let a running turn end on its own, then move.
+        #[arg(long)]
+        after_turn: bool,
     },
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
@@ -1398,6 +1508,21 @@ pub struct SendRelay {
 /// `acpmux session inbox NAME`'s flags.
 #[derive(Args, Default)]
 pub struct SessionInboxOpts {
+    /// Search the full text, sender and thread of surge-held messages.
+    #[arg(long, conflicts_with_all = ["thread", "digest", "dry_run"])]
+    pub search: Option<String>,
+    /// Continue a held-inbox search before this sequence number.
+    #[arg(long, requires = "search")]
+    pub before: Option<u64>,
+    /// Bind a surge thread to this recipient session for durable triage ownership.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "unsubscribe", "subscriptions", "thread", "digest", "dry_run"])]
+    pub subscribe: Option<String>,
+    /// Remove this recipient session's durable surge thread binding.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread", "digest", "dry_run"])]
+    pub unsubscribe: Option<String>,
+    /// List this recipient session's durable surge thread bindings.
+    #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread", "digest", "dry_run"])]
+    pub subscriptions: bool,
     /// A threadId, as the list names it.
     #[arg(long, value_name = "THREAD", conflicts_with_all = ["digest", "dry_run"])]
     pub thread: Option<String>,
@@ -1416,6 +1541,16 @@ pub struct SessionInboxOpts {
 #[derive(Args)]
 pub struct SessionInboxTarget {
     pub session: String,
+    #[arg(long)]
+    pub search: Option<String>,
+    #[arg(long, requires = "search")]
+    pub before: Option<u64>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "unsubscribe", "subscriptions", "thread"])]
+    pub subscribe: Option<String>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread"])]
+    pub unsubscribe: Option<String>,
+    #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread"])]
+    pub subscriptions: bool,
     #[arg(long)]
     pub thread: Option<String>,
     #[arg(long)]
@@ -1517,6 +1652,18 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
+    /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
+    /// never stopped from outside: one whose executable is gone stops itself once unused for 5
+    /// minutes. A dry run that lists every home, what it would clear and why each other is left,
+    /// unless --apply. A daemon on the person's own homes runs this by itself every 10 minutes
+    /// (`ACPMUX_DAEMON_PRUNE=0` turns that and the retired stop off).
+    Prune {
+        /// Stop the retired daemons (SIGTERM: their hosted agents keep running for the next
+        /// daemon of that home), each logged with pid, build, age and reason.
+        #[arg(long)]
+        apply: bool,
+    },
     /// The service that keeps this machine's daemon running: the LaunchAgent on macOS, the
     /// user systemd unit on Linux (the files `host setup` writes on an ssh host).
     Service {
@@ -1608,6 +1755,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::Kill { session, purge, condition }
             }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
+            SessionCmd::Route { facts } => Command::RouteDeath { facts },
+            SessionCmd::Pause { session } => Command::PauseAgent { session },
+            SessionCmd::Wake { session } => Command::WakeAgent { session },
             SessionCmd::Rename { session, new_name, handle } => {
                 Command::Rename { session, new_name, handle }
             }
@@ -1636,30 +1786,10 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
-            SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
-                Command::Transfer { session, to, cwd, name, interrupt }
+            SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+                Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
-            SessionCmd::Move {
-                sessions,
-                host,
-                all_idle,
-                interrupt,
-                leave_dirty,
-                carry_changes,
-                cwd,
-                dry_run,
-                from,
-            } => Command::MoveSessions {
-                sessions,
-                host,
-                all_idle,
-                interrupt,
-                leave_dirty,
-                carry_changes,
-                cwd,
-                dry_run,
-                from,
-            },
+            SessionCmd::Move(args) => Command::MoveSessions(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -1674,6 +1804,11 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Inbox { session, opts } => Command::SessionInboxCmd(SessionInboxTarget {
                 session,
+                search: opts.search,
+                before: opts.before,
+                subscribe: opts.subscribe,
+                unsubscribe: opts.unsubscribe,
+                subscriptions: opts.subscriptions,
                 thread: opts.thread,
                 unread: opts.mark_read,
             }),
@@ -1717,6 +1852,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
@@ -1738,593 +1874,8 @@ pub enum RouterCmd {
 }
 
 #[cfg(test)]
-mod help_contract_tests {
-    use super::Cli;
-    use clap::{CommandFactory, Parser};
-    use std::collections::{HashMap, HashSet};
-
-    const REMOTE_DOCS: &[(&str, &str)] = &[
-        (
-            "docs/remote-agents-and-cloud.md",
-            include_str!("../../../../../docs/remote-agents-and-cloud.md"),
-        ),
-        ("acpmux README", include_str!("../../README.md")),
-        ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
-        ("integrate-harness skill", include_str!("../../skills/integrate-harness/SKILL.md")),
-        ("cmux-acpmux skill", include_str!("../../../../../skills/cmux-acpmux/SKILL.md")),
-        ("cmux skill", include_str!("../../../../../skills/cmux/SKILL.md")),
-        (
-            "cmux-computer-use skill",
-            include_str!("../../../../../skills/cmux-computer-use/SKILL.md"),
-        ),
-        ("docs/agent-surfaces.md", include_str!("../../docs/agent-surfaces.md")),
-        ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
-        ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
-        ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
-        ("docs/cli-daemon.md", include_str!("../../docs/cli-daemon.md")),
-        ("docs/cli-work.md", include_str!("../../docs/cli-work.md")),
-    ];
-
-    fn shell_words(text: &str) -> Vec<String> {
-        let mut words = Vec::new();
-        let mut word = String::new();
-        let mut quote = None;
-        let mut escaped = false;
-        for character in text.chars() {
-            if escaped {
-                word.push(character);
-                escaped = false;
-                continue;
-            }
-            if character == '\\' && quote != Some('\'') {
-                escaped = true;
-                continue;
-            }
-            if let Some(closing) = quote {
-                if character == closing {
-                    quote = None;
-                } else {
-                    word.push(character);
-                }
-                continue;
-            }
-            match character {
-                '\'' | '"' => quote = Some(character),
-                ';' | '#' => break,
-                character if character.is_whitespace() => {
-                    if !word.is_empty() {
-                        words.push(std::mem::take(&mut word));
-                    }
-                }
-                character => word.push(character),
-            }
-        }
-        if !word.is_empty() {
-            words.push(word);
-        }
-        words
-            .into_iter()
-            .map(|word| word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned())
-            .collect()
-    }
-
-    fn tokens(text: &str, binary: &str) -> Vec<Vec<String>> {
-        let mut snippets = Vec::new();
-        let mut in_fence = false;
-        for line in text.lines() {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("```") {
-                in_fence = !in_fence;
-                continue;
-            }
-            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
-                snippets.push(trimmed.to_owned());
-            }
-            let mut rest = line;
-            while let Some(open) = rest.find('`') {
-                let after_open = &rest[open + 1..];
-                let Some(close) = after_open.find('`') else { break };
-                let snippet = &after_open[..close];
-                if snippet.trim_start() == binary
-                    || snippet.trim_start().starts_with(&format!("{binary} "))
-                {
-                    snippets.push(snippet.trim().to_owned());
-                }
-                rest = &after_open[close + 1..];
-            }
-        }
-
-        snippets
-            .into_iter()
-            .flat_map(|snippet| {
-                snippet
-                    .split(';')
-                    .filter_map(|part| {
-                        let words = shell_words(part.trim_start_matches("$ "));
-                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
-                            .then_some(words)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    }
-
-    fn command_shapes() -> HashMap<Vec<String>, HashSet<String>> {
-        fn visit(
-            command: &clap::Command,
-            path: &mut Vec<String>,
-            shapes: &mut HashMap<Vec<String>, HashSet<String>>,
-        ) {
-            let mut flags = HashSet::new();
-            for argument in command.get_arguments() {
-                if let Some(long) = argument.get_long() {
-                    flags.insert(format!("--{long}"));
-                }
-                // A hidden alias (`--host` for `--machine`) still works, so docs may show it.
-                for alias in argument.get_all_aliases().into_iter().flatten() {
-                    flags.insert(format!("--{alias}"));
-                }
-                if let Some(short) = argument.get_short() {
-                    flags.insert(format!("-{short}"));
-                }
-            }
-            shapes.insert(path.clone(), flags);
-            for subcommand in command.get_subcommands() {
-                for name in
-                    std::iter::once(subcommand.get_name()).chain(subcommand.get_all_aliases())
-                {
-                    path.push(name.to_owned());
-                    visit(subcommand, path, shapes);
-                    path.pop();
-                }
-            }
-        }
-
-        let mut shapes = HashMap::new();
-        visit(&Cli::command(), &mut Vec::new(), &mut shapes);
-        for flags in shapes.values_mut() {
-            flags.insert("--help".to_owned());
-            flags.insert("-h".to_owned());
-        }
-        if let Some(flags) = shapes.get_mut(&Vec::new()) {
-            flags.insert("--version".to_owned());
-            flags.insert("-V".to_owned());
-        }
-        shapes
-    }
-
-    // The session guide also contains cmux app commands (such as `agent open-tab`).
-    // Only engine commands share this clap surface.
-    fn documented_engine_commands(text: &str) -> Vec<Vec<String>> {
-        let mut commands = tokens(text, "acpmux");
-        commands.extend(tokens(text, "cmux").into_iter().filter_map(|mut words| {
-            match words.get(1)?.as_str() {
-                "acp" => {}
-                "agent"
-                    if !matches!(
-                        words.get(2)?.as_str(),
-                        "list"
-                            | "message"
-                            | "inbox"
-                            | "start"
-                            | "resume"
-                            | "report"
-                            | "hook"
-                            | "plugin"
-                            | "open"
-                            | "open-tab"
-                            | "help"
-                            | "--help"
-                    ) => {}
-                _ => return None,
-            }
-            words.remove(0);
-            Some(words)
-        }));
-        commands
-    }
-
-    fn documented_shape(
-        words: &[String],
-        shapes: &HashMap<Vec<String>, HashSet<String>>,
-    ) -> Option<Vec<String>> {
-        let has_subcommands = |path: &[String]| {
-            shapes.keys().any(|known| known.len() > path.len() && known.starts_with(path))
-        };
-        let mut start = 1;
-        while words.get(start).is_some_and(|word| {
-            matches!(word.as_str(), "--json" | "--suppress-reads" | "--help" | "--version")
-        }) {
-            start += 1;
-        }
-        if words.get(start).is_some_and(|word| !word.starts_with('-')) {
-            let mut candidate = vec![words[start].clone()];
-            if matches!(candidate[0].as_str(), "peer" | "host" | "hosts") {
-                candidate[0] = "machine".to_owned();
-            }
-            if !candidate[0].split('|').any(|name| {
-                let mut path = candidate.clone();
-                path[0] = name.to_owned();
-                shapes.keys().any(|known| known == &path)
-            }) {
-                return None;
-            }
-        }
-        let command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
-        let mut path = Vec::new();
-        for word in command {
-            let Some(candidate) = word.split('|').find(|candidate| {
-                let candidate =
-                    if path.is_empty() && matches!(*candidate, "peer" | "host" | "hosts") {
-                        "machine"
-                    } else {
-                        candidate
-                    };
-                let mut next = path.clone();
-                next.push(candidate.to_owned());
-                shapes.keys().any(|known| known == &next)
-            }) else {
-                // Once a command still has subcommands, an unknown word is a
-                // stale verb rather than a positional argument.  Positional
-                // values are allowed only after reaching a leaf command.
-                if has_subcommands(&path) {
-                    return None;
-                }
-                break;
-            };
-            let candidate = if path.is_empty() && matches!(candidate, "peer" | "host" | "hosts") {
-                "machine"
-            } else {
-                candidate
-            };
-            let mut next = path.clone();
-            next.push(candidate.to_owned());
-            path = next;
-        }
-        // A binary invocation containing only root flags (for example
-        // `acpmux --version`) still belongs to the documented surface.
-        Some(path)
-    }
-
-    #[test]
-    fn documented_acpmux_commands_and_flags_are_in_the_clap_surface() {
-        let shapes = command_shapes();
-        let mut missing = Vec::new();
-        for (source, text) in REMOTE_DOCS {
-            for words in documented_engine_commands(text) {
-                let Some(path) = documented_shape(&words, &shapes) else {
-                    missing.push(format!("{source}: {} (command)", words.join(" ")));
-                    continue;
-                };
-                let mut flags = HashSet::new();
-                flags.extend(
-                    shapes.get(&Vec::new()).into_iter().flat_map(|flags| flags.iter().cloned()),
-                );
-                for end in 1..=path.len() {
-                    flags.extend(
-                        shapes
-                            .get(&path[..end])
-                            .into_iter()
-                            .flat_map(|flags| flags.iter().cloned()),
-                    );
-                }
-                for word in words.iter().skip(1).filter(|word| word.starts_with('-')) {
-                    let flag = word.split('=').next().unwrap_or(word);
-                    if flag == "--" || flag == "-" || !flags.contains(flag) {
-                        missing.push(format!("{source}: {} (flag {flag})", words.join(" ")));
-                    }
-                }
-            }
-        }
-        assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
-    }
-
-    /// The skills agents load teach the current names (`machine`, `machine pick`,
-    /// `machine dedicated`, `--machine`), not the hidden aliases kept for old scripts. The
-    /// acpmux skill's "Old spellings" bullet is the one place that names them.
-    #[test]
-    fn agent_skills_use_current_command_names() {
-        const SKILLS: &[&str] = &[
-            "acpmux skill",
-            "integrate-harness skill",
-            "cmux-acpmux skill",
-            "cmux skill",
-            "cmux-computer-use skill",
-            "docs/agent-surfaces.md",
-        ];
-        let mut stale = Vec::new();
-        for (source, text) in REMOTE_DOCS.iter().filter(|(source, _)| SKILLS.contains(source)) {
-            let text: String = text
-                .lines()
-                .filter(|line| !line.trim_start().starts_with("- **Old spellings.**"))
-                .map(|line| format!("{line}\n"))
-                .collect();
-            for words in documented_engine_commands(&text) {
-                let command: Vec<&str> = words
-                    .iter()
-                    .skip(1)
-                    .map(String::as_str)
-                    .filter(|word| !word.starts_with('-'))
-                    .take(2)
-                    .collect();
-                let old_verb =
-                    command.first().is_some_and(|verb| matches!(*verb, "host" | "hosts" | "peer"))
-                        || command.get(1).is_some_and(|verb| matches!(*verb, "place" | "vm-host"));
-                let old_flag = words.iter().any(|word| word.split('=').next() == Some("--host"));
-                if old_verb || old_flag {
-                    stale.push(format!("{source}: {}", words.join(" ")));
-                }
-            }
-        }
-        assert!(
-            stale.is_empty(),
-            "a skill teaches an old acpmux spelling; use machine, machine pick, machine dedicated, \
-             --machine:\n{}",
-            stale.join("\n")
-        );
-    }
-
-    /// `send --class`: the four classes only (`prompt_class.rs`).
-    #[test]
-    fn send_class_takes_one_of_the_four_classes() {
-        for class in crate::prompt_class::PromptClass::ALL {
-            let argv = ["acpmux", "send", "coord", "done", "--class", class.as_str()];
-            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
-        }
-        assert!(
-            Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
-        );
-    }
-
-    /// `--harness` is `-m` wherever a HARNESS[/MODEL] is asked for: `run --harness codex` starts
-    /// Codex instead of clap's guess `--harness-from`.
-    #[test]
-    fn harness_is_an_alias_of_model() {
-        use super::{Command, flatten};
-        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
-        let run = parse(&["acpmux", "run", "lane", "--harness", "codex", "hi"]);
-        assert!(matches!(run, Ok(Command::New(ref a)) if a.model.as_deref() == Some("codex")));
-        let ensure = parse(&["acpmux", "ensure", "lane", "--harness", "claude/opus"]);
-        assert!(matches!(
-            ensure,
-            Ok(Command::Ensure { ref model, .. }) if model.as_deref() == Some("claude/opus")
-        ));
-    }
-
-    /// `session inbox`: --thread [--mark-read] reads the inbox's threads, --digest [--dry-run]
-    /// drains the queue's agent messages, and the two never mix; `send --pr | --thread`.
-    #[test]
-    fn session_inbox_reads_threads_or_drains_the_queue() {
-        use super::{Command, SessionInboxTarget, flatten};
-        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
-        let threads =
-            parse(&["acpmux", "session", "inbox", "c", "--thread", "pr:1", "--mark-read"]);
-        assert!(matches!(
-            threads,
-            Ok(Command::SessionInboxCmd(SessionInboxTarget { ref thread, unread: true, .. }))
-                if thread.as_deref() == Some("pr:1")
-        ));
-        let all = parse(&["acpmux", "session", "inbox", "c"]);
-        assert!(matches!(
-            all,
-            Ok(Command::SessionInboxCmd(SessionInboxTarget { thread: None, .. }))
-        ));
-        let digest = parse(&["acpmux", "session", "inbox", "c", "--digest"]);
-        assert!(matches!(digest, Ok(Command::InboxDigest { dry_run: false, .. })));
-        let dry = parse(&["acpmux", "session", "inbox", "c", "--dry-run"]);
-        assert!(matches!(dry, Ok(Command::InboxDigest { dry_run: true, .. })));
-        assert!(parse(&["acpmux", "session", "inbox", "c", "--thread", "t", "--digest"]).is_err());
-        assert!(parse(&["acpmux", "session", "inbox", "c", "--mark-read"]).is_err());
-        assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12"]).is_ok());
-        assert!(parse(&["acpmux", "send", "c", "x", "--thread", "rollout"]).is_ok());
-        assert!(parse(&["acpmux", "send", "c", "x", "--pr", "12", "--thread", "t"]).is_err());
-    }
-
-    /// `send --notice`: --severity and --title with it, its other flags only with it.
-    #[test]
-    fn send_notice_takes_a_severity_and_a_title_and_its_flags_only_with_it() {
-        use super::{Command, SendNotice, flatten};
-        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
-        let full = parse(&[
-            "acpmux",
-            "send",
-            "coord",
-            "body",
-            "--notice",
-            "--severity",
-            "fire",
-            "--title",
-            "T",
-            "--sender",
-            "base-red-watch",
-            "--host",
-            "mini-3",
-            "--link",
-            "https://x.dev/pull/1=#1",
-            "--link",
-            "https://x.dev/run/2",
-        ]);
-        let Ok(Command::Send { notice, .. }) = full else { panic!("did not parse") };
-        let SendNotice { notice, severity, title, sender, host, links } = *notice;
-        assert!(notice);
-        assert_eq!(severity.as_deref(), Some("fire"));
-        assert_eq!(title.as_deref(), Some("T"));
-        assert_eq!(sender.as_deref(), Some("base-red-watch"));
-        assert_eq!(host.as_deref(), Some("mini-3"));
-        assert_eq!(links, ["https://x.dev/pull/1=#1", "https://x.dev/run/2"]);
-        for bad in [
-            &["acpmux", "send", "c", "x", "--notice", "--title", "T"][..],
-            &["acpmux", "send", "c", "x", "--notice", "--severity", "fire"][..],
-            &["acpmux", "send", "c", "x", "--notice", "--severity", "loud", "--title", "T"][..],
-            &["acpmux", "send", "c", "x", "--title", "T"][..],
-            &["acpmux", "send", "c", "x", "--link", "https://x.dev"][..],
-        ] {
-            assert!(parse(bad).is_err(), "{bad:?} parsed");
-        }
-        assert!(parse(&["acpmux", "send", "c", "x"]).is_ok());
-    }
-
-    /// `machine dedicated [NAME] [on|off]` (old spelling `host vm-host`): the state is on or
-    /// off only.
-    #[test]
-    fn machine_dedicated_takes_a_machine_and_on_or_off() {
-        for verb in [["machine", "dedicated"], ["host", "vm-host"], ["machine", "vm-host"]] {
-            for rest in [&[][..], &["on"][..], &["cloud-a", "off"][..]] {
-                let argv: Vec<&str> =
-                    ["acpmux"].into_iter().chain(verb).chain(rest.iter().copied()).collect();
-                assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?} did not parse");
-            }
-            let argv: Vec<&str> =
-                ["acpmux"].into_iter().chain(verb).chain(["cloud-a", "maybe"]).collect();
-            assert!(Cli::try_parse_from(&argv).is_err(), "{argv:?} parsed");
-        }
-    }
-
-    /// `host hold` changes a hold only for a named machine: a flag alone is refused, not
-    /// taken as the listing (review of #25602).
-    #[test]
-    fn host_hold_needs_a_name_to_change_anything() {
-        for argv in [
-            &["acpmux", "host", "hold", "--release"][..],
-            &["acpmux", "host", "hold", "--reason", "x"][..],
-            &["acpmux", "host", "hold", "--until", "2026-10-28T23:59:59Z"][..],
-            &["acpmux", "host", "hold", "m", "--release", "--reason", "x"][..],
-        ] {
-            assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} parsed");
-        }
-        for argv in [
-            &["acpmux", "host", "hold"][..],
-            &["acpmux", "host", "hold", "m", "--release"][..],
-            &["acpmux", "host", "hold", "m", "--reason", "x", "--until", "2026-10-28T23:59:59Z"][..],
-        ] {
-            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
-        }
-    }
-
-    #[test]
-    fn peer_alias_still_parses_after_host_becomes_canonical() {
-        let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
-        assert!(parsed.is_ok(), "peer alias stopped working");
-    }
-
-    #[test]
-    fn first_contact_host_key_trust_is_an_explicit_enroll_option() {
-        for word in ["machine", "host", "hosts", "peer"] {
-            let argv = ["acpmux", word, "enroll", "user@box", "--accept-new-host-key"];
-            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
-            for verb in ["doctor", "setup", "update"] {
-                let argv = ["acpmux", word, verb, "box", "--accept-new-host-key"];
-                assert!(Cli::try_parse_from(argv).is_err(), "{argv:?} must not accept keys");
-            }
-            assert!(
-                Cli::try_parse_from([
-                    "acpmux",
-                    word,
-                    "doctor",
-                    "box",
-                    "--fix",
-                    "--accept-new-host-key"
-                ])
-                .is_err()
-            );
-        }
-    }
-
-    /// docs/naming.md: `machine` is the command; `host`, `hosts` and `peer` stay hidden aliases
-    /// that parse to the same command, and `place` stays an alias of `pick`.
-    #[test]
-    fn machine_is_canonical_and_old_spellings_parse_the_same() {
-        use super::{Command, PeerCmd};
-        let top = Cli::command();
-        let machine = top.find_subcommand("machine").expect("acpmux machine exists");
-        let aliases: Vec<&str> = machine.get_all_aliases().collect();
-        for old in ["host", "hosts", "peer"] {
-            assert!(aliases.contains(&old), "{old} is not an alias of machine");
-        }
-        assert!(machine.get_visible_aliases().next().is_none(), "old spellings must stay hidden");
-        for word in ["machine", "host", "hosts", "peer"] {
-            for (verb, want_build) in [("pick", false), ("place", false), ("pick", true)] {
-                let mut argv = vec!["acpmux", word, verb];
-                if want_build {
-                    argv.push("--build");
-                }
-                match Cli::try_parse_from(&argv).map(|cli| cli.command) {
-                    Ok(Some(Command::Host(PeerCmd::Place { build }))) => {
-                        assert_eq!(build, want_build, "{argv:?}")
-                    }
-                    _ => panic!("{argv:?} is not machine pick"),
-                }
-            }
-            let argv = ["acpmux", word, "status"];
-            assert!(
-                matches!(
-                    Cli::try_parse_from(argv).map(|cli| cli.command),
-                    Ok(Some(Command::Host(PeerCmd::Status { .. })))
-                ),
-                "{argv:?} is not machine status"
-            );
-        }
-    }
-
-    /// `--machine` is the flag; `--host` stays a hidden alias (and `dispatch --target`), with the
-    /// same value grammar (`auto`, `auto-build`, `local`, NAME).
-    #[test]
-    fn machine_flag_and_host_alias_parse_the_same() {
-        for flag in ["--machine", "--host"] {
-            for value in ["auto", "auto-build", "local", "box"] {
-                for argv in [
-                    vec!["acpmux", "new", flag, value, "-m", "claude", "hi"],
-                    vec!["acpmux", "ensure", "lane", flag, value],
-                    vec!["acpmux", "dispatch", "brief.md", flag, value],
-                    vec!["acpmux", "ls", flag, value],
-                    vec!["acpmux", "session", "move", "chat", flag, value],
-                    vec!["acpmux", "session", "start", "lane", flag, value],
-                ] {
-                    assert!(Cli::try_parse_from(&argv).is_ok(), "{argv:?} did not parse");
-                }
-            }
-        }
-        assert!(Cli::try_parse_from(["acpmux", "dispatch", "brief.md", "--target", "box"]).is_ok());
-        let help = Cli::command().find_subcommand_mut("new").unwrap().render_help().to_string();
-        assert!(
-            help.contains("--machine <MACHINE>"),
-            "new --help does not show --machine:\n{help}"
-        );
-        assert!(!help.contains("--host <"), "new --help still lists --host:\n{help}");
-    }
-
-    /// remote-ergo's fifth walk: "`acpmux daemon stop` fails with "unrecognized subcommand" and
-    /// no hint, but the command is `daemon shutdown`. Anyone who knows `session stop` will guess
-    /// "stop"."
-    #[test]
-    fn daemon_stop_is_daemon_shutdown_and_help_says_so() {
-        use super::{Command, flatten};
-        for (argv, want_end_agents) in [
-            (&["acpmux", "daemon", "stop"][..], false),
-            (&["acpmux", "daemon", "stop", "--end-agents"][..], true),
-            (&["acpmux", "--json", "daemon", "stop", "--keep-agents"][..], false),
-        ] {
-            let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
-            match cli.command.map(flatten) {
-                Some(Command::Shutdown { end_agents, .. }) => {
-                    assert_eq!(end_agents, want_end_agents, "{argv:?}")
-                }
-                _ => panic!("{argv:?} is not daemon shutdown"),
-            }
-        }
-        // `daemon --help` lists it on shutdown's line: `[aliases: stop]`.
-        let help = Cli::command().find_subcommand_mut("daemon").unwrap().render_help().to_string();
-        let line = help.lines().find(|l| l.trim_start().starts_with("shutdown")).unwrap();
-        assert!(line.contains("stop]"), "daemon --help does not list the stop alias:\n{help}");
-    }
-
-    #[test]
-    fn stale_nested_command_is_rejected() {
-        let shapes = command_shapes();
-        let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
-        assert!(documented_shape(&words, &shapes).is_none());
-    }
-}
+#[path = "command_help_contract_tests.rs"]
+mod help_contract_tests;
 
 #[cfg(test)]
 mod config_set_tests {

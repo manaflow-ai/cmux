@@ -2,8 +2,8 @@ import os
 
 extension SettingsController {
     /// The New Tab page's style switch, saved as `tabs.newTabTemplate` through the schema as the
-    /// Settings window writes it. Terminal and unknown values are ignored: New Tab never opens a
-    /// terminal by itself.
+    /// Settings window writes it. Terminal and unknown values are ignored: `terminal` is a person's
+    /// terminal-first choice (Make cmux Yours or Settings, cmux#48416), never a pick on the page itself.
     public func saveNewTabTemplate(_ value: String) async {
         guard let template = NewTabTemplate(rawValue: value), template != .terminal,
               let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }

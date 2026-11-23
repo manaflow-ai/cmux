@@ -6,11 +6,13 @@ extension CEFTab {
     /// fork refuses each WebAuthn create and get of the tab with NotAllowedError before an authenticator is asked
     /// (`cmux_tab_set_webauthn_mode`, API 23), so an agent's click shows no Touch ID sheet, account chooser or phone QR
     /// code over the person's work. Called when a live tab becomes agent-driven, at each agent action after that
-    /// (``markAgentDriven()``), and when its browser attaches (a tab marked before its browser exists), before the page
+    /// (``markAgentDriven()``; an agent's reads, ``markAgentReading()``, refuse nothing, as in Chrome, which refuses only
+    /// while its agent is in control: the Chief's 5 s watch of Google's passkey page refused the request the page made
+    /// after the person's click, 2026-11-20), and when its browser attaches (a tab marked before its browser exists), before the page
     /// loads. Popups the tab opens start refused (the fork copies the mode). The person takes the page back with their
     /// own input in it (``allowWebAuthnForPerson()``), as in Chrome, where the person's click runs their security key.
     func applyWebAuthnRefusal() {
-        guard isAgentDriven, !webAuthnRefused, webAuthnHandOvers == 0 else { return }
+        guard isAgentDriven, webAuthnAgentActs, !webAuthnRefused, webAuthnHandOvers == 0 else { return }
         webAuthnRefused = setWebAuthnMode(1)
     }
 
@@ -21,20 +23,30 @@ extension CEFTab {
     /// the 2FA step, and every try of the person's got NotAllowedError in 6 ms, before any key was asked.
     /// Chromium checks the mode only when a request starts, so an agent's later read does not end the person's ceremony.
     public func allowWebAuthnForPerson() {
+        // The page is the person's until the agent acts again; the agent's reads keep it so (``markAgentReading()``).
+        webAuthnAgentActs = false
         guard webAuthnRefused else { return }
         webAuthnRefused = !setWebAuthnMode(0)
     }
 
     /// An agent acts in the page again: a person's hand-over ends and WebAuthn is refused. The same as
     /// ``markAgentDriven()`` on a marked tab.
-    public func refuseWebAuthnForAgent() { applyWebAuthnRefusal() }
+    public func refuseWebAuthnForAgent() {
+        guard isAgentDriven else { return }
+        webAuthnAgentActs = true
+        applyWebAuthnRefusal()
+    }
 
     /// Runs a passkey hand-off's `trigger` (the click on the page's passkey button, after the person clicked the
     /// request) with the page handed to the person: the agent action that carries the trigger does not refuse again.
     public func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws {
         allowWebAuthnForPerson()
         webAuthnHandOvers += 1
-        defer { webAuthnHandOvers -= 1 }
+        defer {
+            webAuthnHandOvers -= 1
+            // The trigger's own click is an agent call; the page stays the person's after it.
+            if webAuthnHandOvers == 0 { webAuthnAgentActs = false }
+        }
         try await trigger()
     }
 

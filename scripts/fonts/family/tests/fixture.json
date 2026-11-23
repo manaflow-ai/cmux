@@ -1,0 +1,25 @@
+{
+  "family": "Fixture Type",
+  "notice": "Modifications copyright 2026 Manaflow, Inc. (Fixture Type, a test build only).",
+  "x_height": 520,
+  "line_box": {"ascender": 960, "descender": -240},
+  "faces": [
+    {"name": "Sans", "role": "sans", "base": "Figtree",
+     "source": {"path": "webviews/src/gallery/fontStudy/fonts/figtree.woff2"},
+     "axes": {"wght": [300, 400, 800]}, "match_x_height": true,
+     "copyright": "Copyright 2022 The Figtree Project Authors (https://github.com/erikdkennedy/figtree)"},
+    {"name": "Serif", "role": "serif-text", "base": "Literata",
+     "source": {"path": "webviews/src/gallery/fontStudy/fonts/literata.woff2"},
+     "axes": {"wght": [300, 700]}, "match_x_height": true,
+     "copyright": "Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata)"},
+    {"name": "Display", "role": "serif-display", "base": "Fraunces",
+     "source": {"path": "webviews/src/gallery/fontStudy/fonts/fraunces.woff2"},
+     "axes": {"wght": 400}, "scale": 1.0,
+     "copyright": "Copyright 2020 The Fraunces Project Authors (github.com/undercasetype/Fraunces)",
+     "reserved": ["Fraunces"]},
+    {"name": "Mono", "role": "mono", "base": "Geist Mono",
+     "source": {"path": "webviews/src/gallery/fontStudy/fonts/geist-mono.woff2"},
+     "axes": {"wght": [300, 700]}, "match_x_height": true,
+     "copyright": "Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)"}
+  ]
+}

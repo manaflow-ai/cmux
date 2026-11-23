@@ -58,10 +58,38 @@ pub(super) enum Next {
     /// was purged and made again): a first delivery reads the session again and tries again; a
     /// delivery again of a prompt that session took fails (`hub/open_delivery.rs`).
     Stale,
+    /// The chat moved to another daemon (`transfer.moved`, its `movedTo`): nothing ran here, and
+    /// the delivery follows it to this `HOST/SESSION` at once (`follow_move`).
+    Moved(String),
+    /// The chat moved to a sibling daemon on this machine (`session transfer --to SOCKET`:
+    /// `movedTo {socket, sessionId}`, no host), which no `HOST/SESSION` reaches: the delivery is
+    /// handed to that daemon's own outbox (`hand_to_socket`).
+    MovedToSocket { socket: String, session: String },
+    /// The chat is being moved right now (`transfer.moving`): tried again after
+    /// [`MOVING_RETRY`], without spending a retry delay, until the move commits (then
+    /// [`Next::Moved`]) or aborts (then it runs here).
+    Moving,
 }
+
+/// How long a delivery to a chat in the middle of a move waits before it tries again. A move
+/// freezes the chat only while its bundle is copied, so a short fixed wait keeps the message
+/// right behind the chat instead of minutes behind it on the back-off.
+const MOVING_RETRY: Duration = Duration::from_millis(250);
+
+/// How long a delivery tries a chat mid-move every [`MOVING_RETRY`]. A move that takes longer
+/// (a large bundle on a slow link, a stuck client its watch has not ended yet) is tried on the
+/// usual back-off from then on.
+const MOVING_FAST_FOR: Duration = Duration::from_secs(120);
+
+/// How many moves one delivery follows in a row before it fails: a chat moving in a loop
+/// (`movedTo` chains that point back) must not keep a message bouncing for its whole day.
+const MAX_MOVES_FOLLOWED: u32 = 16;
 
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
+/// How often a delivery held behind another (`Delivery::waits_behind`) looks again when no
+/// outbox change woke it.
+const AFTER_RECHECK: Duration = Duration::from_secs(5);
 /// The longest a `send_status` waits for a delivery to settle.
 const MAX_STATUS_WAIT_MS: u64 = 10_000;
 
@@ -192,6 +220,23 @@ pub(super) async fn handle(
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
+    } else if handed_away(&delivery) {
+        // A sibling daemon hands back a message this one handed it (`hand_to_socket`): its chat
+        // moved back here before the sibling delivered it. Nothing ran it on either side (each
+        // refused it as moved), so it opens again and is delivered here, where the chat is now.
+        // Before, the hand-back read the first delivery's `delivered` and the message was lost.
+        if let Some(path) = kept {
+            forget_attachments(path).await;
+        }
+        hub.outbox.update_saved(&delivery.id, |d| {
+            d.state = State::Queued;
+            d.accepted = None;
+            d.pin = None;
+            d.error = Some("handed back here: its chat moved back".into());
+        });
+        spawn(hub.clone(), delivery.id.clone());
+        let delivery = hub.outbox.get(&delivery.id).unwrap_or(delivery);
+        return Ok(delivery.status());
     } else {
         if let Some(path) = kept {
             forget_attachments(path).await;
@@ -470,9 +515,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
     if id.starts_with(super::mesh_send::PREFIX)
-        && let Some(mesh) = hub.mesh.get()
+        && let Some(reply) = super::mesh_relay::read::mesh_status(hub, conn, id).await
     {
-        return super::mesh_send::status(hub, conn, &mesh, id).await;
+        return reply;
     }
     let status = outbox_status(hub, id, params).await?;
     match hub.outbox.get(id) {
@@ -563,6 +608,10 @@ fn spawn(hub: Arc<Hub>, id: String) {
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut delays = RETRY_DELAYS_SECS.iter();
+    // How many moves of its chat this delivery followed (`Next::Moved`).
+    let mut moves_followed = 0u32;
+    // When it first found its chat mid-move (`Next::Moving`).
+    let mut moving_since: Option<std::time::Instant> = None;
     loop {
         let Some(delivery) = hub.outbox.get(id) else { return };
         if delivery.settled() {
@@ -596,6 +645,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
             return;
         }
+        // Behind an earlier message to the same session (`AFTER_KEY`): it waits for that one to
+        // settle, woken by every outbox change and looking again at least every few seconds.
+        let changed = hub.outbox.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        if delivery.waits_behind(&hub.outbox).is_some() {
+            let _ = tokio::time::timeout(AFTER_RECHECK, changed).await;
+            continue;
+        }
         // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
         // ready while the attempt runs or its failure is saved still ends the retry wait.
         let ready = hub.outbox.peer_ready.notified();
@@ -614,6 +672,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             return;
         }
         let mut request = delivery.request.clone();
+        // Ordering for this outbox alone: the receiver never sees it.
+        if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            mux.remove(crate::hub::outbox::AFTER_KEY);
+        }
         // A later attempt asks for the first one's outcome when the target took it already.
         if attempt > 1
             && let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
@@ -744,6 +806,50 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         (error, Next::Retry)
                     }
                     Next::Stale => (error, Next::Fail),
+                    // The chat moved away before this prompt ran: it goes where the chat went,
+                    // now, under the same prompt id (the new daemon runs it once). One that
+                    // followed too many moves fails, saying where it last went.
+                    Next::Moved(to) => {
+                        if follow_move(hub, id, &to, moves_followed) {
+                            moves_followed += 1;
+                            continue;
+                        }
+                        let why = format!("{error}; followed {moves_followed} moves, last to {to}");
+                        (why, Next::Fail)
+                    }
+                    // Moved to a sibling daemon here: its outbox takes the delivery over. A
+                    // daemon that does not answer is tried again on the back-off.
+                    Next::MovedToSocket { socket, session } => {
+                        match hand_to_socket(&delivery, &socket, &session).await {
+                            // Its attachment files stay: the request the sibling took may name
+                            // them, and the settled sweep removes them with the record.
+                            Ok(accepted) => {
+                                hub.outbox.update_saved(id, |d| {
+                                    crate::hub::open_delivery::accepted(d, None, accepted);
+                                });
+                                return;
+                            }
+                            Err(why) => (format!("{error}; {why}"), Next::Retry),
+                        }
+                    }
+                    // Mid-move: tried again shortly, on no back-off, while the delivery's day
+                    // lasts (`expired`, above).
+                    Next::Moving
+                        if moving_since.get_or_insert_with(std::time::Instant::now).elapsed()
+                            > MOVING_FAST_FOR =>
+                    {
+                        (error, Next::Retry)
+                    }
+                    Next::Moving => {
+                        hub.outbox.update(id, |d| {
+                            if !d.settled() {
+                                d.state = State::Queued;
+                                d.error = Some(error.clone());
+                            }
+                        });
+                        tokio::time::sleep(MOVING_RETRY).await;
+                        continue;
+                    }
                     next => (error, next),
                 };
                 let delay = matches!(next, Next::Retry | Next::Unsent)
@@ -1160,6 +1266,23 @@ pub(super) async fn attempt_once(
 /// peer or a timeout is tried again.
 fn next(e: &RpcError) -> Next {
     let data = e.data.as_ref();
+    if let Some(to) = data.and_then(|d| d.get("movedTo")).filter(|to| to.is_object()) {
+        let session = to.get("sessionId").and_then(Value::as_str).filter(|s| !s.is_empty());
+        let socket = to.get("socket").and_then(Value::as_str).filter(|s| s.starts_with('/'));
+        let host = to.get("host").and_then(Value::as_str).filter(|h| !h.is_empty());
+        match (session, host, socket) {
+            (Some(session), Some(host), _) => return Next::Moved(format!("{host}/{session}")),
+            (Some(session), None, Some(socket)) => {
+                let (socket, session) = (socket.to_owned(), session.to_owned());
+                return Next::MovedToSocket { socket, session };
+            }
+            (Some(session), None, None) => return Next::Moved(session.to_owned()),
+            _ => {}
+        }
+    }
+    if e.message.starts_with("transfer.moving") {
+        return Next::Moving;
+    }
     if data.and_then(|d| d.get("held")).and_then(Value::as_bool) == Some(true) {
         return Next::Held;
     }
@@ -1185,6 +1308,92 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+/// Hands delivery `delivery` to the sibling daemon at `socket` that its chat moved to (as
+/// `session`): that daemon's own `send_queue`, under the same prompt id, so its outbox owns it
+/// from here (a second hand-off of the same prompt id is the first delivery there, never a
+/// second run). Its answer, the delivery's status there, is this delivery's acceptance. Never
+/// this daemon's own socket: a chat that moved here is no move away.
+async fn hand_to_socket(delivery: &Delivery, socket: &str, session: &str) -> Result<Value, String> {
+    let path = std::path::Path::new(socket);
+    let own = crate::config::socket_path();
+    let canonical = |p: &std::path::Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
+    if canonical(path) == canonical(&own) {
+        return Err("the chat's move names this daemon's own socket".into());
+    }
+    let client = crate::client::Client::connect_without_caller(path)
+        .await
+        .map_err(|e| format!("the daemon at {socket} does not answer: {e}"))?;
+    let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-outbox"}});
+    client.request(method::INITIALIZE, init).await.map_err(|e| e.to_string())?;
+    let mut request = delivery.request.clone();
+    request.set("sessionId", json!(session));
+    let status = client
+        .request(method::MUX_SEND_QUEUE, json!({"request": request}))
+        .await
+        .map_err(|e| format!("the daemon at {socket} did not take it: {e}"))?;
+    Ok(json!({"handedTo": {"socket": socket, "sessionId": session}, "status": status}))
+}
+
+/// Points delivery `id` at where its chat moved (`to`, `HOST/SESSION`): its target and its
+/// request's `sessionId`, with its pin dropped (the pin named the copy that moved away). The
+/// moved-away copy refused the prompt before it ran, so the delivery has reached no one and the
+/// mesh relay may carry it if the new machine's link is down. False when the delivery already
+/// followed [`MAX_MOVES_FOLLOWED`] moves, or could not be saved.
+fn follow_move(hub: &Hub, id: &str, to: &str, followed: u32) -> bool {
+    if followed >= MAX_MOVES_FOLLOWED {
+        return false;
+    }
+    hub.outbox.update_saved(id, |d| {
+        if d.settled() {
+            return;
+        }
+        tracing::info!(delivery = %d.id, from = %d.target, to, "outbox: following a moved chat");
+        d.target = to.to_owned();
+        d.request.set("sessionId", json!(to));
+        d.pin = None;
+        d.never_sent = true;
+        d.state = State::Queued;
+        d.error = Some(format!("the chat moved; following it to {to}"));
+    })
+}
+
+/// Whether `d` settled by handing its message to a sibling daemon its chat moved to
+/// (`hand_to_socket`), so a hand-back of the same prompt id reopens it rather than reading it as
+/// delivered.
+fn handed_away(d: &Delivery) -> bool {
+    d.state == State::Delivered && d.accepted.as_ref().is_some_and(|a| a.get("handedTo").is_some())
+}
+
+#[cfg(test)]
+mod moved_next_tests {
+    use super::*;
+
+    /// What `transfer_out.rs` `moved_error` answers.
+    fn moved_error(to: &Value) -> RpcError {
+        RpcError::new(-32000, "transfer.moved: this chat moved; it runs there, never here")
+            .with_data(json!({"movedTo": to}))
+    }
+
+    /// A moved chat's refusal names where it went, and the delivery goes there; a chat in the
+    /// middle of a move is tried again soon, and neither is a refusal that fails the delivery.
+    #[test]
+    fn a_moved_chat_is_followed_and_a_moving_one_is_waited_for() {
+        let to = json!({"host": "gcp-1", "sessionId": "m1", "cwd": "/w"});
+        let moved = moved_error(&to);
+        assert_eq!(next(&moved), Next::Moved("gcp-1/m1".into()));
+        let here = moved_error(&json!({"sessionId": "m2"}));
+        assert_eq!(next(&here), Next::Moved("m2".into()));
+        let sibling = moved_error(&json!({"socket": "/tmp/dev.sock", "sessionId": "m3"}));
+        let handed = Next::MovedToSocket { socket: "/tmp/dev.sock".into(), session: "m3".into() };
+        assert_eq!(next(&sibling), handed);
+        let nowhere = moved_error(&json!({"host": "gcp-1"}));
+        assert_eq!(next(&nowhere), Next::Retry);
+        let moving =
+            RpcError::new(-32000, "transfer.moving: this chat is being moved to another daemon");
+        assert_eq!(next(&moving), Next::Moving);
     }
 }
 

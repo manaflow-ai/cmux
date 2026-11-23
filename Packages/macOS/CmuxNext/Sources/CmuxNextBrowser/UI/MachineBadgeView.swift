@@ -52,8 +52,7 @@ final class MachineBadgeView: NSView {
 
     func show(text: String, help: String) {
         label.stringValue = text
-        themedToolTip = help
-        setAccessibilityLabel(help)
+        setAccessibilityLabel(help) // it shows its words: no tooltip (a1315's cut 2)
         updateLayer()
     }
 

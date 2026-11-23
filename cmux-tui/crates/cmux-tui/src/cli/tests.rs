@@ -321,6 +321,8 @@ mod remote_cli_docs {
                 | ["machine", "new" | "create", ..]
                 // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
                 | ["cloud", "start-chat", ..]
+                // cloud_agent.rs: the `cloud_*` MCP tools as commands.
+                | ["cloud", "chat" | "computer", ..]
         )
     }
 
@@ -635,6 +637,21 @@ fn server_lifecycle_routing_flags_follow_action() {
         lifecycle::ServerAction::Stop { force: false, end_terminals: true, .. }
     ));
 
+    // `daemon stop --if-idle` (the Rex docs' `server stop --if-idle`).
+    let ParsedCommand::Command { plan: CommandPlan::Server(plan), .. } =
+        parse(&strings(&["server", "stop", "--if-idle"]), Surface::CmuxTui).unwrap()
+    else {
+        panic!("server stop --if-idle must produce a server plan");
+    };
+    assert!(matches!(
+        plan.action,
+        lifecycle::ServerAction::Stop { force: false, end_terminals: false, if_idle: true, .. }
+    ));
+    assert!(
+        parse(&strings(&["server", "restart", "--if-idle"]), Surface::CmuxTui).is_err(),
+        "a restart is never conditional"
+    );
+
     let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } = parse(
         &strings(&[
             "server",
@@ -678,6 +695,85 @@ fn server_stats_help_routes_to_the_stats_topic() {
     };
     assert_eq!(topic, "server stats");
     assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
+}
+
+/// The options `parse_args_result` accepts that run or configure the remote
+/// daemon, read from its source: an arm whose flag starts with `--remote` or
+/// `--relay`, or whose body turns remote mode on.
+fn remote_options_the_parser_accepts() -> std::collections::BTreeSet<String> {
+    let source = include_str!("../main.rs");
+    let start = source.find("fn parse_args_result(").expect("parse_args_result in main.rs");
+    let body = &source[start..];
+    let body = &body[..body.find("\n}\n").expect("end of parse_args_result")];
+    let mut accepted = std::collections::BTreeSet::new();
+    let mut arm: Vec<String> = Vec::new();
+    let mut arm_is_remote = false;
+    let mut finish = |arm: &mut Vec<String>, remote: bool| {
+        for flag in arm.drain(..) {
+            if remote || flag.starts_with("--remote") || flag.starts_with("--relay") {
+                accepted.insert(flag);
+            }
+        }
+    };
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        let is_arm = line.starts_with("            ") && !line.starts_with("             ");
+        if is_arm && trimmed.contains("=>") {
+            finish(&mut arm, arm_is_remote);
+            arm_is_remote = false;
+            if trimmed.starts_with('"') {
+                let pattern = trimmed.split("=>").next().unwrap_or_default();
+                arm = pattern
+                    .split('|')
+                    .map(|flag| flag.trim().trim_matches('"').to_owned())
+                    .filter(|flag| flag.starts_with("--"))
+                    .collect();
+            }
+        }
+        arm_is_remote |= trimmed.contains("out.remote = true");
+    }
+    finish(&mut arm, arm_is_remote);
+    accepted
+}
+
+#[test]
+fn daemon_start_help_lists_every_remote_option_the_parser_accepts() {
+    let accepted = remote_options_the_parser_accepts();
+    // Sanity: the scan found the arms, not an empty set.
+    for flag in ["--remote", "--remote-ws", "--remote-state-dir", "--relay", "--iroh"] {
+        assert!(accepted.contains(flag), "scan missed {flag}: {accepted:?}");
+    }
+    let listed: std::collections::BTreeSet<String> =
+        crate::REMOTE_START_OPTIONS.iter().map(|flag| (*flag).to_owned()).collect();
+    assert_eq!(listed, accepted, "REMOTE_START_OPTIONS must match the parser's remote arms");
+
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let catalog = crate::localization::catalog_for_locale(locale);
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["daemon", "start", "--help"]), Surface::CmuxTui).unwrap()
+        else {
+            panic!("daemon start --help must produce a scoped help topic");
+        };
+        let help = scope_help_for(&topic, catalog);
+        assert!(help.contains("cmux daemon start"), "{locale}: {help}");
+        for flag in &accepted {
+            let line = help
+                .lines()
+                .find(|line| line.split_whitespace().next() == Some(flag.as_str()))
+                .or_else(|| {
+                    // `--relay <url> --relay-slot <key>` share a line, as do the ticket command
+                    // and its `[--relay-ticket-command-arg <arg>]`.
+                    help.lines().find(|line| {
+                        line.trim_start().starts_with("--")
+                            && line
+                                .split_whitespace()
+                                .any(|word| word.trim_matches(['[', ']']) == flag)
+                    })
+                });
+            let line = line.unwrap_or_else(|| panic!("{locale}: {flag} missing from: {help}"));
+            assert!(line.trim_start().starts_with("--"), "{locale}: {flag}: {line}");
+        }
+    }
 }
 
 #[test]
@@ -1025,6 +1121,31 @@ fn cmux_pair_runs_the_machine_servers_invite_pairing() {
     let parsed = cmux_server::cli::parse(&routed).unwrap();
     assert_eq!(parsed.verb_str(), "pair");
     assert_eq!(parsed.value("invite"), Some("ABCDE-12345"));
+}
+
+#[test]
+fn cmux_unpair_runs_the_machine_servers_unpair() {
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(args(&["unpair"], Surface::Cmux), machine(&["unpair"]));
+    assert_eq!(args(&["server", "unpair"], Surface::Cmux), machine(&["unpair"]));
+    assert_eq!(
+        args(&["--json", "unpair", "--local"], Surface::Cmux),
+        machine(&["unpair", "--local", "--json"])
+    );
+    assert_eq!(args(&["unpair"], Surface::CmuxTui), None, "cmux-tui has no unpair verb");
+    let Some(Err(error)) = args(&["--session", "build", "unpair"], Surface::Cmux) else {
+        panic!("cmux unpair with --session ran")
+    };
+    assert!(error.contains("--session"), "{error}");
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["unpair", "--local"], Surface::Cmux) else {
+        panic!("cmux unpair was not routed to the machine server");
+    };
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "unpair");
+    assert!(parsed.has("local"));
 }
 
 #[test]

@@ -31,6 +31,8 @@ test("a chat with no folder on this Mac keeps the app's path", async () => {
 
 test("the header's Changes goes through the check", () => {
   const app = readFileSync(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
-  expect(app).toContain("onChanges={toggleChanges}");
+  // The header's controls are drawn in the pane body (pane/PaneBody.tsx).
+  const body = readFileSync(new URL("../src/agent-session/acpmux/pane/PaneBody.tsx", import.meta.url), "utf8");
+  expect(body).toContain("onChanges={toggleChanges}");
   expect(app).toMatch(/const toggleChanges = [\s\S]{0,200}headerChangesInPlace\(/);
 });
