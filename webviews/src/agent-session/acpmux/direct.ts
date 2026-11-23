@@ -8282,7 +8282,12 @@ export class AcpmuxDirectClient {
     // A reply acpmux stamped with its segment is cut by the segment itself: the background turn's
     // words carry another one ("-", hub/stream.rs), so they start their own row, and a prompt's
     // reply a record split goes on in its row, never as a second row the background turn owns.
-    const stamped = this.streamingAssistant !== undefined && this.streamingSegment?.row === this.streamingAssistant;
+    // A background turn's own row never goes on past its end (it stayed streaming, which held its
+    // footer back until the next prompt).
+    const stamped =
+      this.streamingAssistant !== undefined &&
+      this.streamingSegment?.row === this.streamingAssistant &&
+      this.rows.get(this.streamingAssistant)?.inBackground === undefined;
     if (!stamped) this.endAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
