@@ -884,6 +884,17 @@ def write_entry_wrapper(project: Path, cfg: dict[str, Any]) -> dict[str, Any]:
     return {**cfg, "main": "wdev-entry.generated.ts"}
 
 
+def pin_build_cwd(cfg: dict[str, Any], project: Path) -> dict[str, Any]:
+    """A Worker's custom build (`build.command`) run in its own project. wrangler passes build.cwd through as is, so
+    with none the build runs in wrangler's working directory, which for a stack is the stack's directory, not the
+    project's (the API's `bun scripts/gen-chief-vm-source.ts` failed there with Module not found). A relative cwd
+    meant the project, where a deploy runs."""
+    build = cfg.get("build")
+    if isinstance(build, dict) and build.get("command"):
+        cfg["build"] = {**build, "cwd": os.path.normpath(str(project / str(build.get("cwd") or ".")))}
+    return cfg
+
+
 def load_wrangler_config(path: Path) -> dict[str, Any]:
     if path.suffix == ".toml":
         import tomllib
@@ -1453,8 +1464,10 @@ def host_turn() -> dict[str, str] | None:
 
 def turn_probe(key_id: str, token: str) -> int | None:
     """Cloudflare's HTTP status for one short TURN credential request with this key; None when it could not be asked."""
+    # A named User-Agent: Cloudflare answers urllib's default one with error 1010 (403), which reads as a refused key.
     req = urllib.request.Request(TURN_API.format(key_id), data=b'{"ttl": 300}', method="POST",
-                                 headers={"authorization": f"Bearer {token}", "content-type": "application/json"})
+                                 headers={"authorization": f"Bearer {token}", "content-type": "application/json",
+                                          "user-agent": "cmux-wdev-stack/1 (scripts/cmux-next/cloud-dev-stack)"})
     try:
         with urllib.request.urlopen(req, timeout=15) as res:
             return res.status
@@ -1640,13 +1653,13 @@ def cmd_start(args) -> dict[str, Any]:
     }
     for svc, (rel, cfg_name) in PROJECTS.items():
         project = d / rel
-        cfg = write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name)))
+        cfg = pin_build_cwd(write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name))), project)
         names[svc] = cfg["name"]
         (project / "wrangler.wdev.generated.json").write_text(json.dumps(cfg, indent=1))
         configs += ["-c", str(project / "wrangler.wdev.generated.json")]
         projects.append(project)
     if with_platform:
-        pcfg = write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"]))
+        pcfg = pin_build_cwd(write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"])), d / "platform")
         (d / "platform/wrangler.wdev.generated.json").write_text(json.dumps(pcfg, indent=1))
         configs += ["-c", str(d / "platform/wrangler.wdev.generated.json")]
         projects.append(d / "platform")

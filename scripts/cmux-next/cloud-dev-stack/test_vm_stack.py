@@ -177,6 +177,17 @@ class StackWorkersTests(unittest.TestCase):
             self.assertIn('export { Hub } from "./src/index.ts"', wrapper)
             self.assertNotIn("X_Y", wrapper)
 
+    def test_a_custom_build_runs_in_its_own_project(self):
+        """wrangler passes build.cwd through as is, so with none a build runs in wrangler's working directory (the
+        stack's): the API's `bun scripts/gen-chief-vm-source.ts` then failed with Module not found and no stack
+        started (live 2026-11-23, feat-cmux-next's API config)."""
+        project = Path("/srv/x/stacks/t/src/backend/apps/api")
+        api = v.render_api_config(v.load_jsonc(ROOT / "backend/apps/api/wrangler.jsonc"), "t", "https://h:4799", with_platform=False)
+        self.assertEqual(v.pin_build_cwd(api, project)["build"]["cwd"], str(project))
+        self.assertEqual(v.pin_build_cwd({"build": {"command": "x", "cwd": "gen"}}, project)["build"]["cwd"], str(project / "gen"))
+        self.assertEqual(v.pin_build_cwd({"build": {"command": "x", "cwd": "/abs"}}, project)["build"]["cwd"], "/abs")
+        self.assertEqual(v.pin_build_cwd({"main": "m"}, project), {"main": "m"})
+
     def test_run_sh_runs_every_config_with_no_env(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
@@ -1031,6 +1042,30 @@ class HostKeyTests(unittest.TestCase):
         out = v.redact(f"Bearer {TURN_TOKEN} x-stack-secret-server-key: {STACK_KEY}", d)
         self.assertNotIn(TURN_TOKEN, out)
         self.assertNotIn(STACK_KEY, out)
+
+    def test_the_probe_names_itself_to_cloudflare(self):
+        """Live 2026-11-23: Cloudflare answers urllib's default User-Agent with error 1010 (403), which read as a
+        refused key, so put-turn refused the real one."""
+        seen = []
+
+        class Answer:
+            status = 201
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        real = v.urllib.request.urlopen
+        v.urllib.request.urlopen = lambda req, timeout=None: seen.append(req) or Answer()
+        try:
+            self.assertEqual(self.saved["turn_probe"](TURN_ID, TURN_TOKEN), 201)
+        finally:
+            v.urllib.request.urlopen = real
+        ua = seen[0].get_header("User-agent") or ""
+        self.assertTrue(ua and not ua.startswith("Python-urllib"), ua)
+        self.assertEqual(seen[0].full_url, v.TURN_API.format(TURN_ID))
 
     def test_status_says_whether_the_vm_holds_a_turn_key(self):
         self.assertFalse(v.cmd_capacity(None)["turn_key"])
