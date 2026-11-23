@@ -2708,6 +2708,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
                 "CmuxNextApps",
+                "CmuxNextBridge",
                 "CmuxNextBrowserCore",
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserHost",
