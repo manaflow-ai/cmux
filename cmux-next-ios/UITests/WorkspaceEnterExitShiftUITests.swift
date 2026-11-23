@@ -156,10 +156,14 @@ final class WorkspaceEnterExitShiftUITests: XCTestCase {
                 key.tap()
             }
         case "browser":
-            let address = app.descendants(matching: .any).matching(
-                NSPredicate(format: "label BEGINSWITH[c] 'Address'")).firstMatch
-            try require(address.waitForExistence(timeout: 15), "browser address capsule")
-            address.tap()
+            // ws-blog is an offline data: page. Require the real WKWebView's
+            // input so this case measures the page/keyboard transition, not
+            // only TabsKit's address editor.
+            let webView = app.webViews.firstMatch
+            try require(webView.waitForExistence(timeout: 20), "browser WKWebView")
+            let input = app.textFields["Page input"].firstMatch
+            try require(input.waitForExistence(timeout: 20), "browser WKWebView page input")
+            input.tap()
         default:
             throw SetupError(description: "unknown surface \(surface)")
         }
