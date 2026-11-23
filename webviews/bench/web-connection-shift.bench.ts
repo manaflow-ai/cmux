@@ -39,8 +39,9 @@ const chief: Record<string, ReactNode> = {
   expired: [h("span", { key: 1 }, "Signed out"), h("button", { key: 2 }, "Sign in again")],
   inaccessible: h("span", { role: "alert" }, "This chief isn't yours."),
 };
-const chiefPage = (slot: string) =>
-  `<div class="chief-web"><header class="chief-web__header"><h1>Chief</h1><output class="chief-web__connection" id=slot>${slot}</output></header><main class="chief-web__transcript"><div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start;padding:0 18px">${rows}<p data-row id=live style="margin:0">streaming</p></div></main><div class="chief-web__dock"><div class="guest-composer" data-row style="height:56px"></div></div></div>`;
+// `notch`: an iPhone with viewport-fit=cover (chief-web/index.html), where the header's top padding is the 59px safe area.
+const chiefPage = (slot: string, notch = false) =>
+  `<div class="chief-web"><header class="chief-web__header"${notch ? ' style="padding-top:59px"' : ""}><h1>Chief</h1><output class="chief-web__connection" id=slot>${slot}</output></header><main class="chief-web__transcript"><div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start;padding:0 18px">${rows}<p data-row id=live style="margin:0">streaming</p></div></main><div class="chief-web__dock"><div class="guest-composer" data-row style="height:56px"></div></div></div>`;
 // guest page: GuestPage.tsx's notice, inside .guest-live__transcript.
 const guest: Record<string, string> = {
   live: "",
@@ -51,17 +52,16 @@ const guest: Record<string, string> = {
 const guestPage = (slot: string) =>
   `<div class="guest-live" style="display:flex;flex-direction:column;height:100vh"><header class="guest-live__header"><div class="guest-live__titles"><h1 class="guest-live__title">Chat</h1><p class="guest-live__owner">Shared by Alex</p></div></header><div class="guest-live__transcript"><div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start">${rows}<p data-row id=live>streaming</p></div><span id=slot style="display:contents">${slot}</span></div><div class="guest-live__dock"><div class="guest-composer" data-row style="height:56px"></div></div></div>`;
 
+const chiefStates = Object.fromEntries(
+  Object.entries(chief).map(([k, v]) => [k, v ? renderToStaticMarkup(h("span", null, v)).slice(6, -7) : ""]),
+);
+
 const browser = await chromium.launch();
 const view = await (await browser.newContext({ viewport: { width: 390, height: 760 } })).newPage();
 const result: Record<string, Record<string, { shift: number; covered: number }>> = {};
 for (const [surface, page, states] of [
-  [
-    "chief-web",
-    chiefPage,
-    Object.fromEntries(
-      Object.entries(chief).map(([k, v]) => [k, v ? renderToStaticMarkup(h("span", null, v)).slice(6, -7) : ""]),
-    ),
-  ],
+  ["chief-web", chiefPage, chiefStates],
+  ["chief-web notch", (slot: string) => chiefPage(slot, true), chiefStates],
   ["guest", guestPage, guest],
 ] as const) {
   await view.setContent(`<!doctype html><meta charset=utf-8><style>${styles}</style>${page("")}`);
