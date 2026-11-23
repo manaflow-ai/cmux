@@ -591,8 +591,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             };
             super::session_move::run(args, json_out).await
         }
-        Command::Transfer { session, to, cwd, name, interrupt, after_turn } => {
-            super::transfer::run(&session, &to, cwd, name, interrupt, after_turn, json_out).await
+        Command::Transfer { session, to, cwd, name, interrupt, after_turn, acked_handoff } => {
+            let running = (interrupt, after_turn);
+            super::transfer::run(&session, &to, cwd, name, running, acked_handoff, json_out).await
         }
         Command::Import { path, name } => {
             let client = connect(true).await?;

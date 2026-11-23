@@ -11,8 +11,8 @@ pub(super) async fn run(
     to: &std::path::Path,
     cwd: Option<String>,
     name: Option<String>,
-    interrupt: bool,
-    after_turn: bool,
+    running: (bool, bool),
+    acked_handoff: bool,
     json_out: bool,
 ) -> Result<()> {
     let src = connect(true).await?;
@@ -29,8 +29,11 @@ pub(super) async fn run(
     // Absolute, as the watch's: an outbox that finds the chat moved hands its messages to the
     // daemon at this socket (`server/outbox.rs` `hand_to_socket`), whatever its own folder.
     let to_meta = json!({"socket": socket});
-    let watch = json!({"socket": socket});
-    let running = (interrupt, after_turn);
+    let mut watch = json!({"socket": socket});
+    // Carried to the begin as its own flag (`begin_move_after`).
+    if acked_handoff {
+        watch.set("ackedHandoff", json!(true));
+    }
     let moved =
         move_chat(&src, &dst, &dst_init, &id, Some(watch), cwd, name, running, to_meta).await?;
     if json_out {
@@ -102,7 +105,11 @@ async fn begin_move_after(
     // (`hub/transfer_out.rs` `transfer_begin`); an older daemon ignores it and refuses as busy.
     let mut begin_params = json!({"sessionId": id, "interrupt": interrupt,
                                   "afterTurn": after_turn, "gatesQueueApproval": true});
-    if let Some(to) = watch {
+    if let Some(mut to) = watch {
+        // The acked hand-off (`hub/transfer_handoff.rs`) is the begin's flag, not the watch's.
+        if to.as_object_mut().and_then(|o| o.remove("ackedHandoff")) == Some(json!(true)) {
+            begin_params.set("ackedHandoff", json!(true));
+        }
         begin_params.set("to", to);
     }
     if let Some(staged) = staged {
