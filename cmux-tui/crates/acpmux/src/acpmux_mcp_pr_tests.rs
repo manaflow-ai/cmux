@@ -81,8 +81,8 @@ fn a_skipped_check_is_neither_passed_nor_failed_and_is_named() {
     assert_eq!(s["noVerdictChecks"], json!(["clippy (changed cmux-tui packages)"]));
     assert!(
         text.contains(
-            "checks: 1 passed, 0 failing, 0 pending, 1 no verdict \
-             (clippy (changed cmux-tui packages))"
+            "checks: 1 passed, 0 failing, 0 pending, 1 skipped, no verdict \
+             (clippy (changed cmux-tui packages)): nothing to re-run and no result to compare"
         ),
         "{text}"
     );
@@ -97,12 +97,49 @@ fn each_conclusion_lands_on_one_group() {
         check("stopped", "COMPLETED", "CANCELLED"),
         check("still-going", "IN_PROGRESS", ""),
     ]);
-    let (_, s) = pr_state(&open(rollup, json!([])));
+    let (text, s) = pr_state(&open(rollup, json!([])));
     assert_eq!(s["passedChecks"], 1);
     assert_eq!(s["pendingChecks"], 1);
     // A cancelled check gave no verdict, and stays the PR's own red: routing is unchanged.
     assert_eq!(s["failingChecks"], json!(["red", "stopped"]));
     assert_eq!(s["noVerdictChecks"], json!(["nothing-to-do", "stopped"]));
+    // The tally counts each answer apart: only `red` ran and said no, and each absence names its step.
+    assert!(
+        text.contains(
+            "checks: 1 passed, 1 failing (red), 1 pending, 1 cancelled, no verdict (stopped): \
+             re-run it, or read the newer attempt that replaced it, 1 skipped, no verdict \
+             (nothing-to-do): nothing to re-run and no result to compare"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_cancelled_check_is_no_failing_check_and_names_its_own_next_step() {
+    // manaflow-ai/cmux#51251: "1 failed" on a FAILURE rollup was one cancelled suite, on a PR that
+    // was landable; an agent read it as a red and went looking for a failure that never happened.
+    let mut rollup: Vec<Value> =
+        (0..3).map(|n| check(&format!("test {n}"), "COMPLETED", "SUCCESS")).collect();
+    rollup.push(check("cmux-tui spec inventory / changes", "COMPLETED", "CANCELLED"));
+    let (text, s) = pr_state(&open(json!(rollup), json!([])));
+    assert_eq!(
+        text.lines().next().unwrap(),
+        "#1609 open at 4db9066b: mergeable, 1 cancelled, no verdict \
+         (cmux-tui spec inventory / changes), no review"
+    );
+    // Nothing ran and said no, so nothing is named as failing; the absence is counted apart.
+    assert!(
+        text.contains(
+            "checks: 3 passed, 0 failing, 0 pending, 1 cancelled, no verdict \
+             (cmux-tui spec inventory / changes): re-run it, or read the newer attempt that \
+             replaced it"
+        ),
+        "{text}"
+    );
+    // Routing is unchanged: a cancelled check is still the PR's own red for `status` and a lander.
+    assert_eq!(s["status"], "failed");
+    assert_eq!(s["failingChecks"], json!(["cmux-tui spec inventory / changes"]));
+    assert_eq!(s["noVerdictChecks"], json!(["cmux-tui spec inventory / changes"]));
 }
 
 #[test]
@@ -118,7 +155,10 @@ fn a_rollup_of_only_skipped_checks_is_not_green() {
     assert_eq!(s["passedChecks"], 0);
     assert_eq!(s["noVerdictChecks"].as_array().unwrap().len(), 4);
     assert!(
-        text.contains("checks: 0 passed, 0 failing, 0 pending, 4 no verdict (a, b, c, +1 more)"),
+        text.contains(
+            "checks: 0 passed, 0 failing, 0 pending, 4 skipped, no verdict (a, b, c, +1 more): \
+             nothing to re-run and no result to compare"
+        ),
         "{text}"
     );
 }
