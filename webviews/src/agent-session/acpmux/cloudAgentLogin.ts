@@ -1,6 +1,7 @@
 import { agentKey } from "../shared/agentKey";
 import { type ChatPlace, chatMachine } from "./chatMachine";
 import type { AcpmuxDirectClient } from "./direct";
+import type { AccountSignInTransport } from "../../pages/shared/signIn/useAccountSignIn";
 
 // A Cloud chat's own sign-in (Leo 2026-11-01, on the one-click sign-in: "yes those are important"):
 // a turn that failed because the agent on the user's Cloud machine is not signed in runs that
@@ -227,6 +228,9 @@ export type CloudSignIn = {
   /// Sends the failed prompt again under `ticket`; does nothing without one, or once `wanted`
   /// says the card that asked has gone (checked again after the prompt's attachments load).
   resend(rowId: string, prompt: string, ticket: ResendTicket | undefined, wanted?: () => boolean): Promise<void>;
+  /// GitHub's sign-in on the same machine (cloudGitHubSignIn.ts), for a chat elsewhere that names
+  /// its chat: the card offers it beside the agent's own, drawn by the shared DeviceSignInCard.
+  github?: AccountSignInTransport;
 };
 
 export type ResendTicket = { promptId: string; ticket: string };
