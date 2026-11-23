@@ -27,6 +27,7 @@ import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
+import type { LiveWait } from "./liveWait";
 import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { QUESTION_RECORD } from "../question/record";
 import { answerOf, chosenAnswer, nextStepAsk, pickedAnswer, type NextStepAsk } from "./nextStepAsk";
@@ -1337,13 +1338,7 @@ function shapedTurn(
     // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
-    // A turn the agent runs on its own (a helper finished, another agent's message, a wakeup) while
-    // acpmux lists the chat idle still draws the live line, as the prompt's turn does: its sends,
-    // reads and waits are work (Leo, 2026-11-22: "you sending messages or whatever aren't being
-    // accounted properly a la the "thinking" thing").
-    const ownLine =
-      !live && last && !sent && liveLine.length === 0 ? backgroundLiveLine(user, kept, clockOffset) : undefined;
-    const line = sent ? [sentLine(sent)] : ownLine ? [ownLine] : liveLine;
+    const line = sent ? [sentLine(sent)] : liveLine;
     // Other agents' messages that started a finished turn are its "Worked for"'s first entries
     // (``isAgentPrompt``): out of sight while it is closed, right under its line while it is open,
     // in time order before the work. While the turn runs, or when it did nothing to fold (a reply
@@ -1524,35 +1519,6 @@ function sentLine(sent: AcpmuxRow): AcpmuxRow {
     ...LIVE_SLOT,
   };
   if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
-  return line;
-}
-
-/// The live line of a turn the agent runs on its own (acpmux `background_turn`, still running) at the
-/// end of the latest turn's rows, or none. acpmux lists the chat idle then (only its own turns count
-/// as running, hub/background_turn.rs), so the turn is not `live`; the line is the one a live turn
-/// draws (``codexLiveTurn``), read from the background turn's rows and timed from its start: "Sending
-/// message to tests", "Thinking 12s", "Waiting 40s", never nothing under a send or a helper's finish.
-export function backgroundLiveLine(
-  user: AcpmuxRow,
-  rows: readonly AcpmuxRow[],
-  clockOffset = 0,
-): AcpmuxRow | undefined {
-  let from = rows.length - 1;
-  while (from >= 0 && rows[from]!.kind !== BACKGROUND_TURN) from -= 1;
-  const turn = rows[from];
-  if (!turn?.background?.running) return undefined;
-  const drawn = rows
-    .slice(from + 1)
-    .filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
-  let last: AcpmuxRow | undefined;
-  for (let index = drawn.length - 1; index >= 0 && !last; index -= 1)
-    if (drawn[index]!.kind !== STARTED_SESSIONS) last = drawn[index];
-  const named = last ? lineCall(drawn, last) : undefined;
-  const start = hasTimestamp(turn.at) ? turn.at : user.at;
-  const line = codexLiveTurn(user, drawn, drawn, last, named, start + clockOffset, clockOffset, false, 0, start).at(-1);
-  if (line?.kind !== THINKING) return undefined;
-  // Timed from the background turn, as `liveClock` reads it when nothing follows yet.
-  if (!last) Object.assign(line, liveClock([], start, clockOffset), { turnTotal: true, heardKey: turn.id });
   return line;
 }
 
@@ -3196,6 +3162,7 @@ function codexLiveTurn(
     Object.assign(line, {
       liveState: "subagents",
       liveAgents: agents,
+      liveAgentNames: foregroundAgentNames(drawn),
       waitAt: liveClock(drawn, start, clockOffset).heardAt,
     });
   // With a todo list and no answer streaming, the activity line under the list is the live line
@@ -3218,6 +3185,8 @@ function codexLiveTurn(
   if (line.doing === undefined && (line.liveState === undefined || line.liveState === "writing"))
     Object.assign(line, liveClock(drawn, start, clockOffset), {
       heardKey: `${drawn.length}:${last.id}:${last.version}`,
+      // Past SILENT_MS of nothing the line names what it waits on, never a bare "Waiting".
+      liveWait: liveWait(drawn, last),
     });
   if (!plan) return [...rows, line];
   const work = rows.filter((row) => row !== plan);
@@ -3405,6 +3374,43 @@ function foregroundAgents(rows: readonly AcpmuxRow[]): number {
       for (const agent of row.subagents ?? []) if (agent.state === "running" && !agent.background) count += 1;
   return count;
 }
+/// The running foreground subagents' names, in the order they started: the subagent wait's words.
+function foregroundAgentNames(rows: readonly AcpmuxRow[]): string[] {
+  const names: string[] = [];
+  for (const row of rows)
+    if (isSubagentGroup(row))
+      for (const agent of row.subagents ?? [])
+        if (agent.state === "running" && !agent.background && agent.name.trim()) names.push(agent.name.trim());
+  return names;
+}
+
+/// What a silent live line waits on (liveWait.ts), from the turn's latest row: the model reading
+/// the call that just returned, its first reply to the prompt or another agent's message, the
+/// person's message still queued in the turn, or the model's next step after a thought or reply.
+export function liveWait(drawn: readonly AcpmuxRow[], last: AcpmuxRow): LiveWait {
+  if (drawn.some((row) => row.kind === "user" && row.steer === "waiting")) return { kind: "queued" };
+  if (last.kind === "user") {
+    const from = last.incoming?.kind === "message" ? last.incoming.message.name.trim() : "";
+    return from ? { kind: "message", from } : { kind: "prompt" };
+  }
+  if (last.kind !== "activity") return { kind: "next" };
+  const item = last.items?.at(-1);
+  const tool = item?.tool;
+  if (!item || !tool || isThought(item)) return { kind: "next" };
+  const shell =
+    tool.kind === "execute" && !tool.description && (Boolean(tool.command) || isBareShellName(tool, tool.title));
+  const t = translatorFor(currentLanguage());
+  const step = shell
+    ? tool.command
+      ? t("tools.ranCommand", { command: liveCommand(tool.command) })
+      : t("tools.ranUnnamed")
+    : runningLabel(tool, item.text ?? "");
+  const words = step.trim();
+  // The step as the step row says it ("Ran bun test", "Read App.tsx"); the label sets it after a
+  // colon in every language, so its verb keeps the row's own capital.
+  return words ? { kind: "step", step: words } : { kind: "next" };
+}
+
 /// The `row` arm of `oneRowPerCall`: a file change keeps its own row in its run from pending to done.
 const keepsOwnRow = (call: AcpmuxActivity["tool"]) => isEditTool(call) && experimentArm(oneRowPerCall) === "row";
 

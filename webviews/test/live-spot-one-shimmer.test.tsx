@@ -11,9 +11,11 @@ import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
-import { BACKGROUND_TURN } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import { SHIMMER_CLASS, Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
-import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { liveWait, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { type LiveWait, subagentsLabel, waitingLabel } from "../src/agent-session/acpmux/conversation/liveWait";
+import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { type WaitingOn, WaitingOnContext } from "../src/agent-session/acpmux/conversation/waitingOn";
 
 afterEach(() => {
@@ -48,7 +50,124 @@ const statuses: [string, ReactNode, RegExp][] = [
     /^Waiting/,
   ],
   ["compacting", <Thinking since={0} now={() => NOW} liveState="compacting" doingAt={1_000} turnTotal />, /ompact/],
+  [
+    "waiting on one named subagent",
+    <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={1} liveAgentNames={["Explore auth"]} />,
+    /^Waiting on subagent Explore auth/,
+  ],
+  [
+    "waiting on two named subagents",
+    <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={2} liveAgentNames={["lint", "tests"]} />,
+    /^Waiting on subagents lint and tests/,
+  ],
+  [
+    "waiting on many subagents",
+    <Thinking since={0} now={() => NOW} liveState="subagents" liveAgents={4} liveAgentNames={["lint", "tests"]} />,
+    /^Waiting on subagent lint and 3 more/,
+  ],
+  ...(
+    [
+      [{ kind: "step", step: "Ran bun test" }, /^Waiting on the model after: Ran bun test/],
+      [{ kind: "prompt" }, /^Waiting on the model's first reply/],
+      [{ kind: "message", from: "picker" }, /^Waiting on the model after picker's message/],
+      [{ kind: "queued" }, /^Waiting on the model to read your queued message/],
+      [{ kind: "next" }, /^Waiting on the model's next step/],
+      [undefined, /^Waiting on the model's next step/],
+    ] as [LiveWait | undefined, RegExp][]
+  ).map(([liveWait, label]): [string, ReactNode, RegExp] => [
+    `waiting (silent, ${liveWait?.kind ?? "unknown"})`,
+    <Thinking since={0} now={() => NOW} phaseAt={0} heardAt={0} heardKey="k" liveWait={liveWait} turnTotal />,
+    label,
+  ]),
 ];
+
+// Never a bare "Waiting": every silent line names what it waits on (Leo, 2026-11-22: "everything that
+// goes in there write more detailed things than just waiting").
+for (const [name, node] of statuses)
+  test(`the live line's "${name}" status says more than a bare "Waiting"`, () => {
+    expect(words(renderToStaticMarkup(node))).not.toMatch(/^Waiting(\s+\d|$)/);
+  });
+
+// The same look as "Thinking" for every status: the one shimmer's structure (its base words, its
+// band and lit copy), so no status draws its words plainly in another tone.
+const thinkingLook = renderToStaticMarkup(<Thinking since={0} now={() => NOW} />);
+for (const [name, node] of statuses)
+  test(`the live line's "${name}" status draws the shimmer's layers as "Thinking" does`, () => {
+    const html = renderToStaticMarkup(node);
+    for (const layer of ["cv-shimmer__row", "cv-shimmer__base", "cv-shimmer__band"]) {
+      expect(thinkingLook).toContain(layer);
+      expect(html).toContain(layer);
+    }
+  });
+
+test("subagentsLabel and waitingLabel name what the line waits on", () => {
+  const t = translatorFor("en");
+  expect(subagentsLabel(t, 2)).toBe("Waiting on 2 subagents");
+  expect(subagentsLabel(t, 1, ["a"])).toBe("Waiting on subagent a");
+  expect(subagentsLabel(t, 2, ["a"])).toBe("Waiting on subagent a and 1 more");
+  expect(subagentsLabel(t, 2, ["a", "b"])).toBe("Waiting on subagents a and b");
+  expect(subagentsLabel(t, 5, ["a", "b", "c"])).toBe("Waiting on subagent a and 4 more");
+  expect(waitingLabel(t, { kind: "step", step: "Read App.tsx" })).toBe("Waiting on the model after: Read App.tsx");
+});
+
+// The turn's rows say what a silent line waits on (turns.ts `liveWait`).
+const tool = (status: string, extra: Record<string, unknown> = {}): AcpmuxRow =>
+  ({
+    id: "act1",
+    version: 1,
+    at: 2_000,
+    kind: "activity",
+    items: [
+      {
+        kind: "tool",
+        text: "bun test",
+        tool: { id: "c1", title: "bun test", kind: "execute", command: "bun test", status, startedAt: 2_000, ...extra },
+      },
+    ],
+  }) as AcpmuxRow;
+const asked: AcpmuxRow = { id: "u1", version: 1, at: 1_000, kind: "user", text: "Run the tests" };
+
+test("after a call returns, the line waits on the model after that call", () => {
+  const ran = tool("completed", { endedAt: 3_000 });
+  expect(liveWait([asked, ran], ran)).toEqual({ kind: "step", step: "Ran bun test" });
+});
+
+test("after a thought or a reply, the line waits on the model's next step", () => {
+  const reply: AcpmuxRow = { id: "a1", version: 1, at: 2_000, kind: "assistant", text: "Done." };
+  expect(liveWait([asked, reply], reply)).toEqual({ kind: "next" });
+  const thought = {
+    id: "t1",
+    version: 1,
+    at: 2_000,
+    kind: "activity",
+    items: [{ kind: "thought", text: "Hmm", startedAt: 2_000, endedAt: 2_500 }],
+  } as AcpmuxRow;
+  expect(liveWait([asked, thought], thought)).toEqual({ kind: "next" });
+});
+
+test("another agent's message, the person's queued message and a bare prompt each say so", () => {
+  const message = {
+    id: "u2",
+    version: 1,
+    at: 2_000,
+    kind: "user",
+    text: "done",
+    incoming: { kind: "message", message: { name: "picker" } },
+  } as AcpmuxRow;
+  expect(liveWait([asked, message], message)).toEqual({ kind: "message", from: "picker" });
+  const steer: AcpmuxRow = { id: "u3", version: 1, at: 2_500, kind: "user", text: "also lint", steer: "waiting" };
+  const ran = tool("completed", { endedAt: 3_000 });
+  expect(liveWait([asked, steer, ran], ran)).toEqual({ kind: "queued" });
+  expect(liveWait([asked], asked)).toEqual({ kind: "prompt" });
+});
+
+test("a silent live turn's line carries what it waits on, and a subagent wait carries the names", () => {
+  const ran = tool("completed", { endedAt: 3_000 });
+  const view = turnView([asked, ran], new Set(), { now: 60_000, working: true });
+  const line = view.at(-1)!;
+  expect(line.kind).toBe(THINKING);
+  expect(line.liveWait).toEqual({ kind: "step", step: "Ran bun test" });
+});
 
 for (const [name, node, label] of statuses)
   test(`the live line's "${name}" status draws the one shared shimmer`, () => {
@@ -103,6 +222,17 @@ test("the activity line shimmers its step, its thinking verb, its wait and a mes
   expect(waiting).not.toContain("cv-waiting");
 });
 
+test("the Working-for line's wait on the person shimmers too, never plain white words", () => {
+  const row: AcpmuxRow = { id: "working-p", version: 1, at: 0, kind: "working", below: true };
+  const html = renderToStaticMarkup(
+    <WaitingOnContext value="permission">
+      <WorkingFor row={row} now={() => NOW} />
+    </WaitingOnContext>,
+  );
+  expect(html).toContain(`cv-thinking ${SHIMMER_CLASS}`);
+  expect(html).toContain("cv-shimmer__band");
+});
+
 test("no status in the live spot has a colour of its own: the shimmer's tone is the only one", () => {
   const css = readFileSync(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
@@ -115,75 +245,4 @@ test("no status in the live spot has a colour of its own: the shimmer's tone is 
   };
   expect(rule(".cv-retrying")).not.toContain("color:");
   expect(rule(".cv-thinking.cv-waiting")).not.toContain("color:");
-});
-
-// A turn the agent runs on its own after its prompt's turn ended (acpmux `background_turn`): acpmux
-// lists the chat idle, so the turn is not `working`, yet its sends and waits are work.
-const prompt: AcpmuxRow = { id: "p1", version: 1, at: 1_000, kind: "user", text: "Coordinate the lanes" };
-const reply: AcpmuxRow = { id: "r1", version: 1, at: 2_000, kind: "assistant", text: "On it." };
-const summary: AcpmuxRow = { id: "s1", version: 1, at: 3_000, kind: "turnSummary", status: "completed" } as AcpmuxRow;
-const background = (running: boolean): AcpmuxRow =>
-  ({
-    id: "backgroundTurn-bg1",
-    version: running ? 1 : 2,
-    at: 10_000,
-    kind: BACKGROUND_TURN,
-    background: { id: "bg1", trigger: "task", running, ...(running ? {} : { quiet: false }) },
-  }) as AcpmuxRow;
-const send = (status: string): AcpmuxRow =>
-  ({
-    id: "a1",
-    version: 1,
-    at: 11_000,
-    kind: "activity",
-    inBackground: "backgroundTurn-bg1",
-    items: [
-      {
-        kind: "tool",
-        text: "SendMessage",
-        tool: {
-          id: "m1",
-          title: "SendMessage",
-          kind: "other",
-          status,
-          startedAt: 11_000,
-          ...(status === "completed" && { endedAt: 11_500 }),
-          inputSummary: JSON.stringify({ to: "picker", message: "Keep going." }),
-        },
-      },
-    ],
-  }) as AcpmuxRow;
-
-test("a turn whose newest activity is a send still going is live: the line names the recipient", () => {
-  const view = turnView([prompt, reply, summary, background(true), send("in_progress")], new Set(), {
-    now: 12_000,
-    working: false,
-  });
-  const line = view.at(-1)!;
-  expect(line.kind).toBe(THINKING);
-  expect(line.doingSendTo).toBe("picker");
-});
-
-test("a turn whose newest activity is a finished send is still live: the line reads Thinking", () => {
-  const view = turnView([prompt, reply, summary, background(true), send("completed")], new Set(), {
-    now: 12_000,
-    working: false,
-  });
-  const line = view.at(-1)!;
-  expect(line.kind).toBe(THINKING);
-  expect(line.doing).toBeUndefined();
-  expect(line.turnTotal).toBe(true);
-});
-
-test("a helper's finish that starts a turn of its own is live before its first step", () => {
-  const view = turnView([prompt, reply, summary, background(true)], new Set(), { now: 12_000, working: false });
-  expect(view.at(-1)?.kind).toBe(THINKING);
-});
-
-test("once that turn ends, no live line is left", () => {
-  const view = turnView([prompt, reply, summary, background(false), send("completed")], new Set(), {
-    now: 12_000,
-    working: false,
-  });
-  expect(view.some((row) => row.kind === THINKING)).toBe(false);
 });

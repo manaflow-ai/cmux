@@ -43,6 +43,7 @@ import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
+import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
@@ -463,10 +464,12 @@ export function Thinking({
   doneMs,
   liveState,
   liveAgents = 0,
+  liveAgentNames,
   liveCompaction,
   phaseAt,
   heardAt,
   heardKey,
+  liveWait,
   waitAt,
   turnTotal = false,
   untimed = false,
@@ -506,6 +509,8 @@ export function Thinking({
   /// running, timed from `doingAt`). Otherwise it reads "Thinking".
   liveState?: "subagents" | "writing" | "compacting";
   liveAgents?: number;
+  /// The subagents' names (turns.ts `foregroundAgentNames`): "Waiting on subagent Explore auth".
+  liveAgentNames?: readonly string[];
   liveCompaction?: AcpmuxCompaction;
   /// "Thinking" past the first step: when this stretch of thinking began (turns.ts `liveClock`), the
   /// time beside the word ticking from it; and when the turn last heard anything (`heardAt`, and
@@ -513,6 +518,10 @@ export function Thinking({
   phaseAt?: number;
   heardAt?: number;
   heardKey?: string;
+  /// What a silent line waits on (liveWait.ts): "Waiting on the model after Read App.tsx", never a
+  /// bare "Waiting" (Leo, 2026-11-22: "everything that goes in there write more detailed things than
+  /// just waiting").
+  liveWait?: LiveWait;
   /// "Waiting on N subagents": when that wait began (turns.ts `codexLiveTurn`), the time beside the
   /// words ticking from it, or from when the line itself turned to the wait, whichever is later.
   waitAt?: number;
@@ -615,11 +624,11 @@ export function Thinking({
                 : "turn.live.compacting",
           )
         : waitsOnAgents
-          ? t("turn.live.waitingOnSubagents", { n: liveAgents })
+          ? subagentsLabel(t, liveAgents, liveAgentNames)
           : writing
             ? t("turn.live.writing")
             : silent
-              ? t("turn.live.waiting")
+              ? waitingLabel(t, liveWait)
               : (turnVerb ??
                 (statusVerbConfig.mode === "custom"
                   ? statusVerbAt(elapsedMs, { mode: "custom", verbs })
@@ -820,7 +829,7 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          {activityDots && jumpButton === "dots" && !calm && !done && !answered && <JumpDots inline />}
+          {activityDots && jumpButton === "dots" && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}

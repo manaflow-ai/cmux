@@ -67568,134 +67568,1058 @@
         }
       }
     },
-    "turn.live.waiting": {
-      "comment": "Agent pane: the running turn's live line once nothing has arrived from the agent for a while (no chunk, call or reply), in place of a stale Thinking; the time since it last heard follows (Waiting 12s · turn 15m)",
+    "turn.live.waitingFirstReply": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while since the prompt set the turn going; the model is still on its first reply (Waiting on the model's first reply 12s)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "في الانتظار"
+            "value": "في انتظار أول رد من النموذج"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Čeka"
+            "value": "Čeka prvi odgovor modela"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter"
+            "value": "Venter på modellens første svar"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wartet"
+            "value": "Wartet auf die erste Antwort des Modells"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting"
+            "value": "Waiting on the model's first reply"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esperando"
+            "value": "Esperando la primera respuesta del modelo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En attente"
+            "value": "En attente de la première réponse du modèle"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In attesa"
+            "value": "In attesa della prima risposta del modello"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "待機中"
+            "value": "モデルの最初の応答を待機中"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងរង់ចាំ"
+            "value": "កំពុងរង់ចាំការឆ្លើយតបដំបូងរបស់ម៉ូដែល"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "대기 중"
+            "value": "모델의 첫 응답 대기 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter"
+            "value": "Venter på modellens første svar"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Czeka"
+            "value": "Czeka na pierwszą odpowiedź modelu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aguardando"
+            "value": "Aguardando a primeira resposta do modelo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ожидание"
+            "value": "Ожидание первого ответа модели"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กำลังรอ"
+            "value": "กำลังรอคำตอบแรกจากโมเดล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bekliyor"
+            "value": "Modelin ilk yanıtı bekleniyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Очікування"
+            "value": "Очікування першої відповіді моделі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang chờ"
+            "value": "Đang chờ phản hồi đầu tiên của mô hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待中"
+            "value": "正在等待模型的首次回复"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待中"
+            "value": "正在等待模型的首次回覆"
+          }
+        }
+      }
+    },
+    "turn.live.waitingAfterStep": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while after a tool call returned; {step} is that finished call as its row names it (Read App.tsx, Ran bun test), lowercased in English",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار النموذج بعد: {step}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka model nakon: {step}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen efter: {step}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf das Modell nach: {step}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model after: {step}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al modelo después de: {step}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du modèle après : {step}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del modello dopo: {step}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} の後、モデルを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំម៉ូដែលបន្ទាប់ពី៖ {step}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} 후 모델 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen etter: {step}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na model po: {step}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o modelo após: {step}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание модели после: {step}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอโมเดลหลังจาก: {step}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} sonrası model bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування моделі після: {step}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mô hình sau: {step}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} 之后，正在等待模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{step} 之後，正在等待模型"
+          }
+        }
+      }
+    },
+    "turn.live.waitingAfterMessage": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while after another agent's message came in; {from} is the sender's name",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار النموذج بعد رسالة {from}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka model nakon poruke od {from}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen efter besked fra {from}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf das Modell nach der Nachricht von {from}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model after {from}'s message"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al modelo después del mensaje de {from}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du modèle après le message de {from}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del modello dopo il messaggio di {from}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{from} のメッセージの後、モデルを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំម៉ូដែលបន្ទាប់ពីសាររបស់ {from}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{from}의 메시지 후 모델 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellen etter melding fra {from}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na model po wiadomości od {from}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o modelo após a mensagem de {from}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание модели после сообщения от {from}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอโมเดลหลังข้อความจาก {from}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{from} mesajından sonra model bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування моделі після повідомлення від {from}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mô hình sau tin nhắn của {from}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收到 {from} 的消息后，正在等待模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "收到 {from} 的訊息後，正在等待模型"
+          }
+        }
+      }
+    },
+    "turn.live.waitingQueued": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while while the person's message sent into the turn still waits for the agent to read it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار أن يقرأ النموذج رسالتك في قائمة الانتظار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka da model pročita vašu poruku u redu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at modellen læser din besked i køen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet, bis das Modell deine Nachricht in der Warteschlange liest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model to read your queued message"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a que el modelo lea tu mensaje en cola"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente que le modèle lise votre message en file d'attente"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa che il modello legga il tuo messaggio in coda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キュー内のメッセージをモデルが読むのを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំម៉ូដែលអានសាររបស់អ្នកដែលកំពុងរង់ចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델이 대기 중인 메시지를 읽기를 기다리는 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på at modellen leser meldingen din i køen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka, aż model przeczyta Twoją wiadomość w kolejce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o modelo ler sua mensagem na fila"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание, пока модель прочитает ваше сообщение в очереди"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้โมเดลอ่านข้อความของคุณที่อยู่ในคิว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelin sıradaki mesajınızı okuması bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування, поки модель прочитає ваше повідомлення в черзі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mô hình đọc tin nhắn đang xếp hàng của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型读取你排队的消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型讀取你排隊的訊息"
+          }
+        }
+      }
+    },
+    "turn.live.waitingNextStep": {
+      "comment": "Agent pane: the running turn's live line once nothing has come from the model for a while after a thought or a reply; the model is working out its next step",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الخطوة التالية من النموذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka sljedeći korak modela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellens næste trin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf den nächsten Schritt des Modells"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on the model's next step"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando el siguiente paso del modelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente de la prochaine étape du modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del prossimo passo del modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モデルの次のステップを待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំជំហានបន្ទាប់របស់ម៉ូដែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모델의 다음 단계 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på modellens neste steg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na następny krok modelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o próximo passo do modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание следующего шага модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอขั้นตอนถัดไปของโมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelin bir sonraki adımı bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування наступного кроку моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ bước tiếp theo của mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型的下一步"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待模型的下一步"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagent": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on the one subagent it started; {name} is that subagent's name as the tray shows it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الوكيل الفرعي {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka podagenta {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf Subagent {name}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on subagent {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al subagente {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du sous-agent {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del subagente {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブエージェント {name} を待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំភ្នាក់ងាររង {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 에이전트 {name} 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na subagenta {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o subagente {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание субагента {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอเอเจนต์ย่อย {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} alt ajanı bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування субагента {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ tác tử phụ {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name}"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagentPair": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on the two subagents it started; {first} and {second} are their names as the tray shows them",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الوكيلين الفرعيين {first} و{second}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka podagente {first} i {second}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenterne {first} og {second}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf die Subagenten {first} und {second}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on subagents {first} and {second}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a los subagentes {first} y {second}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente des sous-agents {first} et {second}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa dei subagenti {first} e {second}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブエージェント {first} と {second} を待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំភ្នាក់ងាររង {first} និង {second}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 에이전트 {first}, {second} 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagentene {first} og {second}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na subagentów {first} i {second}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando os subagentes {first} e {second}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание субагентов {first} и {second}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอเอเจนต์ย่อย {first} และ {second}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{first} ve {second} alt ajanları bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування субагентів {first} і {second}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ tác tử phụ {first} và {second}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {first} 和 {second}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {first} 和 {second}"
+          }
+        }
+      }
+    },
+    "turn.live.waitingOnSubagentMore": {
+      "comment": "Agent pane: the running turn's live line while the agent waits on three or more subagents; {name} is the first one's name as the tray shows it, {n} how many others still run",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار الوكيل الفرعي {name} و{n} آخرين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka podagenta {name} i još {n}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name} og {n} mere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wartet auf Subagent {name} und {n} weitere"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on subagent {name} and {n} more"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando al subagente {name} y {n} más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du sous-agent {name} et de {n} autres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa del subagente {name} e di altri {n}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サブエージェント {name} ほか {n} 件を待機中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំភ្នាក់ងាររង {name} និង {n} ទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하위 에이전트 {name} 외 {n}개 대기 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på underagenten {name} og {n} til"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czeka na subagenta {name} i {n} innych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o subagente {name} e mais {n}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание субагента {name} и ещё {n}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอเอเจนต์ย่อย {name} และอีก {n} ตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{name} alt ajanı ve {n} diğeri bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування субагента {name} і ще {n}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ tác tử phụ {name} và {n} tác tử khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name} 及其他 {n} 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待子代理 {name} 及其他 {n} 個"
           }
         }
       }
