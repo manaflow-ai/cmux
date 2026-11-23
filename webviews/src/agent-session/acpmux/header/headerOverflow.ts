@@ -73,10 +73,13 @@ export function useHeaderFold(tools: RefObject<HTMLElement | null>, count: numbe
       const pitch = tools.current ? measuredPitch(tools.current) : HEADER_TOOL_PITCH;
       setFold(headerFoldCount(width, folded.current, room, count, pitch));
     };
+    // No read here: the observer's first report comes in the browser's own layout pass, before the
+    // frame paints, so a header that does not fit folds before it is seen. Read in this layout effect,
+    // it forced a layout of the whole page in the middle of a chat's first commit, before the
+    // transcript's rows were placed.
     const observer = new ResizeObserver(measure);
     observer.observe(header);
     observer.observe(element);
-    measure();
     return () => observer.disconnect();
   }, [tools, count]);
   return Math.min(fold, count);
