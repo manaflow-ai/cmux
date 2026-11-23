@@ -223,4 +223,76 @@ import Testing
         #expect(FeedDayEdit(old: old, new: [FeedDayGroup(section: Self.d1, ids: ["a"]), FeedDayGroup(section: Self.d2, ids: ["b"])]) == nil)
         #expect(FeedDayEdit(old: old, new: [FeedDayGroup(section: Self.d2, ids: ["b", "a"])]) == nil)
     }
+
+    // MARK: Pinned asks
+
+    /// The whole Feed's open asks come first, out of time order: their own section with no day
+    /// label, ahead of the days, which group the rest (today's then shows "Today").
+    @Test func pinnedAsksSitAheadOfTheDays() {
+        let today = Self.date("2026-11-23 00:00", Self.la)
+        let rows: [(id: String, date: Date?)] = [
+            (id: "ask-old", date: Self.date("2026-11-20 10:00", Self.la)),
+            (id: "ask-new", date: Self.date("2026-11-23 09:00", Self.la)),
+            (id: "a", date: Self.date("2026-11-23 08:00", Self.la)),
+            (id: "fold", date: nil),
+            (id: "b", date: Self.date("2026-11-22 08:00", Self.la)),
+        ]
+        let groups = FeedDays.groups(carrying: rows, pinned: 2, calendar: Self.calendar(Self.la))
+        #expect(groups.map(\.ids) == [["ask-old", "ask-new"], ["a", "fold"], ["b"]])
+        #expect(groups.map(\.section) == [.pinned, FeedDaySection(day: today), FeedDaySection(day: Self.date("2026-11-22 00:00", Self.la))])
+        #expect(!FeedDays.showsLabel(.pinned, isFirst: true, today: today))
+        #expect(FeedDays.showsLabel(groups[1].section, isFirst: groups.first?.section == groups[1].section, today: today))
+        // No asks: no pinned section; more pinned than rows: every row is pinned.
+        #expect(FeedDays.groups(carrying: rows, pinned: 0, calendar: Self.calendar(Self.la)).first?.section == FeedDaySection(day: today))
+        #expect(FeedDays.groups(carrying: Array(rows.prefix(2)), pinned: 5, calendar: Self.calendar(Self.la)).map(\.section) == [.pinned])
+    }
+
+    /// An answered ask travels from the pinned section to its place in its own day, not to the
+    /// row after it in the next day.
+    @Test func anAnsweredAskMovesToItsDay() throws {
+        let old = [FeedDayGroup(section: .pinned, ids: ["ask-1", "ask-2"]), FeedDayGroup(section: Self.d1, ids: ["a"]),
+                   FeedDayGroup(section: Self.d2, ids: ["b", "c"])]
+        // ask-1 is the last event of d1: the row after it in time is d2's first.
+        let new = [FeedDayGroup(section: .pinned, ids: ["ask-2"]), FeedDayGroup(section: Self.d1, ids: ["a", "ask-1"]),
+                   FeedDayGroup(section: Self.d2, ids: ["b", "c"])]
+        #expect(FeedDayEdit(old: old, new: new) == nil)
+        let move = try #require(FeedDayMoveEdit(old: old, new: new, movers: ["ask-1"]))
+        #expect(move.steps == [.move("ask-1", section: Self.d1, before: nil)])
+        #expect(move.applied(to: old) == new)
+    }
+
+    /// The last ask answered closes the pinned section; an ask alone in its day opens that day's section.
+    @Test func theLastAnsweredAskClosesThePinnedSection() throws {
+        let old = [FeedDayGroup(section: .pinned, ids: ["ask"]), FeedDayGroup(section: Self.d1, ids: ["a"]),
+                   FeedDayGroup(section: Self.d3, ids: ["c"])]
+        let new = [FeedDayGroup(section: Self.d1, ids: ["a"]), FeedDayGroup(section: Self.d2, ids: ["ask"]),
+                   FeedDayGroup(section: Self.d3, ids: ["c"])]
+        let move = try #require(FeedDayMoveEdit(old: old, new: new, movers: ["ask"]))
+        #expect(move.addedSections == [.init(section: Self.d2, after: Self.d1)])
+        #expect(move.removedSections == [.pinned])
+        #expect(move.applied(to: old) == new)
+    }
+
+    /// An ask that opens again goes back to the pinned section (opened again, ahead of the days),
+    /// with a live event and a removal beside it.
+    @Test func anAskThatOpensAgainJoinsThePinnedSection() throws {
+        let old = [FeedDayGroup(section: Self.d1, ids: ["a", "ask", "b"]), FeedDayGroup(section: Self.d2, ids: ["c"])]
+        let new = [FeedDayGroup(section: .pinned, ids: ["ask"]), FeedDayGroup(section: Self.d1, ids: ["n", "a"]),
+                   FeedDayGroup(section: Self.d2, ids: ["c"])]
+        let move = try #require(FeedDayMoveEdit(old: old, new: new, movers: ["ask"]))
+        #expect(move.addedSections == [.init(section: .pinned, after: nil)])
+        #expect(move.removed == ["b"])
+        #expect(move.applied(to: old) == new)
+    }
+
+    /// Any other row changing place or day, or too many asks at once: the sections are rebuilt.
+    @Test func otherChangesBesideAMoveRebuild() {
+        let old = [FeedDayGroup(section: .pinned, ids: ["ask"]), FeedDayGroup(section: Self.d1, ids: ["a", "b"])]
+        #expect(FeedDayMoveEdit(old: old, new: [FeedDayGroup(section: Self.d1, ids: ["b", "a", "ask"])], movers: ["ask"]) == nil)
+        #expect(FeedDayMoveEdit(old: old, new: [FeedDayGroup(section: Self.d1, ids: ["a", "ask"]), FeedDayGroup(section: Self.d2, ids: ["b"])],
+                                movers: ["ask"]) == nil)
+        let asks = (1...5).map { "ask-\($0)" }
+        let many = [FeedDayGroup(section: .pinned, ids: asks), FeedDayGroup(section: Self.d1, ids: ["a"])]
+        #expect(FeedDayMoveEdit(old: many, new: [FeedDayGroup(section: Self.d1, ids: ["a"] + asks)], movers: Set(asks), limit: 4) == nil)
+    }
 }
