@@ -23,7 +23,7 @@ extension SidebarListViewComponents {
             // Leo 2026-10-21 / Lawrence u8646: the menu is for the clicked row, or the whole selection when the
             // row is part of it; the selection and the shown workspace stay as they are (one rule with the ⋮ button).
             // A group's one row (`standsForGroup`) adds the group's menu (`SidebarRowMenu.menu(for:)`).
-            return SidebarRowMenu(list: self).menu(for: id)
+            return NSMenu.withoutSystemItems(SidebarRowMenu(list: self).menu(for: id))
         case let .group(id)?, let .emptyGroup(id)?:
             // A right-click on a group (or its empty row) shows its one flat menu at once, as Finder and Safari
             // do (Lawrence 2026-10-20: no second step through the editor's More row). A
@@ -47,6 +47,6 @@ extension SidebarListViewComponents {
         case nil:
             target = .background
         }
-        return contextMenuProvider(target)
+        return NSMenu.withoutSystemItems(contextMenuProvider(target))
     }
 }
