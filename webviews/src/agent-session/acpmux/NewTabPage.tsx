@@ -108,6 +108,9 @@ type Props = NewTabCommandActions & {
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// A chat this page started failed after the page had gone (App.tsx `startLeftNewTab`): the page
+  /// came back and says it on its failure line, with Retry, never the chat view's empty-chat hero.
+  startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
   now?: number;
@@ -144,6 +147,7 @@ export function NewTabPage({
   onInputReady,
   onLeaveDraft,
   takeDraft,
+  startFailure,
   onFieldEdit,
 }: Props) {
   const t = useT();
@@ -237,7 +241,17 @@ export function NewTabPage({
   );
   /// The last open was refused (the host made no tab): a note under the field until the next edit,
   /// saying which kind did not open, with Retry (the same open again) and the host's words under Details.
-  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void }>();
+  // Retry on a failure the page came back with asks again with the field as it is then.
+  const retryStart = useRef<() => void>(() => undefined);
+  const [openFailed, setOpenFailed] = useState<{ kind: TabKind; detail: string; retry: () => void } | undefined>(() =>
+    startFailure
+      ? {
+          kind: "agent",
+          detail: startFailure.error.trim(),
+          retry: () => retryStart.current(),
+        }
+      : undefined,
+  );
   const attachmentRef = useRef<ComposerAttachment[]>([]);
   const make = (next: TabKind, value: string, folder?: string) => {
     setOpenFailed(undefined);
@@ -252,7 +266,11 @@ export function NewTabPage({
     if (result)
       void result.catch((error: unknown) => {
         const detail = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-        setOpenFailed({ kind: next, detail: detail.trim(), retry: () => make(next, value, folder) });
+        setOpenFailed({
+          kind: next,
+          detail: detail.trim(),
+          retry: () => make(next, value, folder),
+        });
         setDismissed(queryRef.current);
       });
   };
@@ -297,7 +315,12 @@ export function NewTabPage({
   const command = useNewTabCommand(
     text,
     setText,
-    { onCmuxCommand, onImportFile, importError, ...(importSandboxed ? { importSandboxed } : {}) },
+    {
+      onCmuxCommand,
+      onImportFile,
+      importError,
+      ...(importSandboxed ? { importSandboxed } : {}),
+    },
     {
       attachments,
       setAttachments,
@@ -312,8 +335,20 @@ export function NewTabPage({
   }, [carried, setAttachments]);
   // The Agent draft as it is now, for `onLeaveDraft` when the page goes (a terminal command or an
   // address has no chat composer to go to).
-  const leaving = useRef({ text, attachments, typed: false, kind, onLeaveDraft });
-  leaving.current = { text, attachments, typed: text !== untouchedText.current, kind, onLeaveDraft };
+  const leaving = useRef({
+    text,
+    attachments,
+    typed: false,
+    kind,
+    onLeaveDraft,
+  });
+  leaving.current = {
+    text,
+    attachments,
+    typed: text !== untouchedText.current,
+    kind,
+    onLeaveDraft,
+  };
   useEffect(
     () => () => {
       const draft = leaving.current;
@@ -358,6 +393,7 @@ export function NewTabPage({
   const [focused, setFocused] = useState(false);
   const queryRef = useRef(query);
   queryRef.current = query;
+  retryStart.current = () => make("agent", queryRef.current);
   const open = focused && query.trim() !== "" && query !== dismissed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
   const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
@@ -502,7 +538,11 @@ export function NewTabPage({
   };
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;
-    const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
+    const input = field.current?.text() ?? {
+      value: typed,
+      selectionStart: typed.length,
+      selectionEnd: typed.length,
+    };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
     // to move to (the New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it
