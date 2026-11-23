@@ -114,6 +114,7 @@ fn dispatch_command(
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
         Command::RemoteHostCall { method, params } => {
@@ -254,12 +255,13 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit } => cmd_workspaces::list_workspaces(
+        Command::ListWorkspaces { known, limit, after } => cmd_workspaces::list_workspaces(
             mux,
             client,
             writer.lines_written(),
             known.as_ref(),
             limit,
+            after,
         ),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
