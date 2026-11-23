@@ -1,100 +1,49 @@
-import AppKit
 import CmuxNextBridge
-import CmuxNextCloud
+import CmuxNextCloudPlace
 import CmuxNextWakeups
-import CoreGraphics
-import Dispatch
 import Foundation
-import IOKit.ps
 
-/// What this computer says about itself, for Auto (the reducer's `Signals`): sleep, battery, memory pressure, free
-/// disk and the person's idle time. It reads and reports; whether any of it moves a chat is Rust's rule
-/// (`cloud_move_place_auto`).
+/// Runs Auto: every change of a signal (``CloudAutoSignals``) and, while a chat is on Auto, a 30 second deadline asks Rust
+/// about each Auto chat and runs the move it names.
 @MainActor
 final class CloudAutoMonitor {
     private let services: AppServices
-    private var started = false
-    private var sleeping = false
-    private var memory = "normal"
-    private var observers: [any NSObjectProtocol] = []
-    private var pressure: DispatchSourceMemoryPressure?
-    private var power: CFRunLoopSource?
+    private var signals: CloudAutoSignals?
     /// The next re-read while an Auto chat exists; none is scheduled when no chat is on Auto.
     private let tick = DemandTimer(owner: "CloudAutoMonitor.tick")
-    /// What the system callbacks report, delivered in order to the one loop that owns them (``loop``).
-    private enum Event: Sendable { case asleep(Bool), memory(String), power, turnEnded(String) }
-    nonisolated private let events: AsyncStream<Event>.Continuation
-    private let stream: AsyncStream<Event>
-    private var loop: Task<Void, Never>?
     /// When each session's last turn ended (for the rule's idle time).
     private var turnEnded: [String: UInt64] = [:]
 
     /// How often Auto reads again with no change to wake it.
     static let interval: TimeInterval = 30
 
-    init(services: AppServices) {
-        self.services = services
-        (stream, events) = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(64))
-    }
+    init(services: AppServices) { self.services = services }
 
-    /// Finishing the stream ends ``loop``.
-    nonisolated deinit { events.finish() }
-
-    private func handle(_ event: Event) {
-        switch event {
-        case .asleep(let asleep): sleeping = asleep
-        case .memory(let level): memory = level
-        case .power: break
-        case .turnEnded(let session): turnEnded[session] = services.cloud.place.nowMs; return
-        }
-        evaluate()
-    }
-
-    /// Starts watching: every change of a signal asks Rust about each Auto chat, and while one is on Auto a 30 second
-    /// deadline asks again (idle time and long turns change with no event).
+    /// Starts watching. Sleep and wake come in through ``slept(_:)``, from the app's one sleep/wake adapter.
     func start() {
-        guard !started else { return }
-        started = true
-        let stream = stream
-        loop = Task { [weak self] in
-            for await event in stream { self?.handle(event) }
+        guard signals == nil else { return }
+        let signals = CloudAutoSignals { [weak self] event in
+            guard let self else { return }
+            if case .turnEnded(let session) = event { turnEnded[session] = services.cloud.place.nowMs; return }
+            evaluate()
         }
-        let events = events
-        let center = NSWorkspace.shared.notificationCenter
-        observers.append(center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
-            events.yield(.asleep(true))
-        })
-        observers.append(center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
-            events.yield(.asleep(false))
-        })
-        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: .main)
-        source.setEventHandler { [weak source] in
-            guard let event = source?.data else { return }
-            events.yield(.memory(event.contains(.critical) ? "critical" : event.contains(.warning) ? "warn" : "normal"))
-        }
-        source.resume()
-        pressure = source
-        let context = Unmanaged.passUnretained(self).toOpaque()
-        if let source = IOPSNotificationCreateRunLoopSource({ context in
-            guard let context else { return }
-            let monitor = Unmanaged<CloudAutoMonitor>.fromOpaque(context).takeUnretainedValue()
-            monitor.events.yield(.power)
-        }, context)?.takeRetainedValue() {
-            CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
-            power = source
-        }
-        AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in
-            events.yield(.turnEnded(session))
-        }
+        self.signals = signals
+        signals.start()
+        AgentTurnStateStore.shared.turnEndedObservers.append { session, _ in signals.post(.turnEnded(session)) }
     }
+
+    /// The system is about to sleep (true) or woke (false): told by the app's sleep/wake adapter.
+    func slept(_ asleep: Bool) { signals?.post(.asleep(asleep)) }
 
     /// Asks Rust what to do with each Auto chat now, and runs the moves it names.
     func evaluate() {
+        guard let signals else { return }
         let place = services.cloud.place
-        let autos = CloudPlaceRun(services: services).chats().filter { place.mode(of: $0.session) == "auto" }
+        let run = CloudPlaceRun(services: services)
+        let autos = run.chats().filter { place.mode(of: $0.session) == "auto" }
         guard !autos.isEmpty else { tick.cancel(); return }
         tick.schedule(after: .seconds(Self.interval)) { @MainActor [weak self] in self?.evaluate() }
-        let signals = self.signals()
+        let now = signals.signals()
         let nowMs = place.nowMs
         for chat in autos {
             // A move that failed or was cancelled waits for the person (Retry), never an Auto loop.
@@ -103,60 +52,16 @@ final class CloudAutoMonitor {
             let startedMs = chat.tab.agentSession.flatMap { AgentTurnStateStore.shared.detail(for: $0)?.turnStartedAtMs }
             let turnMs = running ? startedMs.map { UInt64(max(0, Date().timeIntervalSince1970 * 1000 - Double($0))) } ?? 0 : 0
             let ended = turnEnded[chat.session]
-            let request = AutoRequest(mode: "auto", chat: .init(at: chat.onCloud ? "cloud" : "local", movedByAuto: place.autoMoved.contains(chat.session),
-                                                                 turnRunning: running, turnMs: turnMs, queued: 0,
-                                                                 idleMs: running ? 0 : ended.map { nowMs &- $0 } ?? signals.idleMs ?? 0,
-                                                                 moving: place.isMoving(chat.session) || services.cloud.movingBack.contains(chat.tab.id)),
-                                      signals: signals)
-            guard let answer = CloudMoveCore().call("place_auto", request, as: AutoAnswer.self) else { continue }
-            let run = CloudPlaceRun(services: services)
+            let ask = CloudAutoSignals.Chat(at: chat.onCloud ? "cloud" : "local", movedByAuto: place.autoMoved.contains(chat.session),
+                                            turnRunning: running, turnMs: turnMs, queued: 0,
+                                            idleMs: running ? 0 : ended.map { nowMs &- $0 } ?? now.idleMs ?? 0,
+                                            moving: place.isMoving(chat.session) || services.cloud.movingBack.contains(chat.tab.id))
+            guard let answer = signals.decide(ask, signals: now) else { continue }
             switch answer.action {
             case "toCloud": run.move(chat, toCloud: true, trigger: .auto(answer.reason ?? "away"))
             case "back": run.move(chat, toCloud: false, trigger: .auto("back"))
             default: break
             }
         }
-    }
-
-    struct AutoRequest: Encodable {
-        struct Chat: Encodable { var at: String, movedByAuto: Bool, turnRunning: Bool, turnMs: UInt64, queued: Int, idleMs: UInt64, moving: Bool }
-        var mode: String
-        var chat: Chat
-        var signals: Signals
-    }
-
-    struct AutoAnswer: Decodable {
-        var action: String, reason: String?
-        enum CodingKeys: String, CodingKey { case action = "do", reason }
-    }
-
-    struct Signals: Encodable {
-        var sleeping: Bool
-        var onBattery: Bool
-        var batteryPercent: Int?
-        var memory: String
-        var diskFreeBytes: UInt64?
-        var idleMs: UInt64?
-    }
-
-    /// This computer now.
-    func signals() -> Signals {
-        var onBattery = false, percent: Int?
-        if let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(), let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] {
-            for source in list {
-                guard let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
-                      description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { continue }
-                onBattery = description[kIOPSPowerSourceStateKey] as? String == kIOPSBatteryPowerValue
-                if let current = description[kIOPSCurrentCapacityKey] as? Int, let maximum = description[kIOPSMaxCapacityKey] as? Int, maximum > 0 {
-                    percent = min(100, current * 100 / maximum)
-                }
-            }
-        }
-        let free = try? FileManager.default.homeDirectoryForCurrentUser.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-            .volumeAvailableCapacityForImportantUsage
-        // kCGAnyInputEventType: every kind of input.
-        let idle = CGEventType(rawValue: ~0).map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) } ?? .nan
-        return Signals(sleeping: sleeping, onBattery: onBattery, batteryPercent: percent, memory: memory, diskFreeBytes: free.map { UInt64(max(0, $0)) },
-                       idleMs: idle.isFinite && idle >= 0 ? UInt64(idle * 1000) : nil)
     }
 }
