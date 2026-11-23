@@ -27,7 +27,9 @@ public import Foundation
 public final class AppHealthFeeds {
     /// The app's health (the Rust model's host), which every feed writes to.
     public let health: AppHealth
-    /// App health's popover; a trigger (the restore lane's sidebar card) calls `popover.open(over:)`.
+    /// App health's popover; its one trigger (the Restoring sessions card's Details) calls `popover.open(over:)`.
+    /// The sidebar has no health line (Leo, 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever."): the parts
+    /// repair themselves and say nothing.
     public let popover: AppHealthPopover
     private let daemon: DaemonService
     private let stateDirectory: URL?
