@@ -10,7 +10,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use cmux_config::app_ops::{self, OpError};
 
 /// Bumped on any change to a type, a function or an op.
-pub const CMUX_SETTINGS_ABI_VERSION: u32 = 1;
+pub const CMUX_SETTINGS_ABI_VERSION: u32 = 2;
 /// The op ran; `*out` holds its reply.
 pub const CMUX_SETTINGS_OK: i32 = 0;
 /// A null pointer where one is required.

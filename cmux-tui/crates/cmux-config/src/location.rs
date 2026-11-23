@@ -3,7 +3,8 @@
 //! classic cmux's `cmux.json`.
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 
 /// Environment variable that names another settings file, so test launches
 /// of tagged builds never read or write the user's file.
@@ -47,6 +48,39 @@ pub fn seed_path_from(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf>
         return None;
     }
     env("HOME").map(|home| PathBuf::from(home).join(CLASSIC_FILE))
+}
+
+/// Makes the settings file at `next` when it does not exist, the app's first
+/// launch (Swift `CmuxConfigFile.prepareLaunchFile`): a copy of the text of
+/// `classic` (classic cmux's `cmux.json`) when that file exists, else `{}`.
+/// Returns whether it wrote a new empty file, the one install-wide sign of a
+/// fresh install. Never overwrites: a launch that loses the race keeps the
+/// winner's file. `classic` is `None` for a file `CMUX_NEXT_CONFIG_FILE`
+/// names, which is never seeded and never made.
+///
+/// The classic file's text is copied, never the file: a `cmux.json`
+/// symlinked into a dotfiles repo would otherwise become this file too, and
+/// the settings owner's writes would rewrite classic's settings through it.
+pub fn prepare_launch_file(next: &Path, classic: Option<&Path>) -> io::Result<bool> {
+    let Some(classic) = classic else { return Ok(false) };
+    if next.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = next.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let (text, created_empty) =
+        if classic.exists() { (std::fs::read(classic)?, false) } else { (b"{}\n".to_vec(), true) };
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(next)
+        .and_then(|mut file| file.write_all(&text));
+    match written {
+        Ok(()) => Ok(created_empty),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error),
+    }
 }
 
 /// keybindings.json: beside the settings file, so `CMUX_NEXT_CONFIG_FILE`
