@@ -81,6 +81,8 @@ type Motion = {
   unwatch: () => void;
   /** Stops holding the text on its edge (`holdBottom`, `holdTop`); nothing for a reveal. */
   release: () => void;
+  /** Another clock plays it (a send's collapse claimed by the transcript): a same-end call leaves it. */
+  ridden?: boolean;
 };
 
 /** While a growth holds the text's end on the field's bottom edge, keeps the field scrolled to its
@@ -279,6 +281,16 @@ export function fieldGrowth(external: () => boolean): Plugin {
         const from = running ? field.getBoundingClientRect().height : shown;
         // Its natural height, with no motion on it. Taller for that read, the field would clamp its
         // scroll to the taller box's end: the scroll it draws with is kept.
+        if (running?.ridden) {
+          // A collapse the transcript plays on the send's clock: a call that ends where it lands (a second
+          // transaction of the clear) leaves it riding. Replayed on its own clock it drew the tall field
+          // again during the rows' glide and collapsed after them. Read with its effect off, kept paused.
+          const effect = running.animation.effect;
+          running.animation.effect = null;
+          const natural = measuredTo ?? field.getBoundingClientRect().height;
+          running.animation.effect = effect;
+          if (Math.abs(natural - running.to) < 0.5) return;
+        }
         const started = running?.animation.startTime ?? null;
         const scrolled = field.scrollTop;
         running?.animation.cancel();
@@ -341,7 +353,10 @@ export function fieldGrowth(external: () => boolean): Plugin {
                   observed = true;
                   return;
                 }
-                if (moving.get(field) === motion) follow();
+                // A collapse the transcript plays on the send's clock (`ridden`) is left riding: the
+                // cleared text's resize ends where it lands, and replayed on its own clock it drew the
+                // tall field again during the rows' glide and collapsed after them.
+                if (moving.get(field) === motion && !motion.ridden) follow();
               })
             : undefined;
         const motion: Motion = {
@@ -365,6 +380,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         observer?.observe(view.dom);
         // The transcript takes the end height into its room now and moves its rows on this curve.
         let claimed = !outside;
+        if (outside) motion.ridden = true;
         const detail: FieldGrowthDetail = {
           to,
           easing,

@@ -98,6 +98,15 @@ export const transactionOn = (thread: Element): boolean =>
   (thread.closest(`[${COMPOUND_MOTION_ATTR}]`)?.getAttribute(COMPOUND_MOTION_ATTR) ?? experimentArm(compoundMotion)) ===
   "transaction";
 
+/// A keyframe's style alone: its own offset, easing and composite go.
+const keyframeStyle = ({
+  offset: _o,
+  computedOffset: _c,
+  easing: _e,
+  composite: _m,
+  ...style
+}: ComputedKeyframe): Keyframe => style;
+
 const transactions = new WeakMap<HTMLElement, ThreadTransaction>();
 
 /// The thread's one transaction (made on first use, weakly held with the element).
@@ -159,6 +168,30 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     const landing = riders;
     riders = [];
     for (const rider of landing) if (rider.animation.playState !== "idle") rider.animation.finish();
+  };
+  /// The hold ended with nothing for the rows to move (a queued send whose row never came): each rider
+  /// plays the rest of its way on its own over `ms`, on the plan's curve, instead of landing in a frame.
+  const glideRiders = (ms: number) => {
+    const gliding = riders;
+    riders = [];
+    for (const { animation, share } of gliding) {
+      if (animation.playState === "idle") continue;
+      const effect = animation.effect;
+      if (!(effect instanceof KeyframeEffect) || !effect.target || !(ms > 0) || share >= 1) {
+        animation.finish();
+        continue;
+      }
+      // From where it is drawn now to its last keyframe (the properties it animates, read as drawn).
+      const last = keyframeStyle(effect.getKeyframes().at(-1)!);
+      const drawnStyle = getComputedStyle(effect.target);
+      const from: Keyframe = {};
+      for (const key of Object.keys(last))
+        from[key] = drawnStyle.getPropertyValue(key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
+      effect.setKeyframes([from, last]);
+      effect.updateTiming({ duration: ms, easing: foldMotion.easing(thread) });
+      animation.currentTime = 0;
+      animation.play();
+    }
   };
   /// Each rider at the plan's share done: the rows' offset gone from `base` toward 0. While held, still.
   const drawRiders = () => {
@@ -223,6 +256,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
     }
     held = 0;
     if (!plan || !(plan.duration > 0)) {
+      glideRiders(ms);
       finish();
       return;
     }
@@ -295,8 +329,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       const frames = effect instanceof KeyframeEffect ? effect.getKeyframes() : [];
       if (!(effect instanceof KeyframeEffect) || frames.length < 2 || !(foldMs(thread) > 0)) return;
       // Its own curve and length go: from its first keyframe to its last, its time its share done.
-      const strip = ({ offset: _o, computedOffset: _c, easing: _e, composite: _m, ...frame }: ComputedKeyframe) => frame;
-      effect.setKeyframes([strip(frames[0]!), strip(frames.at(-1)!)]);
+      effect.setKeyframes([keyframeStyle(frames[0]!), keyframeStyle(frames.at(-1)!)]);
       effect.updateTiming({ duration: RIDE_SPAN, easing: "linear", delay: 0, endDelay: 0, iterations: 1 });
       animation.pause();
       animation.currentTime = 0;
