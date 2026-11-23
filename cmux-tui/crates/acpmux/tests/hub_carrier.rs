@@ -1407,6 +1407,149 @@ async fn hub_carrier_a_cmux_tui_session_circuit_needs_the_signed_in_machines_gra
     assert!(refused.contains("service.unreachable"), "{refused}");
 }
 
+struct TestCallGate {
+    consent: std::sync::Mutex<Value>,
+    asks: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::MachineCallGate for TestCallGate {
+    async fn open(
+        &self,
+        from: &str,
+    ) -> Result<acpmux::hub_carrier::HubStream, acpmux::hub_carrier::ServiceRefusal> {
+        use acpmux::machine_call_service::{decide, serve};
+        let consent = self.consent.lock().unwrap().clone();
+        if let Err((refusal, ask)) = decide(&consent, Some("user-1")) {
+            if ask {
+                self.asks.lock().unwrap().push(from.to_owned());
+            }
+            return Err(refusal);
+        }
+        let (near, far) = tokio::io::duplex(64 * 1024);
+        let from = from.to_owned();
+        tokio::spawn(serve(far, move |method, params| {
+            let from = from.clone();
+            async move { Ok(json!({"ran": method, "for": from, "params": params})) }
+        }));
+        Ok(near)
+    }
+}
+
+/// An agent on one machine using Computer Use on another, at the carrier: A dials B naming the
+/// machine-call service. With nothing granted B refuses with the reason and records its one ask
+/// (naming A's key); after the person's grant B's daemon answers A's call in process, told which
+/// machine asked by the handshake, not by the request; a method the service does not list is
+/// refused; revoked, the next circuit is refused again. A machine with no gate serves none.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_machine_call_circuit_needs_the_signed_in_machines_grant() {
+    use acpmux::hub_carrier::CircuitService;
+    use acpmux::machine_call_service::{COMPUTER_USE_CALL, ask};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let route = format!("relay+ws://{relay_address}");
+
+    let (key_a, key_b) = (random_key(), random_key());
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier_b = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route.clone(),
+            peers: vec![public(&key_a)],
+            asked: AtomicU64::new(0),
+        }),
+        key_b,
+        fast,
+    );
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_b.serve(nothing);
+    let carrier_a = HubCarrier::new(
+        Arc::new(FixedTickets {
+            relay: route,
+            peers: vec![public(&key_b)],
+            asked: AtomicU64::new(0),
+        }),
+        key_a,
+        fast,
+    );
+    let b = public(&key_b);
+
+    // No gate on B yet: refused by name. B's registration may still be on its way, so the
+    // first dial goes again until B answers.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        match carrier_a.dial_service(&b, CircuitService::MachineCall).await {
+            Ok(_) => panic!("a machine-call circuit was admitted with no gate"),
+            Err(e) if e.contains("service.off") => break,
+            Err(e) => {
+                assert!(tokio::time::Instant::now() < deadline, "B never answered: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    }
+
+    // Nothing granted: refused with the reason, and the one ask names A.
+    let gate = Arc::new(TestCallGate {
+        consent: std::sync::Mutex::new(session_consent("none", false)),
+        asks: Default::default(),
+    });
+    carrier_b.set_machine_call_gate(gate.clone());
+    let refused = carrier_a.dial_service(&b, CircuitService::MachineCall).await.unwrap_err();
+    assert!(refused.contains("consent_required"), "{refused}");
+    assert!(refused.contains("allow control"), "{refused}");
+    assert_eq!(*gate.asks.lock().unwrap(), vec![public(&key_a)], "one ask, naming A");
+
+    // Not now: refused, and no new ask. Control from elsewhere alone admits nothing.
+    *gate.consent.lock().unwrap() = session_consent("none", true);
+    let refused = carrier_a.dial_service(&b, CircuitService::MachineCall).await.unwrap_err();
+    assert!(refused.contains("consent_declined"), "{refused}");
+    assert_eq!(gate.asks.lock().unwrap().len(), 1, "asked once");
+    *gate.consent.lock().unwrap() =
+        json!({"consentRequired": true, "consent": {"control": "granted"}});
+    assert!(carrier_a.dial_service(&b, CircuitService::MachineCall).await.is_err());
+
+    // The grant: B's daemon answers A's call, and knows A by its proven key.
+    *gate.consent.lock().unwrap() = session_consent("granted", true);
+    let circuit = carrier_a.dial_service(&b, CircuitService::MachineCall).await.unwrap();
+    let answer = ask(
+        circuit,
+        COMPUTER_USE_CALL,
+        json!({"name": "screenshot", "for": "someone else"}),
+        Duration::from_secs(10),
+    )
+    .await
+    .unwrap();
+    assert_eq!(answer["ran"], COMPUTER_USE_CALL);
+    assert_eq!(answer["for"], public(&key_a));
+    assert_eq!(answer["params"]["name"], "screenshot");
+
+    // A method the service does not list is refused, whatever it carries.
+    let circuit = carrier_a.dial_service(&b, CircuitService::MachineCall).await.unwrap();
+    let error = ask(circuit, "exec", json!({"argv": ["sh"]}), Duration::from_secs(10))
+        .await
+        .unwrap_err()
+        .expect("a refusal");
+    assert_eq!(error.code, -32601);
+
+    // Revoked on B: the next circuit is refused again.
+    *gate.consent.lock().unwrap() = session_consent("none", true);
+    assert!(carrier_a.dial_service(&b, CircuitService::MachineCall).await.is_err());
+}
+
 /// A carrier with no session gate (an older daemon's, or a machine that serves none) refuses a
 /// session circuit by name.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
