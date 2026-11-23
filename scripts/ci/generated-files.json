@@ -29,7 +29,7 @@
     {
       "id": "page-strings",
       "generator": "webviews/scripts/pages/gen-strings.mjs",
-      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json"],
+      "outputs": ["webviews/src/**/generated/strings.json", "webviews/src/pages/home-channels/generated/pane-strings.json", "webviews/src/pages/changelog/generated/pane-strings.json", "webviews/src/pages/settings/generated/pane-strings.json"],
       "status": "build"
     },
     {
@@ -47,6 +47,13 @@
       "id": "extension-sdk-customize-types",
       "generator": "cmux-tui/crates/cmux-extension-sdk/build.rs",
       "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/**"],
+      "status": "build"
+    },
+    {
+      "id": "instrument-tokens",
+      "generator": "scripts/cmux-next/gen-instrument-tokens.py",
+      "outputs": ["webviews/src/ui/instrument.generated.css"],
+      "inputs": ["schemas/instrument/**"],
       "status": "build"
     },
     {

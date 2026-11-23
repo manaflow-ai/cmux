@@ -267,6 +267,55 @@ class CodeModeCancellationTests(unittest.TestCase):
         execute = next(tool for tool in tools if tool["name"] == "cmux_exec")
         self.assertEqual(execute["inputSchema"]["properties"]["timeout_ms"]["default"], 30000)
 
+    def bundled_app(self):
+        """The app's Resources as scripts/cmux-next/bundle-cli-resources.sh lays them out."""
+        resources = self.directory / "Bundle/Contents/Resources"
+        code_mode = resources / "code-mode"
+        shutil.copytree(MCP.parent.parent / "src", code_mode / "sdk/src")
+        shutil.copytree(MCP.parent, code_mode / "sdk/code-mode")
+        shutil.copyfile(MCP, code_mode / "mcp.mjs")
+        shutil.copyfile(ROOT / "cmux-tui/spec/resource-operations-v2.json",
+                        code_mode / "resource-operations-v2.json")
+        for name in ("cloud-operations.json", "cloud-relay-operations.json"):
+            shutil.copyfile(ROOT / "backend/catalog" / name, code_mode / name)
+        (resources / "bin").mkdir()
+        for helper in RUNNER.parent.glob("cmux-code-mode-*"):
+            if helper.is_file():
+                shutil.copy2(helper, resources / "bin" / helper.name)
+        return resources
+
+    def test_bundled_mcp_reads_cloud_catalogs_beside_it(self):
+        # The app ships the cloud catalogs in Resources/code-mode/, beside mcp.mjs; the
+        # MCP looked one folder up, so cmux_docs never listed a Cloud operation.
+        code_mode = self.bundled_app() / "code-mode"
+        self.start([shutil.which("bun"), str(code_mode / "mcp.mjs")])
+        found = {}
+        for operation in ("vm.list", "automation.create"):
+            self.send({
+                "jsonrpc": "2.0", "id": operation, "method": "tools/call",
+                "params": {"name": "cmux_docs", "arguments": {"query": operation}},
+            })
+            readable, _, _ = select.select([self.process.stdout], [], [], 8)
+            self.assertTrue(readable, "cmux_docs did not answer within 8 seconds")
+            response = json.loads(self.process.stdout.readline())
+            results = json.loads(response["result"]["content"][0]["text"])["results"]
+            found[operation] = [result["name"] for result in results]
+        self.assertIn("vm.list", found["vm.list"])
+        self.assertIn("automation.create", found["automation.create"])
+
+    def test_bundled_runner_starts_cloud_relay_from_bundled_catalogs(self):
+        # The sandbox looked for the bundled cloud catalogs in Contents/code-mode/, so
+        # the app never started its Cloud relay and scripts saw no Cloud socket.
+        resources = self.bundled_app()
+        script = self.directory / "cloud.ts"
+        script.write_text('console.log("CLOUD=" + (process.env.CMUX_CLOUD_SOCKET ?? "none"));')
+        self.start([str(resources / "bin/cmux-code-mode-runner"), str(script)],
+                   CMUX_CLOUD_API_URL="http://127.0.0.1:9", CMUX_CLOUD_BEARER_TOKEN="fixture")
+        stdout, stderr = self.process.communicate(timeout=8)
+        self.assertEqual(self.process.returncode, 0, stderr.decode())
+        self.assertRegex(stdout.decode(), r"CLOUD=\S*cloud\.sock")
+        self.assert_cleaned()
+
     def test_successful_script_exits_and_cleans_up(self):
         script = self.directory / "success.ts"
         script.write_text('console.log("DONE");')
