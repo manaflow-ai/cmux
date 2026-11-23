@@ -27,7 +27,7 @@ export default componentEntry<{ title: string; summary: ChatSummary | null }>({
   area: "Agent pane",
   pane: true,
   height: 120,
-  widths: { narrow: 360, normal: 720, wide: 960 },
+  widths: { w300: 300, w420: 420, w600: 600, w1100: 1100 },
   anchors: [{ selector: ".acpmux-header" }],
   covers: ["agent-session/acpmux/header/ChatSummaryLine.tsx#ChatSummaryLine"],
   styles: () => Promise.all([import("../styles.css"), import("./header.css")]),
@@ -41,7 +41,7 @@ export default componentEntry<{ title: string; summary: ChatSummary | null }>({
           next: "Merge the PR once CI is green",
         },
       },
-      note: "The summary, an arrow, then the next action a step brighter; the whole text is the tooltip.",
+      note: "One phrase (summary, arrow, next action) with one ellipsis; below ~12 characters of room it is dropped whole. The full text is the tooltip.",
     },
     "no-next": {
       props: { title: "Picnic menu", summary: { text: "The vegetarian picnic menu is final." } },
@@ -55,7 +55,7 @@ export default componentEntry<{ title: string; summary: ChatSummary | null }>({
           next: "Review the fix and run the fleet reconnect suite",
         },
       },
-      note: "A long summary ellipsizes before the next action does; the name keeps its room.",
+      note: "The phrase is cut once at the end; the name keeps its room and nothing shows two ellipses.",
     },
   },
 });

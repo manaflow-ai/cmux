@@ -495,11 +495,13 @@
 /* The chat's rolling summary and next action beside its name (ChatSummaryLine.tsx): muted metadata, never wider
    than the room left, the next action a step brighter than the summary. */
 .acpmux-chat-summary {
+  /* Fits-or-hides: the text has a 12ch floor and wraps to a second, clipped row when the room is less, so it is shown
+     with at least 12 characters and one ellipsis, or not at all (never a sliver, never two cuts). */
   display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-1);
-  flex: 0 1 auto;
+  flex-wrap: wrap;
+  flex: 0 8 auto;
   min-width: 0;
+  height: var(--acpmux-header-control-height, 26px);
   max-width: min(52vw, 560px);
   padding: 0 var(--ds-space-1);
   color: var(--agent-muted);
@@ -513,24 +515,10 @@
 }
 .acpmux-chat-summary__text {
   flex: 0 1 auto;
-  min-width: 3ch;
+  min-width: 12ch;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.acpmux-chat-summary__arrow {
-  flex: none;
-  color: var(--agent-soft);
-}
-.acpmux-chat-summary__arrow:dir(rtl) {
-  display: inline-block;
-  transform: scaleX(-1);
-}
-.acpmux-chat-summary__next {
-  flex: 0 2 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--agent-text);
 }
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}

@@ -12,14 +12,12 @@ import { ChatSummaryLine } from "./ChatSummaryLine";
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
-test("a summary with a next action reads as the summary, an arrow and the action", () => {
+test("a summary with a next action reads as one phrase, so the header cuts it once", () => {
   const out = html(<ChatSummaryLine summary={{ text: "Parser fixed, CI running.", next: "Merge the PR" }} />);
   expect(out).toContain('class="acpmux-chat-summary"');
-  expect(out).toContain('<span class="acpmux-chat-summary__text">Parser fixed, CI running.</span>');
-  expect(out).toContain('<span class="acpmux-chat-summary__arrow" aria-hidden="true">→</span>');
-  expect(out).toContain('<span class="acpmux-chat-summary__next">Merge the PR</span>');
+  expect(out).toContain('<span class="acpmux-chat-summary__text">Parser fixed, CI running. → Merge the PR</span>');
+  expect(out).not.toContain("acpmux-chat-summary__next");
   const full = `Parser fixed, CI running.\n${translate("header.summaryNext", { next: "Merge the PR" })}`;
-  expect(full).toContain("Merge the PR");
   expect(full).not.toContain("header.summaryNext");
   expect(out).toContain(`title="${full}"`);
 });
@@ -27,7 +25,7 @@ test("a summary with a next action reads as the summary, an arrow and the action
 test("a summary with no next action draws no arrow", () => {
   const out = html(<ChatSummaryLine summary={{ text: "Menu planned." }} />);
   expect(out).toContain("Menu planned.");
-  expect(out).not.toContain("acpmux-chat-summary__arrow");
+  expect(out).not.toContain("→");
   expect(out).toContain('title="Menu planned."');
 });
 
