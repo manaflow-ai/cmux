@@ -54,6 +54,12 @@
      on-screen measure remains the same when Interface Scale or Agent Chat Zoom changes. */
   --cv-ui-scale: var(--cmux-ui-scale, 1);
   --cv-column: clamp(calc(720px / var(--cv-ui-scale)), 100%, calc(800px / var(--cv-ui-scale)));
+  /* A reply's prose measure and the tool rows' size (proseMeasure.experiment.ts, Instrument v0.1):
+     paragraphs, headings, lists and quotes stop at about 680 inside the 800 column while code, tables
+     and diffs keep it; tool rows draw one size under the prose. chatDisplay.ts sets the measure to
+     none for another Chat Text Width, Full Width or the classic arm; model.ts measures the same. */
+  --cv-prose-measure: calc(680px / var(--cv-ui-scale));
+  --cv-tool-font-size: calc(var(--cv-font-size) * 13 / 14);
   --cv-edge: var(--grid-icon-box);
   /* Keep fractional CSS pixels: rounding here makes the on-screen edges wobble as page zoom changes. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
@@ -1412,6 +1418,11 @@
 .cv-md.cv-reply {
   font-family: var(--cv-reply-font, var(--cv-font));
   letter-spacing: var(--cv-reply-tracking, var(--cv-tracking, 0px));
+}
+/* The reply's prose stops at the prose measure (--cv-prose-measure above); its code blocks, tables and
+   diffs keep the column. */
+.cv-md.cv-reply :is(.cv-p, .cv-h, .cv-list, .cv-quote) {
+  max-width: var(--cv-prose-measure, none);
 }
 /* A transcript look's reply size (chatDisplay.ts `--cv-reply-font-size`, `reply.fontSize`; Claude's
    replies read a size up from its chrome): the chat's size and line rebound inside the reply, so its
@@ -3697,7 +3708,8 @@ body {
   gap: 0;
   margin: 0;
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size);
+  /* One size under the prose (--cv-tool-font-size above); on the same 22 pitch. */
+  font-size: var(--cv-tool-font-size, var(--cv-font-size));
   letter-spacing: var(--cv-tracking, 0px);
   -webkit-font-smoothing: antialiased;
 }

@@ -25,7 +25,10 @@
   --concentric-padding: var(--ds-space-2);
   padding: var(--concentric-padding) var(--concentric-padding) var(--concentric-padding)
     calc(var(--ds-radius-control) + var(--concentric-padding));
-  border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
+  /* The corner rule (Instrument v0.1) caps a toast's corner at the toast role's 12: a short box prefers
+     not being a capsule over being concentric (12 - 8 = 4 against its 8 buttons, RFD 0034). The
+     classic arm (below) draws the uncapped 16. */
+  border-radius: min(calc(var(--ds-radius-control) + var(--concentric-padding)), var(--transient-surface-radius));
   color: var(--ui-notice-ink);
   font-family: var(--font-ui);
   font-size: var(--text-body);
@@ -57,6 +60,12 @@
   --concentric-padding: var(--grid-cards-padding, var(--ds-space-3));
   gap: var(--grid-gap, var(--ds-space-2));
   padding: var(--concentric-padding);
+  /* A card's corner, 12 (the corner rule); the classic arm (below) draws the button corner plus the padding, 20. */
+  border-radius: min(calc(var(--ds-radius-control) + var(--concentric-padding)), var(--surface-card-radius, 12px));
+}
+
+/* CORNER RULE's classic arm (ui/cornerRule.experiment.ts): the corners from before the rule. */
+:root[data-corner-rule="classic"] .ui-notice {
   border-radius: calc(var(--ds-radius-control) + var(--concentric-padding));
 }
 

@@ -636,7 +636,7 @@
    material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */
 :root {
   --surface-near-opaque: 90%;
-  --surface-card-radius: 10px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
+  --surface-card-radius: 12px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
   --surface-card-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 45%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 42%, transparent));
   --surface-card-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 80%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 22%, transparent));
   --surface-card-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
@@ -644,7 +644,7 @@
   --surface-group-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 20%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 6%, transparent));
   --surface-group-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 75%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 24%, transparent));
   --surface-group-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
-  --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
+  --surface-toast-radius: 12px; /* toasts: a rounded rect, never a capsule, even on one line */
   --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
   --surface-toast-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
   --surface-toast-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));

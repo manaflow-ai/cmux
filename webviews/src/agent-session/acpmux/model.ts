@@ -3046,19 +3046,23 @@ export function codeCardHeight(text: string, info: string | undefined, width: nu
   return chrome + lines.length * lineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
 }
 
+/// `prose` is the widest a paragraph, heading, list or quote draws (a reply's prose measure,
+/// conversation.css `--cv-prose-measure`); code and tables keep `width`.
 function blockHeight(
   block: Token,
   width: number,
   prepared: Map<string, PreparedText | null>,
   used?: Set<string>,
+  prose: number = width,
 ): number {
+  const proseWidth = Math.min(width, prose);
   switch (block.type) {
     case "list":
-      return listHeight(block as Tokens.List, width, prepared, used);
+      return listHeight(block as Tokens.List, proseWidth, prepared, used);
     case "blockquote":
       return textHeight(
         measuredText((block as Tokens.Blockquote).tokens, (block as Tokens.Blockquote).text),
-        width - QUOTE_INDENT,
+        proseWidth - QUOTE_INDENT,
         prepared,
         used,
       );
@@ -3073,7 +3077,7 @@ function blockHeight(
     case "heading":
       return textHeight(
         measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text),
-        width,
+        proseWidth,
         prepared,
         used,
       );
@@ -3371,7 +3375,10 @@ function measuredRowHeight(
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
       contentHeight = (entry.blocks.length - 1) * blockGap();
-      for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+      // A reply's prose stops at the prose measure (MessageRow's `.cv-reply`); a prompt's bubble does not.
+      const prose = row.kind === "user" ? contentWidth : proseWidthOf();
+      for (const block of entry.blocks)
+        contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared, prose);
     }
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
@@ -4277,7 +4284,7 @@ import { type Translate, translate, currentLanguage } from "./i18n";
 import { recapHeight } from "./conversation/recapPoints";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
-import { chatColumn, type ChatColumn } from "./chatWidth";
+import { chatColumn, proseWidthOf, type ChatColumn } from "./chatWidth";
 import {
   chatDensityTextScale,
   chatDisplay,

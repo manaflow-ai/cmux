@@ -17,8 +17,9 @@
      that does not clips its own label (Leo 2026-11-12: "it doesn't follow").
      test/floating-ui-follows-text-size.test.ts holds the floating surfaces to it. */
   --ui-px: calc(1px * var(--cmux-interface-scale, 1));
-  /* The design scale's popup radius (schemas/design-scale namedRadii popup), the native GlassMenu's too. */
-  --ui-popup-radius: var(--ds-radius-popup, 8px);
+  /* A popup's corner is its row's plus the inset between them (the corner rule, Instrument v0.1):
+     12 = 8 + 4. The classic arm (below) keeps the design scale's popup radius, 8, the native GlassMenu's. */
+  --ui-popup-radius: var(--ds-radius-xl, 12px);
   --ui-popup-padding: calc(var(--ds-space-1) * var(--cmux-interface-scale, 1));
   /* The raised step of the shared elevation scale (`--elevation-2`, pages/shared/desktop.css; the
      native PopupStyle.elevation2) and a hairline edge: one
@@ -34,7 +35,7 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
   --ui-row-height: calc(var(--ds-control-row) * var(--cmux-interface-scale, 1));
   /* A row's highlight is concentric with its popup (design/grid.md section 1: the outer radius minus the
-     inset, never less than 4): 8 - 4 = 4. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
+     inset, never less than 4): 12 - 4 = 8, and 8 - 4 = 4 in the classic arm. A select on AppKit's menu lines keeps its 5 and 5 (ui.css). */
   --ui-row-radius: max(4px, calc(var(--ui-popup-radius) - var(--ui-popup-padding, 4px)));
   --ui-row-padding-inline: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
   /* The fade-in a dialog and the find pill take. A popup, a menu, a tooltip and a hover card have
@@ -48,6 +49,10 @@
   /* The dialog's grow-in and its backdrop's fade-in take the standard step. A New Tab sets it to 0s
      (newtab/noEntry.css), as it does --ui-popup-open. */
   --ui-dialog-open: var(--cmux-motion-standard, 180ms);
+}
+/* CORNER RULE's classic arm (ui/cornerRule.experiment.ts): the popup at the design scale's popup radius. */
+:root[data-corner-rule="classic"] {
+  --ui-popup-radius: var(--ds-radius-popup, 8px);
 }
 
 /* appearance.borders none (data-borders on the root, applyAgentTheme) clears the rim in place, as it

@@ -88,6 +88,10 @@ describe("with no pack keys", () => {
       "--cv-code-size": null,
       "--cv-codeblock-size": null,
       "--cv-codeblock-line-height": null,
+      // New, and unset: the reply's prose measure and the tool rows' size stay the stylesheet's
+      // (proseMeasure.experiment.ts).
+      "--cv-prose-measure": null,
+      "--cv-tool-font-size": null,
       "--cv-mono": null,
       "--cv-column": null,
       // A transcript look's parts (transcriptLook.ts): unset, the reply and the prompt draw as the chat.

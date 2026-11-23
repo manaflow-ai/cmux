@@ -22,6 +22,7 @@ import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm, experimentArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
+import { PROSE_MEASURE, proseMeasure } from "./proseMeasure.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
   highContrastLook,
@@ -451,6 +452,13 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The reply prose's measure in CSS px at zoom 1 (proseMeasure.experiment.ts), or null when prose runs
+/// across the whole column: the classic arm, or a person who set their own Chat Text Width or Full Width.
+export function proseMeasureOf(display: ChatDisplay, arm: keyof typeof proseMeasure.arms = proseArm): number | null {
+  if (arm === "classic" || display.fullWidth || display.width !== DEFAULT_CHAT_DISPLAY.width) return null;
+  return PROSE_MEASURE;
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
@@ -504,6 +512,11 @@ export function chatDisplayVariables(
       : isDefault("width")
         ? null
         : `clamp(calc(${Math.min(720, display.width)}px / var(--cmux-ui-scale, 1)), 100%, calc(${display.width}px / var(--cmux-ui-scale, 1)))`,
+    // The reply prose's measure and the tool rows' size (proseMeasure.experiment.ts): the stylesheet's
+    // 680 and a size under the prose, unless the person's width or the classic arm turns them off;
+    // model.ts reads the same measure (chatWidth.ts proseWidthOf) for the row estimate.
+    "--cv-prose-measure": proseMeasureOf(display) === null ? "none" : null,
+    "--cv-tool-font-size": proseArm === "classic" ? "var(--cv-font-size)" : null,
     // The transcript look's primitives (conversation/transcriptLook.ts); every one null for cmux.
     ...transcriptLookVariables(display.transcriptLook),
   };
@@ -528,6 +541,8 @@ let featureTipsOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
 let highContrastArm: keyof typeof highContrastLook.arms = "off";
+/// Read once: an arm changes on reload, and the row estimate asks for the measure per row.
+const proseArm: keyof typeof proseMeasure.arms = experimentArm(proseMeasure);
 /// The faces value last applied (CHAT_FONT_FACES_KEY), by its cheap key (chatFontFacesKey).
 let appliedFacesKey = "";
 const listeners = new Set<() => void>();

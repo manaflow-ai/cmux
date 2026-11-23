@@ -11,6 +11,7 @@ import { parseComputedColor } from "../../backdrop";
 import { experimentArm } from "../../experiments/experiment";
 import { installScrollers } from "../../scrollers";
 import { chromiumGlassUnderlay } from "../../ui/glass/chromiumUnderlay.experiment";
+import { CORNER_RULE_ATTRIBUTE, cornerRule } from "../../ui/cornerRule.experiment";
 import { installBackdropFallback } from "../../ui/glass/glassState";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
@@ -73,6 +74,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
+  // CORNER RULE: one corner per role, or the classic corners (cornerRule.experiment.ts, desktop.css).
+  root.setAttribute(CORNER_RULE_ATTRIBUTE, experimentArm(cornerRule));
   const view = doc.defaultView;
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
