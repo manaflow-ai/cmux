@@ -1,18 +1,25 @@
 import Foundation
 
-/// A web link a program broke onto several rows itself. Claude Code, Codex and
-/// other full-screen programs wrap long text with their own line breaks, so
-/// Ghostty sees one row's piece of the URL and a Cmd-click there opened half
-/// of it. A row whose last word reaches the right edge continues on the next
-/// row's first word; the joined text is a link when it holds an `http(s)://`
-/// URL that covers the pointer's cell. Only links that span two or more rows
-/// come from here: Ghostty matches the rest itself.
+/// A link Ghostty does not find on its own, which cmux underlines and opens itself:
+///
+/// - A web link a program broke onto several rows itself. Claude Code, Codex and
+///   other full-screen programs wrap long text with their own line breaks, so
+///   Ghostty sees one row's piece of the URL and a Cmd-click there opened half
+///   of it. A row whose last word reaches the right edge continues on the next
+///   row's first word; the joined text is a link when it holds an `http(s)://`
+///   URL that covers the pointer's cell (``find(rows:firstRow:columns:column:row:)``).
+/// - A bare file name, `index.js:57:1` (``pathWord(in:columns:column:row:)``): Ghostty's
+///   path pattern needs a folder part (`src/x.ts`, `./x`, `/x`).
+///
+/// A URL the terminal itself wrapped, or an OSC 8 link, Ghostty finds and underlines
+/// on every row; those never come from here.
 nonisolated struct TerminalWrappedLink: Equatable, Sendable {
-    /// One row's piece, in viewport cells (`end` inclusive).
+    /// One row's piece, in viewport cells (`end` inclusive), and its text.
     struct Segment: Equatable, Sendable {
         var row: Int
         var start: Int
         var end: Int
+        var text: String
     }
 
     var text: String
@@ -29,36 +36,27 @@ nonisolated struct TerminalWrappedLink: Equatable, Sendable {
 
     /// The wrapped link under (`column`, `row`), from the viewport rows around it.
     /// `rows[row - firstRow]` is the text of viewport row `row`, one `Character` per
-    /// grapheme as Ghostty reads it; a wide character takes two cells. `hint`: the link Ghostty
-    /// reports under the pointer; rows whose words join into part of it continue whatever their
-    /// edge (Ghostty joined a row the terminal wrapped, but underlines only the pointer's row).
-    static func find(rows: [String], firstRow: Int, columns: Int, column: Int, row: Int, hint: String? = nil) -> TerminalWrappedLink? {
+    /// grapheme as Ghostty reads it; a wide character takes two cells.
+    static func find(rows: [String], firstRow: Int, columns: Int, column: Int, row: Int) -> TerminalWrappedLink? {
         let grid = rows.map { Cells($0, columns: columns) }
         let index = row - firstRow
         guard grid.indices.contains(index), let hit = grid[index].word(at: column) else { return nil }
 
         var pieces = [(row: row, word: hit)]
-        var chain = grid[index].text(hit)
-        // Whether `text` is part of Ghostty's link, so these rows are one link whatever their edges.
-        let inHint = { (text: String) in hint?.contains(text) ?? false }
         // Back while the earlier row's last word was broken at the edge and this word starts its row.
         var current = index
         while current > grid.startIndex, pieces[0].word == grid[current].firstWord,
               let previous = grid[current - 1].lastWord,
-              grid[current - 1].continues(previous, onto: grid[current].text(pieces[0].word))
-                || inHint(grid[current - 1].text(previous) + chain) {
+              grid[current - 1].continues(previous, onto: grid[current].text(pieces[0].word)) {
             current -= 1
             pieces.insert((firstRow + current, previous), at: 0)
-            chain = grid[current].text(previous) + chain
         }
         // On while this word was broken at the edge and the next row starts with a word.
         current = index
         while current + 1 < grid.endIndex, let last = pieces.last?.word, last == grid[current].lastWord,
-              let next = grid[current + 1].firstWord,
-              grid[current].continues(last, onto: grid[current + 1].text(next)) || inHint(chain + grid[current + 1].text(next)) {
+              let next = grid[current + 1].firstWord, grid[current].continues(last, onto: grid[current + 1].text(next)) {
             current += 1
             pieces.append((firstRow + current, next))
-            chain += grid[current].text(next)
         }
         guard pieces.count > 1 else { return nil }
 
@@ -78,13 +76,55 @@ nonisolated struct TerminalWrappedLink: Equatable, Sendable {
             let lower = max(url.lowerBound, offset), upper = min(url.upperBound, offset + length)
             guard lower < upper else { continue }
             let cells = grid[piece.row - firstRow]
-            segments.append(Segment(row: piece.row,
-                                    start: cells.column(ofCharacter: piece.word.characters.lowerBound + lower - offset),
-                                    end: cells.endColumn(ofCharacter: piece.word.characters.lowerBound + upper - offset - 1)))
+            let first = piece.word.characters.lowerBound + lower - offset, last = piece.word.characters.lowerBound + upper - offset - 1
+            segments.append(Segment(row: piece.row, start: cells.column(ofCharacter: first), end: cells.endColumn(ofCharacter: last),
+                                    text: String(cells.characters[first...last])))
         }
         guard segments.count > 1 else { return nil }
         let characters = Array(joined)
         return TerminalWrappedLink(text: String(characters[url]), segments: segments)
+    }
+
+    /// The bare file name under (`column`, `row`) in `text` (viewport row `row`), with an optional
+    /// `:line` or `:line:col`: `index.js:57:1`, `README.md`, `"Makefile.am",`. Its text is `./name`,
+    /// so the terminal's link check and its open read it as a path in the terminal's folder (or the
+    /// git root above it), never as a web host (`app.py:12` is not https://app.py:12). Nil for a
+    /// word with a folder part or a scheme (Ghostty finds those) and for one with no extension.
+    /// Whether the file exists is the link check's to say.
+    static func pathWord(in text: String, columns: Int, column: Int, row: Int) -> TerminalWrappedLink? {
+        let cells = Cells(text, columns: columns)
+        guard let index = cells.starts.indices.last(where: { cells.starts[$0] <= column }),
+              column < cells.starts[index] + cells.widths[index], isPathCharacter(cells.characters[index]) else { return nil }
+        var lower = index, upper = index + 1
+        while lower > 0, isPathCharacter(cells.characters[lower - 1]) { lower -= 1 }
+        while upper < cells.characters.count, isPathCharacter(cells.characters[upper]) { upper += 1 }
+        // Next to a `/` or `~` it is part of a path, which is Ghostty's (`src/x.ts`, `~/a.md`).
+        if lower > 0, "/~\\".contains(cells.characters[lower - 1]) { return nil }
+        if upper < cells.characters.count, cells.characters[upper] == "/" { return nil }
+        // Sentence punctuation around the name is not part of it (`see index.js.`, `(main.c:3)`).
+        while upper > lower, ".:,".contains(cells.characters[upper - 1]) { upper -= 1 }
+        guard lower < upper, index < upper else { return nil }
+        let word = String(cells.characters[lower..<upper])
+        guard isFileName(word) else { return nil }
+        return TerminalWrappedLink(text: "./" + word, segments: [Segment(row: row, start: cells.column(ofCharacter: lower),
+                                                                          end: cells.endColumn(ofCharacter: upper - 1), text: word)])
+    }
+
+    /// Letters, digits and `_ - . + @ :`: a file name with a location, without a folder part.
+    private static func isPathCharacter(_ character: Character) -> Bool {
+        guard character.isASCII else { return false }
+        return character.isLetter || character.isNumber || "_-.+@:".contains(character)
+    }
+
+    /// `name.ext`, then at most `:line` and `:col`; the extension has a letter (not `1.2.3`).
+    private static func isFileName(_ word: String) -> Bool {
+        let parts = word.split(separator: ":", omittingEmptySubsequences: false)
+        guard let name = parts.first, (1...3).contains(parts.count),
+              parts.dropFirst().allSatisfy({ !$0.isEmpty && $0.count < 10 && $0.allSatisfy(\.isNumber) }),
+              let dot = name.lastIndex(of: "."), dot != name.startIndex,
+              name[name.index(before: dot)].isLetter || name[name.index(before: dot)].isNumber || name[name.index(before: dot)] == "_" else { return false }
+        let ext = name[name.index(after: dot)...]
+        return !ext.isEmpty && ext.count <= 12 && ext.contains(where: \.isLetter) && ext.allSatisfy { $0.isLetter || $0.isNumber }
     }
 
     /// The `http(s)://` URL in `text` that covers character `offset`, without trailing
