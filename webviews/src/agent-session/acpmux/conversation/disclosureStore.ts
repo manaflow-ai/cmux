@@ -60,7 +60,8 @@ export function notifyDisclosure(sessionId?: string, rows?: Iterable<string>): v
     }
     while (rowChanges.size > ROW_LIMIT) rowChanges.delete(rowChanges.keys().next().value!);
   }
-  for (const listener of [...listeners]) listener();
+  // A snapshot: a listener that subscribes while this runs waits for the next change.
+  for (const listener of Array.from(listeners)) listener();
 }
 
 /// The row a disclosure is drawn in, set by the transcript's row frame (useDisclosure.ts reads it
