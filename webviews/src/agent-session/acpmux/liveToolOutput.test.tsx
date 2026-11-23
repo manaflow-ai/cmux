@@ -10,7 +10,15 @@ import { act, memo } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OrderedRows } from "./direct";
-import { liveToolOutput, rowsWithLiveOutput, toolOutputOnly, useLiveToolRow } from "./liveToolOutput";
+import {
+  liveToolOutput,
+  rowsWithLiveOutput,
+  streamedWithToolOutput,
+  toolOutputOnly,
+  useLiveToolRow,
+} from "./liveToolOutput";
+import { drewStreamingRow } from "./streamingRow";
+import { sameDrawnConnection } from "./model";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { type ChatFind, useChatFind } from "./conversation/chatFind";
 import { copyRow } from "./header/copyRow";
@@ -61,6 +69,65 @@ function update(before: AcpmuxActivity, after: AcpmuxActivity) {
 test("an output that grows with plain text is an output-only update", () => {
   const { previous, next } = update(call("pass 1\n"), call("pass 1\npass 2\n"));
   expect(toolOutputOnly(previous, next)).toEqual({ id: "call-1", output: "pass 1\npass 2\n", before: "pass 1\n" });
+});
+
+/// A streaming reply's row under the activity row, at `text`.
+const reply = (text: string, version = 1): AcpmuxRow => ({
+  id: "assistant-1",
+  version,
+  at: 2,
+  kind: "assistant",
+  text,
+  streaming: true,
+});
+
+test("a reply streaming while a command prints goes around the pane, each change to its own row", () => {
+  const drawn = snapshot([prompt, activity(call("pass 1\n")), reply("Hel")], { connection: "agent_message_chunk" });
+  drewStreamingRow("assistant-1", "Hel");
+  // The frame before went around the pane (its reply's text): the pane still shows `drawn`.
+  const received = snapshot([prompt, activity(call("pass 1\n")), reply("Hello", 2)], {
+    sessions: drawn.sessions,
+    connection: "agent_message_chunk",
+  });
+  const next = snapshot([prompt, activity(call("pass 1\npass 2\n"), 2), reply("Hello there", 3)], {
+    sessions: drawn.sessions,
+    connection: "tool_call_update",
+  });
+  expect(streamedWithToolOutput(drawn, received, next)).toEqual({
+    at: 2,
+    call: { id: "call-1", output: "pass 1\npass 2\n", before: "pass 1\n" },
+  });
+  // The reply alone moving on goes too, with no call.
+  const replyOnly = snapshot([prompt, received.rows[1]!, reply("Hello!", 3)], {
+    sessions: drawn.sessions,
+    connection: "agent_message_chunk",
+  });
+  expect(streamedWithToolOutput(drawn, received, replyOnly)).toEqual({ at: 2, call: undefined });
+  // Anything else draws the pane: a call's output that names something, a second call's change,
+  // the output alone (`toolOutputOnly` takes that), a row the transcript does not draw as the client holds it.
+  const link = snapshot([prompt, activity(call("pass 1\nhttp://localhost:5173/\n"), 2), reply("Hello there", 3)], {
+    sessions: drawn.sessions,
+  });
+  expect(streamedWithToolOutput(drawn, received, link)).toBeUndefined();
+  const outputOnly = snapshot([prompt, activity(call("pass 1\npass 2\n"), 2), received.rows[2]!], {
+    sessions: drawn.sessions,
+    connection: "tool_call_update",
+  });
+  expect(streamedWithToolOutput(drawn, received, outputOnly)).toBeUndefined();
+  const failed = snapshot(next.rows as AcpmuxRow[], { sessions: drawn.sessions, connection: "failed" });
+  expect(streamedWithToolOutput(drawn, received, failed)).toBeUndefined();
+  drewStreamingRow("assistant-1", "something else");
+  expect(streamedWithToolOutput(drawn, received, next)).toBeUndefined();
+  drewStreamingRow(undefined, undefined);
+});
+
+test("two streamed events' reasons draw the pane the same; any other reason does not", () => {
+  expect(sameDrawnConnection("agent_message_chunk", "tool_call_update")).toBe(true);
+  expect(sameDrawnConnection("tool_call_update", "agent_thought_chunk")).toBe(true);
+  expect(sameDrawnConnection("connected", "connected")).toBe(true);
+  expect(sameDrawnConnection("tool_call_update", "failed")).toBe(false);
+  expect(sameDrawnConnection("agent_message_chunk", "disconnected")).toBe(false);
+  expect(sameDrawnConnection("tool_call", "tool_call_update")).toBe(false);
 });
 
 test("anything else goes through the pane", () => {
