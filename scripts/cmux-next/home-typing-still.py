@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import SKIPPED, check_rows, mean_rgb, read_png  # noqa: E402
 import home_classic  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -125,8 +126,10 @@ try:
     check("the send goes", bool(sent.get("ok")), sent)
     # Every read and snapshot happens while the mock Chief types (1.5 s to 3.0 s after the send); the image
     # analysis comes after (a PNG read takes about a second).
-    time.sleep(1.9)  # test harness: inside the typing window
-    box = rpc("debug.home.drive", {"action": "typing"}) or {}
+    # Inside the typing window: the app reports the typing bubble (checked below when it never does).
+    box = wait_until(lambda: (b := rpc("debug.home.drive", {"action": "typing"}) or {}).get("ok") and b,
+                     "the mock Chief's typing bubble", timeout=6, interval=0.02, raise_on_timeout=False) \
+        or rpc("debug.home.drive", {"action": "typing"}) or {}
     shot = os.path.join(opts.out, "typing-0.png")
     rpc("debug.window_snapshot", {"path": shot})
     # MessagesLab b6760b6: the transcript moves by half a device pixel in its pane (no size change); the bubble
@@ -140,9 +143,18 @@ try:
     # device pixel off the grid, as a pane split to a fractional width).
     rpc("debug.home.drive", {"action": "nudge", "dx": 0.5 / k0, "dy": 0.5 / k0})
     rpc("debug.home.drive", {"action": "resize", "trims": [FRACTION_TRIM]})
-    time.sleep(0.2)  # test harness: one display frame for the move to show
-    half = rpc("debug.home.drive", {"action": "typing"}) or {}
-    half_rows = rpc("debug.home.drive", {"action": "rows"}) or {}
+
+    def on_half(v):
+        return abs(((v or 0) * k0) % 1 - 0.5) < 0.01
+
+    # The move and the trim took: the transcript's origin and right edge are on half a device pixel (checked below).
+    def moved():
+        t = rpc("debug.home.drive", {"action": "typing"}) or {}
+        r = rpc("debug.home.drive", {"action": "rows"}) or {}
+        return (t, r) if t.get("ok") and on_half(t.get("hostX")) and on_half(t.get("hostY")) and on_half(r.get("hostRight")) else None
+    half, half_rows = wait_until(moved, "the half-pixel move and trim of the transcript", timeout=5, interval=0.02,
+                                 raise_on_timeout=False) \
+        or (rpc("debug.home.drive", {"action": "typing"}) or {}, rpc("debug.home.drive", {"action": "rows"}) or {})
     half_shot = os.path.join(opts.out, "typing-half-pixel.png")
     rpc("debug.window_snapshot", {"path": half_shot})
     check("snapshots of the typing indicator", os.path.exists(shot) and os.path.exists(half_shot), [shot, half_shot])

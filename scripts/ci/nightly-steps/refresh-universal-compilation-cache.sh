@@ -12,7 +12,7 @@ warm_build() {
   while IFS= read -r setting; do
     fleet_cache_settings+=("$setting")
   done < <(bash scripts/ci/fleet-compilation-cache.sh)
-  CMUX_NEXT_TUI_MODE=deferred CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+  CMUX_NEXT_TUI_MODE=deferred CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -skipPackagePluginValidation -scheme cmux -configuration Release -derivedDataPath build-universal \
     -destination 'generic/platform=macOS' \
     -clonedSourcePackagesDirPath .spm-cache \
     -packageCachePath "$PWD/.spm-cache/.package-cache" \

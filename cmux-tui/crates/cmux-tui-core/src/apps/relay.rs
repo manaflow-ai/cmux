@@ -143,6 +143,35 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
         }
         Some(_) => return Err(invalid("relay.op origin is not a known origin")),
     }
+    // Scope fences are a pair. Reads carry the pair; mutations also carry
+    // the original owner revision. Never silently drop a partial fence.
+    let fenced = ["expected_backend", "expected_team", "expected_revision"]
+        .iter()
+        .any(|field| line.get(*field).is_some());
+    if fenced {
+        for field in ["expected_backend", "expected_team"] {
+            let Some(value) = line
+                .get(field)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 2048)
+            else {
+                return Err(invalid("relay.op requires complete backend/team fences"));
+            };
+            forwarded.set(field, json!(value));
+        }
+        if line.get("idempotency_key").and_then(Value::as_str).is_some() {
+            let Some(revision) =
+                line.get("expected_revision").and_then(Value::as_str).filter(|s| {
+                    !s.is_empty() && s.len() <= 128 && s.bytes().all(|b| b.is_ascii_digit())
+                })
+            else {
+                return Err(invalid("a fenced mutation requires a decimal expected_revision"));
+            };
+            forwarded.set("expected_revision", json!(revision));
+        } else if line.get("expected_revision").is_some() {
+            return Err(invalid("a read cannot carry expected_revision"));
+        }
+    }
     Ok(("credential.relay", forwarded))
 }
 
@@ -165,6 +194,7 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
             "id": id,
             "signed_in": body["signed_in"].as_bool().unwrap_or(false),
             "team": body["team"].as_str(),
+            "backend": body.get("backend").and_then(Value::as_str),
         }),
         (true, false) => relay_error(
             id,
@@ -269,6 +299,7 @@ impl Supervisor {
                 op: op.to_string(),
                 target: Target::Relay { app: app.to_string(), generation, id, session },
                 timer,
+                cache_key: None,
             },
         );
         let mut event = json!({

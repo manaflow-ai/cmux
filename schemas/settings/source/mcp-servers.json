@@ -1,0 +1,39 @@
+{
+  "$comment": "HAND-EDITED source of the MCP Servers settings: whether agent chats cmux starts get the person's saved MCP servers (cmux-tui/crates/acpmux/src/agent_tools.rs saved_servers_off, docs/chief-mcp-hub.md 2h). The daemon reads the key from the settings file when it creates a chat; gen-settings-sources.py writes the Swift descriptors and constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "mcpServers",
+      "section": "general",
+      "group": {
+        "key": "settings.group.mcpServers",
+        "text": "Agent Chats"
+      },
+      "note": "Settings > AI > MCP Servers, under the list of saved servers. Applies to chats created after the change.",
+      "rows": [
+        {
+          "key": "agents.mcpServers.enabled",
+          "name": "mcpServersEnabled",
+          "note": "On (the default): a new agent chat gets the mcp_servers tool (optchat-chief integrations serve), which lists and uses the saved servers the person's scope gives that chat. Off: acpmux leaves it out; Chiefs keep their own mcp tool.",
+          "title": {
+            "key": "settings.agents.mcpServers.enabled",
+            "text": "Saved Servers in Agent Chats"
+          },
+          "help": {
+            "key": "settings.agents.mcpServers.enabled.help",
+            "text": "New chats can use the servers listed above."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "mcp",
+            "servers",
+            "integrations",
+            "connections",
+            "agents",
+            "tools"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -7,51 +7,6 @@
   ],
   "keep": [
     {
-      "surface": "menu",
-      "name": "terminalPaste",
-      "reason": "keep: every row runs a palette-offered action: terminalCopy, terminalPaste, terminal.selectAll"
-    },
-    {
-      "surface": "menu",
-      "name": "homeBackground",
-      "reason": "keep: every row runs a palette-offered action: home.newMessage, home.newChief, home.createChannel, home.invite, home.inviteToTeam, home.showHiddenConversations, openTeamPicker"
-    },
-    {
-      "surface": "menu",
-      "name": "browserReload",
-      "reason": "keep: every row runs a palette-offered action: browserReload, browserHardReload"
-    },
-    {
-      "surface": "menu",
-      "name": "browserMachineBadge",
-      "reason": "keep: its one row is browser.openOnMachine, palette-offered"
-    },
-    {
-      "surface": "menu",
-      "name": "browserProfileLink",
-      "reason": "keep: a row per browser profile; the palette's browserProfile.openLink picks the same profile"
-    },
-    {
-      "surface": "menu",
-      "name": "bookmarkFolder",
-      "reason": "keep: a row per bookmark; the palette's bookmark.open lists the same bookmarks, and bookmark.openAll opens a folder"
-    },
-    {
-      "surface": "menu",
-      "name": "browserMedia",
-      "reason": "keep: a card per media tab; the palette's browser.media.show lists them and tab.focus shows one"
-    },
-    {
-      "surface": "menu",
-      "name": "browserDevice",
-      "reason": "keep: device choices; the palette's browserDevice (Emulate Device) offers the same list"
-    },
-    {
-      "surface": "menu",
-      "name": "titlebarHistory",
-      "reason": "keep: location rows; the palette's recentlyFocused (Location History), history.reopen and history.show cover them"
-    },
-    {
       "surface": "action",
       "name": "import.list",
       "reason": "keep: an agent's read of the import cards it may suggest (`cmux import list`); a person imports with the palette's Import from Browser (importFromBrowser)"
@@ -65,16 +20,6 @@
       "surface": "action",
       "name": "import.suggest",
       "reason": "keep: an agent asks to show a site's cookie import card (`cmux import suggest`); a person imports with the palette's Import from Browser (importFromBrowser)"
-    },
-    {
-      "surface": "menu",
-      "name": "notificationRow",
-      "reason": "keep: every row runs a palette-offered action: notificationOpen, notificationCopy, notificationToggleRead, notificationDismiss; Customize Menu… is settings.customizeMenus"
-    },
-    {
-      "surface": "menu",
-      "name": "agentPaneMessage",
-      "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",
@@ -650,7 +595,8 @@
       "palette": "home.deleteChief"
     },
     {
-      "verb": "chief edit"
+      "verb": "chief edit",
+      "palette": "openSettings"
     },
     {
       "verb": "chief engine",
@@ -825,7 +771,8 @@
       "palette": "openSettings"
     },
     {
-      "verb": "customize library reset"
+      "verb": "customize library reset",
+      "palette": "customize.library.reset"
     },
     {
       "verb": "customize library status",
@@ -1135,7 +1082,8 @@
       "palette": "palette.quickAgentChat"
     },
     {
-      "verb": "harness secret"
+      "verb": "harness secret",
+      "reason": "keep: stores a secret value for a harness env key, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "history clear-range",
@@ -1479,7 +1427,7 @@
     },
     {
       "verb": "remote-host stop",
-      "palette": "remote.stopScreenSession"
+      "palette": "macScreen.stopSharing"
     },
     {
       "verb": "room create",
@@ -1490,7 +1438,8 @@
       "palette": "space.delete"
     },
     {
-      "verb": "room follow"
+      "verb": "room follow",
+      "palette": "space.followSession"
     },
     {
       "verb": "room list",
@@ -2063,7 +2012,8 @@
       "reason": "keep: blocks a script until the process exits; a wait has no palette form"
     },
     {
-      "verb": "terminal project"
+      "verb": "terminal project",
+      "palette": "terminal.project"
     },
     {
       "verb": "terminal resume",
@@ -2114,7 +2064,8 @@
       "reason": "keep: short-lived VM API access tokens for a process, no app; nothing for a person to pick"
     },
     {
-      "verb": "vm archive-machine"
+      "verb": "vm archive-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm client-session create",
@@ -2141,7 +2092,8 @@
       "palette": "palette.cloud.fork"
     },
     {
-      "verb": "vm keep-machine"
+      "verb": "vm keep-machine",
+      "palette": "palette.openCloudPane"
     },
     {
       "verb": "vm key",
@@ -2184,10 +2136,12 @@
       "reason": "keep: a read for scripts and agents (VM secrets); the app shows the same state on screen"
     },
     {
-      "verb": "vm secret rm"
+      "verb": "vm secret rm",
+      "palette": "cloud.secret.remove"
     },
     {
-      "verb": "vm secret set"
+      "verb": "vm secret set",
+      "reason": "keep: stores a secret value, read from a hidden prompt or stdin and never from a command line; the palette has no hidden text field, so the value never goes into it"
     },
     {
       "verb": "vm show",
