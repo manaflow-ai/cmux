@@ -159,7 +159,9 @@ extension UpdaterService {
             // Its CLI runs only once its signature is this app's team: a kept bundle changed on disk never
             // runs code as the app (``RollbackDecision`` refuses it on the team before any schema).
             if kept[index].storeSchemas == nil, let running, kept[index].teamID == running {
-                kept[index].storeSchemas = await StoreSchemaProbe(bundle: picked.bundle, timeout: .seconds(30)).readable()
+                let probed = await StoreSchemaProbe(bundle: picked.bundle, timeout: .seconds(30)).readable()
+                kept[index].storeSchemas = probed
+                if let probed { _ = try? await work.run(.bestEffort, mayBlock: .files) { store.recordSchemas(probed, for: picked) } }
             }
         }
         return RollbackInputs(kept: kept, stored: await stored, teamID: running)

@@ -106,6 +106,25 @@ nonisolated public struct KeptVersionStore: Sendable {
     /// The team `kept` is signed by, checked for a rollback to it: the record's while the bundle's
     /// seal is the one taken around its full check, the record is one this app wrote (its MAC, by
     /// ``recordKey``) and the quick check of its executable agrees; else a full check of every file.
+    /// Puts a kept build's store schemas, its CLI's answer, into its record, signed, and only into a
+    /// record the key vouched for before: one another process wrote stays unsigned, so its schemas
+    /// never count (the next read runs the CLI again).
+    func signSchemas(_ schemas: [String: Int], into record: inout KeptRecord) {
+        let key = recordKey()
+        guard record.storeSchemas == nil, record.isAuthentic(key: key) else { return }
+        record.storeSchemas = schemas
+        record.sign(key: key)
+    }
+
+    /// Records the schemas a probe read from a kept build, so a later read takes them from the record
+    /// instead of running its CLI again (the install check reads every kept build on each refusal).
+    public func recordSchemas(_ schemas: [String: Int], for kept: KeptVersion) {
+        let file = kept.bundle.deletingLastPathComponent().appending(path: Self.recordName)
+        guard var record = KeptRecord.read(from: file) else { return }
+        signSchemas(schemas, into: &record)
+        try? record.save(to: file)
+    }
+
     public func checkedTeam(of kept: KeptVersion) -> String? {
         checkedTeam(bundle: kept.bundle, record: KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: Self.recordName)))
     }

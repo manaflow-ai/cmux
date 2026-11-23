@@ -85,7 +85,7 @@ public struct NightlyInstallCheck {
     func keptBuilds(refused result: InstallCanaryResult, running: String, stateDirectories: [URL?]) async -> [InstallCheckKept] {
         guard case .refused = result else { return [] }
         let store = updater.keptVersions
-        let listed = (try? await updater.work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
+        let listed = (try? await updater.work.run(.userVisible, mayBlock: .files) { store.list(teams: false) }) ?? []
         var kept: [InstallCheckKept] = []
         for version in listed where version.build != running {
             let inputs = await updater.rollbackInputs(to: version.build, stateDirectories: stateDirectories)
