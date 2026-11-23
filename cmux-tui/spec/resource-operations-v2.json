@@ -13476,6 +13476,228 @@
       },
       "extra": false
     },
+    "ProjectAction": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The action's key in its actions section; a project action takes the place of a global one with this name."
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "project",
+              "global"
+            ]
+          },
+          "description": "project: the project's .cmux/actions.json; global: the actions of cmux-next.json."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The title, else the tooltip, else the name."
+        },
+        "tooltip": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "command": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The shell command it types; an agent action's is the agent and its args."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "object",
+                "fields": {
+                  "type": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "symbol"
+                      ]
+                    }
+                  },
+                  "name": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "min_length": 1
+                    }
+                  }
+                },
+                "extra": false
+              },
+              {
+                "kind": "object",
+                "fields": {
+                  "type": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "image"
+                      ]
+                    }
+                  },
+                  "path": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string",
+                      "min_length": 1
+                    }
+                  }
+                },
+                "extra": false
+              }
+            ]
+          },
+          "description": "{type: symbol, name} or {type: image, path} with an absolute path."
+        },
+        "target": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "newTabInCurrentPane",
+              "currentTerminal"
+            ]
+          },
+          "description": "Where it runs."
+        },
+        "cwd": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder a project action runs in: the project root. Absent for a global action."
+        },
+        "file": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The file it came from."
+        },
+        "shadows": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "True when a global action with this name is hidden by it."
+        }
+      },
+      "extra": false
+    },
+    "ProjectActionProblem": {
+      "kind": "object",
+      "fields": {
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "project",
+              "global"
+            ]
+          }
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The entry, as actions.NAME.FIELD, or the file's path for a file that was not read."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        }
+      },
+      "extra": false
+    },
+    "ProjectActionsListResult": {
+      "kind": "object",
+      "fields": {
+        "project_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder whose .cmux/actions.json applies; absent outside a project."
+        },
+        "file": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The project file's path, when there is one."
+        },
+        "actions": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectAction"
+            }
+          },
+          "description": "Project actions by name, then the global ones they do not replace, by name."
+        },
+        "problems": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectActionProblem"
+            }
+          },
+          "description": "Entries or files that were skipped, and why."
+        }
+      },
+      "extra": false
+    },
     "ProjectList": {
       "kind": "object",
       "fields": {
@@ -21488,6 +21710,128 @@
         "name": "JsonValue"
       },
       "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "cloud.machine.chief_resize": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "api": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            },
+            "description": "The API's base URL: https, or http to a loopback host; no user, query or fragment. A path prefix is kept."
+          },
+          "auth": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "stack",
+                "owner",
+                "worker"
+              ]
+            },
+            "description": "Which credentials and headers the call sends: stack (classic cmux.com's Stack session), owner (the API Worker's person routes) or worker (the platform's machine routes)."
+          },
+          "access_token": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The caller's bearer credential. Never kept, logged, put in a URL or echoed in a refusal."
+          },
+          "refresh_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "stack: the Stack refresh token, sent as X-Stack-Refresh-Token."
+          },
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The team the call acts for."
+          },
+          "app_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "stack: X-Cmux-App-Version (default cmux-next)."
+          },
+          "local_only": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "The build points at a loopback backend: a refused connection is the no_backend failure."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The call's arguments (the cmux-cloud-api crate's call of the same name reads them)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Moves a Chief's own Cloud machine up the Chief ladder (included 2 CPU / 4 GiB / 32 GiB, M 2/8/32, L 4/16/64, XL 8/32/128) over cmux-platform's cloud.machine.resize (idempotency key chief-machine-<key>-resize): grow only on every axis, the disk only on a running machine, held to the plan and the spending cap. Owner or worker auth; args are machine (the Chief's machine id), key (1 to 48 of a-z, 0-9 and -) and size (included, M, L or XL; chief_m, chief_l, chief_xl; default the size cloud.plan.get's chief_size gives a Chief). Then reads the machine until it has the new size, up to 5 minutes. Answers {machine, size, shape {cpu, memory_mb, disk_mb}, stage (done, or pending while the platform still grows it)}; a platform refusal (cloud.size.grow_only, cloud.machine.busy, cloud.machine.not_running, a plan or budget refusal) comes back as it is.",
+          "The daemon keeps no credential and grants none: the call runs with the request's own. Only a local socket client may call (operation.failed reason \"operation requires a trusted local connection\" otherwise).",
+          "A Cloud refusal is operation.failed: reason is the failure's kind (timed_out, transport, no_backend, http, plan_required or decoding) and extra.failure the failure object (kind and its fields: path; message; status, code, message, action, trace_id; upgrade_url, plan). Neither credential is ever in it.",
+          "No redirect is followed and nothing is cached. An answer over 16 MiB less 64 KiB is a transport failure.",
+          "The daemon keeps no ledger of these calls: revision is \"0\" and replayed is false. A call that must not run twice carries the API's own key in args (idempotencyKey)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",
         "selector.ambiguous",
@@ -32986,6 +33330,63 @@
         "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
         "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
         "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
+      ]
+    },
+    "project.actions.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside the project. Use it, or a workspace, pane, tab or terminal selector whose working directory names the project."
+          },
+          "include_global": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also list the global actions of cmux-next.json (default true)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ProjectActionsListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The project is the nearest folder from the path up with .cmux/actions.json, up to the repository root (the first folder with .git) and never the home folder. The file is {\"actions\": {NAME: ACTION}} in the shape of the global actions section; JSONC is accepted.",
+        "A linked .cmux folder or file, a file that is not a regular file and a file over 256 KiB are not read; a bad entry is skipped and listed in problems.",
+        "It only reads: a project action runs when the user picks it, in the project root."
       ]
     },
     "project.add": {

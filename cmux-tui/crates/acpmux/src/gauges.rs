@@ -99,6 +99,7 @@ impl Gauges {
             "recordWrites": record_writes().status(),
             "attach": attach_latency().status(),
             "fanout": fanout_status(),
+            "workerLag": worker_lag().status(),
         })
     }
 }
@@ -387,6 +388,114 @@ impl FanoutClock {
     }
 }
 
+/// How often the worker-lag canary wakes ([`worker_lag_canary`]).
+pub const CANARY_PERIOD: Duration = Duration::from_millis(10);
+
+/// The span `gauges.workerLag` summarizes, in seconds.
+pub const WORKER_LAG_WINDOW_S: u64 = 60;
+
+/// Slots in the worker-lag ring: a minute of 10 ms wakes (6000) with room to spare, so the window
+/// is whole while the canary keeps time. A canary held back wakes less often, so then the ring
+/// holds more than a minute and the window still reads only its last minute.
+pub const WORKER_LAG_RING: usize = 8192;
+
+/// How late the daemon's runtime wakes a task that asked to wake: what a request queued behind a
+/// busy worker waits before its first poll (a `std` lock or a blocking read held on a worker,
+/// hq `docs/handbook/request-read-holds-a-runtime-worker.md`). A fixed ring of atomics, each slot
+/// the second it was taken (from this ring's birth, plus 1 so 0 is empty) over its lateness in
+/// microseconds, so a sample is one `fetch_add` and one store and the memory never grows.
+///
+/// hq `docs/reading/2026-11-21-tokio-coop-budget.md`, row 2: "a canary task that sleeps 10 ms in a
+/// loop and records how late it wakes (scheduling delay p50/p99, max in last minute), published
+/// in `acpmux daemon status`".
+pub struct WorkerLag {
+    born: Instant,
+    samples: Box<[AtomicU64]>,
+    /// Every sample taken; the next slot is this modulo the ring.
+    taken: AtomicU64,
+}
+
+impl Default for WorkerLag {
+    fn default() -> Self {
+        Self {
+            born: Instant::now(),
+            samples: (0..WORKER_LAG_RING).map(|_| AtomicU64::new(0)).collect(),
+            taken: AtomicU64::new(0),
+        }
+    }
+}
+
+impl WorkerLag {
+    /// A wake `late` past its deadline, now.
+    pub fn record(&self, late: Duration) {
+        self.record_at(self.born.elapsed().as_secs(), late);
+    }
+
+    fn record_at(&self, at_s: u64, late: Duration) {
+        let micros = u32::try_from(late.as_micros()).unwrap_or(u32::MAX);
+        let at = u32::try_from(at_s.saturating_add(1)).unwrap_or(u32::MAX);
+        let slot = self.taken.fetch_add(1, Ordering::Relaxed) % self.samples.len() as u64;
+        if let Some(sample) = self.samples.get(slot as usize) {
+            sample.store((u64::from(at) << 32) | u64::from(micros), Ordering::Relaxed);
+        }
+    }
+
+    /// `gauges.workerLag`: [`Self::summary_at`] now.
+    pub fn status(&self) -> Value {
+        self.summary_at(self.born.elapsed().as_secs())
+    }
+
+    /// `{periodMs, windowS, samples, p50Ms, p99Ms, maxMs}` over the samples taken in the last
+    /// [`WORKER_LAG_WINDOW_S`] seconds before `now_s`: nearest-rank quantiles of how late the
+    /// canary woke, null when no sample is that recent (no canary runs, or it has not woken in a
+    /// minute: a runtime held that long says so in `status` not answering at all).
+    fn summary_at(&self, now_s: u64) -> Value {
+        let since = now_s.saturating_sub(WORKER_LAG_WINDOW_S - 1).saturating_add(1);
+        let mut recent = [0u32; WORKER_LAG_RING];
+        let mut count = 0;
+        for sample in self.samples.iter().map(|sample| sample.load(Ordering::Relaxed)) {
+            if sample >> 32 < since {
+                continue;
+            }
+            if let Some(to) = recent.get_mut(count) {
+                *to = (sample & u64::from(u32::MAX)) as u32;
+                count += 1;
+            }
+        }
+        let recent = recent.get_mut(..count).unwrap_or_default();
+        recent.sort_unstable();
+        let ms = |micros: u32| f64::from(micros) / 1000.0;
+        let rank = |q: f64| -> Option<f64> {
+            let at = ((q * count as f64).ceil() as usize).clamp(1, count.max(1)) - 1;
+            recent.get(at).map(|&m| ms(m))
+        };
+        json!({
+            "periodMs": CANARY_PERIOD.as_millis() as u64,
+            "windowS": WORKER_LAG_WINDOW_S,
+            "samples": count,
+            "p50Ms": rank(0.50),
+            "p99Ms": rank(0.99),
+            "maxMs": recent.last().map(|&m| ms(m)),
+        })
+    }
+}
+
+/// `gauges.workerLag`: the daemon's canary ([`worker_lag_canary`]).
+pub fn worker_lag() -> &'static WorkerLag {
+    static RING: OnceLock<WorkerLag> = OnceLock::new();
+    RING.get_or_init(WorkerLag::default)
+}
+
+/// Sleeps [`CANARY_PERIOD`] on the runtime it is spawned on, forever, and records in `ring` how
+/// far past the period each wake came. Its cost is one timer and one atomic store per wake.
+pub async fn worker_lag_canary(ring: &'static WorkerLag) {
+    loop {
+        let asked = Instant::now();
+        tokio::time::sleep(CANARY_PERIOD).await;
+        ring.record(asked.elapsed().saturating_sub(CANARY_PERIOD));
+    }
+}
+
 /// `gauges` in `_acpmux/status`: [`Gauges::status`] with each connection's queue.
 pub fn daemon_status() -> Value {
     let mut status = global().status();
@@ -551,5 +660,92 @@ mod tests {
         // An event built but never sent records nothing.
         FanoutClock::default().taken_into(&ring);
         assert_eq!(ring.status()["count"], 1);
+    }
+
+    #[test]
+    fn an_empty_worker_lag_reports_no_quantiles() {
+        let status = WorkerLag::default().summary_at(0);
+        assert_eq!(status["samples"], 0, "{status}");
+        assert_eq!(status["p50Ms"], Value::Null, "{status}");
+        assert_eq!(status["p99Ms"], Value::Null, "{status}");
+        assert_eq!(status["maxMs"], Value::Null, "{status}");
+        assert_eq!(status["periodMs"], 10);
+        assert_eq!(status["windowS"], 60);
+    }
+
+    #[test]
+    fn worker_lag_reports_nearest_rank_quantiles_of_its_last_minute() {
+        let ring = WorkerLag::default();
+        // A 900 ms stall 61 s before the read: out of the window.
+        ring.record_at(39, Duration::from_millis(900));
+        // 1..=200 ms over the last minute, shuffled by a stride coprime to 200.
+        for i in 0..200u64 {
+            ring.record_at(41 + i % 60, Duration::from_millis((i * 37) % 200 + 1));
+        }
+        let status = ring.summary_at(100);
+        assert_eq!(status["samples"], 200, "{status}");
+        assert_eq!(status["p50Ms"], 100.0, "{status}");
+        assert_eq!(status["p99Ms"], 198.0, "{status}");
+        assert_eq!(status["maxMs"], 200.0, "{status}");
+        // A minute later every one of them has aged out.
+        assert_eq!(ring.summary_at(160)["samples"], 0);
+        // The edge: a sample taken at second 41 is in a read at 100, not at 101.
+        assert_eq!(ring.summary_at(101)["samples"], 200 - 4, "{}", ring.summary_at(101));
+    }
+
+    #[test]
+    fn worker_lag_memory_is_fixed_and_keeps_only_its_last_samples() {
+        let ring = WorkerLag::default();
+        for _ in 0..10 {
+            ring.record_at(5, Duration::from_secs(9));
+        }
+        for _ in 0..WORKER_LAG_RING {
+            ring.record_at(5, Duration::from_micros(1500));
+        }
+        let status = ring.summary_at(5);
+        assert_eq!(status["samples"], WORKER_LAG_RING, "{status}");
+        assert_eq!(status["maxMs"], 1.5, "{status}");
+        ring.record_at(5, Duration::from_secs(u64::MAX / 4));
+        assert_eq!(ring.summary_at(5)["maxMs"], f64::from(u32::MAX) / 1000.0);
+    }
+
+    /// The canary on a one-worker runtime for `run`, with a task that blocks that worker for
+    /// `block` (a `std` sleep, as a `std` lock or a blocking read would) after 50 ms.
+    fn canary_max_ms(block: Option<Duration>, run: Duration) -> f64 {
+        let ring: &'static WorkerLag = Box::leak(Box::default());
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_time()
+            .build()
+            .unwrap();
+        runtime.spawn(worker_lag_canary(ring));
+        runtime.block_on(async {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if let Some(block) = block {
+                runtime_spawn_blocker(block);
+            }
+            tokio::time::sleep(run).await;
+        });
+        runtime.shutdown_background();
+        let status = ring.status();
+        assert!(status["samples"].as_u64().unwrap() > 5, "{status}");
+        status["maxMs"].as_f64().unwrap()
+    }
+
+    fn runtime_spawn_blocker(block: Duration) {
+        tokio::spawn(async move { std::thread::sleep(block) });
+    }
+
+    #[test]
+    fn a_blocked_worker_shows_in_the_worker_lag_max() {
+        let max = canary_max_ms(Some(Duration::from_millis(200)), Duration::from_millis(400));
+        assert!(max >= 150.0, "the canary woke at most {max} ms late behind a 200 ms block");
+    }
+
+    #[test]
+    fn an_idle_worker_keeps_the_worker_lag_small() {
+        let max = canary_max_ms(None, Duration::from_millis(400));
+        // Timer granularity is 1 ms; the bound leaves a loaded CI host room.
+        assert!(max < 100.0, "the canary woke {max} ms late on an idle runtime");
     }
 }

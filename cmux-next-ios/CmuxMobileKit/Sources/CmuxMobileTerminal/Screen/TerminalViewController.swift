@@ -74,7 +74,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// held still) never show in the sub-row band over row 1. As wide as
     /// the page's clip, so a panned or wider grid reaches the side padding.
     private let tuiAreaClip = UIView()
-    private let bottomStack = UIView()
+    private let bottomStack = TerminalBottomStack()
     private let bottomBacking = UIView()
     /// 24 pt fade above the composer card, shown only while rows are scrolled
     /// under it, so the row the card's edge cuts reads as "more below" (R2-6).
@@ -549,6 +549,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyBarHost = keyBar
         composerHost = composer
         jumpRowHost = jumpRow
+        bottomStack.jumpRow = jumpRow.view
         // Not clipped: the keys' glass lifts past the row on touch. Hide
         // Toolbar folds the row by hiding it, and unfolding fades it in
         // (`dockChanged`), so it never draws over the composer while it grows.
@@ -1340,6 +1341,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         applyScroll()
     }
 
+    /// The Jump to bottom button's tap target moved, in the row's own
+    /// coordinates (`.null` while hidden). Touches in the row outside it go
+    /// to the terminal (`TerminalBottomStack`).
+    func jumpTargetChanged(_ frame: CGRect) {
+        bottomStack.jumpTarget = frame
+    }
+
     private var jumpRowHeight: CGFloat { jumpRowHost?.view.bounds.height ?? 0 }
 
     /// The solid background under the stack shows while any row of it does:
@@ -1642,6 +1650,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
+            paintTally.handed(data.count)
             output.append(data)
             if !outputPaused, output.isOverHighWater {
                 outputPaused = true
@@ -1682,6 +1691,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 output.append(hostGridOwner: name)
                 scheduleOutput()
             }
+        case .paintMark(let seq, let receivedMs):
+            paintTally.mark(seq: seq, receivedMs: receivedMs)
         case .inputNotSent:
             // Keys refused, or held through an outage and dropped: their
             // predicted glyphs would stand for keys that never arrive.
@@ -1696,6 +1707,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         default:
             model.ingest(event)
         }
+    }
+
+    /// Stamped redraws (`.paintMark`) waiting for the present that shows them.
+    private var paintTally = TerminalPaintTally()
+    /// Session bytes Ghostty parsed so far, and as of the last present.
+    private var paintParsed = 0
+    private var paintParsedAtPresent = 0
+
+    /// A present showed every byte parsed before it: the stamped redraws among them were painted.
+    private func paintPresented() {
+        guard paintParsed != paintParsedAtPresent else { return }
+        paintParsedAtPresent = paintParsed
+        let now = TerminalPaintReport.nowMs
+        paintTally.presented(parsed: paintParsed, atMs: now)
+        if let samples = paintTally.takeReport(nowMs: now) { model.session.reportPaint(samples) }
     }
 
     /// The session refused the input `send` was just given (`.inputNotSent`
@@ -2296,6 +2322,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
+        paintParsed += raw
         // A full-screen app taller than the phone (the Mac's rows as of the
         // bytes fed, `feedHostRows`), or partly under the keyboard: keep its
         // cursor row on screen.
@@ -2922,6 +2949,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// last report, the last request), and the best match places it.
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
+        paintPresented()
         #if DEBUG
         if echoMeter.presented() {
             InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
@@ -4359,6 +4387,34 @@ final class DisplayLinkProxy: NSObject {
     @objc func step(_ link: CADisplayLink) {
         guard owner != nil else { return link.invalidate() }
         action()
+    }
+}
+
+/// The bottom stack (Jump to bottom row, key row, composer). The Jump to
+/// bottom row spans the page's width, but only the pill's tap target is a
+/// button: a touch elsewhere in the row passes through to the terminal under
+/// it, so a drag there scrolls the page (Leo, 2026-11-23: "theres also these
+/// weird dead zones in the jump to bottom in terminal... dont add blur
+/// there"). Before, those touches hit the row's host or the stack and did
+/// nothing: about 200 pt of a 402 pt iPhone's width, 56 pt tall. Nothing is
+/// drawn there for this (no blur, no new backing).
+final class TerminalBottomStack: UIView {
+    /// The Jump to bottom row's host view.
+    weak var jumpRow: UIView?
+    /// The button's tap target in `jumpRow`'s coordinates; `.null` while hidden.
+    var jumpTarget: CGRect = .null
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let hit = super.hitTest(point, with: event) else { return nil }
+        guard let row = jumpRow, hit === self || hit === row || hit.isDescendant(of: row) else { return hit }
+        let inRow = convert(point, to: row)
+        return Self.passesThrough(inRow, rowBounds: row.bounds, target: jumpTarget) ? nil : hit
+    }
+
+    /// A point in the row (row coordinates) outside the button's target is
+    /// the terminal's; a point outside the row is the stack's as before.
+    nonisolated static func passesThrough(_ point: CGPoint, rowBounds: CGRect, target: CGRect) -> Bool {
+        rowBounds.contains(point) && !target.contains(point)
     }
 }
 

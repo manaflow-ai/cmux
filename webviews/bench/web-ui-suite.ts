@@ -195,6 +195,26 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 1_770_000,
     ownPart: true,
   },
+  // The sim's stress ladder (goal sim-fidelity-flat-ladder): chats and browser tabs at 1, 10 and 100 in one shared
+  // renderer listing 3,000 chats; the cost per added item at 100 over at 10 (sim_ladder.ratio_max). perf-cron.py's
+  // web-ui-ladder part runs it, under that part's 30-minute run cap.
+  {
+    name: "sim-ladder",
+    file: "sim-ladder.bench.ts",
+    args: ["--sessions", "3000"],
+    timeoutMs: 1_700_000,
+    ownPart: true,
+  },
+  // The same sim at a profile of Leo's running NIGHTLY (goal sim-fidelity-flat-ladder): its pages, tabs, listed chats,
+  // change rate and load, against its frame p95, keydown, script ms/s and agent renderer RSS; divergence past 1.5x is
+  // red. perf-cron.py's web-ui-fidelity part runs it.
+  {
+    name: "sim-fidelity",
+    file: "sim-ladder.bench.ts",
+    args: ["--profile", "bench/profiles/leo-nightly.json"],
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
   // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
   // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
@@ -258,6 +278,19 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-open.bench.ts",
     args: ["7", "300"],
     env: { FIXTURE: "god", PAIRED: "1" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // A chat's cold open to its composer taking a key, ten rounds (goal startup-every-path; Leo 2026-11-22: "i hope
+  // we're still pursuing startup times for the app itself aka percieved time and percieved interactive time"):
+  // dom_content_loaded, first_row and composer_interactive with each round's value (COMPOSER=1, chat-open.bench.ts).
+  // cmuxterm-hq's synthetic-probes.yml web-startup job runs it (`--only chat-open-startup`) and records the
+  // web-chat-open-startup probe's p50 and p95; the perf cron does not.
+  {
+    name: "chat-open-startup",
+    file: "chat-open.bench.ts",
+    args: ["10", "300"],
+    env: { COMPOSER: "1" },
     timeoutMs: 300_000,
     ownPart: true,
   },
