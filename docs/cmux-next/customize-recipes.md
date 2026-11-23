@@ -48,6 +48,20 @@ Or ask: "make the window see-through glass"
 
 To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
+### Plush: soft raised surfaces
+
+One tinted surface everywhere, panes and your prompt raised out of it by soft shadows, no borders,
+no glass, one saturated accent. Light by default; `plush-dark`, `plush-dusk`, `plush-dusk-dark`,
+`plush-clay` and `plush-clay-dark` are the other theme files it brings (`cmux settings set
+appearance.themeFile plush-dark`). The whole look, with its gallery, is
+[examples/looks/plush](../../examples/looks/plush/README.md).
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/plush.json
+```
+
+Or ask: "make it soft and plush, raised surfaces with no borders or glass"
+
 ### Hairline: flat and neutral
 
 Opaque gray surfaces on one-pixel lines, one corner radius for panes, tabs, cards and the
