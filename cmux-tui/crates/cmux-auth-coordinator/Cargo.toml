@@ -8,7 +8,14 @@ publish.workspace = true
 description = "The sign-in and session state machine of the app's AuthCoordinator as a pure reducer: published session state, session generations, restore and sign-in decisions, team scope. No I/O, no Keychain, no UI."
 
 [dependencies]
-serde_json = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+# The harness runs effects against the real client and its fake Stack.
+base64.workspace = true
+cmux-stack-auth = { path = "../cmux-stack-auth" }
+tokio = { workspace = true, features = ["rt", "time"] }
 
 [lints]
 workspace = true

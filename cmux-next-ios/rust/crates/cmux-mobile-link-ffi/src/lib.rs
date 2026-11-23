@@ -14,6 +14,7 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod auth_coordinator;
 mod browser;
 mod classic_leftovers;
 mod follow_camera;
@@ -24,6 +25,7 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use auth_coordinator::AuthCoordinator;
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};

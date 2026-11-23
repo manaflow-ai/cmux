@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Value, json};
 
 use super::Coordinator;
+use super::phases::PhaseRun;
 use super::state::{
     Backoff, DebugCredentials, Generations, Loading, PendingCode, RecoveryLoop, Restore, Session,
     Teams, TokenCache,
@@ -18,6 +19,7 @@ use crate::event::{
 };
 use crate::machine::Refusal;
 use crate::model::{AuthTeam, AuthUser, LaunchOptions};
+use crate::phase::{AuthPhase, PhaseDamper, TIMED_OUT_RESET};
 
 /// The session generation the sample states are in and their answers carry.
 const SESSION: u64 = 7;
@@ -27,6 +29,7 @@ const ATTEMPT: u64 = 5;
 const HIGH_WATER: u64 = 4;
 const TEAM_READ: u64 = 6;
 const RECOVERY: u64 = 1;
+const PHASE_RUN: u64 = 8;
 
 fn sample_user() -> AuthUser {
     AuthUser::new("user-a", Some("a@example.com"), Some("A"))
@@ -72,7 +75,7 @@ impl Coordinator {
     }
 
     /// One coordinator in `session` with `restore` and `teams`, a sign-in
-    /// flow, a team read and a recovery sleep open, under [`SESSION`].
+    /// flow, a team read, a recovery sleep and a validation run open, under [`SESSION`].
     fn sample(session: Session, restore: Restore, teams: Teams, capturing: bool) -> Coordinator {
         let mut c = Coordinator {
             launch: LaunchOptions::default(),
@@ -109,6 +112,14 @@ impl Coordinator {
             backoff: Backoff::Clear,
             recovery: RecoveryLoop::Sleeping { id: RECOVERY, attempt: 0 },
             rng: 7,
+            phase_run_counter: PHASE_RUN,
+            phase_runs: BTreeMap::from([(
+                PHASE_RUN,
+                PhaseRun::new(AuthPhase::ValidateSession, SESSION, SIGN_OUT_EPOCH, HIGH_WATER),
+            )]),
+            phase_damper: PhaseDamper::new(TIMED_OUT_RESET),
+            token_gates: BTreeMap::new(),
+            token_gate_reset_nanos: u64::try_from(TIMED_OUT_RESET.as_nanos()).unwrap_or(u64::MAX),
         };
         c.last_published_team_scope = c.team_scope();
         c
@@ -193,6 +204,20 @@ pub(crate) fn sample_events() -> Vec<Event> {
         Event::SignOutLocalCleared { sign_out_epoch: SIGN_OUT_EPOCH },
         Event::TokenReadUnauthorized(TokenReadKind::AccessToken),
         Event::DevAuthAccessTokenFinished { got_token: false },
+        Event::PhaseStartRequested { phase: AuthPhase::ValidateSession, now_nanos: 0 },
+        Event::PhaseTimedOut { id: PHASE_RUN, now_nanos: 0 },
+        Event::PhaseCallerCancelled { id: PHASE_RUN, now_nanos: 0 },
+        Event::PhaseOperationFinished { id: PHASE_RUN },
+        Event::PhaseSignOutCaptureAwaited { id: PHASE_RUN },
+        Event::PhaseStaleRefreshTokenCompared { id: PHASE_RUN, cleared: false },
+        Event::PhaseEnded { id: PHASE_RUN },
+        Event::SupersedeTimedOutPhases,
+        Event::TokenReadEmpty { storage_was_available: true, read_failed: false },
+        Event::ClearAuthStateRequested {
+            reason: "sample".to_owned(),
+            preserve_pending_code: false,
+        },
+        Event::AvailableTeamsSet(vec![AuthTeam::new("team-a", "A")]),
     ]
 }
 
@@ -233,7 +258,7 @@ pub fn table() -> Value {
     json!({
         "version": 1,
         "source": "cmux-tui/crates/cmux-auth-coordinator/src/coordinator/mod.rs",
-        "state": "A state is session/restore/teams[/capturing]: the published session (signed_out, restoring, restoring_signed_in, signed_in), whether a restore run owns the session (idle, running) and whether this session generation's team list has loaded (unloaded, loaded); capturing is an open sign-out credential capture. Each sample state also has one sign-in flow, one team read and one recovery sleep open, so their answers are awaited.",
+        "state": "A state is session/restore/teams[/capturing]: the published session (signed_out, restoring, restoring_signed_in, signed_in), whether a restore run owns the session (idle, running) and whether this session generation's team list has loaded (unloaded, loaded); capturing is an open sign-out credential capture. Each sample state also has one sign-in flow, one team read, one recovery sleep and one session-validation phase run open, so their answers are awaited.",
         "stale": "An answer carries the ticket it was issued under: a restore answer whose run id is not the running one is refused stale_restore, a sign-in answer for a flow not registered exactly as it began inactive_sign_in_flow, a team read answered already or never issued unknown_team_read, a hook whose run or flow is gone hook_owner_gone, a recovery id not the sleeping one stale_recovery, and a sign-out epoch with no open capture unknown_sign_out_capture. A refusal leaves the coordinator unchanged and runs no effect.",
         "generations": "The session generation, sign-out epoch, sign-in attempt, restore run, team read and recovery loop counters only move forward, so a ticket issued under an older one never matches again.",
         "regions": {
@@ -242,7 +267,7 @@ pub fn table() -> Value {
             "teams": Teams::KINDS,
         },
         "states": states,
-        "events": Event::KINDS,
+        "events": Event::KINDS.as_slice(),
         "refusals": Refusal::ALL.map(Refusal::as_str),
         "transitions": rows,
     })

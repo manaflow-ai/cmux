@@ -4,18 +4,17 @@ use super::Coordinator;
 use super::state::{DebugCredentials, PendingCode, Session, Teams, TokenCache};
 use crate::event::{AuthFailure, Effect, TokenReadKind};
 use crate::model::{AuthState, AuthUser};
-use crate::phase::SIGN_OUT_CLEARED_PHASES;
+use crate::phase::PhaseRunner;
 
 impl Coordinator {
     // MARK: - Sign-out
 
     pub(super) fn on_sign_out_requested(&mut self, fx: &mut Vec<Effect>) {
-        fx.push(Effect::CancelInFlightWork);
+        self.cancel_runs_for_sign_out(fx);
         self.advance_session_generation(true, fx);
         self.generations.sign_out_epoch = self.generations.sign_out_epoch.wrapping_add(1);
         self.pending_sign_out_captures.insert(self.generations.sign_out_epoch);
         self.publish_session_identity(fx);
-        fx.push(Effect::ClearPhaseDampers(SIGN_OUT_CLEARED_PHASES));
         fx.push(Effect::CaptureTeardownCredentialsAndClearLocalSession {
             sign_out_epoch: self.generations.sign_out_epoch,
         });
@@ -33,7 +32,9 @@ impl Coordinator {
             if self.pending_sign_out_captures.is_empty() {
                 fx.push(Effect::EndSignOutCredentialCapture);
             }
-            fx.push(Effect::WaitForPostSignInHooks);
+            fx.push(Effect::WaitForPostSignInHooks {
+                runs: self.live_runs(&[PhaseRunner::PostSignIn]),
+            });
             fx.push(Effect::ServerTeardown);
             return;
         }
@@ -45,7 +46,9 @@ impl Coordinator {
             fx.push(Effect::ForgetDebugCredentials);
         }
         self.clear_auth_state("signed out by the person", false, true, fx);
-        fx.push(Effect::WaitForPostSignInHooks);
+        fx.push(Effect::WaitForPostSignInHooks {
+            runs: self.live_runs(&[PhaseRunner::PostSignIn]),
+        });
         fx.push(Effect::ServerTeardown);
     }
 

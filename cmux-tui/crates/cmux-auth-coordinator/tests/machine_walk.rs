@@ -54,7 +54,7 @@ impl Issued {
                 | Effect::RetryProbeAfter { ticket, .. }
                 | Effect::AutoLogin { ticket, .. }
                 | Effect::ClearStaleSession { ticket, .. } => self.restores.push(*ticket),
-                Effect::QuiesceTokenWork(f)
+                Effect::QuiesceTokenWork { flow: f, .. }
                 | Effect::CheckOnline(f)
                 | Effect::FetchUser(f)
                 | Effect::RunExchange { flow: f, .. } => self.flows.push(*f),

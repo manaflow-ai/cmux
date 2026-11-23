@@ -122,6 +122,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-health-core",
                     # Each window's last frame for the launch's first frame (cmux-launch-image).
                     "cmux-launch-image",
+                    # The sign-in and session reducer the app links in process (cmux#48882).
+                    "cmux-auth-coordinator",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",

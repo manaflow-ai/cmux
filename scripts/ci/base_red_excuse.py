@@ -5839,6 +5839,8 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-terminal-prediction/",
                   # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
                   "cmux-tui/crates/cmux-terminal-projection/",
+                  # cmux-mobile-link-ffi links the auth coordinator (its AuthCoordinator object)
+                  "cmux-tui/crates/cmux-auth-coordinator/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",

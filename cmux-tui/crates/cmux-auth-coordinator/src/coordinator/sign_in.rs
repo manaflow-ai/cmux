@@ -27,7 +27,7 @@ impl Coordinator {
             sets_loading,
         };
         self.active_sign_in_flows.insert(flow.attempt, flow);
-        fx.push(Effect::QuiesceTokenWork(flow));
+        fx.push(Effect::QuiesceTokenWork { flow, runs: self.runs_a_sign_in_quiesces() });
     }
 
     pub(super) fn on_token_work_quiesced(

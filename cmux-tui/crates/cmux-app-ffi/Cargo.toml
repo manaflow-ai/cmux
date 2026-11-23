@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the auth coordinator, the launch images, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -38,6 +38,8 @@ cmux-daemon-conn-core = { path = "../cmux-daemon-conn-core" }
 cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 # How the app starts and keeps its daemon (src/ffi.rs: JSON ops, the watch, stderr lines).
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The sign-in and session reducer, in process as on iOS (cmux-auth-coordinator src/ffi.rs: JSON events, effects, snapshot).
+cmux-auth-coordinator = { path = "../cmux-auth-coordinator" }
 # The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
 cmux-health-core = { path = "../cmux-health-core" }
 # Each window's last frame for the launch's first frame (cmux-launch-image src/ffi.rs: naming, caps, pruning, when to capture).
