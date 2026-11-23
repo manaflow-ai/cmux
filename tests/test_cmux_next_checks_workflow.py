@@ -523,8 +523,13 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
         # The warn branch runs fast_gate_webviews_checks.py, which runs each of its CHECKS (#24252).
         import fast_gate_webviews_checks
         gated = set()
-        if re.search(r"fast_gate_webviews_checks\.py[^\n]*\|\| status=1", warn_branch):
-            gated = set(fast_gate_webviews_checks.CHECKS)
+        call = re.search(r"fast_gate_webviews_checks\.py([^\n]*)\|\| status=1", warn_branch)
+        if call:
+            gated = set(fast_gate_webviews_checks.CHECKS) - set(re.findall(r"--skip (\S+)", call.group(1)))
+        # A check the step skips runs in its own job (the type check: webviews-typecheck, ci-self-heal 0c).
+        typecheck_run = "\n".join(step.get("run", "") for step in jobs["webviews-typecheck"]["steps"])
+        self.assertIn("fast_gate_webviews_checks.py", typecheck_run)
+        gated |= set(re.findall(r"--only (\S+)", typecheck_run))
         gated_commands = {package["scripts"][name] for name in gated if name in package["scripts"]}
         ci_web = ".github/workflows/ci-web.yml"
         loop_line = line_of(ci_web, "for check in ")
@@ -907,7 +912,7 @@ class PathRoutingStructure(unittest.TestCase):
         # swift-test's gate names the base since #49046: a pull request into another base is not a cmux-next one.
         for job_id, gate in [*((job_id, "github.event_name != 'pull_request' || ") for job_id in HEAVY_COMPILES),
                              ("swift-test", "github.event_name != 'pull_request' || "
-                                            "github.event.pull_request.base.ref != 'feat-cmux-next' || ")]:
+                                            "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || ")]:
             self.assertIn(gate + "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
             self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
         # macos-placement places owned runners: same-repository pull requests only.
