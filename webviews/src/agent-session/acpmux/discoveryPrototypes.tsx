@@ -7,6 +7,7 @@
 import { createRoot } from "react-dom/client";
 import { COMPOSER_KEYS } from "./composerHelp";
 import { translate } from "./i18n";
+import { KeyHint } from "../../ui/KeyHint";
 
 const dim = "var(--acpmux-composer-dim)";
 
@@ -19,7 +20,7 @@ function Keys({ keys }: { keys: string }) {
   return (
     <span className="acpmux-help-keys">
       {keys.split(" ").map((key, n) => (
-        <kbd key={n}>{key}</kbd>
+        <KeyHint key={n} keys={key} />
       ))}
     </span>
   );
