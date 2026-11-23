@@ -25,8 +25,9 @@ nonisolated enum RenamedSettingKeys {
     static func legacyValue(for path: [String], in root: JSONValue) -> JSONValue? {
         guard let legacy = legacyPath(for: path), let value = root.value(at: legacy) else { return nil }
         if legacy == ComputerUseSettings.enabledPath { return ComputerUseSettings.legacyMode(value) }
-        // As the retired-keys table maps it; any other old value is the row's default.
-        if let replaced = SettingsSchema.replacedKeys[path] { return replaced.values[value] }
+        // As the retired-keys table maps it; any other old value is the row's default. A plain
+        // rename (no `values`) reads the old value as is.
+        if let replaced = SettingsSchema.replacedKeys[path] { return replaced.values.map { $0[value] } ?? value }
         guard legacy == BackdropArtSetting.configPath else { return value }
         // As BackdropArtSetting parses it: a bundled work (a retired id names its stand-in), else
         // nothing is painted, which the background row calls none.

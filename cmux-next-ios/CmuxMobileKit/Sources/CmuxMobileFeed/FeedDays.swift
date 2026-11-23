@@ -40,11 +40,18 @@ struct FeedDayBucketer {
 enum FeedDays {
     /// `rows` (the list's order) as runs of the same local day.
     static func groups(_ rows: some Sequence<(id: String, date: Date)>, calendar: Calendar) -> [FeedDayGroup] {
+        groups(carrying: rows.lazy.map { (id: $0.id, date: Optional($0.date)) }, calendar: calendar)
+    }
+
+    /// The same, with rows that have no time of their own (date nil: a stack's fold line): each
+    /// stays in the day of the row before it.
+    static func groups(carrying rows: some Sequence<(id: String, date: Date?)>, calendar: Calendar) -> [FeedDayGroup] {
         var bucketer = FeedDayBucketer(calendar: calendar)
         var groups: [FeedDayGroup] = []
         var runs: [Date: Int] = [:]
         for row in rows {
-            let day = bucketer.day(of: row.date)
+            // A first row with no time has no row to follow: it opens the list in no day.
+            let day = row.date.map { bucketer.day(of: $0) } ?? groups.last?.section.day ?? FeedDaySection.undated.day
             if let last = groups.indices.last, groups[last].section.day == day {
                 groups[last].ids.append(row.id)
             } else {
@@ -112,12 +119,15 @@ final class FeedDayLabeler {
 
     /// "Today", "Yesterday", "Saturday", "Nov 12", "Nov 12, 2025".
     func text(day: Date, today: Date) -> String {
-        switch FeedDayName(day: day, today: today, calendar: calendar) {
+        let text = switch FeedDayName(day: day, today: today, calendar: calendar) {
         case .today: relative.localizedString(from: DateComponents(day: 0))
         case .yesterday: relative.localizedString(from: DateComponents(day: -1))
         case .weekday: weekday.string(from: day)
         case .date(let year): (year ? datedYear : shortDate).string(from: day)
         }
+        // A label standing alone starts with a capital in every language that has them
+        // ("today" and weekdays are lowercase mid-sentence in many).
+        return text.prefix(1).capitalized(with: calendar.locale) + text.dropFirst()
     }
 }
 

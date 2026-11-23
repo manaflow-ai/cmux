@@ -162,7 +162,7 @@ impl Ws {
                 0x8 => return Ok(Frame::Closed),
                 0x9 => self.write_frame(0xA, &payload)?,
                 0xA => {}
-                0x0 | 0x1 | 0x2 => {
+                0x0..=0x2 => {
                     if op != 0 {
                         message_op = op;
                     }

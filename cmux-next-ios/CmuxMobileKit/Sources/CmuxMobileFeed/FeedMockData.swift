@@ -15,6 +15,20 @@ extension FeedStore {
                  workspaceTitle: "cmux.com", markdown: markdown, quote: quote, createdAt: now.addingTimeInterval(-ago))
     }
 
+    /// A second Claude chat (the `ws-ios` workspace's agent tab): its run of events in a row is the
+    /// Feed's stack of one busy chat.
+    static func claudeIOS(_ id: String, _ kind: FeedItem.Kind, _ markdown: String, quote: FeedItem.Quote?, ago: TimeInterval, now: Date) -> FeedItem {
+        FeedItem(id: id, kind: kind, workspaceID: "ws-ios", tabID: "t-ios-claude", agentName: "Claude", harness: "claude",
+                 workspaceTitle: "cmux-next-ios", markdown: markdown, quote: quote, createdAt: now.addingTimeInterval(-ago))
+    }
+
+    /// An event already read (the older days' samples add nothing to the unread count).
+    static func read(_ item: FeedItem) -> FeedItem {
+        var item = item
+        item.isRead = true
+        return item
+    }
+
     public static func mockItems(now: Date) -> [FeedItem] {
         let question = AgentQuestion(
             id: "feed-q-release",
@@ -85,6 +99,19 @@ extension FeedStore {
 
             I added `BackoffTests` covering the cap and the jitter bounds.
             """, quote: .init("why does reconnect hammer the relay after sleep?"), ago: 900, now: now),
+            // Four events in a row from one chat, newest first: the Feed folds the three older ones.
+            claudeIOS("f-run-4", .finished, """
+            **Finished:** the workspaces list is redesigned. Rows show the agent's status and the branch, and the list keeps its place when a workspace changes.
+            """, quote: .init("Redesign the workspaces list"), ago: 960, now: now),
+            claudeIOS("f-run-3", .response, """
+            All **38** list tests pass on the simulator. Recording the before and after next.
+            """, quote: nil, ago: 1080, now: now),
+            claudeIOS("f-run-2", .response, """
+            The rows are laid out. Wiring the status dot and the unread badge now.
+            """, quote: nil, ago: 1200, now: now),
+            claudeIOS("f-run-1", .response, """
+            Starting with the row layout: one line for the title, one for the branch and the last activity.
+            """, quote: nil, ago: 1320, now: now),
             claude("f-finished", .finished, """
             **Finished:** extracted `LinkDialer` into `CmuxMobileTransport` and added WireGuard dialing behind `TransportKind`.
 
@@ -122,6 +149,17 @@ extension FeedStore {
             codex("f-agent-quote", .response, """
             Done. I kept the old `/v1/pricing` route as a redirect so cached links still work.
             """, quote: .init("Should I keep the old route as a redirect?", author: .agent), ago: 5400, now: now),
+            // Earlier days: the day labels between events ("Yesterday", a weekday, a date).
+            read(claude("f-day-yesterday", .finished, """
+            **Finished:** the relay reconnects after sleep in under a second. `ReconnectTests` cover wake, airplane mode and a changed network.
+            """, quote: .init("make reconnect after sleep instant"), ago: 26 * 3600, now: now)),
+            read(codex("f-day-yesterday-lint", .response, "Lint is clean on `web/` after the import sort. Nothing else changed.", quote: nil, ago: 30 * 3600, now: now)),
+            read(claudeIOS("f-day-weekday", .response, """
+            The docs site builds again: the broken link in `getting-started.mdx` pointed at a page that moved.
+            """, quote: .init("why is the docs build red?"), ago: 3 * 86_400 + 2 * 3600, now: now)),
+            read(claude("f-day-date", .finished, """
+            **Finished:** archived last sprint's branches. 14 merged branches deleted, 2 kept with open work.
+            """, quote: .init("clean up the old branches"), ago: 9 * 86_400, now: now)),
         ]
     }
 
