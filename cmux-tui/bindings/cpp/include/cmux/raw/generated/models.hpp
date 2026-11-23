@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7";
+inline constexpr std::string_view kProtocolIrSha256 = "5e2d805402b466a42e7a88a7959376a0309e56746abdd19a4b848833091ac4dd";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -509,6 +509,7 @@ struct PasteImageRequest;
 struct PasteImageResult;
 struct PinWorkspaceRequest;
 struct PingRequest;
+struct ProcessCensusRequest;
 struct ProcessInfoRequest;
 struct PutBlobRequest;
 struct PutFrontendProjectionRequest;
@@ -4631,6 +4632,10 @@ struct PingResult {
     std::uint32_t protocol{};
     std::string version{};
     friend bool operator==(const PingResult&, const PingResult&) = default;
+};
+
+struct ProcessCensusRequest {
+    friend bool operator==(const ProcessCensusRequest&, const ProcessCensusRequest&) = default;
 };
 
 struct ProcessInfoRequest {
@@ -9731,6 +9736,12 @@ template <>
 struct Codec<PingRequest> {
     static Result<Json> encode(const PingRequest& value);
     static Result<PingRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ProcessCensusRequest> {
+    static Result<Json> encode(const ProcessCensusRequest& value);
+    static Result<ProcessCensusRequest> decode(const Json& value);
 };
 
 template <>

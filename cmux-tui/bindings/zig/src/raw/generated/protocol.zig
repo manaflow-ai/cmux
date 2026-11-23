@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7";
+pub const ir_sha256 = "5e2d805402b466a42e7a88a7959376a0309e56746abdd19a4b848833091ac4dd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8505,6 +8505,23 @@ pub fn ping(client: anytype, request: PingRequest) !wire.Decoded(PingResult) {
     );
 }
 
+pub const ProcessCensusRequest = struct {};
+
+pub const ProcessCensusResult = JsonValue;
+
+pub fn processCensus(client: anytype, request: ProcessCensusRequest) !wire.Decoded(ProcessCensusResult) {
+    return client.callTyped(
+        ProcessCensusResult,
+        .{
+            .name = "process-census",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "process-census-v1",
+        },
+        request,
+    );
+}
+
 pub const ProcessInfoRequest = struct {
     surface: Id,
 };
@@ -12881,7 +12898,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 310;
+pub const command_count: usize = 311;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13078,6 +13095,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "process-census", .authority = "local-admin", .since = 12, .capability = "process-census-v1", .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "put-blob", .authority = "control", .since = 12, .capability = "icon-assets-v1", .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7. */
+/* cmux-tui mux protocol 12, IR 5e2d805402b466a42e7a88a7959376a0309e56746abdd19a4b848833091ac4dd. */
 
 
 import type * as T from "./types.js";
@@ -2084,6 +2084,12 @@ export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface ProcessCensusRequest extends CmuxRequestBase {
+  cmd: "process-census";
+}
+export type ProcessCensusResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface ProcessInfoRequest extends CmuxRequestBase {
   cmd: "process-info";
@@ -3350,6 +3356,7 @@ export type CmuxRequest =
   | PasteImageRequest
   | PinWorkspaceRequest
   | PingRequest
+  | ProcessCensusRequest
   | ProcessInfoRequest
   | PutBlobRequest
   | PutFrontendProjectionRequest
@@ -5026,6 +5033,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "process-census": {
+    request: ProcessCensusRequest;
+    result: ProcessCensusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "process-census-v1";
     stream: null;
   };
   "process-info": {

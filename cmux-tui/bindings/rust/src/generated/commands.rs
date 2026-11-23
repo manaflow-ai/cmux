@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7eed693cd83d030d5989cefd7e02559857b9c96dd8ca0cdd674587cb5b53d4c7.
+// cmux-tui mux protocol 12, IR 5e2d805402b466a42e7a88a7959376a0309e56746abdd19a4b848833091ac4dd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3019,6 +3019,14 @@ pub struct PingRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ProcessCensusRequest {
+}
+
+#[rustfmt::skip]
+pub type ProcessCensusResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessInfoRequest {
     pub surface: T::Id,
@@ -5653,6 +5661,10 @@ impl CmuxClient {
 
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {
         self.execute(&PING_METADATA, &request)
+    }
+
+    pub fn process_census(&mut self, request: ProcessCensusRequest) -> Result<ProcessCensusResult> {
+        self.execute(&PROCESS_CENSUS_METADATA, &request)
     }
 
     pub fn process_info(&mut self, request: ProcessInfoRequest) -> Result<T::ProcessInfoResult> {
