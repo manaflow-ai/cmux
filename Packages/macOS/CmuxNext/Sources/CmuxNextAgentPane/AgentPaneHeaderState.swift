@@ -26,13 +26,16 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     public var headerControls: AgentPaneHeaderControls
     /// How the header's icons move (Debug Settings `agentChat.headerMotion`, ``AgentPaneHeaderMotion``), read like `sessionInfo`.
     public var headerMotion: AgentPaneHeaderMotion
+    /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`), read like
+    /// `sessionInfo`; the page's header/headerRelevance.ts applies it.
+    public var headerIcons: AgentPaneHeaderIcons
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
                 sessionInfo: Bool? = nil, headerControls: AgentPaneHeaderControls? = nil,
-                headerMotion: AgentPaneHeaderMotion? = nil) {
+                headerMotion: AgentPaneHeaderMotion? = nil, headerIcons: AgentPaneHeaderIcons? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
@@ -40,6 +43,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
         self.sessionInfo = sessionInfo ?? AgentPaneTunables.sessionInfo.value
         self.headerControls = headerControls ?? AgentPaneTunables.headerControls.value
         self.headerMotion = headerMotion ?? AgentPaneTunables.headerMotion.value
+        self.headerIcons = headerIcons ?? AgentPaneTunables.headerIcons.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
@@ -48,6 +52,7 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
             && pullRequest == other.pullRequest && workspace == other.workspace && sessionInfo == other.sessionInfo
             && headerControls == other.headerControls
             && headerMotion == other.headerMotion
+            && headerIcons == other.headerIcons
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
@@ -56,7 +61,8 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     var json: CmuxNextSettings.JSONValue {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(CmuxNextSettings.JSONValue.string)), "floatingChat": .bool(floatingChat),
          "inspector": .bool(sessionInfo), "headerControls": .string(headerControls.rawValue),
-         "headerMotion": .string(headerMotion.rawValue), "version": CmuxNextSettings.JSONValue(version),
+         "headerMotion": .string(headerMotion.rawValue), "headerIcons": .string(headerIcons.rawValue),
+         "version": CmuxNextSettings.JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null, "workspace": workspace?.json ?? .null]
     }
 }

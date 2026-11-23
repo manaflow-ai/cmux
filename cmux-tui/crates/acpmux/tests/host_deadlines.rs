@@ -43,6 +43,7 @@ async fn a_query_the_host_never_answers_times_out() {
         socket: socket.clone(),
         claude_translator: false,
         host_level: 0,
+        holder: None,
     };
     // A fake host: answers hello, then reads every frame and answers none.
     tokio::spawn(async move {

@@ -84,10 +84,12 @@ fn fit_everyone_with_two_setters_names_the_policy() {
 
 #[test]
 fn this_client_as_sole_owner_is_named_as_such() {
-    let phone = participant("c2/mobile:p", Some("Maya"), TerminalDeviceKind::Iphone, None, 50, 30);
+    // A wider Mac, not a phone: since #43501 a showing iPhone keeps the grid at least its width,
+    // so with a phone beside it this client no longer sets the columns alone.
+    let mac = participant("c2", Some("Maya"), TerminalDeviceKind::Mac, None, 50, 30);
     let me = participant("c1", None, TerminalDeviceKind::Tui, None, 40, 20);
     let size = SurfaceSizeState {
-        state: state(TerminalSizingMode::Smallest, &[me, phone]),
+        state: state(TerminalSizingMode::Smallest, &[me, mac]),
         self_participant: Some("c1".into()),
     };
     assert_eq!(border_label(&size, strings()).as_deref(), Some(" 40×20 · this client "));

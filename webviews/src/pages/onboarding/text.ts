@@ -17,6 +17,7 @@ import type {
   OnboardingStep,
   PrimaryAction,
 } from "./ops";
+import { intl } from "../../ui/intl";
 
 const KIND_KEYS: Record<ImportDataKind, string> = {
   bookmarks: "onboarding.kind.bookmarks",
@@ -36,9 +37,9 @@ export function kindLabel(strings: Strings, kind: ImportDataKind): string {
 /** A count in the page's language ("8,311"). */
 export function formatCount(strings: Strings, value: number): string {
   try {
-    return new Intl.NumberFormat(strings.language).format(value);
+    return intl.NumberFormat(strings.language).format(value);
   } catch {
-    return new Intl.NumberFormat("en").format(value);
+    return intl.NumberFormat("en").format(value);
   }
 }
 
@@ -89,9 +90,9 @@ export function quotedList(items: readonly string[], language: string): string {
   const [open, close] = quotationMarks(language);
   const quoted = items.map((item) => `${open}${item}${close}`);
   try {
-    return new Intl.ListFormat(language, { type: "conjunction" }).format(quoted);
+    return intl.ListFormat(language, { type: "conjunction" }).format(quoted);
   } catch {
-    return new Intl.ListFormat("en", { type: "conjunction" }).format(quoted);
+    return intl.ListFormat("en", { type: "conjunction" }).format(quoted);
   }
 }
 
