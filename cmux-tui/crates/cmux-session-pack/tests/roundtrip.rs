@@ -115,9 +115,12 @@ fn an_appended_log_repacks_to_the_same_chunks_and_ships_only_the_new_ones() {
     let mut bad = bundle.clone();
     let last = bad.len() - 1;
     bad[last] ^= 1;
-    assert!(ship::unbundle(&there, &mut &bad[..]).is_err());
+    assert!(ship::unbundle(&there, &mut &bad[..], ship::Lacking::Refuse).is_err());
     assert_ne!(Manifest::load(&there, "s").unwrap().unwrap(), grown);
-    assert_eq!(ship::unbundle(&there, &mut &bundle[..]).unwrap(), grown);
+    assert_eq!(
+        ship::unbundle(&there, &mut &bundle[..], ship::Lacking::Refuse).unwrap(),
+        Some(grown)
+    );
     let mut back = Vec::new();
     Pack::open(&there, "s").unwrap().cat(&mut back).unwrap();
     assert!(back == bytes);
@@ -173,4 +176,63 @@ fn a_turn_comes_back_as_text_that_names_what_it_cut() {
     // The whole result is one read away, by the name the text gave.
     let (line, whole) = p.by_seq(4).unwrap().unwrap();
     assert_eq!((line, whole.as_slice()), (3, lines[3].as_bytes()));
+}
+
+#[test]
+fn a_session_starts_elsewhere_from_its_tail_and_fetches_older_lines_when_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let bytes = log(6000);
+    let file = dir.path().join("log.ndjson");
+    std::fs::write(&file, &bytes).unwrap();
+    let here = Store::new(dir.path().join("here"));
+    let (m, _) = pack(&here, "s", &[file], &params(), false).unwrap();
+    let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').collect();
+
+    // The move carries the manifest and what the last 300 lines read: a small part of the pack.
+    let tail = m.lines - 300..m.lines;
+    let mut bundle = Vec::new();
+    let shipped =
+        ship::bundle_range(&here, "s", tail.clone(), &HashSet::new(), &mut bundle).unwrap();
+    assert!(shipped.bytes < shipped.session_bytes / 4, "{shipped:?}");
+
+    // A whole move refuses it; a move that starts from the tail takes it and reads the tail.
+    let there = Store::new(dir.path().join("there"));
+    assert!(ship::unbundle(&there, &mut &bundle[..], ship::Lacking::Refuse).is_err());
+    assert_eq!(ship::unbundle(&there, &mut &bundle[..], ship::Lacking::Allow).unwrap(), Some(m));
+    let p = Pack::open(&there, "s").unwrap();
+    assert!(p.lacking(tail.clone()).unwrap().is_empty());
+    let got = p.read_lines(tail.clone()).unwrap();
+    assert!(
+        got.iter()
+            .map(Vec::as_slice)
+            .eq(lines[tail.start as usize..tail.end as usize].iter().copied())
+    );
+
+    // An older range names the chunks it lacks; they arrive without a manifest, and it reads.
+    let old = 100..400u64;
+    let err = p.read_lines(old.clone()).unwrap_err().to_string();
+    assert!(err.starts_with(cmux_session_pack::MISSING), "{err}");
+    let mut rounds = 0;
+    loop {
+        let ids = p.lacking(old.clone()).unwrap();
+        if ids.is_empty() {
+            break;
+        }
+        rounds += 1;
+        let mut chunks = Vec::new();
+        ship::bundle_chunks(&here, "s", &ids, &mut chunks).unwrap();
+        assert_eq!(ship::unbundle(&there, &mut &chunks[..], ship::Lacking::Allow).unwrap(), None);
+    }
+    assert!((1..=2).contains(&rounds), "{rounds} rounds");
+    let got = p.read_lines(old.clone()).unwrap();
+    assert!(
+        got.iter()
+            .map(Vec::as_slice)
+            .eq(lines[old.start as usize..old.end as usize].iter().copied())
+    );
+    // Most of the log is still only on the first side.
+    assert!(!ship::want(&there, &p.manifest).unwrap().is_empty());
+
+    // A chunk of another session is not handed out under this one's name.
+    assert!(ship::bundle_chunks(&here, "s", &[[7u8; 32]], &mut Vec::new()).is_err());
 }

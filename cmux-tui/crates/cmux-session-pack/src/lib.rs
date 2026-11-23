@@ -67,7 +67,7 @@ mod store;
 pub use manifest::{Manifest, Params, RangeId, SCHEMA, Segment};
 pub use pack::{PackStats, pack};
 pub use read::Pack;
-pub use store::{Id, Store, hex, unhex};
+pub use store::{Id, MISSING, Store, hex, unhex};
 
 /// This crate's error: a message that says what was read or written and what was wrong with it.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;

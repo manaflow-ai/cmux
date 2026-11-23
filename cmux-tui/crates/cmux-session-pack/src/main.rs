@@ -1,7 +1,7 @@
 //! `session-pack`: pack a session's log, read ranges of it back, move it between stores.
 
 use cmux_session_pack::{
-    Manifest, Pack, Params, RangeId, Result, Store, digest, hex, pack, ship, unhex,
+    Id, Manifest, Pack, Params, RangeId, Result, Store, digest, hex, pack, ship, unhex,
 };
 use std::collections::HashSet;
 use std::io::Write as _;
@@ -23,7 +23,10 @@ const USAGE: &str = "session-pack: a session's event log as content-addressed zs
   session-pack verify NAME              read everything back against its hashes
   session-pack have [NAME]              chunk ids this store holds (of NAME only, when given)
   session-pack bundle NAME [--have FILE] -o OUT   NAME's manifest and the chunks not listed in FILE
-  session-pack unbundle FILE            take a bundle in
+      --tail-turns N | --range NAME@A-B    only the chunks a read of those lines needs
+      --chunks FILE                        only the chunks listed in FILE, and no manifest
+  session-pack unbundle FILE [--partial]   take a bundle in (--partial: its manifest may name chunks not here yet)
+  session-pack lacking NAME@A-B         chunk ids a read of that range needs and this store lacks
 
 The store is --store DIR or $CMUX_SESSION_PACK_STORE.";
 
