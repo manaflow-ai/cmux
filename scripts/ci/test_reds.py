@@ -182,13 +182,23 @@ XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or tes
                             r"Test Case '-\[)(\S+)[ .](\w+)\]?'? crashed|"
                             r"Restarting after unexpected exit, crash, or test timeout in (\S+?)\.(\w+)\(\)")
 # What the CI wrapper or GitHub prints when a run's results are cut short: an error line, never test output.
+# Each word below is the wrapper's own word, so it is read as a word and never as part of a longer token: `\b` alone
+# let a file name carry it, and any annotation naming such a file called the job cut short. 2026-11-22,
+# cmuxterm-hq eb73df0c's 'go vet + go test' (job 137452468531) was refused as cut short because actions/checkout
+# annotated `##[error]error: Path 'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from
+# working tree.` -- `\bstalled` inside that path -- while the job ran five more minutes and ended in a plain
+# `FAIL\tcmuxterm-hq/build-fleet/cmd/controller`, a failure the comparison can name. A word in a path or inside a
+# longer identifier (stalled-work..., TestTimeout, timeouts.go) is not that word.
+TOKEN_BEFORE, TOKEN_AFTER = r"(?<![\w./-])", r"(?![\w-])"
 TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
-                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
+                       r"swift test ended early|reported fewer tests than it ran|swift test stuck|"
+                       r".*" + TOKEN_BEFORE + r"never finished" + TOKEN_AFTER + r"|"
                        r"The job running on runner .* has exceeded the maximum execution time|"
                        r"The operation was canceled|.*\blog (?:is|was) truncated|"
                        # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
-                       r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
-                       r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+                       r".*" + TOKEN_BEFORE + r"(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|"
+                       r"[Hh]ung test|[Cc]ancelled test|[Tt]imeout)" + TOKEN_AFTER + r")|"
+                       r"^This log was truncated", re.I)
 # package-test-lane.sh suite: a suite the lane named whose tests did not run (all skipped, or skipped for a missing
 # same-tree cmux-tui) is no result: never a base red, whatever the base shows.
 NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests did not run\b")
@@ -528,9 +538,10 @@ FAILURE_MARKERS = (
 )
 # Each runner's reported failure total, where its summary counts what failed_names names one line per (#41166's
 # review F2: a log with one parsed name and one unparsed failure counted as fully identified, since an unnamed failure
-# was recorded only when no name at all was read). Per invocation: each summary is compared with the lines its own
-# runner's pattern named since that runner's previous summary, so a run that names more never covers one that names
-# fewer:
+# was recorded only when no name at all was read). Per runner, cumulatively over the step: each summary's total is
+# drawn from the names that runner printed which no earlier summary of its accounted for, so a step with several
+# summaries is judged on the sum of its totals against the union of its names (runner_unnamed says why), while a
+# summary reporting more than its runner has left over is still unnamed:
 # - cargo `test result: FAILED. X passed; N failed;` per test binary, against its `test NAME ... FAILED` lines;
 # - unittest `FAILED (failures=N, errors=M, unexpected successes=K)` (each a test or subtest, none of them named by
 #   anything but a `FAIL:` / `ERROR:` line; an unexpected success is named by none), against those lines;
@@ -548,6 +559,12 @@ FAILURE_MARKERS = (
 # an xcresult `FAILED:` line, xcodebuild's `Failing tests:` list) named a failure; likewise a summary line whose count
 # cannot be read.
 CARGO_FAILED_TOTAL = re.compile(r"^test result: FAILED\. \d+ passed; (\d+) failed\b")
+# cargo's closing list, right above its summary: `failures:`, then each failing test indented four spaces. It names
+# what the summary counts even where a test ran a nested `cargo test` of itself, whose own `running 1 test` ... `test
+# result:` printed inside the parent's output and took the parent's `... FAILED` lines as its own (cmux#50445 at
+# fb4bd6c4, run 45036997271: bwrap's real_second_home_mount_hides_denied_names re-ran itself, and acpmux's lib
+# summary `12 failed` read as naming none though its list named all 12).
+CARGO_LISTED = re.compile(r"^    (\S+)$")
 UNITTEST_FAILED_TOTAL = re.compile(r"^FAILED \(([^)]*)\)$")
 UNITTEST_COUNTED = re.compile(r"\b(failures|errors|unexpected successes)=(\d+)")
 PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
@@ -558,8 +575,9 @@ SWIFT_ISSUE_LINE = re.compile(r"✘ (?:Test|Suite) .* recorded an issue\b")
 
 def unnamed_failures(lines: list[str], steps: list[list[str]] | None = None) -> list[str]:
     """The runner lines of LINES (a step's output, lines_of) that report more failures than that runner's lines name
-    (see above), each summary against the names its runner printed since its previous summary: a failure no parser
-    names, which no comparison can tell from another."""
+    (see above), each summary against the names its runner printed that no earlier summary of its accounted for, so
+    the step is judged on the sum of its summaries: a failure no parser names, which no comparison can tell from
+    another."""
     bun = Result()
     read_bun(lines, bun, steps)
     return runner_unnamed(lines) + bun.unnamed
@@ -580,9 +598,16 @@ def runner_unnamed(lines: list[str]) -> list[str]:
     xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
     xc_summaries: list[str] = []
     listing = False
+    cargo_listed: set | None = None  # the names under cargo's last `failures:` heading, while only names follow it
     for text in lines:
         if text.startswith(TAP_MARKER):
             continue
+        if text.strip() == "failures:":
+            cargo_listed = set()
+        elif cargo_listed is not None and (match := CARGO_LISTED.match(text)):
+            cargo_listed.add(match.group(1))
+        elif text.strip() and not CARGO_FAILED_TOTAL.match(text):
+            cargo_listed = None
         if listing:
             if XCODEBUILD_FAILED.match(text):
                 xc_family += 1
@@ -603,6 +628,8 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         if FAILURE_MARKERS[0].search(text):
             runner, match = "cargo", CARGO_FAILED_TOTAL.match(text)
             reported = int(match.group(1)) if match else None
+            since[runner] = max(since[runner], len(cargo_listed or ()))
+            cargo_listed = None
         elif (match := UNITTEST_FAILED_TOTAL.match(text)) and (FAILURE_MARKERS[1].search(text)
                                                               or UNITTEST_COUNTED.search(match.group(1))):
             counts = UNITTEST_COUNTED.findall(match.group(1))
@@ -615,10 +642,34 @@ def runner_unnamed(lines: list[str]) -> list[str]:
         elif FAILURE_MARKERS[3].search(text):
             xc_summaries.append(text)
         if runner:
-            # A count that cannot be read is unnamed unless its runner named something since its last summary.
-            if (reported is None and not since[runner]) or (reported is not None and reported > since[runner]):
+            # Cumulative, per runner, across the whole step: each summary's total is drawn from every name that
+            # runner printed and no earlier summary of its has already accounted for, so a step with N summaries is
+            # judged on the sum of its totals against the union of its names, never on the last summary alone. One
+            # `cargo test` command over several targets prints one summary per test binary, and cargo buffers each
+            # binary's block, so the blocks do not line up one-to-one with the names between two summaries: with a
+            # per-summary reset, a small rerun summary (`0 passed; 1 failed; 6945 filtered out`) swallowed the 16
+            # names the lib target had printed and left its own `15 failed` summary with none, which made every
+            # multi-target cargo job inexcusable by arithmetic alone (cmux#50814, run 45075034049, job
+            # `acpmux tests (lib, hub_integration)`). A surplus of names carries forward; a deficit never does, so a
+            # failure no parser names is still unnamed at the summary that reports it (#41166's review F2). Names are
+            # counted per line and never deduplicated by test name across the step, for two measured reasons. Two
+            # test binaries of one invocation can each fail a test of the same path, and that is two failures. And
+            # where a run does print one failure twice (nextest's `failure-output = "immediate-final"`, cmux-tui/
+            # .config/nextest.toml `[profile.ci]`), it prints that failure's `test result:` summary twice as well, so
+            # the duplication is symmetric and a per-line count against summed totals balances exactly; a dedupe
+            # would compare one name against a total of two and refuse a one-test run
+            # (tests/test_test_reds.py EveryRustStepShapeIsNamed).
+            if reported is None:
+                # A count that cannot be read is unnamed unless its runner has a name left unaccounted for; how many
+                # it would draw is unknown, so it draws the whole pool.
+                if not since[runner]:
+                    found.append(text)
+                since[runner] = 0
+            elif reported > since[runner]:
                 found.append(text)
-            since[runner] = 0
+                since[runner] = 0
+            else:
+                since[runner] -= reported
     if not xc_family:
         found.extend(xc_summaries)
     return found
@@ -1870,9 +1921,11 @@ def web_cut_short(log: str | None) -> tuple[list[str], list[str], list[str]] | N
 
 
 def web_base_red_files(base_logs: list) -> set[str]:
-    """The webview test files the base logs name as red: failed (any of their tests, or the file) or timed out."""
+    """The webview test files the base logs name as red: failed (any of their tests, or the file). A file that only
+    timed out on the base is not red there: a cut-short file is never a base red, on the head or on the base (review
+    of #39840, F1)."""
     seen = merged_web(base_logs)
-    return {name.split(" > ", 1)[0] for name in seen.failed} | set(seen.timed_out)
+    return {name.split(" > ", 1)[0] for name in seen.failed}
 
 
 def classify_web_cut_short(head_log: str | None, windows, job: str = "", base: str = "the base") -> Verdict | None:
@@ -1954,6 +2007,8 @@ GALLERY_CRASH = re.compile(r"\bcrash|Target (?:page, context or browser )?(?:has
 GALLERY_SLOW = "over its ready-time budget"
 # A state past its layout-shift baseline (shift-baseline.ts); older checkers wrote no `shifted` list.
 GALLERY_SHIFT = "past its layout-shift baseline"
+# A state with a layout move the layout-motion contract does not declare (undeclared-baseline.ts).
+GALLERY_UNDECLARED = "makes an undeclared layout move"
 
 
 def gallery_read(text: str | None, keep_known: bool = False) -> Result:
@@ -1989,6 +2044,8 @@ def gallery_read(text: str | None, keep_known: bool = False) -> Result:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SLOW}")
     for item in found.get("shifted") or []:
         result.failed.add(f"{item.get('state', '')}: {GALLERY_SHIFT}")
+    for item in found.get("undeclared") or []:
+        result.failed.add(f"{item.get('state', '')}: {GALLERY_UNDECLARED}")
     for item in found.get("geometry") or []:
         for violation in item.get("violations") or []:
             result.failed.add(f"{item.get('state', '')}: breaks {violation.get('key', '')}")

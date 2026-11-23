@@ -3062,6 +3062,67 @@ fn tty_eof_releases_an_unterminated_line_first() {
     assert!(exec_cp::pty_line_open(Some(b'o')));
 }
 
+fn summary_invitation(route_hints: Vec<String>) -> EnrollmentInvitation {
+    EnrollmentInvitation {
+        version: 1,
+        id: "inv123".into(),
+        secret: String::new(),
+        daemon_public_key: String::new(),
+        daemon_fingerprint: String::new(),
+        daemon_name: "host".into(),
+        // 11:52:03 UTC on some day.
+        expires_at_unix: 1_700_000_000 - 1_700_000_000 % 86_400 + 11 * 3600 + 52 * 60 + 3,
+        route_hints,
+        relay_access: Vec::new(),
+        approval_required: true,
+    }
+}
+
+#[test]
+fn enroll_create_says_when_it_expires_who_it_binds_and_what_the_device_runs() {
+    let invitation = summary_invitation(vec!["ws://10.0.0.2:7000/v1/link".into()]);
+    let now = invitation.expires_at_unix - 300;
+    let device = BoundDevice { public_key: [7; 32], name: Some("laptop".into()) };
+    let lines = invitation_summary(&invitation, 300, Some(&device), now);
+    assert_eq!(
+        lines,
+        vec![
+            "expires in 5 min, at 11:52:03 UTC".to_string(),
+            format!(
+                "bound to device laptop ({}); it enrolls with no approval step",
+                device.fingerprint()
+            ),
+            "on the device, save the line above to an owner-only file (chmod 600) and run:".into(),
+            "  cmux remote connect ws://10.0.0.2:7000/v1/link --invite-file PATH".into(),
+        ]
+    );
+
+    // A longer --ttl than the daemon allows says it was capped; an unbound
+    // invitation names the approve command; no route hint leaves ROUTE.
+    let invitation = summary_invitation(Vec::new());
+    let lines = invitation_summary(&invitation, 3600, None, invitation.expires_at_unix - 300);
+    assert_eq!(lines[1], "asked for 60 min; the daemon caps an invitation at 5 min");
+    assert_eq!(
+        lines[2],
+        "not bound to a device: when it connects, approve it with `cmux remote enroll approve inv123`"
+    );
+    assert_eq!(lines[4], "  cmux remote connect ROUTE --invite-file PATH");
+}
+
+#[test]
+fn enroll_revoke_names_the_device_it_revoked() {
+    let record = serde_json::json!({ "id": "fp1", "name": "laptop", "fingerprint": "fp1" });
+    assert_eq!(
+        revoked_device_summary("fp1", &record),
+        "revoked device laptop (fp1); it can no longer connect"
+    );
+    // An older daemon replies `{}`: name the id that was passed.
+    assert_eq!(
+        revoked_device_summary("fp1", &serde_json::json!({})),
+        "revoked device fp1; it can no longer connect"
+    );
+}
+
 #[test]
 fn a_route_without_a_scheme_says_how_to_write_one() {
     let error = format!("{:#}", parse_route("127.0.0.1:47911", "route").unwrap_err());
