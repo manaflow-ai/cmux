@@ -33,13 +33,22 @@ const NEW = 'b'.repeat(40);
 const PUBLISHED = 1795426728; // 2026-11-23T09:38:48Z
 
 let channel;
+let manifest;
 let fetched;
 const realFetch = globalThis.fetch;
 beforeEach(() => {
   fetched = [];
   channel = { status: 200, payload: { channel: 'cloud-machine', purpose: 'cmux-cloud-machine-update', commit: NEW, published_at: PUBLISHED } };
+  manifest = { status: 200, commit: NEW, lastModified: null };
   globalThis.fetch = async (url) => {
     fetched.push(String(url));
+    if (String(url).endsWith('/manifest.json')) {
+      return {
+        ok: manifest.status === 200, status: manifest.status,
+        headers: { get: (h) => (h === 'last-modified' ? manifest.lastModified : null) },
+        async json() { return { commit: manifest.commit, binaries: {} }; },
+      };
+    }
     return { ok: channel.status === 200, status: channel.status, async json() { return { payload: b64(channel.payload), schema: 1, signatures: [] }; } };
   };
 });
@@ -88,7 +97,7 @@ test('a channel build newer than the pin dispatches its roll on feat-cmux-next',
   const { github, calls } = fakeGitHub();
   const core = await runStep(github);
   assert.deepEqual(calls.dispatches, [{ owner: 'o', repo: 'r', workflow_id: 'cloud-vm-image-roll.yml', ref: 'refs/heads/feat-cmux-next', inputs: { commit: NEW } }]);
-  assert.deepEqual(fetched, ['https://files.cmux.com/cmux-tui/channels/cloud-machine.json']);
+  assert.deepEqual(fetched, ['https://files.cmux.com/cmux-tui/channels/cloud-machine.json', `https://files.cmux.com/cmux-tui/${NEW}/manifest.json`]);
   assert.deepEqual(calls.compared, [`${PIN}...${NEW}`]);
   assert.ok(calls.files.every((f) => f.ref === 'refs/heads/feat-cmux-next'));
   const since = calls.listed.find((a) => a.status === 'completed');
@@ -190,4 +199,45 @@ test('a channel payload for another purpose or without a commit is refused', asy
     await assert.rejects(runStep(github), /unexpected payload/);
     assert.deepEqual(calls.dispatches, []);
   }
+});
+
+test('a channel build whose manifest is not published yet is not rolled and not counted', async () => {
+  manifest.status = 404;
+  const { github, calls } = fakeGitHub();
+  const core = await runStep(github);
+  assert.deepEqual(calls.dispatches, []);
+  assert.ok(!calls.listed.some((a) => a.status === 'completed'));
+  assert.match(core.notices.join('\n'), /not published yet/);
+});
+
+test('an unreadable manifest fails the step; one naming another commit is refused', async () => {
+  manifest.status = 503;
+  await assert.rejects(runStep(fakeGitHub().github), /manifest.json: HTTP 503/);
+  manifest.status = 200;
+  manifest.commit = PIN;
+  const { github, calls } = fakeGitHub();
+  await assert.rejects(runStep(github), /names another commit/);
+  assert.deepEqual(calls.dispatches, []);
+});
+
+test('rolls count from the manifest write when it is later than the channel signing (a re-run published hours later)', async () => {
+  manifest.lastModified = 'Mon, 23 Nov 2026 14:00:00 GMT';
+  const { github, calls } = fakeGitHub();
+  await runStep(github);
+  assert.equal(calls.listed.find((a) => a.status === 'completed').created, '>=2026-11-23T14:00:00Z');
+  assert.equal(calls.dispatches.length, 1);
+});
+
+test('an earlier manifest write keeps the channel signing as the start of the count', async () => {
+  manifest.lastModified = 'Mon, 23 Nov 2026 08:00:00 GMT';
+  const { github, calls } = fakeGitHub();
+  await runStep(github);
+  assert.equal(calls.listed.find((a) => a.status === 'completed').created, '>=2026-11-23T09:38:48Z');
+});
+
+test('a timed-out roll counts as failed', async () => {
+  const { github, calls } = fakeGitHub({ recent: [{ id: 1, conclusion: 'timed_out' }, { id: 2, conclusion: 'failure' }] });
+  const core = await runStep(github);
+  assert.deepEqual(calls.dispatches, []);
+  assert.match(core.warnings.join('\n'), /2 rolls .* failed/);
 });

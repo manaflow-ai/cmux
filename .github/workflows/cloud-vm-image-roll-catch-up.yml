@@ -14,10 +14,12 @@ name: Cloud VM image roll catch-up
 # nothing when:
 # - a roll is already queued or running (a new dispatch would replace a waiting one);
 # - images/cmux-vm/auto-roll.json says off (a dispatch ignores off, so this checks it first);
-# - the channel's build is the pin or older than it;
+# - the channel's build is the pin or older than it, or not published yet (the channel moves before the publish job
+#   writes the build's manifest.json);
 # - two rolls dispatched since the channel's build was published both failed (a red roll needs a fix, not
 #   a third bake of the same build), or three ran and the pin is still behind it (one in dry-run, where a
-#   roll never moves the pin). Any dispatched roll counts, a hand rebake too; the next publish resets both.
+#   roll never moves the pin). Any dispatched roll counts, a hand rebake too; they count from the later of the
+#   channel's signing and the manifest's write, so the next publish resets both. A timed-out roll counts as failed.
 # The roll's own plan job keeps every guard (on the branch, published for the image, not older than the pin,
 # binaries changed), so a wrong channel read can only cause a plan that rolls nothing.
 on:
@@ -95,8 +97,6 @@ jobs:
             const commit = payload.commit;
             const publishedAt = new Date(Number(payload.published_at) * 1000);
             if (Number.isNaN(publishedAt.getTime())) throw new Error(`cloud-machine channel: published_at is not a time: ${payload.published_at}`);
-            // GitHub's search dates are whole seconds (YYYY-MM-DDTHH:MM:SSZ).
-            const since = publishedAt.toISOString().replace(/\.\d{3}Z$/, 'Z');
 
             const file = async (path) => {
               const { data } = await github.rest.repos.getContent({ owner, repo, path, ref: `refs/heads/${source}` });
@@ -122,11 +122,28 @@ jobs:
               return;
             }
 
+            // The artifacts run points the channel at a build before its publish job writes the manifest the roll
+            // pins from (pin-cmux-tui.ts); a roll before then plans "not published for the image" and rolls nothing.
+            const manifestUrl = `https://files.cmux.com/cmux-tui/${commit}/manifest.json`;
+            const manifestRes = await fetch(manifestUrl, { cache: 'no-store', signal: AbortSignal.timeout(30_000) });
+            if (manifestRes.status === 404) {
+              core.notice(`cmux-tui ${commit.slice(0, 12)} is on the channel but not published yet (${manifestUrl}: 404); nothing to start`);
+              return;
+            }
+            if (!manifestRes.ok) throw new Error(`${manifestUrl}: HTTP ${manifestRes.status}`);
+            if ((await manifestRes.json()).commit !== commit) throw new Error(`${manifestUrl}: the manifest names another commit`);
+            // Rolls count from the later of the channel's signing and the manifest's write: a build re-run that
+            // publishes hours after the channel moved starts a fresh count.
+            const manifestAt = new Date(manifestRes.headers?.get?.('last-modified') ?? '');
+            const from = Number.isNaN(manifestAt.getTime()) || manifestAt < publishedAt ? publishedAt : manifestAt;
+            // GitHub's search dates are whole seconds (YYYY-MM-DDTHH:MM:SSZ).
+            const since = from.toISOString().replace(/\.\d{3}Z$/, 'Z');
+
             const { data: recent } = await github.rest.actions.listWorkflowRuns({
               owner, repo, workflow_id: workflow, branch: source, event: 'workflow_dispatch', status: 'completed',
               created: `>=${since}`, per_page: 10,
             });
-            const failed = recent.workflow_runs.filter((r) => r.conclusion === 'failure');
+            const failed = recent.workflow_runs.filter((r) => r.conclusion === 'failure' || r.conclusion === 'timed_out');
             if (failed.length >= 2) {
               core.warning(`${failed.length} rolls since cmux-tui ${commit.slice(0, 12)} was published failed (${failed.map((r) => r.id).join(', ')}); not baking it again until one is fixed`);
               return;
