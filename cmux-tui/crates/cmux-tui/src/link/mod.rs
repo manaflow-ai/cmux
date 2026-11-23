@@ -33,6 +33,7 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+mod spans;
 mod start_chat_cli;
 mod state;
 pub(crate) mod sync_cli;
@@ -141,6 +142,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
     if args.first().map(String::as_str) == Some("project") {
         return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
+    // `offload`: one local command run on a machine over this folder's view, its writes
+    // published back (sync_cli/offload.rs, RFD 0007 step 7).
+    if args.first().map(String::as_str) == Some("offload") {
+        return sync_cli::offload::run(args.get(1..).unwrap_or_default());
     }
     // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
     if args.first().map(String::as_str) == Some("memory") {
