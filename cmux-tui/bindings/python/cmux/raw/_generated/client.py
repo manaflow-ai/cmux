@@ -273,6 +273,12 @@ class GeneratedClientMixin:
     def conversation_runs(self, conversation: str, *, answers: Union[List[str], None, MissingType] = MISSING, before_started_at: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING, turns: Union[List[str], None, MissingType] = MISSING) -> ConversationRunsResult:
         return self._invoke_command('conversation-runs', ConversationRunsRequest(conversation=conversation, answers=answers, before_started_at=before_started_at, limit=limit, turns=turns))
 
+    def conversation_scheduled_list(self, *, conversation: Union[str, None, MissingType] = MISSING) -> ConversationScheduledListResult:
+        return self._invoke_command('conversation-scheduled-list', ConversationScheduledListRequest(conversation=conversation))
+
+    def conversation_scheduled_op(self, op: Union[JsonValue, None]) -> ConversationScheduledOpResult:
+        return self._invoke_command('conversation-scheduled-op', ConversationScheduledOpRequest(op=op))
+
     def conversation_search(self, limit: int, query: str) -> ConversationSearchResult:
         return self._invoke_command('conversation-search', ConversationSearchRequest(limit=limit, query=query))
 
@@ -456,8 +462,8 @@ class GeneratedClientMixin:
     def list_workspace_groups(self) -> JsonValue:
         return self._invoke_command('list-workspace-groups', ListWorkspaceGroupsRequest())
 
-    def list_workspaces(self, *, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> Tree:
-        return self._invoke_command('list-workspaces', ListWorkspacesRequest(known=known, limit=limit))
+    def list_workspaces(self, *, after: Union[int, None, MissingType] = MISSING, known: Union[ListWorkspacesKnown, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> Tree:
+        return self._invoke_command('list-workspaces', ListWorkspacesRequest(after=after, known=known, limit=limit))
 
     def machine_listening_tcp(self) -> MachineListeningTcpResult:
         return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
@@ -590,6 +596,9 @@ class GeneratedClientMixin:
 
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
+
+    def process_census(self) -> JsonValue:
+        return self._invoke_command('process-census', ProcessCensusRequest())
 
     def process_info(self, surface: Id) -> ProcessInfoResult:
         return self._invoke_command('process-info', ProcessInfoRequest(surface=surface))
@@ -1024,6 +1033,8 @@ GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-o
 GeneratedClientMixin.conversation_run.__cmux_command__ = COMMANDS['conversation-run']
 GeneratedClientMixin.conversation_run_append.__cmux_command__ = COMMANDS['conversation-run-append']
 GeneratedClientMixin.conversation_runs.__cmux_command__ = COMMANDS['conversation-runs']
+GeneratedClientMixin.conversation_scheduled_list.__cmux_command__ = COMMANDS['conversation-scheduled-list']
+GeneratedClientMixin.conversation_scheduled_op.__cmux_command__ = COMMANDS['conversation-scheduled-op']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']
 GeneratedClientMixin.conversation_snapshot.__cmux_command__ = COMMANDS['conversation-snapshot']
 GeneratedClientMixin.conversation_thread.__cmux_command__ = COMMANDS['conversation-thread']
@@ -1130,6 +1141,7 @@ GeneratedClientMixin.park_tabs.__cmux_command__ = COMMANDS['park-tabs']
 GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.pin_workspace.__cmux_command__ = COMMANDS['pin-workspace']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
+GeneratedClientMixin.process_census.__cmux_command__ = COMMANDS['process-census']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_blob.__cmux_command__ = COMMANDS['put-blob']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']

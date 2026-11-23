@@ -24,6 +24,8 @@ export type ErrorCode =
   | "machine_auth_unavailable"
   | "machine_no_person"
   | "account_not_on_hub"
+  | "not_asker"
+  | "other_account"
   | "internal";
 
 export class ApiError extends Error {
