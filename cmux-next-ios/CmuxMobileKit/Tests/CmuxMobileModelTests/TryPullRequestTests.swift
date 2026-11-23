@@ -43,11 +43,11 @@ import Testing
         await model.reload()
         #expect(model.load == .loaded(TryPullRequestList(prs: [TryPullRequest(number: 7, title: "x", build: .ahead)])))
         service.events = (1...10).map { .line("l\($0)") } + [.done(exit: 0)]
-        await model.install(7)
+        await model.start(7)
         #expect(model.install == .finished(number: 7, exit: 0, lines: (3...10).map { "l\($0)" }))
         // The channel ending before `done` (the app being replaced) is not a success.
         service.events = [.line("installing")]
-        await model.install(7)
+        await model.start(7)
         #expect(model.install == .failed(number: 7, message: "The Mac stopped answering before the install ended.", lines: ["installing"]))
     }
 }

@@ -66,7 +66,7 @@ public struct TryPullRequest: Identifiable, Hashable, Sendable {
         head = json["head"] as? String ?? ""
         updatedAt = (json["updated_at"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
         draft = json["draft"] as? Bool ?? false
-        build = (json["build"] as? String).flatMap(Build.init(rawValue:)) ?? .none
+        build = (json["build"] as? String).flatMap(Build.init(rawValue:)) ?? Build.none
     }
 }
 
@@ -163,7 +163,7 @@ public final class TryPullRequestModel {
         }
     }
 
-    public func install(_ number: Int) async {
+    public func start(_ number: Int) async {
         guard let service, !installing else { return }
         var lines: [String] = []
         install = .running(number: number, lines: lines)

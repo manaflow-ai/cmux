@@ -82,7 +82,7 @@ struct TryPullRequestPage: View {
             titleVisibility: .visible,
             presenting: confirming
         ) { pr in
-            Button("Install") { Task { await model.install(pr.number) } }
+            Button("Install") { Task { await model.start(pr.number) } }
         } message: { _ in
             Text("cmux Dev closes and reopens as that pull request's build. Your sign-in and pairing stay.")
         }
