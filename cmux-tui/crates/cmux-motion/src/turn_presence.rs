@@ -112,12 +112,12 @@ impl TurnPresence {
 
     /// Applies the change due by `at`, if any.
     pub fn advance(&mut self, at: u64) {
-        if let Some(due) = self.due() {
-            if at >= due {
-                self.shown = self.running;
-                self.shown_since = Some(due);
-                self.immediate = false;
-            }
+        if let Some(due) = self.due()
+            && at >= due
+        {
+            self.shown = self.running;
+            self.shown_since = Some(due);
+            self.immediate = false;
         }
     }
 
