@@ -2859,6 +2859,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextKeepAwake",
                 "CmuxNextMobile",
                 "CmuxNextPages",
+                "CmuxNextPhoneAccess",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
