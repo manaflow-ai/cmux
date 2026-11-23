@@ -43,11 +43,49 @@ fn an_off_scale_font_size_names_the_nearest_roles() {
 }
 
 #[test]
-fn a_title_style_that_drifts_between_renderers_is_named() {
+fn an_apple_title_style_off_the_roles_is_a_rename_hint() {
     let ops = scene(&[("Text", json!({"text": "Monday", "font": "largeTitle", "lineLimit": 1}))]);
     let findings = check(&[&ops], Surface::Other);
+    assert_eq!(findings.len(), 1, "{findings:?}");
     assert_eq!(findings[0].check, "type-style");
-    assert!(findings[0].message.contains("26 pt"), "{}", findings[0].message);
+    // One table draws it in both renderers now (RFD 0009 slice 2): no per-renderer sizes to report.
+    assert!(findings[0].message.contains("draws 34 pt regular"), "{}", findings[0].message);
+    assert_eq!(findings[0].fix, "rename it: font \"numeral\" or BigNumber(...)");
+}
+
+#[test]
+fn role_names_and_apple_names_at_a_role_are_clean() {
+    let ops = scene(&[
+        ("Text", json!({"text": "72", "font": "numeral", "lineLimit": 1})),
+        ("Text", json!({"text": "Monday", "font": "title", "lineLimit": 1})),
+        ("Text", json!({"text": "Lisbon", "font": "headline", "lineLimit": 1})),
+        ("Text", json!({"text": "Sunny", "font": "caption2", "lineLimit": 1})),
+    ]);
+    assert!(check(&[&ops], Surface::Widget).is_empty());
+}
+
+#[test]
+fn a_font_name_and_its_size_count_as_one_text_style() {
+    let ops = scene(&[
+        ("Text", json!({"text": "a", "font": "numeral", "lineLimit": 1})),
+        ("Text", json!({"text": "b", "font": 34, "weight": "semibold", "lineLimit": 1})),
+        ("Text", json!({"text": "c", "font": "headline", "lineLimit": 1})),
+        ("Text", json!({"text": "d", "font": "label", "lineLimit": 1})),
+        ("Text", json!({"text": "e", "font": "caption", "lineLimit": 1})),
+        ("Text", json!({"text": "f", "font": "footnote", "lineLimit": 1})),
+        ("Text", json!({"text": "g", "font": "caption2", "lineLimit": 1})),
+    ]);
+    // numeral, label, caption, footnote: four styles, within the limit.
+    assert!(check(&[&ops], Surface::Widget).is_empty());
+}
+
+#[test]
+fn a_font_name_no_renderer_knows_is_named() {
+    let ops = scene(&[("Text", json!({"text": "Hi", "font": "display", "lineLimit": 1}))]);
+    let findings = check(&[&ops], Surface::Other);
+    assert_eq!(findings[0].check, "type-style");
+    assert!(findings[0].message.contains("draws as body"), "{}", findings[0].message);
+    assert!(findings[0].fix.contains("numeral"), "{}", findings[0].fix);
 }
 
 #[test]
@@ -174,4 +212,35 @@ fn a_translucent_text_color_is_measured_as_drawn() {
     let contrast: Vec<_> =
         check(&[&ops], Surface::Widget).into_iter().filter(|f| f.check == "contrast").collect();
     assert!(contrast.iter().any(|f| f.message.contains("light background")), "{contrast:?}");
+}
+
+/// The `DesignCheck` gallery entry shows each recorded scene's warnings as this check gives them, so
+/// the record must follow the check. On a mismatch the message carries the current warnings: put
+/// them under each scene's `warnings` in the fixture.
+#[test]
+fn the_design_check_gallery_fixture_records_this_check() {
+    let text =
+        include_str!("../../../../../../webviews/src/apps/scene/fixtures/design-check-scenes.json");
+    let fixture: Value = serde_json::from_str(text).expect("the fixture reads");
+    let mut current = serde_json::Map::new();
+    let mut stale = Vec::new();
+    for (name, recorded) in fixture.as_object().expect("an object of scenes") {
+        let mut sides = serde_json::Map::new();
+        for side in ["before", "after"] {
+            let got: Vec<Value> = check(&[&recorded[side]], Surface::Widget)
+                .iter()
+                .map(|f| json!({"check": f.check, "count": f.count, "message": f.message}))
+                .collect();
+            if recorded["warnings"][side] != Value::Array(got.clone()) {
+                stale.push(format!("{name}.{side}"));
+            }
+            sides.insert(side.into(), Value::Array(got));
+        }
+        current.insert(name.clone(), Value::Object(sides));
+    }
+    assert!(
+        stale.is_empty(),
+        "stale warnings in design-check-scenes.json: {stale:?}\nCURRENT-WARNINGS {}",
+        Value::Object(current)
+    );
 }
