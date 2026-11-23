@@ -110,9 +110,13 @@ impl Hub {
     /// it again.
     pub(super) fn start_params(&self, session: &Session) -> Value {
         let mut params = super::pool::initialize_params();
-        if !self.for_a_person(session) {
-            params["_meta"] =
-                json!({"acpmux": {crate::claude_stdio::prompt_suggestions::NO_SUGGESTIONS: true}});
+        if !self.for_a_person(session)
+            && let Some(params) = params.as_object_mut()
+        {
+            params.insert(
+                "_meta".to_owned(),
+                json!({"acpmux": {crate::claude_stdio::prompt_suggestions::NO_SUGGESTIONS: true}}),
+            );
         }
         params
     }
