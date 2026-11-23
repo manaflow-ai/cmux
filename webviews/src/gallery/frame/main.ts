@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { overPicture, readEnv, widthPx } from "../env";
+import { overPicture, readEnv, SHELL_DEFAULT_BACKGROUND, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -13,7 +13,7 @@ import { watchStageErrors } from "./liveErrors";
 import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
-import { APP_ACCENTS, deriveAppTheme, type AppAccent } from "../../theme/appTheme";
+import { deriveAppTheme, APP_ACCENTS, type AppAccent } from "../../theme/appTheme";
 import { lookTheme, schemeOf } from "../golden/look";
 import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
@@ -29,6 +29,7 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
+import { installScrollingMarks } from "../../scrollers";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
@@ -126,7 +127,16 @@ const pair =
 const tokens = themeTokens(theme, accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
 // In the app, see-through follows the app's own window (its page background is clear over a backdrop).
-const seeThrough = appHosted ? appHostSeeThrough() : overPicture(env);
+// A variant that only means something over a picture (a pinned line over a wallpaper) names one, or one per scheme;
+// the env's own picture wins when the controls set one other than the shell's default painting (env.ts
+// SHELL_DEFAULT_BACKGROUND), which every shell link names.
+const asked = entry.variants[variantName]!.background;
+const variantBackground = typeof asked === "object" ? asked[scheme] : asked;
+const stageEnv =
+  variantBackground && (!overPicture(env) || env.background === SHELL_DEFAULT_BACKGROUND)
+    ? { ...env, background: variantBackground }
+    : env;
+const seeThrough = appHosted ? appHostSeeThrough() : overPicture(stageEnv);
 
 // The app's web view answers these from its window and the system settings itself.
 if (!appHosted)
@@ -159,7 +169,7 @@ if (seeThrough && !appHosted) {
   ]);
   // The same window-mode test as the shell's stage (Stage.tsx): page entries sit in a real pane.
   const windowed = env.frame === "window" && entry.host !== "native" && entry.host !== "component";
-  applyGalleryBackground(env, tokens, { windowed, metrics });
+  applyGalleryBackground(stageEnv, tokens, { windowed, metrics });
 }
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
@@ -212,6 +222,11 @@ const context: StageContext = {
   log: (method, params) => log.push({ method, params }),
   options: optionValues,
 };
+
+// The pages mark each scroller a wheel or scroll moves (pages/shared/pageHealth.ts), which shows a
+// shown scroller's thumb only while it scrolls (Leo 2026-11-22: "the thumb only appears when it's
+// relevant"); the stage does the same, or no gallery thumb could ever show.
+installScrollingMarks(document);
 
 if (stageRoot) {
   stageRoot.textContent = "";
@@ -287,6 +302,8 @@ function finishLoad(): void {
     boxShift: boxes.score,
     boxMoves: boxes.moves,
     boxFollow: boxes.follow,
+    // The load declares nothing: a box that drew twice in one place and then moves is undeclared.
+    ...(boxes.motion ? { undeclared: boxes.motion.undeclared, undeclaredMoves: boxes.motion.moves } : {}),
   };
 }
 

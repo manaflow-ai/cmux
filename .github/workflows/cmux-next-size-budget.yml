@@ -45,7 +45,7 @@ jobs:
     name: cmux-next size budget (plan)
     # An edit that adds, changes or removes no `size:` line changes nothing measured.
     if: ${{ !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:')))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -86,7 +86,7 @@ jobs:
     name: cmux-next size budget (web, base)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -119,7 +119,7 @@ jobs:
     name: cmux-next size budget (web, head)
     needs: plan
     if: ${{ needs.plan.outputs.tool == 'true' && needs.plan.outputs.web == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -145,10 +145,27 @@ jobs:
           # The base's counter, written out before the head's code runs.
           git show HEAD^1:scripts/cmux-next/bundle-size-pr.py > "$RUNNER_TEMP/bundle-size-pr.py"
           git show HEAD^1:scripts/cmux-next/bundle-size-budget.json > "$RUNNER_TEMP/bundle-size-budget.json"
+          # The startup JS each page parses before first paint (scripts/cmux-next/web-entry-js.mjs), the
+          # base's script and budget, the same way. It reports: an entry over its cap warns, nothing fails.
+          entry_js=false
+          if git show HEAD^1:scripts/cmux-next/web-entry-js.mjs > "$RUNNER_TEMP/web-entry-js.mjs" 2>/dev/null &&
+            git show HEAD^1:scripts/cmux-next/web-entry-js-budget.json > "$RUNNER_TEMP/web-entry-js-budget.json" 2>/dev/null; then
+            entry_js=true
+          fi
           (cd webviews && bun install --frozen-lockfile >/dev/null)
           ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
           bytes="$(python3 -I "$RUNNER_TEMP/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/bundle-size-budget.json")"
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          if [[ "$entry_js" == true ]]; then
+            rc=0
+            node "$RUNNER_TEMP/web-entry-js.mjs" "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/web-entry-js-budget.json" \
+              --markdown > "$RUNNER_TEMP/web-entry-js.md" || rc=$?
+            cat "$RUNNER_TEMP/web-entry-js.md"
+            { echo '### Startup JS per page'; cat "$RUNNER_TEMP/web-entry-js.md"; } >> "$GITHUB_STEP_SUMMARY"
+            if (( rc != 0 )); then
+              echo "::warning title=Startup JS over budget::$(head -1 "$RUNNER_TEMP/web-entry-js.md" | tr -d '*`')"
+            fi
+          fi
 
   size-budget:
     # An edit with no `size:` line skips this job, and a skipped job reads as success for a check:
@@ -157,7 +174,7 @@ jobs:
     needs: [plan, web-base, web-head]
     # Runs when the web builds ran or were skipped; a failed build fails this check below.
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read

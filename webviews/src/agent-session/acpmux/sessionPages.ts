@@ -204,6 +204,10 @@ export class SessionPager<S extends Summary> {
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;
+  /** Some notices were deliberately deferred: no cursor can describe the rows held now. */
+  private missedChanges = false;
+  private invalidations = 0;
+  private readInvalidations = 0;
   /** The connection identity this page's held list is kept under (`share`, `heldLists`). */
   private key?: string;
   /** The page after the rows held, while they are the first page and its follows rather than the
@@ -218,7 +222,7 @@ export class SessionPager<S extends Summary> {
    * rows was 400 notices ahead of every reply on the connection. The cursor stays at most `after`
    * until a read holds them, so a follow from it reads them.
    */
-  private owed?: { after: number; through: number };
+  private owed?: { after: number; through: number; epoch?: string };
 
   /** `held`: the rows the client holds now, which a follow lays its changes over. `readOwed`: asks
    *  for a list read (`first`), called when peer batch rows are owed and no read is out for them. */
@@ -237,9 +241,12 @@ export class SessionPager<S extends Summary> {
       typeof listSeq === "number" &&
       Number.isSafeInteger(listSeq)
     ) {
-      this.owed = this.owed
-        ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq) }
-        : { after: afterSeq, through: listSeq };
+      // The positions are the daemon run's the pager reads now (`listEpoch`): the list being read, else the one held.
+      const epoch = this.reading?.epoch ?? this.cursor?.epoch;
+      this.owed =
+        this.owed && this.owed.epoch === epoch
+          ? { after: Math.min(this.owed.after, afterSeq), through: Math.max(this.owed.through, listSeq), epoch }
+          : { after: afterSeq, through: listSeq, epoch };
       this.keepBelowOwed();
     }
     if (!this.loading) this.readOwed();
@@ -254,12 +261,22 @@ export class SessionPager<S extends Summary> {
   }
 
   /** A reply current to `seq` of a read of the rows changed after `from` (0: a whole list) holds the
-   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last. */
-  private readOwedTo(from: number, seq: number): void {
+   *  owed rows up to `seq` when it started at or below them; none are owed once that reaches the last.
+   *  A reply of another daemon run (`epoch`: the daemon restarted since the batch) owes none: that run's
+   *  rows and positions are gone, and the new run's list is read anew. Before, its positions (lower than
+   *  the batch's) never reached the batch's last row, so every list settled asked for one more read: the
+   *  agent page read the list again and again at idle (renderer 0.36-0.56 % of a core, the bundle's
+   *  acpmux 11-13 context switches a second, against 0.017 % and 0.2 before #46563). */
+  private readOwedTo(from: number, seq: number, epoch: string): void {
     const owed = this.owed;
-    if (!owed || from > owed.after) return;
+    if (!owed) return;
+    if (owed.epoch !== undefined && owed.epoch !== epoch) {
+      this.owed = undefined;
+      return;
+    }
+    if (from > owed.after) return;
     const after = Math.max(owed.after, seq);
-    this.owed = after < owed.through ? { after, through: owed.through } : undefined;
+    this.owed = after < owed.through ? { after, through: owed.through, epoch } : undefined;
   }
 
   /** Keeps this pager's list under `key`, the daemon connection it reads (`heldLists`): a pager of
@@ -271,6 +288,15 @@ export class SessionPager<S extends Summary> {
   /** Whether the rows held are the whole list: no later page waits to be read (`later`). */
   get holdsAll(): boolean {
     return this.more === undefined;
+  }
+
+  /** A hidden page discarded a notice; its next read must reset, even if later notices arrive. */
+  invalidate(): void {
+    this.missedChanges = true;
+    this.invalidations += 1;
+    this.cursor = undefined;
+    this.reading = undefined;
+    if (this.key) heldLists.delete(this.key);
   }
 
   /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile.
@@ -286,10 +312,11 @@ export class SessionPager<S extends Summary> {
     // Positions start again on another daemon run; until this list's reply says where it is, every
     // notice is kept (and one older than the reply dropped then, `listedFrom`).
     this.listedAt = 0;
-    let from = this.follows ? this.cursor : undefined;
+    let from = this.follows && !this.missedChanges ? this.cursor : undefined;
     // A new client of a connection this page read before (a reconnect, a client made again): the
     // list kept for it, followed from its cursor, never read again.
-    const kept = this.follows && !from && this.key ? heldLists.get(this.key) : undefined;
+    const kept = this.follows && !this.missedChanges && !from && this.key ? heldLists.get(this.key) : undefined;
+    this.readInvalidations = this.invalidations;
     if (kept) {
       from = kept.cursor;
       this.more = kept.more;
@@ -356,7 +383,7 @@ export class SessionPager<S extends Summary> {
     if (reply?.follow !== true) this.cursor = undefined;
     const at = cursorOf(reply);
     if (!at) return;
-    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq);
+    this.readOwedTo(reply?.follow === true ? asked : 0, at.seq, at.epoch);
     this.listedAt = at.seq;
     let seq = at.seq;
     for (const [sessionId, changedAt] of this.changedAt) {
@@ -475,10 +502,11 @@ export class SessionPager<S extends Summary> {
   done(run: number | undefined): void {
     if (run === undefined || run !== this.run) return;
     this.loading = false;
+    if (this.readInvalidations === this.invalidations) this.missedChanges = false;
     // Held now (the first page and its follows, or the whole list): a reconnect or a lag follows
     // from here. A list with no position (an older acpmux) leaves none, and the next one is read
     // anew as before.
-    this.cursor = this.reading;
+    this.cursor = this.missedChanges ? undefined : this.reading;
     this.keepBelowOwed();
     // A whole-list read still out keeps them until it lands (`settledWhole`).
     if (this.wholeReads === 0) this.forget();
@@ -491,7 +519,7 @@ export class SessionPager<S extends Summary> {
    *  (`heldLists`): at each list settled, and when the client closes (its cursor moved with every
    *  notice since). */
   keep(): void {
-    if (!this.key || !this.cursor || this.loading) return;
+    if (!this.key || !this.cursor || this.loading || this.missedChanges) return;
     heldLists.set(this.key, { rows: this.held(), cursor: this.cursor, ...(this.more ? { more: this.more } : {}) });
   }
 
@@ -512,7 +540,7 @@ export class SessionPager<S extends Summary> {
       if (run === this.run) {
         this.loading = false;
         // A page that fell back to the whole list (`whole`) read the list anew from its position.
-        this.cursor ??= this.reading;
+        if (!this.missedChanges) this.cursor ??= this.reading;
         if (this.wholeReads === 0) this.forget();
         this.keep();
       }
