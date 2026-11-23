@@ -52,7 +52,7 @@ grep -qx "local=" "$tmp/ready/reload-env" || fail "set CMUX_TUI_CLIENT_LOCAL for
 
 # A stand-in tree (CMUX_TUI_TREE_KEY) is published: no local build.
 make_source "$tmp/standin" none
-run "$tmp/standin" CMUX_TUI_TREE_KEY=0123456789abcdef0123456789abcdef01234567
+run "$tmp/standin" CMUX_TUI_TREE_KEY="$(printf "a%.0s" {1..40})"
 [ ! -e "$tmp/standin/client-built" ] || fail "built cmux-tui despite a stand-in tree"
 
 # An explicit binary wins.
