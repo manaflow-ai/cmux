@@ -75,6 +75,8 @@ type Drag = {
   clip: number;
   /// The view held the whole chat before the drag.
   fits: boolean;
+  /// The longest open Worked-for control list mounted for this drag.
+  workedControls: number;
 };
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 const pct = (values: number[], p: number) => {
@@ -103,15 +105,6 @@ try {
         (window as unknown as { __expandWorked: (open: boolean) => void }).__expandWorked(true),
       );
       await new Promise((resolve) => setTimeout(resolve, 50));
-      const controls = await page.evaluate(() =>
-        Math.max(
-          0,
-          ...[...document.querySelectorAll<HTMLElement>(".cv-worked[aria-controls]")].map(
-            (row) => row.getAttribute("aria-controls")?.split(" ").length ?? 0,
-          ),
-        ),
-      );
-      console.log(`transcript-resize-frame turns=${turns} worked_controls=${controls}`);
     }
     console.log(`transcript-resize-frame turns=${turns} fixture=${JSON.stringify(seeded)}`);
     for (const shape of cases) {
@@ -133,6 +126,12 @@ try {
               view === "latest" ? scroller.scrollHeight : (scroller.scrollHeight - scroller.clientHeight) / 2;
             for (let frame = 0; frame < 30; frame += 1) await new Promise(requestAnimationFrame);
             const fits = scroller.scrollHeight <= scroller.clientHeight + 1;
+            const workedControls = Math.max(
+              0,
+              ...[...document.querySelectorAll<HTMLElement>(".cv-worked[aria-controls]")].map(
+                (row) => row.getAttribute("aria-controls")?.split(" ").length ?? 0,
+              ),
+            );
             acpmuxPerf.enable();
             acpmuxPerf.resetFrames();
             const widths = [
@@ -232,6 +231,7 @@ try {
               heldDrift: Math.round(heldDrift * 10) / 10,
               heldSettleJump: Math.round(heldSettleJump * 10) / 10,
               clip: Math.round(clip * 10) / 10,
+              workedControls,
               fits,
             };
           },
@@ -283,7 +283,7 @@ try {
             `over_budget=${over} dropped=${dropped} interval_p95=${pct(run.intervals, 0.95)} react_p95=${run.reactMs} layout_p95=${run.layoutMs} ` +
             `overlap_frames=${run.overlaps} latest_drift_px=${run.drift} settle_jump_px=${run.settleJump} ` +
             `held_drift_px=${run.heldDrift} held_settle_jump_px=${run.heldSettleJump} top_clip_px=${run.clip} ` +
-            `spans_p95=${JSON.stringify(run.spans)}`,
+            `worked_controls=${run.workedControls} spans_p95=${JSON.stringify(run.spans)}`,
         );
       });
       perfRow({
