@@ -1970,7 +1970,8 @@ jobs:
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
     # ci-cache-writer environment never follows NEXT onto that worker.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && (needs.pick-nightly-build-runner.outputs.trusted && fromJSON(needs.pick-nightly-build-runner.outputs.trusted) || needs.pick-nightly-build-runner.outputs.owned)) || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
-    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
+    # nightly-next: env artifacts holds CMUX_STORE_SIGNING_KEY (store packages, "Build the web bundles").
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || github.ref == 'refs/heads/nightly-next' && 'artifacts' || '' }}
     # The cloud cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
@@ -2575,6 +2576,7 @@ jobs:
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
           RESTORED: ${{ steps.app-web-r2.outputs.cache-hit }}
+          STORE_SIGNING_KEY: ${{ secrets.CMUX_STORE_SIGNING_KEY }}
         run: bash scripts/ci/nightly-steps/app-build-web-bundles.sh
 
       - &x32
@@ -7356,6 +7358,9 @@ jobs:
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 240 || 120 }}
     permissions:
       contents: read
+    # continue-on-error makes this job's result success even when it failed: sign gates on built, not the result.
+    outputs:
+      built: ${{ steps.live-code-built.outputs.built }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -7383,11 +7388,16 @@ jobs:
         if: "!cancelled() && steps.upload-live-code.outcome == 'failure'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with: *live-code-upload
+      - name: Mark the live code overlay built
+        id: live-code-built
+        env:
+          COMMIT: ${{ needs.nightly-next-one.outputs.build_sha }}
+        run: bash scripts/ci/nightly-steps/live-code-variant.sh built "$COMMIT" "$RUNNER_TEMP/live-code"
 
   # Signs the overlay into the published nightly's app (no bundle code runs while a secret is in reach) on the signer.
   sign-live-code-variant:
     needs: [decide, nightly-next-one, build-live-code-variant]
-    if: "!cancelled() && needs.build-live-code-variant.result == 'success'"
+    if: "!cancelled() && needs.build-live-code-variant.outputs.built == 'true'"
     continue-on-error: true
     environment: ${{ needs.decide.outputs.environment }}
     # The signer label, a literal, as nightly-next-one takes it. Why: docs/ci/nightly-workflow-notes.md#note-33

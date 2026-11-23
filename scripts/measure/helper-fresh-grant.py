@@ -14,6 +14,10 @@ Sharing helper. Parts, each with its verdict in DIR/report.json and an HFG line:
   b  list_apps, then TextEdit: list_windows, screenshot, click, type_text, and the UI tree reads the typed text.
   c  the helper's own share host (`cmux-screen-sharing host`, its own responsible process) streams to a
      `cmux-rd bench` viewer on this Mac, which must decode frames (loopback-bench.sh's shape, with the marker).
+  d  the iPhone viewer's WebRTC host: the helper's `__webrtc-host` starts the app's own executable in
+     `--screen-stream-host` mode as the helper's child (MacScreenStreamProcess). With the helper's rows removed its
+     `ready` line must read screen recording false; with them written (the app's own rows never are), a new child
+     must read true, and a setup then `stop` must end it with a `done` line: the child uses the helper's grants.
 
 Exit 0 when every part run passed, 1 when one failed, 3 when it could not run.
 """
@@ -25,9 +29,12 @@ import os
 import plistlib
 import re
 import secrets
+import queue
 import signal
+import socket
 import struct
 import subprocess
+import threading
 import sys
 import time
 from pathlib import Path
@@ -37,6 +44,21 @@ SYSTEM_TCC = "/Library/Application Support/com.apple.TCC/TCC.db"
 GRANT_DEADLINE = 20.0
 TEXTEDIT = "com.apple.TextEdit"
 TYPED = "typed by cmux computer use"
+
+
+def wait_for(test, seconds: float, step: float = 0.2):
+    """test()'s first truthy value within `seconds` s (an error counts as not yet), else None."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            value = test()
+            if value:
+                return value
+        except Exception:  # noqa: BLE001 - not there yet
+            pass
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(step)
 
 
 def now() -> float:
@@ -332,7 +354,14 @@ class Run:
         if te:
             self.started_pids.append(te)
         r["textedit_pid"] = te
-        time.sleep(2)
+
+        def document_listed() -> bool:
+            _, wins = self.cu("call", "list_windows", "--args", json.dumps({"app_id": TEXTEDIT}))
+            listed = (self.find(wins, "windows") or []) if isinstance(wins, dict) else []
+            return any("hfg" in str(w.get("title", "")) for w in listed)
+        # TextEdit is up when Computer Use lists its document window (the list below reads the same call).
+        if not wait_for(document_listed, 20, step=0.25):
+            line("b: TextEdit's hfg window was not listed in 20 s; going on with what is listed")
         code, apps = self.cu("call", "list_apps")
         names = json.dumps(apps)
         r["steps"]["list_apps"] = {"exit": code, "has_textedit": TEXTEDIT in names, "count": len(self.find(apps, "apps") or [])
@@ -364,8 +393,9 @@ class Run:
         r["steps"]["press_key"] = {"exit": code, "body": str(body)[:200]}
         code, body = self.cu("call", "type_text", "--args", json.dumps({"window_id": wid, "text": " " + TYPED}))
         r["steps"]["type_text"] = {"exit": code, "body": str(body)[:300]}
-        time.sleep(1)
-        code, tree = self.cu("call", "get_ui_tree", "--args", json.dumps({"window_id": wid}))
+        # The typed text is in the window's UI tree (the check itself), read until it is or 10 s pass.
+        read = lambda: self.cu("call", "get_ui_tree", "--args", json.dumps({"window_id": wid}))
+        code, tree = wait_for(lambda: (lambda got: got if TYPED in json.dumps(got[1]) else None)(read()), 10, step=0.25) or read()
         r["steps"]["get_ui_tree"] = {"exit": code, "has_typed_text": TYPED in json.dumps(tree)}
         self.shot("b-textedit-after", wid)
         r["pass"] = bool(r["steps"]["list_apps"]["has_textedit"] and r["steps"]["click"]["exit"] == 0
@@ -389,7 +419,10 @@ class Run:
             m = subprocess.Popen([self.marker, "--verbose"], stdout=open(self.out / "marker.log", "w"),
                                  stderr=subprocess.STDOUT, start_new_session=True)
             self.started.append(m)
-            time.sleep(2)
+            # The marker is up when it logs its geometry (screen-stream-eval.sh waits on the same line).
+            if not wait_for(lambda: m.poll() is not None or "marker-origin" in (self.out / "marker.log").read_text(errors="replace"),
+                            10, step=0.1) or m.poll() is not None:
+                line(f"c: the marker logged no marker-origin in 10 s (exit {m.poll()})")
         token = secrets.token_hex(32)
         rfd, wfd = os.pipe()
         os.write(wfd, token.encode())
@@ -404,7 +437,13 @@ class Run:
         r["host_pid"] = host_pid
         if host_pid:
             self.started_pids.append(host_pid)
-        time.sleep(3)
+
+        def listening() -> bool:
+            with socket.create_connection(("127.0.0.1", 4103), timeout=1):
+                return True
+        # The host is up when it listens on its port (or it died: alive below says so).
+        if host_pid and not wait_for(lambda: not self.alive(host_pid) or listening(), 20, step=0.1):
+            line("c: the host did not listen on 127.0.0.1:4103 in 20 s")
         r["host_alive"] = self.alive(host_pid)
         t = now()
         rfd, wfd = os.pipe()
@@ -432,6 +471,92 @@ class Run:
             os.kill(host_pid, signal.SIGTERM)
         return r
 
+    def stream_child(self, exe: Path, name: str, session: bool) -> dict:
+        """One `__webrtc-host` child: its `ready` line, and (session) a setup, `stop` and its `done` line."""
+        r: dict = {}
+        errlog = open(self.out / f"{name}.log", "w")
+        p = subprocess.Popen([self.disclaim, str(exe), "__webrtc-host", str(self.app_exe), "--screen-stream-host"],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errlog, text=True, bufsize=1,
+                             env=self.env, start_new_session=True)
+        self.started.append(p)
+        lines: list[str] = []
+        deadline = now() + 30
+        # One reader thread per child: select() on a buffered text pipe misses lines already in its buffer.
+        got_lines: queue.Queue = queue.Queue()
+        def pump() -> None:
+            for raw in p.stdout:
+                got_lines.put(raw)
+            got_lines.put("")
+        threading.Thread(target=pump, daemon=True).start()
+        def read_until(pred) -> dict | None:
+            while now() < deadline:
+                try:
+                    raw = got_lines.get(timeout=max(0.0, deadline - now()))
+                except queue.Empty:
+                    break
+                if not raw:
+                    break
+                lines.append(raw.rstrip())
+                try:
+                    obj = json.loads(raw)
+                except ValueError:
+                    if raw.strip().isdigit():
+                        r["helper_pid"] = int(raw.strip())
+                        self.started_pids.append(int(raw.strip()))
+                    continue
+                if isinstance(obj, dict) and pred(obj):
+                    return obj
+            return None
+        got = read_until(lambda o: "ready" in o)
+        r["ready"] = got.get("ready") if got else None
+        if session and got:
+            p.stdin.write(json.dumps({"setup": {"name": "fresh-grant", "view_only": True, "ends_session_on_close": True},
+                                      "exclude_windows": []}) + "\n")
+            p.stdin.write(json.dumps({"stop": True}) + "\n")
+            p.stdin.flush()
+            done = read_until(lambda o: "done" in o)
+            r["done"] = done.get("done") if done else None
+        try:
+            p.stdin.close()
+        except OSError:
+            pass
+        r["lines"] = lines[-10:]
+        r["stderr_tail"] = (self.out / f"{name}.log").read_text(errors="ignore")[-600:]
+        return r
+
+    def part_d(self) -> dict:
+        r: dict = {"pass": False}
+        if not Path(self.disclaim).is_file():
+            r["error"] = "the disclaim launcher did not build"
+            return r
+        staged = sorted(self.home.glob(f"Library/Application Support/cmux-next/screen-sharing/{self.helper_id}/**/Contents/MacOS/cmux-screen-sharing"))
+        exe = staged[-1] if staged else None
+        r["helper_executable"] = str(exe) if exe else None
+        if not exe:
+            r["error"] = "no staged helper copy"
+            return r
+        if b"__webrtc-host" not in exe.read_bytes():
+            # A build from before cmux#51431 has no WebRTC host child: nothing to prove, not a failure.
+            r["skipped"] = "this build's helper has no __webrtc-host (before cmux#51431)"
+            line(f"d: SKIP: {r['skipped']}")
+            return r
+        app_id = plistlib.loads((self.app / "Contents/Info.plist").read_bytes())["CFBundleIdentifier"]
+        q = f"SELECT service, auth_value FROM access WHERE client='{app_id}';"
+        r["app_rows"] = {"user": sh(["sqlite3", self.user_db(), q])[1].split(),
+                         "system": sh(["sudo", "-n", "sqlite3", SYSTEM_TCC, q])[1].split()}
+        r["revoke"] = self.revoke()
+        r["denied"] = self.stream_child(exe, "webrtc-denied", session=False)
+        r["grant"] = self.grant()
+        r["granted"] = self.stream_child(exe, "webrtc-granted", session=True)
+        denied = (r["denied"].get("ready") or {}).get("screen_recording")
+        granted = (r["granted"].get("ready") or {})
+        done = r["granted"].get("done")
+        r["pass"] = bool(denied is False and granted.get("screen_recording") is True and granted.get("accessibility") is True
+                         and isinstance(done, dict) and not r["app_rows"]["user"] and not r["app_rows"]["system"])
+        line(f"d: {'PASS' if r['pass'] else 'FAIL'}: revoked ready {r['denied'].get('ready')}, granted ready {granted or None}, "
+             f"done {done}, the app's own rows {r['app_rows']}")
+        return r
+
     def teardown(self) -> None:
         for pid in self.started_pids:
             if self.alive(pid):
@@ -445,7 +570,8 @@ class Run:
                     os.killpg(p.pid, signal.SIGTERM)
                 except OSError:
                     pass
-        time.sleep(2)
+        # Each one ends on its SIGTERM; what is left after 5 s gets SIGKILL below.
+        wait_for(lambda: all(p.poll() is not None for p in self.started), 5, step=0.1)
         for p in self.started:
             if p.poll() is None:
                 try:
@@ -457,8 +583,8 @@ class Run:
     def main(self) -> int:
         verdicts = []
         try:
-            for name, fn in (("a", self.part_a), ("b", self.part_b), ("c", self.part_c)):
-                if name == "c" and not self.share:
+            for name, fn in (("a", self.part_a), ("b", self.part_b), ("c", self.part_c), ("d", self.part_d)):
+                if name in ("c", "d") and not self.share:
                     continue
                 if name != "a" and not self.session:
                     break
@@ -467,6 +593,8 @@ class Run:
                 except Exception as e:  # noqa: BLE001 - a part's crash is its verdict
                     res = {"pass": False, "error": f"{type(e).__name__}: {e}"}
                 self.report["parts"][name] = res
+                if res.get("skipped"):
+                    continue
                 verdicts.append(res.get("pass") is True)
                 if res.get("error"):
                     line(f"{name}: error: {res['error']}")
@@ -474,7 +602,8 @@ class Run:
         finally:
             self.teardown()
             self.save()
-        line("verdict " + " ".join(f"{k}={'PASS' if v.get('pass') else 'FAIL'}" for k, v in self.report["parts"].items()))
+        line("verdict " + " ".join(f"{k}={'SKIP' if v.get('skipped') else 'PASS' if v.get('pass') else 'FAIL'}"
+                                   for k, v in self.report["parts"].items()))
         return 0 if verdicts and all(verdicts) else 1
 
 
