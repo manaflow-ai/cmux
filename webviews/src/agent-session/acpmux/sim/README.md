@@ -65,9 +65,15 @@ It needs Chrome (Linux, a Freestyle VM or CI; never on a Mac). A step costs two 
 ```sh
 bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id>                    # a session's records, as recorded
 bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --from 2000 --to 9000
+bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --last 3000
 bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --sanitize test/fixtures/chat-sim/NAME.ndjson
 bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson
 ```
+
+`--from` and `--to` include both sequence numbers. `--last N` selects the last N sequence
+numbers in the log and can be combined with either bound. For a split acpmux log, the simulator
+probes segment headers and parses the segments that cover the range. A tail replay can start
+directly in the last segment.
 
 `--sanitize FILE` writes a fixture safe to commit, and runs it. It keeps the chat's shape (which records,
 in order, how far apart in time, how long each text is, where its lines and Markdown marks fall) and drops
@@ -106,6 +112,14 @@ the live pane read it, each in its own process: whole; its last 400 records, as 
 reads one page; and from halfway, as a reconnect. It prints each read's violations by rule, the first
 `--show` (5) with the time on his clock they happened. A capture takes well under a second, then
 `--replay FIXTURE --trace FILE` is the loop to develop against.
+
+### Replay every reported chat
+
+`bun scripts/chat-sim.ts --reported` replays every committed `.ndjson` fixture. Each capture's
+`.json` sidecar records how many distinct rows broke each rule in its whole replay. The command
+prints the change for each rule (e.g. `a-head-gap 9 -> 0`) and exits 1 if any count increased.
+After inspecting the changes, run `--reported --update` to write the new counts. That also records
+an initial baseline for older fixtures with none and preserves their capture metadata.
 
 ### Capture from another host
 
