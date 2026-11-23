@@ -39,15 +39,21 @@ final class ComposerTypingLagUITests: XCTestCase {
     @MainActor func testTyping5000CharactersAfterAttachments() throws { try typing(chars: 5_000) }
     @MainActor func testTyping500CharactersAfterAttachments() throws { try typing(chars: 500) }
     @MainActor func testTyping20000CharactersAfterAttachments() throws { try typing(chars: 20_000) }
+    /// The same flows with the old measure (`-cmux-mobile-composer-measure-whole`): the before
+    /// rows, reported, not asserted.
+    @MainActor func testBefore5000Characters() throws { try typing(chars: 5_000, wholeDraft: true) }
+    @MainActor func testBefore500Characters() throws { try typing(chars: 500, wholeDraft: true) }
+    @MainActor func testBefore20000Characters() throws { try typing(chars: 20_000, wholeDraft: true) }
 
     @MainActor
-    private func typing(chars: Int) throws {
+    private func typing(chars: Int, wholeDraft: Bool = false) throws {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_INPUT_LATENCY"] = "1"
         app.launchEnvironment["CMUX_MOBILE_DEMO_COMPOSER"] = "chars:\(chars)"
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-composer",
                                 "-cmux-mobile-low-power", "-cmux-mobile-term-no-intro"]
+        if wholeDraft { app.launchArguments.append("-cmux-mobile-composer-measure-whole") }
         app.launch()
         let field = app.textViews[Self.field]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal composer\n\(app.debugDescription)")
@@ -66,7 +72,7 @@ final class ComposerTypingLagUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
 
         let summary = summary(app)
-        let line = #"TYPINGLAG {"chars":\#(chars),"summary":\#(app.staticTexts["debug.input-latency"].label)}"#
+        let line = #"TYPINGLAG {"chars":\#(chars),"before":\#(wholeDraft),"summary":\#(app.staticTexts["debug.input-latency"].label)}"#
         print(line)
         let attachment = XCTAttachment(string: line)
         attachment.name = "typing-lag-\(chars)"
@@ -82,6 +88,7 @@ final class ComposerTypingLagUITests: XCTestCase {
             }
         }
 
+        guard !wholeDraft else { return }
         let commit = stats(summary, "\(Self.field)_key_commit")
         let units = stats(summary, "\(Self.field)_key_layout_units")
         XCTAssertGreaterThanOrEqual(commit["n"] ?? 0, 30, "keys measured: \(line)")

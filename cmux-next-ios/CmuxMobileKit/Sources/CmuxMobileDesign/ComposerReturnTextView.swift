@@ -109,6 +109,13 @@ open class ComposerReturnTextView: UITextView {
     public func contentHeight(width: CGFloat) -> CGFloat {
         let full = (text ?? "") as NSString
         let width = max(width, 1)
+        #if DEBUG
+        if Self.measuresWholeDraft {
+            // The old rule, for a before/after from one harness: the whole draft, one answer kept.
+            if let last = measured.last { measured = [last] }
+            return measure(full as String, width: width, whole: true)
+        }
+        #endif
         var limit = Self.measureChunk
         while true {
             if full.length <= limit { return measure(full as String, width: width, whole: true) }
@@ -206,6 +213,10 @@ open class ComposerReturnTextView: UITextView {
     /// test can see what one keystroke costs in text layout
     /// (`<field id>_key_layout_units`, ComposerTypingLagUITests).
     public static var measuredUnits = 0
+
+    /// `-cmux-mobile-composer-measure-whole`: measure the whole draft on every key with one
+    /// answer kept, as before the fix (ComposerTypingLagUITests' before rows).
+    static let measuresWholeDraft = CommandLine.arguments.contains("-cmux-mobile-composer-measure-whole")
 
     /// A typed key to the frame that draws it (`InputLatencyTrace`:
     /// `<field id>_key_frame`), to its frame committed (`_key_commit`), and
