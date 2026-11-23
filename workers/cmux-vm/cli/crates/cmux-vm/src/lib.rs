@@ -12,6 +12,7 @@ pub mod exit;
 mod config;
 mod creation_history;
 mod error;
+mod files;
 pub mod guest;
 mod output;
 mod prompt;
@@ -135,9 +136,9 @@ enum Command {
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
-    /// Read guest file metadata without starting the VM
+    /// Read guest files and metadata without starting the VM
     #[command(subcommand)]
-    File(FileCommand),
+    File(files::FileCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -182,12 +183,6 @@ struct CreationListArgs {
     /// Continue from a previous page's opaque cursor
     #[arg(long)]
     cursor: Option<String>,
-}
-
-#[derive(Subcommand, Debug)]
-enum FileCommand {
-    /// Show file metadata on a running, paused, stopped or retired VM
-    Stat(FileStatArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -236,14 +231,6 @@ struct ServerRevokeArgs {
 struct DeviceArg {
     /// Device id (dev_...)
     device_id: String,
-}
-
-#[derive(Args, Debug)]
-struct FileStatArgs {
-    /// VM id (vm_...)
-    vm_id: String,
-    /// Absolute guest path, without parent segments
-    path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -401,6 +388,13 @@ struct ExecArgs {
     /// Kill the command after this many milliseconds
     #[arg(long)]
     timeout_ms: Option<u64>,
+    /// Pass this variable of the CLI's own environment to the command (repeatable). Only the
+    /// name is typed: its value never appears in argv, so a secret stays out of `ps`
+    #[arg(long = "env", value_name = "NAME")]
+    env_names: Vec<String>,
+    /// The values of `env_names`, read from the environment before the request (not a flag)
+    #[arg(skip)]
+    env_values: Vec<(String, String)>,
     /// The command; several words are joined with spaces (put them after `--`)
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     command: Vec<String>,
@@ -475,9 +469,39 @@ struct CreateArgs {
     /// Disk of the new VM in MiB (16384-131072) [default: the base image's, 32768]
     #[arg(long, value_parser = clap::value_parser!(u32).range(16384..=131072))]
     disk_mib: Option<u32>,
+    /// Label the VM KEY=VALUE (repeatable); `list` answers each VM's labels
+    #[arg(long = "label", value_name = "KEY=VALUE", value_parser = parse_label)]
+    labels: Vec<(String, String)>,
     /// Reuse this key when retrying, so the VM is created only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
+}
+
+/// `KEY=VALUE` of `create --label`, both sides non-empty.
+fn parse_label(raw: &str) -> Result<(String, String), String> {
+    match raw.split_once('=') {
+        Some((key, value)) if !key.is_empty() && !value.is_empty() => {
+            Ok((key.to_owned(), value.to_owned()))
+        }
+        _ => Err(format!("expected KEY=VALUE, got {raw:?}")),
+    }
+}
+
+/// `exec --env NAME`'s values from ENV: every name must be set, so a missing secret refuses the
+/// exec instead of running the command without it.
+fn exec_env(
+    names: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<(String, String)>, CliError> {
+    names
+        .iter()
+        .map(|name| match env(name) {
+            Some(value) => Ok((name.clone(), value)),
+            None => Err(CliError::usage(format!(
+                "exec --env {name}: {name} is not set in this environment"
+            ))),
+        })
+        .collect()
 }
 
 #[derive(Args, Debug)]
@@ -684,8 +708,15 @@ async fn execute(
         cli.json,
         stderr,
     )?;
-    match cli.command {
+    let mut command = cli.command;
+    if let Command::Exec(args) = &mut command {
+        args.env_values = exec_env(&args.env_names, env)?;
+    }
+    match command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,
+        Command::File(command) => files::run(&client, command, cli.json, stdout)
+            .await
+            .map(|()| exit::OK),
         Command::Token(token::TokenCommand::Create(args)) => {
             let base = (settings.base_url != cmux_vm_client::DEFAULT_BASE_URL)
                 .then(|| settings.base_url.clone());
@@ -820,6 +851,13 @@ async fn dispatch(
                 "image": image,
                 "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
                 "resources": requested_resources(args.vcpus, args.memory_mib, args.disk_mib),
+                "labels": (!args.labels.is_empty())
+                    .then(|| {
+                        args.labels
+                            .iter()
+                            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+                            .collect::<serde_json::Map<String, Value>>()
+                    }),
             }))?;
             let key_text = args.idempotency_key.unwrap_or_else(new_idempotency_key);
             let key = parse_key::<types::VmsCreateVmIdempotencyKey>(&key_text)?;
@@ -1038,9 +1076,15 @@ async fn dispatch(
             out.retired(&response, id.as_str())
         }
         Command::Exec(args) => {
+            let env: serde_json::Map<String, Value> = args
+                .env_values
+                .into_iter()
+                .map(|(name, value)| (name, Value::String(value)))
+                .collect();
             let body: types::ExecRequest = request_body(json!({
                 "command": args.command.join(" "),
                 "timeoutMs": args.timeout_ms,
+                "env": (!env.is_empty()).then_some(env),
             }))?;
             let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
                 .await
@@ -1171,31 +1215,8 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::Run(_) | Command::Token(_) => {
+        Command::Run(_) | Command::Token(_) | Command::File(_) => {
             Err(CliError::usage("this verb needs the API credential"))
-        }
-        Command::File(FileCommand::Stat(args)) => {
-            let id = args
-                .vm_id
-                .parse::<types::VmId>()
-                .map_err(|_| CliError::usage("invalid VM id"))?;
-            if !args.path.starts_with('/')
-                || args.path.contains('\0')
-                || args.path.split('/').any(|part| part == "..")
-                || args.path.encode_utf16().count() > 4096
-            {
-                return Err(CliError::usage(
-                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
-                ));
-            }
-            let path = args
-                .path
-                .parse::<types::GuestPath>()
-                .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
-                .await
-                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
-            out.file_stat(&body)
         }
     }
 }

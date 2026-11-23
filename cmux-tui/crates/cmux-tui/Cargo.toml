@@ -69,20 +69,26 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table, and
+# `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
+cmux-cloud-handlers.workspace = true
 cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
-# `cmux vm new --size` headless: the app's size ladder (args.rs CREATE_SIZES).
-cmux-cloud-handlers.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
+# `slides`: a Markdown deck compiled to the deck page (cli/mcp/md_deck.rs); already linked for
+# cmux-conversation, no new crate.
+pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
+cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
@@ -103,6 +109,8 @@ cmux-vm-pool.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+# `cmux pack`: theme packs read, checked, compiled and swapped.
+cmux-theme-pack.workspace = true
 cmux-customize.workspace = true
 cmux-customize-recipes.workspace = true
 # `cmux app web-pieces` (cli/app/web_pieces.rs): the signed per-piece switch file of web updates.
@@ -197,6 +205,7 @@ cmux-automations.workspace = true
 cmux-holder.workspace = true
 # `cmux carrier supervise`: the serve socket's lease between supervisors (carrier/supervise.rs).
 cmux-file-lock.workspace = true
+cmux-install-check.workspace = true
 # Projected folders (link/sync_cli/project.rs): the manifest and the stream the machine reads through.
 cmux-projection.workspace = true
 # `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.

@@ -65,7 +65,7 @@ impl Guest {
 
     /// Until `vm_id` runs (five minutes at most); a VM that stops or fails meanwhile is an error.
     pub async fn wait_running(&self, vm_id: &str) -> Result<(), GuestError> {
-        Ok(crate::run::wait_running(&self.client, vm_id).await?)
+        Ok(crate::run::wait_running_id(&self.client, vm_id).await?)
     }
 
     /// Runs `command` in the guest's shell. Not retried but on a 429 (an exec may have started).

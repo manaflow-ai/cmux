@@ -14,6 +14,158 @@
       }
     }
   },
+  "macScreen.readout.codec": {
+    "source": "Codec",
+    "identityLocales": {
+      "da": {
+        "reason": "Codec is the standard technical term in Danish.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "de": {
+        "reason": "Codec is the standard technical term in German.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "fr": {
+        "reason": "Codec is the standard technical term in French.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "it": {
+        "reason": "Codec is the standard technical term in Italian.",
+        "values": [
+          "Codec"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Codec is the standard technical term in Brazilian Portuguese.",
+        "values": [
+          "Codec"
+        ]
+      }
+    }
+  },
+  "macScreen.readout.mode": {
+    "source": "Mode",
+    "identityLocales": {
+      "fr": {
+        "reason": "Mode is the standard French word for a mode.",
+        "values": [
+          "Mode"
+        ]
+      }
+    }
+  },
+  "macScreen.readout.standard": {
+    "source": "Standard",
+    "identityLocales": {
+      "da": {
+        "reason": "Standard is the standard Danish word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "de": {
+        "reason": "Standard is the standard German word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "fr": {
+        "reason": "Standard is the standard French word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "it": {
+        "reason": "Standard is the standard Italian word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      },
+      "nb": {
+        "reason": "Standard is the standard Norwegian word for the default quality.",
+        "values": [
+          "Standard"
+        ]
+      }
+    }
+  },
+  "macScreen.readout.ultra": {
+    "source": "Ultra",
+    "identityLocales": {
+      "bs": {
+        "reason": "Ultra is the quality profile's name, kept as is in Bosnian, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "da": {
+        "reason": "Ultra is the quality profile's name, kept as is in Danish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "de": {
+        "reason": "Ultra is the quality profile's name, kept as is in German, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "es": {
+        "reason": "Ultra is the quality profile's name, kept as is in Spanish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "fr": {
+        "reason": "Ultra is the quality profile's name, kept as is in French, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "it": {
+        "reason": "Ultra is the quality profile's name, kept as is in Italian, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "nb": {
+        "reason": "Ultra is the quality profile's name, kept as is in Norwegian, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "pl": {
+        "reason": "Ultra is the quality profile's name, kept as is in Polish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Ultra is the quality profile's name, kept as is in Brazilian Portuguese, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "tr": {
+        "reason": "Ultra is the quality profile's name, kept as is in Turkish, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      },
+      "vi": {
+        "reason": "Ultra is the quality profile's name, kept as is in Vietnamese, as video tools label it.",
+        "values": [
+          "Ultra"
+        ]
+      }
+    }
+  },
   "settings.choice.groupGradientAurora": {
     "source": "Aurora",
     "identityLocales": {
@@ -7510,6 +7662,84 @@
     "class": "brand",
     "source": "cmux Live: %@"
   },
+  "argument.cloud.computerControl.action": {
+    "source": "Control",
+    "identityLocales": {
+      "es": "Control is the standard Spanish word for this argument."
+    }
+  },
+  "argument.cloud.computerControl.machine": {
+    "source": "Machine",
+    "identityLocales": {
+      "fr": "Machine is the standard French word for a computer in this sense."
+    }
+  },
+  "argument.value.cloud.computerControl.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Status is the standard German word."
+    }
+  },
+  "home.engine.computer.upgrade": {
+    "source": "Upgrade",
+    "identityLocales": {
+      "de": "Upgrade is the usual German term for moving to a higher plan."
+    }
+  },
+  "home.engine.tab.computer": {
+    "source": "Computer",
+    "identityLocales": {
+      "de": "Computer is the standard German word for a computer."
+    }
+  },
+  "home.engine.section.computer": {
+    "source": "Computer",
+    "identityLocales": {
+      "de": "Computer is the standard German word for a computer."
+    }
+  },
+  "home.engine.tab.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German plural of Detail."
+    }
+  },
+  "home.engine.connection.gmail": {
+    "class": "brand",
+    "source": "Gmail"
+  },
+  "home.engine.connection.calendar": {
+    "source": "Google Calendar",
+    "identityLocales": {
+      "es": "Google Calendar is the product's name in Spanish."
+    }
+  },
+  "argument.cloud.chiefComputer.chief": {
+    "class": "brand",
+    "source": "Chief"
+  },
+  "argument.cloud.chiefComputer.args": {
+    "source": "Arguments",
+    "identityLocales": {
+      "fr": {
+        "reason": "Arguments is the standard French plural noun for command arguments.",
+        "values": [
+          "Arguments"
+        ]
+      }
+    }
+  },
+  "argument.cloud.chiefComputer.op": {
+    "source": "Action",
+    "identityLocales": {
+      "fr": {
+        "reason": "Action is the standard French noun for an action.",
+        "values": [
+          "Action"
+        ]
+      }
+    }
+  },
   "cloudTeam.section.title": {
     "source": "Team",
     "identityLocales": {
@@ -7701,6 +7931,189 @@
       "de": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
       "fr": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required.",
       "es": "Ultra is the profile's product name, spelled the same in this locale (the Ultra Connection Mode row's own name keeps it too); a translated entry is still required."
+    }
+  },
+  "backdrop.shader.sakura": {
+    "source": "Sakura",
+    "identityLocales": {
+      "bs": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "da": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "de": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "es": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "fr": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "it": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "nb": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "pl": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      },
+      "tr": {
+        "reason": "Sakura is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sakura"
+        ]
+      }
+    }
+  },
+  "backdrop.shader.sumi": {
+    "source": "Sumi",
+    "identityLocales": {
+      "bs": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "da": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "de": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "es": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "fr": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "it": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "nb": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "pl": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      },
+      "tr": {
+        "reason": "Sumi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Sumi"
+        ]
+      }
+    }
+  },
+  "backdrop.shader.koi": {
+    "source": "Koi",
+    "identityLocales": {
+      "bs": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "da": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "de": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "es": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "it": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "nb": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "pt-BR": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      },
+      "tr": {
+        "reason": "Koi is a name (a loanword) kept in Latin letters.",
+        "values": [
+          "Koi"
+        ]
+      }
     }
   }
 }

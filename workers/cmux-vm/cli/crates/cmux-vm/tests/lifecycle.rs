@@ -2412,6 +2412,77 @@ async fn exec_posts_the_command_and_prints_the_guest_output() {
 }
 
 #[tokio::test]
+async fn exec_env_sends_named_variables_from_the_environment_never_argv() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/exec")))
+        .and(authorized())
+        .and(body_json(json!({
+            "command": "tailscale up",
+            "env": { "TS_AUTHKEY": "tskey-secret" },
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "exitCode": 0, "stdout": "ok\n", "stderr": "" })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let env = [
+        ("CMUX_VM_API_KEY", KEY),
+        ("CMUX_VM_BASE_URL", uri.as_str()),
+        ("TS_AUTHKEY", "tskey-secret"),
+    ];
+    let args = ["exec", VM_ID, "--env", "TS_AUTHKEY", "--", "tailscale up"];
+    let out = cli_with_env(&args, &env).await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(out.stdout, "ok\n");
+
+    // A name the environment does not set refuses the exec: nothing runs without its secret.
+    let args = ["exec", VM_ID, "--env", "NOT_SET", "--", "tailscale up"];
+    let out = cli_with_env(&args, &env).await;
+    assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
+    assert!(
+        out.stderr.contains("NOT_SET is not set"),
+        "stderr: {}",
+        out.stderr
+    );
+}
+
+#[tokio::test]
+async fn create_sends_labels() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/vms"))
+        .and(authorized())
+        .and(body_json(json!({
+            "displayName": "agent-lane-1",
+            "labels": { "fleet": "agent-lanes", "slot": "agent-lane-1" },
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(vm("starting")))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let args = [
+        "--json",
+        "create",
+        "--name",
+        "agent-lane-1",
+        "--label",
+        "fleet=agent-lanes",
+        "--label",
+        "slot=agent-lane-1",
+    ];
+    let out = cli(&server, &args).await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out)["id"], VM_ID);
+
+    let out = cli(&server, &["create", "--label", "no-equals"]).await;
+    assert_eq!(out.code, exit::USAGE, "stderr: {}", out.stderr);
+}
+
+#[tokio::test]
 async fn exec_fails_when_the_command_fails() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

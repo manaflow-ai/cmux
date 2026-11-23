@@ -111,7 +111,14 @@ async fn keystrokes_do_not_wait_for_workspace_side_queries() {
         let incoming = mac.accept().await.unwrap();
         serve(
             config,
-            Peer { device_id: "test-phone".into(), session_id: "test-session".into(), video: None, session_exposure: None },
+            Peer {
+                device_id: "test-phone".into(),
+                session_id: "test-session".into(),
+                video: None,
+                session_exposure: None,
+                route: None,
+                path: None,
+            },
             Arc::new(LinkAuth::default()),
             incoming,
         )

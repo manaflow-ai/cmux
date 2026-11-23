@@ -12,9 +12,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::remote_host_agent as agent;
 use super::{GlobalArgs, OutputMode, parse_globals, raw};
 
-const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|grants|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch. DEV builds embed cmux Remote; Release and NIGHTLY do not, and there Screen Sharing uses the cmux app: status says so, and share off and stop go to the app.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux)\n  cmux remote-host share on --device DEVICE     Share another Mac of yours: you confirm here, in this device's cmux, and that Mac admits it only from a machine its owner granted\n  cmux remote-host grants [--device DEVICE] [--open]\n                                                Which macOS grant cmux Remote lacks on a Mac (--open opens its System Settings pane there), and whether an agent can click it over screen sharing\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
+const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|grants|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch. DEV builds embed cmux Remote; Release and NIGHTLY do not, and there Screen Sharing uses the cmux app: status says so, and share off and stop go to the app.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux, unless they let their agents share their machines: Settings > Devices)\n  cmux remote-host share on --device DEVICE     Share another Mac of yours: you confirm here, in this device's cmux, and that Mac admits it only from a machine its owner granted\n  cmux remote-host grants [--device DEVICE] [--open]\n                                                Which macOS grant cmux Remote lacks on a Mac (--open opens its System Settings pane there), and whether an agent can click it over screen sharing\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
 
 /// How long the person may take to answer cmux's confirmation sheet: the CLI and the
 /// `remote_*` MCP tools wait this long for the click. The app's `remote.confirm` deadline
@@ -55,8 +56,13 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         ["restart", worker @ ("computer-use" | "screen-sharing"), "--force"] => {
             call("restart", json!({"worker": worker, "force": true}))
         }
-        ["share", "off"] => lower(&global, LowerChange::ShareOff),
-        ["share", "on"] => app(&global, json!({"action": "share", "on": true})),
+        ["share", "off"] => share_off(&global),
+        ["share", "on"] => {
+            let params = agent::with_ticket(json!({"action": "share", "on": true}), || {
+                daemon_value(&global, &agent::ticket_request("share", None, &agent::this_agent()))
+            });
+            app(&global, params)
+        }
         ["share", "on", "--device", device] => share_device(&global, device),
         ["grants", rest @ ..] => match grants_args(rest) {
             Some((device, open)) => grants(&global, device, open),
@@ -80,12 +86,28 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 }
 
 fn usage(global: &GlobalArgs, args: &[String]) -> i32 {
-    super::scope_usage_failure(
-        global.output,
-        "remote-host",
-        &super::unknown_words("remote-host", args),
-        HELP,
-    )
+    super::scope_usage_failure(global.output, "remote-host", &refusal(args), HELP)
+}
+
+/// Each verb's argument shapes, as HELP writes them.
+const VERB_USAGE: &[(&str, &str)] = &[
+    ("request", "request accessibility|screen-recording"),
+    ("open-settings", "open-settings accessibility|screen-recording"),
+    ("restart", "restart computer-use|screen-sharing [--force]"),
+    ("share", "share on|off, or share on --device DEVICE"),
+    ("grants", "grants [--device DEVICE] [--open]"),
+    ("access", "access DEVICE none|ask|view|full"),
+];
+
+/// What the refusal says: a known verb with the wrong arguments names that
+/// verb's usage (a bare `access` is not an unknown command); anything else
+/// names the first word the scope does not take.
+fn refusal(args: &[String]) -> String {
+    let verb = args.first().map(String::as_str).unwrap_or_default();
+    match VERB_USAGE.iter().find(|(name, _)| *name == verb) {
+        Some((_, shape)) => format!("usage: cmux remote-host {shape}"),
+        None => super::unknown_words("remote-host", args),
+    }
 }
 
 fn permission_name(word: &str) -> Option<&'static str> {
@@ -270,13 +292,32 @@ pub(crate) fn confirm_allow_agents() -> Result<Value, Value> {
 /// approval only after the click; the target Mac admits it (`remote_host::share_approval`).
 fn share_device(global: &GlobalArgs, device: &str) -> i32 {
     use crate::remote_host::share_approval;
-    let ask =
-        |params| super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None);
+    let ask = |params| {
+        // With the account's permission on, the app signs for its owner's agent with no dialog.
+        let params = agent::with_ticket(params, || {
+            daemon_value(
+                global,
+                &agent::ticket_request("share", Some(device), &agent::this_agent()),
+            )
+        });
+        super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None)
+    };
     let deliver = share_approval::AwaitingSameAccountControl;
     match share_approval::share_from_here(device, ask, &deliver, crate::devices::record) {
         Ok(value) => super::wire::print_local_success(&value, global.output),
         Err(error) => super::wire::print_local_error(&error, global.output, 1),
     }
+}
+
+/// `share off`: the app turns it off as the agent's change when it takes the agent's ticket
+/// (`remote_host_agent::share_off`); otherwise exactly as before (`LowerChange::ShareOff`).
+fn share_off(global: &GlobalArgs) -> i32 {
+    agent::share_off(
+        || daemon_value(global, &agent::ticket_request("unshare", None, &agent::this_agent())),
+        |params| super::mcp::agent_app(global, "remote.confirm", params, CONFIRM_TIMEOUT, None),
+        |answer| super::wire::print_local_success(&answer, global.output),
+        || lower(global, LowerChange::ShareOff),
+    )
 }
 
 /// `grants`' flags: `--device DEVICE` and `--open`, once each, in any order.
