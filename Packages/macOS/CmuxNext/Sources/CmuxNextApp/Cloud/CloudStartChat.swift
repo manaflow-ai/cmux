@@ -311,6 +311,31 @@ extension CloudStartChat {
     /// button names (Models for Cloud: Claude, ChatGPT, API key). Lane D's `cmux.settings.models.run` takes
     /// over ``CloudSetup/run`` for Continue with ChatGPT and Set up Claude (`claudeSetupToken`), and calls
     /// ``CloudSetup/connectionsChanged()`` on every `cmux.settings.models.changed`.
+    /// The agents the gateway of the team a start's machine is made in serves now, for the start gate
+    /// (``CloudSetup/gateway``; hq#15762): a team in inference gateway mode, its gateway online, serves a chat with no
+    /// connection of the person's own. The team is the install token's (the one the machine is made in), never the active
+    /// team's. The token waits for this launch's bind, as the relay's does: a start right after launch otherwise read no
+    /// team and refused ("No Cloud connection serves claude yet") with the gateway online (hq cloud-chat-works,
+    /// production 2026-11-23 00:03Z and 00:34Z). Each unread or empty answer logs why.
+    @MainActor static func gatewayServes(_ services: AppServices) async -> Set<String>? {
+        let log = services.cloud.logger
+        guard !services.accounts.agentKeys.scopeIsSignedOut else { log.info("cloud start gate: gateway unread: no team scope"); return nil }
+        guard let binary = services.cloud.move.cli else { log.error("cloud start gate: gateway unread: no bundled cmux"); return nil }
+        let token: String
+        do { token = try await services.cloud.installIdentity.installToken(awaitingBind: .seconds(8)) } catch {
+            log.error("cloud start gate: gateway unread: install token: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        guard let team = MacInstallIdentity.team(ofToken: token) else { log.error("cloud start gate: gateway unread: the install token names no team"); return nil }
+        let read = await CloudMoveCLI(binary: binary).inferenceGatewayRead(team: team)
+        if let serves = read.serves {
+            log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(serves.sorted().joined(separator: ","), privacy: .public)]")
+        } else {
+            log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+        }
+        return read.serves
+    }
+
     @MainActor static func wireSetup(_ services: AppServices) {
         services.cloud.setup.read = { [weak services] in
             guard let services else { return .init(personal: nil, organization: nil) }
@@ -321,7 +346,7 @@ extension CloudStartChat {
             let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
-        services.cloud.setup.gateway = { [weak services] in guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli, let team = await services.cloud.installIdentity.installTeam() else { return nil }; return await CloudMoveCLI(binary: binary).inferenceGatewayServes(team: team) } // a team in inference gateway mode, its gateway online, serves a chat with no connection of the person's own (hq#15762): the team the start's machine is made in (the install token's), whose gateway serves it, never the active team's
+        services.cloud.setup.gateway = { [weak services] in guard let services else { return nil }; return await gatewayServes(services) }
         services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
