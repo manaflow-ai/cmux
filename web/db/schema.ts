@@ -1922,6 +1922,28 @@ export const cloudIntroPasses = pgTable(
   ],
 );
 
+/**
+ * The cmux Cloud free week (services/billing/cloudTaste.ts): one row per
+ * person ever granted one, so the row is the once-per-person rule. No card and
+ * no payment are involved. `stack_team_ids` are the teams the person belonged
+ * to at the grant; a team gets one free week across its members. Rows are
+ * never deleted when the week ends.
+ */
+export const cloudTasteGrants = pgTable(
+  "cloud_taste_grants",
+  {
+    stackUserId: text("stack_user_id").primaryKey(),
+    stackTeamIds: text("stack_team_ids").array().notNull().default(sql`'{}'::text[]`),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_taste_grants_stack_team_ids_idx").using("gin", table.stackTeamIds),
+    index("cloud_taste_grants_started_idx").on(table.startedAt),
+  ],
+);
+
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",
   {

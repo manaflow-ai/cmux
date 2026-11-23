@@ -625,6 +625,24 @@ describe("dashboard billing screen", () => {
     }
   });
 
+  test("welcomes a free week only while the flag is on", async () => {
+    const previous = process.env.CMUX_CLOUD_INTRO;
+    try {
+      delete process.env.CMUX_CLOUD_INTRO;
+      expect(await renderBillingPage({ welcome: "taste" })).not.toContain('data-testid="cloud-taste-welcome"');
+      process.env.CMUX_CLOUD_INTRO = "1";
+      const html = await renderBillingPage({ welcome: "taste" });
+      expect(html).toContain('data-testid="cloud-taste-welcome"');
+      expect(html).toContain("Your free Chief week is on");
+      expect(html).toContain("It runs for 7 days: one Chief with 10 awake hours (1,200 machine-minutes).");
+      expect(html).not.toContain('data-testid="cloud-intro-welcome"');
+      expect(html).not.toContain('data-testid="plan-welcome"');
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_INTRO;
+      else process.env.CMUX_CLOUD_INTRO = previous;
+    }
+  });
+
   for (const [billing, message] of [
     ["cancelled", "Your plan will cancel at the end of the current billing period."],
     ["resumed", "Your plan has been resumed and will renew normally."],

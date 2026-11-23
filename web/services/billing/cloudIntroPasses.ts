@@ -77,7 +77,13 @@ export type CloudIntroPassStore = {
 };
 
 const passes = cloudIntroPasses;
-const SETTLE_LOCK_KEY = "cmux:cloud_intro:settle";
+/**
+ * One lock for every entry-offer decision: the pass's settle and the free
+ * week's grant (cloudTasteGrants.ts) both take it, so "had a pass" and "had a
+ * free week" are read and written in one order.
+ */
+export const CLOUD_ENTRY_OFFER_LOCK_KEY = "cmux:cloud_intro:settle";
+const SETTLE_LOCK_KEY = CLOUD_ENTRY_OFFER_LOCK_KEY;
 
 export function createDrizzleCloudIntroPassStore(
   db: () => ReturnType<typeof cloudDb> = cloudDb,

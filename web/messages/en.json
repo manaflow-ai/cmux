@@ -949,7 +949,9 @@
         "banner": "You are on {plan} now.",
         "bannerLink": "Plan & billing",
         "introTitle": "Your $1 pass is on",
-        "introBody": "It runs for {days} days. {hours} Chief hours and {minutes} machine-minutes are released each week."
+        "introBody": "It runs for {days} days. {hours} Chief hours and {minutes} machine-minutes are released each week.",
+        "tasteTitle": "Your free Chief week is on",
+        "tasteBody": "It runs for {days} days: one Chief with {hours} awake hours ({minutes} machine-minutes). No card is on file and nothing renews."
       },
       "appStore": {
         "title": "Billed through the App Store",
@@ -2152,6 +2154,10 @@
       "intro_sold_out_today": "Today's $1 passes are gone. Try again tomorrow.",
       "intro_sold_out": "The first $1 passes are gone.",
       "intro_unavailable": "The $1 pass is not available for this account."
+    },
+    "cloudTaste": {
+      "taste_sold_out_today": "Today's free Chief weeks are gone. Try again tomorrow.",
+      "taste_unavailable": "The free Chief week is not available for this account."
     }
   },
   "home": {
@@ -7723,6 +7729,11 @@
       "afterTitle": "After {days} days",
       "after": "We ask: Plus, Pro, or not now. If not now, machines pause, messages are held, and everything is kept {keepDays} days, with notices before anything is deleted.",
       "who": "For individuals new to paid cmux Cloud, once per person and card. A limited number each day."
+    },
+    "taste": {
+      "line": "Or try a Chief free for a week. No card.",
+      "detail": "One Chief on the smallest machine ({vcpu} vCPU) for {days} days, with {hours} awake hours ({minutes} machine-minutes). Once per person, a limited number each day.",
+      "cta": "Start the free week"
     }
   }
 }

@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import { settingsButtonClass } from "@/dashboard-app/components/settings-ui/styles";
 import { cloudIntroOfferFacts } from "@/services/billing/cloudIntroOffer";
+import { CLOUD_TASTE_AWAKE_HOURS, CLOUD_TASTE_INCLUDED, CLOUD_TASTE_TERM_DAYS } from "@/services/billing/cloudTaste";
 
 export type WelcomePlan = "go" | "pro" | "max";
 
@@ -43,6 +44,23 @@ export function CloudIntroWelcome() {
           days: facts.termDays,
           hours: facts.chiefHoursWeekly,
           minutes: facts.machineMinutesWeekly.toLocaleString("en-US"),
+        })}
+      </p>
+    </section>
+  );
+}
+
+/** Plan & billing after the free week is granted (`?welcome=taste`). */
+export function CloudTasteWelcome() {
+  const t = useTranslations("dashboard.billing");
+  return (
+    <section data-testid="cloud-taste-welcome" className="mb-3 border border-foreground p-3">
+      <h2 className="text-sm font-medium">{t("welcome.tasteTitle")}</h2>
+      <p className="mt-1 text-xs text-muted">
+        {t("welcome.tasteBody", {
+          days: CLOUD_TASTE_TERM_DAYS,
+          hours: CLOUD_TASTE_AWAKE_HOURS,
+          minutes: CLOUD_TASTE_INCLUDED.machineMinutes.toLocaleString("en-US"),
         })}
       </p>
     </section>
