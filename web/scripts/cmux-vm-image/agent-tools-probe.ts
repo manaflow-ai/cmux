@@ -117,10 +117,14 @@ export function gatewayProblems(servers: readonly RecordedServer[]): string[] {
 
 /**
  * Tools of a Computer Use server that would record video or install software: role cua-video (ffmpeg,
- * libx264) stays off on cmux machines, so CU_SERVER must list none.
+ * libx264) stays off on cmux machines, so CU_SERVER must list none. One exception: cmux-computer-use's
+ * `record` tool (#50070) encodes with the desktop's own H.264 encoder, which only the macOS worker has, so
+ * on a cmux machine it is listed but refused. It passes when `recordCall` (the probe's call to it) was
+ * refused as unsupported.
  */
-export function videoToolProblems(tools: readonly string[]): string[] {
-  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t)).map((t) => `lists ${t}`);
+export function videoToolProblems(tools: readonly string[], recordCall?: { isError: boolean; text: string }): string[] {
+  const recordRefused = recordCall !== undefined && recordCall.isError && /unsupported|H\.264 encoder/i.test(recordCall.text);
+  return tools.filter((t) => /ffmpeg|video|record|install/i.test(t) && !(t === "record" && recordRefused)).map((t) => `lists ${t}`);
 }
 /**
  * The tools server NAME must list, as acpmux launched it (`args`). In code mode (no `--all-tools`, acpmux
@@ -476,6 +480,8 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
         { name: "screenshot", arguments: { force: true }, copy_png_to: `${WORK_DIR}/cua.png` },
         // Chrome can still be mapping the window, titled by its URL, after the 5 s (cmux run 44955837342's bake).
         { name: "list_windows", arguments: {}, until: CUA_PAGE_TEXT, until_s: 30 },
+        // Role cua-video stays off: a cmux machine's desktop has no H.264 encoder, so `record` must refuse.
+        { name: "record", arguments: { seconds: 1 }, expect_error: true },
       ],
     },
     [LEGACY_CU_SERVER]: {
@@ -572,8 +578,8 @@ async function computerUseChecks(vm: Vm, check: Checker, ffmpegInstalled: string
     workerStartedByComputerUse(w, bus),
     JSON.stringify({ worker: w["worker-pid"], display: w[`worker-unit-${DISPLAY_UNIT}`], a11y: w[`worker-unit-${A11Y_UNIT}`], DISPLAY: w["worker-env-DISPLAY"], headless: w["worker-env-CMUX_CU_HEADLESS"], bus: w["worker-env-DBUS_SESSION_BUS_ADDRESS"] }),
   );
-  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; text: string }> }).catch(() => null);
-  const listed = videoToolProblems(report?.tools ?? []);
+  const report = await readGuest(vm, `${PROBE_DIR}/mcp-${CU_SERVER}.json`).then((t) => JSON.parse(t) as { tools: string[]; calls: Array<{ name: string; isError: boolean; text: string }> }).catch(() => null);
+  const listed = videoToolProblems(report?.tools ?? [], report?.calls.find((c) => c.name === "record"));
   const firstPath = (w["worker-env-PATH"] ?? "").split(":")[0];
   check(
     "cua-video-refused",
