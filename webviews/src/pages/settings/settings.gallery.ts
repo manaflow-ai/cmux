@@ -343,7 +343,7 @@ const variants: Record<string, SettingsPageVariant> = {
   }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
-    note: "cmux Tools for Agents in cmux (on by default), each coding agent on this Mac, and the manual lines for agents started elsewhere.",
+    note: "Give Agents cmux’s Tools (on by default) with its Claude Code and Codex switches, each coding agent on this Mac, and the manual lines for agents started elsewhere.",
   }),
 };
 for (const category of categories) {
@@ -835,6 +835,35 @@ Object.assign(variants, {
     ],
     note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
   }),
+  // What's New living-wallpapers (#45080): the Living wallpapers group as the app sends it
+  // (BackdropCatalog+Page.swift: id shader:<name>, collection "shaders"), Currents picked. Their
+  // thumbnails are stills the app renders with Metal at run time; the gallery has none, so each
+  // tile draws its empty framed box.
+  "living-wallpapers": variant("personalization", {
+    focus: "personalization.background",
+    options: { values: { "appearance.background": "shader:currents" } },
+    host: {
+      ...host,
+      backdrops: [
+        ["currents", "Currents", "Live · the pointer stirs the ink"],
+        ["ripples", "Ripples", "Live · click to drop a ripple"],
+        ["aurora", "Aurora", "Live · the light leans toward the pointer"],
+        ["field", "Dot Field", "Live · the pointer pushes the dots aside"],
+        ["aero", "Aero", "Live · bubbles drift aside from the pointer"],
+      ].map(([id, title, attribution]) => ({
+        id: `shader:${id}`,
+        title: title!,
+        attribution: attribution!,
+        collection: "shaders",
+        collection_title: "Living wallpapers",
+      })),
+    },
+    steps: [
+      wait('[data-card="backdrop"] [data-collection="shaders"]'),
+      { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
+    ],
+    note: "Settings > Personalization > Background with Currents picked under Living wallpapers: Currents, Ripples, Aurora, Dot Field and Aero, each saying what the pointer does.",
+  }),
   // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
   "art-browser": variant("appearance", {
     focus: "appearance.background",
@@ -983,6 +1012,18 @@ Object.assign(variants, {
   "updates-channel-open": variant("updates", {
     steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
     note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
+  }),
+  // What's New update-when-idle (#47272): Update When Idle turned on, its idle minutes below it.
+  "update-when-idle": variant("updates", {
+    focus: "updates.installWhenIdle",
+    options: { values: { "updates.installWhenIdle": true, "updates.installWhenIdleMinutes": 15 } },
+    note: "Settings > Updates with Update When Idle on: a downloaded update installs after 15 idle minutes.",
+  }),
+  // What's New needs-you-glow (#46884): Needs You Look set to Glow instead of the default Badge.
+  "needs-you-glow": variant("notifications", {
+    focus: "notifications.attention.mark",
+    options: { values: { "notifications.attention.mark": "glow" } },
+    note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),

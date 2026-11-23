@@ -166,6 +166,7 @@ impl Supervisor {
             "apps.settings.set" => params(args).and_then(|p| self.settings_set(client, p, origin)),
             "apps.composer.list" => params::<EmptyParams>(args).map(|_| self.composer_list()),
             "apps.composer.mentions" => params(args).map(|p| self.composer_mentions(p)),
+            "apps.toolbar.list" => params::<EmptyParams>(args).map(|_| self.toolbar_list()),
             "apps.status.list" => params::<EmptyParams>(args).map(|_| self.status_items()),
             "apps.meters" => params::<EmptyParams>(args).map(|_| self.meters()),
             "apps.chat_widgets.route" => self.chat_widget_route(args),

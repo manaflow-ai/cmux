@@ -447,6 +447,8 @@ fn fixture_sources(
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: customize.clone(),
+                setups: None,
+                saved_prompts: Some(root.0.join("saved-prompts")),
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
@@ -1161,6 +1163,8 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: None,
     });
     assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
@@ -1176,6 +1180,8 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
@@ -1216,6 +1222,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 extra: vec![],
                 local: None,
                 customize: None,
+                setups: None,
+                saved_prompts: None,
                 defaults: None,
             },
             idle_stop: Duration::from_secs(60),
@@ -1233,6 +1241,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: None,
     });
     let list = supervisor.list();
@@ -1334,6 +1344,8 @@ mod inventory_demand;
 mod local_reload;
 #[path = "supervisor_opener_tests.rs"]
 mod openers;
+#[path = "supervisor_overlay_tests.rs"]
+mod overlay;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
@@ -1348,6 +1360,8 @@ mod signal_sources;
 mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
+#[path = "supervisor_toolbar_tests.rs"]
+mod toolbar;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
