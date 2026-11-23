@@ -3842,17 +3842,86 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 
 
-def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, rollup: dict | None = None) -> None:
+# A job state that is no verdict either way: nothing it was to judge was judged, so there is nothing to compare with
+# the base and the red is neither a pass nor the pull request's own. Such a job is re-run, never compared (the same
+# reading single jobs already get: "is cancelled: it has no verdict to compare with the base; re-run it").
+NO_VERDICT_CONCLUSIONS = ("cancelled", "timed_out", "stale", "skipped", "action_required")
+
+
+def rerun_step(repo: str, run_id: object) -> str:
+    """The runnable step for a red nothing judged, named in full rather than left to the reader.
+
+    `[refusal-next-step]`: a refusal names its step. The front door is leo-workspace's `run-requeue`, which cancels
+    only what never started and re-runs it; for a run that already completed it refuses ("is completed, not queued")
+    and names the direct call itself (tools/run_requeue.py `next_step`), so both are named here and no reader has to
+    guess one (leo-workspace#7840's cycle guessed a call that does not exist).
+    """
+    if not run_id:
+        return "re-run it"
+    return (f"re-run it: `run-requeue {repo} {run_id}`; a run that already completed is not queued, and run-requeue "
+            f"then names `gh run rerun {run_id} -R {repo} --failed`")
+
+
+def verdictless_needs(under: dict, children: list[dict]) -> list[str]:
+    """The jobs under a rollup's needs that hold no verdict (NO_VERDICT_CONCLUSIONS): "job (state)" each, sorted."""
+    return sorted(f"{child.get('name')} ({child.get('conclusion')})" for child in children
+                  if child.get("conclusion") in NO_VERDICT_CONCLUSIONS
+                  and any(matches(m, child.get("name", "")) for m in under.values()))
+
+
+def rollup_has_failed_need(name: str, children: list[dict], repo: str = HOME_REPO) -> bool:
+    """Whether a job under run rollup NAME's needs (ROLLUPS_FILE) failed: when one did, that child is what the base
+    is compared with and nothing else about the rollup is read."""
+    under = rollups(repo)["run"][name]["under"]
+    return any(child.get("conclusion") == "failure" and any(matches(m, child.get("name", "")) for m in under.values())
+               for child in children)
+
+
+def rollup_no_verdict(repo: str, rollup: dict, github) -> str | None:
+    """Rollup job ROLLUP's own `no verdict: ` line (scripts/ci/needs_verdict.py), read at the layer that reads logs
+    and handed to validate_run_rollup as plain data: a comparator never fetches a log of its own, the readers do
+    (read_head, guard_routes_view; FailedViewIsTheOnlyReader). None when its log names none or cannot be read: an
+    unreadable log is no evidence, and the job states the comparator already holds still decide."""
+    try:
+        return summary_no_verdict(github.log(repo, rollup))
+    except Exception:  # noqa: BLE001  (an unreadable log is no evidence; the job states below still decide)
+        return None
+
+
+def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, rollup: dict | None = None,
+                        said: str | None = None) -> None:
     """Run rollup NAME (ci-status), red, needs a failed job under it (its needs, ROLLUPS_FILE): a red run whose only
-    failed jobs are outside them did not turn it red, so its own verdict did, and nothing here can compare that."""
+    failed jobs are outside them did not turn it red, so its own verdict did, and nothing here can compare that.
+
+    When no job under its needs failed, why it has nothing to compare decides what this says. A dependency that holds
+    no verdict (cancelled, or skipped though required: NO_VERDICT_CONCLUSIONS, and the gate's own `no verdict: `
+    line, SAID, which its caller read for it with rollup_no_verdict) is an inability, not a verdict, and gets named
+    with its state and the call that resolves it. Saying only "no failed job under its needs" rendered that
+    inability in the words of a negative verdict: a lander, which
+    may not judge a red by its own reading, read it as the pull request's own red and parked the row with no step on
+    it (`red_not_excused`). Run 45093415114's `web / Web status` was red because `web / web-subarea-scope` was
+    cancelled, and nothing said so.
+    """
     if rollup is not None and refused_at_setup(rollup):
         # A runner that refused the rollup itself (a pool job hook, run 44690650796) is not "no failed job under its
         # needs": that sent readers hunting for a missing child (claude-sr2-coord, 2026-11-20).
         raise Refused(f"'{name}' was refused at setup: re-run")
     under = rollups(repo)["run"][name]["under"]
-    if not any(child.get("conclusion") == "failure" and any(matches(m, child.get("name", "")) for m in under.values())
-               for child in children):
-        raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) to compare with the base")
+    if rollup_has_failed_need(name, children, repo):
+        return
+    run_id = (rollup or {}).get("run_id") or next((c.get("run_id") for c in children if c.get("run_id")), None)
+    step = rerun_step(repo, run_id)
+    # The gate's own words first: scripts/ci/needs_verdict.py names every dependency it could not read a verdict from,
+    # including a required job GitHub shows `skipped`, which head_jobs never lists as a child at all. Its caller read
+    # that line (rollup_no_verdict); this decides on it.
+    if said is not None:
+        raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
+                      f"neither a pass nor this PR's own red; {step}")
+    if (verdictless := verdictless_needs(under, children)):
+        raise Refused(f"'{name}' cannot be compared with the base: no job under its needs failed, and "
+                      f"{', '.join(verdictless)} under them holds no verdict, which is what turned it red. This is "
+                      f"not a verdict on this PR's red: {step}")
+    raise Refused(f"'{name}': no failed job under its needs ({', '.join(sorted(under))}) to compare with the base")
 
 
 # A status-only check (2026-11-02, cmux#30294): a same-tree run reports its verdict as a commit status on the
@@ -5144,7 +5213,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, children, github)
         for rollup in run_rollups:
-            validate_run_rollup(rollup["name"], children, repo, rollup)
+            # Read here, never in the comparator: only a rollup whose needs name no failed child is judged by its
+            # own `no verdict: ` line, so only then is its log read at all.
+            said = (None if rollup_has_failed_need(rollup["name"], children, repo)
+                    else rollup_no_verdict(repo, rollup, github))
+            validate_run_rollup(rollup["name"], children, repo, rollup, said)
     if checks:
         at_head = head_check_runs(repo, sha, github, seen)
         aggregate_jobs = []
@@ -5217,7 +5290,9 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
             found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
-            validate_run_rollup(name, found, repo, rollup)
+            said = (None if rollup_has_failed_need(name, found, repo)
+                    else rollup_no_verdict(repo, rollup, github))
+            validate_run_rollup(name, found, repo, rollup, said)
             jobs.update((job["id"], job) for job in found)
         for guard in aggregate_jobs:
             found = head_jobs(repo, sha, [guard["run_id"]], [], github, ignored=ignored, seen=seen)
