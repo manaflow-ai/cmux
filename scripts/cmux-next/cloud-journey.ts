@@ -122,19 +122,28 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
-import { parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, runResumeMatrix } from "./cloud-resume-matrix.ts";
+import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, type ResumeSample, type ResumeStop, runResumeMatrix } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
-// The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (4/16/64).
-// A smaller explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
-const CHAT_START_SIZE = Object.freeze({ cpu: 4, memory_mb: 16384, disk_mb: 65536 });
+// The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
+// Any other explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
+export const CHAT_START_SIZE = Object.freeze({ cpu: 2, memory_mb: 4096, disk_mb: 20480 });
+/** The "default machine size" step: after the create, cloud.machine.get reads back the chat start size. */
+export const DEFAULT_SIZE_STEP = "default machine size";
+
+/** Null when the size cloud.machine.get recorded is CHAT_START_SIZE on every axis; else what it read. */
+export function defaultSizeProblem(size: { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined): string | null {
+  const read = `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
+  const want = `${CHAT_START_SIZE.cpu}/${CHAT_START_SIZE.memory_mb}/${CHAT_START_SIZE.disk_mb}`;
+  return read === want ? null : `cloud.machine.get size ${read}, not the default ${want} (cpu/memory_mb/disk_mb)`;
+}
 /**
  * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
  * size only and gives one only to a create asking exactly that (cmux-platform Scaler requestShape), so a create at md
@@ -2047,6 +2056,30 @@ export function directExec(api: Api, machine: string, journey: Pick<Journey, "se
   };
 }
 
+/**
+ * The CLI's answer as an exec result: its JSON (`exit_code`, `stdout`, `stderr`) when it printed one, else the
+ * process's own status and output. A CLI that died on a signal has no status: the code is 128 + the signal's number
+ * (a shell's convention) and stderr names the signal, and a CLI that printed nothing says so, so a failed step
+ * never reads `exit 1` with nothing beside it. The resume matrix's first run read exactly that: a cmux-tui built with
+ * the build runner's native CPU features (libghostty-vt's zig default) killed by SIGILL on every other runner CPU.
+ */
+export function cliExecResult(done: { status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }): { code: number; stdout: string; stderr: string } {
+  try {
+    const result = JSON.parse(done.stdout);
+    if (Number.isInteger(result?.exit_code)) {
+      return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+    }
+  } catch {
+    // Preserve the raw CLI answer below when it did not produce its JSON contract.
+  }
+  const signo = done.signal ? (osConstants.signals as Record<string, number>)[done.signal] ?? 0 : 0;
+  const code = done.status ?? (done.signal ? 128 + signo : 1);
+  const said = done.signal
+    ? `[the cmux CLI was killed by ${done.signal}${done.signal === "SIGILL" ? ": an instruction this CPU lacks (a binary built for another CPU)" : ""}]`
+    : !done.stdout.trim() && !done.stderr.trim() ? `[the cmux CLI exited ${code} and printed nothing]` : "";
+  return { code, stdout: done.stdout, stderr: said ? `${done.stderr}${done.stderr && !done.stderr.endsWith("\n") ? "\n" : ""}${said}` : done.stderr };
+}
+
 /** `cmux machine access exec` with the same credential: the journey drives the real CLI, which takes the
  * machine exec route itself on a machine whose provider has no client sessions (a VM API machine). */
 function cliExec(cmux: string, api: Api, machine: string): Exec {
@@ -2054,7 +2087,7 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
     // Asynchronous, so a carrier dial this process holds (the chaos leg's) keeps being read while a command runs.
-    const done = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+    const done = await new Promise<{ status: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(cmux, args, { env, stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
@@ -2065,20 +2098,12 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
         clearTimeout(timer);
         reject(new Error(`${cmux}: ${error.message}`));
       });
-      child.on("close", (status) => {
+      child.on("close", (status, signal) => {
         clearTimeout(timer);
-        resolve({ status, stdout, stderr });
+        resolve({ status, signal, stdout, stderr });
       });
     });
-    try {
-      const result = JSON.parse(done.stdout);
-      if (Number.isInteger(result?.exit_code)) {
-        return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
-      }
-    } catch {
-      // Preserve the raw CLI answer below when it did not produce its JSON contract.
-    }
-    return { code: done.status ?? 1, stdout: done.stdout, stderr: done.stderr };
+    return cliExecResult(done);
   };
 }
 
@@ -2733,7 +2758,7 @@ const FACTS_READ_MS = 10_000;
 /** The guest's size, measured on it: CPU count, memory and root disk, in the form sizeReadingProblem reads. */
 export const SIZE_READ = "echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)";
 export const COLD_CREATE_STEP = "cold create (asked size)";
-export const JOURNEY_ONLY_STEPS = ["listed", "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
+export const JOURNEY_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP, "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
 export function swiftRawString(source: string, name: string): string {
@@ -3352,6 +3377,28 @@ export async function listAllMachines(read: (params: Record<string, unknown>) =>
   throw new Error(`more than ${maxPages} pages of machines`);
 }
 
+/**
+ * The "listed" step's verdict: `id`'s row in every page of cloud.machine.list (`next_cursor`). A list that ends
+ * without the machine and without a cursor (a page cap: the shared agent account holds more machines than one page,
+ * run 45174448964 read 49 of 52) is confirmed by cloud.machine.get, and the detail names the cap; a machine neither
+ * read finds fails.
+ */
+export async function listedMachine(
+  id: string,
+  list: (params: Record<string, unknown>) => Promise<any>,
+  get: (id: string) => Promise<any>,
+  maxPages = 20,
+): Promise<{ row: any; detail: string }> {
+  const rows = await listAllMachines(list, maxPages);
+  const row = rows.find((r) => r?.id === id);
+  if (row) return { row, detail: `${rows.length} machines` };
+  const got = await get(id).catch((e: Error) => { throw new Error(`${id} missing from ${rows.length} machines, and cloud.machine.get: ${e.message}`); });
+  if (!got || (got.id !== undefined && got.id !== id) || got.status === "deleted") {
+    throw new Error(`${id} missing from ${rows.length} machines, and cloud.machine.get reads ${got?.status ?? "nothing"}`);
+  }
+  return { row: got, detail: `${rows.length} machines listed, no next_cursor (a page cap); cloud.machine.get reads it ${got.status ?? "?"}` };
+}
+
 /** The ids in `after` that `before` lacks. */
 export function newMachineIds(before: string[], after: string[]): string[] {
   const seen = new Set(before);
@@ -3729,6 +3776,10 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
   return { deleted, failed };
 }
 
+/** The agent test account's Stack access token lasts about an hour (the first resume matrix run read 401 from
+ * 56 to 70 min after its sign-in); the resume matrix signs in again past this age, before a sample starts. */
+export const RESIGN_AFTER_MS = 30 * 60_000;
+
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
 export async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
@@ -4012,6 +4063,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
   const signIn = argValue("--sign-in", argv) ?? "password";
   if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
+  // When the password sign-in ran: the resume matrix signs in again once it is RESIGN_AFTER_MS old.
+  let signedInAt = 0;
   // --machines (list) and --delete-ids (delete exact ids): the operator's leaked-machine cleanup, no journey.
   if (argv.includes("--machines") || argv.includes("--delete-ids")) return machinesMode(argv, backend, email, password, team);
   // --delete-kept ID: delete one machine a --keep run of this account made (named `cloud journey jr-...`), and nothing else.
@@ -4060,6 +4113,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (!Number.isInteger(resumeN) || resumeN < 1) throw new Error("--resume-n must be a positive integer");
   const resumeArms = (argValue("--resume-arms", argv) ?? RESUME_ARMS.join(",")).split(",").filter(Boolean) as ResumeArm[];
   if (resumeArms.some((a) => !RESUME_ARMS.includes(a))) throw new Error(`--resume-arms: ${RESUME_ARMS.join(", ")}`);
+  // --resume-fill PCT: a guest holder keeps PCT% of MemTotal resident through the pauses and walks it after each wake
+  // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
+  const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
+  if (!Number.isFinite(resumeFill) || resumeFill < 0 || resumeFill > 80) throw new Error("--resume-fill must be 0..80 percent");
+  // --resume-deadline EPOCH_S: the matrix takes no sample it cannot finish by then (each pause length its even share of
+  // what is left), so a CI step's timeout never kills it before it writes its table. --resume-fail-streak K: an arm
+  // that fails K samples in a row leaves its cell, and a cell whose last K samples failed ends (default 3).
+  const resumeDeadlineS = argValue("--resume-deadline", argv);
+  const resumeDeadlineAt = resumeDeadlineS === undefined ? undefined : Number(resumeDeadlineS) * 1000;
+  if (resumeDeadlineAt !== undefined && !Number.isFinite(resumeDeadlineAt)) throw new Error("--resume-deadline takes epoch seconds");
+  const resumeFailStreak = Number(argValue("--resume-fail-streak", argv) ?? FAIL_STREAK);
+  if (!Number.isInteger(resumeFailStreak) || resumeFailStreak < 1) throw new Error("--resume-fail-streak must be a positive integer");
   // --start-via app: the app's own start (agent-session-start over the carrier dial) instead of `acp ensure`.
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
@@ -4242,8 +4307,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (deleted) return;
     let id = machine;
     if (!id) {
-      const v = await api.read("cloud.machine.list", {}).catch(() => null);
-      const rows: any[] = v?.machines ?? v?.items ?? (Array.isArray(v) ? v : []);
+      // Every page: the machine may sit past the first (a shared account's list).
+      const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
     }
     if (!id) return;
@@ -4292,6 +4357,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     const stack = STACK[backend.stack];
     if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
+      signedInAt = Date.now();
       const s = await passwordSignIn(stack, email!, password!);
       J.secrets.push(s.access, s.refresh);
       return { value: s.access, detail: `Stack project ${stack.project.slice(0, 8)}` };
@@ -4537,13 +4603,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (journeyOnlyStarted) return;
       journeyOnlyStarted = true;
       await J.step("listed", async () => {
-        const v = await api.read("cloud.machine.list", {});
-        const rows: any[] = v.machines ?? v.items ?? (Array.isArray(v) ? v : []);
-        const row = rows.find((r) => r.id === created.id);
-        if (!row) throw new Error(`${created.id} missing from ${rows.length} machines`);
+        const { row, detail } = await listedMachine(
+          created.id,
+          (params) => api.read("cloud.machine.list", params, 30_000),
+          (id) => api.read("cloud.machine.get", { machine: id }, 30_000),
+        );
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
-        return { value: null, detail: `${rows.length} machines${size}` };
+        return { value: null, detail: `${detail}${size}` };
+      });
+      // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
+      // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
+      if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
+        const m = await Promise.race([
+          api.read("cloud.machine.get", { machine: created.id }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cloud.machine.get: no answer in 30 s")), 30_000).unref?.()),
+        ]);
+        const why = defaultSizeProblem(m?.size);
+        if (why) throw new Error(why);
+        return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
       });
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
@@ -5302,12 +5380,32 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
           return { serverTiming: parseServerTiming(r.headers?.get("server-timing")) };
         };
+        // The CLI processes the matrix starts (its chat dial, each exec) read the token from here, so a new sign-in
+        // reaches every one started after it.
+        const matrixEnv: Record<string, string | undefined> = { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
+        // Written after every sample and stop, so a run cut short (a step timeout, a cancel) still uploads what it had.
+        let sofar: ResumeSample[] = [];
+        let stops: ResumeStop[] = [];
+        const writeMatrix = () => {
+          if (!outDir) return;
+          const scrubbed = (x: unknown) => scrub(JSON.stringify(x, null, 2), J.secrets);
+          writeFileSync(path.join(outDir, "resume-matrix.json"), `${scrubbed({ backend: backend.name, machine: created.id, samples: sofar, stops })}\n`);
+          writeFileSync(path.join(outDir, "resume-matrix.md"), resumeMarkdown(sofar, stops));
+        };
         const samples = await runResumeMatrix({
           ctx: {
             cmux, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
             credentials: launchCredential ? { env: { CLAUDE_CODE_OAUTH_TOKEN: login } } : undefined,
-            env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+            env: matrixEnv,
             log: (line) => console.log(scrub(line, J.secrets)),
+          },
+          refreshAuth: async () => {
+            if (signIn !== "password" || !email || !password || Date.now() - signedInAt < RESIGN_AFTER_MS) return;
+            const s = await passwordSignIn(STACK[backend.stack], email, password);
+            J.secrets.push(s.access, s.refresh);
+            signedInAt = Date.now();
+            api.bearer = s.access;
+            matrixEnv.CMUX_CLOUD_ACCESS_TOKEN = s.access;
           },
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
@@ -5319,24 +5417,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await waitMachine(api, created.id, (x) => x.status === "running", 180_000);
           },
           clientSession: async (ttl) => {
-            const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/client-session`, { ttl_seconds: Math.min(ttl, 86_400) });
+            const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/client-session`, { ttl_seconds: ttl });
             const v = r.body?.value ?? r.body;
             if (r.status !== 200 || typeof v?.token !== "string") throw new Error(`client-session: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
             J.secrets.push(v.token);
             return { token: v.token, vm_id: String(v.vm_id), api_base_url: String(v.api_base_url) };
           },
+          fillPct: resumeFill,
+          deadlineAt: resumeDeadlineAt,
+          failStreak: resumeFailStreak,
+          onSample: (_s, all) => { sofar = all; writeMatrix(); },
+          onStop: (_x, all) => { stops = all; writeMatrix(); },
         }, resumePauses, resumeN, resumeArms).catch((e: Error) => {
           J.record({ step: "resume matrix", status: "fail", ms: 0, detail: e.message });
-          return [];
+          stops = [...stops, { pause_s: resumePauses[0] ?? 0, after: sofar.length, reason: `the matrix failed: ${e.message}` }];
+          return sofar;
         });
-        const table = resumeMarkdown(samples);
+        sofar = samples;
+        for (const x of stops) J.record({ step: `resume matrix: ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""} stopped early`, status: "fail", ms: 0, detail: x.reason });
+        const table = resumeMarkdown(samples, stops);
         for (const s of samples.filter((x) => x.error)) J.record({ step: `resume matrix: ${s.pause_s} s ${s.arm} #${s.i}`, status: "fail", ms: s.first_byte_ms ?? 0, detail: s.error });
         if (samples.length) J.record({ step: "resume matrix", status: samples.some((x) => x.error) ? "fail" : "pass", ms: 0, detail: `${samples.length} samples` });
         console.log(table);
-        if (outDir) {
-          writeFileSync(path.join(outDir, "resume-matrix.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, samples }, null, 2)}\n`);
-          writeFileSync(path.join(outDir, "resume-matrix.md"), table);
-        }
+        writeMatrix();
         if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n## Resume matrix (${backend.name}, ${created.id})\n\n${table}`);
       }
     }

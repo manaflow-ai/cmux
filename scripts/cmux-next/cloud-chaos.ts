@@ -269,6 +269,10 @@ export type DialLike = {
   start(): void;
   request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
   stop(): void;
+  /** Ends the dial without dialing again until `resume` (a machine about to pause: no redial reaches it while paused). */
+  suspend?(): void;
+  /** Dials again after `suspend`, as the app reconnects after a wake. */
+  resume?(): void;
 };
 
 /**
@@ -374,6 +378,17 @@ class ClientDial implements DialLike {
     this.stopped = true;
     this.child?.stdin?.end();
     this.child?.kill("SIGTERM");
+  }
+
+  suspend(): void {
+    this.stop();
+    this.note("suspended");
+  }
+
+  resume(): void {
+    if (!this.stopped) return;
+    this.stopped = false;
+    this.dial();
   }
 }
 
@@ -658,6 +673,36 @@ export class ChatClient {
     this.stopped = true;
     this.dial.stop();
   }
+
+  /** Whether the chat is attached on the current dial. */
+  get isAttached(): boolean {
+    return this.attached;
+  }
+
+  /**
+   * Before a pause: the dial ends and stays down, so the client neither holds a connection the pause freezes nor
+   * redials (which may wake the machine) while it is paused. `wake` dials again.
+   */
+  suspend(): void {
+    if (!this.dial.suspend) return;
+    this.suspended = true;
+    this.attached = false;
+    this.dial.suspend();
+  }
+
+  /** After a wake: a new dial, and the chat attached again on it from the newest seq held, as the app reconnects. */
+  wake(): void {
+    if (!this.suspended) return;
+    this.suspended = false;
+    this.dial.resume?.();
+  }
+  private suspended = false;
+
+  /** Until the chat is attached on the current dial (true) or `until` (epoch ms) passes (false). */
+  async waitAttached(until: number): Promise<boolean> {
+    while (!this.attached && !this.stopped && Date.now() < until) await sleep(100);
+    return this.attached;
+  }
 }
 
 /** `terminal.output_read` params for one terminal of the machine's own session. */
@@ -774,8 +819,9 @@ export function refusalTrail(refusals: { at: number; text: string }[]): string {
  * the send is this send's reply: a late or replayed record of an earlier turn never stops the clock. A try never
  * waits past the deadline, and a reply received after it does not count.
  */
-export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0): Promise<Felt> {
-  const sentAt = Date.now();
+export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0, startedAt = Date.now()): Promise<Felt> {
+  // `startedAt`: the person's send, when the client first waited for something else (a reattach after a wake).
+  const sentAt = startedAt;
   const from = chat.received.length;
   const held = Math.max(chat.held, afterSeq);
   const promptId = `chaos-felt-${sentAt.toString(36)}`;

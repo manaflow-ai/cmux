@@ -93,6 +93,7 @@ impl ResourceOperation {
             Self::GitWorktreeApply => "git.worktree.apply",
             Self::GitWorktreeRemove => "git.worktree.remove",
             Self::GitWorktreeSetup => "git.worktree.setup",
+            Self::GitWorktreeSetupRun => "git.worktree.setup.run",
             Self::GitStatus => "git.status",
             Self::HistoryEntriesList => "history.entries.list",
             Self::HistoryEntriesRemove => "history.entries.remove",

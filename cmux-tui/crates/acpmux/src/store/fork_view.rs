@@ -99,7 +99,7 @@ pub struct ForkView {
     /// first, `hub/retention.rs`, `hub/cold_archive.rs`), then this, then the inner store's own
     /// locks (`LocalStore`'s writers', then its cold lock). This view takes no session lock under
     /// it, and nothing under the inner store's locks takes it.
-    dropping: RwLock<()>,
+    dropping: crate::worker_lock::RwLock<()>,
 }
 
 thread_local! {
@@ -173,7 +173,7 @@ impl ForkView {
             return Held::Nested;
         }
         #[cfg(test)]
-        if let Err(std::sync::TryLockError::WouldBlock) = self.dropping.try_write() {
+        if self.dropping.write_would_wait() {
             super::log_sync::note(&NOTE_DROPPING_WAIT, "waits");
         }
         Held::Exclusive(self.dropping.write().unwrap_or_else(|e| e.into_inner()))
