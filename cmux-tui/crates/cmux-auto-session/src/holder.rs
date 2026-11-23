@@ -14,20 +14,25 @@
 //! - **Renewals.** The holder renews every [`RENEW_MS`](crate::consts::RENEW_MS), a laptop that
 //!   is not the holder renews as standby, and a change of `needsRun` is told at once. Only the
 //!   answer to the newest request counts; any other is ignored.
+//! - **The store's answer is a role.** "holder" to a renewal that is not a standby's: go on,
+//!   at the answer's epoch. "holder" to a standby's renewal: the chat is this laptop's now,
+//!   import first. "lost": what runs here is not the chat any more.
 //! - **A laptop that cannot reach the Cloud stops by itself.** No renewal answered for
 //!   [`SELF_STOP_MS`](crate::consts::SELF_STOP_MS), counted from when the last answered one was
 //!   sent: `StopTree`. The next answered renewal decides: still the holder (or holder again of
-//!   a chat the store had parked, at its new epoch): `ContinueTree`. Another holder: `KillTree`,
+//!   its own chat the store had parked, at the new epoch): `ContinueTree`. Lost: `KillTree`,
 //!   `WriteLeftoverPatch`, then standby.
 //! - **Laptop wake.** A wake notice, or a clock that jumped past
 //!   [`LEASE_MS`](crate::consts::LEASE_MS): `StopTree` first, then `Renew`, then the same
 //!   decision.
 //! - **Handback.** A standby laptop the store answers "holder": `Import(handback)`, and it
-//!   holds once the import is done. Nothing runs before that.
-//! - **A Cloud machine.** An assignment (`takeover`, `create`, `deliver`) is imported, then
-//!   acked, then the machine renews as holder. With a laptop standing by and no work left, it
-//!   sends a last copy and releases. It never stops itself: its lease does not run out to
-//!   another holder.
+//!   holds once the import is done. Nothing runs before that. A standby's renewal takes a
+//!   parked chat the same way.
+//! - **A Cloud machine.** An assignment (`takeover`, `create`, `deliver`) is imported, its
+//!   messages are taken, it is acked, then the machine renews as holder. The handback is the
+//!   store's move, at the machine's renewal that says nothing is left to run. So the machine
+//!   says that only once the store has its last copy, and the answer "lost" ends its hold. It
+//!   never stops itself: the store takes no chat from a machine at work, however quiet.
 //! - **Auto switched off.** `Close` asks the store; the chat stays an Auto chat until the store
 //!   confirms ([`Event::Closed`]), so a stopped chat is not continued on the person's word
 //!   alone.
@@ -45,7 +50,7 @@ mod reason;
 mod step;
 mod table;
 
-pub use chat::{Chat, Sent, Side, State, Stop};
+pub use chat::{Chat, CopyState, Sent, Side, State, Stop};
 pub use effect::Effect;
 pub use event::{Answer, Change, Event, Verdict};
 pub use reason::ImportReason;

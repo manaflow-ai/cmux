@@ -37,12 +37,14 @@ impl Change {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
-    /// This machine holds it, at the answer's epoch.
+    /// The chat is this machine's, at the answer's epoch. To a standby's renewal it means the
+    /// store gave the chat to this laptop, which imports the Cloud copy first.
     Holder,
     /// Another holder runs it and this laptop is listed to get it back.
     Standby,
-    /// This machine does not hold it (the lease's `lost`, `auto.stale_epoch`,
-    /// `auto.not_holder`).
+    /// What this machine runs is not the chat any more: the lease's `lost`. The store answers
+    /// a renewal with it, never with `auto.stale_epoch`; a write refused `auto.stale_epoch` or
+    /// `auto.not_holder` reads the same.
     Lost,
     /// Auto is off for the chat (`auto.closed`, or the store does not know it).
     Closed,
@@ -70,7 +72,8 @@ pub struct Answer {
     pub snapshot: u64,
     /// The inbox has messages the holder has not acked.
     pub inbox_pending: bool,
-    /// A laptop stands by and the chat is not kept in the Cloud.
+    /// A machine holds the chat, a laptop stands by and the chat is not kept in the Cloud. A
+    /// machine that reads it in a "holder" answer was not relieved by its renewal.
     pub handback_due: bool,
 }
 
@@ -116,11 +119,16 @@ impl Answer {
     }
 
     /// An error that is an answer about the holder; None for one that says nothing (no
-    /// network, a 5xx), which is [`Event::Unanswered`].
+    /// network, a 5xx), which is [`Event::Unanswered`]. A refusal that carries the chat gives
+    /// the answer its epoch.
     pub fn from_error(error: &AutoCloudError) -> Option<Answer> {
+        let of = |verdict| match error.session() {
+            Some(session) => Answer::of(verdict, session),
+            None => Answer::bare(verdict),
+        };
         match error.code() {
-            Some(ErrorCode::StaleEpoch | ErrorCode::NotHolder) => Some(Answer::bare(Verdict::Lost)),
-            Some(ErrorCode::Closed) => Some(Answer::bare(Verdict::Closed)),
+            Some(ErrorCode::StaleEpoch | ErrorCode::NotHolder) => Some(of(Verdict::Lost)),
+            Some(ErrorCode::Closed) => Some(of(Verdict::Closed)),
             Some(
                 ErrorCode::NoMachine
                 | ErrorCode::HeldInCloud
@@ -130,7 +138,8 @@ impl Answer {
                 | ErrorCode::ChunkMismatch
                 | ErrorCode::TooLarge,
             ) => None,
-            // The store does not know the chat: Auto is off as far as the Cloud can tell.
+            // The store has no such chat for this caller: Auto is off as far as a laptop can
+            // tell, and a machine's chat was moved to another machine.
             None => (error.status() == Some(404)).then(|| Answer::bare(Verdict::Closed)),
         }
     }
@@ -151,6 +160,8 @@ pub enum Event {
     /// counts as one too, whatever the event.
     Wake,
     /// The chat's own work changed; `needs_run` is `Hub::sessions_at_work`'s rule for it now.
+    /// The daemon also sends it (as a queue change) once a `DrainInbox` gave its messages to
+    /// the chat.
     Changed { change: Change, needs_run: bool },
     /// The store answered the renewal or registration numbered `request`.
     Answered { request: u64, answer: Answer },
@@ -169,8 +180,6 @@ pub enum Event {
     SnapshotStored { copy: u64, snapshot: u64 },
     /// The copy numbered `copy` did not reach the store. `too_large`: it is past the cap.
     SnapshotFailed { copy: u64, too_large: bool },
-    /// The store took the release, or said the chat is no longer this machine's.
-    Released,
     /// The store closed the chat: Auto is off.
     Closed,
 }
@@ -206,7 +215,7 @@ impl Event {
     }
 
     /// Every event's name, in the order of the enum.
-    pub const KINDS: [&'static str; 14] = [
+    pub const KINDS: [&'static str; 13] = [
         "auto_on",
         "auto_off",
         "tick",
@@ -219,7 +228,6 @@ impl Event {
         "import_failed",
         "snapshot_stored",
         "snapshot_failed",
-        "released",
         "closed",
     ];
 
@@ -238,7 +246,6 @@ impl Event {
             Event::ImportFailed { .. } => "import_failed",
             Event::SnapshotStored { .. } => "snapshot_stored",
             Event::SnapshotFailed { .. } => "snapshot_failed",
-            Event::Released => "released",
             Event::Closed => "closed",
         }
     }

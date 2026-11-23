@@ -60,8 +60,6 @@ fn apply(out: &mut Out, event: Event, now: u64) {
             machine::taking(out, epoch, reason, failed, event, now);
         }
         State::Serving { epoch } => machine::serving(out, epoch, event, now),
-        State::HandingBack { epoch, copy } => machine::handing_back(out, epoch, copy, event, now),
-        State::Releasing { epoch } => machine::releasing(out, epoch, event, now),
     }
 }
 

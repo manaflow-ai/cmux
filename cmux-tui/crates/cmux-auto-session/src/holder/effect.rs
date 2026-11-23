@@ -15,12 +15,9 @@ pub enum Effect {
     /// `POST /:id/lease` with this machine's holder and these fields. Answer:
     /// `Event::from_renewal(request, ..)`.
     Renew { request: u64, epoch: u64, needs_run: bool, standby: bool },
-    /// `POST /:id/release` at `epoch`. Answer: `Released`, also when the store says the chat is
-    /// no longer this machine's; nothing when it did not answer (the next tick sends it again).
-    Release { epoch: u64 },
     /// `PUT /:id` with `auto: false`. Answer: `Closed` once the store closed the chat. Nothing
-    /// when it refused (`auto.held_in_cloud`: a machine holds the chat) or did not answer: the
-    /// chat stays an Auto chat and the daemon tells the person why.
+    /// when it refused (`auto.held_in_cloud`: the Cloud has something no laptop has) or did not
+    /// answer: the chat stays an Auto chat and the daemon tells the person why.
     Close,
     /// SIGSTOP the chat's whole process tree, detached tool shells included.
     StopTree,
@@ -35,15 +32,20 @@ pub enum Effect {
     /// Append the log records the store does not have yet, under `epoch`.
     UploadEvents { epoch: u64 },
     /// Take a snapshot of the chat as it is now and send it under `epoch`: its chunks, then
-    /// its manifest, after its events. Answer: `SnapshotStored { copy, .. }` or
-    /// `SnapshotFailed { copy, .. }`. A newer copy may replace one still on its way.
+    /// its manifest, after its events (the store counts a snapshot as covering only the events
+    /// it has). Answer: `SnapshotStored { copy, .. }` or `SnapshotFailed { copy, .. }`. A newer
+    /// copy may replace one still on its way.
     UploadSnapshot { epoch: u64, copy: u64 },
-    /// Read the inbox, give its messages to the chat (each id once), and ack them.
+    /// Read the inbox, give its messages to the chat (each id once), and ack them. Then send
+    /// `Changed` (a queue change) with the chat's work as it is now, so the messages are in
+    /// the next copy.
     DrainInbox,
     /// Bring the chat's Cloud copy in as a local session at `epoch`. Answer:
     /// `ImportDone { epoch, .. }` or `ImportFailed { epoch }`.
     Import { reason: ImportReason, epoch: u64 },
-    /// `POST /:id/assignment/ack` at `epoch`: the import is done. Machine only.
+    /// `POST /:id/assignment/ack` at `epoch`: this machine picked up what it was given. It
+    /// follows the drain, because the store keeps a `deliver` while a message is unread.
+    /// Machine only.
     AckAssignment { epoch: u64 },
     /// Show this on the chat's row (`autoSession.blocked`), or clear it with None.
     ShowBlocked { blocked: Option<Blocked> },
@@ -57,7 +59,6 @@ impl Effect {
         match self {
             Effect::Register { .. } => "register",
             Effect::Renew { .. } => "renew",
-            Effect::Release { .. } => "release",
             Effect::Close => "close",
             Effect::StopTree => "stop_tree",
             Effect::ContinueTree => "continue_tree",
@@ -84,7 +85,6 @@ impl Effect {
             Effect::ShowBlocked { blocked: None } => "none",
             Effect::Register { .. }
             | Effect::Renew { .. }
-            | Effect::Release { .. }
             | Effect::Close
             | Effect::StopTree
             | Effect::ContinueTree

@@ -153,21 +153,36 @@ fn a_stopped_chat_a_machine_took_is_killed_and_kept_as_a_leftover_patch() {
 #[test]
 fn a_chat_another_holder_ran_while_the_laptop_was_gone_comes_home_from_the_cloud() {
     let (chat, _) = stopped_offline(0);
-    let (chat, request, now) = next_renewal(chat);
-    // Holder again, but the store has a snapshot this laptop did not write: a machine ran the
-    // chat and released it in between.
-    let newer = Event::Answered { request, answer: answer(Verdict::Holder, 5, 2) };
-    let (chat, effects) = step(chat, newer, now + 100);
+    let (chat, sent, now) = next_renewal(chat);
+    // A machine ran the chat and it is parked now: the store answers "lost", not "holder",
+    // to the laptop's renewal as the holder it was.
+    let lost = Event::Answered { request: sent, answer: answer(Verdict::Lost, 4, 2) };
+    let (chat, effects) = step(chat, lost, now + 100);
+    assert_eq!(chat.state, State::Standby { epoch: 4 });
+    assert_eq!(kinds(&effects)[..3], ["kill_tree", "write_leftover_patch", "renew"]);
+    assert!(matches!(effects[2], Effect::Renew { standby: true, .. }));
+
+    // Its standby renewal takes the parked chat: it imports the Cloud copy before it holds.
+    let taken =
+        Event::Answered { request: request(&effects), answer: answer(Verdict::Holder, 5, 2) };
+    let (chat, effects) = step(chat, taken, now + 200);
     assert_eq!(chat.state, State::ComingHome { epoch: 5, failed: false });
-    assert_eq!(
-        effects[..3],
-        [
-            Effect::KillTree,
-            Effect::WriteLeftoverPatch,
-            Effect::Import { reason: ImportReason::Handback, epoch: 5 }
-        ]
-    );
+    assert_eq!(effects, [Effect::Import { reason: ImportReason::Handback, epoch: 5 }]);
     assert!(!chat.may_run());
+}
+
+/// The store gives a parked chat back as it is only to the laptop that held it last, so
+/// "holder" at a new epoch never means another holder ran it: the laptop goes on, whatever
+/// snapshot number the store has (the answer to its own last copy may have been lost).
+#[test]
+fn holder_again_at_a_new_epoch_goes_on_whatever_the_stores_snapshot() {
+    let (chat, _) = stopped_offline(0);
+    let (chat, request, now) = next_renewal(chat);
+    let again = Event::Answered { request, answer: answer(Verdict::Holder, 3, 2) };
+    let (chat, effects) = step(chat, again, now + 100);
+    assert_eq!(chat.state, State::Holding { epoch: 3 });
+    assert_eq!(effects.first(), Some(&Effect::ContinueTree));
+    assert!(!has(&effects, "kill_tree") && !has(&effects, "import"));
 }
 
 #[test]

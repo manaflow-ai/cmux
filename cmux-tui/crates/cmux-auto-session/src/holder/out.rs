@@ -1,6 +1,6 @@
 //! A step's result while it is being built: the chat so far and the effects so far.
 
-use super::{Change, Chat, Effect, Sent, State};
+use super::{Change, Chat, CopyState, Effect, Sent, State};
 use crate::consts::{RENEW_MS, STREAM_COPY_MS};
 
 pub(super) struct Out {
@@ -58,11 +58,33 @@ impl Out {
     pub fn copy(&mut self, now: u64) -> u64 {
         let Some(epoch) = self.chat.epoch() else { return self.chat.copies };
         self.chat.copies = self.chat.copies.saturating_add(1);
+        self.chat.copy = CopyState::Sending;
         self.chat.copied_at = now;
         let copy = self.chat.copies;
         self.push(Effect::UploadEvents { epoch });
         self.push(Effect::UploadSnapshot { epoch, copy });
         copy
+    }
+
+    /// The store has the copy numbered `copy`, as its snapshot `snapshot`. Answers whether
+    /// that is the newest copy asked for; an older one landing changes nothing about the newer
+    /// one still on its way.
+    pub fn stored(&mut self, copy: u64, snapshot: u64) -> bool {
+        self.chat.snapshot = self.chat.snapshot.max(snapshot);
+        self.chat.too_large = false;
+        let newest = copy == self.chat.copies;
+        if newest {
+            self.chat.copy = CopyState::Stored;
+        }
+        newest
+    }
+
+    /// The copy numbered `copy` did not reach the store.
+    pub fn failed(&mut self, copy: u64, too_large: bool) {
+        self.chat.too_large |= too_large;
+        if copy == self.chat.copies {
+            self.chat.copy = CopyState::Failed;
+        }
     }
 
     /// The chat's work changed while this machine runs it: record it, copy what the design says

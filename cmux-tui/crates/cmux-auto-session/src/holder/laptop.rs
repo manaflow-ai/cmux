@@ -2,7 +2,7 @@
 //! One function per state, every event written out.
 
 use super::out::Out;
-use super::{Answer, Effect, Event, ImportReason, State, Stop, Verdict};
+use super::{Answer, CopyState, Effect, Event, ImportReason, State, Stop, Verdict};
 use crate::consts::SELF_STOP_MS;
 
 /// Another holder runs the chat: kill what ran here, keep what it wrote since the last
@@ -27,17 +27,11 @@ fn come_home(out: &mut Out, epoch: u64) {
     out.push(Effect::Import { reason: ImportReason::Handback, epoch });
 }
 
-/// The store says this laptop holds the chat, which it held before. At a new epoch the store
-/// had parked it. If another holder ran it since and left a newer copy, that copy is the chat
-/// now: what ran here is killed and kept as a leftover patch.
-fn held_again(out: &mut Out, epoch: u64, answer: Answer, stopped: bool) {
-    if answer.epoch != epoch && answer.snapshot > out.chat.snapshot {
-        out.push(Effect::KillTree);
-        out.push(Effect::WriteLeftoverPatch);
-        out.chat.needs_run = false;
-        come_home(out, answer.epoch);
-        return;
-    }
+/// The store says this laptop holds the chat, which it held before: go on, at the answer's
+/// epoch. At a new epoch the store had parked the chat when this laptop's lease ran out. It
+/// gives a parked chat back as it is only to the laptop that held it last, so nobody ran it
+/// since; after any other holder, this renewal is answered "lost".
+fn held_again(out: &mut Out, answer: Answer, stopped: bool) {
     if stopped {
         out.push(Effect::ContinueTree);
     }
@@ -64,7 +58,6 @@ pub(super) fn off(out: &mut Out, event: Event, now: u64) {
         | Event::ImportFailed { .. }
         | Event::SnapshotStored { .. }
         | Event::SnapshotFailed { .. }
-        | Event::Released
         | Event::Closed => {}
     }
 }
@@ -106,8 +99,7 @@ pub(super) fn registering(out: &mut Out, event: Event, now: u64) {
         | Event::ImportDone { .. }
         | Event::ImportFailed { .. }
         | Event::SnapshotStored { .. }
-        | Event::SnapshotFailed { .. }
-        | Event::Released => {}
+        | Event::SnapshotFailed { .. } => {}
     }
 }
 
@@ -131,7 +123,7 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
             match answer.verdict {
                 Verdict::Holder => {
                     out.chat.fresh_at = out.chat.fresh_at.max(sent_at);
-                    held_again(out, epoch, answer, false);
+                    held_again(out, answer, false);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
                 Verdict::Closed => close(out),
@@ -140,21 +132,19 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
         Event::Unanswered { request } => {
             out.answered(request);
         }
-        Event::SnapshotStored { snapshot, .. } => {
-            out.chat.snapshot = out.chat.snapshot.max(snapshot);
-            out.chat.too_large = false;
+        Event::SnapshotStored { copy, snapshot } => {
+            out.stored(copy, snapshot);
             out.renew_if_work_changed(now);
         }
-        Event::SnapshotFailed { too_large, .. } => {
-            out.chat.too_large |= too_large;
+        Event::SnapshotFailed { copy, too_large } => {
+            out.failed(copy, too_large);
             out.renew_if_work_changed(now);
         }
         Event::Closed => close(out),
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
-        | Event::ImportFailed { .. }
-        | Event::Released => {}
+        | Event::ImportFailed { .. } => {}
     }
 }
 
@@ -177,7 +167,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
                 Verdict::Holder if now >= sent_at.saturating_add(SELF_STOP_MS) => out.renew(now),
                 Verdict::Holder => {
                     out.chat.fresh_at = sent_at;
-                    held_again(out, epoch, answer, true);
+                    held_again(out, answer, true);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
                 Verdict::Closed => {
@@ -191,12 +181,12 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
                 out.to(State::Stopped { epoch, why: Stop::Offline });
             }
         }
-        Event::SnapshotStored { snapshot, .. } => {
-            out.chat.snapshot = out.chat.snapshot.max(snapshot);
-            out.chat.too_large = false;
+        Event::SnapshotStored { copy, snapshot } => {
+            out.stored(copy, snapshot);
         }
-        Event::SnapshotFailed { too_large, .. } => out.chat.too_large |= too_large,
-        // The store closes a chat only while no machine holds it, so this copy is the only one.
+        Event::SnapshotFailed { copy, too_large } => out.failed(copy, too_large),
+        // The store closes a chat only while the Cloud has nothing a laptop lacks, so this
+        // copy is the whole chat.
         Event::Closed => {
             out.push(Effect::ContinueTree);
             close(out);
@@ -204,8 +194,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::ImportDone { .. }
-        | Event::ImportFailed { .. }
-        | Event::Released => {}
+        | Event::ImportFailed { .. } => {}
     }
 }
 
@@ -243,8 +232,7 @@ pub(super) fn standby(out: &mut Out, epoch: u64, event: Event, now: u64) {
         | Event::ImportDone { .. }
         | Event::ImportFailed { .. }
         | Event::SnapshotStored { .. }
-        | Event::SnapshotFailed { .. }
-        | Event::Released => {}
+        | Event::SnapshotFailed { .. } => {}
     }
 }
 
@@ -287,6 +275,7 @@ pub(super) fn coming_home(out: &mut Out, epoch: u64, failed: bool, event: Event,
             if done == epoch {
                 out.chat.snapshot = out.chat.snapshot.max(snapshot);
                 out.chat.too_large = false;
+                out.chat.copy = CopyState::Stored;
                 out.to(State::Holding { epoch });
                 // The answer says whether the inbox has messages to drain.
                 out.renew(now);
@@ -301,7 +290,6 @@ pub(super) fn coming_home(out: &mut Out, epoch: u64, failed: bool, event: Event,
         Event::AutoOn
         | Event::Assigned { .. }
         | Event::SnapshotStored { .. }
-        | Event::SnapshotFailed { .. }
-        | Event::Released => {}
+        | Event::SnapshotFailed { .. } => {}
     }
 }

@@ -3,7 +3,8 @@
 use serde_json::{Map, Value, json};
 
 use super::{
-    Answer, Change, Chat, Effect, Event, ImportReason, Sent, Side, State, Stop, Verdict, step,
+    Answer, Change, Chat, CopyState, Effect, Event, ImportReason, Sent, Side, State, Stop, Verdict,
+    step,
 };
 use crate::consts::{LEASE_MS, RENEW_MS, SELF_STOP_MS, STREAM_COPY_MS};
 use crate::wire::AssignmentKind;
@@ -18,51 +19,62 @@ pub const SAMPLE_REQUEST: u64 = 7;
 pub const SAMPLE_SNAPSHOT: u64 = 3;
 pub const SAMPLE_COPY: u64 = 5;
 
-/// A state's name in the table: its kind, with why a stopped laptop is stopped.
-fn name(state: &State) -> &'static str {
-    match state {
+/// A chat's name in the table: its state's kind, with why a stopped laptop is stopped, and
+/// whether a serving machine has a copy the store does not have yet.
+fn name(chat: &Chat) -> &'static str {
+    match chat.state {
         State::Stopped { why: Stop::Wake, .. } => "stopped_wake",
         State::Stopped { why: Stop::Offline, .. } => "stopped_offline",
+        State::Serving { .. } if chat.copy != CopyState::Stored => "serving_uncopied",
         other => other.kind(),
     }
 }
 
-/// One chat per state (two for `stopped`), by its name in the table. Each is idle and the store
-/// was told so; it was last stepped at [`SAMPLE_AT`], when its last renewal was sent, and the
-/// next one is due [`RENEW_MS`] later.
+/// One chat per state (two for `stopped` and for `serving`), by its name in the table. Each is
+/// idle; it was last stepped at [`SAMPLE_AT`], when its last renewal was sent, and the next one
+/// is due [`RENEW_MS`] later. The store has its newest copy and was told it is idle, except
+/// `serving_uncopied`: its copy [`SAMPLE_COPY`] is on its way, so the store was told it is at
+/// work.
 pub fn sample_chats() -> Vec<(&'static str, Chat)> {
     let epoch = SAMPLE_EPOCH;
     let awaiting = Some(Sent { request: SAMPLE_REQUEST, at: SAMPLE_AT });
     let due = Some(SAMPLE_AT + RENEW_MS);
-    // (state, a renewal or registration awaits its answer, a tick is scheduled)
+    let (stored, sending) = (CopyState::Stored, CopyState::Sending);
+    // (state, a renewal or registration awaits its answer, a tick is scheduled, the copy)
     let states = [
-        (State::Off, false, false),
-        (State::Registering, true, true),
-        (State::Holding { epoch }, true, true),
-        (State::Stopped { epoch, why: Stop::Wake }, true, true),
-        (State::Stopped { epoch, why: Stop::Offline }, true, true),
-        (State::Standby { epoch }, true, true),
-        (State::ComingHome { epoch, failed: false }, true, true),
-        (State::Away, false, false),
-        (State::Taking { epoch, reason: ImportReason::Takeover, failed: false }, false, true),
-        (State::Serving { epoch }, true, true),
-        (State::HandingBack { epoch, copy: SAMPLE_COPY }, true, true),
-        (State::Releasing { epoch }, false, true),
+        (State::Off, false, false, stored),
+        (State::Registering, true, true, stored),
+        (State::Holding { epoch }, true, true, stored),
+        (State::Stopped { epoch, why: Stop::Wake }, true, true, stored),
+        (State::Stopped { epoch, why: Stop::Offline }, true, true, stored),
+        (State::Standby { epoch }, true, true, stored),
+        (State::ComingHome { epoch, failed: false }, true, true, stored),
+        (State::Away, false, false, stored),
+        (
+            State::Taking { epoch, reason: ImportReason::Takeover, failed: false },
+            false,
+            true,
+            stored,
+        ),
+        (State::Serving { epoch }, true, true, stored),
+        (State::Serving { epoch }, true, true, sending),
     ];
     states
         .into_iter()
-        .map(|(state, awaits, scheduled)| {
+        .map(|(state, awaits, scheduled, copy)| {
             let chat = Chat {
                 state,
+                told_needs_run: copy != stored,
                 snapshot: SAMPLE_SNAPSHOT,
                 copies: SAMPLE_COPY,
+                copy,
                 copied_at: SAMPLE_AT,
                 requests: SAMPLE_REQUEST,
                 awaiting: if awaits { awaiting } else { None },
                 renew_at: if scheduled { due } else { None },
                 ..Chat::new(state.side(), SAMPLE_AT)
             };
-            (name(&state), chat)
+            (name(&chat), chat)
         })
         .collect()
 }
@@ -99,11 +111,6 @@ pub fn sample_events() -> Vec<(&'static str, Event, u64)> {
         ("answered_holder_inbox", answered(Answer { inbox_pending: true, ..holder }), 0),
         ("answered_holder_handback_due", answered(Answer { handback_due: true, ..holder }), 0),
         ("answered_holder_new_epoch", answered(Answer { epoch: SAMPLE_EPOCH + 2, ..holder }), 0),
-        (
-            "answered_holder_new_epoch_newer_copy",
-            answered(answer(Verdict::Holder, SAMPLE_EPOCH + 2, SAMPLE_SNAPSHOT + 1)),
-            0,
-        ),
         ("answered_holder_35s_late", answered(holder), SELF_STOP_MS),
         ("answered_standby", answered(answer(Verdict::Standby, SAMPLE_EPOCH + 1, 0)), 0),
         ("answered_lost", answered(answer(Verdict::Lost, SAMPLE_EPOCH + 1, 0)), 0),
@@ -127,7 +134,6 @@ pub fn sample_events() -> Vec<(&'static str, Event, u64)> {
         ),
         ("snapshot_failed", Event::SnapshotFailed { copy: SAMPLE_COPY, too_large: false }, 0),
         ("snapshot_too_large", Event::SnapshotFailed { copy: SAMPLE_COPY, too_large: true }, 0),
-        ("released", Event::Released, 0),
         ("closed", Event::Closed, 0),
     ]
 }
@@ -153,7 +159,7 @@ pub fn table() -> Value {
         let mut row = Map::new();
         for (event_name, event, after) in &events {
             let (next, effects) = step(*chat, *event, SAMPLE_AT + after);
-            let cell = outcome(from, name(&next.state), &effects);
+            let cell = outcome(from, name(&next), &effects);
             row.insert((*event_name).to_owned(), Value::String(cell));
         }
         transitions.insert((*from).to_owned(), Value::Object(row));
@@ -180,8 +186,10 @@ pub fn table() -> Value {
         "version": 1,
         "source": "cmux-tui/crates/cmux-auto-session/src/holder.rs",
         "design": "plans/cmux-next/auto-mode/DESIGN.md",
-        "samples": "Each sample chat is idle and the store was told so. It holds or last heard of epoch 4, stored snapshot 3, awaits the answer to request 7 where it awaits one, and was last stepped when that request was sent. An event's row happens 0 ms later unless its name says a time: tick_early 1 s, tick_renewal_due and streaming_after_5s at their period, tick_unanswered_35s and answered_holder_35s_late at SELF_STOP_MS, tick_after_clock_jump just past LEASE_MS.",
+        "samples": "Each sample chat is idle. It holds or last heard of epoch 4, stored snapshot 3, awaits the answer to request 7 where it awaits one, and was last stepped when that request was sent. The store has its newest copy (number 5) and was told the chat is idle; serving_uncopied is a serving machine whose copy 5 is still on its way, so the store was told it is at work. An event's row happens 0 ms later unless its name says a time: tick_early 1 s, tick_renewal_due and streaming_after_5s at their period, tick_unanswered_35s and answered_holder_35s_late at SELF_STOP_MS, tick_after_clock_jump just past LEASE_MS.",
         "rules": [
+            "The store answers a renewal with a role: holder (go on at the answer's epoch; to a standby's renewal, import first), standby, or lost (stop, then renew as standby).",
+            "A Cloud machine tells the store it has nothing left to run only once the store has its newest copy. On that word the store gives the chat home to a laptop standing by, and answers the machine lost.",
             "A clock that jumped past LEASE_MS or went back is a wake: the chat is stepped with wake first, then with the event.",
             "A laptop that holds the chat and has had no renewal answered for SELF_STOP_MS stops its tree, whatever the event.",
             "Only the answer to the newest request counts; any other is ignored.",

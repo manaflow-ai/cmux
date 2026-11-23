@@ -136,22 +136,47 @@ fn a_tree_is_continued_only_from_stopped_and_never_killed_too() {
     }
 }
 
-/// A chat that ran here and may no longer run had its tree stopped or killed in the same step,
-/// or was already idle and released.
+/// A chat that ran here and may no longer run had its tree stopped or killed in the same step.
 #[test]
 fn a_chat_that_may_no_longer_run_was_stopped_or_killed() {
     for (from, event, before, after, effects) in every_pair() {
-        let ran = matches!(
-            before.state,
-            State::Holding { .. } | State::Serving { .. } | State::HandingBack { .. }
-        );
+        let ran = matches!(before.state, State::Holding { .. } | State::Serving { .. });
         if ran && !after.may_run() {
-            let releasing = matches!(after.state, State::Releasing { .. });
             assert!(
-                has(&effects, "stop_tree") || has(&effects, "kill_tree") || releasing,
+                has(&effects, "stop_tree") || has(&effects, "kill_tree"),
                 "{from} {event}: {:?}",
                 kinds(&effects)
             );
+        }
+    }
+}
+
+/// A machine that loses a chat keeps what it wrote since its last stored copy, unless it had
+/// nothing left to run and the store has that copy: then the laptop has everything.
+#[test]
+fn a_machine_kill_keeps_a_leftover_patch_unless_everything_is_copied() {
+    for (from, event, before, _, effects) in every_pair() {
+        if before.side() == Side::Machine && has(&effects, "kill_tree") {
+            let copied = !before.needs_run && before.copy == CopyState::Stored;
+            let handed_back =
+                copied && event == "answered_lost" && matches!(before.state, State::Serving { .. });
+            assert_eq!(has(&effects, "write_leftover_patch"), !handed_back, "{from} {event}");
+        }
+    }
+}
+
+/// A machine never tells the store it has nothing left to run while a copy is not stored.
+#[test]
+fn a_machine_says_idle_only_once_its_copy_is_stored() {
+    for (from, event, _, after, effects) in every_pair() {
+        if after.side() != Side::Machine {
+            continue;
+        }
+        for effect in &effects {
+            if let Effect::Renew { needs_run: false, .. } = effect {
+                assert_eq!(after.copy, CopyState::Stored, "{from} {event}");
+                assert!(!after.needs_run, "{from} {event}");
+            }
         }
     }
 }
@@ -197,7 +222,6 @@ fn every_write_names_the_chats_epoch() {
         for effect in &effects {
             let named = match effect {
                 Effect::Renew { epoch, .. }
-                | Effect::Release { epoch }
                 | Effect::UploadEvents { epoch }
                 | Effect::UploadSnapshot { epoch, .. }
                 | Effect::Import { epoch, .. }

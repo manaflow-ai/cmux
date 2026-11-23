@@ -34,8 +34,20 @@ pub enum Stop {
     Offline,
 }
 
+/// Where the newest copy this machine asked for is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CopyState {
+    /// The store has it, or none was asked for since the chat came here.
+    Stored,
+    /// It is on its way to the store.
+    Sending,
+    /// It did not reach the store.
+    Failed,
+}
+
 /// Where a chat is on this machine, with the data only that state has. The first six are a
-/// laptop's states and the last five a Cloud machine's, so the state says which side it is.
+/// laptop's states and the last three a Cloud machine's, so the state says which side it is.
 /// `epoch` is the epoch this machine writes under (in `standby`, the last one it heard of).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", rename_all_fields = "camelCase")]
@@ -50,9 +62,9 @@ pub enum State {
     /// Laptop: this laptop held the chat when its process tree was stopped. The next answered
     /// renewal says whether it still does.
     Stopped { epoch: u64, why: Stop },
-    /// Laptop: another holder runs the chat; this laptop renews as standby.
+    /// Laptop: another holder runs the chat, or nobody does; this laptop renews as standby.
     Standby { epoch: u64 },
-    /// Laptop: the store gave the chat back to this laptop; the import has not finished, so
+    /// Laptop: the store gave the chat to this laptop; the import has not finished, so
     /// nothing runs. `failed`: the last attempt failed and the next tick tries again.
     ComingHome { epoch: u64, failed: bool },
     /// Machine: the chat is not this machine's. It does not run here until the store assigns
@@ -61,18 +73,15 @@ pub enum State {
     /// Machine: the store assigned the chat; the import has not finished, so nothing runs.
     /// `failed`: the last attempt failed and the next tick tries again.
     Taking { epoch: u64, reason: ImportReason, failed: bool },
-    /// Machine: this machine holds the chat and its processes may run.
+    /// Machine: this machine holds the chat and its processes may run. Once it has nothing
+    /// left to run and the store has its last copy, its renewal says so, and the store gives
+    /// the chat home to a laptop standing by.
     Serving { epoch: u64 },
-    /// Machine: a laptop stands by and the chat has no work. The snapshot numbered `copy` is
-    /// on its way to the store; the release follows it.
-    HandingBack { epoch: u64, copy: u64 },
-    /// Machine: the release was sent and has no answer yet. Nothing new runs.
-    Releasing { epoch: u64 },
 }
 
 impl State {
     /// Every state's name, in the table's order.
-    pub const KINDS: [&'static str; 11] = [
+    pub const KINDS: [&'static str; 9] = [
         "off",
         "registering",
         "holding",
@@ -82,8 +91,6 @@ impl State {
         "away",
         "taking",
         "serving",
-        "handing_back",
-        "releasing",
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -97,8 +104,6 @@ impl State {
             State::Away => "away",
             State::Taking { .. } => "taking",
             State::Serving { .. } => "serving",
-            State::HandingBack { .. } => "handing_back",
-            State::Releasing { .. } => "releasing",
         }
     }
 
@@ -110,11 +115,7 @@ impl State {
             | State::Stopped { .. }
             | State::Standby { .. }
             | State::ComingHome { .. } => Side::Laptop,
-            State::Away
-            | State::Taking { .. }
-            | State::Serving { .. }
-            | State::HandingBack { .. }
-            | State::Releasing { .. } => Side::Machine,
+            State::Away | State::Taking { .. } | State::Serving { .. } => Side::Machine,
         }
     }
 
@@ -127,9 +128,7 @@ impl State {
             | State::Standby { epoch }
             | State::ComingHome { epoch, .. }
             | State::Taking { epoch, .. }
-            | State::Serving { epoch }
-            | State::HandingBack { epoch, .. }
-            | State::Releasing { epoch } => Some(*epoch),
+            | State::Serving { epoch } => Some(*epoch),
         }
     }
 }
@@ -150,12 +149,13 @@ pub struct Sent {
 pub struct Chat {
     pub state: State,
     /// The chat has work here: a turn running, a prompt queued or a background task
-    /// (`Hub::sessions_at_work`'s rule), as the last [`Event::Changed`] said.
+    /// (`Hub::sessions_at_work`'s rule), as the last [`Event::Changed`] said. An import on a
+    /// Cloud machine and a drain of the inbox set it too: the chat was given work, and the
+    /// next `Changed` says when it is done.
     pub needs_run: bool,
     /// The `needsRun` the last renewal sent. A change is told to the store at once.
     pub told_needs_run: bool,
-    /// The newest snapshot in the store that this machine stored or imported; 0 for none. A
-    /// newer one in the store means another holder wrote since.
+    /// The newest snapshot in the store that this machine stored or imported; 0 for none.
     pub snapshot: u64,
     /// The chat's snapshot is past the size cap, so it has no Cloud copy to go on from.
     pub too_large: bool,
@@ -171,6 +171,9 @@ pub struct Chat {
     pub requests: u64,
     /// The last copy number issued (`UploadSnapshot.copy`).
     pub copies: u64,
+    /// Where that copy is. A Cloud machine says it has nothing left to run only once the
+    /// store has it: the store gives the chat home on that word.
+    pub copy: CopyState,
     /// When the last copy was asked for.
     pub copied_at: u64,
 }
@@ -194,6 +197,7 @@ impl Chat {
             awaiting: None,
             requests: 0,
             copies: 0,
+            copy: CopyState::Stored,
             copied_at: 0,
         }
     }
@@ -208,13 +212,15 @@ impl Chat {
 
     /// A chat this machine held when its daemon last ran, with the last snapshot it stored or
     /// imported. It is treated as a wake: a laptop stops the chat's process tree and asks the
-    /// store before anything runs; a Cloud machine renews.
+    /// store before anything runs; a Cloud machine renews. The machine cannot know that the
+    /// store has what it did last, so it copies the chat again before it says nothing is left
+    /// to run.
     pub fn resume(side: Side, epoch: u64, snapshot: u64, now: u64) -> (Chat, Vec<Effect>) {
-        let state = match side {
-            Side::Laptop => State::Holding { epoch },
-            Side::Machine => State::Serving { epoch },
+        let (state, copy) = match side {
+            Side::Laptop => (State::Holding { epoch }, CopyState::Stored),
+            Side::Machine => (State::Serving { epoch }, CopyState::Failed),
         };
-        step(Chat { state, snapshot, ..Chat::new(side, now) }, Event::Wake, now)
+        step(Chat { state, snapshot, copy, ..Chat::new(side, now) }, Event::Wake, now)
     }
 
     pub fn side(&self) -> Side {
@@ -233,27 +239,22 @@ impl Chat {
             | State::Stopped { .. }
             | State::ComingHome { .. }
             | State::Taking { .. }
-            | State::Serving { .. }
-            | State::HandingBack { .. }
-            | State::Releasing { .. } => true,
+            | State::Serving { .. } => true,
             State::Off | State::Registering | State::Standby { .. } | State::Away => false,
         }
     }
 
     /// The chat's agent may run here now: start a turn, run a queued prompt, go on with a
     /// tool. False while the tree is stopped, while another holder runs the chat, and during an
-    /// import or a release.
+    /// import.
     pub fn may_run(&self) -> bool {
         match self.state {
             State::Off | State::Registering | State::Holding { .. } | State::Serving { .. } => true,
-            // A handback copies an idle chat; new work ends the handback.
-            State::HandingBack { .. } => true,
             State::Stopped { .. }
             | State::Standby { .. }
             | State::ComingHome { .. }
             | State::Away
-            | State::Taking { .. }
-            | State::Releasing { .. } => false,
+            | State::Taking { .. } => false,
         }
     }
 
@@ -271,28 +272,32 @@ impl Chat {
             | State::ComingHome { .. }
             | State::Away
             | State::Taking { .. }
-            | State::Serving { .. }
-            | State::HandingBack { .. }
-            | State::Releasing { .. } => None,
+            | State::Serving { .. } => None,
         }
     }
 
-    /// The `needsRun` a renewal sends. A laptop says it only once the store has a snapshot to
-    /// take over from and the chat is not too large; otherwise a lapsed lease parks the chat
-    /// instead of starting a machine that could not go on with it.
+    /// The `needsRun` a renewal sends.
+    ///
+    /// A laptop says it only once the store has a snapshot to take over from and the chat is
+    /// not too large; otherwise a lapsed lease parks the chat instead of starting a machine
+    /// that could not go on with it.
+    ///
+    /// A Cloud machine also says it while its newest copy is not in the store. The store gives
+    /// the chat home on a machine's `false`, so the machine says `false` only when the laptop
+    /// would import everything it did: events first, then the snapshot covering them, then
+    /// this renewal.
     pub fn reports_needs_run(&self) -> bool {
         match self.state {
             State::Holding { .. } | State::Stopped { .. } => {
                 self.needs_run && self.snapshot > 0 && !self.too_large
             }
-            State::Serving { .. } | State::HandingBack { .. } => self.needs_run,
+            State::Serving { .. } => self.needs_run || self.copy != CopyState::Stored,
             State::Off
             | State::Registering
             | State::Standby { .. }
             | State::ComingHome { .. }
             | State::Away
-            | State::Taking { .. }
-            | State::Releasing { .. } => false,
+            | State::Taking { .. } => false,
         }
     }
 
@@ -307,9 +312,7 @@ impl Chat {
             | State::ComingHome { .. }
             | State::Away
             | State::Taking { .. }
-            | State::Serving { .. }
-            | State::HandingBack { .. }
-            | State::Releasing { .. } => None,
+            | State::Serving { .. } => None,
         }
     }
 
