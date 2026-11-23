@@ -12,11 +12,13 @@ name: cmux-next base linux
 #
 # Each run routes the steps by the paths changed since the last green run, so a red step runs again on
 # every tip until the base is green, and a run after a green one costs only the steps the new commits
-# reach. A green run records its tip as an Actions cache key and the next run reads it back, so the route
-# does not depend on the API: in the hour after cmux#51869 the read of the last green run answered HTTP 403
-# on 11 of 17 runs, each routed by its own push's diff, and the pushes collapsed before such a run were
-# routed by no run. With no recorded tip the run asks the API for the last green run, and when that fails
-# too it routes by the push's own diff. Only a branch with no green run yet runs every linux step.
+# reach. A green run records its tip as the git ref refs/cmux-ci/base-linux-tip/BRANCH (the `record` job,
+# the only one that may write) and the next run reads it with `git ls-remote`, so the route does not depend
+# on the API: in the hour after cmux#51869 the read of the last green run answered HTTP 403 on 11 of 17
+# runs, each routed by its own push's diff, and the pushes collapsed before such a run were routed by no
+# run. An Actions cache key was tried first and its entry was evicted within 6 min (the store was at 14.1 GB
+# of its 10). With no recorded tip the run asks the API for the last green run, and when that fails too it
+# routes by the push's own diff. Only a branch with no green run yet runs every linux step.
 #
 # A step that fails runs once more by itself before the run is red (a failed setup or tool: the whole job): in that first hour 4 of 13 runs were
 # red and none was a base break (one timing test twice, a slow runner, a runner shut down).
@@ -52,24 +54,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Read the tip the last green run recorded
-        # The key carries the tip; the file under .git only gives the cache something to hold.
-        id: tip
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .git/base-linux-tip
-          key: cmux-next-base-linux-tip-${{ github.ref_name }}-${{ github.sha }}
-          restore-keys: cmux-next-base-linux-tip-${{ github.ref_name }}-
       - name: List the paths changed since the last green run
         timeout-minutes: 4
         env:
           GH_TOKEN: ${{ github.token }}
           PUSH_BEFORE: ${{ github.event.before }}
-          TIP_KEY: ${{ steps.tip.outputs.cache-matched-key }}
         run: |
-          recorded="${TIP_KEY##*-}"
+          recorded="$(timeout 60 git ls-remote origin "refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME" | cut -f1 || true)"
           if [[ "$recorded" =~ ^[0-9a-f]{40}$ ]]; then
             echo "The last green run recorded its tip: $recorded"
           else
@@ -137,19 +128,6 @@ jobs:
           fi
           echo "::error::Failed twice on this tip: $again"
           exit 1
-      - name: Mark this tip as the last green one
-        if: success() && steps.tip.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p .git/base-linux-tip
-          git rev-parse HEAD > .git/base-linux-tip/sha
-      - name: Record this tip for the next run
-        if: success() && steps.tip.outputs.cache-hit != 'true'
-        continue-on-error: true
-        timeout-minutes: 3
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: .git/base-linux-tip
-          key: cmux-next-base-linux-tip-${{ github.ref_name }}-${{ github.sha }}
       - name: Name the merges since the last green tip
         if: failure()
         timeout-minutes: 3
@@ -178,3 +156,26 @@ jobs:
               summary.write(text)
           print(text)
           PY
+
+  record:
+    name: record the green tip
+    # The linux job holds no write token while it runs the base's code. This job runs none of it: it points
+    # one ref outside refs/heads at the tip that job just passed, which starts no workflow.
+    needs: linux
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Point refs/cmux-ci/base-linux-tip at this tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git init --quiet tip
+          cd tip
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          git -c http.extraheader="$auth" fetch --quiet --no-tags --depth=1 "$url" "$GITHUB_SHA"
+          git -c http.extraheader="$auth" push --quiet --force "$url" "FETCH_HEAD:refs/cmux-ci/base-linux-tip/$GITHUB_REF_NAME"
+          echo "::notice::Recorded $GITHUB_SHA as the last green tip of $GITHUB_REF_NAME."
