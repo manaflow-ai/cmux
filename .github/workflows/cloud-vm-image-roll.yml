@@ -42,6 +42,11 @@ on:
         default: auto
         type: choice
         options: [auto, "true", "false"]
+      large_image:
+        description: Also bake and smoke the large image (4 vCPU / 16 GiB / 64 GiB) and list it on staging's entry, so a development create at that size boots at its final size with no resize. Production's entry never lists it. A large image that fails is a warning; the roll goes on without it
+        required: false
+        default: false
+        type: boolean
       platform_readiness:
         description: mint the cmux-platform push token and read its main Wrangler config without pushing
         required: false
@@ -112,7 +117,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform
           token: ${{ steps.platform-token.outputs.token }}
           persist-credentials: false
@@ -178,7 +183,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           # Full history without blobs: "never older than the pin" and the fix commits since it need the pin's
           # real ancestry, which a shallow window cuts (auto-roll.ts plan refuses a shallow checkout).
           fetch-depth: 0
@@ -243,6 +248,8 @@ jobs:
       agent_tools: true
       layered: true
       roll: true
+      # Only a dispatch that asks: a build or push roll has no inputs, so it bakes the image alone, as before.
+      large_image: ${{ inputs.large_image == true }}
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
     # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
     # passed, so exactly these three pass (never `secrets: inherit`). The bake job runs in cmux-next-vm-image-dev.
@@ -293,7 +300,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
       # Full history without blobs: image-roll-push.sh asks auto-roll.ts behind whether the roll's pin is older
       # than the tip's, which a shallow window cannot answer (it refuses one). Only feat-cmux-next's: checkout's
       # fetch-depth 0 took every branch and tag, then fetched the tip's blobs lazily in one request, which GitHub
@@ -365,7 +372,7 @@ jobs:
         if: vars.CMUX_VM_DEPLOY_ENABLED != '1'
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform
           token: ${{ steps.platform-token.outputs.token }}
           persist-credentials: false
@@ -386,7 +393,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: manaflow-ai/cmux-platform
-          ref: main
+          ref: refs/heads/main
           path: cmux-platform-pins
           token: ${{ steps.pins-token.outputs.token }}
           persist-credentials: false
@@ -429,7 +436,7 @@ jobs:
   report:
     needs: [plan, bake, promote]
     if: ${{ !cancelled() && needs.plan.outputs.roll == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_DEPLOY_SKIP_FLEET != '1' && 'cmux-gcp-deploy-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: write

@@ -16,6 +16,7 @@
 use super::*;
 use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Target};
 use crate::prompt_class::PromptClass;
+use std::time::Duration;
 
 /// The prefix of a delivery id the hub holds.
 pub(super) const PREFIX: &str = "mesh:";
@@ -49,6 +50,18 @@ fn recipient(target: &str) -> Target {
         }
         _ => Target { name: Some(target.into()), ..Target::default() },
     }
+}
+
+/// Whom `target` names at the hub, as [`recipient`] says, but a chat the hub lists by its
+/// handle (`HOST/Mango`, `Mango`) by its machine and id: the hub matches names only, and a
+/// handle is no name there (`Hub::mesh_book_handle`).
+fn recipient_in(hub: &Hub, target: &str) -> Target {
+    if !target.starts_with('@')
+        && let Some((host, id)) = hub.mesh_book_handle(target)
+    {
+        return Target { session_id: Some(id), host: Some(host), ..Target::default() };
+    }
+    recipient(target)
 }
 
 /// Whom the relay reaches for `target` while its peer's link is down: the session the peer's
@@ -86,6 +99,8 @@ pub(super) async fn relay(
 ) -> Option<Result<Value, HubError>> {
     let mesh = hub.mesh.get()?;
     let message = match &delivery.relay_post {
+        // A hub that is failing is probed once per window, not by every delivery (`mesh_gate.rs`).
+        Some(_) if !hub.mesh.gate().may_try() => return Some(Err(backing_off(false))),
         Some(post) => post.clone(),
         None => {
             let to = down_peer_recipient(hub, &delivery.target)?;
@@ -94,6 +109,11 @@ pub(super) async fn relay(
             // one, rather than as a line of the text now.
             if carried.inline.is_some() {
                 return None;
+            }
+            // Not asked while its gate is shut: nothing is posted, so the peer's link may still
+            // take it (`relay_attempt`).
+            if !hub.mesh.gate().may_try() {
+                return Some(Err(backing_off(true)));
             }
             let message = OutMessage {
                 to,
@@ -108,7 +128,119 @@ pub(super) async fn relay(
             message
         }
     };
-    Some(mesh.send(&message).await.map(|receipt| relay_row(hub, delivery, &message, &receipt)))
+    let posted = tokio::time::timeout(RELAY_WAIT, mesh.send(&message)).await.unwrap_or_else(|_| {
+        Err(HubError::unavailable(format!("no answer within {}s", RELAY_WAIT.as_secs())))
+    });
+    note(hub, &posted);
+    Some(posted.map(|receipt| relay_row(hub, delivery, &message, &receipt)))
+}
+
+/// The code of a relay attempt the hub's gate kept from asking (`mesh_gate.rs`).
+pub(super) const BACKING_OFF: &str = "acpmux.hub_backing_off";
+
+/// A relay attempt the hub's gate kept from asking. `unposted`: no post of it may be at the hub,
+/// so the outbox may still send it on the peer's link.
+fn backing_off(unposted: bool) -> HubError {
+    let mut e = if unposted {
+        HubError::refused("the hub is backing off after failing; not posted")
+    } else {
+        HubError::unavailable("the hub is backing off after failing; retrying")
+    };
+    e.code = Some(BACKING_OFF.to_owned());
+    e
+}
+
+/// How long one relay attempt waits for the hub. Its key makes the next attempt the same message,
+/// so a hub that took it and did not answer in time never gets it twice.
+const RELAY_WAIT: Duration = Duration::from_secs(30);
+
+/// How long `_acpmux/send_queue` waits for the hub before it queues the message (RFD 0049 R1:
+/// the call returns well under 500 ms whatever the hub does).
+pub(super) const INLINE_WAIT: Duration = Duration::from_millis(300);
+
+/// What a post's outcome tells the hub's gate.
+fn note<T>(hub: &Hub, posted: &Result<T, HubError>) {
+    match posted {
+        Err(e) if crate::mesh_retry::transient(e, true) => hub.mesh.gate().failed(e.retry_after),
+        _ => hub.mesh.gate().answered(),
+    }
+}
+
+/// Why a queued send waits, as `send --status` shows it: `hub 503, retrying`.
+pub(super) fn waiting_reason(e: &HubError) -> String {
+    match (e.status, e.code.as_deref()) {
+        (Some(status), Some(code)) => format!("hub {status} {code}, retrying"),
+        (Some(status), None) => format!("hub {status}, retrying"),
+        _ => format!("hub did not answer ({e}), retrying"),
+    }
+}
+
+/// What `_acpmux/send_queue` does with a target only the hub routes.
+pub(super) enum Posted {
+    /// The hub took it, or refused it: the answer as it is.
+    Answered(Result<Value, RpcError>),
+    /// The hub did not take it in a way that passes (a 5xx, a 429, no answer within
+    /// [`INLINE_WAIT`], no connection), or its gate is shut: kept in the outbox with this post,
+    /// which its retry sends again under the same key, and why it waits.
+    Queue { post: OutMessage, why: String },
+}
+
+/// `_acpmux/send_queue` to `target`, which nothing here resolves and the hub may (RFD 0049 R1): a
+/// remote failure never fails a send the outbox can keep. Team addresses keep [`send`].
+pub(super) async fn post_or_queue(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    request: &Value,
+    target: &str,
+) -> Posted {
+    let (message, inline, caller) = match message(hub, conn, request, target) {
+        Ok(made) => made,
+        Err(e) => return Posted::Answered(Err(e)),
+    };
+    if !hub.mesh.gate().may_try() {
+        let why = "hub failing, retrying (backing off before it is asked again)".to_owned();
+        return Posted::Queue { post: message, why };
+    }
+    let posted =
+        tokio::time::timeout(INLINE_WAIT, mesh.send(&message)).await.unwrap_or_else(|_| {
+            Err(HubError::unavailable(format!("no answer within {} ms", INLINE_WAIT.as_millis())))
+        });
+    note(hub, &posted);
+    match posted {
+        Ok(receipt) => {
+            hub.outbox.record_mesh_origin(&receipt.message_id, target, caller.as_deref(), false);
+            let mut row = status_of(&receipt, target);
+            class_note(&mut row, inline);
+            Posted::Answered(Ok(row))
+        }
+        Err(e) if crate::mesh_retry::transient(&e, true) => {
+            Posted::Queue { why: waiting_reason(&e), post: message }
+        }
+        Err(e) => Posted::Answered(Err(refusal(target, e))),
+    }
+}
+
+/// The hub's message for a send to `target` (not a team address), the class it carries in its
+/// text, and the session that sent it.
+fn message(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    request: &Value,
+    target: &str,
+) -> Result<(OutMessage, Option<PromptClass>, Option<String>), RpcError> {
+    let carried = carried(request, target)?;
+    let caller = conn.caller().filter(|_| !conn.is_person());
+    let message = OutMessage {
+        to: recipient_in(hub, target),
+        from: sender(hub, caller, carried.named, carried.claim),
+        kind: Kind::Prompt,
+        op: None,
+        body: carried.body,
+        mode: carried.mode,
+        idempotency_key: idempotency_key(&carried.prompt_id),
+    };
+    Ok((message, carried.inline, caller.map(str::to_owned)))
 }
 
 /// The outbox's record of a delivery the hub took for a peer that is down (`relay`).
@@ -222,7 +354,7 @@ fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         claim,
         ..Sender::default()
     }
@@ -248,7 +380,7 @@ pub(super) async fn send(
     let inline = carried.inline;
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
-        to: recipient(target),
+        to: recipient_in(hub, target),
         from: sender(hub, caller, carried.named, carried.claim),
         kind: Kind::Prompt,
         op: None,
@@ -260,7 +392,11 @@ pub(super) async fn send(
             idempotency_key(&carried.prompt_id)
         },
     };
-    let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
+    // The idempotency key makes a second post the same message, so a full rate window is waited
+    // out (the hub's `retryAfterSeconds`) rather than failing the send.
+    let receipt = crate::mesh_retry::retry_send(|| mesh.send(&message))
+        .await
+        .map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
         super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
     } else {
@@ -384,8 +520,13 @@ fn refusal(target: &str, e: HubError) -> RpcError {
         ),
         _ if e.refused => RpcError::invalid_params(format!("the mesh hub refused it: {e}"))
             .with_data(json!({"reason": "mesh.refused", "session": target})),
-        _ => RpcError::internal(format!("the mesh hub did not take it: {e}"))
-            .with_data(json!({"reason": "mesh.unavailable", "retryable": true})),
+        _ => {
+            let after = e.retry_after.map(|d| d.as_secs());
+            let hint = after.map(|s| format!("; retry after {s}s")).unwrap_or_default();
+            RpcError::internal(format!("the mesh hub did not take it: {e}{hint}")).with_data(
+                json!({"reason": "mesh.unavailable", "retryable": true, "retryAfterSeconds": after}),
+            )
+        }
     }
 }
 
@@ -416,6 +557,55 @@ mod tests {
         );
         let to = recipient("machine-b/own-e2e");
         assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
+    }
+
+    /// A send or prompt to a chat the hub lists, named by its given handle (`HOST/Mango`,
+    /// `Mango`), goes to its machine by id: the hub and the far daemon match names only. A name
+    /// still goes as a name. Leo, 2026-11-23: "the send/recieve messages are still only the
+    /// older names".
+    #[tokio::test]
+    async fn a_handle_the_hub_lists_is_sent_to_by_id() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
+        let book = crate::mesh::AddressBook {
+            daemons: vec![crate::mesh::BookDaemon {
+                daemon_id: "d-b".into(),
+                host: "machine-b".into(),
+                user: "person-1".into(),
+                last_seen_at: 5,
+            }],
+            sessions: vec![crate::mesh::BookSession {
+                name: "claude-sr2-coord-old".into(),
+                session_id: id.into(),
+                host: "machine-b".into(),
+                daemon_id: "d-b".into(),
+                harness: "claude".into(),
+                state: "idle".into(),
+                handle: Some("Mango".into()),
+                ..Default::default()
+            }],
+        };
+        hub.apply_mesh_book(book, "person-1", Some("d-a"));
+        for key in ["machine-b/Mango", "Mango"] {
+            let to = recipient_in(&hub, key);
+            assert_eq!(
+                (to.session_id.as_deref(), to.name.as_deref(), to.host.as_deref()),
+                (Some(id), None, Some("machine-b")),
+                "{key}"
+            );
+            assert_eq!(
+                super::super::mesh_relay::read::hub_prompt_target(&hub, key),
+                Some(format!("machine-b/{id}")),
+                "{key}"
+            );
+        }
+        let to = recipient_in(&hub, "machine-b/claude-sr2-coord-old");
+        assert_eq!(to.name.as_deref(), Some("claude-sr2-coord-old"));
+        assert_eq!(recipient_in(&hub, "machine-b/Kiwi").name.as_deref(), Some("Kiwi"));
     }
 
     /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0

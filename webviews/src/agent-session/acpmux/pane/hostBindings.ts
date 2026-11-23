@@ -1,5 +1,6 @@
 import { postNative } from "../native";
 import { setSessionInfoTab } from "../session-info/sessionInfoState";
+import { setStashTab } from "../composer/draftStash";
 import { type CheckpointDiff } from "../changes/turnCheckpointSource";
 import {
   registerAttachmentViewHost,
@@ -21,7 +22,10 @@ registerComposerHost((method, show) => callNative(method, { show }));
 if (typeof window !== "undefined")
   window.addEventListener(PANE_TAB_EVENT, (event) => {
     const tab = (event as CustomEvent<{ tab?: unknown }>).detail?.tab;
-    if (typeof tab === "string" && tab) setSessionInfoTab(tab);
+    if (typeof tab === "string" && tab) {
+      setSessionInfoTab(tab);
+      setStashTab(tab);
+    }
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
