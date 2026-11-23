@@ -234,6 +234,60 @@ impl crate::mux::Mux {
     }
 }
 
+/// The newest records one reply read asks for per page.
+const REPLY_PAGE_RECORDS: usize = 400;
+/// The most bytes one reply page carries.
+const REPLY_PAGE_BYTES: usize = 512 * 1024;
+/// The most pages one reply read walks back before it calls the prompt not found.
+const REPLY_PAGES: usize = 4;
+/// How long one reply page may take.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(3);
+
+impl crate::mux::Mux {
+    /// The answer of the turn acpmux ran for `prompt_id` in `session`, read
+    /// newest first from its log: `Pending` while that turn has not ended (or
+    /// the prompt is older than the last [`REPLY_PAGES`] pages), `None` when
+    /// acpmux could not be read.
+    pub(crate) fn acp_prompt_reply(
+        &self,
+        session: &str,
+        prompt_id: &str,
+    ) -> Option<crate::comment_threads::TurnReply> {
+        let socket = self.control_clients.agent_sessions.socket()?;
+        let link = AcpmuxLink::connect(&socket, |_| {}).ok()?;
+        let mut events: Vec<Value> = Vec::new();
+        let mut before: Option<u64> = None;
+        let mut reply = crate::comment_threads::TurnReply::Pending;
+        for _ in 0..REPLY_PAGES {
+            let query = json!({
+                "sessionId": session,
+                "limit": REPLY_PAGE_RECORDS,
+                "maxBytes": REPLY_PAGE_BYTES,
+                "kinds": crate::comment_threads::REPLY_KINDS,
+                "beforeSeq": before,
+            });
+            let Ok(page) = link.call("_acpmux/events", query, REPLY_TIMEOUT) else {
+                link.close();
+                return None;
+            };
+            let older = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+            let Some(first) = older.first().and_then(|e| e.get("seq")).and_then(Value::as_u64)
+            else {
+                break;
+            };
+            before = Some(first);
+            events.splice(0..0, older);
+            reply = crate::comment_threads::turn_reply(&events, prompt_id);
+            let more = page.get("hasMore").and_then(Value::as_bool).unwrap_or(false);
+            if !matches!(reply, crate::comment_threads::TurnReply::Pending) || !more {
+                break;
+            }
+        }
+        link.close();
+        Some(reply)
+    }
+}
+
 /// `_acpmux/info` can resolve a session mirrored from a peer. Diff-comment
 /// sends run on the session host, so they require a local session; the generic
 /// agent-message path allows acpmux to forward a peer session.
