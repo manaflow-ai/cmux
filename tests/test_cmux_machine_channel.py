@@ -862,7 +862,8 @@ class LinuxReleaseAliases(unittest.TestCase):
 
     def setUp(self):
         LinuxReleasePoint.setUp(self)
-        for name in ("cmux-linux-release-aliases.sh", "cmux-machine-channel.py", "nightly_version.py"):
+        for name in ("cmux-linux-release-aliases.sh", "cmux-machine-channel.py", "nightly_version.py",
+                     "screen_sharing_helper_release.py"):
             shutil.copy(ROOT / "scripts/ci" / name, self.repo / "scripts/ci/")
         republish.Sandbox._exe(self.repo / "scripts/ci/cmux_tui_tree_key.py", FAKE_TREE_KEY)
         (self.repo / "scripts/cmux-next/cmux-tui-tree-inputs.txt").write_text("cmux-tui/\n")

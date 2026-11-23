@@ -119,7 +119,9 @@ write_once() { # OBJECT LABEL [SAME-BUILD-ARGS...]
         }
         # A Linux release file's sequence and version are the signing run's (same-build ignores them):
         # the channel gets the kept file's bytes, so it never names a version the commit's file lacks.
-        if [[ "$purpose" == cmux-linux-release ]]; then
+        # Not for a kept tree file (SAME-BUILD-ARGS given): it may be another commit's, and this commit
+        # still writes and points at its own.
+        if [[ "$purpose" == cmux-linux-release && $# == 0 ]]; then
           cp "$dir/release-current.json" "$signed"
           echo "kept $release; the channel gets its bytes"
         fi
