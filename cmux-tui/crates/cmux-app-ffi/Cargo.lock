@@ -137,6 +137,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
  "cmux-layout-reducer-ffi",
@@ -200,6 +201,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-lifeline",
  "serde",
  "serde_json",
 ]
@@ -278,6 +280,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-launch-image"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-launch-record"
 version = "0.1.0"
 dependencies = [
@@ -324,6 +330,13 @@ dependencies = [
  "cmux-window-rules",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
