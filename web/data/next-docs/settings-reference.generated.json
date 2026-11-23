@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 679,
+  "count": 681,
   "sections": [
     {
       "id": "general",
@@ -656,6 +656,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Tabs"
+        },
+        {
+          "key": "app.warnBeforeQuitShortcut",
+          "title": "Warn Before Quitting with ⌘Q",
+          "help": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Quitting"
         },
         {
           "key": "appearance.metrics.tabFontSize",
@@ -2770,6 +2778,22 @@
           }
         },
         {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundRotation",
           "title": "Change Picture",
           "help": "How often a shuffled background changes.",
@@ -3093,6 +3117,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.liquidGlass",
+          "title": "Liquid Glass",
+          "help": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Density and Motion"
         },
         {
           "key": "appearance.metrics.chromeFontSize",
@@ -4808,30 +4840,6 @@
           "help": "",
           "kind": "toggle",
           "default": false,
-          "group": "Workspace Rows"
-        },
-        {
-          "key": "sidebar.workspaceRow.lines",
-          "title": "Row Layout",
-          "help": "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line.",
-          "kind": "json",
-          "default": null,
-          "group": "Workspace Rows"
-        },
-        {
-          "key": "sidebar.workspaceRow.linesByAgent",
-          "title": "Row Layout by Agent",
-          "help": "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts.",
-          "kind": "json",
-          "default": null,
-          "group": "Workspace Rows"
-        },
-        {
-          "key": "sidebar.workspaceRow.linesByKind",
-          "title": "Row Layout by Kind",
-          "help": "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout.",
-          "kind": "json",
-          "default": null,
           "group": "Workspace Rows"
         },
         {
@@ -7226,6 +7234,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
+        },
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "title": "Only Your Click Starts Viewing a Screen",
+          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Screen Sharing"
         },
         {
           "key": "phone.cloudDesktop",
