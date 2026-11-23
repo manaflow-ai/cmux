@@ -15,6 +15,7 @@
 //   bun scripts/chat-sim.ts --capture SESSION --window "2:05PM NOV 22 TO 2:11PM" --name leo-2205-x
 //   bun scripts/chat-sim.ts --capture SESSION --report "WHY DID IT" [--minutes 6]   (the minutes before that prompt)
 //   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions   (record kinds live chats write that no fixture or scenario plays)
+//   bun scripts/chat-sim.ts --cases   (the layout-shift case space; test/layout-every-case-browser.test.ts plays it)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -33,6 +34,14 @@ import { runSimulation, summarize, type SimResult } from "../src/agent-session/a
 import { DROPPED, parseRecords, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
+import {
+  CONTENT_KINDS,
+  PERTURBATIONS,
+  PERTURBATION_NAMES,
+  WIDTHS,
+  layoutCaseScenario,
+  layoutCases,
+} from "../src/agent-session/acpmux/sim/layoutCases";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -46,7 +55,7 @@ function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
       .split("\n")
-      .slice(1, 19)
+      .slice(1, 20)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
@@ -348,6 +357,21 @@ if (sweep) {
       `${String(entry.rows).padStart(6)} rows ${String(entry.chats.size).padStart(4)} chats  ${key}\n${" ".repeat(19)}e.g. ${entry.example}`,
     );
   process.exit(classes.size ? 1 : 0);
+}
+if (flag("--cases")) {
+  // The layout-shift case space (sim/layoutCases.ts): each case is drawn and judged frame by frame in the
+  // browser lane; here it is listed, with each content kind's chat checked by the model's rules.
+  const cases = layoutCases();
+  for (const content of CONTENT_KINDS) {
+    const result = runSimulation(layoutCaseScenario(content));
+    console.log(`${content.padEnd(22)} ${String(result.steps).padStart(5)} steps  ${summarize(result)}`);
+  }
+  for (const [name, { provoked, about }] of Object.entries(PERTURBATIONS))
+    console.log(`${name.padEnd(22)} ${provoked ? "provoked" : "unprovoked"}  ${about}`);
+  console.log(
+    `${cases.length} cases: ${CONTENT_KINDS.length} content kinds x ${PERTURBATION_NAMES.length} perturbations, plus widths ${WIDTHS.join("/")}`,
+  );
+  process.exit(0);
 }
 if (flag("--list")) {
   for (const name of scenarioNames()) console.log(`${name.padEnd(24)} ${SCENARIOS[name]!().about}`);
