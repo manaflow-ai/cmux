@@ -26,11 +26,17 @@ nonisolated struct RustActionCatalog: Sendable {
     let paletteDuplicates: [ActionID: ActionID]
     let categories: [ActionCategory: (title: String, titleKey: String, titleTable: String)]
     let folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)]
+    /// Each catalog request row's request (`ActionCatalogRequest`), by id. Kept beside the
+    /// descriptors, which the catalog dump compares field for field with the Swift catalog's.
+    let requests: [ActionID: ActionCatalogRequest]
+    /// Every `op:` suggestion source an argument names, by source name (`op:closed.list`).
+    let listSources: [String: ActionCatalogListSource]
 
-    /// In the language the app's own strings resolve to: the bundle negotiates the person's whole
-    /// preference list against the localizations it ships (Swedish, Japanese, English gives
-    /// Japanese), as `String(localized:bundle:)` does.
-    static let shared: RustActionCatalog = load(language: Bundle.module.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
+    /// In the language the app's own strings resolve to: the main bundle negotiates the person's
+    /// whole preference list against the 21 localizations the app declares (Swedish, Japanese,
+    /// English gives Japanese). Not `Bundle.module`: a NIGHTLY ships only English in its module
+    /// bundles and downloads the person's language on first use (`LanguagePacks`).
+    static let shared: RustActionCatalog = load(language: Bundle.main.preferredLocalizations.first ?? Locale.preferredLanguages.first ?? "en")
 
     private static let log = Logger(subsystem: "com.cmuxterm.next", category: "action-catalog")
 
@@ -67,6 +73,7 @@ nonisolated struct RustActionCatalog: Sendable {
             if let id = row["id"] as? String, let group = row["group"] as? String { groupOf[ActionID(rawValue: id)] = group }
         }
         self.groupOf = groupOf
+        (requests, listSources) = Self.catalogRequests(actions)
         legacyAliases = Self.idMap(root["legacy_aliases"])
         let defaults = root["key_binding_defaults"] as? [String: Any] ?? [:]
         var bindings: [String: [KeyBinding]] = [:]
@@ -113,6 +120,30 @@ nonisolated struct RustActionCatalog: Sendable {
             folders[folder] = (row["title"] as? String ?? id, row["symbol"] as? String ?? "folder", group)
         }
         self.folders = folders
+    }
+
+    /// The rows' `request` members and their arguments' `suggestions.list` members (the app form
+    /// of the export carries both; a row without them has none).
+    static func catalogRequests(_ actions: [[String: Any]]) -> ([ActionID: ActionCatalogRequest], [String: ActionCatalogListSource]) {
+        var requests: [ActionID: ActionCatalogRequest] = [:]
+        var lists: [String: ActionCatalogListSource] = [:]
+        for row in actions {
+            guard let id = row["id"] as? String else { continue }
+            if row["request"] != nil {
+                if let request = ActionCatalogRequest.decode(row["request"]) {
+                    requests[ActionID(rawValue: id)] = request
+                } else {
+                    log.fault("action catalog row \(id, privacy: .public) has a request that does not decode")
+                }
+            }
+            for argument in row["arguments"] as? [[String: Any]] ?? [] {
+                guard let suggestions = argument["suggestions"] as? [String: Any], let source = suggestions["source"] as? String,
+                      let list = ActionCatalogListSource.decode(suggestions["list"])
+                else { continue }
+                lists[source] = list
+            }
+        }
+        return (requests, lists)
     }
 
     /// `actions` without what only a Debug build has (its handlers are compiled out of Release):

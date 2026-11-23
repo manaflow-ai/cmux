@@ -22,12 +22,14 @@ import run_ci_guards  # noqa: E402
 
 
 class NewReds(unittest.TestCase):
-    def run_it(self, head, base):
+    def run_it(self, head, base, *, base_complete=True):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
             for name, results in (("head", head), ("base", base)):
                 path = Path(tmp) / f"{name}.json"
                 if results is not None:
+                    if name == "base" and not base_complete:
+                        results = {"_cmux_complete": False, **results}
                     path.write_text(json.dumps(results))
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
@@ -197,11 +199,15 @@ class NewReds(unittest.TestCase):
         file = red.split(" > ")[0]
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
-            self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
-            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
-            self.assertIn(f"webview test red step (new): {red}", done.stdout)
+            if first == "unreadable":
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
+            else:
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
+                self.assertIn(f"webview test red step (new): {red}", done.stdout)
             listed = self.run_again({red: False}, first, {red: False}, new_files=True)
-            self.assertEqual(listed.stdout.splitlines(), [file], first)
+            self.assertEqual(listed.stdout.splitlines(), [] if first == "unreadable" else [file], first)
         # A first replay whose file passed whole (it names no passing test) did pass it.
         done = self.run_again({red: False}, {file: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -243,23 +249,85 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("::warning title=Guard red on the base too::lint", done.stdout)
 
-    def test_a_new_step_that_fails_is_the_changes(self):
+    def test_a_step_that_fails_on_a_completed_base_is_the_changes(self):
         done = self.run_it({"new step": False}, {})
         self.assertEqual(done.returncode, 1)
+
+    def test_a_step_with_no_base_result_is_unknown_not_new(self):
+        # Detector for the cut-pass class: an absent base entry must never become a `new` line.
+        done = self.run_it({"cut step": False}, None)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+        self.assertIn("0 guard steps red on this change", done.stdout)
+
+    def test_a_partial_base_keeps_finished_green_new_and_missing_unknown(self):
+        done = self.run_it({"cut step": False, "finished green": False}, {"finished green": True}, base_complete=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (new): finished green", done.stdout)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+
+    def test_a_file_the_cut_base_replay_never_reached_is_unknown_not_the_changes(self):
+        # react-apps-base-check's first base replay stops at the job's budget (CMUX_WEB_TEST_STOP_AT). Job
+        # 137225088381 replayed 152 files one at a time and was cancelled at the 55 minutes with no verdict; cut
+        # instead, the files it never reached have no base result, and their reds must not read as the change's.
+        reached, cut = "test/reached.test.ts", "test/cut.test.ts"
+        head = {f"{reached} > a": False, f"{cut} > b": False, cut: False}
+        with tempfile.TemporaryDirectory() as tmp:
+            files, base, head_path = Path(tmp) / "files", Path(tmp) / "base.json", Path(tmp) / "head.json"
+            files.write_text(f"{reached}\n{cut}\n")
+            base.write_text(json.dumps({f"{reached} > a": True}))
+            head_path.write_text(json.dumps(head))
+            marked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                                     str(files), str(base)], capture_output=True, text=True)
+            self.assertEqual(marked.returncode, 0, marked.stdout + marked.stderr)
+            self.assertIn(f"  {cut}", marked.stdout)
+            self.assertEqual(json.loads(base.read_text())["_cmux_unreached"], [cut])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", str(head_path), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"webview test red step (new): {reached} > a", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut} > b", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut}", done.stdout)
+            self.assertNotIn(f"(new): {cut}", done.stdout)
+            listed = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(head_path), str(base)],
+                                    capture_output=True, text=True)
+            self.assertEqual(listed.stdout.splitlines(), [reached])
+            # A replay that reached every file is left as it was.
+            base.write_text(json.dumps({f"{reached} > a": True, cut: True}))
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                            str(files), str(base)], check=True, capture_output=True)
+            self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
 
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)
         self.assertIn("fixed by this change: lint", done.stdout)
 
-    def test_no_base_results_means_every_red_is_the_changes(self):
+    def test_no_base_results_are_deferred_to_the_merge_gate(self):
         done = self.run_it({"lint": False}, None)
         self.assertEqual(done.returncode, 1)
         self.assertIn("no base results", done.stdout)
+        self.assertIn("guard red step (unknown): lint", done.stdout)
 
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class IncrementalGuardResults(unittest.TestCase):
+    def test_a_completed_step_is_written_before_the_run_finishes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "guards-base.json"
+            unit = run_ci_guards.Unit("workflow-guard-tests", "ci", [])
+            step = run_ci_guards.Step("finished", "", {}, None)
+            writer = run_ci_guards.IncrementalResults(path, root)
+            writer.add(run_ci_guards.StepResult(unit, step, True, 0.1, ""))
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": False, "finished": True})
+            writer.complete()
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": True, "finished": True})
 
 
 class RedStepsForTheBaseRerun(unittest.TestCase):

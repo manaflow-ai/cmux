@@ -32,6 +32,11 @@ Usage:
       [--label NAME] [--out DIR] [--keep-running]
 
 Writes artifacts/cmux-next-bench/<sha>-tabswitch-<label>.json.
+
+`--frames` runs the frame-judged harness instead (tab_switch_frames.py, its own arguments after the flag): a long
+chat, a terminal and a Chromium page switched away and back, a new tab and a close, idle, under CPU load and with
+agents streaming, every switch judged from the screen's frames against the frame it must end on, with budgets and the
+tab-switch/v1 report. It runs on a shipped NIGHTLY too: scripts/measure/tab-switch.sh build=nightly|SHA.
 """
 from __future__ import annotations
 
@@ -48,6 +53,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 
@@ -88,6 +94,11 @@ class Bench:
             rows += [p for p in window.get("panes", []) if p.get("visible")]
         return rows
 
+    def shown(self):
+        """The visible panes' selected and shown tabs and blank flags: what a settled switch stops changing."""
+        return json.dumps([[p.get("pane"), p.get("selected_tab"), p.get("shown_tab"), p.get("blank"), p.get("content_visible")]
+                           for p in self.visible_panes()], sort_keys=True)
+
     def topology(self):
         return result(self.control.call("snapshot.get", timeout=10)).get("topology") or {}
 
@@ -127,7 +138,8 @@ class Bench:
                        refused(self.control.action("palette.closeOtherWorkspaces", timeout=30, confirm=True))]:
             if reason:
                 raise SystemExit(f"bench-tab-switch: could not reset workspaces: {reason}")
-        time.sleep(1)  # test script: let the close settle
+        # Until the close landed: the daemon lists only the fresh workspace.
+        wait_until(lambda: len(self.topology().get("workspaces") or []) == 1, "the other workspaces to close", timeout=30)
         if not self.wait_tabs(1):
             raise SystemExit("bench-tab-switch: the fresh workspace has no tab")
         home = (self.topology().get("focus") or {}).get("workspace")
@@ -157,13 +169,17 @@ class Bench:
         order = [w.get("id") for w in self.topology().get("workspaces", [])]
         self.home_index = order.index(home) + 1 if home in order else 1
         self.control.action("selectWorkspaceByNumber", timeout=10, index=self.home_index)
-        time.sleep(1)  # test script: let the switch settle
+        # Until the switch landed: the home workspace is focused and its pane lists every tab.
+        wait_until(lambda: (self.topology().get("focus") or {}).get("workspace") == home and len(self.focused_pane_tabs()) == tabs,
+                   f"workspace {home} focused with {tabs} tabs", timeout=15, raise_on_timeout=False)
         if len(self.focused_pane_tabs()) != tabs:
             raise SystemExit(f"bench-tab-switch: first workspace has {len(self.focused_pane_tabs())} tabs, want {tabs}")
         for _ in range(tabs):
             self.key("tab", ["control"])
             time.sleep(0.4)  # test script: slow warm-up visit, one tab at a time
-        time.sleep(2)  # test script: pages finish loading
+        # Pages finish loading: the shown panes and the Chromium pages stop changing.
+        wait_stable(lambda: json.dumps([self.shown(), result(self.control.call("debug.cef", timeout=10)).get("devtools")], sort_keys=True),
+                    "the warmed tabs' pages", timeout=30, interval=0.2, reads=5, raise_on_timeout=False)
 
     # -- input ----------------------------------------------------------
 
@@ -227,7 +243,9 @@ class Bench:
             if delay > 0:
                 time.sleep(delay)  # test script: key-repeat pacing
         frames = result(control.call("debug.frames", {"action": "stop"}, timeout=10))
-        time.sleep(self.args.settle)  # test script: let the final selection settle
+        # Until the final selection settled: the visible panes' selected/shown tabs read the same several times.
+        wait_stable(self.shown, f"the final selection after {name}", timeout=max(10.0, self.args.settle * 10),
+                    interval=0.05, reads=5, raise_on_timeout=False)
         violations = self.invariant()
         after = usage(self.app_pid)
         hangs_after = result(control.call("debug.hangs", {"limit": 64}, timeout=10))
@@ -260,6 +278,9 @@ class Bench:
 
 
 def main():
+    if sys.argv[1:2] == ["--frames"]:
+        import tab_switch_frames
+        sys.exit(tab_switch_frames.main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--app")
@@ -300,7 +321,10 @@ def main():
         identity = result(control.call("system.identify"))
         app_pid = identity.get("pid", app.pid)
         bench = Bench(control, app_pid, args)
-        time.sleep(3)  # test script: first terminal attaches
+        # Until the first terminal attached: a visible pane shows, none blank.
+        if not wait_until(lambda: (lambda panes: panes and not any(p.get("blank") for p in panes))(bench.visible_panes()),
+                          "the first terminal to attach", timeout=30, raise_on_timeout=False):
+            safe_print("bench-tab-switch: the first terminal did not show within 30 s; building anyway")
         bench.build_workload(scratch)
         report["setup_surfaces"] = bench.surfaces()
         report["cef"] = result(control.call("debug.cef", timeout=10))

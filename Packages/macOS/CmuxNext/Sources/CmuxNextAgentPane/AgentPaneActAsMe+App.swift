@@ -1,3 +1,6 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextControl
+#endif
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
@@ -40,6 +43,7 @@ extension AgentPaneActAsMe {
             }
             card?.show()
         }
+        hideCard = { card?.hide() }
         // task-owner: `following`, cancelled in stop(); one Keychain and one managed read at launch
         following = Task { [weak self] in
             await self?.load()
@@ -54,3 +58,27 @@ extension AgentPaneActAsMe {
         following = nil
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension AgentPaneActAsMe {
+    /// `debug.act_as_me {action}` (DEBUG and bench builds), for captures of the consent card: `ask` shows it as an
+    /// agent's refused send would (whatever was asked before), `close` takes it away, `state` (default) reads the
+    /// grant. It grants nothing: only the card's Allow, by the person's own click, turns the grant on.
+    public func debugMethod() -> ControlMethod {
+        .mainActor("debug.act_as_me") { [weak self] call in
+            guard let self else { return .value(.null) }
+            switch call.params["action"]?.stringValue ?? "state" {
+            case "ask":
+                guard let ask else { return .value(["error": "the grant was not started (no consent card)"]) }
+                ask()
+                return .value(["shown": true])
+            case "close":
+                hideCard?()
+                return .value(["shown": false])
+            default:
+                return .value(["on": .bool(isOn), "asked": .bool(asked)])
+            }
+        }
+    }
+}
+#endif

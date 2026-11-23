@@ -22,12 +22,25 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod act;
+pub mod act_ids;
 pub mod queue;
 pub mod source;
 pub mod stream;
 
 use crate::conn::Reply;
 use crate::wire::{Blob, Page};
+
+pub mod draft;
+pub mod presence;
+
+pub use draft::{
+    ActError, DraftCommit, MAX_DRAFT_BYTES, TOO_LARGE, validate_draft, write_draft_atomic,
+};
+pub use presence::{
+    MAX_PRESENCE_BYTES, MAX_PRESENCE_PEOPLE, PresencePerson, PresenceStateOp, TYPING_EXPIRY,
+    TYPING_RATE_LIMIT, TypingRateLimited, TypingTracker,
+};
 
 pub type SourceFactory = Arc<dyn Fn() -> std::io::Result<Box<dyn source::RawSource>> + Send + Sync>;
 
@@ -63,6 +76,10 @@ impl source::RawSource for EmptySource {
 /// bound protects the actor before that connection-level budget exists.
 pub const MAILBOX_BYTES: usize = 4 * 1024 * 1024;
 pub const IDLE_AFTER: Duration = Duration::from_secs(5 * 60);
+/// How long the source stays quiet after a turn's end before its checkpoint runs. The checkpoint
+/// syncs the book's files on the actor's thread; at once, it held back the next turn's lines,
+/// sent as soon as the turn's reply came (a queued prompt, a script).
+pub const CHECKPOINT_QUIET: Duration = Duration::from_millis(50);
 /// How often a caught-up actor with an empty mailbox looks at its source's hint: a backstop. A
 /// notice that the source grew wakes it at once (v1's tee sends one for each line it appends);
 /// the hint finds the lines a dropped notice told of.
@@ -179,6 +196,9 @@ pub struct ChatConfig {
     /// Records whose kind the translator has no line for (`translate/kinds.rs`), shared with its
     /// handle: zero over every known log.
     pub unknown_kinds: Arc<AtomicU64>,
+    /// Card bodies a write left out because their logged line no longer read (one record of a
+    /// card's records, or one card field), shared with its handle: zero over every intact log.
+    pub card_reads_missed: Arc<AtomicU64>,
 }
 
 /// How often a caught-up actor read because a notice came (a `wake`) or because its poll saw
@@ -205,6 +225,7 @@ impl ChatConfig {
             history: None,
             wakes: Arc::default(),
             unknown_kinds: Arc::default(),
+            card_reads_missed: Arc::default(),
         }
     }
 
@@ -244,6 +265,38 @@ pub enum ChatError {
     Failed,
     Response,
     SourceChanged,
+}
+
+/// Errors returned by the v2 daemon-line writer seam.
+#[derive(Debug, thiserror::Error)]
+pub enum ActWriteError {
+    #[error("daemon line writer I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("daemon line writer is unavailable")]
+    Unavailable,
+    #[error("daemon line is {bytes} bytes; maximum is 262144")]
+    LineTooLong { bytes: usize },
+}
+
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
+
+pub fn validate_daemon_line(line: &[u8]) -> Result<(), ActWriteError> {
+    if line.len() > MAX_DAEMON_LINE_BYTES {
+        return Err(ActWriteError::LineTooLong { bytes: line.len() });
+    }
+    Ok(())
+}
+
+/// The narrow seam used by the action path to append a daemon line.
+///
+/// Implementations must validate every line as at most 256 KiB, append the
+/// complete batch atomically, sync once, and roll back the file on any error.
+/// They must not return a place until every line and its terminating newline
+/// have been synced. The shared reference keeps the seam object-safe; hosted
+/// implementations can put their append-only file behind a mutex while test
+/// writers can provide a small in-memory implementation.
+pub trait DaemonLineWriter: Send + Sync {
+    fn append_daemon_lines(&self, lines: &[&[u8]]) -> Result<u64, ActWriteError>;
 }
 
 impl std::fmt::Display for ChatError {
@@ -304,6 +357,7 @@ enum Request {
         conn: u64,
         sid: String,
     },
+    Presence(PresenceStateOp),
     Page {
         page: Box<Page>,
         person: stream::PersonId,
@@ -324,6 +378,7 @@ impl Request {
             Self::Wake | Self::Close { .. } => 0,
             Self::Sub { sub, .. } => size_of::<stream::ChatSub>() + sub.sid.len(),
             Self::Resume { sid, .. } | Self::End { sid, .. } => sid.len(),
+            Self::Presence(op) => encoded_len(op),
             // Every member a page may carry (positions, keys, a filter), as its JSON counts them.
             Self::Page { page, .. } => size_of::<Page>() + encoded_len(page) + size_of::<Reply>(),
             Self::Blob { blob, .. } => {
@@ -377,6 +432,7 @@ pub struct ChatHandle {
     failures: Arc<AtomicU64>,
     wakes: Arc<Wakes>,
     unknown_kinds: Arc<AtomicU64>,
+    card_reads_missed: Arc<AtomicU64>,
 }
 
 impl ChatHandle {
@@ -391,6 +447,12 @@ impl ChatHandle {
     /// Records whose kind the translator has no line for, in this actor's life.
     pub fn unknown_kinds(&self) -> u64 {
         self.unknown_kinds.load(Ordering::Relaxed)
+    }
+
+    /// Card bodies a write left out because their logged line no longer read, in this actor's
+    /// life.
+    pub fn card_reads_missed(&self) -> u64 {
+        self.card_reads_missed.load(Ordering::Relaxed)
     }
 
     /// The chat is `ready`: a read from its cursor said `at_end` in this actor's life, so it
@@ -486,6 +548,12 @@ impl ChatHandle {
         self.send(Request::End { conn, sid: sid.to_owned() }).map_err(|refused| refused.0)
     }
 
+    /// Replaces the followed chat's latest presence set. The caller supplies an op returned by
+    /// [`PresenceStateOp::replace`]; the actor owns delivery and coalescing on the chat stream.
+    pub fn presence(&self, op: PresenceStateOp) -> Result<(), ChatError> {
+        self.send(Request::Presence(op)).map_err(|refused| refused.0)
+    }
+
     /// A `page`, answered through `reply`; refused, it is answered at once.
     pub fn page(&self, page: Page, person: stream::PersonId, reply: Reply) {
         let request = Request::Page { page: Box::new(page), person, reply };
@@ -538,6 +606,7 @@ impl ChatActor {
             failures: failures.clone(),
             wakes: config.wakes.clone(),
             unknown_kinds: config.unknown_kinds.clone(),
+            card_reads_missed: config.card_reads_missed.clone(),
         };
         let join = thread::Builder::new()
             .name(format!("acpmux-chat-{}", config.id))
@@ -630,6 +699,9 @@ struct ActorState {
     source: Box<dyn source::RawSource>,
     last_used: Instant,
     last_checkpoint: Instant,
+    /// A turn ended since the last checkpoint: it runs once the source was quiet until then
+    /// ([`CHECKPOINT_QUIET`]).
+    checkpoint_due: Option<Instant>,
     settled_since_checkpoint: u32,
     replay_remaining: u64,
     /// The hint the last read that said `at_end` saw. The actor reads again when its mailbox is
@@ -1086,6 +1158,7 @@ fn open_state_from_log(
         source,
         last_used: Instant::now(),
         last_checkpoint: Instant::now(),
+        checkpoint_due: None,
         settled_since_checkpoint: 0,
         replay_remaining: recovered.replayed,
         seen_hint: None,
@@ -1163,13 +1236,19 @@ fn run_once(
         if *health.borrow() != crate::life::Health::Running {
             health.send_replace(crate::life::Health::Running);
         }
-        match wait_for_work(state, rx, stop) {
+        let mut wait = wait_for_work(state, rx, stop);
+        // A quiet turn's end: its checkpoint, then the same wait, with nothing new to read.
+        while matches!(wait, Wait::Checkpoint) {
+            checkpoint(state)?;
+            wait = wait_for_work(state, rx, stop);
+        }
+        match wait {
             Wait::Request(request) => {
                 if !handle_request(state, request, queued)? {
                     return Ok(true);
                 }
             }
-            Wait::Read => {}
+            Wait::Read | Wait::Checkpoint => {}
             Wait::Idle => {
                 stream::prune(state);
                 if state.translate.open_rows().next().is_none()
@@ -1189,6 +1268,8 @@ enum Wait {
     Request(Request),
     /// The source's hint is not the one the last read that said `at_end` saw, or a stop.
     Read,
+    /// A turn's end waited out [`CHECKPOINT_QUIET`] with nothing to read.
+    Checkpoint,
     Idle,
     Closed,
 }
@@ -1221,6 +1302,13 @@ fn wait_for_work(state: &ActorState, rx: &Receiver<Request>, stop: &AtomicBool) 
             return Wait::Idle;
         }
         let mut wait = left.min(state.config.hint_poll.max(Duration::from_millis(1)));
+        if let Some(at) = state.checkpoint_due {
+            let now = Instant::now();
+            if at <= now {
+                return Wait::Checkpoint;
+            }
+            wait = wait.min(at - now);
+        }
         // Held text is due.
         if let Some(at) = state.subs.flush_at() {
             let now = Instant::now();
@@ -1270,6 +1358,21 @@ fn handle_request(
         }
         Request::End { conn, sid } => {
             stream::end(state, conn, &sid);
+            Ok(true)
+        }
+        Request::Presence(op) => {
+            let participants = op
+                .participants
+                .into_iter()
+                .map(|person| crate::wire::PresencePerson {
+                    id: person.id,
+                    name: person.name,
+                    devices: person.devices,
+                    viewing: person.viewing,
+                    typing: person.typing,
+                })
+                .collect();
+            stream::presence(state, participants, op.trimmed);
             Ok(true)
         }
         Request::Page { page, person, reply } => {
@@ -1357,7 +1460,6 @@ fn apply_ops(
     span: u64,
     checkpoint_now: bool,
 ) -> Result<(), ChatError> {
-    let mut changed = false;
     let before = state.translate.line_failures();
     let ops =
         translate::translate(&mut state.translate, state.config.harness, base_offset, span, bytes)?;
@@ -1365,6 +1467,36 @@ fn apply_ops(
         return Err(translate::Error::InvalidRecord("raw line did not translate").into());
     }
     state.config.unknown_kinds.store(state.translate.unknown_records(), Ordering::Relaxed);
+    let changed = apply_changes(state, ops, bytes, file, base_offset, span)?;
+    stream::publish(state);
+    if !checkpoint_now || !changed || state.replay_remaining != 0 {
+        return Ok(());
+    }
+    if state.settled_since_checkpoint >= 256
+        || state.last_checkpoint.elapsed() >= Duration::from_secs(1)
+    {
+        checkpoint(state)?;
+    } else if !state.translate.in_turn() {
+        // A turn's end: once the source is quiet ([`CHECKPOINT_QUIET`]), not before the lines
+        // that may follow at once.
+        state.checkpoint_due = Some(Instant::now() + CHECKPOINT_QUIET);
+    }
+    Ok(())
+}
+
+/// Applies one line's ops in order and says whether one settled or patched a row. A card body
+/// whose logged line no longer reads is left out of its row, never an error: the row's body says
+/// how many it lacks (`lacks`), counted per row over this line's ops.
+fn apply_changes(
+    state: &mut ActorState,
+    ops: Vec<translate::Op>,
+    bytes: &[u8],
+    file: u32,
+    base_offset: u64,
+    span: u64,
+) -> Result<bool, ChatError> {
+    let mut changed = false;
+    let mut lacks = BTreeMap::<u64, u64>::new();
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
             || matches!(&op.change, Change::Patch(_));
@@ -1381,51 +1513,68 @@ fn apply_ops(
         match op.change {
             Change::Row(row) => {
                 let id = row.id;
+                lacks.remove(&id);
                 if settle_or_open(state, row, raw)? {
                     state.next_generation(id);
                     stream::opened(state, id)?;
                 }
             }
-            Change::Patch(row) => patch(state, row, raw)?,
+            Change::Patch(row) => {
+                lacks.remove(&row.id);
+                patch(state, row, raw)?;
+            }
             Change::Body { id, field, append, source } => {
+                let mut missed = 0u64;
                 let value = match &source {
                     BodySource::Text(text) => {
-                        serde_json::to_string(text).map_err(|_| ChatError::Closed)?
+                        Some(serde_json::to_string(text).map_err(|_| ChatError::Closed)?)
                     }
                     BodySource::Input(range) => {
                         let end = range.offset.saturating_add(range.length);
                         let bytes = bytes.get(range.offset..end).ok_or(ChatError::Closed)?;
-                        std::str::from_utf8(bytes).map_err(|_| ChatError::Closed)?.to_owned()
+                        Some(std::str::from_utf8(bytes).map_err(|_| ChatError::Closed)?.to_owned())
                     }
-                    BodySource::Raw { place, span } => raw_body_value(state, *place, *span, field)?,
+                    BodySource::Raw { place, span } => {
+                        Some(raw_body_value(state, *place, *span, field)?)
+                    }
+                    BodySource::Records(lines) => Some(records_value(state, lines, &mut missed)),
+                    BodySource::RawField { place, span, key, cap } => {
+                        let value = raw_field_value(state, *place, *span, key, *cap);
+                        if value.is_none() {
+                            missed = missed.saturating_add(1);
+                        }
+                        value
+                    }
                 };
                 let key = body_key(field);
                 let body =
                     state.bodies.entry(id).or_insert(Body::new(id).map_err(ChatError::Book)?);
-                state.blobs.set(body, key, &value, append)?;
+                if let Some(value) = &value {
+                    state.blobs.set(body, key, value, append)?;
+                }
+                if missed > 0 {
+                    // The row is drawn short, never as whole: its body says how many it lacks.
+                    state.config.card_reads_missed.fetch_add(missed, Ordering::Relaxed);
+                    let lacked = lacks.entry(id).or_insert(0);
+                    *lacked = lacked.saturating_add(missed);
+                    state.blobs.set(body, "lacks", &lacked.to_string(), false)?;
+                }
                 state.raw_ranges.entry(id).or_insert(raw);
-                if append && field == BodyField::Text {
-                    // Appended text keeps the row's generation: the bytes before it stay.
-                    stream::text(state, id, &value);
-                } else {
-                    state.next_generation(id);
-                    stream::opened(state, id)?;
+                match &value {
+                    Some(value) if append && field == BodyField::Text => {
+                        // Appended text keeps the row's generation: the bytes before it stay.
+                        stream::text(state, id, value);
+                    }
+                    _ => {
+                        state.next_generation(id);
+                        stream::opened(state, id)?;
+                    }
                 }
             }
             Change::Queue(_) => stream::queue_changed(state),
         }
     }
-    stream::publish(state);
-    if checkpoint_now
-        && changed
-        && state.replay_remaining == 0
-        && (!state.translate.in_turn()
-            || state.settled_since_checkpoint >= 256
-            || state.last_checkpoint.elapsed() >= Duration::from_secs(1))
-    {
-        checkpoint(state)?;
-    }
-    Ok(())
+    Ok(changed)
 }
 
 /// A body field of a logged line's record: its `msg` key for `field` (a prompt's `text` for its
@@ -1453,6 +1602,15 @@ fn raw_body_value(
         let text: String = serde_json::from_slice(&text).map_err(|_| ChatError::Closed)?;
         return serde_json::to_string(&text).map_err(|_| ChatError::Closed);
     }
+    let bytes = raw_line(state, place, span)?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| ChatError::Closed)?;
+    let text = value.get("msg").and_then(|msg| msg.get(key)).ok_or(ChatError::Closed)?;
+    serde_json::to_string(text).map_err(|_| ChatError::Closed)
+}
+
+/// One logged line, read again at `place`, without its newline. The source must still be the
+/// one this state read (its stamp) and the line must still span `span` places.
+fn raw_line(state: &mut ActorState, place: u64, span: u64) -> Result<Vec<u8>, ChatError> {
     let chunk = state.source.read_chunk(place)?;
     if chunk.stamp != state.source_stamp {
         return Err(ChatError::SourceChanged);
@@ -1466,13 +1624,91 @@ fn raw_body_value(
             return Err(ChatError::Closed);
         }
         let bytes = chunk.bytes().get(line.bytes).ok_or(ChatError::Closed)?;
-        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-        let value: serde_json::Value =
-            serde_json::from_slice(bytes).map_err(|_| ChatError::Closed)?;
-        let text = value.get("msg").and_then(|msg| msg.get(key)).ok_or(ChatError::Closed)?;
-        return serde_json::to_string(text).map_err(|_| ChatError::Closed);
+        return Ok(bytes.strip_suffix(b"\n").unwrap_or(bytes).to_vec());
     }
     Err(ChatError::Closed)
+}
+
+/// A card's records: a JSON array of each listed line's `msg`, in order. A line that no longer
+/// reads is left out and counted in `missed`.
+fn records_value(state: &mut ActorState, lines: &[translate::RawLine], missed: &mut u64) -> String {
+    let mut value = String::from("[");
+    let mut first = true;
+    for line in lines {
+        let msg = raw_line(state, line.place, line.span).ok().and_then(|bytes| {
+            let logged = serde_json::from_slice::<LoggedMsg<'_>>(&bytes).ok()?;
+            compact(logged.msg.get())
+        });
+        match msg {
+            Some(msg) => {
+                if !first {
+                    value.push(',');
+                }
+                first = false;
+                value.push_str(&msg);
+            }
+            None => *missed = missed.saturating_add(1),
+        }
+    }
+    value.push(']');
+    value
+}
+
+/// One card field, `msg.<key>` of one logged line: a string is cut at `cap` bytes on a character
+/// (the translator counted the cut when it first read the line), any other value is copied.
+/// None when the line no longer reads or has no such field.
+fn raw_field_value(
+    state: &mut ActorState,
+    place: u64,
+    span: u64,
+    key: &str,
+    cap: usize,
+) -> Option<String> {
+    let bytes = raw_line(state, place, span).ok()?;
+    let logged = serde_json::from_slice::<LoggedFields<'_>>(&bytes).ok()?;
+    let raw = logged.msg.get(key)?.get();
+    if raw.starts_with('"') {
+        let text = serde_json::from_str::<String>(raw).ok()?;
+        return serde_json::to_string(translate::cut(&text, cap)).ok();
+    }
+    compact(raw)
+}
+
+#[derive(serde::Deserialize)]
+struct LoggedMsg<'a> {
+    #[serde(borrow)]
+    msg: &'a serde_json::value::RawValue,
+}
+
+#[derive(serde::Deserialize)]
+struct LoggedFields<'a> {
+    #[serde(borrow)]
+    msg: BTreeMap<String, &'a serde_json::value::RawValue>,
+}
+
+/// A logged JSON value as the log holds it when it has no whitespace outside its strings (a
+/// body takes only compact JSON), else encoded again.
+fn compact(raw: &str) -> Option<String> {
+    let (mut in_string, mut escaped) = (false, false);
+    let spaced = raw.bytes().any(|byte| {
+        if in_string {
+            match byte {
+                _ if escaped => escaped = false,
+                b'\\' => escaped = true,
+                b'"' => in_string = false,
+                _ => {}
+            }
+            false
+        } else {
+            in_string = byte == b'"';
+            matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
+        }
+    });
+    if !spaced {
+        return Some(raw.to_owned());
+    }
+    let value = serde_json::from_str::<serde_json::Value>(raw).ok()?;
+    serde_json::to_string(&value).ok()
 }
 
 fn merge_row_fields(
@@ -1585,6 +1821,8 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Pasted => "pasted",
         BodyField::Request => "request",
         BodyField::Outcome => "outcome",
+        BodyField::Records => "records",
+        BodyField::Card(name) => name,
     }
 }
 
@@ -1632,9 +1870,14 @@ fn checkpoint(state: &mut ActorState) -> Result<(), ChatError> {
     checkpoint.write(&mut state.log, &open)?;
     state.blobs.recover(&bodies, checkpoint.last_row)?;
     state.last_checkpoint = Instant::now();
+    state.checkpoint_due = None;
     state.settled_since_checkpoint = 0;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "chat/act_tests.rs"]
+mod act_tests;
 
 #[cfg(test)]
 mod tests;

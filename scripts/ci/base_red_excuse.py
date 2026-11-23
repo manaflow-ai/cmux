@@ -43,7 +43,7 @@ same head has a real compile pass (a green Mac Release compile or a cmux-next/co
 lines are compared with commit shas masked, so a real red that names each run's own commit still matches.
 
 No failure is exit 0: asked about no red run or check (or about a green ws-check), it prints why and exits 0. A
-red run or check it was named that shows no failed job is still refused (2026-11-05: merge_hold asks it about
+red run or check it was named that shows no failed job is still refused (2026-11-05: land-judge asks it about
 every merge, and a green head read as exit 1).
 
 Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
@@ -66,6 +66,7 @@ import bisect
 import contextvars
 import copy
 import functools
+import hashlib
 import importlib.util
 import io
 import json
@@ -82,7 +83,7 @@ import time
 import urllib.parse
 import urllib.request
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from collections import Counter
 from typing import Callable, NamedTuple
@@ -116,6 +117,17 @@ class RateLimitedRead(Exception):
     """
 
 
+class JobBudgetCut(Exception):
+    """A judgement's live base job-list reads ran out (CALL_JOB_READS, job_budget) or glaeda-gh's sweep guard refused
+    one: a read that never happened. Not a Refused, for RateLimitedRead's reason: the comparison turns a Refused from
+    a read into a refusal of its own in a dozen places, so the guard's raw text came out of a web or gallery path as
+    the judgement's answer. one_judgement makes it the timed retry (cut_refusal) for the red being judged (NAME)."""
+
+    def __init__(self, reads: int, name: str | None):
+        super().__init__(f"{reads} live base job lists read")
+        self.reads, self.name = reads, name
+
+
 def rate_limited_classes() -> tuple:
     """What main() reports as a rate limit, as one flat tuple. A reader without RateLimited leaves it the empty
     tuple, and `except ((), RateLimitedRead)` is a TypeError on every other refusal ("catching classes that do not
@@ -129,7 +141,7 @@ def json_shape(route: str, found, *, paginate: bool = False, none: bool = False)
     NONE lets a None through (a test fake's empty answer). Anything else is Refused as unread, naming the first
     SHAPE_CHARS characters of what came back, so no reader below calls `.get` on it. While the REST quota was spent
     a read of a workflow's runs came back as a str, and list_base_runs' `listed.get("workflow_runs")` raised
-    AttributeError, a traceback merge_hold showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
+    AttributeError, a traceback land-judge showed as the refusal (cmux#39676 at 9be3f014, 2026-11-10)."""
     for page in found if paginate and isinstance(found, list) else [found]:
         if not (isinstance(page, (dict, list)) or (none and page is None)):
             raise Refused(f"GitHub's answer to {route} could not be read: {str(page)[:SHAPE_CHARS]}")
@@ -325,6 +337,229 @@ def escape_flag_unknown(stderr: str) -> bool:
     return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
+# Settled reads (2026-11-17): GitHub answers that can no longer change are read once per host and kept, so a merge
+# check run again after a quota refusal reads none of them again. land-judge refused cmux#45097 at 6aa5d9938d5f five
+# times with "[quota: not judged, retry]" while it read "ok: may merge": each run re-read the same finished head and
+# base runs over the shared login's REST, which other callers spent within minutes of each reset. Kept (in
+# jobs_cache(), so BASE_RED_EXCUSE_JOBS_CACHE=off turns it off): a completed job (a re-run is a new job id), a commit, a
+# compare of two commits, and a completed run's record and job lists. A run's record and job lists are served only
+# while the run is the same completed attempt GitHub serves now (run_now: a run record or list this process read live,
+# else this host's glaeda-gh at most GLAEDA_RUN_FRESH_SECONDS old); a run re-run since, still in progress, or not known
+# now is read live, as before. Never kept: lists of a branch's runs, a commit's checks or statuses, compares of a
+# branch: they are answers about now.
+SETTLED_KEEP_SECONDS = 14 * 24 * 3600
+GLAEDA_RUN_FRESH_SECONDS = 600
+_SETTLED_REPO = r"repos/(?P<repo>[\w.-]+/[\w.-]+)"
+SETTLED_JOB = re.compile(rf"{_SETTLED_REPO}/actions/jobs/\d+")
+SETTLED_RUN = re.compile(rf"{_SETTLED_REPO}/actions/runs/(?P<run>\d+)")
+SETTLED_RUN_JOBS = re.compile(rf"{_SETTLED_REPO}/actions/runs/(?P<run>\d+)/jobs\?filter=(?:all|latest)&per_page=\d+")
+SETTLED_FOREVER = re.compile(rf"{_SETTLED_REPO}/(?:commits/[0-9a-f]{{40}}|compare/[0-9a-f]{{40}}\.\.\.[0-9a-f]{{40}}"
+                             r"(?:\?per_page=\d+)?)")
+RUNS_LIST = re.compile(rf"{_SETTLED_REPO}/actions/(?:workflows/[^/?]+/)?runs\?.*")
+_SETTLED_PRUNED: list[bool] = []
+NOT_KEPT = object()
+
+
+def live_runs() -> dict[tuple[str, int], dict]:
+    """Every run record this judgement read live (a run, or a list of runs), by (repo, run id): what GitHub serves
+    now. Kept in the judgement's memo (JUDGEMENT_READS), so it lives no longer than that; outside a judgement, none."""
+    memo = JUDGEMENT_READS.get()
+    return {} if memo is None else memo.setdefault(("live runs",), {})
+
+
+def settled_file(route: str, state: tuple | None = None) -> Path | None:
+    where = jobs_cache()
+    if where is None:
+        return None
+    import hashlib
+    name = hashlib.sha256(json.dumps([route, state]).encode()).hexdigest()[:40]
+    return where / "settled" / f"{name}.json"
+
+
+def settled_get(route: str, state: tuple | None = None):
+    """The answer kept for ROUTE (in STATE), or NOT_KEPT."""
+    path = settled_file(route, state)
+    if path is None:
+        return NOT_KEPT
+    try:
+        kept = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return NOT_KEPT
+    return kept.get("answer", NOT_KEPT) if isinstance(kept, dict) and kept.get("route") == route else NOT_KEPT
+
+
+def settled_put(route: str, found, state: tuple | None = None) -> None:
+    path = settled_file(route, state)
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        spare = path.with_name(f".{path.name}.{os.getpid()}")
+        spare.write_text(json.dumps({"route": route, "state": state, "answer": found}))
+        os.replace(spare, path)
+        if not _SETTLED_PRUNED:
+            _SETTLED_PRUNED.append(True)
+            prune_kept(path.parent, SETTLED_KEEP_SECONDS)
+    except OSError:
+        pass
+
+
+def completed_state(run: object) -> tuple[int, str] | None:
+    """(run_attempt, updated_at) of a completed RUN, or None for one in progress or that names neither."""
+    if not isinstance(run, dict) or run.get("status") != "completed":
+        return None
+    attempt, updated = run.get("run_attempt"), run.get("updated_at")
+    if not isinstance(attempt, int) or not isinstance(updated, str) or not updated:
+        return None
+    return attempt, updated
+
+
+def run_now(repo: str, run: int) -> dict | None:
+    """RUN's record as GitHub serves it now: one this process read live, else this host's glaeda-gh's when it read
+    the run within GLAEDA_RUN_FRESH_SECONDS (its state alone), else None."""
+    if (repo, run) in live_runs():
+        return live_runs()[(repo, run)]
+    kept = read_once(("glaeda run", repo, run), lambda: glaeda_log.cached_run(repo, run)
+                     if glaeda_log is not None and hasattr(glaeda_log, "cached_run") else None)
+    if isinstance(kept, dict) and time.time() - float(kept.get("at") or 0) <= GLAEDA_RUN_FRESH_SECONDS:
+        return kept
+    return None
+
+
+def note_live_runs(repo: str, found) -> None:
+    """Remember every full run record in FOUND (a run, a list of runs, or pages of one), read live just now."""
+    pages, live = found if isinstance(found, list) else [found], live_runs()
+    for page in pages:
+        runs = page.get("workflow_runs") if isinstance(page, dict) and "workflow_runs" in page else [page]
+        for run in runs or []:
+            if isinstance(run, dict) and isinstance(run.get("id"), int) and isinstance(run.get("workflow_id"), int):
+                live[(repo, run["id"])] = run
+                route = f"repos/{repo}/actions/runs/{run['id']}"
+                # A list names up to 100 runs: each is written once, and again only when re-run since.
+                if completed_state(run) not in (None, completed_state(settled_get(route))):
+                    settled_put(route, run)
+
+
+def settled_answer(route: str):
+    """ROUTE's kept answer when it is still what GitHub would serve, else NOT_KEPT."""
+    if SETTLED_FOREVER.fullmatch(route) is not None:
+        return settled_get(route)
+    if SETTLED_JOB.fullmatch(route) is not None:
+        kept = settled_get(route)
+        return kept if isinstance(kept, dict) and kept.get("status") == "completed" else NOT_KEPT
+    if (found := SETTLED_RUN.fullmatch(route)) is not None:
+        repo, run = found["repo"], int(found["run"])
+        if (repo, run) in live_runs():
+            return copy.deepcopy(live_runs()[(repo, run)])
+        state = completed_state(run_now(repo, run))
+        kept = settled_get(route) if state is not None else NOT_KEPT
+        return kept if completed_state(kept) == state else NOT_KEPT
+    if (found := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
+        state = completed_state(run_now(found["repo"], int(found["run"])))
+        return settled_get(route, state) if state is not None else NOT_KEPT
+    return NOT_KEPT
+
+
+def settle(route: str, found) -> None:
+    """Keep FOUND, ROUTE's live answer, when it can no longer change (settled_answer serves it)."""
+    if SETTLED_FOREVER.fullmatch(route) is not None:
+        settled_put(route, found)
+    elif SETTLED_JOB.fullmatch(route) is not None:
+        if isinstance(found, dict) and found.get("status") == "completed":
+            settled_put(route, found)
+    elif (match := SETTLED_RUN.fullmatch(route) or RUNS_LIST.fullmatch(route)) is not None:
+        note_live_runs(match["repo"], found)
+    elif (match := SETTLED_RUN_JOBS.fullmatch(route)) is not None:
+        state = completed_state(run_now(match["repo"], int(match["run"])))
+        jobs = [job for page in (found if isinstance(found, list) else [found]) if isinstance(page, dict)
+                for job in page.get("jobs") or []]
+        # Only the attempt the run's state names, every job of it done: a list read while a re-run started is not.
+        if (state is not None and jobs and all(isinstance(job, dict) and job.get("status") == "completed"
+                                               for job in jobs)
+                and max((job.get("run_attempt") or 1) for job in jobs) == state[0]):
+            settled_put(route, found, state)
+
+# Conditional CI reads. Every judgement is a new process, and every landing check of a head judges its reds again: on
+# 2026-11-17 (2 h to 12:58Z on cosmic-gray) this script spent 673 REST under land-judge, 402 of them a run's jobs and
+# 133 of those the exact page read again, mostly base runs that finished long before. When the caller names a folder in
+# BASE_RED_EXCUSE_ETAGS (land-judge names its own, teamleaderleo/leo-workspace tools/land_judge/engine.py ci_etags_root), a
+# run's jobs, a run, a workflow's runs and a commit's check runs and statuses are read with the ETag of the answer kept
+# there for the same route and --jq (gh_conditional's file format and names, so land-judge's reads and these share one
+# store), and GitHub answers an unchanged one 304, which costs no quota. A 304 is GitHub's word that the answer is the
+# same, so every judgement reads exactly what a plain read gives. Anything but a 200 or a 304 (a wrapper refusing the
+# conditional form, an error, a timeout) is the plain read, as before; with no folder named, every read is plain.
+ETAGS_ENV = "BASE_RED_EXCUSE_ETAGS"
+CONDITIONAL_ROUTE = re.compile(r"repos/[^/]+/[^/]+/(?:actions/runs(?:/\d+(?:/attempts/\d+)?(?:/jobs)?)?"
+                               r"|actions/workflows/[^/?]+/runs|commits/[0-9A-Fa-f]{40}/(?:check-runs|status|statuses))"
+                               r"(?:\?.*)?")
+HTTP_STATUS = re.compile(r"HTTP/[0-9.]+ ([0-9]{3})")
+CONDITIONAL_SECONDS = 90  # main_fix_evidence.GitHub.run's bound
+
+
+def etags_root() -> Path | None:
+    """The folder BASE_RED_EXCUSE_ETAGS names (absolute), or None: every read is plain."""
+    folder = os.environ.get(ETAGS_ENV, "")
+    return Path(folder) if folder and os.path.isabs(folder) else None
+
+
+def conditional_read(args: list[str], root: Path) -> str | None:
+    """gh ARGS' answer by a conditional read against the one kept under ROOT, for `api ROUTE [--jq JQ]` of a
+    CONDITIONAL_ROUTE; None for any other ARGS, or when GitHub's answer was neither a 200 nor a 304 (the caller reads
+    it plainly)."""
+    if args[:1] != ["api"] or len(args) not in (2, 4) or (len(args) == 4 and args[2] != "--jq"):
+        return None
+    route, jq = args[1], (args[3] if len(args) == 4 else None)
+    if not CONDITIONAL_ROUTE.fullmatch(route):
+        return None
+    name = f"{route}\0{jq}" if jq is not None else f"{route}\0\0whole"
+    store = root / (hashlib.sha256(name.encode()).hexdigest()[:32] + ".json")
+    try:
+        kept = json.loads(store.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        kept = None
+    if not (isinstance(kept, dict) and kept.get("url") == route and kept.get("jq") == jq
+            and isinstance(kept.get("etag"), str) and kept["etag"] and isinstance(kept.get("out"), str)):
+        kept = None
+    argv = ["gh", "api", "--include", *(["-H", f"If-None-Match: {kept['etag']}"] if kept else []), route,
+            *(["--jq", jq] if jq is not None else [])]
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen(argv, stdout=output, stderr=errors, stdin=subprocess.DEVNULL)
+        except OSError:
+            return None
+        try:
+            process.wait(timeout=CONDITIONAL_SECONDS)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            return None
+        if output.tell() > _evidence.MAX_OUTPUT:
+            return None
+        output.seek(0)
+        said = output.read().decode(errors="replace")
+    head, _, body = said.replace("\r\n", "\n").partition("\n\n")
+    status = HTTP_STATUS.match(head)
+    if status and status.group(1) == "304" and kept:
+        try:
+            os.utime(store)
+        except OSError:
+            pass
+        return kept["out"]
+    if not (status and status.group(1) == "200" and process.returncode == 0):
+        return None
+    etag = next((line.split(":", 1)[1].strip() for line in head.splitlines()[1:]
+                 if line.lower().startswith("etag:")), "")
+    if etag:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            tmp = store.with_name(f".{store.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps({"url": route, "jq": jq, "etag": etag, "out": body}), encoding="utf-8")
+            os.replace(tmp, store)
+        except OSError:
+            pass  # a failed write only costs the next read its 304
+    return body
+
+
 class GitHub(_evidence.GitHub):
     """GitHub client for red attribution, including logs of finished jobs in live runs."""
 
@@ -332,7 +567,13 @@ class GitHub(_evidence.GitHub):
         """gh ARGS' output; a read is read once per judgement (JUDGEMENT_READS), whatever asked it."""
         if not gh_read(args):
             return _evidence.GitHub.run(self, args)
-        return read_once(("gh", *args), lambda: _evidence.GitHub.run(self, args))
+        return read_once(("gh", *args), lambda: self.read_conditional(args))
+
+    def read_conditional(self, args: list[str]) -> str:
+        """gh ARGS (a read): conditional first when the caller named an ETag folder (etags_root), else plain."""
+        root = etags_root()
+        said = conditional_read(args, root) if root is not None else None
+        return said if said is not None else _evidence.GitHub.run(self, args)
 
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
@@ -358,6 +599,16 @@ class GitHub(_evidence.GitHub):
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
+        """ROUTE's answer: kept on this host when it is settled (settled_answer), else read live and kept when it
+        can no longer change (settle)."""
+        kept = settled_answer(route)
+        if kept is not NOT_KEPT:
+            return kept
+        found = self.live_json(route, paginate=paginate, per_page=per_page)
+        settle(route, found)
+        return found
+
+    def live_json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
@@ -597,6 +848,84 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
+# The source cache's bound. Every object a fetch brings lands in a promisor pack, which `git gc` keeps whatever is
+# reachable, and the refs git_commit fetches into are deleted after: so the one-commit fetches, the blobs `git show`
+# fetches lazily, ws_check_squash_tree's whole-history fetch and its merge-tree objects piled up for good (2.3 GB on
+# the land host on 2026-11-21, nothing removing any of it). A repo whose objects pass SOURCE_CACHE_MAX_BYTES
+# (BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES) is made again from nothing by the next run that finds no other run using
+# it, which is cheap: every fetch is blob-less and git_commit's one commit deep. A repo made less than
+# SOURCE_CACHE_MIN_AGE_SECONDS ago is kept whatever its size, so a working set above the cap is rebuilt once a day at
+# most, never once a run. Each run holds a shared flock on the repo's lock file (beside it) from its first git_cache
+# call to its exit; the rebuild takes it exclusive without waiting, so a repo another run is reading is never moved.
+SOURCE_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES"
+SOURCE_CACHE_MAX_BYTES = 512 * 1024 * 1024
+SOURCE_CACHE_MIN_AGE_SECONDS = 24 * 3600
+SOURCE_CACHE_STAMP = "base-red-excuse-made"
+_SOURCE_CACHE_LOCKS: dict[str, int] = {}
+
+
+def source_cache_max_bytes() -> int:
+    raw = os.environ.get(SOURCE_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else SOURCE_CACHE_MAX_BYTES
+    except ValueError:
+        return SOURCE_CACHE_MAX_BYTES
+    return value if value > 0 else SOURCE_CACHE_MAX_BYTES
+
+
+def source_cache_bytes(where: Path) -> int:
+    """Bytes under WHERE's objects directory (loose objects, packs and their indexes), files only."""
+    total = 0
+    for root, _, files in os.walk(where / "objects"):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def source_cache_hold(where: Path) -> bool:
+    """Hold this run's shared lock on the bare repo WHERE (once per process), rebuilding WHERE first when no other run
+    holds it and it is past its bound (SOURCE_CACHE_MAX_BYTES and SOURCE_CACHE_MIN_AGE_SECONDS). True when WHERE was
+    moved aside for a fresh one. Without flock (no fcntl) nothing is locked and nothing rebuilt."""
+    key = str(where)
+    if key in _SOURCE_CACHE_LOCKS:
+        return False
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    where.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(where.with_name(where.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    rebuilt, retired = False, []
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fcntl.flock(fd, fcntl.LOCK_SH)  # another run reads WHERE: share it, rebuild nothing
+    else:
+        # No other run holds WHERE, nor any copy an earlier rebuild moved aside.
+        retired = sorted(where.parent.glob(where.name + ".retired-*"))
+        try:
+            made = (where / SOURCE_CACHE_STAMP).stat().st_mtime
+        except OSError:
+            made = 0.0  # a repo from before the stamp: as old as can be
+        if ((where / "HEAD").is_file() and time.time() - made > SOURCE_CACHE_MIN_AGE_SECONDS
+                and source_cache_bytes(where) > source_cache_max_bytes()):
+            aside = where.with_name(f"{where.name}.retired-{os.getpid()}-{int(time.time())}")
+            try:
+                os.rename(where, aside)
+                retired.append(aside)
+                rebuilt = True
+            except OSError:
+                pass
+        fcntl.flock(fd, fcntl.LOCK_SH)
+    _SOURCE_CACHE_LOCKS[key] = fd  # held until this process exits
+    for old in retired:  # nothing reads a moved-aside copy: removed outside the exclusive hold
+        shutil.rmtree(old, ignore_errors=True)
+    return rebuilt
+
+
 def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
     """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
     when it cannot be."""
@@ -609,11 +938,19 @@ def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
                               timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
+    try:
+        source_cache_hold(where)
+    except OSError:
+        pass  # an unlockable cache is still read, only never rebuilt
     if not (where / "HEAD").is_file():
         where.mkdir(parents=True, exist_ok=True)
         if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
                           timeout=GIT_SECONDS).returncode:
             return None
+        try:
+            (where / SOURCE_CACHE_STAMP).touch()
+        except OSError:
+            pass
     for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
                        ("remote.origin.partialclonefilter", "blob:none")):
         if git("config", key, value).returncode:
@@ -781,12 +1118,11 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 # A run rollup is red when a job under it is red: the whole run's red jobs are judged. One in a called workflow names
 # its caller (workflow file, job id), whose name is its check's prefix: ci-web.yml's Web status is 'web / Web status',
 # red only when a web job under it is red, and was refused as "no failing test or error line to match" on every PR
-# whose web shard red the base shares (2026-11-09, cmux#39559, hq#8503).
-RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")))
+# whose web shard red the base shares (2026-11-09, cmux#39559, hq#8503). ios-e2e.yml's ios-e2e-status is red when
+# its backend or mac-ios-e2e job is (2026-11-15, cmux#41892: refused as "a summary red"; other_pr_setup_verdict).
+RUN_ROLLUPS = (("ci.yml", "ci-status"), ("ci-web.yml", "web-status", ("ci.yml", "web")),
+               ("ios-e2e.yml", "ios-e2e-status"))
 ROUTED_ROLLUPS = (("ci-guards.yml", "guard-status"),)  # also reports each needed job's route (validate_guard_routes)
-# Jobs a routed rollup needs only to place its runner (their outputs pick its runs-on): no guard verdict of their
-# own, so the contract leaves them out of its routes (ci-guards.yml portable-placement, #34849).
-ROLLUP_PLACEMENT_JOBS = frozenset({"portable-placement"})
 ROLLUPS_FILE = Path(__file__).with_name("base_red_rollups.json")
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 # The repo whose workflows sit beside this script: its contract is ROLLUPS_FILE.
@@ -799,6 +1135,23 @@ HOME_REPO = "manaflow-ai/cmux"
 OTHER_REPO_ROLLUPS = {
     "manaflow-ai/cmuxterm-hq": {"run": (("skills-tests.yml", "tests"),), "routed": ()},
 }
+# The repo whose base runs are another repo's base verdict of record (2026-11-21). A repo whose base pushes run no job
+# has no verdict of its own to compare a red with: teamleaderleo/glaeda's ci.yml gates every job of its Verify
+# workflow on `github.event_name == 'pull_request' || github.repository == 'manaflow-ai/glaeda'`, so a push to main
+# there skips the whole workflow, and that file's own comment says the fork's Verify at a commit is "that commit's
+# check of record in both repositories" (sync-main.yml keeps both mains at the same commits); scripts/glaeda-gh
+# already reads a teamleaderleo/glaeda head's verdict that way. This script did not, so every red of every PR in that
+# repo was refused as "'scripts': no main run of its workflow has a verdict for it to compare with": exit 1 for every
+# red in the repo, which no push could ever change, and which the landing rules read as "no lander may merge and none
+# may call the red base by judgment" (glaeda#2314 and #2320, 2026-11-21: main was red from 09:16Z to 09:53Z and two
+# lanes each reproduced it by hand). Only the base runs, their job lists and those jobs' logs are read from the value;
+# the head, the merge-base and the base's own commits stay the PR's repo, which holds the same main commits. A verdict
+# whose run tested a commit the PR's repo does not have is older than the merge-base (before_merge_base) and refuses
+# as before, so two mains that have drifted apart excuse nothing. The readings this skips are the ones no mapped repo
+# can reach: guard_group (GUARD_GROUP_JOB, a cmux-next job name), journey (JOURNEY_WORKFLOWS paths), the web shard and
+# gallery verdicts, and base_dispatch / base_caller (HOME_REPO-gated); each keeps the PR's repo, so a mapping for a
+# repo that is not a cmux fork would have to thread them too.
+BASE_VERDICT_REPO = {"teamleaderleo/glaeda": "manaflow-ai/glaeda"}
 # A called workflow's base verdict, from the workflow that calls it on base pushes (2026-11-07). ci.yml runs on pull
 # requests only; on feat-cmux-next the same ci-web.yml runs from cmux-next-web.yml's `web` job, under the same
 # 'web / ...' check names. ci.yml's newest feat-cmux-next run was a 2026-10-06 dispatch, so every web shard red on a
@@ -810,6 +1163,24 @@ OTHER_REPO_ROLLUPS = {
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
+# which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
+# suite key, so the base's check of job J of suite S is 'S / J'. A workflow that moved there drops its own
+# `push: feat-cmux-next`, so its own base runs go stale and every red on a PR was refused as having no verdict at or
+# after its merge-base. batch_check maps a PR's red job to its batch check from the manifest alone, so a new suite is
+# covered by its entry, with no change here: a run of the suite's own workflow (J is 'J' on the PR, 'S / J' on the
+# base), or of a pull-request caller whose job calls the suite's workflow (ci.yml's `web` calls ci-web.yml: 'web / J'
+# on the PR, 'S / J' on the base). Read before BASE_WORKFLOW_FOR, and like it only when the PR's own workflow has no
+# verdict at or after the merge-base. A suite skipped in the newest batch run has no verdict there (base_verdicts
+# passes it over for the previous batch run where it ran). The manifest is the one beside this script, else the
+# base's (land-judge and the lane broker run a `git archive` of scripts/ci alone).
+POST_MERGE_WORKFLOW = "cmux-next-post-merge.yml"
+POST_MERGE_MANIFEST = ".github/post-merge-batch.json"
+POST_MERGE_MANIFEST_FILE = WORKFLOWS.parent / "post-merge-batch.json"
+POST_MERGE_BASES = frozenset({"feat-cmux-next"})
+# A post-merge batch probe run (cmux-next-post-merge.yml's run-name 'probe <suite> <job> at <sha>') tests one job of
+# an older commit while its head_sha is the tip it was dispatched from: never a base verdict for that tip.
+POST_MERGE_PROBE_TITLE = "probe "
 # A workflow no base push or schedule runs gets its base verdict from a dispatch on the base tip (2026-11-07).
 # nightly-next-cua-signed-host.yml runs on pull requests that touch it and on a schedule, but a schedule fires only
 # from the default branch, where the file was not yet registered, so feat-cmux-next never had a run of it: every red
@@ -820,9 +1191,14 @@ BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
 # list is the record, so every host shares one dedupe and nothing waits here. A host whose gh cannot dispatch (a lane
 # VM's broker) refuses with the reason; the next check from a host that can starts it. Keep this list to workflows
 # whose base verdict cannot come from a push: each dispatch is a Mac job.
-BASE_DISPATCH = frozenset({("feat-cmux-next", "nightly-next-cua-signed-host.yml")})
+# cmux#37003 (b6fff4f6f105) deleted nightly-next-cua-signed-host.yml, so no workflow needs a base dispatch now; the
+# mechanism stays for the next one (BaseDispatchForPullRequestOnlyWorkflows runs it with that entry).
+BASE_DISPATCH: frozenset[tuple[str, str]] = frozenset()
 BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
+# A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
+# its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
@@ -848,14 +1224,18 @@ JOBS_PAGE = 30
 # older red never stands over a newer green. A suite that never runs the job (DEV daily runs, the other
 # suites) is skipped unread, here and in the window above. At most TIP_SUITE_JOB_READS job lists; none of
 # them with a verdict refuses as before.
+CHECKS_JOB_NAME = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 SUITES = {
-    "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test"}),
-    "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests"}),
+    # Every suite but the DEV daily also runs the checks job (cmux-next.yml checks' `if`), so naming it in one
+    # suite means naming it in all of them: SUITE_JOBS skips a run whose suite does not list a job it lists.
+    "cmux-next tip Swift suite · ": frozenset({"cmux-next swift test", CHECKS_JOB_NAME}),
+    "cmux-next tip daemon suite · ": frozenset({"cmux-next daemon tests", CHECKS_JOB_NAME}),
     # cmux-next.yml base_tier: path routing's base_tier branch routes these, and nothing else. Its generated
-    # files are checked on the generated-files job itself (path routing's generated_host), never folded.
+    # files are checked on the generated-files job itself (path routing's generated_host), never folded. Since
+    # 2026-11-22 it also carries the checks job, which a feat-cmux-next push no longer runs (workflow note-26).
     "cmux-next base tier · ": frozenset({
         "cmux-next daemon tests", "cmux-next generated files", "cmux app scheme compile (Debug)",
-        "cmux-next crash ends the app",
+        "cmux-next crash ends the app", CHECKS_JOB_NAME,
     }),
     # cmux-next.yml dispatches that route neither swift-test nor daemon-test (path routing's dev_daily branch).
     "cmux NEXT DEV daily": frozenset(),
@@ -913,7 +1293,10 @@ SUITE_JOBS = frozenset().union(*SUITES.values())
 # read only when its check suite shows a verdict for the job (or cannot be read), and one with none is passed
 # over without spending a job-list read (cancelled_tier_without_verdict). For every other job it has none.
 BASE_TIER_TITLE = "cmux-next base tier · "
-CANCELLED_TIER_VERDICT_JOBS = frozenset({"cmux-next daemon tests", "cmux-next generated files"})
+# The checks job is a Linux job too, so a cancel that waited only on the Mac jobs can leave its verdict behind.
+CANCELLED_TIER_VERDICT_JOBS = frozenset({
+    "cmux-next daemon tests", "cmux-next generated files", CHECKS_JOB_NAME,
+})
 
 
 def cancelled_base_tier(run: dict) -> bool:
@@ -1014,14 +1397,6 @@ GENERATED_NO_VERDICT = re.compile(
 # refused the merge as the pull request's own. Only the live annotation counts (test_reds.lines_of drops the echoed
 # script, which spells the same words).
 SUMMARY_NO_VERDICT = re.compile(r"^##\[error\]\s*no verdict: ")
-# The iOS App Review gate's agent pass (cmux-next-ios/scripts/app_review_agent_pass.py) ends red with one marker when
-# the Claude CLI's own result showed the API never served it: `agent.api-unavailable {json}`, the result's fields.
-# With zero recorded API usage (duration_api_ms 0 and input_tokens 0) nothing was judged and the red is the shared
-# account's, never the pull request's: gate run 43637095919 (job 132576237860), the account's weekly limit, reddened
-# every app PR. Only that marker, on the agent pass step alone, as the job's only error: failure text that names a
-# rate limit, a marker with API usage, or another red beside it stays the PR's.
-AGENT_PASS_STEP = "Agent reviewer pass"
-AGENT_API_UNAVAILABLE = re.compile(r"^##\[error\]agent\.api-unavailable (\{.*\})$")
 # The same rule's red: `summary red: <what>: <job>: failure; ...`. It names which needs failed, in words every summary
 # shares, so it is never a signature, an error to compare or evidence of any kind (signature drops it): two summaries
 # match on it whichever children failed (cmux#39857 review, 2026-11-09: rust workspaces failing crate-a on the head
@@ -1039,7 +1414,13 @@ COMPILE_PASS_STATUS = "cmux-next/compile"
 # (exact commit, recipe 2, `--app --release`, a successful run of the default branch). A status by anyone else, a
 # person's token included, is not a compile verdict (2026-11-10: with the office Macs and the controller down, the
 # fallback poster was the only compile verdict a held PR could get, so the gate must tell it from a look-alike).
+# The build fleet's controller posts it too, as the manaflow-checks App (the statuses: write App the pool's required
+# checks already post from), on each pull request head whose compile it runs: the same verdict compile-status relayed,
+# without a runner held through the compile (cmuxterm-hq build-fleet/cmd/controller/compile_status_poster.go). Both
+# are trusted; the newest status either of them made decides.
 COMPILE_STATUS_POSTER = {"login": "cmux-bot[bot]", "id": 348531757, "type": "Bot"}
+COMPILE_STATUS_CONTROLLER_POSTER = {"login": "manaflow-checks[bot]", "id": 342447321, "type": "Bot"}
+COMPILE_STATUS_POSTERS = (COMPILE_STATUS_POSTER, COMPILE_STATUS_CONTROLLER_POSTER)
 # The Mac Release compile's steps that compile (or reuse a pass for the same inputs).
 COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
 
@@ -1051,7 +1432,7 @@ MATRIX_NAME = re.compile(r"([^$]*[^$ ]) \(\$\{\{ *matrix\.(\w+) *\}\}\)")
 def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     """How the Actions jobs of JOB (id JOB_ID in a workflow) are named: {"exact": [...], "prefixes": [...]}. A job
     with no `name:` is named by its id; a called workflow's jobs are '<name> / <its job>'; a matrix job whose
-    name holds no expression gets ' (<values>)' after it; a name may hold an expression only as a last
+    name holds no expression gets ' (<values>)' after it, as does one named over a computed include; a name may hold an expression only as a last
     ' / ${{ ... }}' segment. Any other shape is refused."""
     name = job.get("name", job_id)
     if not isinstance(name, str) or not name.strip() or name != name.strip():
@@ -1066,6 +1447,11 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
         elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
               and all(isinstance(row, dict) and key in row for row in matrix["include"])):
             values = [row[key] for row in matrix["include"]]
+        elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], str)
+              and matrix["include"].strip().startswith("${{") and "uses" not in job):
+            # A computed include ('react-apps-check (${{ matrix.shard }})' over the shards a pull request reaches,
+            # #48561): its values are known only at run time, but Actions still names each job '<name> (<value>)'.
+            return {"exact": [], "prefixes": [f"{one.group(1)} ("]}
         if (not values or "uses" in job
                 or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
             raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
@@ -1093,7 +1479,7 @@ def _needs(jobs: dict, job_id: str, where: str) -> list[str]:
 
 
 # PyYAML 6.0.3's pure-Python lib/yaml, unmodified (sdist sha256 d76623373421df22fb4cf8817020cbb7ef15c725b9d5e45f17e189bfc384190f,
-# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. merge_hold runs this script as
+# MIT, its LICENSE beside it): the YAML reader where the interpreter has no PyYAML. land-judge runs this script as
 # `python3 -I` under Homebrew's Python on the Mac that lands PRs, which has none, and every cmuxterm-hq rollup red
 # was refused there with "no YAML parser" (2026-11-07, hq#7398).
 VENDORED_YAML = Path(__file__).resolve().with_name("_vendor")
@@ -1166,11 +1552,9 @@ def derive_rollups(workflows: Path = WORKFLOWS, *, run=RUN_ROLLUPS, routed=ROUTE
                 raise Refused(f"{where}: a routed rollup's workflow must be called only, with inputs")
             routes = {}
             for need in needs:
-                if need in ROLLUP_PLACEMENT_JOBS:
-                    continue
                 condition = jobs[need].get("if")
                 route = None
-                if condition is not None:
+                if condition is not None and not (isinstance(condition, str) and condition.strip() == STEP_TABLE_SKIP_IF):
                     match = ROUTE_IF.fullmatch(condition.strip()) if isinstance(condition, str) else None
                     if match is None or match.group(1) not in inputs:
                         raise Refused(f"{where}: job {need}'s if {condition!r} is not one route input == 'true'")
@@ -1530,7 +1914,7 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         return STEP_NAMES_UNKNOWN
     # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
     # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
-    named, unread = [], []
+    named, rendered, unread = [], [], []
     for job_id, spec in jobs.items():
         if not isinstance(spec, dict):
             return STEP_NAMES_UNKNOWN
@@ -1539,11 +1923,21 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
         except Refused:
             # A name _check_matcher does not read (two expressions: 'Reviewer path (${{ needs.plan.outputs.lane }},
             # ${{ matrix.family }})') still names JOB when JOB's name is its text with each expression rendered.
-            (named if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
+            (rendered if _rendered_name_fits(spec.get("name"), job.get("name")) else unread).append(spec)
             continue
         if (job.get("name") in matcher["exact"] or any(str(job.get("name", "")).startswith(start)
                                                        for start in matcher["prefixes"])):
             named.append(spec)
+    # A name that only renders as JOB's names it only when no workflow job is named JOB outright; beside one that is,
+    # it is a job whose name is not read, like any other (its steps, if they fit, must give the same marks). A name
+    # that is one expression and no text (cmux-next.yml's cmux-scheme-compile, `${{ inputs.dev_daily == true && ...
+    # || 'cmux app scheme compile (Debug)' }}`) renders as anything: read as a second job named JOB, it left every log
+    # of 'cmux-next checks (god files, concurrency, crash safety, l10n)' with no headers and unplaced (cmux#44442 at
+    # 656af9e3, #44349, #44164 on 2026-11-16), so each of its reds was compared whole.
+    if named:
+        unread += rendered
+    else:
+        named = rendered
     # A matrix leg is read like any job: its steps are the workflow's, in order, whatever the matrix values, and a
     # step name or script line that holds an expression is matched only up to it (_step_marks, _step_headers).
     # cmux#43014's 'Reviewer path (appstore, ipad)' (ios-review-gate.yml, matrix family) was refused because its
@@ -1557,9 +1951,14 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[
     # The headers are the named job's; a job whose name is not read and whose steps fit too must give the same ones.
     found.headers = _step_headers(named[0]["steps"], api, marks)
     found.gates = _failure_gates(named[0]["steps"], api, marks)
+    # Each jobs-API step's own workflow step, by number: the declared order other_pr_setup_verdict reads.
+    found.specs = dict(zip([step["number"] for step, mark in zip(api, marks) if mark is not None], named[0]["steps"]))
     if any(_step_marks(spec.get("steps"), names) is not None
            and _step_headers(spec["steps"], api, marks) != found.headers for spec in unread):
         found.headers = None
+    if any(_step_marks(spec.get("steps"), names) is not None and spec.get("steps") != named[0]["steps"]
+           for spec in unread):
+        found.specs = None
     if any(_step_marks(spec.get("steps"), names) is not None
            and _failure_gates(spec["steps"], api, marks) != found.gates for spec in unread):
         found.gates = None
@@ -1598,6 +1997,7 @@ class StepNames(dict):
     (_aligned_starts) reads HEADERS; a plain dict has none, and is read as before."""
     headers: dict | None = None
     gates: dict | None = None
+    specs: dict | None = None  # {step number: its workflow step}, None when two workflow jobs could be it
 
 
 # One `steps.<id>.outcome == 'failure'` test, the whole of a gate's disjunct (_failure_gates).
@@ -1802,6 +2202,11 @@ BARE_WHY = ("its failed steps' own lines name no failing test or error line (a s
             "in a whole-log comparison)")
 UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a composite action, a silent step or a "
                 "header that is not its step's own), so no line can be told to the step that printed it")
+# What a placed head says when its red base verdict's log is the one step_owners does not place: compared whole too,
+# never refused as the head's own red (hq#13746, whose base Fleet tests log carried a git fetch's own `##[error]`
+# lines and failed the same 4 subtests).
+BASE_UNPLACED_WHY = ("its red base verdict's log does not map one to one onto its steps (step_owners), so no base line "
+                     "can be told to a failed step")
 
 
 def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[str]] | Unplaced:
@@ -1957,8 +2362,35 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             inside = False
         elif inside and line and not RATCHET_HIT.match(line):
             errors[f"ratchet: {line}"] += 1
+    if not tests and not errors:
+        errors = last_words(output)
     crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
     return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
+
+
+# A shell step that ends its red with a plain sentence and exit 1 names no test and no error line: only the runner's
+# generic `##[error]Process completed with exit code 1.` follows it. 2026-11-20, cmuxterm-hq#15467 at 4aa7a17c
+# (cmuxterm-hq#15575): 'Fleet tests' failed "Validate the fleet client install and the tag policy" on `Bundled fleet
+# client is stale. Run scripts/sync-fleet-skill-client.py.`, the same step and the same line as main's run
+# 44769654200, and was refused as naming nothing to compare. When a whole log names no failing test or error line, the
+# last line each exit annotation follows is that failed step's error line, on both sides alike (numbers masked,
+# counted): a step that fails anew, or fails on other words, still differs from the base.
+EXIT_LINE = re.compile(r"^##\[error\]Process completed with exit code (\d+)\.?$")
+LAST_WORDS = "last words before exit"
+
+
+def last_words(output: list[str]) -> Counter:
+    """For each runner exit annotation in OUTPUT (a whole log's lines less the runner's echo, test_reds.lines_of),
+    `last words before exit N: LINE`, LINE the nearest non-empty line above it that is not a runner `##[` line,
+    numbers masked (normalise_error), counted."""
+    found: Counter = Counter()
+    for n, line in enumerate(output):
+        if not (exit_code := EXIT_LINE.match(line)):
+            continue
+        said = next((text for text in reversed(output[:n]) if text.strip()), "")
+        if said and not said.startswith("##["):
+            found[f"{LAST_WORDS} {exit_code[1]}: {normalise_error(said)}"] += 1
+    return found
 
 
 def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
@@ -1975,18 +2407,54 @@ def unplaced_base_evidence(repo: str, base_job: dict, github) -> UnplacedSignatu
     return unplaced_signature(base_job, github.log(repo, base_job))
 
 
+def unplaced_head_evidence(repo: str, job: dict, github) -> UnplacedSignature:
+    """unplaced_signature of placed red head JOB's whole log, compared with a red base verdict not placed (hq#13746)."""
+    return unplaced_signature(job, github.log(repo, job))
+
+
+# A red job whose log names no failing test, error line or crash is compared by its failed steps alone (Leo, 2026-11-21
+# ~03:45Z: "clearly we need to be hitting a 10x improvement in not running useless jobs"; the coordinator's rule: "a
+# red job with no parsable test name is excused when the same job (same name, same failing step) is red on the base
+# run"). cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md: 3,765 PR heads were red only from base over
+# 11-13..19, and a refused inherited red makes its owner push again. Excused only when the base verdict failed exactly
+# the same steps (name and conclusion, counted: failed_step_keys) and names no failing test, error line, crash or
+# unnamed test either: a base that names a failure the head does not print is another failure, never this one.
+STEP_ONLY_WHY = "its log names no failing test or error line, so only its failed steps identify it"
+
+
+def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: UnplacedSignature, where: str) -> str:
+    """The audit line for red NAME whose whole-log signature HEAD names no failing test or error line, when FOUND (the
+    red base verdict at WHERE) failed the same steps and names nothing either; else Refused saying why not."""
+    nothing = f"'{name}': {why}, and its log names no failing test or error line"
+    if head.crashes or head.unnamed:
+        raise Refused(f"{nothing}, but it crashed or reports tests it does not name; never compared by step alone")
+    if found.tests or found.errors or found.crashes or found.unnamed:
+        said = sorted(found.tests) or sorted(found.errors) or sorted(found.crashes) or list(found.unnamed)
+        raise Refused(f"{nothing}, while {where} names its failure ({'; '.join(said)[:300]}); a red naming nothing "
+                      "is not that one")
+    if head.steps != found.steps:
+        raise Refused(f"{nothing}; compared by step alone, its failed steps ({step_keys_text(head.steps)}) are not "
+                      f"{where}'s ({step_keys_text(found.steps)})")
+    return (f"excused '{name}': {STEP_ONLY_WHY}: the same failed steps ({step_keys_text(head.steps)[:300]}), as "
+            f"often each, as {where}, which names no failing test or error line either")
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
-    verdict's (the rule above); raises Refused naming what differs."""
+    verdict's (the rule above); raises Refused naming what differs. REPO is the base run's own repo, which is the
+    PR's unless the base is verified in another (BASE_VERDICT_REPO): nothing but BASE_RUN's URL is read from it."""
     why = UNPLACED_WHY if why is None else why
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     where = f"{base} run {base_run['id']} ({url})"
     if not head.steps:
         raise Refused(f"'{name}': {why}, and it names no failed step; nothing is compared with the base")
     if not head.tests and not head.errors:
-        raise Refused(f"'{name}': {why}, and its log names no failing test or error line; nothing to "
-                      "compare with the base")
+        # A red that names nothing (a setup step such as `Select JDK 17` exiting 1, a shell check that prints no
+        # FAIL line) is the base's when the base verdict failed the very same steps and names nothing either
+        # (STEP_ONLY_WHY): its failed steps are its whole identity, as the Chromium step's is. cmux#48480 was refused
+        # three times for 'seven-language live conformance', red at 'Select JDK 17' on feat-cmux-next too.
+        return step_only_verdict(name, why, head, found, where)
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
             raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
@@ -2003,8 +2471,9 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
                           f": more on this head: {'; '.join(more)[:500]}"
                           + (f"; more on the base: {'; '.join(fewer)[:300]}" if fewer else ""))
     said = sorted(head.tests) or sorted(head.errors)
-    said_why = ("its log does not map onto its steps" if why == UNPLACED_WHY
-                else "its failed steps name no failing test or error line")
+    said_why = {UNPLACED_WHY: "its log does not map onto its steps",
+                BASE_UNPLACED_WHY: "its base verdict's log does not map onto its steps"}.get(
+                    why, "its failed steps name no failing test or error line")
     besides = sum(((found.steps - head.steps) + (found.tests - head.tests) + (found.errors - head.errors)).values())
     if besides:
         return (f"excused '{name}': {said_why}, so it was compared whole: its failed steps "
@@ -2092,6 +2561,532 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
         fixed |= passed
     return None
 
+# A sub-check the base ran and passed (2026-11-16, cmux#44614 at fb973a17 and cmux#44622 at 071af5f5). One step runs
+# many checks, concurrently through scripts/ci/run-checks-concurrently.sh, which prints one
+# `::group::<command>: ok, <n>s` line per check that passed and `::error title=check failed::<command>` for each that
+# failed. Both heads' only red was 'cmux-next checks (god files, concurrency, crash safety, l10n)', failing
+# ./scripts/lint-ios-package-conventions.sh on three namespace-type violations in files neither PR touches, which base
+# commit f48280ea767 justified after their merge-base. The base ran that lint and passed it, so compared whole each
+# head had error lines the base lacked, and both reds read as the PRs' own with nothing said about what to do: the
+# fix was already on the base and a base merge would have cleared them. So when every base verdict read ran and
+# passed the script the head's extra error lines name, the refusal says that by name, and says to merge the base. It
+# excuses nothing by itself: a red is still only excused by a base verdict that fails the same lines.
+# Read from the extension back, never forward from a path's start: a line of "scripts/scripts/scripts/..." makes
+# every start scan the whole rest of it, which is quadratic in the line (PrLogPatternsScale). Each backward
+# walk stops at the end of the previous match, so the whole reading is linear.
+SUB_CHECK_END = re.compile(r"\.(?:sh|py|mjs|js|ts)(?![\w.-])")
+# What a path of a script a step runs is made of.
+SUB_CHECK_PATH = "_./-"
+
+
+def sub_checks(error: str) -> frozenset:
+    """The scripts an error line names (`./scripts/lint-ios-package-conventions.sh`), which is how a step's log says
+    which check printed it; empty when the line names none. Only a script a step runs (`scripts/...`, with or without
+    a leading `./`), so a compiler error naming a source file is no sub-check."""
+    found: set = set()
+    stop = 0
+    for end in SUB_CHECK_END.finditer(error):
+        begin = end.start()
+        while begin > stop and (error[begin - 1].isalnum() or error[begin - 1] in SUB_CHECK_PATH):
+            begin -= 1
+        stop = end.end()
+        path = error[begin:end.end()].removeprefix("./")
+        if path.startswith("scripts/") and "//" not in path:
+            found.add(path)
+    return frozenset(found)
+
+
+# What scripts/ci/run-checks-concurrently.sh prints for a check that passed: `::group::<command>: ok, <n>s`, which the
+# runner renders as `##[group]<command>: ok, 22s`. Not a step header (STEP_START reads `##[group]Run `), and the one
+# line that tells a check that ran and passed from a name a step merely echoes.
+CHECK_GROUP = "##[group]"
+
+
+def check_passed_in(log: str, marker: str) -> bool:
+    """Whether LOG says the concurrent check runner ran MARKER and it passed (`##[group]<command>: ok, 22s`)."""
+    return any(line.startswith(CHECK_GROUP) and not STEP_START.match(line) and f"{marker}: ok," in line
+               for line in lines_of(log))
+
+
+def passed_on_base_verdict(repo: str, base: str, name: str, head: UnplacedSignature,
+                           seen: "list[tuple[dict, dict, UnplacedSignature]]", github) -> None:
+    """Raises Refused naming the script when the head's extra error lines over every base verdict read (SEEN:
+    (run, job, signature)) name one that each of those verdicts ran and passed; returns None when no base log says
+    so. A refusal only: it never excuses a red."""
+    markers: set = set()
+    # Whether merging the base clears the whole red, so whether that is said: no extra error line of the head names
+    # another script, and no failed step is the head's alone. A line naming no script at all (a check's own summary,
+    # `FAIL: convention violations found`) cannot be told from the passed check's own output, so it does not count
+    # against it; a line naming a script that did not pass on the base is other work a base merge leaves.
+    whole = True
+    for _, job, found in seen:
+        extra = sorted((head.errors - found.errors).elements())
+        if not extra:
+            return None
+        asked = {marker for error in extra for marker in sub_checks(error)}
+        log = github.log(repo, job) or ""
+        asked = {marker for marker in asked if check_passed_in(log, marker)}
+        if not asked:
+            return None
+        whole = whole and not any(sub_checks(error) and not (sub_checks(error) & asked) for error in extra)
+        markers = asked if not markers else markers & asked
+        if not markers:
+            return None
+    # No base verdict was read at all (every log read failed): there is nothing to name.
+    if not seen or not markers:
+        return None
+    if head.steps - sum((found.steps for _, _, found in seen), Counter()):
+        whole = False  # a failed step of its own, beside these lines
+    run = seen[0][0]
+    url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+    said = "; ".join(sorted(markers))[:200]
+    raise Refused(f"'{name}': {base} run {run['id']} ran {said} in '{name}' and it passed there ({url}), so this red "
+                  f"is not {base}'s"
+                  + (f"; when {base} fixed what it reports after this PR's merge-base, merge {base} into the branch "
+                     "and the red goes" if whole
+                     else f"; {base} may have fixed what it reports after this PR's merge-base, and this head fails "
+                          "more besides, which a base merge does not clear"))
+
+
+
+# A setup red another pull request shares (2026-11-15, cmux#41892 at d1631b27, run 43737949394). ios-e2e.yml runs on
+# pull requests only, so no feat-cmux-next run has a verdict for its jobs, and each red of them was refused as "no
+# feat-cmux-next run of its workflow has a verdict for it to compare with", infrastructure reds that hit every PR whose
+# changes trigger it too: 'backend' failed 'Join tailnet' (`sudo failed with exit code 1`, after the Tailscale OIDC
+# exchange's 403: hq#10808) and 'mac-ios-e2e' failed 'Install build prerequisites' (`cameroncooke/axe/axe: undefined
+# method 'run' for an instance of Homebrew::InstallSteps::DSL`: cmux#43820), and cmux#43755's run 43737950292 failed
+# both the same way. With no base verdict, such a red is excused only as a setup red another PR fails the same way:
+# - the PR does not change the workflow file, and its steps are read from the workflow at the merge-base, never the
+#   head's own edit of it (a PR could rename or reorder a step into "setup"); the PR's changed files and commits are
+#   read from one compare with the base, refused when GitHub lists fewer than the PR has (COMPARE_FILES_CAP);
+# - every failed step of the job failed (a cancelled or timed-out step is no verdict; a crash or a cut-short run was
+#   refused by read_head, a cancelled job by judge) and is a workflow step before the job's first test step in its
+#   workflow's own step order (StepNames.specs), and is no test step itself: one whose name says it tests
+#   (TEST_STEP_NAME) or whose script starts a test runner (runs_tests). A job with no test step (the backend) only
+#   sets up another job's tests;
+# - every failed step runs no code the PR can change (runs_no_pr_code): a `uses:` step of an action outside the
+#   repository (not `./...`), or a step SETUP_ONLY_STEPS names, whose scripts the PR does not change. Every other step
+#   before the tests runs the PR's code and its error lines are generic: PR #43876's review (FIX FIRST at b7f6aff6c64,
+#   issuecomment-6899154268): 'Start per-run backend' serves the PR's workers and fails on `backend health: iroh-v2
+#   never answered at ...`, 'Wait for the per-run backend' and 'Sign in and pair simulator' fail on the PR's own
+#   backend or sign-in in words an outage prints too, and 'Install dependencies' fails on a stale lockfile the same
+#   way on any two PRs. Excused by another PR's identical line, a PR that breaks its backend would land, and each later
+#   PR would excuse the next, since iOS E2E never runs on the base;
+# - each of those steps' error lines, masked (step_errors, normalise_error; read whole when step_owners cannot place
+#   the log, only for a job with one failed step), is printed by the step of the same name, failed, in the job of the
+#   same name, failed, of one run of the same workflow for another pull request: another head branch, and PR numbers
+#   none of which is the head's (a run that names no PR is no evidence), completed in the last OTHER_PR_HOURS. A run
+#   of this PR never counts, nor a log that crashed or was cut short, nor a run of a commit that shares a commit with
+#   this PR beyond the base (one is the other's ancestor, or their merge-base is one of this PR's commits: a stacked
+#   lane, a reland, two lanes of one change), told by one compare of the two heads (shares_commits);
+# - the match is on step names and error lines alone: a PR's title, body or branch name is never read for one;
+# - the reads are bounded: one list of the workflow's failed pull_request runs (OTHER_PR_LIST, newest first), at most
+#   OTHER_PR_RUNS job lists (base_run_jobs, its disk cache) and OTHER_PR_LOGS logs, each read once per judgement.
+# An aggregate of such jobs (ios-e2e-status, a run rollup of ROLLUPS_FILE) is judged by its failed children, each as
+# itself (head_jobs), so it is excused only when every one is.
+OTHER_PR_HOURS = 24
+OTHER_PR_LIST = 50
+OTHER_PR_RUNS = 8
+OTHER_PR_LOGS = 4
+TEST_STEP_NAME = re.compile(r"(?i)\b(?:tests?|testing|e2e|specs?|suites?)\b")
+# A test runner a step's script starts (runs_tests), read word by word so no pattern rescans a script: a runner by
+# name, a build tool's test verb, or a script whose file name says it tests.
+TEST_RUNNERS = frozenset({"pytest", "vitest", "jest", "ctest", "xctest"})
+TEST_VERB_TOOLS = frozenset({"swift", "cargo", "go", "bun", "deno", "npm", "pnpm", "yarn", "xcodebuild"})
+TEST_VERBS = frozenset({"test", "nextest", "test-without-building"})
+SCRIPT_WORD = re.compile(r"[^\s;|&()<>'\"`]+")
+
+
+def runs_tests(script: str) -> bool:
+    """Whether SCRIPT, a workflow step's `run:`, starts a test runner (TEST_RUNNERS; a TEST_VERB_TOOLS tool given a
+    TEST_VERBS verb; a .sh or .py file whose name has `test` or `e2e-run` in it)."""
+    words = [word.rsplit("/", 1)[-1].lower() for word in SCRIPT_WORD.findall(script)]
+    if any(word in TEST_RUNNERS or (word.endswith((".sh", ".py")) and ("test" in word or "e2e-run" in word))
+           for word in words):
+        return True
+    return bool(TEST_VERB_TOOLS & set(words)) and bool(TEST_VERBS & set(words))
+
+
+# The steps before a workflow's tests that run a script of the repository and still run no code the PR can change, by
+# workflow file: {step name: every repository path it reads}: the scripts it runs, the files and submodules they
+# source, run or read, and the toolchain pins it runs under. Excused only while the PR changes none of them. PR
+# #43876's second review (FIX FIRST at f5c717cd260, issuecomment-6899360740): listing only the scripts let a PR that
+# bumps .xcode-version past its pool's Xcode fail 'Select Xcode' with the same masked floor line a runner image
+# missing the pin prints, and be excused. tests/test_base_red_excuse.py's SetupOnlyStepsReadNothingUnlisted scans the
+# scripts for the repository paths they read and fails on one no entry lists.
+XCODE_PINS = (".xcode-version", "scripts/ci/xcode-pins.txt")  # select-ci-xcode.sh's: the Xcode every later step runs
+SETUP_ONLY_STEPS = {
+    ".github/workflows/ios-e2e.yml": {
+        # Installs build tools: zig (install-zig-ci.sh: its version from ghostty-zig-version.sh and the submodules'
+        # build.zig.zon, the reviewed versions from toolchains.json and the Zig SDK's build.zig.zon, the tarball's
+        # sha256 from zig-tarballs.sha256), the prebuilt GhosttyKit for the pinned ghostty submodule
+        # (download-prebuilt-ghosttykit.sh, else ensure-ghosttykit.sh: the checksum manifest, the archive validator,
+        # ghostty.h, ensure-metal-toolchain.sh) and AXe (install-axe-ci.sh), under the selected Xcode. No app, worker or
+        # test code.
+        "Install build prerequisites": (
+            "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh", "scripts/ci/zig-tarballs.sha256",
+            "cmux-tui/build-support/notices/toolchains/toolchains.json", "cmux-tui/bindings/zig/build.zig.zon",
+            "scripts/download-prebuilt-ghosttykit.sh", "scripts/ensure-ghosttykit.sh",
+            "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
+            "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules",
+            "scripts/install-axe-ci.sh", *XCODE_PINS),
+        # Picks the runner's Xcode from the pins (toolchain setup).
+        "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
+        # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
+        "Ensure iOS simulator runtime": XCODE_PINS,
+    },
+}
+# The checkout action fetches the submodules .gitmodules names at the commits the PR pins: a PR that changes either
+# can fail it on its own (a pin that cannot be fetched), so its red is then never excused (runs_no_pr_code). So can a
+# gitlink the PR adds or moves without a .gitmodules entry (`fatal: No url found for submodule path ...`, #43915):
+# every changed path the compare shows as a submodule, or cannot show as a file, counts as one (compare_gitlinks).
+CHECKOUT_ACTION = "actions/checkout@"
+SUBPROJECT_LINE = re.compile(r"(?m)^[-+ ]?Subproject commit [0-9a-f]")
+
+
+def gitmodule_paths(text: str | None) -> frozenset[str]:
+    """The submodule paths a .gitmodules TEXT names (None: none)."""
+    return frozenset(match[1] for match in re.finditer(r"(?m)^[ \t]*path[ \t]*=[ \t]*(\S+)[ \t]*$", text or ""))
+
+
+def compare_gitlinks(files: list) -> frozenset[str]:
+    """The paths of compare FILES entries that are, or may be, a submodule (a gitlink, mode 160000), whether or not
+    .gitmodules names it: a PR that adds one without an entry there fails Checkout on its own (#43915). GitHub's
+    compare serves no file mode; a gitlink's entry has no blob_url or raw_url (null) and a `Subproject commit <sha>`
+    patch, so an entry with either sign, or without a blob URL at all, counts as one (and its previous path too)."""
+    return frozenset(path for found in files if isinstance(found, dict)
+                     and (not isinstance(found.get("blob_url"), str) or not found.get("blob_url")
+                          or SUBPROJECT_LINE.search(str(found.get("patch") or "")))
+                     for path in (found.get("filename"), found.get("previous_filename")) if isinstance(path, str))
+
+
+def runs_no_pr_code(spec: dict, path: str, title: str, changed: set[str],
+                    submodules: Callable[[], frozenset[str]]) -> str | None:
+    """None when workflow step SPEC (TITLE, of workflow PATH, as declared at the merge-base) runs no code a PR with
+    CHANGED paths can change: a `uses:` action outside the repository (the checkout action only while the PR changes
+    neither .gitmodules nor a submodule SUBMODULES() names: .gitmodules' at the merge-base, and each gitlink the PR
+    changes), or a SETUP_ONLY_STEPS step whose paths are unchanged;
+    else why it runs the PR's code."""
+    uses = spec.get("uses")
+    if isinstance(uses, str):
+        if uses.strip().startswith("./"):
+            return f"its failed step '{title}' runs the PR's code (the local action {uses.strip()})"
+        if uses.strip().startswith(CHECKOUT_ACTION) and (pins := sorted(changed & ({".gitmodules"} | submodules()))):
+            return f"its failed step '{title}' checks out submodules this PR changes ({', '.join(pins)[:300]})"
+        return None
+    listed = SETUP_ONLY_STEPS.get(path, {})
+    if title not in listed:
+        return (f"its failed step '{title}' runs the PR's code (a `run:` step, and not one {path}'s SETUP_ONLY_STEPS "
+                "names as running none)")
+    if touched := sorted(file for file in changed if any(file == own or file.startswith(own + "/")
+                                                         for own in listed[title])):
+        return f"its failed step '{title}' runs files this PR changes ({', '.join(touched)[:300]})"
+    return None
+
+
+def shares_commits(repo: str, other: str, sha: str, mine: set[str], github) -> bool:
+    """Whether OTHER, another PR's tested commit, shares a commit with SHA beyond the base: one is the other's
+    ancestor, or their merge-base is one of MINE (SHA's commits beyond its own merge-base). One compare read."""
+    if other == sha:
+        return True
+    found = github.json(f"repos/{repo}/compare/{other}...{sha}?per_page=1")
+    if not isinstance(found, dict) or found.get("status") in (None, "identical", "ahead", "behind"):
+        return True  # unread is shared: never evidence
+    return str((found.get("merge_base_commit") or {}).get("sha") or "") in mine
+
+
+def completed(job: dict) -> datetime | None:
+    """JOB's completed_at, or None when it is not a time with its zone (never compared with an aware now)."""
+    try:
+        when = datetime.fromisoformat(str(job.get("completed_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo is not None else None
+
+
+def setup_red_steps(job: dict, names, path: str, changed: set[str],
+                    submodules: Callable[[], frozenset[str]] = frozenset) -> "tuple[list[str], str | None] | str":
+    """(the names of JOB's failed steps, in order, and its first test step after them or None) when each is a setup
+    step that runs no PR code (runs_no_pr_code, PATH its workflow, CHANGED the PR's paths) by the rule above, NAMES
+    the workflow's step names at the merge-base; else why not."""
+    specs = getattr(names, "specs", None)
+    if not specs:
+        return "its steps could not be matched to its workflow's, so no step is known to run before its tests"
+    failed: list[str] = []
+    first_test = None
+    for step in sorted(job.get("steps") or [], key=lambda step: step.get("number")
+                       if isinstance(step.get("number"), int) else -1):
+        title = str(step.get("name") or "")  # step-name: classify
+        spec = specs.get(step.get("number"))
+        testing = spec is not None and bool(TEST_STEP_NAME.search(title)
+                                            or runs_tests(str(spec.get("run") or "")))
+        if step.get("conclusion") not in (None, "success", "skipped"):
+            if step.get("conclusion") != "failure":
+                return f"its step '{title}' is {step.get('conclusion')}, no verdict"
+            if spec is None:
+                return f"its failed step '{title}' is the runner's, not its workflow's"
+            if testing:
+                return f"its failed step '{title}' runs tests"
+            if first_test is not None:
+                return f"its failed step '{title}' runs after its test step '{first_test}'"
+            if (why := runs_no_pr_code(spec, path, title, changed, submodules)) is not None:
+                return why
+            failed.append(title)
+        if testing and first_test is None:
+            first_test = title
+    return (failed, first_test) if failed else "no step of it failed"
+
+
+def setup_errors(view: "FailedView | Unplaced", whole: "UnplacedSignature | None",
+                 steps: list[str]) -> set[tuple[str, str]] | None:
+    """(failed step, error line masked) for each of STEPS, a job's failed setup steps: VIEW's own (step_errors), or,
+    for an unplaced VIEW of one failed step, WHOLE's error lines (its unplaced_signature), that step's; None when a
+    step prints no error line or no line can be charged to its step."""
+    if view is UNPLACED:
+        if whole is None or len(steps) != 1:
+            return None
+        pairs = {(steps[0], error) for error in whole.errors}
+    else:
+        pairs = {(step, error) for step, error in step_errors(view) if step in steps}
+    return pairs if {step for step, _ in pairs} == set(steps) else None
+
+
+def other_pr_setup_verdict(repo: str, base: str, name: str, job: dict, head: "Head", workflow_info: dict,
+                           workflow: int, github, run_reads: dict, evidence: "Evidence") -> tuple[bool, str]:
+    """(True, the audit line) for red head JOB (NAME, read as HEAD by read_head), whose workflow (WORKFLOW, its run
+    WORKFLOW_INFO) has no BASE verdict, when it is a setup red another pull request's run fails the same way (the rule
+    above); else (False, why not)."""
+    path = str(workflow_info.get("path") or "").split("@", 1)[0]
+    # The head's own step names first (read by read_head already): a red no rule here can excuse costs no read.
+    if isinstance(why := setup_red_steps(job, job_step_names(repo, job, github, run_reads), path, set()), str):
+        return False, why
+    sha = str(job.get("head_sha") or "")
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}")
+    files, commits = diff.get("files"), diff.get("commits")
+    merge_base = evidence.merge_base(sha, diff)
+    if (not re.fullmatch(r"[0-9a-f]{40}", merge_base) or not isinstance(files, list) or not isinstance(commits, list)
+            or len(files) >= COMPARE_FILES_CAP or diff.get("total_commits", len(commits)) != len(commits)):
+        return False, f"its changed files and commits against {base} could not be read in full"
+    # A rename counts at both paths: a PR that moves a listed script away changes it (#43915).
+    changed = {str(name) for file in files if isinstance(file, dict)
+               for name in (file.get("filename"), file.get("previous_filename")) if name is not None}
+    gitlinks = compare_gitlinks(files)
+    if path in changed:
+        return False, f"this PR changes its workflow ({path}), so no step of it is known to be the base's setup"
+    # The workflow as the base declares it, at the merge-base: its step order and each step's `uses:` or script.
+    setup = setup_red_steps(job, workflow_step_names(repo, dict(job, head_sha=merge_base), path, github, run_reads),
+                            path, changed,
+                            lambda: gitlinks | gitmodule_paths(source_text_if_present(repo, merge_base, ".gitmodules",
+                                                                                      github)))
+    if isinstance(setup, str):
+        return False, setup
+    steps, first_test = setup
+    mine = setup_errors(head.view, head.unplaced, steps)
+    branch = workflow_info.get("head_branch")
+    numbers = {pull.get("number") for pull in workflow_info.get("pull_requests") or [] if isinstance(pull, dict)}
+    if not mine or not branch:
+        return False, "its failed setup steps print no error line to match, or its run names no branch"
+    own_commits = {str(commit.get("sha")) for commit in commits if isinstance(commit, dict)}
+    shared = 0
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request&status=failure"
+                         f"&per_page={OTHER_PR_LIST}")
+    now, window = datetime.now().astimezone(), timedelta(hours=OTHER_PR_HOURS)
+    runs = sorted((run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+                   if isinstance(run, dict)), key=lambda run: run.get("created_at") or "", reverse=True)
+    reads = logs = 0
+    for run in runs:
+        theirs = {pull.get("number") for pull in run.get("pull_requests") or [] if isinstance(pull, dict)}
+        if (run.get("event") != "pull_request" or run.get("id") == job.get("run_id")
+                or run.get("head_branch") in (None, branch) or not theirs or theirs & numbers):
+            continue  # this PR's own run, or one that names no other PR
+        if reads >= OTHER_PR_RUNS or logs >= OTHER_PR_LOGS:
+            break
+        reads += 1
+        for other in base_run_jobs(repo, run, github):
+            failed = {step for step, conclusion in failed_step_keys(other) if conclusion == "failure"}
+            if (other.get("name") != name or other.get("conclusion") != "failure" or not set(steps) <= failed
+                    or (when := completed(other)) is None or now - when > window):
+                continue
+            if logs >= OTHER_PR_LOGS:
+                break
+            logs += 1
+            other = dict(other, run_id=other.get("run_id") or run["id"])
+            text = github.log(repo, other)
+            own = test_reds.read(text)
+            if own.crashes or [why for why in own.truncated if not why.startswith(test_reds.UNNAMED_WHY)]:
+                continue  # a crash or a cut-short run is no evidence
+            view = failed_view(other, text, step_names=workflow_step_names(repo, other, run.get("path"), github,
+                                                                           run_reads), base=True)
+            found = setup_errors(view, unplaced_signature(other, text) if view is UNPLACED else None,
+                                 sorted(failed) if view is UNPLACED else steps)
+            if found is None or not mine <= found:
+                continue
+            tested = str(run.get("head_sha") or other.get("head_sha") or "")
+            if not re.fullmatch(r"[0-9a-f]{40}", tested) or shares_commits(repo, tested, sha, own_commits, github):
+                shared += 1  # the same change on two PRs never excuses itself
+                continue
+            url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+            said = "; ".join(f"'{step}': {error}" for step, error in sorted(mine))
+            before = f"its first test step '{first_test}'" if first_test else "any test step (the job runs none)"
+            return True, (f"excused '{name}': not this PR (a setup red other PRs share): no {base} run of its "
+                          f"workflow has a verdict, and its failed setup step{'s' if len(steps) > 1 else ''} "
+                          f"({'; '.join(steps)}), before {before}, runs no code this PR changes and failed the same "
+                          f"way in PR #{', #'.join(str(n) for n in sorted(theirs))}'s run {run['id']} ({url}), job "
+                          f"{other.get('id')}, completed {other.get('completed_at')}, tested {tested[:12]}, which "
+                          f"shares no commit with this PR: {said[:500]}")
+    return False, ("no other PR's run of its workflow in the last "
+                   f"{OTHER_PR_HOURS} h failed its setup steps ({'; '.join(steps)}) the same way"
+                   + (f" (the {shared} that did share commits with it)" if shared else ""))
+
+
+# A red of a workflow with no base verdict, read against other pull requests' heads (2026-11-21, docs/handbook in
+# cmuxterm-hq: pr-only-workflow-has-no-base-verdict.md). A workflow that runs on pull requests only (ios-e2e.yml since
+# cmux#42973) never runs on a base push, so every red of it was refused here as "no feat-cmux-next run of its
+# workflow has a verdict for it to compare with" unless other_pr_setup_verdict matched it line for line: cmux#45422,
+# hq#13487 and glaeda#2103 were refused that way for a red every PR into the base shared, while land-judge's
+# pr_only_peer_excuse (leo-workspace tools/land_judge/engine.py) let the same red through. One rule for both judges,
+# with land-judge's constants and path patterns:
+# - a red job is the workflow's, not this PR's, when the same job failed at the same first failed step (or at none on
+#   both) on PR_ONLY_PEERS other PRs' heads into the same base, each in its newest completed pull_request run of the
+#   workflow, completed in the last OTHER_PR_HOURS. Any failed step counts, not only a setup step: a PR that breaks
+#   the app fails a later step (the tests) than an outage (a tailnet, a brew install), so the two do not match;
+# - the workflow's files are its .yml and every repo path its text at the head names (workflow_files: WORKFLOW_PATH,
+#   under .github/ or scripts/, or a script or config file by its extension; a named directory stands for every file
+#   under it). A PR that changes one of them is never excused this way: it must be green on the workflow. A peer that
+#   changes one is no witness;
+# - a peer is another PR: distinct PR numbers, never one of this PR's, never this branch or this head; a peer that
+#   shares a commit with this PR beyond the base (shares_commits) is no witness, nor one whose changed files cannot
+#   be read in full from one compare with the base (COMPARE_FILES_CAP);
+# - the reads are bounded as land-judge's are: one list of the workflow's PR_ONLY_PEER_RUNS newest completed
+#   pull_request runs, at most PR_ONLY_PEER_READS job lists (base_run_jobs, its disk cache), and the compares only
+#   once PR_ONLY_PEERS heads have matched on the job lists. No log and no PR text is read.
+PR_ONLY_PEERS = 3  # other PRs' heads that must fail the same job at the same step
+PR_ONLY_PEER_RUNS = 30  # the workflow's newest completed pull_request runs listed
+PR_ONLY_PEER_READS = 10  # job lists read among them at most
+PR_ONLY_RED = frozenset({"failure", "timed_out", "startup_failure"})
+# A repo path a workflow names: two or more segments, not a variable's ($RUNNER_TEMP/x), a URL's or another path's
+# tail. Kept when it is under .github/ or scripts/, or names a script or config file (its extension).
+WORKFLOW_PATH = re.compile(r"(?<![\w$/.:@{}-])(?:\./)?((?:[\w-][\w.-]*/)+[\w.-]*[\w-])")
+WORKFLOW_PATH_EXT = re.compile(r"\.(?:sh|bash|py|js|mjs|cjs|ts|swift|rb|zig|ya?ml|json|toml)$")
+
+
+def workflow_files(path: str, text: str) -> list[str]:
+    """The workflow at PATH and every repo path its TEXT names (WORKFLOW_PATH): the files whose change makes the
+    workflow's red the PR's own. A named directory (scripts/e2e) stands for every file under it."""
+    found = {path}
+    for match in WORKFLOW_PATH.finditer(text or ""):
+        named = match.group(1).rstrip("/")
+        if named.startswith((".github/", "scripts/")) or WORKFLOW_PATH_EXT.search(named) or "/scripts/" in named:
+            found.add(named)
+    return sorted(found)
+
+
+def workflow_file_hits(files, owned: list[str]) -> list[str]:
+    """The FILES that are one of OWNED or under one of them (a directory)."""
+    return sorted({f for f in files for p in owned if f == p or f.startswith(p.rstrip("/") + "/")})
+
+
+def first_red_step(job: dict) -> str | None:
+    """The name of JOB's first failed step (PR_ONLY_RED), by step number, or None when no step failed."""
+    for step in sorted((step for step in job.get("steps") or [] if isinstance(step, dict)),
+                       key=lambda step: step.get("number") if isinstance(step.get("number"), int) else -1):
+        if str(step.get("conclusion") or "").lower() in PR_ONLY_RED:
+            return str(step.get("name") or "")  # step-name: classify
+    return None
+
+
+def changed_in_full(repo: str, base: str, sha: str, github) -> tuple[set[str], set[str]] | None:
+    """(the paths SHA changes against BASE, a rename at both paths; its commits beyond the base) from one compare, or
+    None when GitHub lists fewer than it has (COMPARE_FILES_CAP) or the answer cannot be read."""
+    diff = github.json(f"repos/{repo}/compare/{base}...{sha}")
+    files, commits = (diff.get("files"), diff.get("commits")) if isinstance(diff, dict) else (None, None)
+    if (not isinstance(files, list) or not isinstance(commits, list) or len(files) >= COMPARE_FILES_CAP
+            or diff.get("total_commits", len(commits)) != len(commits)):
+        return None
+    return ({str(name) for file in files if isinstance(file, dict)
+             for name in (file.get("filename"), file.get("previous_filename")) if name is not None},
+            {str(commit.get("sha")) for commit in commits if isinstance(commit, dict)})
+
+
+def other_pr_peer_verdict(repo: str, base: str, name: str, job: dict, workflow_info: dict, workflow: int,
+                          github) -> tuple[bool, str]:
+    """(True, the audit line) for red head JOB (NAME), whose workflow (WORKFLOW, its run WORKFLOW_INFO) has no BASE
+    verdict, when it failed at the same first failed step on PR_ONLY_PEERS other PRs' heads that change none of the
+    workflow's files, and this PR changes none either (the rule above); else (False, why not)."""
+    path = str(workflow_info.get("path") or "").split("@", 1)[0]
+    sha = str(job.get("head_sha") or workflow_info.get("head_sha") or "")
+    if not path or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return False, "its run names no workflow file or head commit"
+    try:
+        own = changed_in_full(repo, base, sha, github)
+        owned = workflow_files(path, source_text(repo, sha, path, github)) if own is not None else []
+    except Refused as why:
+        return False, f"its changed files or its workflow could not be read ({str(why)[:200]})"
+    if own is None:
+        return False, f"its changed files and commits against {base} could not be read in full"
+    changed, own_commits = own
+    if mine := workflow_file_hits(changed, owned):
+        return False, (f"this PR changes the workflow's files ({', '.join(mine)[:300]}), so its red is its own: it "
+                       "must be green on it")
+    step = first_red_step(job)
+    said = f"at step '{step}'" if step is not None else "at no step"
+    branch = workflow_info.get("head_branch")
+    numbers = {str(pull.get("number")) for pull in workflow_info.get("pull_requests") or [] if isinstance(pull, dict)}
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?event=pull_request&status=completed"
+                         f"&per_page={PR_ONLY_PEER_RUNS}")
+    runs = sorted((run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+                   if isinstance(run, dict)), key=lambda run: run.get("created_at") or "", reverse=True)
+    now, window = datetime.now().astimezone(), timedelta(hours=OTHER_PR_HOURS)
+    matched: list[str] = []
+    pending: list[tuple[str, str]] = []  # (PR number, head) matched on its job list, its compares not read yet
+    aside: Counter = Counter()  # why a matching head was no witness
+    seen: set[str] = set()
+    reads = 0
+    for run in runs[:PR_ONLY_PEER_RUNS]:
+        if len(matched) >= PR_ONLY_PEERS or reads >= PR_ONLY_PEER_READS:
+            break
+        theirs = [str(pull.get("number")) for pull in run.get("pull_requests") or [] if isinstance(pull, dict)
+                  and ((pull.get("base") or {}).get("ref")) == base]
+        tested = str(run.get("head_sha") or "")
+        if (run.get("event") != "pull_request" or run.get("id") == job.get("run_id") or tested == sha
+                or run.get("head_branch") in (None, branch) or not theirs or set(theirs) & numbers
+                or theirs[0] in seen or not re.fullmatch(r"[0-9a-f]{40}", tested)):
+            continue  # this PR's own run, one into another base or naming no PR, or a PR already read
+        seen.add(theirs[0])  # each PR's newest run alone
+        reads += 1
+        found = [other for other in base_run_jobs(repo, run, github) if other.get("name") == name]
+        if (len(found) != 1 or str(found[0].get("conclusion") or "").lower() not in PR_ONLY_RED
+                or first_red_step(found[0]) != step or (when := completed(found[0])) is None
+                or now - when > window):
+            continue
+        pending.append((theirs[0], tested))
+        while pending and len(matched) < PR_ONLY_PEERS <= len(matched) + len(pending):
+            number, other = pending.pop(0)
+            try:
+                if shares_commits(repo, other, sha, own_commits, github):
+                    aside["shares a commit with this PR"] += 1
+                    continue
+                files = changed_in_full(repo, base, other, github)
+            except Refused:
+                files = None
+            if files is None:
+                aside["its changed files could not be read in full"] += 1
+            elif workflow_file_hits(files[0], owned):
+                aside["changes the workflow's files"] += 1
+            else:
+                matched.append(f"#{number} at {other[:12]}")
+    if len(matched) >= PR_ONLY_PEERS:
+        return True, (f"excused '{name}': not this PR (its workflow's red on other PRs): no {base} run of its workflow "
+                      f"has a verdict, and '{name}' failed {said} the same way on {', '.join(matched)}, other PRs' "
+                      f"heads into {base} in the last {OTHER_PR_HOURS} h that share no commit with this PR and, like "
+                      f"it, change none of the workflow's {len(owned)} file(s) ({path} and the paths it names)")
+    # A head matched on its job list alone is named too: too few to excuse, its compares were never read.
+    named = matched + [f"#{number} at {other[:12]}" for number, other in pending]
+    return False, (f"'{name}' failed {said} the same way on {len(named)} other PR head(s) "
+                   f"({', '.join(named) or 'none'}), under {PR_ONLY_PEERS}, in {reads} of its workflow's newest "
+                   f"completed pull_request runs read"
+                   + (f" ({'; '.join(f'{n} {why}' for why, n in sorted(aside.items()))}: no witness)" if aside else ""))
+
 
 # A compiler or lint red another base job prints (2026-11-12, cmux#40935 at d2e676e6 and #41633): e0d3bb0ec2f left
 # `error: variant `RootEntries` is never constructed` (cmux-tui/crates/acpmux/src/chats/watch.rs, built on Linux only)
@@ -2121,7 +3116,9 @@ DIAGNOSTIC_SUMMARY = re.compile(r"^error: (?:could not compile `[^`]+`|aborting 
 # outside the diff with the base commit that last changed it. They name no error of their own (each is a located
 # diagnostic above them), and differ between a PR and the base by scope and commit, so they are never compared; the
 # file a base-red line names must still be one the PR does not change.
-CLIPPY_SCOPE = re.compile(r"^##\[error\]clippy -D warnings failed for [^;]+; run `cargo clippy ")
+# Since lints stopped failing the check (2026-11-20) the scope line says "clippy found compile errors in"; older
+# base logs still say "clippy -D warnings failed for", so both are read.
+CLIPPY_SCOPE = re.compile(r"^##\[error\]clippy (?:-D warnings failed for|found compile errors in) [^;]+; run `cargo clippy ")
 CLIPPY_BASE_RED = re.compile(r"^##\[error\](?P<path>\S+) is red and this change does not touch it: ")
 COMPILE_ERROR_LOGS = 6  # base job logs read for one red, at most
 
@@ -2183,11 +3180,15 @@ def touched_by(path: str, changed: list[str]) -> list[str]:
 
 def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                            head: "CompileErrors | None", unplaced: "UnplacedSignature | None", same_job: dict | None,
-                           runs: list[dict], base_jobs: dict, github, run_reads: dict) -> str | None:
+                           runs: list[dict], base_jobs: dict, github, run_reads: dict,
+                           verdict_repo: str | None = None) -> str | None:
     """The audit line for red job NAME (JOB, its failed_view VIEW, its whole-log UNPLACED, and HEAD, read_head's
     compile_errors of it) when every compiler error it prints is one red base job's in a file the PR does not change
     (the rule above); None when the rule does not apply or no base job shows it. SAME_JOB: the base verdict of the
-    same job; RUNS: the workflow's base runs, newest first."""
+    same job; RUNS: the workflow's base runs, newest first. VERDICT_REPO: the repo whose runs are the base's
+    verdict of record (Evidence.verdict_repo), REPO when None; every base read below is of it, while the paths this
+    PR changes stay REPO's."""
+    vrepo = verdict_repo or repo
     if view is UNPLACED:
         if unplaced is None or unplaced.tests or unplaced.crashes or unplaced.unnamed:
             return None
@@ -2238,7 +3239,7 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
             if reads >= BASE_WINDOW:
                 break
             reads += 1
-            base_jobs[run["id"]] = base_run_jobs(repo, run, github)
+            base_jobs[run["id"]] = base_run_jobs(vrepo, run, github)
         jobs = base_jobs[run["id"]]
         passed = {other.get("name") for other in jobs if other.get("conclusion") == "success"}
         for other in jobs:
@@ -2247,9 +3248,9 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
             if compared >= COMPILE_ERROR_LOGS:
                 return None
             compared += 1
-            theirs = compile_base_evidence(repo, run, other, github, run_reads)
+            theirs = compile_base_evidence(vrepo, run, other, github, run_reads)
             if all(theirs.counts[error] >= n for error, n in head.counts.items()):
-                url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+                url = run.get("html_url") or f"https://github.com/{vrepo}/actions/runs/{run['id']}"
                 return (f"excused '{name}': every compiler error it prints is one {base} run {run['id']}'s red "
                         f"'{other.get('name')}' prints ({url}), in files this PR does not change: "
                         f"{'; '.join(sorted(signature_text(error) for error in head.located))[:400]}")
@@ -2333,12 +3334,13 @@ def shared_catalog_verdict(repo: str, base: str, sha: str, name: str, job: dict,
     workflow = workflow_info.get("workflow_id")
     if not isinstance(workflow, int):
         raise Refused(f"{why}; run {job['run_id']} came back without its workflow_id; nothing to compare")
-    newest, read, closest = None, 0, None
+    newest, read, closest, ended = None, 0, None, False
     for run, theirs_job in base_verdicts(repo, workflow, GENERATED_BASE_JOB, github, evidence, base_jobs, job_reads,
                                          suites):
         newest = newest or created(run)
         if read >= BASE_WINDOW or (newest and created(run)
                                    and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS)):
+            ended = True
             break
         read += 1
         if theirs_job.get("conclusion") != "failure":
@@ -2358,6 +3360,10 @@ def shared_catalog_verdict(repo: str, base: str, sha: str, name: str, job: dict,
         return (f"excused '{name}': its one red is the 'catalog' verdict of '{host}', whose failing tests and error "
                 f"lines all fail in {base} run {run['id']}'s red '{GENERATED_BASE_JOB}' ({url}), and #{number} "
                 f"changes none of the action catalog's inputs: {'; '.join(sorted(mine.tests))[:400]}")
+    if not ended and (cut := search_cut(job_reads, GENERATED_BASE_JOB, workflow)) is not None:
+        # The window was not read to its end: a matching red may be in the runs left unread (#47687's review F4).
+        raise Refused(f"{cut_refusal(name, base, cut)} ({why}, whose base job '{GENERATED_BASE_JOB}' it searched)"
+                      + (f"; so far: {closest}" if closest else ""))
     raise Refused(f"{why}; no red '{GENERATED_BASE_JOB}' of {base} in the window fails all its failing tests and "
                   f"error lines" + (f": {closest}" if closest else ""))
 
@@ -2375,36 +3381,6 @@ def summary_red(log: str) -> str | None:
 def summary_no_verdict(log: str) -> str | None:
     """The line where a summary gate says nothing it summarizes was judged (SUMMARY_NO_VERDICT), if it does."""
     return next((text for text in test_reds.lines_of(log) if SUMMARY_NO_VERDICT.match(text)), None)
-
-
-def agent_api_unavailable(job: dict, log: str) -> str | None:
-    """The evidence of an agent pass the API never served (AGENT_API_UNAVAILABLE) with zero recorded API usage, when
-    that marker is the job's only red: its one failed step is the agent pass and its one live error line (beside the
-    runner's exit line) is the marker. Else None."""
-    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
-              if step.get("conclusion") == "failure"]
-    if failed != [AGENT_PASS_STEP]:
-        return None
-    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
-              and not text.startswith("##[error]Process completed with exit code")]
-    if len(errors) != 1 or not (match := AGENT_API_UNAVAILABLE.match(errors[0].rstrip())):
-        return None
-    try:
-        evidence = json.loads(match.group(1).replace("%0A", "\n").replace("%0D", "\r").replace("%25", "%"))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(evidence, dict):
-        return None
-    api_ms, tokens = evidence.get("duration_api_ms"), evidence.get("input_tokens")
-    if any(not isinstance(value, int) or isinstance(value, bool) or value != 0 for value in (api_ms, tokens)):
-        return None
-    said = ["duration_api_ms=0", "input_tokens=0"]
-    for key in ("api_error_status", "api_error_type", "api_error", "limit"):
-        if isinstance(evidence.get(key), (str, int)) and not isinstance(evidence.get(key), bool):
-            said.append(f"{key}={evidence[key]}")
-    if isinstance(evidence.get("resets"), str):
-        said.append(f"resets {evidence['resets']}")
-    return ", ".join(said)[:300]
 
 
 def generated_no_verdict(log: str) -> str | None:
@@ -2614,9 +3590,10 @@ def log_decider(message: str) -> None:
 
 
 def trusted_poster(status: dict) -> bool:
-    """Whether STATUS was posted by the one account that posts cmux-next/compile (COMPILE_STATUS_POSTER)."""
+    """Whether STATUS was posted by an account that posts cmux-next/compile (COMPILE_STATUS_POSTERS)."""
     creator = status.get("creator")
-    return isinstance(creator, dict) and all(creator.get(key) == value for key, value in COMPILE_STATUS_POSTER.items())
+    return isinstance(creator, dict) and any(all(creator.get(key) == value for key, value in poster.items())
+                                             for poster in COMPILE_STATUS_POSTERS)
 
 
 # Pages of a commit's statuses list read for its poster's compile status. GitHub keeps at most 1000 statuses per
@@ -2854,9 +3831,13 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
         raise Refused(f"'{name}': no routed failure report to compare with its children")
 
 
-def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) -> None:
+def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO, rollup: dict | None = None) -> None:
     """Run rollup NAME (ci-status), red, needs a failed job under it (its needs, ROLLUPS_FILE): a red run whose only
     failed jobs are outside them did not turn it red, so its own verdict did, and nothing here can compare that."""
+    if rollup is not None and refused_at_setup(rollup):
+        # A runner that refused the rollup itself (a pool job hook, run 44690650796) is not "no failed job under its
+        # needs": that sent readers hunting for a missing child (claude-sr2-coord, 2026-11-20).
+        raise Refused(f"'{name}' was refused at setup: re-run")
     under = rollups(repo)["run"][name]["under"]
     if not any(child.get("conclusion") == "failure" and any(matches(m, child.get("name", "")) for m in under.values())
                for child in children):
@@ -2869,7 +3850,7 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
 # head", even when the base failed the same tests. The status is judged by the job that gave it: the job of the
 # same name without the " (same-tree)" suffix, in the run its target_url links (else the newest run that tested
 # the head and has that job). It is then compared per test like any job; a run that cannot be found is refused.
-# Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): merge_hold covers each red
+# Once excused, its audit line names the status context too (cmux#37038 at 1f4963c0): land-judge covers each red
 # at the head only by a line naming it, and named only the job, it refused 'cmux-next daemon tests (same-tree)'.
 SAME_TREE_SUFFIX = " (same-tree)"
 # cmux-next-fast-gates.yml's status: the PR head merged with the base named in its description (`base <sha>`). A
@@ -2878,16 +3859,51 @@ SAME_TREE_SUFFIX = " (same-tree)"
 FAST_GATES_STATUS = "cmux-next/fast-gates"
 
 
+# The controller's required-checks pool posts its verdicts as commit statuses (manaflow-checks[bot]); a failed one says
+# "failed on the cmux pool (exit 1); rerun: POST /v1/required-checks/rerun?head=<sha>". cmux#49885 at 8b11f0c2
+# (2026-11-22): 'clippy (changed cmux-tui packages)' failed on the pool while the Actions job of that name was skipped
+# by path routing, and the only refusal said "'...' is skipped: ... re-run it": a re-run of the Actions job comes back
+# skipped, so the loop never ended without a person. A pool red is named as the pool's, with the controller's rerun
+# as its step. The pool posts nothing on base commits, so there is no base verdict of its own to compare: it is
+# refused, never excused, as before.
+POOL_RERUN = re.compile(r"\brerun: POST (?P<path>/v1/required-checks/rerun\?head=(?P<head>[0-9a-fA-F]{7,40}))")
+
+
+def pool_status_refusal(sha: str, name: str, status: dict | None) -> "Refused | None":
+    """The refusal for STATUS, the head's commit status NAME, when it is a failed required-checks pool status for SHA
+    (POOL_RERUN in its description), else None."""
+    if not isinstance(status, dict) or status.get("state") not in ("failure", "error"):
+        return None
+    description = str(status.get("description") or "")
+    match = POOL_RERUN.search(description)
+    if match is None or not sha.lower().startswith(match["head"].lower()):
+        return None
+    url = str(status.get("target_url") or "")
+    origin = re.match(r"https?://[^/?#\s]+", url)
+    post = f"{origin[0] if origin else ''}{match['path']}"
+    return Refused(f"'{name}': pool status red at {sha[:12]} ({status.get('state')}: {description[:160]}): its verdict "
+                   "is the controller's required-checks pool, not an Actions job (one of that name, if any, has no "
+                   "verdict to give: path routing left it out); rerun it through the controller (POST "
+                   f"{post})" + (f", its log is at {url}" if url else "") + "; the pool posts nothing on the base, so "
+                   "no base verdict is compared")
+
+
+def head_status(repo: str, sha: str, name: str, github) -> dict | None:
+    """The newest commit status NAME on SHA (the combined status lists the newest per context), or None."""
+    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
+    return next((found for found in statuses if found.get("context") == name), None)
+
+
 def status_job(repo: str, sha: str, name: str, github, base: str | None = None,
                suites: SuiteChecks | None = None, evidence: "Evidence | None" = None) -> dict | str | None:
     """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME. A red
     status no Actions job gave (Vercel's) is the audit line of base_status when BASE (EVIDENCE's) shares it, else
     refused."""
-    statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
-    # The combined status lists the newest per context.
-    status = next((found for found in statuses if found.get("context") == name), None)
+    status = head_status(repo, sha, name, github)
     if status is None:
         return None
+    if (pool := pool_status_refusal(sha, name, status)) is not None:
+        raise pool
     state, job_name = status.get("state"), name.removesuffix(SAME_TREE_SUFFIX)
     if state == "pending":
         raise Refused(f"'{name}': its status is still pending on {sha}")
@@ -3042,7 +4058,7 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 # the head is the pin that compile built with: the loader hands its URL and checksum to the binary target, and SwiftPM
 # resolves it from those, nothing else. Drift since the pinned source can then only be
 # other PRs' additive FFI changes, and the compile proves the symbols the app calls are in the pinned library.
-FFI_PIN_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+FFI_PIN_JOB = CHECKS_JOB_NAME
 FFI_PIN_CHECK = "Check the app FFI pin"
 FFI_PIN_ROLLUP_STEP = "Fail on any red check"  # the job's last step, red when a continue-on-error check is
 FFI_PIN_ERROR = "error: the app FFI sources changed since the pinned source"
@@ -3370,7 +4386,7 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
 # runs or jobs in ten minutes, and this script read one job list per run it looked in. A status with no run link
 # ('next-autoland / verdict') read the job list of every run that tested the head, 32 of them, looking for a job of its
 # name; a base red read a job list per base run until one had a verdict for it, up to BASE_JOB_READS per workflow, most
-# of them runs that skipped or cancelled the job. merge_hold asks about every red of a head in one call, so a head with
+# of them runs that skipped or cancelled the job. land-judge asks about every red of a head in one call, so a head with
 # a few reds was refused partway through its reads. Now which runs hold a job of a name is asked of their check suites
 # over GraphQL, SUITES_PER_QUERY suites a request: every Actions job is a check run of its run's suite under the same
 # name, one per attempt. A run is read only when its suite can answer: for a base verdict, a check run of the name
@@ -3509,6 +4525,50 @@ JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
 JOBS_CACHE_SECONDS = 6 * 3600
 
 
+# The jobs cache's size bound, beside each directory's age bound (JOBS_CACHE_SECONDS for kept job lists,
+# SETTLED_KEEP_SECONDS for settled reads): past JOBS_CACHE_MAX_BYTES (BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES) in one
+# directory, its oldest answers go first until it is under. A spare file a crashed write left (".NAME.PID") goes after
+# KEPT_SPARE_SECONDS. Every kept answer is only a saved read: one removed is read from GitHub again.
+JOBS_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES"
+JOBS_CACHE_MAX_BYTES = 256 * 1024 * 1024
+KEPT_SPARE_SECONDS = 3600
+
+
+def jobs_cache_max_bytes() -> int:
+    raw = os.environ.get(JOBS_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else JOBS_CACHE_MAX_BYTES
+    except ValueError:
+        return JOBS_CACHE_MAX_BYTES
+    return value if value > 0 else JOBS_CACHE_MAX_BYTES
+
+
+def prune_kept(where: Path, keep_seconds: float) -> None:
+    """Prune one kept-answers directory WHERE: answers older than KEEP_SECONDS, spare files older than
+    KEPT_SPARE_SECONDS, then the oldest answers until the rest fit in jobs_cache_max_bytes()."""
+    now, kept = time.time(), []
+    for entry in os.scandir(where):
+        try:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            stat = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        spare = entry.name.startswith(".")
+        if not spare and not entry.name.endswith(".json"):
+            continue
+        if now - stat.st_mtime > (KEPT_SPARE_SECONDS if spare else keep_seconds):
+            Path(entry.path).unlink(missing_ok=True)
+        elif not spare:
+            kept.append((stat.st_mtime, stat.st_size, entry.path))
+    total, cap = sum(size for _, size, _ in kept), jobs_cache_max_bytes()
+    for _, size, path in sorted(kept):
+        if total <= cap:
+            break
+        Path(path).unlink(missing_ok=True)
+        total -= size
+
+
 def jobs_cache() -> Path | None:
     named = os.environ.get(JOBS_CACHE_ENV)
     if named == "off":
@@ -3519,22 +4579,33 @@ def jobs_cache() -> Path | None:
 
 
 def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
-    """The jobs of base RUN's newest attempt (jobs?filter=latest), from the disk cache when RUN is completed."""
+    """The jobs of base RUN's newest attempt (jobs?filter=latest): a kept list first (kept_run_jobs: the disk cache
+    when RUN is completed, or the settled store), else one live read, counted against the judgement's one budget
+    (job_budget) whatever path asks. Past it, or refused by glaeda-gh's sweep guard, JobBudgetCut: never a read."""
+    kept = kept_run_jobs(repo, run)
+    if kept is not None:
+        return kept
     where, key = jobs_cache(), None
     if (where is not None and run.get("status") == "completed" and isinstance(run.get("run_attempt"), int)
             and re.fullmatch(r"[0-9TZ:.+-]{10,40}", str(run.get("updated_at") or ""))):
         stamp = re.sub(r"[^0-9]", "", run["updated_at"])
         key = where / f"{repo.replace('/', '--')}-{int(run['id'])}-{run['run_attempt']}-{stamp}.json"
-        try:
-            kept = json.loads(key.read_text())
-            if (isinstance(kept, list) and all(isinstance(job, dict) and job.get("run_id") == run["id"] for job in kept)
-                    and time.time() - key.stat().st_mtime < JOBS_CACHE_SECONDS):
-                return kept
-        except (OSError, ValueError):
-            pass
-    jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
-                                          paginate=True)
-            for found in page.get("jobs") or []]
+    budget = job_budget()
+    if budget is not None and run["id"] not in budget["read"] and (
+            budget["spent"] or len(budget["read"]) >= CALL_JOB_READS):
+        budget["spent"] = True
+        raise JobBudgetCut(len(budget["read"]), budget["name"])
+    try:
+        jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
+                                              paginate=True)
+                for found in page.get("jobs") or []]
+    except Refused as why:
+        if budget is None or not SWEEP_GUARD_REFUSED.search(str(why)):
+            raise
+        budget["spent"] = True
+        raise JobBudgetCut(len(budget["read"]), budget["name"]) from None
+    if budget is not None:
+        budget["read"].add(run["id"])
     for job in jobs:  # a --jq projection of glaeda's slim list reads a null run_id; the cache check above needs it
         if job.get("run_id") is None:
             job["run_id"] = run["id"]
@@ -3544,9 +4615,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
             spare = key.with_name(f".{key.name}.{os.getpid()}")
             spare.write_text(json.dumps(jobs))
             os.replace(spare, key)
-            for old in key.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > JOBS_CACHE_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(key.parent, JOBS_CACHE_SECONDS)
         except OSError:
             pass
     return jobs
@@ -3556,7 +4625,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
 # reads a head ("superseded: ... cancelled (not counted)"). cmux#36965 at 004465b3: run 42179149655's 'risk evidence'
 # was cancelled by concurrency while run 42179187468 of the same workflow passed it, and the cancelled one refused the
 # merge as a red with no verdict. Only a cancelled (or stale) job is passed over, and only for a newer run of the same
-# workflow on the same head: a failure is a verdict and stays red whatever a later run says (merge_hold's
+# workflow on the same head: a failure is a verdict and stays red whatever a later run says (land-judge's
 # _superseded_cancels, router-review F1 at 241b0da0).
 SUPERSEDABLE = ("cancelled", "stale")
 VERDICT_REDS = ("failure", "timed_out")  # a verdict whatever a later run says (superseding_run)
@@ -3962,7 +5031,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
             validate_guard_routes(repo, sha, guard, children, github)
         for rollup in run_rollups:
-            validate_run_rollup(rollup["name"], children, repo)
+            validate_run_rollup(rollup["name"], children, repo, rollup)
     if checks:
         latest = latest_checks(repo, sha, github)
         aggregate_jobs = []
@@ -3984,6 +5053,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                     excused.append(f"read '{name}' as check run '{check['name']}' (job {check.get('id')}) on {sha}: "
                                    "the only check run at the head that name is a part of")
                 name = check["name"]
+            elif (check.get("conclusion") == "skipped"
+                  and (pool := pool_status_refusal(sha, name, head_status(repo, sha, name, github))) is not None):
+                # A red named for a pool status whose Actions twin has no verdict (skipped by path routing): the
+                # pool's red, never the twin's "is skipped ... re-run it" (cmux#49885).
+                raise pool
             job = job_for(repo, check, sha, github)
             if is_aggregate(name, repo):
                 # The check-run can remain failed while its Actions job has
@@ -3993,7 +5067,7 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                 if job.get("conclusion") != "failure":
                     raise Refused(f"'{name}': exact aggregate job is {job.get('conclusion')}, not failure")
                 if name in rollups(repo)["run"]:
-                    aggregate_runs.append((name, job["run_id"]))
+                    aggregate_runs.append((name, job))
                     continue
                 aggregate_jobs.append(job)
             else:
@@ -4016,11 +5090,14 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
                         continue
                     job = job_for(repo, newer, sha, github)
                 jobs[job["id"]] = job
-        for name, run in aggregate_runs:
+        for name, rollup in aggregate_runs:
+            if refused_at_setup(rollup):
+                raise Refused(f"'{name}' was refused at setup: re-run")
+            run = rollup["run_id"]
             found = head_jobs(repo, sha, [run], [], github, ignored=ignored, seen=seen)
             if not found:
                 raise Refused(f"run {run}: its aggregate check failed with no failed job to compare with the base")
-            validate_run_rollup(name, found, repo)
+            validate_run_rollup(name, found, repo, rollup)
             jobs.update((job["id"], job) for job in found)
         for guard in aggregate_jobs:
             found = head_jobs(repo, sha, [guard["run_id"]], [], github, ignored=ignored, seen=seen)
@@ -4033,9 +5110,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *
 
 
 def tip_suite_verdicts(repo: str, workflow, name: str, github, base_jobs: dict[int, list[dict] | None],
-                       evidence: "Evidence", suites: SuiteChecks | None = None):
+                       evidence: "Evidence", suites: SuiteChecks | None = None, job_reads: dict | None = None):
     """(run, job) for each completed suite run of EVIDENCE's base with a verdict for job NAME, newest first, read
-    lazily (Evidence.dispatches: none for a stacked parent)."""
+    lazily (Evidence.dispatches: none for a stacked parent). Its live job-list reads are the judgement's
+    (budgeted_run_jobs, CALL_JOB_READS)."""
+    job_reads = {} if job_reads is None else job_reads
     runs = evidence.dispatches(workflow)
     deferred = deferred_first_runs(runs) if name in TREE_JOBS else set()
     suites = suites or SuiteChecks(github, repo)
@@ -4048,7 +5127,10 @@ def tip_suite_verdicts(repo: str, workflow, name: str, github, base_jobs: dict[i
         if base_jobs.get(run["id"]) is None:
             if not may_hold(suites, candidates, index, name, verdict=True):
                 continue
-            base_jobs[run["id"]] = base_run_jobs(repo, run, github)
+            listed = budgeted_run_jobs(repo, run, github, workflow, name, job_reads)
+            if listed is None:
+                return  # runs left unread (search_cut)
+            base_jobs[run["id"]] = listed
         found = next((found for found in base_jobs[run["id"]] if found.get("name") == name), None)
         if found is not None and found.get("conclusion") in VERDICTS and not refused_at_setup(found):
             yield run, found
@@ -4091,6 +5173,136 @@ def replaced_while_waiting(repo: str, jobs: list[dict], found: dict, github, cac
     return None
 
 
+# A search the cap cut short is not a search read to its end (2026-11-19, cmuxterm-hq#14126): base_verdicts stopped at
+# BASE_JOB_READS with runs of the window still unread, and judge() said "no feat-cmux-next run of its workflow has a
+# verdict for it to compare with", the words of a window read whole, so the red stopped as the PR's own. Each
+# judgement counted every list against the cap, kept ones too, so a retry read the same 40 and said the same. Now a list
+# already kept (a completed attempt's: the jobs cache, the settled store) costs no read and is not counted, the cut is
+# recorded (SEARCH_CUT), and a cut search says "incomplete" with a retry time: CUT_RETRY_S, glaeda-gh's sweep window,
+# by which the lists read now are kept and the next judgement reads past them. The read budget is the workflow's; the
+# cut is one search's, its workflow and job name (cmux#47687's review F2: a later job of the workflow whose suite checks
+# rule out every run left had no read cut and must not inherit another job's cut).
+SEARCH_CUT = "search-cut"
+CUT_RETRY_S = 600
+# The judgement's own budget, under glaeda-gh's sweep guard (2026-11-20, cmux#47687 and cmuxterm-hq#14535): the guard
+# (gh_sweep_refusal) refuses a caller past GH_SWEEP_MAX = 30 distinct run or job lists read in GH_SWEEP_WINDOW = 600 s,
+# and the land queue judges every PR as one caller. Two workflows each searched to BASE_JOB_READS (40) read past it
+# halfway through, the guard refused the next list, and the judgement ended "unreadable" instead of this search's timed
+# "incomplete". Now every live base job-list read of a judgement, whatever its workflow or job, is counted in
+# job_reads[CALL_READS] and stops at CALL_JOB_READS, leaving room under the guard for the head's own reads; a list
+# already kept costs nothing and is read first (kept_run_jobs), so each retry gets further. A guard refusal that comes
+# anyway (another judgement of the same caller spent the window) cuts the search the same way: a read that never
+# happened is a timed retry, never a verdict. Cold, a search that needs N live lists finishes within ceil(N / 24) calls.
+CALL_JOB_READS = 24
+CALL_READS = "call-job-reads"
+SWEEP_GUARD_REFUSED = re.compile(r"glaeda-gh: refused: this caller read the jobs of \d+ different runs or jobs")
+INCOMPLETE = "incomplete: read"  # cut_refusal's words; land-judge reads them as a timed retry, never a red
+JOB_BUDGET = ("job-list-budget",)  # the judgement memo's key for job_budget
+
+
+def job_budget() -> dict | None:
+    """The judgement's one live job-list budget (in JUDGEMENT_READS): the run ids read live ("read", at most
+    CALL_JOB_READS), whether it is spent ("spent": past it, or the sweep guard refused), and the red being judged
+    ("name", set by judge). Every live base_run_jobs read counts, the per-test paths' (web_base_runs,
+    gallery_run_results, pr_only_step_verdict, compile_errors_verdict, ...) as much as base_verdicts'. None outside a
+    judgement."""
+    memo = JUDGEMENT_READS.get()
+    if memo is None:
+        return None
+    return memo.setdefault(JOB_BUDGET, {"read": set(), "spent": False, "name": None})
+
+
+def budget_spent(job_reads: dict) -> int:
+    """The live job lists this judgement read: the shared budget's (job_budget), else job_reads' own count."""
+    budget = job_budget()
+    if budget is None:
+        return job_reads.get(CALL_READS, 0)
+    return CALL_JOB_READS if budget["spent"] else max(len(budget["read"]), job_reads.get(CALL_READS, 0))
+
+
+def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
+    """RUN's kept job list (base_run_jobs' disk cache, or the settled store) when it has one, else None: no read."""
+    where = jobs_cache()
+    if (where is not None and run.get("status") == "completed" and isinstance(run.get("run_attempt"), int)
+            and re.fullmatch(r"[0-9TZ:.+-]{10,40}", str(run.get("updated_at") or ""))):
+        stamp = re.sub(r"[^0-9]", "", run["updated_at"])
+        key = where / f"{repo.replace('/', '--')}-{int(run['id'])}-{run['run_attempt']}-{stamp}.json"
+        try:
+            kept = json.loads(key.read_text())
+            if (isinstance(kept, list) and all(isinstance(job, dict) and job.get("run_id") == run["id"] for job in kept)
+                    and time.time() - key.stat().st_mtime < JOBS_CACHE_SECONDS):
+                return kept
+        except (OSError, ValueError):
+            pass
+    settled = settled_answer(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+    if settled is NOT_KEPT:
+        return None
+    jobs = [found for page in (settled if isinstance(settled, list) else [settled]) if isinstance(page, dict)
+            for found in page.get("jobs") or []]
+    for job in jobs:
+        if job.get("run_id") is None:
+            job["run_id"] = run["id"]
+    return jobs
+
+
+def search_reads(name: str) -> int:
+    """The live job lists one judgement's search of the base's runs for job NAME may read: CALL_JOB_READS, less
+    TIP_SUITE_JOB_READS for a suite job (SUITE_JOBS), whose push runs never build it and whose verdict is a dispatched
+    tip suite run's, so tip_suite_verdicts still reads those in the same judgement. Cold, a search that needs N live
+    lists finishes within ceil(N / search_reads(NAME)) judgements, since each one's lists are kept."""
+    return CALL_JOB_READS - (TIP_SUITE_JOB_READS if name in SUITE_JOBS else 0)
+
+
+def budgeted_run_jobs(repo: str, run: dict, github, workflow, name: str, job_reads: dict,
+                      reserve: int = 0) -> list[dict] | None:
+    """RUN's job list for a base search for job NAME in WORKFLOW: a kept one first (kept_run_jobs: no read, not
+    counted), else one live read counted toward the workflow's BASE_JOB_READS and the judgement's CALL_JOB_READS
+    (job_reads[CALL_READS]), less RESERVE kept back for a later search of the same judgement (a suite job's
+    dispatched tip suite runs, tip_suite_verdicts, after its push runs). None when either is spent, or when glaeda-gh's sweep guard refused the read (then no live
+    list is read again this judgement), with the search's cut recorded for search_cut: a timed retry, never a verdict."""
+    kept = kept_run_jobs(repo, run)
+    if kept is not None:
+        return kept
+    if job_reads.get(workflow, 0) >= BASE_JOB_READS or budget_spent(job_reads) >= CALL_JOB_READS - reserve:
+        job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
+        return None
+    try:
+        listed = base_run_jobs(repo, run, github)
+    except JobBudgetCut:
+        job_reads[CALL_READS] = CALL_JOB_READS
+        job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
+        return None
+    except Refused as why:
+        if not SWEEP_GUARD_REFUSED.search(str(why)):
+            raise
+        job_reads[CALL_READS] = CALL_JOB_READS
+        job_reads[(SEARCH_CUT, workflow, name)] = job_reads.get(workflow, 0)
+        return None
+    job_reads[workflow] = job_reads.get(workflow, 0) + 1
+    job_reads[CALL_READS] = job_reads.get(CALL_READS, 0) + 1
+    return listed
+
+
+def search_cut(job_reads: dict, name: str, *workflows) -> int | None:
+    """The job lists read before the cap cut a base search for job NAME in any of WORKFLOWS short, or None when none
+    was cut."""
+    return search_cut_any(job_reads, *((workflow, name) for workflow in workflows))
+
+
+def search_cut_any(job_reads: dict, *searches: tuple) -> int | None:
+    """search_cut over SEARCHES, each (workflow, the check name searched for there: a batch suite's differs)."""
+    cut = [job_reads[(SEARCH_CUT, workflow, name)] for workflow, name in searches
+           if workflow is not None and (SEARCH_CUT, workflow, name) in job_reads]
+    return max(cut) if cut else None
+
+
+def cut_refusal(name: str, base: str, read: int) -> str:
+    at = (datetime.now(timezone.utc) + timedelta(seconds=CUT_RETRY_S)).strftime("%H:%MZ")
+    return (f"'{name}': {INCOMPLETE} {read} job lists of {base} runs of its workflow (at most {CALL_JOB_READS} a "
+            f"judgement, {BASE_JOB_READS} a workflow, besides the kept ones) and none had a verdict for it, with older "
+            f"runs still unread; not a verdict: retry after {at}")
+
+
 def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", base_jobs: dict,
                   job_reads: dict, suites: SuiteChecks | None = None):
     """(run, job) for each completed BASE run with a verdict for job NAME, newest first, read lazily: the window of
@@ -4099,7 +5311,13 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
     mini, so a run with no verdict for the job is passed over, and one its check suite shows has none costs no job
     read and is not counted toward BASE_JOB_READS (cmux#42047). Every run is EVIDENCE's (Evidence: the base's, or a stacked parent's at its head)."""
     seen: set[int] = set()
-    suites = suites or SuiteChecks(github, repo)
+    # Every read below is of a base run, so it reads the repo whose runs are the base's verdict of record, which is
+    # REPO for every repo that runs its own base pushes (Evidence.verdict_repo, BASE_VERDICT_REPO).
+    repo = evidence.verdict_repo
+    if suites is None or getattr(suites, "repo", repo) != repo:
+        # A caller's SuiteChecks reads the PR's repo; a base in another repo needs that repo's, once per judge, so
+        # both verdict searches of one judge (the PR run's workflow and its base caller's) share the one reader.
+        suites = evidence.cache.setdefault(("suites", repo), SuiteChecks(github, repo))
     runs = evidence.runs(workflow)
     for index, candidate_run in enumerate(runs):
         if never_carries(candidate_run, name) or cancelled_tier_without_verdict(suites, runs, index, name):
@@ -4107,10 +5325,11 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
         if base_jobs.get(candidate_run["id"]) is None:
             if not may_hold(suites, runs, index, name, verdict=True):
                 continue  # its suite has no verdict for NAME: no job read, so none counted (the sweep limit's note)
-            if job_reads.get(workflow, 0) >= BASE_JOB_READS:
-                break
-            job_reads[workflow] = job_reads.get(workflow, 0) + 1
-            base_jobs[candidate_run["id"]] = base_run_jobs(repo, candidate_run, github)
+            listed = budgeted_run_jobs(repo, candidate_run, github, workflow, name, job_reads,
+                                       reserve=CALL_JOB_READS - search_reads(name))
+            if listed is None:
+                break  # runs left unread (search_cut)
+            base_jobs[candidate_run["id"]] = listed
         found = next((found for found in base_jobs[candidate_run["id"]] if found.get("name") == name), None)
         if found is not None and replaced_while_waiting(repo, base_jobs[candidate_run["id"]], found, github,
                                                         REPLACED_READS):
@@ -4119,7 +5338,7 @@ def base_verdicts(repo: str, workflow, name: str, github, evidence: "Evidence", 
             seen.add(candidate_run["id"])
             yield candidate_run, found
     if name in SUITE_JOBS:
-        for run, found in tip_suite_verdicts(repo, workflow, name, github, base_jobs, evidence, suites):
+        for run, found in tip_suite_verdicts(repo, workflow, name, github, base_jobs, evidence, suites, job_reads):
             if run["id"] not in seen:
                 seen.add(run["id"])
                 yield run, found
@@ -4292,13 +5511,16 @@ _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its 
 # Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
+        "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "signing-runner-variables": "reads the repository's runner variables, not the tree",
-        "portable-placement": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
+        "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
+                          "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
+        "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -4307,12 +5529,11 @@ GUARD_WORKFLOWS = {
         "workflow-guard-history": "reads the pull request's commit history, not only the tree",
         "workflow-guard-cli-scripts": "runs the CLI scripts over product code",
         "workflow-guard-source-lints": "lints product source",
-        "portable-placement": _PLACE,
         "guard-status": "a routed rollup (ROUTED_ROLLUPS), judged by the jobs under it",
     },
     "cmux-next.yml": {
-        **dict.fromkeys(("pr-quiet-period", "push-head-preflight", "path_route", "dev-daily-tree-wait",
-                         "macos-placement", "portable-placement", "app-compile-placement",
+        **dict.fromkeys(("push-head-preflight", "path_route", "dev-daily-tree-wait",
+                         "macos-placement", "app-compile-placement",
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
         **dict.fromkeys(("web-bundles", "same-tree-cmux-tui", "swift-canary-fleet", "app-compile-fleet",
@@ -4403,9 +5624,19 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-rd-link/",
                   "cmux-tui/crates/cmux-rd-proto/", "cmux-tui/crates/cmux-remote-browser/",
                   "cmux-tui/crates/cmux-terminal-prediction/",
+                  # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
+                  "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
+                  # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
+                  "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
+                  "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-next-ios/rust names the phone's message preview words (cmux-message-preview, d1024754)
+                  "cmux-tui/crates/cmux-message-preview/",
+                  # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
+                  "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
                   "cmux-tui/vendor/smoltcp/",
                   # cmux-mobile-host's tests read the Mac's lane policy to keep the two in step
@@ -4769,7 +6000,7 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
 
 
 def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView | Unplaced", base_run: dict,
-                  github, evidence: "Evidence") -> str:
+                  github, evidence: "Evidence", verdict_repo: str | None = None) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
     package = PACKAGE_JOBS.get(name)
@@ -4810,7 +6041,9 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
             raise Refused(f"{test} reads paths the PR changes: {'; '.join(hit[:5])}")
         reads.extend(r for r in test_reads if r not in reads)
     pull = fixed_on_base_pull(repo, base, sha, name, merge_base, github)
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    # The base run is the verdict repo's when the base is verified there (BASE_VERDICT_REPO); every other read in
+    # this function is the PR's own repo.
+    url = base_run.get("html_url") or f"https://github.com/{verdict_repo or repo}/actions/runs/{base_run['id']}"
     return (f"excused '{name}': fixed on base (passes at {tested[:12]} in {base} run {base_run['id']}, after the "
             f"merge-base {merge_base[:12]}; PR does not touch {', '.join(reads)}; {pull}) ({url}): "
             f"{'; '.join(sorted(tests))[:400]}")
@@ -4827,7 +6060,7 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
 # merge base, not an older run. Only the failing step is judged. Any other red step in the head job keeps it not
 # excused." A red is keyed by (workflow, job, step), never its check name alone: a job name red in two workflows at
 # the head is unknown. Only judge(purpose=PER_STEP_PURPOSE) reads it: update_branch's base merge, which only reruns
-# CI; a land (merge_hold, no purpose or "land") never does (#41117's review F1). When the job-level reads above do
+# CI; a land (land-judge, no purpose or "land") never does (#41117's review F1). When the job-level reads above do
 # not excuse a red, it is excused as fixed on base only when:
 #   (a) every failing step of the head job is a step it names exactly once, on the head and on the base: a step whose
 #       jobs-API conclusion is not success or skipped, or a continue-on-error check (the jobs API calls it a success)
@@ -4853,7 +6086,7 @@ def fixed_on_base(repo: str, base: str, sha: str, name: str, head: "FailedView |
 # them read from its log's own rollup list (rollup_log_reds) instead: a job a re-run attempt carries over without
 # running it again gets a new check run with none of its annotations (cmux#40552's job 130212680188, run attempt 2:
 # its annotations stayed on attempt 1's check run 130107053043), and its log, that same run's, still prints them. The line keeps fixed_on_base's prefix, "excused 'JOB': fixed on
-# base (", which merge_hold's actions_verdict and the lane broker's update_branch guard read, once per red job, and
+# base (", which land-judge's actions_verdict and the lane broker's update_branch guard read, once per red job, and
 # names inside it the red's identity (`run RUN / JOB`: its head Actions run and job), its job id and workflow file,
 # each step and both base runs.
 ROLLUP_STEPS = frozenset({FFI_PIN_ROLLUP_STEP})  # a job's last step that fails for its continue-on-error checks
@@ -4869,7 +6102,7 @@ EXIT_ANNOTATION = re.compile(r"^Process completed with exit code \d+\.?$")
 # one 12,000-character line of `x.x` (PrLogPatternsScale).
 COMPILE_ERROR = re.compile(r"(?<![^\s:'\"])([^\s:'\"]*[\w.+-]\.[A-Za-z]\w*):(\d+)(?::\d+)?: (?:fatal )?error: (.+)$")
 # The per-step reading is for one caller only: update_branch's choice to merge the base in, which only makes CI run
-# again. A land (merge_hold's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
+# again. A land (land-judge's classifier_refusal, actions_verdict) never gets it (#41117's review F1).
 PER_STEP_PURPOSE = "update-branch"
 PURPOSES = ("land", PER_STEP_PURPOSE)
 STEP_PRIOR_RUNS = 30  # base runs listed at or before the merge-base's commit time
@@ -5075,16 +6308,19 @@ def first_base_verdict(repo: str, runs: list[dict], name: str, github, base_jobs
 
 
 def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: str, github,
-                       base_jobs: dict, evidence: "Evidence", suites: SuiteChecks | None = None
-                       ) -> tuple[dict, dict] | None:
+                       base_jobs: dict, evidence: "Evidence", suites: SuiteChecks | None = None,
+                       verdict_repo: str | None = None) -> tuple[dict, dict] | None:
     """(run, job NAME) of BASE's verdict for NAME on WORKFLOW at the merge-base: the newest completed run that tested
     the merge-base itself (whenever it was created: a push run starts after its commit, #41117's review F3), and only
     when it has none, the newest that tested a commit before it, of the STEP_PRIOR_RUNS runs created at or before the
     merge-base's commit time WHEN. A run whose check suite shows no verdict for NAME costs no job read (may_hold, as
     base_verdicts reads them): a base's runs mix pushes, the base tier and DEV daily dispatches, and only some carry a
     job (cmux#40984's 'cmux-next generated files'). At most STEP_PRIOR_JOB_READS job lists in all; None when none is
-    found. Every run is EVIDENCE's (Evidence.queried)."""
-    suites = suites or SuiteChecks(github, repo)
+    found. Every run is EVIDENCE's (Evidence.queried). VERDICT_REPO: the repo whose
+    runs are the base's verdict of record (Evidence.verdict_repo), REPO when None; the compare below stays REPO's, so
+    a verdict at a commit the PR's repo does not have is never read as being at or before the merge-base."""
+    vrepo = verdict_repo or repo
+    suites = suites or SuiteChecks(github, vrepo)
     reads = [0]
 
     def listed(query: str) -> list[dict]:
@@ -5094,11 +6330,11 @@ def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: st
                       key=lambda run: run.get("created_at") or "", reverse=True)
 
     own = [run for run in listed(f"head_sha={merge_base}") if tested_sha(run) == merge_base]
-    if (found := first_base_verdict(repo, own, name, github, base_jobs, suites, reads)) is not None:
+    if (found := first_base_verdict(vrepo, own, name, github, base_jobs, suites, reads)) is not None:
         return found
     older = [run for run in listed(f"created=%3C%3D{urllib.parse.quote(when, safe='')}")
              if str(run.get("created_at") or "") <= when and tested_sha(run) != merge_base]
-    found = first_base_verdict(repo, older, name, github, base_jobs, suites, reads)
+    found = first_base_verdict(vrepo, older, name, github, base_jobs, suites, reads)
     if found is None:
         return None
     tested = tested_sha(found[0])
@@ -5111,14 +6347,18 @@ def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: st
 def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                           workflow_info: dict, base_run: dict, base_job: dict, github, *,
                           base_jobs: dict, run_reads: dict, others: list[dict], evidence: "Evidence",
-                          suites: SuiteChecks | None = None, base_workflow=None) -> str:
+                          suites: SuiteChecks | None = None, base_workflow=None, base_name=None,
+                          verdict_repo: str | None = None) -> str:
     """The audit line for red head JOB (VIEW: its failed_view; WORKFLOW_INFO: its run) when each of its failing steps
     is fixed on base by the rule above, BASE_RUN and BASE_JOB being the base's newest verdict for it, from
-    BASE_WORKFLOW (the head's own workflow when None; a BASE_WORKFLOW_FOR caller's otherwise, whose runs then give the
-    merge-base's verdict too, #41104's review F2). OTHERS: the head's red jobs; one of NAME in another workflow makes
-    the job's identity unknown. Its failures must also be the merge-base verdict's: each failing step's test ids and
-    `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
-    new failure in a step red at the merge-base is never excused (#41117's review F1). Raises Refused with why not."""
+    BASE_WORKFLOW (the head's own workflow when None; a base caller's otherwise, whose runs then give the merge-base's
+    verdict too, #41104's review F2, under BASE_NAME: a batch suite's check name). OTHERS: the head's red jobs; one of
+    NAME in another workflow makes the job's identity unknown. Its failures must also be the merge-base verdict's:
+    each failing step's test ids and `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
+    new failure in a step red at the merge-base is never excused (#41117's review F1). VERDICT_REPO: the repo whose
+    runs are the base's verdict of record (Evidence.verdict_repo), REPO when None; the head's own reads stay REPO's.
+    Raises Refused with why not."""
+    vrepo = verdict_repo or repo
     workflow = workflow_info.get("workflow_id")
     base_workflow = workflow if base_workflow is None else base_workflow
     # The workflow by its file (a run's name may carry a tested sha: "cmux-next · <sha>"), else GitHub's id.
@@ -5137,7 +6377,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
                           f"{other.get('run_id')}), so which job a step belongs to is unknown")
     not_green = []
     for step_name, quiet in sorted(failing.items()):
-        said = step_conclusion(repo, base_job, step_name, quiet, rollups, "base", github, notes)
+        said = step_conclusion(vrepo, base_job, step_name, quiet, rollups, "base", github, notes)
         if said != "success":
             not_green.append(f"'{step_name}' is {said}")
     if not_green:
@@ -5150,7 +6390,8 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         raise Refused(f"{base}'s newest verdict for it, run {base_run['id']}, {stale}, not at or after the merge-base")
     if not re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]+Z", when):
         raise Refused(f"the merge-base {merge_base[:12]} came back without its commit time")
-    prior = prior_base_verdict(repo, base_workflow, name, merge_base, when, github, base_jobs, evidence, suites)
+    prior = prior_base_verdict(repo, base_workflow, name if base_name is None else base_name, merge_base, when,
+                               github, base_jobs, evidence, suites, verdict_repo=vrepo)
     if prior is None:
         raise Refused(f"no {base} verdict for it at or before the merge-base {merge_base[:12]} shows the red was the "
                       f"base's (of the {STEP_PRIOR_RUNS} newest runs created before it, read the job lists of up to "
@@ -5167,7 +6408,7 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
                 str(step.get("name")) == step_name for step in prior_steps):  # step-name: classify
             absent.append(step_name)
             continue
-        said = step_conclusion(repo, prior_job, step_name, quiet, rollups, "merge-base", github, notes)
+        said = step_conclusion(vrepo, prior_job, step_name, quiet, rollups, "merge-base", github, notes)
         if said != "failure":
             own.append(f"'{step_name}' is {said}")
     if own:
@@ -5179,7 +6420,9 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         if step_name in absent:
             continue  # no merge-base lines to match: absent there, green on the base's newest run is the whole rule
         if quiet:
-            head_notes, prior_notes = (job_annotations(repo, found, github, notes) for found in (job, prior_job))
+            # One is the head's job and the other the merge-base verdict's: each is read from its own repo.
+            head_notes = job_annotations(repo, job, github, notes)
+            prior_notes = job_annotations(vrepo, prior_job, github, notes)
             if head_notes is None or prior_notes is None:
                 new.append(f"'{step_name}': the error annotations cannot all be read")
                 continue
@@ -5194,14 +6437,14 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
             new.append(f"'{step_name}': no failing test id or file:line error of its own to match")
             continue
         if not prior_view:
-            prior_view.append(base_evidence(repo, base, name, prior_run, prior_job, github, run_reads)[1])
+            prior_view.append(base_evidence(vrepo, base, name, prior_run, prior_job, github, run_reads)[1])
         theirs = step_evidence(prior_view[0], step_name) or (set(), set())
         if missing := sorted((mine[0] - theirs[0]) | (mine[1] - theirs[1])):
             new.append(f"'{step_name}': " + "; ".join(missing))
     if new:
         raise Refused(f"failures not in {base} run {prior_run['id']} at the merge-base, so not the base's: "
                       + " | ".join(new)[:600])
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    url = base_run.get("html_url") or f"https://github.com/{vrepo}/actions/runs/{base_run['id']}"
     steps = ", ".join(f"'{step_name}'" for step_name in sorted(failing))
     red = ", ".join(f"'{step_name}'" for step_name in sorted(failing) if step_name not in absent)
     gone = ", ".join(f"'{step_name}'" for step_name in absent)
@@ -5218,12 +6461,12 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
 # shows it. The reviewer's rule: "when the same check name is green at the base tip, and the PR's failing run is older
 # than that green run, count it as fixed on base for the base merge." It reads no job list, so a job no declaration
 # has caught up with still gets its base merge. Only judge(purpose=PER_STEP_PURPOSE) reads it: a base merge reruns
-# CI, so a red of the PR's own comes back on the merged head. A land (merge_hold, no purpose or "land") never gets it:
+# CI, so a red of the PR's own comes back on the merged head. A land (land-judge, no purpose or "land") never gets it:
 # a green base says nothing about whether this head's red is its own. The base verdict is the newest one for the job
 # in the head run's workflow (base_verdicts), a success (not skipped or neutral), at or after the merge-base, from a
 # run created after the head's red run.
 def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_info: dict, base_run: dict,
-                base_job: dict, github, evidence: "Evidence") -> str:
+                base_job: dict, github, evidence: "Evidence", verdict_repo: str | None = None) -> str:
     """The audit line for red head JOB when the base's newest verdict for it passed in a run made after the head's
     (the rule above); raises Refused with why not."""
     if base_job.get("conclusion") != "success":
@@ -5241,7 +6484,9 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
         raise Refused(f"{base} run {base_run['id']} ({base_run.get('created_at')}) is not newer than the red run "
                       f"{job.get('run_id')} ({workflow_info.get('created_at')})")
     tested = tested_sha(base_run)
-    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    # The base run is the verdict repo's when the base is verified there (BASE_VERDICT_REPO); every other read in
+    # this function is the PR's own repo.
+    url = base_run.get("html_url") or f"https://github.com/{verdict_repo or repo}/actions/runs/{base_run['id']}"
     where = f"workflow {workflow_info.get('path') or workflow_info.get('workflow_id')}"
     # The fixed_on_base prefix the update_branch guard reads, keyed by the head run ("run ID / JOB").
     return (f"excused '{name}': fixed on base (run {job.get('run_id')} / {name}, job {job.get('id')}, {where}; green "
@@ -5252,7 +6497,7 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
 # cmux-next-guards.yml's "cmux-next CI guard group" runs every routed guard step of ci-guards.yml (the workflow guard
 # profile) on the change and again on its base, and fails only on a step red on the change and not on that base
 # (scripts/ci/guards_new_reds.py). Its log names each red step on one plain line, `guard red step (KIND): STEP`: `new`
-# (red on this change), `base` (red on the base too), `flaky`, or `tip` (a push judged at its tip). A pull request's
+# (red on this change), `base` (red on the base too), `flaky`, `unknown` (the replay had no result), or `tip` (a push judged at its tip). A pull request's
 # red in it is judged per step, the way the job itself reports "N red on the base too": every step the head calls
 # `new` must be red at the newest base run of the job, whatever that run's conclusion (a push judged against the
 # previous tip lists a red that persists as `base` and stays green). A whole verdict is one with the closing summary
@@ -5260,7 +6505,7 @@ def green_since(repo: str, base: str, sha: str, name: str, job: dict, workflow_i
 # never excused, and the base's own reds in it stayed green on every push (18 steps, until #31366).
 GUARD_GROUP_JOB = "cmux-next CI guard group"
 GUARD_GROUP_STEP = "Run the ci guard group and the routed groups"
-GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|tip)\): (.+)$")
+GUARD_RED_STEP = re.compile(r"^guard red step \((new|base|flaky|unknown|tip)\): (.+)$")
 GUARD_SUMMARY = re.compile(r"^\d+ guard steps red (?:on this change|at the tip)\b")
 # run_ci_guards.py's closing line. The red step lines are read only after the last one: a failing step's own output
 # (printed above it) may quote them.
@@ -5272,7 +6517,7 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     printed no closing summary (cut short)."""
     lines = test_reds.log_lines(log)
     skip = test_reds.echoed(lines)
-    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "tip": set()}
+    found: dict[str, set[str]] = {"new": set(), "base": set(), "flaky": set(), "unknown": set(), "tip": set()}
     done = whole = False
     for n, text in enumerate(lines):
         if n in skip:
@@ -5288,6 +6533,34 @@ def guard_red_steps(log: str) -> dict[str, set[str]] | None:
     return found if whole else None
 
 
+def guard_group_truncated(truncated: list[str], head: "FailedView | Unplaced") -> list[str]:
+    """TRUNCATED (test_reds.read's cut-short reasons for a guard group job's log) less each that is only the job's
+    `##[error]STEP` annotation of a step its own closing verdict (guard_red_steps of HEAD, its failed_view) names red:
+    test_reds.TRUNCATED reads any `##[error]` line with "timeout" in it as a cut-short run, and "Validate short timeout
+    ratchet" is a guard step's name (feat-cmux-next job 133860622386, 2026-11-17: every PR with the base's red guard
+    group was refused "a failure no parser names is never a base red" before guard_group compared its steps;
+    cmux#45075, cmux#44814). Any other reason stays, and an unplaced head or one with no closing verdict keeps every
+    one: guard_group refuses those itself."""
+    steps = None if head is UNPLACED else guard_red_steps(view_text(head))
+    if steps is None:
+        return truncated
+    named = {step[:200] for kind in steps.values() for step in kind}
+    return [why for why in truncated if why not in named]
+
+
+# A guard step finding that names a file: "STEP :: path:rule: ...", "STEP :: path: rule" or "STEP :: path::test".
+GUARD_FINDING_FILE = re.compile(r" :: ([^\s:]+\.[A-Za-z0-9]+)(?=:|$)")
+
+
+def guard_finding_files(steps: set[str]) -> dict[str, str]:
+    """{path: the first finding naming it} over STEPS (guard_red_steps' lines)."""
+    found: dict[str, str] = {}
+    for step in sorted(steps):
+        if match := GUARD_FINDING_FILE.search(step):
+            found.setdefault(match.group(1), step)
+    return found
+
+
 def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]] | None:
     """guard_red_steps of a base guard group job's whole log. The one base read that is not a failed_view, on
     purpose: the job reports each red step of its base on its own, `guard red step (base): STEP`, whatever its
@@ -5298,7 +6571,7 @@ def guard_group_report(repo: str, base_job: dict, github) -> dict[str, set[str]]
 
 
 def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | Unplaced", base_run: dict,
-                base_job: dict, github) -> str:
+                base_job: dict, github, sha: str = "", seen: dict | None = None) -> str:
     """The audit line for a red guard group job whose every red step is red at the newest base verdict for the job
     (the rule above); raises Refused naming the first step that is not."""
     failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
@@ -5311,20 +6584,156 @@ def guard_group(repo: str, base: str, name: str, job: dict, head: "FailedView | 
     head = guard_red_steps(view_text(head))
     if head is None:
         raise Refused(f"'{name}': its guard comparison printed no summary (a cut-short run is never a base red)")
-    charged = head["new"] | head["tip"]
+    # An unknown replay result is resolved against the base branch's own run below; it is never silently charged
+    # to the pull request merely because the constrained replay was cut short.
+    charged = head["new"] | head["unknown"] | head["tip"]
     if not charged:
         raise Refused(f"'{name}': red, but names no red step of its own; nothing to compare with the base")
     found = guard_group_report(repo, base_job, github)
     url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
     if found is None:
         raise Refused(f"'{name}': {base} run {base_run['id']} names no red steps with a closing summary ({url})")
-    red_on_base = set().union(*found.values())
+    # The base run itself must have a concrete red verdict; an unknown line from another constrained replay is not
+    # evidence that the base branch fails this step.
+    red_on_base = found["new"] | found["base"] | found["flaky"] | found["tip"]
     if missing := sorted(charged - red_on_base):
         raise Refused(f"'{name}': guard steps red on this change and not on {base} run {base_run['id']} ({url}): "
                       f"{'; '.join(missing)[:600]}")
+    # A finding in a file the pull request changes is its own, even when the base prints the same line: the
+    # determinism gate's "path: rule" carries no count, so a second sleep-then-assert there reads the same.
+    if sha and (files := guard_finding_files(charged)):
+        number, paths = pr_paths_once(repo, base, sha, github, seen)
+        if mine := sorted(set(files) & set(paths)):
+            raise Refused(f"'{name}': #{number} changes {', '.join(mine)[:300]}, which its red guard steps name "
+                          f"({files[mine[0]][:300]}); a finding in a changed file is never a base red")
     at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
     return (f"excused '{name}': every red guard step is red on {base} run {base_run['id']}{at} "
             f"(the newest {base} verdict for it, {base_job.get('conclusion')}) ({url}): {'; '.join(sorted(charged))[:400]}")
+
+
+# The Cloud journey (cloud-journey-pr.yml's "journey" job: scripts/cmux-next/cloud-journey.ts through
+# cloud-journey-ci.sh, on staging, with the pull request's own cmux-tui). Each journey step prints one
+# `PASS|FAIL|SKIP <step> <ms> ms :: <detail>` line, each run closes with `PASS|FAIL <backend>: N passed, M failed, K
+# skipped, T s`, and a failed run is run once more after a `##[warning]... failed once; running it again` line: the
+# second run is the one judged (cloud-journey-ci.sh). 2026-11-17: no parser read a `FAIL <step>` line as a failing
+# test, so while feat-cmux-next's own journey was red ("stub: forwarded login and a tool round trip", base job
+# 134037946137 at de3b0eab) every PR whose journey ran was refused "its failed steps' own lines name no failing test
+# or error line ... nothing to compare with the base" (cmux#44814 at ed4e2af2, job 133995408217).
+JOURNEY_WORKFLOWS = {".github/workflows/cloud-journey-pr.yml": "journey"}
+JOURNEY_STEP = "Cloud journey (staging, this pull request's CLI)"
+JOURNEY_STEP_LINE = re.compile(r"^(PASS|FAIL|SKIP) (\S.*?) \d+ ms ::(?: (.*))?$")
+JOURNEY_SUMMARY = re.compile(r"^(PASS|FAIL) [\w.-]+: (\d+) passed, (\d+) failed, (\d+) skipped\b")
+JOURNEY_RETRIED = re.compile(r"^##\[warning\].* failed once; running it again\b")
+# The only lines the step prints outside a journey run (before its first step line, between a summary and the next
+# run's first step line, after its last summary): the runner's own header block, cloud-journey-ci.sh's retry warning,
+# its closing verdict notice and the runner's exit line. Anything else there is a run that died before its first step
+# line (a second team's, PRODUCT_TEAM, cloud-journey-ci.sh's second `run`), whose red no summary counts
+# (cmux#45546's review F1).
+JOURNEY_OUTSIDE_OK = re.compile(r"^(?:##\[(?:group|endgroup)\].*|##\[notice\]target=\S+ result=\S+"
+                                r"|##\[error\]Process completed with exit code \d+\.)$")
+# The journey's own files: they decide its steps, their checks and the detail each prints, so a PR that changes one
+# owns every step's line, whatever the base prints.
+JOURNEY_OWN_FILES = ("scripts/cmux-next/cloud-journey", ".github/workflows/cloud-journey-pr.yml")
+# Run-to-run ids in a step's detail (vm_..., inst_..., host_..., a stub nonce): masked like numbers.
+JOURNEY_ID = re.compile(r"\b(?:[a-z]+_)?(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{8,}\b")
+
+
+def journey_job(name: str, workflow_info: dict) -> bool:
+    """NAME is the Cloud journey job of a run of a JOURNEY_WORKFLOWS workflow (WORKFLOW_INFO, its run record)."""
+    return JOURNEY_WORKFLOWS.get(str(workflow_info.get("path") or "")) == name
+
+
+def journey_reds(text: str) -> tuple[Counter, str | None]:
+    """(Counter of (step, its detail with ids and numbers masked) for each FAIL line of the judged runs in TEXT, a
+    journey job's failed_view text; None, or why TEXT is no finished journey). A judged run is one closed by its
+    summary line and not followed by the retry warning; its FAIL lines must be as many as its summary counts. Step
+    lines after the last summary are a run cut short, and any line outside a run but JOURNEY_OUTSIDE_OK's is a run
+    that died before its first step line. A retry line names the failed first attempt just closed; one after a
+    retry's own run (cloud-journey-ci.sh retries each run once) is a later run that died printing nothing."""
+    lines = test_reds.log_lines(text)
+    skip = test_reds.echoed(lines)
+    runs: list[list] = []  # [FAIL keys, summary match, retried, a retry's own run]
+    current: list[tuple[str, str]] = []
+    pending = grouped = False
+    for n, line in enumerate(lines):
+        if n in skip:
+            continue
+        if match := JOURNEY_STEP_LINE.match(line):
+            # The runner's header block ends before the step's own output, closed or not.
+            pending, grouped = True, False
+            if match[1] == "FAIL":
+                current.append((match[2], normalise_error(JOURNEY_ID.sub("<id>", match[3] or ""))))
+        elif match := JOURNEY_SUMMARY.match(line):
+            runs.append([current, match, False, bool(runs) and runs[-1][2]])
+            current, pending = [], False
+        elif JOURNEY_RETRIED.match(line):
+            # It names the run just closed: a failed first attempt, not already retried. After a run cut short (step
+            # lines with no summary), a retry's own run or anything else, which run it retries is unknown, and so is
+            # which run is judged.
+            if pending or not runs or runs[-1][1][1] != "FAIL" or runs[-1][2] or runs[-1][3]:
+                return Counter(), (f"a retry line that follows no closed failed run that was a first attempt "
+                                   f"({line[:200]})")
+            runs[-1][2] = True
+        elif pending or not line.strip():
+            continue  # a run's own output, or a blank line
+        elif line.startswith("##[group]"):
+            grouped = True
+        elif line.startswith("##[endgroup]"):
+            grouped = False
+        elif not grouped and not JOURNEY_OUTSIDE_OK.match(line):
+            return Counter(), (f"a line outside any journey run ({line[:200]}): a run that died before its first "
+                               "step line, which no summary counts")
+    if pending:
+        return Counter(), "journey step lines after its last closing summary (a run cut short)"
+    if not runs:
+        return Counter(), "no journey run with a closing summary"
+    found: Counter = Counter()
+    for fails, summary, retried, _ in runs:
+        if len(fails) != int(summary[3]):
+            return Counter(), (f"a journey summary counts {summary[3]} failed and its run printed {len(fails)} FAIL "
+                               f"step lines ({summary[0][:200]})")
+        if not retried:
+            found.update(fails)
+    return found, None
+
+
+def journey(repo: str, base: str, name: str, job: dict, head: "FailedView | Unplaced", base_run: dict, base_job: dict,
+            github, sha: str, seen: dict) -> str:
+    """The audit line for a red Cloud journey job (journey_job) whose every failed journey step of its judged runs
+    fails, by step and masked detail, as often or less, on the newest red base verdict for it, BASE_JOB of BASE_RUN;
+    raises Refused naming what is not. Never excused: a failed job step besides JOURNEY_STEP (the build, setup), an
+    unplaced log, a run cut short or a count that disagrees, a run with no FAIL step line (it never ran, or failed
+    outside its steps), and any PR that changes a JOURNEY_OWN_FILES file (its steps and checks are the PR's own)."""
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    failed = {step["name"] for step in job.get("steps") or []  # step-name: classify
+              if step.get("conclusion") not in (None, "success", "skipped")}
+    if failed != {JOURNEY_STEP}:
+        raise Refused(f"'{name}': failed steps {sorted(failed)}, not only '{JOURNEY_STEP}'; nothing to compare "
+                      "step by step")
+    if head is UNPLACED:
+        raise Refused(f"'{name}': {UNPLACED_WHY}; its journey steps are not compared")
+    mine, why = journey_reds(view_text(head))
+    if why is not None:
+        raise Refused(f"'{name}': {why}; a journey that did not finish is never a base red")
+    if not mine:
+        raise Refused(f"'{name}': red, but its judged journey runs print no FAIL step line; nothing to compare with "
+                      "the base")
+    number, paths = pr_paths_once(repo, base, sha, github, seen)
+    if own := sorted(path for path in paths if path.startswith(JOURNEY_OWN_FILES)):
+        raise Refused(f"'{name}': #{number} changes {', '.join(own)[:300]}, which defines the journey's steps and "
+                      f"checks; its red step ({'; '.join(step for step, _ in sorted(mine))[:300]}) is never a base "
+                      "red, whatever the base prints")
+    _, view, _, _ = base_evidence(repo, base, name, base_run, base_job, github, seen)
+    theirs, why = journey_reds(view_text(view))
+    if why is not None:
+        raise Refused(f"'{name}': {base} run {base_run['id']} is no journey verdict ({why}) ({url})")
+    if more := sorted((mine - theirs).elements()):
+        raise Refused(f"'{name}': journey steps red on this change and not, that way, on {base} run "
+                      f"{base_run['id']} ({url}): {'; '.join(f'{step} :: {detail}' for step, detail in more)[:600]}")
+    at = f" at {tested_sha(base_run)[:10]}" if tested_sha(base_run) else ""
+    return (f"excused '{name}': every failed journey step fails the same way on {base} run {base_run['id']}{at} (the "
+            f"newest {base} verdict for it) ({url}), and #{number} changes no journey file: "
+            f"{'; '.join(f'{step} :: {detail}' for step, detail in sorted(mine))[:400]}")
 
 
 class Final(Refused):
@@ -5338,7 +6747,9 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     on some red base verdict of WINDOW (newest first: (run, its failed_view, signature[, step_errors])); raises Refused
     naming the first that is on none, Final when the newest verdict alone (the Chromium check, a process signal, the
     panic ratchet) refuses it. With HEAD_PAIRS (step_errors), each compared head error must be printed on a base by a
-    failed step of the same name. Every line it reads, head and base alike, is a failed_view's."""
+    failed step of the same name. Every line it reads, head and base alike, is a failed_view's. REPO is the base
+    run's own repo, which is the PR's unless the base is verified in another (BASE_VERDICT_REPO): nothing but a base
+    run's URL is read from it."""
     base_run, base_view, *_ = window[0]
     runs = f"run {base_run['id']}" if len(window) == 1 else "any of runs " + ", ".join(str(w[0]["id"]) for w in window)
     head_steps, head_tests, head_errors = head
@@ -5465,6 +6876,53 @@ def infra(name: str, job: dict, why: str) -> Infra:
 # steps keeps the refusal below.
 RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
 
+# A job whose failed steps printed nothing but GitHub's API rate-limit refusal decided nothing about the PR either:
+# cmux#44387 at cf31af39 (2026-11-16, job 133700254405), whose push-only `re-run the runs that deferred to the
+# published tree` could not list the tree's deferred markers ("gh: API rate limit exceeded for installation ID ...",
+# HTTP 403) on either token. Its base runs were green, so it was refused "not red on feat-cmux-next ...; fix it on this
+# head", and land-judge named an update-branch that reruns every check for a quota red. Such a red is Infra too, with
+# or without a base verdict: refused (never excused: the job did not run), named as the re-run it needs. Any other
+# error line beside it, or a failing test, keeps the comparison.
+GITHUB_QUOTA = re.compile(r"\bAPI rate limit exceeded\b|\bsecondary rate limit\b", re.I)
+
+# The published-tree hand-off re-runs other commits' runs. Its own quota-only failure is a retryable gate state,
+# not a red in the pull request. The hand-off emits this live annotation without installation or request IDs.
+TREE_HANDOFF_JOB = "re-run the runs that deferred to the published tree"
+TREE_HANDOFF_STEP = "Re-run the runs that deferred to this tree"
+TREE_HANDOFF_QUOTA = re.compile(
+    r"^##\[error\]\[quota-only\] deferred runs not re-run for the published tree; run (?P<run>\d+); "
+    r"no attempt before (?P<retry>\d{2}:\d{2}Z); the repo installation's API limit refused its API call\."
+    r"(?: Deferred markers remain for the next run\.)?$")
+
+
+class JobRateLimited(Refused):
+    """A failed CI job reported only its own GitHub API quota refusal."""
+
+
+def github_quota_only(view: "FailedView | Unplaced") -> str | None:
+    """The error line VIEW's failed steps printed when each of them is GitHub's API rate-limit refusal (GITHUB_QUOTA)
+    and no test failed, else None."""
+    sig = signature(view)
+    if sig is UNPLACED:
+        return None
+    steps, tests, errors = sig
+    if not steps or tests or not errors or not all(GITHUB_QUOTA.search(error) for error in errors):
+        return None
+    return sorted(errors)[0].strip()
+
+
+def tree_handoff_quota_only(job: dict, log: str) -> str | None:
+    """The published-tree hand-off's sole quota refusal, with its job id and retry boundary."""
+    failed = [str(step.get("name") or "") for step in job.get("steps") or []  # step-name: classify
+              if step.get("conclusion") == "failure"]
+    if failed != [TREE_HANDOFF_STEP]:
+        return None
+    errors = [text for text in test_reds.lines_of(log) if text.startswith("##[error]")
+              and not text.startswith("##[error]Process completed with exit code")]
+    if len(errors) != 1 or not (match := TREE_HANDOFF_QUOTA.fullmatch(errors[0].rstrip())):
+        return None
+    return (f"run {match.group('run')}; job {job.get('id')}; no attempt before {match.group('retry')}")
+
 
 def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
     """The error line VIEW's failed steps printed when each of them only asks for a re-run (RERUN_ASK), else None."""
@@ -5480,11 +6938,13 @@ def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
-    to tell a lost runner from an unreadable verdict, which stays the refusal it was."""
+    to tell a lost runner from an unreadable verdict, which stays the refusal it was. A log that reads keeps the same
+    question: a runner shut down under a job prints its notice there and leaves a failed step behind
+    (test_reds.runner_shut_down), so the log a caller is about to compare is read for it first."""
     if why := test_reds.lost_runner(job):
         raise infra(name, job, why)
     try:
-        return github.log(repo, job)
+        text = github.log(repo, job)
     except Refused as error:
         try:
             notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
@@ -5493,6 +6953,9 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
             raise infra(name, job, why) from None
         raise
+    if why := test_reds.lost_runner(job, (), text):
+        raise infra(name, job, why)
+    return text
 
 
 def section_lines(view: FailedView) -> list[tuple[dict, list[str]]]:
@@ -5591,6 +7054,15 @@ def ws_check_names_step(described: str, step: str) -> bool:
 
 UNITTEST_RED = re.compile(r"^(?:FAIL|ERROR): (\S.*)$")
 UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
+# A unittest failure block's parts, on lines lines_of has stripped: the separator lines that end it, a frame's
+# `File "...", line N` line, and the caret line under a frame's source (Python 3.11+). What is left after the frames is
+# the failure's own text: its exception line and, for an assertEqual, the diff.
+UNITTEST_RULE = re.compile(r"^(?:={70,}|-{70,})$")
+UNITTEST_FRAME = re.compile(r'^File ".*", line \d+')
+UNITTEST_CARETS = re.compile(r"^[\^~ ]+$")
+# The line a traceback ends with (`AssertionError: ...`, `subprocess.CalledProcessError: ...`, `KeyError: 'x'`): never
+# skipped as a frame's source line when Python printed none.
+UNITTEST_RAISED = re.compile(r"^[A-Za-z_][\w.]*(?:Error|Exception|Exit|Interrupt|Warning|Iteration|Failure)\b")
 # A step that crashed (a signal, a fatal interpreter error) is never compared by its test names: a crash after a
 # complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
 WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
@@ -5615,6 +7087,71 @@ WS_CHECK_RUN_NAME = r"Fast checks {}(?: tests \S+| job [0-9a-f]{{32}})?"
 # The broker cuts a hosted repo's snapshot to these paths of the tested tree (its fast_checks_hosts entry).
 WS_CHECK_HOSTS_FILE = "machines/lane-gh-broker.json"
 HEX40 = re.compile(r"[0-9a-f]{40}")
+# A ws-check run the build fleet's Linux pool (or an owned Mac) ran for a cancelled Actions run (hq#12237: the lane-gh
+# broker's ci_fleet_*, parts/43-calls-ci-fleet.py). No runner ever took the Actions job; it was cancelled so the
+# snapshot could run as a controller job, which prints fast-checks.yml's FAST_CHECKS_RECEIPT naming that cancelled run
+# (ran_on "build-fleet"). The status links the cancelled run, and on 2026-11-18 every such status read "job 'checks' in
+# run 44400654026 is completed/cancelled: no result to read" (leo-workspace#5962 at 60199fb5, fleet job
+# 78ae6c6073141385ddcecd04), so no pool-run red, its own or a base's, was ever judged. The broker's failure status now
+# names the controller job in its link (`.../actions/runs/RUN?fleet_job=ID`), and the log is read from the controller
+# (`cmux-ci log ID`) and held to everything an Actions log is, and more: the Actions job never started (no runner, no
+# step), the controller job is a fast-checks job that failed, of the broker job the run-name names, whose command
+# carries the run id; the receipt says build-fleet on the controller's worker. A link that names no fleet job keeps
+# "no result"; one whose job or log cannot be read here is refused, never guessed.
+WS_CHECK_FLEET_JOB = r"(?:\?fleet_job=([0-9a-f]{24}))?"
+WS_CHECK_FLEET_READ_S = 180
+
+
+def fleet_read(op: str, job_id: str) -> str:
+    """`cmux-ci OP JOB_ID`'s output (op: status or log): the build fleet's controller, through this host's client
+    ($CMUX_CI_CLIENT, else cmux-ci on PATH). Refused when there is none, or it fails or times out."""
+    client = os.environ.get("CMUX_CI_CLIENT") or shutil.which("cmux-ci")
+    if not client:
+        raise Refused(f"this host has no cmux-ci client to read fleet job {job_id}")
+    try:
+        done = subprocess.run([client, op, job_id], capture_output=True, text=True, errors="replace",
+                              timeout=WS_CHECK_FLEET_READ_S, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"cmux-ci {op} {job_id} did not answer ({type(error).__name__}: {str(error)[:120]})") from None
+    if done.returncode != 0 or not done.stdout.strip():
+        raise Refused(f"cmux-ci {op} {job_id} exited {done.returncode}: "
+                      f"{(done.stderr or done.stdout).strip()[-200:] or 'no output'}")
+    return done.stdout
+
+
+FLEET_READS: dict[tuple[str, str], str] = {}
+
+
+def fleet_read_once(op: str, job_id: str) -> str:
+    """fleet_read, once per process for each (op, job): a finished controller job never changes."""
+    if (op, job_id) not in FLEET_READS:
+        FLEET_READS[(op, job_id)] = fleet_read(op, job_id)
+    return FLEET_READS[(op, job_id)]
+
+
+def ws_check_fleet_lines(where: str, run_id: str, run: dict, job: dict, fleet_id: str) -> tuple[list[str], dict]:
+    """(the log lines, the controller job) of FLEET_ID, the controller job that ran Actions run RUN_ID's cancelled
+    ws-check JOB; Refused unless it is that run's: see WS_CHECK_FLEET_JOB."""
+    if job.get("status") != "completed" or job.get("conclusion") != "cancelled" or job.get("runner_id") \
+            or job.get("steps"):
+        raise Refused(f"{where}: its status names fleet job {fleet_id}, but job '{job.get('name')}' in run {run_id} "
+                      f"is {job.get('status')}/{job.get('conclusion')} and ran on a runner: only a run cancelled "
+                      "before any runner took it moves to the fleet")
+    try:
+        found = json.loads(fleet_read_once("status", fleet_id))
+    except ValueError:
+        found = None
+    if not isinstance(found, dict) or found.get("id") != fleet_id:
+        raise Refused(f"{where}: the controller's answer for fleet job {fleet_id} is not that job")
+    command, workspace = str(found.get("command") or ""), str(found.get("workspace") or "")
+    named = re.search(r" job ([0-9a-f]{32})$", run.get("display_title") or "")
+    if found.get("kind") != "fast-checks" or found.get("state") != "failed" \
+            or not re.search(rf"\s{re.escape(run_id)}\s", command) \
+            or workspace != (f"fast-checks-{named[1]}" if named else workspace) \
+            or not workspace.startswith("fast-checks-"):
+        raise Refused(f"{where}: fleet job {fleet_id} ({found.get('kind')}, {found.get('state')}, workspace "
+                      f"{workspace or 'none'}) is no failed fast-checks job of run {run_id}")
+    return lines_of(test_reds.plain(fleet_read_once("log", fleet_id))), found
 
 
 def ws_check_mirror(repo: str) -> Path | None:
@@ -5780,7 +7317,8 @@ def ws_check_status(repo: str, sha: str, github) -> dict | None:
 
 
 def ws_check_step(lines: list[str], end: int, step: str) -> dict:
-    """{"tests", "lines"} for red STEP, whose closing line is LINES[END]; Refused when its output cannot be read."""
+    """{"tests", "lines", "failures" ({test: its failure text, unittest_failures'})} for red STEP, whose closing line
+    is LINES[END]; Refused when its output cannot be read."""
     start = next((n for n in range(end - 1, -1, -1) if lines[n] in (f"##[group]{step}", f"::group::{step}")), None)
     if start is None:
         raise Refused(f"no '##[group]{step}' line before its result")
@@ -5810,12 +7348,107 @@ def ws_check_step(lines: list[str], end: int, step: str) -> dict:
     own = {norm(text) for text in section if text.startswith("ws-check: ")}
     if not reds and not section:
         raise Refused(f"'{step}' failed with no failing test and no output to compare")
-    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section})}
+    failures: dict[str, set[str]] = {}
+    for test, body in unittest_failures(section):
+        failures.setdefault(test, set()).update(norm(text) for text in body)
+    return {"tests": frozenset(reds), "lines": frozenset(own if reds else {norm(text) for text in section}),
+            "failures": {test: frozenset(body) for test, body in failures.items()}}
+
+
+def unittest_failures(section: list[str]) -> list[tuple[str, list[str]]]:
+    """(test, its failure text) for each FAIL/ERROR block of a unittest run's SECTION (lines_of's lines, blanks
+    dropped): the block's lines after its traceback's frames, up to the next separator. A lint test that lists its
+    offenders fails with them in this text (its AssertionError and diff), so the base's red of that test is told apart
+    from a head's red of it that lists a new offender (leo-workspace#5683)."""
+    found: list[tuple[str, list[str]]] = []
+    at = 0
+    while at < len(section):
+        match = UNITTEST_RED.match(section[at])
+        at += 1
+        if not match:
+            continue
+        if at < len(section) and UNITTEST_RULE.match(section[at]):  # the dashes under "FAIL: test"
+            at += 1
+        body: list[str] = []
+        frames = False
+        while at < len(section) and not UNITTEST_RULE.match(section[at]) and not UNITTEST_RED.match(section[at]):
+            text = section[at]
+            at += 1
+            if text == "Traceback (most recent call last):":
+                frames = True
+            elif frames and UNITTEST_FRAME.match(text):
+                # Its source line, when Python printed one, and the carets under it.
+                if at < len(section) and not (UNITTEST_FRAME.match(section[at]) or UNITTEST_RAISED.match(section[at])
+                                              or UNITTEST_RULE.match(section[at])):
+                    at += 1
+                while at < len(section) and UNITTEST_CARETS.match(section[at]):
+                    at += 1
+            else:
+                frames = False
+                body.append(text)
+        found.append((match[1], body))
+    return found
+
+
+# 2026-11-18: land-judge refused teamleaderleo/leo-workspace#5992 at aa178907 twice as red_not_excused, "'ws-check' has
+# no result: job 'checks' in run 44407040407 is completed/cancelled: no result to read". Since hq#12237 the lane-gh
+# broker moves a ws-check run no Actions runner starts to the build fleet: it cancels the run (its one `checks` job
+# ends cancelled with no steps) and runs the snapshot as a controller job, whose log prints the same WS_CHECK_RESULT
+# and a FAST_CHECKS_RECEIPT naming the cancelled run (hq tools/lane-gh-broker/parts/43-calls-ci-fleet.py). The broker
+# judges and posts the ws-check status from that log, linking the cancelled run, and keeps it beside the run's record
+# in its state folder (ci/JID.json, ci/JID.fleet-log). Read only as GitHub's job, every fleet-route ws-check was "no
+# result", never excusable. A broker land's land-judge runs on the broker host, so this reads the kept log there:
+# the record must name this run as the one it moved (fleet.from_run) and this head (cmux#46667, leo-workspace#5376 at
+# b2b09e79: a record of another head's run is never read), be settled done with the status's verdict, and the log's
+# receipt must name the run again (ws_check_verdict). The standby broker's state is read too, after the primary's. Elsewhere, or once the record is pruned (the broker
+# keeps settled records CI_RECORD_RETENTION_S, 6 h), it is "no result" as before: run ws-check again.
+FLEET_RECORDS_ENV = "BASE_RED_FLEET_RECORDS"  # the broker's ci records folder; default its state's (cfg "state")
+FLEET_RECORDS_DEFAULT = Path(".local") / "state" / "lane-gh-broker" / "ci"
+FLEET_RECORDS_STANDBY = Path(".local") / "state" / "lane-gh-broker-standby" / "ci"
+FLEET_VERDICTS = {"failure": "failure", "success": "success"}  # status state: the record's conclusion
+
+
+def fleet_records_dirs(env=os.environ) -> list[Path]:
+    named = env.get(FLEET_RECORDS_ENV)
+    if named:
+        return [Path(named)]
+    home = Path(env.get("HOME") or Path.home())
+    return [home / FLEET_RECORDS_DEFAULT, home / FLEET_RECORDS_STANDBY]
+
+
+def fleet_kept_log(repo: str, host: str, run: str, sha: str, state: str, env=os.environ) -> str | None:
+    """The build-fleet log this host's lane-gh broker kept for REPO's ws-check run RUN (in HOST) of head SHA, the run
+    it cancelled and moved to the fleet, when its record is settled done with the verdict STATE names; else None."""
+    records = []
+    for folder in fleet_records_dirs(env):
+        try:
+            records += sorted(folder.glob("*.json"))
+        except OSError:
+            continue
+    for path in records:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        fleet = record.get("fleet") if isinstance(record, dict) else None
+        if not isinstance(fleet, dict) or str(fleet.get("from_run")) != str(run):
+            continue
+        if (fleet.get("state") != "done" or record.get("repo") != repo or record.get("dispatch") != host
+                or str(record.get("run_id")) != str(run) or record.get("head") != sha
+                or record.get("conclusion") != FLEET_VERDICTS.get(state) or record.get("mismatch")):
+            return None
+        try:
+            text = path.with_name(f"{path.stem}.fleet-log").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        return text if text.strip() else None
+    return None
 
 
 def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     """(kind, verdict) of SHA's ws-check status: kind "none" (no result), "pass" or "fail". A fail's verdict has
-    "steps" ({step: {"tests", "lines"}}), "url" and "at" (the status time); Refused when a failure cannot be read."""
+    "steps" ({step: {"tests", "lines", "failures" ({test: its failure text})}}), "url" and "at" (the status time);
+    Refused when a failure cannot be read."""
     status = ws_check_status(repo, sha, github)
     if status is None:
         return "none", {"why": "no ws-check status"}
@@ -5833,7 +7466,8 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
                       "read per test")
     host = WS_CHECK_REPOS[repo]
-    link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?", found["url"])
+    link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
+                        + WS_CHECK_FLEET_JOB, found["url"])
     if not link:
         raise Refused(f"{where}: its status links {found['url'] or 'nothing'}, not a {host} Actions run")
     run = github.json(f"repos/{host}/actions/runs/{link[1]}")
@@ -5844,11 +7478,32 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if len(picked) != 1:
         raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
     job = picked[0]
-    if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
-        # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
-        return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
-                                       f"{job.get('conclusion')}: no result to read")
-    lines = lines_of(github.log(host, job))
+    fleet = kept = None
+    if link[2]:
+        # The build fleet ran it for the cancelled Actions job (WS_CHECK_FLEET_JOB): its log is the controller's.
+        lines, fleet = ws_check_fleet_lines(where, link[1], run, job, link[2])
+    else:
+        if job.get("status") == "completed" and job.get("conclusion") == "cancelled":
+            # The broker cancelled it and the build fleet ran its snapshot (fleet_kept_log): that log is the run's.
+            kept = fleet_kept_log(repo, host, link[1], sha, state)
+        if kept is None and (job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure")):
+            # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
+            return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
+                                           f"{job.get('conclusion')}: no result to read"
+                                           + (" (and this host keeps no build-fleet log for that run)"
+                                              if job.get("conclusion") == "cancelled" else ""))
+        lines = lines_of(kept) if kept is not None else lines_of(github.log(host, job))
+        if kept is not None:
+            # A log read off this host, not off GitHub: its receipt must name this run, whatever head it tested.
+            receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
+            try:
+                receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
+            except ValueError:
+                receipt = {}
+            if not (isinstance(receipt, dict) and str(receipt.get("run_id")) == link[1]
+                    and receipt.get("ran_on") == "build-fleet"):
+                raise Refused(f"{where}: the build-fleet log kept for run {link[1]} has no FAST_CHECKS_RECEIPT naming "
+                              "that run")
     at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
     try:
         result = json.loads(lines[at].split("=", 1)[1]) if at is not None else None
@@ -5858,8 +7513,9 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     if (not isinstance(failed, list) or not failed or not all(isinstance(step, str) and step for step in failed)
             or result.get("ok") is not False or len(set(failed)) != len(failed)):
         raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
-    if result.get("head") != sha:
+    if result.get("head") != sha or fleet is not None:
         # Through cmux-ci the run tests a snapshot commit of the head: its own receipt must name that snapshot and run.
+        # A fleet run's always does (the broker always tests a snapshot), and says it ran on that controller worker.
         receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
         try:
             receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
@@ -5870,6 +7526,11 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 and re.fullmatch(WS_CHECK_RUN_NAME.format(re.escape(str(result.get("head")))),
                                  run.get("display_title") or "")):
             raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
+        if fleet is not None and (receipt.get("ran_on") != "build-fleet" or not fleet.get("worker")
+                                  or receipt.get("fleet_host") != fleet.get("worker")):
+            raise Refused(f"{where}: the receipt in fleet job {link[2]}'s log says it ran on "
+                          f"{receipt.get('ran_on')}/{receipt.get('fleet_host')}, not on that job's worker "
+                          f"{fleet.get('worker')}")
         # Which checkout or runner ran it says nothing; what it tested does. A head's snapshot run is held to its tree
         # (ws_check_red: the head merged with the base tip, ws_check_squash_tree); a base commit's is read as before.
         found["snapshot"] = {"run": link[1], "tree": receipt.get("source_tree")}
@@ -5883,7 +7544,7 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         ends = [(n, m[1]) for n in range(at) if (m := result.match(lines[n]))]
         if not ends:
             raise Refused(f"{where}: run {link[1]} has no 'ws-check step FAILED: {step}' line")
-        tests, printed = set(), set()
+        tests, printed, failures = set(), set(), {}
         try:
             for end, unit in ends:
                 red = ws_check_step(lines, end, step + unit)
@@ -5893,10 +7554,18 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
                 suite = WS_CHECK_SHARD.sub("", unit.strip()[1:-1]) if unit else ""
                 tests |= {f"[{suite}] {test}" if suite else test for test in red["tests"]}
                 printed |= red["lines"]
+                for test, body in red["failures"].items():
+                    failures.setdefault(f"[{suite}] {test}" if suite else test, set()).update(body)
         except Refused as error:
             raise Refused(f"{where}: run {link[1]}: {error}") from None
-        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed)}
+        steps[step] = {"tests": frozenset(tests), "lines": frozenset(printed),
+                       "failures": {test: frozenset(body) for test, body in failures.items()}}
     return "fail", dict(found, steps=steps)
+
+
+def failure_text(verdict: dict, step: str, test: str) -> frozenset:
+    """TEST's failure text (normalised lines) in STEP of a ws_check_verdict fail VERDICT; empty when none was read."""
+    return verdict["steps"].get(step, {}).get("failures", {}).get(test, frozenset())
 
 
 def ws_check_units(steps: dict) -> list[tuple[str, str, str]]:
@@ -5935,14 +7604,14 @@ class FixedOnBase(Refused):
     is)."""
 
 
-# 2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is green on
+# 2026-11-11: land-judge refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is green on
 # main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red, test_knowledge_tiers.py's
 # leo-asks room test, failed the same way at its merge-base e8873054 and was fixed on main by LW#4196; the PR touched
 # only tools/lane-gh. Main's newest verdict was a pass, and nothing past it was read, so a base red main had since fixed
 # read as the PR's own. Now a pass at or after the merge-base reads the merge-base's own verdict: when it failed every
 # test and line the head fails, the verdict is "fixed_on_base", named by the first green base commit after the
 # merge-base (best effort: the oldest green among the WS_CHECK_COMMITS read, back to the merge-base). ws_check_red is
-# the one verdict: merge_hold's message comes from it (judge, through ws_check), and the lane-gh broker's
+# the one verdict: land-judge's message comes from it (judge, through ws_check), and the lane-gh broker's
 # update_branch guard reads it (--ws-check-verdict) to let a SHIP'd PR's base merge through only for "fixed_on_base".
 # Its kinds: "pass" (the head is green), "base_red" (every failure is red on the base too: excused), "fixed_on_base",
 # "head_only" (a failure the base does not show: the head's own red, or a flake the classifier cannot tell from one),
@@ -6002,7 +7671,17 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
 
     def has(verdict: dict, unit) -> bool:
         step, kind, item = unit
-        return step in verdict["steps"] and item in verdict["steps"][step]["tests" if kind == "test" else "lines"]
+        if step not in verdict["steps"]:
+            return False
+        red = verdict["steps"][step]
+        if kind != "test":
+            return item in red["lines"]
+        # A failing test is the base's red only when it fails there the same way: every line of its failure text
+        # (normalised: numbers masked, file names kept) is in the base's failure of that test. 2026-11-17:
+        # leo-workspace#5683 at 16b96c09 merged with its test_text_io_encoding.py red excused by name, main d240eaab
+        # failing that test too, though the head's failure listed a new offender (tools/test_merge_hold.py) main's
+        # did not.
+        return item in red["tests"] and failure_text(head, step, item) <= failure_text(verdict, step, item)
 
     if tip_kind == "pass":
         header = f"'{WS_CHECK}' is green on {base} {tip[:12]}, red on {sha[:12]}\n"
@@ -6091,9 +7770,22 @@ def ws_check_red(repo: str, base: str, sha: str, github, evidence: "Evidence | N
                 lines.append(f"excused '{WS_CHECK}' test '{step} :: {test}': {where(found)} "
                              f"({found[1]['url'] or 'no run'})")
             else:
-                missing.append(f"'{step} :: {test}'")
-                lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
-                             f"{mb_note()}; this head's own red")
+                # Red by name on a base verdict, but failing another way there: the failure lines none of those
+                # verdicts' failures of it print, a few (a lint's new offender is often not its first new line).
+                named = [verdict for _, verdict in window + at_merge_base
+                         if test in verdict["steps"].get(step, {}).get("tests", ())]
+                new = sorted(line for line in failure_text(head, step, test)
+                             if not any(line in failure_text(verdict, step, test) for verdict in named))
+                if named and new:
+                    missing.append(f"'{step} :: {test}' failure '{new[0][:200]}'")
+                    shown = "".join(f", then '{line[:200]}'" for line in new[1:3])
+                    lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': red on {tested}{older()}"
+                                 f"{mb_note()} too, but failing another way there: {len(new)} line(s) of its failure "
+                                 f"are not in that red's, first '{new[0][:200]}'{shown}; this head's own red")
+                else:
+                    missing.append(f"'{step} :: {test}'")
+                    lines.append(f"not excused '{WS_CHECK}' test '{step} :: {test}': not red on {tested}{older()}"
+                                 f"{mb_note()}; this head's own red")
         unmatched = [line for line in sorted(red["lines"]) if on((step, "line", line)) is None]
         label = f"step '{step}'" + (" (its ws-check lines)" if red["tests"] else " (no test names: its output)")
         if unmatched:
@@ -6129,30 +7821,116 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
     base_runs[workflow] = sorted(
         (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
          if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
-         and run.get("conclusion") != "skipped"),
+         and run.get("conclusion") != "skipped" and not post_merge_probe(run)),
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
-def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
-    """The workflow file that runs job NAME on pushes to BASE when RUN's own workflow (a pull-request-only caller of
-    the same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, base, repo or unread workflow
-    path."""
+def workflow_file(run: dict) -> str | None:
+    """RUN's workflow file name (`ci.yml`), the one repo-independent way to name a workflow: a workflow's id is per
+    repo, so another repo's runs of the same workflow are listed by this name (Evidence.listed, list_base_runs take
+    either). None when the run came back without a workflow path under .github/workflows/."""
+    path = run.get("path") if isinstance(run, dict) else None
+    if not isinstance(path, str) or not path.startswith(".github/workflows/"):
+        return None
+    return path.removeprefix(".github/workflows/").split("@", 1)[0]
+
+
+def post_merge_probe(run: dict) -> bool:
+    """Whether RUN is a post-merge batch probe (POST_MERGE_PROBE_TITLE), which is no base verdict."""
+    return (str(run.get("path") or "").startswith(f".github/workflows/{POST_MERGE_WORKFLOW}")
+            and (run.get("display_title") or "").startswith(POST_MERGE_PROBE_TITLE))
+
+
+@once_per_judgement("batch-suites", lambda repo, base, github: (repo, base))
+def batch_suites(repo: str, base: str, github) -> dict[str, dict]:
+    """The post-merge batch suites (POST_MERGE_MANIFEST's `suites`, each with a `workflow` file) BASE's batch runs
+    call: the manifest beside this script, else BASE's own (source_text_if_present); {} for another repo or base, or
+    when neither reads, so a red is judged by its own workflow alone, as before."""
+    if repo != HOME_REPO or base not in POST_MERGE_BASES:
+        return {}
+    try:
+        if POST_MERGE_MANIFEST_FILE.is_file():
+            text = POST_MERGE_MANIFEST_FILE.read_text()
+        elif hasattr(github, "blob_if_present"):
+            text = source_text_if_present(repo, base, POST_MERGE_MANIFEST, github)
+        else:
+            text = None
+        suites = json.loads(text).get("suites") if text else None
+    except (OSError, ValueError, AttributeError, Refused):
+        return {}
+    if not isinstance(suites, dict):
+        return {}
+    return {key: suite for key, suite in suites.items()
+            if isinstance(key, str) and isinstance(suite, dict) and isinstance(suite.get("workflow"), str)}
+
+
+@functools.lru_cache(maxsize=None)
+def _local_workflow_jobs(file: str) -> dict:
+    return _workflow(yaml_module(), lambda name: (WORKFLOWS / name).read_text(), file)[1]
+
+
+def workflow_jobs(repo: str, base: str, file: str, github) -> dict:
+    """Workflow FILE's `jobs:`: the one beside this script, else BASE's (workflow_doc); {} when unread."""
+    try:
+        if (WORKFLOWS / file).is_file():
+            return _local_workflow_jobs(file)
+        if not hasattr(github, "blob"):
+            return {}
+        doc = workflow_doc(repo, base, f".github/workflows/{file}", github)
+    except Refused:
+        return {}
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    return jobs if isinstance(jobs, dict) else {}
+
+
+def batch_check(repo: str, base: str, file: str, name: str, github) -> str | None:
+    """The check name BASE's post-merge batch runs give PR job NAME of workflow FILE (POST_MERGE_WORKFLOW's rule):
+    'S / NAME' when FILE is suite S's workflow; 'S / J' when NAME is 'P / J' and FILE's job checked as 'P / ...'
+    calls S's workflow; None when no suite runs it."""
+    suites = batch_suites(repo, base, github)
+    for key, suite in sorted(suites.items()):
+        if suite["workflow"] == file:
+            return f"{key} / {name}"
+    callees = {f"./.github/workflows/{suite['workflow']}": key for key, suite in suites.items()}
+    if " / " not in name or not callees:
+        return None
+    for job_id, job in workflow_jobs(repo, base, file, github).items():
+        key = callees.get(job.get("uses")) if isinstance(job, dict) else None
+        if key is None:
+            continue
+        try:
+            prefixes = _check_matcher(str(job_id), job, f".github/workflows/{file}")["prefixes"]
+        except Refused:
+            continue
+        for prefix in prefixes:
+            if name.startswith(prefix):
+                return f"{key} / {name.removeprefix(prefix)}"
+    return None
+
+
+def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tuple[str, str] | None:
+    """(workflow file, check name) of the base's verdict for job NAME when RUN's own workflow no longer runs it on
+    BASE: the post-merge batch tier's (batch_check), else the workflow that runs the same called job on pushes to
+    BASE (BASE_WORKFLOW_FOR, a pull-request-only caller of the same reusable workflow) under NAME itself; None for any
+    other job, base, repo or unread workflow path."""
     path = run.get("path") if isinstance(run, dict) else None
     if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
         return None
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
-    return next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
-                 if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+    if (check := batch_check(repo, base, file, name, github)) is not None:
+        return POST_MERGE_WORKFLOW, check
+    caller = next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
+                   if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+    return None if caller is None else (caller, name)
 
 
 def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now: datetime | None = None) -> str | None:
     """For RUN's workflow in BASE_DISPATCH: the state of its base dispatch, starting one when none is running and
     none started within BASE_DISPATCH_EVERY (RUNS: its BASE runs, newest first, as list_base_runs read them). None for
     any other workflow, base or repo."""
-    path = run.get("path") if isinstance(run, dict) else None
-    if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
+    file = workflow_file(run)
+    if repo != HOME_REPO or file is None:
         return None
-    file = path.removeprefix(".github/workflows/").split("@", 1)[0]
     if (base, file) not in BASE_DISPATCH:
         return None
     dispatched = [found for found in runs if found.get("event") == "workflow_dispatch"]
@@ -6175,7 +7953,7 @@ def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now
 # A gallery health shard of a pull request replays its red states on the base it merged with (gallery-health.yml's
 # GALLERY_REPLAY_STEP). When the base itself does not load, the replay dies before it compares and the shard is red
 # with no per-state verdict: 2026-11-07, base d7e68dec's webviews imported 'pillAsks' from JumpPill.tsx after it
-# moved ("SyntaxError: Export named 'pillAsks' not found", job 128448409188), and merge_hold refused cmux#37916, the
+# moved ("SyntaxError: Export named 'pillAsks' not found", job 128448409188), and land-judge refused cmux#37916, the
 # fix itself, as "'health (1)': no failing test or error line to match". Such a shard is judged as its replay would
 # have judged it (test_reds.gallery_classify), against the newest first-parent base commit, at or before the replay's
 # base and within GALLERY_FALLBACK_COMMITS / GALLERY_FALLBACK_HOURS, whose gallery health run gave every shard a whole
@@ -6573,7 +8351,8 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
             except Refused as why:
                 raise Refused(f"'{name}': the log of its head shard '{sibling.get('name') or shard}', where its tests' "
                               f"errors are printed, could not be read: {str(why)[:300]}") from None
-    workflow = base_caller(repo, base, workflow_info, name) or workflow_info["workflow_id"]
+    # A web shard is checked under its own name on the base (the batch suite `web` is the caller job `web`).
+    workflow = (base_caller(repo, base, workflow_info, name, github) or (workflow_info["workflow_id"],))[0]
     green: list[dict] = []
     unread: list[str] = []  # why a base log could not be read, named in the refusal
 
@@ -6635,7 +8414,7 @@ def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, ru
     if test_reds.classify_web_cut_short(head_log, (), name, base) is None:
         return None  # no red file: nothing to compare, and no base run is read
     workflow_info = rest_run(repo, job["run_id"], github, run_reads)
-    workflow = base_caller(repo, base, workflow_info, name) or workflow_info.get("workflow_id")
+    workflow = (base_caller(repo, base, workflow_info, name, github) or (workflow_info.get("workflow_id"),))[0]
     if workflow is None:
         return None
     green: list[dict] = []
@@ -6700,12 +8479,12 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     names = job_step_names(repo, job, github, run_reads)
     if refused_at_setup(job, head_log):
         raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
+    if name == TREE_HANDOFF_JOB and (said := tree_handoff_quota_only(job, head_log)) is not None:
+        raise JobRateLimited(f"'{name}' reported only its repo installation API quota refusal ({said}); rerun the job "
+                             "after that boundary")
     if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no generated files verdict ({said[:300]}); "
                       "re-run its prerequisite and this dependent job together")
-    if (said := agent_api_unavailable(job, head_log)) is not None:
-        return Head(f"excused '{name}': not this PR (agent API unavailable): the agent pass's CLI result showed {said} "
-                    f"(job {job.get('id')}); nothing was judged, so rerun it once the account recovers")
     if (said := summary_no_verdict(head_log)) is not None:
         raise Refused(f"'{name}' gave no verdict ({said[:300]}): nothing it summarizes was judged, so it is "
                       "neither a pass nor this PR's own red; re-run it")
@@ -6740,6 +8519,8 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
     if not WEB_TEST_JOB.fullmatch(name):
         own = owned_unnamed(own, view, test_reds.unjudged(head_log) if view is UNPLACED else None)
+    if name == GUARD_GROUP_JOB:
+        own.truncated = guard_group_truncated(own.truncated, view)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")
@@ -6767,16 +8548,23 @@ def compile_base_evidence(repo: str, run: dict, found: dict, github, run_reads: 
     return compile_errors(test_reds.lines_of(text) if view is UNPLACED else list(lines_of(view_text(view))), found)
 
 
+class BaseUnplaced(Refused):
+    """base_evidence's refusal of a red base job whose log step_owners does not place (BASE_UNPLACED_WHY)."""
+
+
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
     """(RUN, the failed_view of red base job FOUND's log, its signature, its step_errors), the window entry
     compare_window reads: the one reader of a compared base job's raw log. A base log failed_view does not place is
-    never base evidence: Refused."""
+    never base evidence: BaseUnplaced, which judge() answers with a whole-log comparison. Its words say the base was
+    unread, never the head's red, for every caller it reaches (journey, the merge-base step check; review F1 on
+    cmux#46811)."""
     text = github.log(repo, found)
     view = failed_view(found, text, step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")),
                        base=True)
     if view is UNPLACED:
-        raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
-                      "(step_owners), so no base line can be told to a failed step; nothing is compared")
+        raise BaseUnplaced(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
+                           "(step_owners), so no base line can be told to a failed step; nothing is compared: "
+                           f"unread, not this PR's own red: retry once a {base} verdict of it is placed")
     return run, view, signature(view), step_errors(view)
 
 
@@ -6855,6 +8643,15 @@ class Evidence:
         """BASE's stacked parent (stacked_parent), or None; Refused as stacked_parent refuses."""
         return stacked_parent(self.repo, self.base, self.github, self.cache)
 
+    @property
+    def verdict_repo(self) -> str:
+        """The repo whose runs are this base's verdict of record (BASE_VERDICT_REPO), which is REPO itself for every
+        repo that runs its own base pushes. A stacked parent's verdict is its own PR's checks at its head, which
+        exist only in the PR's repo, so a parent keeps REPO whatever the mapping says."""
+        if self.parent is not None:
+            return self.repo
+        return BASE_VERDICT_REPO.get(self.repo, self.repo)
+
     def allows(self, run) -> bool:
         """Whether RUN can be this source's evidence at all (its event, and for a parent its head)."""
         if not isinstance(run, dict):
@@ -6868,7 +8665,7 @@ class Evidence:
         """WORKFLOW's runs, newest first: the base's window (list_base_runs), or the parent's at its head."""
         if workflow not in self.listed:
             if self.parent is None:
-                list_base_runs(self.repo, self.base, workflow, self.github, self.listed)
+                list_base_runs(self.verdict_repo, self.base, workflow, self.github, self.listed)
             else:
                 listed = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?"
                                           f"head_sha={self.parent.head}&per_page=100")
@@ -6883,18 +8680,18 @@ class Evidence:
         for a parent, its runs at its head (runs), which the caller filters by the same query's terms."""
         if self.parent is not None:
             return list(self.runs(workflow))
-        found = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&{query}"
-                                 f"&per_page={per_page}")
+        found = self.github.json(f"repos/{self.verdict_repo}/actions/workflows/{workflow}/runs?"
+                                 f"branch={self.base}&{query}&per_page={per_page}")
         return [run for run in (found.get("workflow_runs") if isinstance(found, dict) else None) or []
-                if self.allows(run)]
+                if self.allows(run) and not post_merge_probe(run)]
 
     def dispatches(self, workflow) -> list[dict]:
         """The base's workflow_dispatch runs of WORKFLOW (every status, so a first run's same-tree run is seen while
         it still queues or runs: TREE_JOBS); none for a parent, whose verdict is its PR's own checks (F2)."""
         if self.parent is not None:
             return []
-        listed = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}"
-                                  f"&event=workflow_dispatch&per_page={BASE_RUNS_PAGE}")
+        listed = self.github.json(f"repos/{self.verdict_repo}/actions/workflows/{workflow}/runs?"
+                                  f"branch={self.base}&event=workflow_dispatch&per_page={BASE_RUNS_PAGE}")
         return (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
 
     def status_commits(self, per_page: int = BASE_STATUS_COMMITS) -> list[str]:
@@ -6952,12 +8749,15 @@ def evidence_source(repo: str, base: str, github, cache: dict) -> Evidence:
     return Evidence(repo, base, github, cache)
 
 
-def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts):
+def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts, cut=lambda: None):
     """VERDICTS (base_verdicts' (run, job) pairs, all read from the parent's Evidence) at PARENT's head only, of its
     PR's own events, so no other run of the branch (a dispatch, say) stands in; Refused when there is none: the
-    parent's head has no completed verdict for job NAME."""
+    parent's head has no completed verdict for job NAME, or, when CUT() names the job lists read before the cap cut
+    the search short, the search is incomplete (#47687's review F4)."""
     found = [(run, job) for run, job in verdicts
              if tested_sha(run) == parent.head and run.get("event") in PARENT_EVENTS]
+    if not found and (read := cut()) is not None:
+        raise Refused(f"{cut_refusal(name, base, read)} (PR #{parent.number}'s head {parent.head[:12]})")
     if not found:
         raise Refused(f"'{name}': {base} is PR #{parent.number}'s head; its head {parent.head[:12]} has no completed "
                       "run of this workflow with a verdict for it to compare with; re-check once it has")
@@ -6965,6 +8765,177 @@ def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdict
         raise Refused(f"'{name}' passed on {base}'s PR #{parent.number} at its head {parent.head[:12]} (run "
                       f"{found[0][0].get('id')}): the red is this PR's own; fix it on this head")
     return iter(found)
+
+
+# A red from the pull request's old base (2026-11-17, cmux#44908 at e19e1487): opened into feat-cmux-next, then
+# retargeted to main. 'cmux-next defaults guard' ran at 00:41Z under the old base (pull_request_target, run
+# 43989567080) and failed on a main-based tree; its workflow on main runs only for `branches: [feat-cmux-next]`, so no
+# run for base main will ever replace that red, and closing and reopening fires none either. It was refused as "no main
+# run of its workflow has a verdict" for good. A red job with no base verdict is excused here only when all hold:
+#   (a) its run's event is pull_request or pull_request_target;
+#   (b) the pull request's base when the run fired is not its base now: the run's pull_requests[].base.ref when GitHub
+#       records another base there, else a base_ref_changed event in the pull request's timeline after the run was
+#       created (GitHub's run record lists the current base, and its REST timeline event names no refs);
+#   (c) the workflow file at the current base has an `on.<event>.branches` (or `branches-ignore`) filter that excludes
+#       the current base; for pull_request, which reads the workflow from the merge commit, the head's copy too.
+#       In place of a filter, only a job `if:` that is exactly `github.event.pull_request.base.ref == 'X'`, X not the
+#       current base, counts; any other job `if:` excuses nothing.
+# Any part unread or of another shape (a glob with `?`, `+` or `[`, a file absent or not YAML) excuses nothing.
+RETARGET_EVENTS = ("pull_request", "pull_request_target")
+BASE_REF_IF = re.compile(r"(?:\$\{\{\s*)?github\.event\.pull_request\.base\.ref\s*==\s*'([^'\s]+)'(?:\s*\}\})?")
+
+
+def branch_pattern(pattern: object) -> re.Pattern | None:
+    """A GitHub branch filter PATTERN as a regex: `*` any run of characters but `/`, `**` any run at all. None for a
+    pattern with `?`, `+`, `[` or `\\` (not modelled here) or of another type."""
+    if not isinstance(pattern, str) or not pattern or re.search(r"[?+\[\]\\]", pattern):
+        return None
+    parts = re.split(r"(\*\*|\*)", pattern)
+    return re.compile("".join(".*" if part == "**" else "[^/]*" if part == "*" else re.escape(part)
+                              for part in parts))
+
+
+def filter_excludes(doc: object, event: str, base: str) -> str | None:
+    """The `on.EVENT` branch filter of workflow DOC, as `branches: [...]`, when it excludes BASE; None when it admits
+    BASE, has no branch filter, or has a shape this does not read. `branches` patterns apply in order, the last one
+    matching deciding, a `!` one excluding (GitHub's rule); `branches-ignore` excludes what any pattern matches."""
+    triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
+    spec = triggers.get(event) if isinstance(triggers, dict) else None
+    if not isinstance(spec, dict):
+        return None  # `on: [pull_request]`, `on: pull_request` or `pull_request:` alone: every branch
+    for key in ("branches", "branches-ignore"):
+        patterns = spec.get(key)
+        if patterns is None:
+            continue
+        patterns = [patterns] if isinstance(patterns, str) else patterns
+        if not isinstance(patterns, list) or not patterns:
+            return None
+        admitted = key == "branches-ignore"
+        for pattern in patterns:
+            negated = key == "branches" and isinstance(pattern, str) and pattern.startswith("!")
+            regex = branch_pattern(pattern[1:] if negated else pattern)
+            if regex is None:
+                return None
+            if regex.fullmatch(base):
+                admitted = key == "branches" and not negated
+        if admitted:
+            return None
+        return f"{key}: [{', '.join(str(pattern) for pattern in patterns)}]"
+    return None
+
+
+def single_branch(doc: object, event: str) -> str | None:
+    """The branch of workflow DOC's `on.EVENT.branches` when it is one literal name (no glob, no `!`), else None."""
+    triggers = doc.get(True, doc.get("on")) if isinstance(doc, dict) else None
+    spec = triggers.get(event) if isinstance(triggers, dict) else None
+    patterns = spec.get("branches") if isinstance(spec, dict) else None
+    patterns = [patterns] if isinstance(patterns, str) else patterns
+    if isinstance(patterns, list) and len(patterns) == 1 and isinstance(patterns[0], str) \
+            and re.fullmatch(r"[\w./-]+", patterns[0]) and not patterns[0].startswith("!"):
+        return patterns[0]
+    return None
+
+
+def job_base_condition(doc: object, name: str) -> str | None:
+    """The branch X of the one job of workflow DOC named NAME when its `if:` is exactly
+    `github.event.pull_request.base.ref == 'X'`; None for any other `if:`, or when no one job is NAME."""
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        return None
+    found = []
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        try:
+            matcher = _check_matcher(str(job_id), job, "")
+        except Refused:
+            continue
+        if matches(matcher, name):
+            found.append(job)
+    condition = found[0].get("if") if len(found) == 1 else None
+    match = BASE_REF_IF.fullmatch(condition.strip()) if isinstance(condition, str) else None
+    return match.group(1) if match else None
+
+
+def workflow_doc(repo: str, ref: str, path: str, github) -> object:
+    """Workflow PATH at REF, parsed (source_text, read once per judgement); None when it is unread, absent there or
+    not YAML, or no YAML parser imports. A rate-limited read is raised (RateLimitedRead is no Refused)."""
+    try:
+        yaml = yaml_module()
+        text = source_text(repo, ref, path, github)
+    except Refused:
+        return None
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+
+
+def base_at_run(repo: str, base: str, sha: str, run: dict, github, seen: dict) -> tuple[int, str | None, str] | None:
+    """(pull request number, its base when RUN fired or None when unnamed, how that is known) when that base was not
+    BASE; None when it was BASE or cannot be told. The pull request is the one RUN lists for head SHA; its timeline is
+    read once per judge call (SEEN)."""
+    listed = [entry for entry in run.get("pull_requests") or []
+              if isinstance(entry, dict) and isinstance(entry.get("number"), int)
+              and (entry.get("head") or {}).get("sha") in (None, sha)]
+    if len(listed) != 1:
+        return None
+    number = listed[0]["number"]
+    recorded = (listed[0].get("base") or {}).get("ref")
+    if isinstance(recorded, str) and recorded and recorded != base:
+        return number, recorded, f"run {run.get('id')} records base {recorded}"
+    fired = created(run)
+    if fired is None:
+        return None
+    key = ("timeline", number)
+    if key not in seen:
+        pages = github.json(f"repos/{repo}/issues/{number}/timeline?per_page=100", paginate=True)
+        pages = pages if isinstance(pages, list) else [pages]
+        seen[key] = [event for page in pages for event in (page if isinstance(page, list) else [page])
+                     if isinstance(event, dict)]
+    changed = sorted(when for event in seen[key] if event.get("event") == "base_ref_changed"
+                     and (when := created(event)) is not None and when > fired)
+    if not changed:
+        return None
+    return number, None, f"#{number}'s base was changed at {changed[0].isoformat().replace('+00:00', 'Z')}, after it"
+
+
+def retargeted_red(repo: str, base: str, sha: str, name: str, job: dict, run: dict, github, seen: dict) -> str | None:
+    """The audit line excusing red job NAME of RUN (its REST record) as a red from the pull request's old base by the
+    rule above, or None so it is judged as before. The workflow is read before the timeline: a red whose workflow
+    still runs for BASE costs no timeline read."""
+    event, path = run.get("event"), str(run.get("path") or "").split("@", 1)[0]
+    if event not in RETARGET_EVENTS or not path.startswith(".github/workflows/"):
+        return None
+    docs = [workflow_doc(repo, base, path, github)]
+    if event == "pull_request":
+        docs.append(workflow_doc(repo, sha, path, github))  # the merge commit's copy is the one GitHub reads
+    if any(doc is None for doc in docs):
+        return None
+    filters = [filter_excludes(doc, event, base) for doc in docs]
+    conditions = [job_base_condition(doc, name) for doc in docs]
+    if all(filters):
+        why = f"its workflow does not run for base {base} ({filters[0]})"
+    elif all(condition not in (None, base) for condition in conditions):
+        why = f"its job does not run for base {base} (if: github.event.pull_request.base.ref == '{conditions[0]}')"
+    else:
+        return None
+    try:
+        then = base_at_run(repo, base, sha, run, github, seen)
+    except Refused:
+        return None  # an unread timeline excuses nothing
+    if then is None:
+        return None
+    number, old, how = then
+    if old is None and conditions[0] not in (None, base):
+        # The job ran (it is red), so its `base.ref == 'X'` held when the run fired.
+        old, how = conditions[0], f"{how}; the job ran, so its if: held for {conditions[0]}"
+    elif old is None and (only := single_branch(docs[0], event)) not in (None, base):
+        # The run fired, so its base was the one branch the filter runs for.
+        old, how = only, f"{how}; the run fired, so its base was the one branch its filter runs for"
+    ran_for = f"ran for base {old}" if old else f"ran for #{number}'s earlier base"
+    return (f"excused '{name}': run {run.get('id')} ({event}, job {job.get('id')}) {ran_for}, not {base} ({how}); "
+            f"{why}, so no run will replace this red")
 
 
 def one_judgement(function):
@@ -6977,6 +8948,9 @@ def one_judgement(function):
         token = JUDGEMENT_READS.set({})
         try:
             return function(*args, **kwargs)
+        except JobBudgetCut as cut:  # a read that never happened, from any path: the timed retry (job_budget)
+            base = args[1] if len(args) > 1 else kwargs.get("base", "the base")
+            raise Refused(cut_refusal(cut.name or "the base search", base, cut.reads)) from None
         finally:
             JUDGEMENT_READS.reset(token)
     return run
@@ -7030,6 +9004,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     pr_only: set[tuple] = set()  # (run id, job name) excused by pr_only_step_verdict
     for job in jobs:
         name = job.get("name", "")
+        if (budget := job_budget()) is not None:
+            budget["name"] = name  # whose judgement a JobBudgetCut cuts (one_judgement)
         if (name == GENERATED_VERDICT_JOB and job.get("conclusion") == "failure" and not refused_at_setup(job)
                 and (host := shared_generated_host(repo, job, github)) is not None
                 and (job.get("run_id"), host) in pr_only):
@@ -7092,6 +9068,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # never `actions/workflows/None/runs` (cmux#37033's 404): a run whose workflow is unread has no base
             raise Refused(f"'{name}': run {job['run_id']} came back without its workflow_id; nothing to compare "
                           "with the base")
+        if (vrepo := evidence.verdict_repo) != repo:
+            # The base verdict is another repo's (BASE_VERDICT_REPO), where this workflow has a different id: name it
+            # by its file, which every base-run read takes. A run that came back without its workflow path cannot be
+            # named there, so the search finds nothing and the no-verdict refusal below stands, naming that repo.
+            if (file := workflow_file(workflow_info)) is None:
+                raise Refused(f"'{name}': run {job['run_id']} came back without its workflow path, so its workflow "
+                              f"cannot be named in {vrepo}, where {repo}'s {base} is verified; nothing to compare "
+                              "with the base")
+            workflow = file
         # This supplement uses only measured base observations with an active public quarantine issue. It can
         # bridge a green base run; it never changes the deterministic comparison when state is absent or invalid.
         known = ({} if view is UNPLACED
@@ -7107,30 +9092,61 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         verdicts = base_verdicts(repo, workflow, name, github, evidence, base_jobs, job_reads, suites)
         if (parent := evidence.parent) is not None:
             # A lane base heading an open PR: its verdicts are that PR's at its head (stacked_parent).
-            verdicts = stacked_parent_verdicts(name, base, parent, verdicts)
+            verdicts = stacked_parent_verdicts(name, base, parent, verdicts,
+                                               cut=lambda: search_cut(job_reads, name, workflow))
             audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
                          "checks there are the base verdicts below")
         base_run, base_job = next(verdicts, (None, None))
-        base_workflow = workflow  # the workflow whose run gives the base verdict
-        if ((caller := base_caller(repo, base, workflow_info, name)) is not None
-                and (base_run is None or before_merge_base(repo, base, sha, base_run, github, evidence))):
-            # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
-            # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
-            # merge-base, or when the PR's workflow has none at all; else the stale one below refuses as before.
-            pushed = base_verdicts(repo, caller, name, github, evidence, base_jobs, job_reads, suites)
+        base_workflow, base_name = workflow, name  # the workflow whose run gives the base verdict, and its check
+        caller, caller_name = base_caller(repo, base, workflow_info, name, github) or (None, name)
+        if caller is not None and (base_run is None or before_merge_base(repo, base, sha, base_run, github, evidence)):
+            # The PR run's workflow has no base verdict at or after the merge-base: the post-merge batch tier's suite
+            # that runs it (batch_check), or the workflow that runs the same called job on base pushes, may
+            # (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the merge-base, or when the PR's
+            # workflow has none at all; else the stale one below refuses as before.
+            pushed = base_verdicts(repo, caller, caller_name, github, evidence, base_jobs, job_reads, suites)
             pushed_run, pushed_job = next(pushed, (None, None))
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
-                base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
+                base_run, base_job, verdicts = pushed_run, pushed_job, pushed
+                base_workflow, base_name = caller, caller_name
+        # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
+        # its comparison below, which may excuse it as the base's.
+        quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
+        if quota is not None:
+            raise infra(name, job, f"its failed steps printed only GitHub's API rate-limit refusal {quota[:300]!r}")
         if base_run is None:
+            if (old_base := retargeted_red(repo, base, sha, name, job, workflow_info, github, run_reads)) is not None:
+                audit.append(old_base)  # a red from the pull request's old base (retargeted_red)
+                continue
             if (asked := asks_only_rerun(view)) is not None:
                 raise infra(name, job, f"its check could not run and printed only {asked!r}")
+            shared, why_not = other_pr_setup_verdict(repo, base, name, job, got, workflow_info, workflow, github,
+                                                     run_reads, evidence)
+            if shared:
+                audit.append(why_not)  # a setup red other PRs share (other_pr_setup_verdict)
+                continue
+            peers, why_not_peers = other_pr_peer_verdict(repo, base, name, job, workflow_info, workflow, github)
+            if peers:
+                audit.append(why_not_peers)  # the workflow's red on other PRs' heads (other_pr_peer_verdict)
+                continue
+            # Every workflow searched: the PR run's, and the base caller's (searched whenever it has one here, since
+            # the PR run's workflow gave no verdict), not only the one that gave a verdict (#47687's review F1).
+            if (cut := search_cut_any(job_reads, (workflow, name), (caller, caller_name))) is not None:
+                raise Refused(cut_refusal(name, base, cut))
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
-                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
-                          f"and its tip suite runs)" + (f": {dispatch}" if dispatch else ""))
+                          + (f"in {vrepo}, where {repo}'s {base} is verified (BASE_VERDICT_REPO), "
+                             if vrepo != repo else "")
+                          + f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
+                          f"and its tip suite runs)" + (f": {dispatch}" if dispatch else "")
+                          + f"; not a setup red other PRs share: {why_not}"
+                          + f"; not the workflow's red on other PRs: {why_not_peers}")
         if name == GUARD_GROUP_JOB:
-            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github))
+            audit.append(guard_group(repo, base, name, job, view, base_run, base_job, github, sha, run_reads))
+            continue
+        if journey_job(name, workflow_info) and base_job.get("conclusion") == "failure":
+            audit.append(journey(repo, base, name, job, view, base_run, base_job, github, sha, run_reads))
             continue
 
         def by_step() -> str:
@@ -7142,10 +9158,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             return fixed_on_base_by_step(repo, base, sha, name, job, view, workflow_info, base_run, base_job, github,
                                          base_jobs=base_jobs, run_reads=run_reads,
                                          others=jobs, evidence=evidence, suites=suites,
-                                         base_workflow=base_workflow)
+                                         base_workflow=base_workflow, base_name=base_name,
+                                         verdict_repo=vrepo)
         if base_job.get("conclusion") != "failure":
             try:
-                audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github, evidence))
+                audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github, evidence,
+                                           verdict_repo=vrepo))
             except Refused as why:
                 try:
                     audit.append(by_step())
@@ -7156,7 +9174,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # (pr_only_step_verdict), red here only on tests another base job fails (the menu cap deadlock,
                 # 2026-11-11: cmux#41086, #40991). A green job has no failed step, test or error line of its own.
                 if got.unplaced is not None and (only := pr_only_step_verdict(
-                        repo, base, name, got.unplaced,
+                        vrepo, base, name, got.unplaced,
                         [(base_run, base_job, UnplacedSignature(Counter(), Counter(), Counter()))],
                         evidence.runs(workflow), base_jobs, github)) is not None:
                     audit.append(only)
@@ -7166,13 +9184,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # files this PR does not change (compile_errors_verdict; cmux#40935's acpmux simulation clippy step).
                 if aside is None and (same := compile_errors_verdict(
                         repo, base, sha, name, job, view, got.compile, got.unplaced, base_job, evidence.runs(workflow),
-                        base_jobs, github, run_reads)) is not None:
+                        base_jobs, github, run_reads, verdict_repo=vrepo)) is not None:
                     audit.append(same)
                     continue
                 if purpose == PER_STEP_PURPOSE:
                     try:
                         audit.append(green_since(repo, base, sha, name, job, workflow_info, base_run, base_job,
-                                                 github, evidence))
+                                                 github, evidence, verdict_repo=vrepo))
                         continue
                     except Refused as green_why:
                         why = Refused(f"{why}; green since: {green_why}")
@@ -7218,31 +9236,43 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 newest, read, seen, newest_job = created(base_run), 1, [], base_job
                 while True:
                     try:
-                        theirs = unplaced_base_evidence(repo, base_job, github)
+                        theirs = unplaced_base_evidence(vrepo, base_job, github)
                         # A pin the rules set aside leaves both sides: the base's own pin red (cmux#41086's base) is no
                         # difference, and identity still holds for all the rest.
                         theirs = unplaced_without_ffi_pin(theirs) if aside is not None else theirs
                         seen.append((base_run, base_job, theirs))
-                        audit.append(unplaced_verdict(repo, name, base, mine, theirs, base_run, why=why_whole)
+                        audit.append(unplaced_verdict(vrepo, name, base, mine, theirs, base_run, why=why_whole)
                                      + (f"; {aside}" if aside is not None else ""))
                         break
                     except Final:
                         raise
-                    except Refused:
+                    except Refused as mismatch:
                         run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
                         if (run is None or found.get("conclusion") != "failure"
                                 or (newest and created(run)
                                     and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
-                            if (only := pr_only_step_verdict(repo, base, name, mine, seen, evidence.runs(workflow),
+                            if (only := pr_only_step_verdict(vrepo, base, name, mine, seen,
+                                                             evidence.runs(workflow),
                                                              base_jobs, github)) is not None:
                                 audit.append(only + (f"; {aside}" if aside is not None else ""))
                                 pr_only.add((job.get("run_id"), name))
                                 break
                             if aside is None and (same := compile_errors_verdict(
                                     repo, base, sha, name, job, view, got.compile, got.unplaced, newest_job,
-                                    evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
+                                    evidence.runs(workflow), base_jobs, github, run_reads,
+                                    verdict_repo=vrepo)) is not None:
                                 audit.append(same)
                                 break
+                            # Out of verdicts because the cap cut the search, with older runs unread (#47971's review
+                            # F1, as the placed window's F3): an older red matching the whole head may be among them.
+                            if (run is None and read < BASE_WINDOW
+                                    and (cut := search_cut_any(job_reads, (workflow, name),
+                                                               (base_workflow, base_name))) is not None):
+                                raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: "
+                                              f"{mismatch}") from None
+                            # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
+                            # the head fails, and to merge the base (passed_on_base_verdict).
+                            passed_on_base_verdict(vrepo, base, name, mine, seen, github)
                             raise
                         read += 1
                         base_run, base_job = run, found
@@ -7261,11 +9291,40 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # The window: the newest verdict first, then older red ones, up to BASE_WINDOW verdicts within
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
-            return base_evidence(repo, base, name, run, found, github, run_reads)
-        window, newest, read = [red(base_run, base_job)], created(base_run), 1
+            return base_evidence(vrepo, base, name, run, found, github, run_reads)
+        try:
+            window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        except BaseUnplaced as unplaced:
+            # The newest red base verdict's log is not placed (hq#13746): this head is compared whole with it, as an
+            # unplaced head is (unplaced_verdict, only within it), then per step; never refused as the head's own.
+            mine = unplaced_head_evidence(repo, job, github)
+            theirs = unplaced_base_evidence(vrepo, base_job, github)
+            if aside is not None:
+                mine, theirs = unplaced_without_ffi_pin(mine), unplaced_without_ffi_pin(theirs)
+            try:
+                # Only by failing tests named: a passing base step can print the head's error line (an expected-failure
+                # check), which a whole base log cannot tell from a failure (#40542's fourth Codex BLOCK, F2). The tests
+                # are the placed head's own failed steps' (HEAD), never a passing step's line in its whole log (review
+                # F1 on #46811 at 5d7cb257).
+                if not head[1]:
+                    raise Refused(f"'{name}': {BASE_UNPLACED_WHY}, and this head's failed steps name no failing test, "
+                                  "so its error lines are not compared with a whole base log")
+                audit.append(unplaced_verdict(vrepo, name, base, mine, theirs, base_run, why=BASE_UNPLACED_WHY)
+                             + (f"; {aside}" if aside is not None else ""))
+                continue
+            except Final:
+                raise
+            except Refused as whole:
+                try:
+                    audit.append(by_step())
+                    continue
+                except Final:
+                    raise
+                except Refused as step_why:
+                    raise Refused(f"{whole}; per step: {step_why}; {unplaced}") from None
         while True:
             try:
-                audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
+                audit.append(compare_window(vrepo, base, name, head, view, window, chromium_without_diagnostics,
                                             flake_state=flake_state, workflow=workflow_info.get("name", ""),
                                             head_pairs=step_errors(view))
                              + (f"; {aside}" if aside is not None else ""))
@@ -7276,22 +9335,34 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 run, found = next(verdicts, (None, None)) if read < BASE_WINDOW else (None, None)
                 if (run is None or found.get("conclusion") != "failure"
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
+                    # Out of verdicts because the cap cut the search, with older runs unread (#47687's review F3):
+                    # an older matching red may be among them, so not a verdict either way.
+                    cut = (search_cut_any(job_reads, (workflow, name), (base_workflow, base_name))
+                           if run is None and read < BASE_WINDOW else None)
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
+                        if cut is not None:
+                            raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: {why}") from None
                         raise
                     # BASE_JOB: the newest verdict's job, as read from the jobs API (never the window's view).
                     if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.compile, got.unplaced,
                                                        base_job, evidence.runs(workflow), base_jobs, github,
-                                                       run_reads)) is not None:
+                                                       run_reads, verdict_repo=vrepo)) is not None:
                         audit.append(same)
                         break
                     try:
                         audit.append(by_step())
                         break
                     except Refused as step_why:
+                        if cut is not None:
+                            raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: {why}; per step: "
+                                          f"{step_why}") from None
                         raise Refused(f"{why}; per step: {step_why}") from None
                 read += 1
-                window.append(red(run, found))
-    # A status judged by its job (status_job) is named too, the way merge_hold reads the head's reds: by the
+                try:
+                    window.append(red(run, found))
+                except BaseUnplaced:
+                    pass  # an older verdict not placed adds nothing to compare; the window reads on
+    # A status judged by its job (status_job) is named too, the way land-judge reads the head's reds: by the
     # status's own context. Every job above was excused or ignored, or judge() raised.
     for job in jobs:
         for context in job.get("status_contexts", ()):
@@ -7320,7 +9391,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
     parser.add_argument("--purpose", choices=PURPOSES,
                         help=f"the caller's: {PER_STEP_PURPOSE} (the lane broker's update_branch guard, whose base merge "
-                             "only reruns CI) may get the per-step reading; land (merge_hold, the default) never does")
+                             "only reruns CI) may get the per-step reading; land (land-judge, the default) never does")
     parser.add_argument("--flake-state", help="tap-tests/v1 JSON; TAP_TESTS_STATE=off disables base-flake quarantine")
     parser.add_argument("--ws-check-verdict", action="store_true",
                         help="print ws_check_red's verdict on the head's ws-check as JSON (the lane-gh broker's "
@@ -7343,6 +9414,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                           flake_state=test_reds.load_flake_state(args.flake_state, fetch=True), purpose=args.purpose)
+    except JobRateLimited as error:
+        print(f"job-rate-limited: {error}", file=sys.stderr)
+        return 3
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3

@@ -4,6 +4,8 @@ Owner: Performance Lead (PL-blocking, 2026-10-24; the detector's one process-wid
 Performance Lead with PL-arch). Chrome's model is the reference: the UI thread never
 blocks (`base::ScopedBlockingCall`, `base::ThreadRestrictions`), each thread owns its state, work moves
 between threads as messages, and every queue has a bound and a back-pressure rule.
+The short how-to for agents (the seams, `BackgroundWork`, the `NonisolatedNonsendingByDefault` trap, a worked
+conversion): [skills/cmux-architecture/references/main-thread-model.md](../../skills/cmux-architecture/references/main-thread-model.md).
 
 How it is enforced:
 - **Runtime (the real guard).** The checked seams in `CmuxNextCompat/Threading` wrap the blocking primitives
@@ -115,7 +117,8 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 
 userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
 CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer. No BackgroundWork lane runs at it.
+MetalYUVRenderer, RemoteDecodePipeline (`cmux.remote-view.decode`, the actor's executor: the next frame on screen
+waits for its decode). No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
@@ -158,11 +161,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   their order; a few small lines per answer, level change or token ask, so no back-pressure; a write to an
   engine that exited fails with EPIPE (no SIGPIPE) and the engine is started again; HandsEngine)
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
-- Settings and files: `com.cmuxterm.next.settings.watcher`, `com.cmuxterm.next.settings.file-lock` (the app's
-  waits for the write lock of `cmux-next.json`, which the daemon also takes; user-initiated, serial: it blocks in
-  `flock` only while another writer holds the lock, one wait at a time in call order, and the write is suspended
-  meanwhile, never a caller's thread or the main thread; a write hears `SettingsFileBusy` after 5 s, and a wait
-  given up on before its turn is skipped; SettingsFileLock), `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
+- Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
   `cmux.chief.movedMarker` (the Chief home's `state/moved.json` vnode watch, utility, serial: event delivery only,
@@ -173,6 +172,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.remote-view.decode` (one remote view's decode pipeline actor, user-interactive, serial: it blocks only on
+  a synchronous VideoToolbox decode of one access unit, a few ms; the transport's stream to it is bounded
+  `bufferingNewest(8)`, so a slow decoder loses units and asks for a keyframe instead of queueing),
+  `cmux.backdrop-shader.render` (the living wallpapers' Metal frames, user-initiated, serial: it blocks only on
+  `CAMetalLayer.nextDrawable`, bounded by the layer's one-second timeout; one frame in flight per window, the
+  next is skipped while it is busy, so no back-pressure; BackdropShaderRenderer),
   `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
   user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
   reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
@@ -212,8 +217,13 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
-  `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  `cmux.agent-activity.socket`, `cmux.acpmux-client`, `cmux.acpmux-client.driver`,
+  `cmux.acpmux-chat-rows` (a pane's chat rows host, AcpmuxChatRowsHost, utility, serial: the page's `chat.rows.*`
+  calls and each batch the driver hands it; it builds the page's one call per batch and hops to main once for it; the
+  page's `taken` is its back-pressure, one batch of at most 64 KiB out at a time, and it blocks only on the client
+  handle's own queue), `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
+  `signed-helper-reap` (one per signed Screen Sharing helper launch, SignedHelperLaunch.reap: a blocking waitpid that
+  ends when that helper exits; no back-pressure, one per launch), `cmux-remote-device` (one per open channel to cmux Remote's Screen
   Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
   bounded at 256, docs/cmux-remote.md)
 - Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of

@@ -24,6 +24,8 @@ use super::*;
 use crate::holder_runtime::HolderService;
 use crate::mux::holder_late::{HolderClock, set_holder_clock_for_test};
 
+mod quick_terminal;
+
 const TERMINAL: &str = "0000000000004000800000000000002b";
 const INCARNATION: &str = "1000000000004000800000000000002b";
 /// The second terminal of a session with two.
@@ -553,6 +555,7 @@ fn registry_with_running_terminals(
             zoomed_pane: None,
             auto_layout: None,
             viewport: RegistryViewport::default(),
+            floating: Vec::new(),
         }),
         ResourceChange::UpsertPane(RegistryPane {
             public_id: pane.clone(),

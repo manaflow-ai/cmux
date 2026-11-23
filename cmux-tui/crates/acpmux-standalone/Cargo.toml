@@ -22,5 +22,15 @@ acpmux = { path = "../acpmux", default-features = false }
 acpmux-build-id = { path = "../acpmux-build-id" }
 anyhow = "1"
 
+# acpmux's shipping features, passed through: the package builds this binary
+# with scripts/ci/acpmux-build-features.sh's flags on this manifest, as it builds
+# `-p acpmux` with them on acpmux's. Without these the Linux package's acpmux had
+# no hub carrier at all (c10f26a1a on Linux, 2026-11-15).
+[features]
+tailnet = ["acpmux/tailnet"]
+# Off: the shipped standalone acpmux is headless, and hands its TUI commands to a `cmux`.
+tui = ["acpmux/tui"]
+hub-carrier = ["acpmux/hub-carrier"]
+
 [lints]
 workspace = true

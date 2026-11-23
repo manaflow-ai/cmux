@@ -251,6 +251,85 @@ pub fn ultra() -> UltraConnection {
     }
 }
 
+/// Settings-file `agents.cmuxMcp` ("cmux Tools for Agents in cmux"): whether
+/// agents cmux starts get its `cmux` MCP server (which carries cmux Computer
+/// Use): a Claude Code or Codex typed into a cmux terminal (the `claude` and
+/// `codex` shims, each launch) and the app's agent chats (acpmux, which reads
+/// the same key: `acpmux::agent_tools::agents_get_cmux`). Only through the
+/// launch: cmux never writes an agent's own config. On by default (cmux's
+/// tools come with the app); Settings > Agents turns it off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentsCmuxMcp {
+    /// The default (no value, `"on"`, or anything but `"off"`): agents cmux
+    /// starts get the server, and it serves them (as `"mcp": {"enabled":
+    /// true}` does, unless that key says otherwise).
+    #[default]
+    On,
+    /// The person turned it off: agents cmux starts get no `cmux` server.
+    Off,
+}
+
+impl AgentsCmuxMcp {
+    /// The dotted settings key.
+    pub const KEY: &'static str = "agents.cmuxMcp";
+
+    /// The value in the settings text, flat (`"agents.cmuxMcp"`) or nested
+    /// (`{"agents": {"cmuxMcp": …}}`), as the app's settings owner writes
+    /// either, under what an administrator set ([`cmux_config::managed::applied_to`]).
+    /// Only `"off"` is `Off`, and an `"off"` in either form wins over the
+    /// other; a file that does not parse is `On`.
+    pub fn from_config_text(text: &str) -> Self {
+        Self::applied(Self::file_value(text))
+    }
+
+    fn file_value(text: &str) -> Option<Value> {
+        let text = text.trim_start_matches('\u{feff}');
+        let document = serde_json::from_str::<Value>(&strip_jsonc(text)).ok()?;
+        let flat = document.get(Self::KEY).cloned();
+        let nested = document.pointer("/agents/cmuxMcp").cloned();
+        let off = Value::String("off".into());
+        if flat.as_ref() == Some(&off) || nested.as_ref() == Some(&off) {
+            return Some(off);
+        }
+        flat.or(nested)
+    }
+
+    fn applied(file: Option<Value>) -> Self {
+        match cmux_config::managed::applied_to(Self::KEY, file).as_ref().and_then(Value::as_str) {
+            Some("off") => Self::Off,
+            _ => Self::On,
+        }
+    }
+
+    /// The value in the settings file at `path`; `On` without one.
+    pub fn from_config_file(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(text) => Self::from_config_text(&text),
+            Err(_) => Self::applied(None),
+        }
+    }
+
+    /// The value in the app's settings file ([`config_path`]), read at each
+    /// call so a change applies to the next agent launch with no reload.
+    pub fn current() -> Self {
+        Self::from_config_file(&config_path())
+    }
+
+    /// Whether the shims pass the cmux server to an agent launched in a cmux
+    /// terminal: unless the person turned it off.
+    pub fn injects(self) -> bool {
+        self == Self::On
+    }
+
+    /// The settings value (`on`, `off`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+}
+
 /// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
 /// outside strings (the dialect the app's `JSONC` parser reads).
 pub fn strip_jsonc(text: &str) -> String {
@@ -353,6 +432,41 @@ mod tests {
         assert!(!resume_agents("{\n  // off\n  \"sessions\": {\"resumeAgents\": false,},\n}"));
         assert!(!resume_agents(r#"{"sessions": {"resumeAgents": "yes"}}"#), "not a boolean");
         assert!(!resume_agents("{not json"), "an unreadable file never runs a resume");
+    }
+
+    #[test]
+    fn agents_cmux_mcp_is_on_unless_the_file_says_off() {
+        use super::AgentsCmuxMcp as Choice;
+        assert_eq!(Choice::from_config_text(""), Choice::On);
+        assert_eq!(Choice::from_config_text("{}"), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "ask"}}"#), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "on"}}"#), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents.cmuxMcp": "off"}"#), Choice::Off);
+        assert_eq!(
+            Choice::from_config_text("{\n  // no\n  \"agents\": {\"cmuxMcp\": \"off\",},\n}"),
+            Choice::Off
+        );
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::On);
+        // Settings writes the nested key; an older flat value never outvotes its `off`.
+        assert_eq!(
+            Choice::from_config_text(r#"{"agents.cmuxMcp": "ask", "agents": {"cmuxMcp": "off"}}"#),
+            Choice::Off
+        );
+        assert_eq!(
+            Choice::from_config_text("\u{feff}{\"agents\": {\"cmuxMcp\": \"off\"}}"),
+            Choice::Off,
+            "a BOM reads as the settings owner reads it"
+        );
+        assert_eq!(
+            Choice::from_config_text("{not json"),
+            Choice::On,
+            "only an explicit off turns it off"
+        );
+        assert!(Choice::On.injects() && !Choice::Off.injects());
+        assert_eq!(
+            Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
+            Choice::On
+        );
     }
 
     #[test]

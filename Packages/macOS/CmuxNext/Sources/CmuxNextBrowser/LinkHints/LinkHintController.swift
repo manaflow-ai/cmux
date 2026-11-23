@@ -27,6 +27,8 @@ public final class LinkHintController {
         var noField = false
     }
 
+    /// The held keys behind a held `j` or `k` scroll, the other Vim keys of a page.
+    public let scrollKeys = BrowserPageScrollKeys()
     private var session: Session?
     private var lastSessionID = 0
     private var replays = LinkHintReplays<NSEvent>()
@@ -58,7 +60,7 @@ public final class LinkHintController {
 
     /// The notice a page with nothing to label shows.
     public static var noLinksNotice: String {
-        String(localized: "linkHints.notice.noLinks", defaultValue: "No links on screen", bundle: .module)
+        String(localized: "linkHints.notice.noLinks", defaultValue: "No links on screen", bundle: .localizedModule)
     }
 
     public func start(_ mode: LinkHintSession.Mode, tab: any BrowserTab, window: NSWindow?, isFocused: @escaping () -> Bool,

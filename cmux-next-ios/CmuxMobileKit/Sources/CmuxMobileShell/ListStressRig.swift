@@ -237,7 +237,7 @@ final class ListStressRig: NSObject {
                              url: tab.url, agentStatus: tab.kind == .agent ? (working ? .working : (needsYou ? .waiting : nil)) : nil)
             }
             return Workspace(
-                id: "ws-s\(index)", macID: index % 5 == 4 ? "mbp" : "mac-studio", title: "\(template.title) \(index)",
+                id: "\(ListStressSettings.seededWorkspacePrefix)\(index)", macID: index % 5 == 4 ? "mbp" : "mac-studio", title: "\(template.title) \(index)",
                 directory: template.directory, branch: template.branch, tabs: tabs,
                 lastActivityAt: now.addingTimeInterval(-Double(index) * 600), needsAttention: needsYou, isWorking: working,
                 hasUnread: index % 3 == 0, colorHex: template.colorHex, icon: template.icon

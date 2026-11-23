@@ -1,4 +1,3 @@
-import CMUXMobileCore
 public import Foundation
 import OSLog
 
@@ -1429,7 +1428,7 @@ public actor PushRegistrationService: PushRegistering {
             let seconds = retryAfterSeconds(
                 response: response,
                 body: data
-            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
+            ) ?? PushRetryAfter.defaultRateLimitSeconds
             return .failure(
                 .rateLimited(retryAfterSeconds: seconds),
                 retryAfter: .seconds(seconds)
@@ -1445,7 +1444,7 @@ public actor PushRegistrationService: PushRegistering {
         response: HTTPURLResponse,
         body: Data
     ) -> Int? {
-        let headerDelay = CmxRetryAfterPolicy().seconds(
+        let headerDelay = PushRetryAfter.seconds(
             from: response.value(forHTTPHeaderField: "Retry-After")
         )
         let bodyDelay = try? JSONDecoder().decode(
@@ -1497,4 +1496,38 @@ private struct RegistrationErrorResponse: Decodable {
     let error: String?
     let retryAfterSeconds: Int?
     let limit: Int?
+}
+
+/// `Retry-After` for push registration: delta-seconds or an HTTP-date, read as
+/// CMUXMobileCore's `CmxRetryAfterPolicy` reads it. It lives here so
+/// CmuxAuthRuntime, which the Mac app links, does not depend on
+/// CMUXMobileCore (#43766).
+private enum PushRetryAfter {
+    static let defaultRateLimitSeconds = 60
+
+    /// Invalid, zero, and expired directives return nil so the caller applies
+    /// its fallback.
+    static func seconds(from value: String?, now: Date = Date()) -> Int? {
+        guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        if let seconds = Int(raw) {
+            return seconds > 0 ? seconds : nil
+        }
+        for format in [
+            "EEE',' dd MMM yyyy HH':'mm':'ss 'GMT'",
+            "EEEE',' dd-MMM-yy HH':'mm':'ss 'GMT'",
+            "EEE MMM d HH':'mm':'ss yyyy",
+        ] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let deadline = formatter.date(from: raw) {
+                let remaining = deadline.timeIntervalSince(now).rounded(.up)
+                guard remaining > 0 else { return nil }
+                return remaining < Double(Int.max) ? Int(remaining) : Int.max
+            }
+        }
+        return nil
+    }
 }

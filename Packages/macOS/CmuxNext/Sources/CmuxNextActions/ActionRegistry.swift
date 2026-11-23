@@ -63,9 +63,12 @@ public final class ActionRegistry {
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
     public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
+    /// `experiments.menuStyleV2` (prototype; off is today's menus): `makeContextMenu` applies the v2
+    /// content rules (ActionRegistry+ContextMenuStyle). The NSMenu stays a real NSMenu.
+    @ObservationIgnored public var contextMenuStyleV2 = false
     /// Why a cmux.json setting turns `id` off now (`browser.import.enabled`), or nil. Such an action
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
-    /// person's own choice, not `DisabledFeatures`). The App installs it.
+    /// person's own choice, not `DisabledFeatures`). Owners add theirs with `addSettingOffReason` (docks, hang reports too).
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
     /// Debug-only actions: offered to the person only while Internal Developer Mode is on, to scripts
     /// wherever developer tools exist (`DebugActionGate`). The App installs the setting's read.
@@ -75,11 +78,16 @@ public final class ActionRegistry {
     public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
     /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
     public var showsCustomizeMenuItem = true
+    /// Settings > Menus' menus as last built (``contextMenuEditorState()``).
+    @ObservationIgnored var editorMenus: ContextMenuEditorMenu.Built?
     /// Called when a bound toggle's `paletteState` changes after its run returned (a cmux.json write that
     /// lands later): the open palette reads its rows again. The palette installs it.
     @ObservationIgnored public var paletteStateDidChange: (@MainActor () -> Void)?
     /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
     @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
+    /// The rows apps add to a whole right-click menu on `target` (`contributes.menus`): drawn
+    /// after the built-in rows, before Customize Menu…, and read again at each open. The App installs it.
+    @ObservationIgnored public var contributedMenuItems: (@MainActor (ActionMenuContext, ActionTargetRef) -> [NSMenuItem])?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -132,10 +140,10 @@ public final class ActionRegistry {
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
-    /// The current value of a choices submenu's argument for a target, shown
-    /// with a checkmark.
+    /// The current value of a choices submenu's argument for a target, shown with a checkmark.
     @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
     @ObservationIgnored public var targetChoices: (@MainActor (_ action: ActionID, _ kind: ActionTargetKind, _ target: ActionTargetRef?) -> ActionTargetChoices?)?
+    @ObservationIgnored public let rowSubmenus = ActionRowSubmenus() // Screen Sharing ▸ (ActionRowSubmenus.swift)
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
@@ -143,6 +151,13 @@ public final class ActionRegistry {
     /// Ways past an unavailable reason that a person's own gesture may take (``ActionRecovery``),
     /// asked in order with the action and its current reason; the first non-nil answer wins.
     @ObservationIgnored public var unavailableRecoveries: [@MainActor (_ action: ActionID, _ reason: String) -> ActionRecovery?] = []
+    /// Ways to hold a person's run whose handler refused for a reason that passes by itself (cmux still
+    /// starting), asked in order with the run's action, invocation and reason. One that returns true
+    /// keeps the run to perform later, and the refusal is not shown (`refuse(_:quiet:)`). The CLI,
+    /// MCP, scripts and pages are refused as before.
+    @ObservationIgnored public var refusalDeferrals: [@MainActor (_ action: ActionID, _ invocation: ActionInvocation, _ reason: String) -> Bool] = []
+    /// The person's innermost run whose handler runs now, while any ``refusalDeferrals`` is set.
+    @ObservationIgnored var personRun: PersonRun?
     /// Writes a Copy row's text (the App's `AppActionContext.copy`): to the general pasteboard; a test,
     /// whose host may reach no pasteboard, records it instead.
     @ObservationIgnored public var copyText: @MainActor (String) -> Void = { NSPasteboard.general.clearContents(); NSPasteboard.general.setString($0, forType: .string) }
@@ -291,6 +306,24 @@ public final class ActionRegistry {
     public private(set) var duplicateBindings: [ActionID] = []
     private var placeholders: Set<ActionID> = []
 
+    /// Ids a handler tried to bind that the catalog does not have, in bind order: a typo, or an
+    /// action the Rust source has that the pinned app FFI release does not carry yet (a Swift
+    /// step B landed before its re-pin, docs/ci/app-ffi-release.md). The bind returns false and
+    /// the action stays unbound. Checked by the `everyBoundActionIsInTheCatalog` test, never
+    /// trapped: a Debug build must still launch on a catalog that lags its Swift; the app logs a
+    /// fault.
+    public private(set) var uncataloguedBindings: [ActionID] = []
+
+    /// The descriptor a bind takes for `id`, or nil (noting `id` in ``uncataloguedBindings``)
+    /// when the catalog does not have it.
+    func bindingDescriptor(for id: ActionID) -> ActionDescriptor? {
+        guard let descriptor = descriptor(for: id) else {
+            uncataloguedBindings.append(id)
+            return nil
+        }
+        return descriptor
+    }
+
     func noteBinding(_ id: ActionID, placeholder: Bool) {
         let canonical = canonicalID(for: id)
         if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
@@ -343,7 +376,7 @@ public final class ActionRegistry {
         invoke: (@MainActor (ActionInvocation) -> Void)?,
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
-        guard let descriptor = descriptor(for: id) else { return false }
+        guard let descriptor = bindingDescriptor(for: id) else { return false }
         noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,

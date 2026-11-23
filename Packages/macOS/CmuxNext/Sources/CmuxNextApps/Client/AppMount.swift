@@ -75,7 +75,7 @@ extension AppsClient {
     }
 
     /// Runs `operation` after every earlier mount, unmount and user event.
-    private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
+    func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
         let previous = tail
         // task-owner: one transport call chained after the previous one (mount, unmount and event order)
         tail = Task { [transport] in
@@ -117,9 +117,24 @@ extension AppsClient {
         for mount in mounts.values where mount.appID == app { send(mount, keepingScene: true) }
     }
 
-    /// ``reload(app:)`` for every app the person keeps in a local folder (`local/…`: the customize
-    /// folder and the local development apps).
+    /// Reload Custom Views: the supervisor reads every local folder again and reruns each local app
+    /// (`apps.local.reload`, the same read as `cmux ext reload`), restarting its host and sending its
+    /// open views again; a saved script that does not load keeps its last good view and says why in
+    /// its section. The daemon answers it from a thread of its own, and it runs off the mount chain,
+    /// so views go on answering clicks meanwhile. The list that follows mounts again the views that
+    /// had failed (``remountListedFailures()``).
     public func reloadLocalApps() {
+        guard availability.isAvailable else { return }
+        // task-owner: one App Store call beside the mount chain; the list after it is the client's
+        Task { [weak self, transport] in
+            _ = try? await transport.storeCall("apps.local.reload")
+            self?.refresh()
+        }
+    }
+
+    /// ``reload(app:)`` for every app the person keeps in a local folder (`local/…`: the customize
+    /// folder and the local development apps): their views mount again, no host restarts.
+    public func remountLocalApps() {
         refresh()
         for mount in mounts.values where mount.appID.hasPrefix("local/") { send(mount, keepingScene: true) }
     }
@@ -132,6 +147,8 @@ extension AppsClient {
             return
         }
         if !keepingScene || mount.model.status != .ready { mount.model.reset() }
+        // A new mount starts with no failures (a restarted supervisor never says `stale: false`).
+        mount.model.staleReason = nil
         enqueue { [weak self] transport in
             do throws(AppsTransportError) {
                 try await transport.mount(app: mount.appID, interface: mount.implementation.interface, mountID: mount.id, context: mount.context)

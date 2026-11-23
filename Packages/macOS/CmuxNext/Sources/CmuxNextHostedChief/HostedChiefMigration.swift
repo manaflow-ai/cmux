@@ -15,6 +15,8 @@ public final class HostedChiefMigration {
     public struct Wiring {
         public var apiBase: @MainActor () -> URL
         public var token: @MainActor () async throws -> String
+        /// Headers every API Worker request carries: a tagged dev build's `X-Cmux-Build-Space` (none otherwise).
+        public var headers: [String: String]
         /// `v1/ops` as the signed-in user; a refusal throws ``HostedChiefError/owner(code:message:)``.
         public var ops: @MainActor (_ body: [String: Any]) async throws -> [String: Any]
         /// The signed-in account's worker user id, nil when signed out.
@@ -30,10 +32,11 @@ public final class HostedChiefMigration {
 
         public init(apiBase: @escaping @MainActor () -> URL, token: @escaping @MainActor () async throws -> String,
                     ops: @escaping @MainActor (_ body: [String: Any]) async throws -> [String: Any], user: @escaping @MainActor () -> String?,
-                    debugBuild: Bool, owner: ChiefConversationOwner, localChief: String,
+                    debugBuild: Bool, owner: ChiefConversationOwner, localChief: String, headers: [String: String],
                     refreshTab: @escaping @MainActor () -> Void) {
             self.apiBase = apiBase
             self.token = token
+            self.headers = headers
             self.ops = ops
             self.user = user
             self.copies = !debugBuild || ProcessInfo.processInfo.environment["CMUX_NEXT_HOSTED_CHIEF_COPY"] == "1"
@@ -83,7 +86,7 @@ public final class HostedChiefMigration {
 
     private var http: HostedChiefCopy.HTTP? {
         guard let wiring else { return nil }
-        return HostedChiefCopy.HTTP(base: wiring.apiBase(), token: wiring.token)
+        return HostedChiefCopy.HTTP(base: wiring.apiBase(), token: wiring.token, headers: wiring.headers)
     }
 
     /// The Cloud Chief brain route as the signed-in user, for a hosted Chief's settings card
@@ -93,7 +96,7 @@ public final class HostedChiefMigration {
             guard let self, let wiring, wiring.user() != nil, let http else { throw HomeChiefHostedEngine.Failure.signedOut }
             let token: String
             do { token = try await wiring.token() } catch { throw HomeChiefHostedEngine.Failure.signedOut }
-            return try await HostedChiefCopy.HTTP(base: http.base, token: { token }).send(method, path, data: body)
+            return try await HostedChiefCopy.HTTP(base: http.base, token: { token }, headers: http.headers).send(method, path, data: body)
         }
     }
 
@@ -259,7 +262,7 @@ public final class HostedChiefMigration {
             if copy.brainTurnedOff {
                 // A fresh token while the account is unchanged; else this run's (the new account's cannot turn it on).
                 let fresh: @MainActor () async throws -> String = { wiring.user() == user ? try await wiring.token() : token }
-                let restore = HostedChiefCopy(http: HostedChiefCopy.HTTP(base: copy.http.base, token: fresh), ops: copy.ops,
+                let restore = HostedChiefCopy(http: HostedChiefCopy.HTTP(base: copy.http.base, token: fresh, headers: copy.http.headers), ops: copy.ops,
                                               chief: copy.chief, conversation: copy.conversation)
                 // task-owner: one brain PUT, ends at once
                 Task { @MainActor in try? await restore.setBrain(enabled: true) }

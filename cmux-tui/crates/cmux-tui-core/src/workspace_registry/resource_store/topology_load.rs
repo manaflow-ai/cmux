@@ -10,6 +10,13 @@ impl WorkspaceRegistry {
         FULL_TOPOLOGY_READS.with(Cell::get)
     }
 
+    /// Side table rows that loads on this thread read for a screen they did
+    /// not load (test hook).
+    #[cfg(test)]
+    pub(crate) fn other_screen_side_rows_read_for_test() -> u64 {
+        screen_rows::other_screen_side_rows_read_for_test()
+    }
+
     /// The stored subtrees of `workspaces` only; see
     /// [`load_resource_topology_scoped`].
     pub(crate) fn resource_topology_scoped(
@@ -224,8 +231,11 @@ pub(crate) fn load_resource_topology(
     #[cfg(test)]
     FULL_TOPOLOGY_READS.with(|reads| reads.set(reads.get() + 1));
     let mut topology = load_topology_frame(connection, session_id, generation)?;
-    topology.screens =
-        screen_rows::with_side_tables(connection, load_screens(connection, "", &[])?)?;
+    topology.screens = screen_rows::with_side_tables(
+        connection,
+        load_screens(connection, "", &[])?,
+        screen_rows::SideRows::All,
+    )?;
     topology.panes = load_panes(connection, "", &[])?;
     topology.tabs = load_tabs(connection, "", &[])?;
     topology.browsers = load_browsers(connection, "", &[])?;
@@ -293,7 +303,8 @@ fn load_subtrees(
     for workspace in workspaces {
         screens.extend(load_screens(connection, " AND workspace_id = ?1", &[&workspace.as_str()])?);
     }
-    topology.screens = screen_rows::with_side_tables(connection, screens)?;
+    topology.screens =
+        screen_rows::with_side_tables(connection, screens, screen_rows::SideRows::OfLoadedScreens)?;
     for screen in &topology.screens {
         let panes = load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
         topology.panes.extend(panes);
@@ -382,34 +393,38 @@ pub(crate) fn load_topology_frame(
 
 /// Add each of `screens`, its panes and their tabs to `topology`: what the
 /// public value of a screen and of its panes is built from. A screen that
-/// `topology` holds already is not read again.
+/// `topology` holds already is not read again. The side tables are read one
+/// time for all of `screens`, not one time for each screen.
 fn load_screen_subtrees(
     connection: &Connection,
     topology: &mut ResourceTopologySnapshot,
     screens: &[ScreenPublicId],
 ) -> anyhow::Result<()> {
+    let mut rows: Vec<RegistryScreen> = Vec::new();
     for id in screens {
-        if topology.screens.iter().any(|screen| &screen.public_id == id) {
+        let held = |screen: &RegistryScreen| &screen.public_id == id;
+        if topology.screens.iter().any(held) || rows.iter().any(held) {
             continue;
         }
-        let loaded = screen_rows::with_side_tables(
-            connection,
-            load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?,
-        )?;
-        for screen in &loaded {
-            let panes =
-                load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
-            for pane in &panes {
-                topology.tabs.extend(load_tabs(
-                    connection,
-                    " AND t.pane_id = ?1",
-                    &[&pane.public_id.as_str()],
-                )?);
-            }
-            topology.panes.extend(panes);
-        }
-        topology.screens.extend(loaded);
+        rows.extend(load_screens(connection, " AND public_id = ?1", &[&id.as_str()])?);
     }
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let loaded =
+        screen_rows::with_side_tables(connection, rows, screen_rows::SideRows::OfLoadedScreens)?;
+    for screen in &loaded {
+        let panes = load_panes(connection, " AND screen_id = ?1", &[&screen.public_id.as_str()])?;
+        for pane in &panes {
+            topology.tabs.extend(load_tabs(
+                connection,
+                " AND t.pane_id = ?1",
+                &[&pane.public_id.as_str()],
+            )?);
+        }
+        topology.panes.extend(panes);
+    }
+    topology.screens.extend(loaded);
     Ok(())
 }
 
@@ -503,6 +518,7 @@ fn load_screens(
                 zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
                 auto_layout: auto_layout.map(|value| serde_json::from_str(&value)).transpose()?,
                 viewport: serde_json::from_str(&viewport)?,
+                floating: Vec::new(),
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()

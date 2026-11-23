@@ -1,4 +1,5 @@
 //! Book reads at fixed reply size, in five alternating steady-state rounds.
+use crate::gate_rounds::{self, all_p95, best_p95, p95};
 use crate::log::{Anchor, Edge, MAX_BLOB_READ, MAX_FRAME_BYTES};
 use crate::testkit::{
     BlobFixture, REPLY, TURN_ROWS, blob_fixture, folded_book, folded_turns, ids, turn_group,
@@ -13,10 +14,10 @@ const WARMUP: usize = 32;
 
 #[derive(Clone, Copy)]
 struct Measures {
-    small: u64,
-    god: u64,
-    small_all: u64,
-    god_all: u64,
+    small: u128,
+    god: u128,
+    small_all: u128,
+    god_all: u128,
 }
 
 impl Measures {
@@ -61,43 +62,38 @@ fn emit(name: &str, measures: Measures) {
     }
 }
 
-fn percentile(samples: &[u64]) -> u64 {
-    let mut sorted = samples.to_vec();
-    sorted.sort_unstable();
-    sorted.get((sorted.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap()
-}
-
 fn paired(
     name: &str,
     mode: &str,
     mut small: impl FnMut() -> u64,
     mut god: impl FnMut() -> u64,
 ) -> Measures {
-    fn round(sample: &mut impl FnMut() -> u64, into: &mut Vec<u64>) -> u64 {
+    fn round(sample: &mut impl FnMut() -> u64) -> Vec<u128> {
         for _ in 0..WARMUP {
             std::hint::black_box(sample());
         }
-        let start = into.len();
-        for _ in 0..SAMPLES {
-            into.push(sample());
-        }
-        percentile(into.get(start..).unwrap())
+        (0..SAMPLES).map(|_| u128::from(sample())).collect()
     }
-    let (mut small_samples, mut god_samples) = (Vec::new(), Vec::new());
-    let (mut small_best, mut god_best) = (u64::MAX, u64::MAX);
+    let (mut small_rounds, mut god_rounds) = (Vec::new(), Vec::new());
     for number in 1..=ROUNDS {
         // Each god round follows its small twin, rather than paying all of one side first.
-        let small_round = round(&mut small, &mut small_samples);
-        let god_round = round(&mut god, &mut god_samples);
-        small_best = small_best.min(small_round);
-        god_best = god_best.min(god_round);
-        println!("{name} mode={mode} round={number} small_p95={small_round} god_p95={god_round}");
+        let small_round = round(&mut small);
+        let god_round = round(&mut god);
+        let (small_p95, god_p95) = (p95(&small_round), p95(&god_round));
+        println!("{name} mode={mode} round={number} small_p95={small_p95} god_p95={god_p95}");
+        small_rounds.push(small_round);
+        god_rounds.push(god_round);
     }
+    // A row with two modes (blob_range) names each mode's rounds.
+    gate_rounds::report(
+        &format!("{name}/{mode}"),
+        &[("small", &small_rounds), ("god", &god_rounds)],
+    );
     let measures = Measures {
-        small: small_best,
-        god: god_best,
-        small_all: percentile(&small_samples),
-        god_all: percentile(&god_samples),
+        small: best_p95(&small_rounds),
+        god: best_p95(&god_rounds),
+        small_all: all_p95(&small_rounds),
+        god_all: all_p95(&god_rounds),
     };
     measures.report(name, mode);
     measures

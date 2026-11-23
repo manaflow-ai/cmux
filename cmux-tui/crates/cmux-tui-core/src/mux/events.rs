@@ -67,6 +67,9 @@ pub enum MuxEvent {
     /// The latest agent state for one surface changed.
     AgentChanged {
         surface: SurfaceId,
+        /// The terminal's public id (`term_…`): a client finds every tab that shows the terminal by
+        /// it, whatever surface a restore or a reopen gave the tab. `None` from an older daemon.
+        terminal_id: Option<Arc<str>>,
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
@@ -147,11 +150,22 @@ pub enum MuxEvent {
     FeedReportsChanged {
         revision: u64,
     },
+    /// The Cloud pushed a GitHub change for this person, or whether it can push them moved
+    /// (`live`), over the feed socket (feed_client.rs). Apps hear it as `github.changed`.
+    GitHubChanged {
+        live: Option<bool>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
     /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
     KeybindingsChanged(cmux_config::KeybindingsChange),
+    /// The link shares of acpmux session `session`'s chat changed
+    /// (`agent-session-share-events-v1`; server/agent_session_shares.rs): the
+    /// owner's Invite People sheet reads `agent-session-share-list` again.
+    AgentSessionShareChanged {
+        session: String,
+    },
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
@@ -228,6 +242,20 @@ pub enum MuxEvent {
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).
     TasksChanged(Arc<Value>),
+    /// What cmux Remote's Computer Use worker says its agent sessions do now
+    /// (`computer-use-activity`, remote_host/unix.rs): the host's
+    /// `workers["computer-use"].activity` each time it changes, as
+    /// `{event, sessions: [{session, label, app?, last_action_ms}]}`. macOS only;
+    /// `subscribe` sends it to the person's own local connections, never a page
+    /// relay or a remote device.
+    ComputerUseActivity(Arc<Value>),
+    /// One change of Computer Use's live preview (`computer-use-preview`,
+    /// computer_use_lifecycle.rs): `{event, session, surface: {terminal} |
+    /// {chat}, card: {...} | null}`, the card of the window an agent drives
+    /// for the surface the agent runs in. Delivered like
+    /// [`MuxEvent::ComputerUseActivity`]: the person's own local connections
+    /// only.
+    ComputerUsePreview(Arc<Value>),
     /// The chats `chat.list` answers changed (`chat_index.rs`): the index's
     /// new revision. Apps hear it as `chat.changed` (apps/routing.rs); raw
     /// `subscribe` clients do not get it.

@@ -51,7 +51,10 @@ cmux_attach_tag_has_alnum() {
 # Cloud registry/presence instance tags are capped at 64 JavaScript UTF-16
 # units. Slugs are ASCII, so shell character count is the same measurement.
 # Reject instead of truncating because truncation could collapse two tagged
-# builds onto the same instance identity.
+# builds onto the same instance identity. The same slug names a dev build's
+# space on cmux-mobile-api (`X-Cmux-Build-Space: dev:<slug>`,
+# cmux-next-ios/PROTOCOL.md "Build spaces"), which refuses a slug over 64 and
+# `default` the same way, so the two never disagree on a tag.
 cmux_attach_tag_within_cloud_limit() {
   local slug
   slug="$(cmux_attach__slug_raw "$1")"

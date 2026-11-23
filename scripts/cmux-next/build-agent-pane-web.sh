@@ -55,10 +55,12 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
 # one of the sheets the page's pane.css is written from (checked below).
 # --preload-list names the chunks pane.js imports statically: the page preloads them with it.
+# --frame-sites writes chunks/frame-sites.js, the source file behind each stretch of pane.js and its
+# chunks (agent-pane/frameSites.mjs): `cmux app chat perf` names a frame owner's file with it.
 if [ -n "$REPORT_DIR" ]; then
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js" --metafile "$REPORT_DIR/agent-pane.json" --artifact-metafile "$REPORT_DIR/agent-pane-artifact-runtime.json"
 else
-  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
+  bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks" --frame-sites "$WORK/pane/chunks/frame-sites.js"
 fi
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
@@ -118,6 +120,9 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 # FOCUS-RING: every `:focus-visible` asks whether the keyboard earned the ring, as in the Vite build
 # (postcss.config.mjs, which this joined sheet never reads).
 bun scripts/postcss/gate-css.mjs "$WORK/styles.css"
+# The sources' comments stay out of the page's sheet (a third of its bytes, tokenized by every renderer
+# before the first style pass); rules and their order are untouched (agent-pane/paneCssComments.mjs).
+bun scripts/agent-pane/paneCssComments.mjs "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams), same-origin and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web

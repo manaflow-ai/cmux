@@ -428,12 +428,26 @@ fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
 /// What the vault env a spawn gets depends on, as metadata (never a value):
 /// the state file's identity, the hold, and a digest of the machine
 /// credential and its revoked flag. `None` outside a daemon. The agent pool
-/// keys on it (`login_env::machine_stamp`).
+/// keys on it ([`machine_stamp`]).
 pub fn stamp() -> Option<String> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return None;
     }
     Some(stamp_in(&crate::config::home(), pull::current_credential()))
+}
+
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
+pub fn machine_stamp() -> Option<String> {
+    let vault = stamp();
+    match (crate::login_env::machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)>) -> String {
@@ -497,6 +511,8 @@ pub async fn start_worker() {
     // A machine that is not joined never touches the store.
     let joined = matches!(crate::cli::cloud_join::machine_credential(), Ok(Some(_)));
     let mut failures = 0u32;
+    // The refusal last explained in the log: a standing one is said once, with its next step.
+    let mut said: Option<String> = None;
     let mut first_delay = Duration::ZERO;
     let started = tokio::time::Instant::now();
     // The store check runs store commands (each may wait up to a minute): off
@@ -527,7 +543,7 @@ pub async fn start_worker() {
             }
             Some(Err(code)) => {
                 failures = 1;
-                tracing::warn!(code = %code, failures, "vault pull failed");
+                log_pull_failure(&code, failures, &mut said);
                 first_delay = backoff(failures);
             }
             // Timed out: the pull was dropped; the loop's first round runs it again now.
@@ -540,6 +556,7 @@ pub async fn start_worker() {
             let delay = match run_once().await {
                 Ok(result) => {
                     failures = 0;
+                    said = None;
                     if result != "not_joined" {
                         tracing::info!(result, "vault pull");
                     }
@@ -547,13 +564,52 @@ pub async fn start_worker() {
                 }
                 Err(code) => {
                     failures = failures.saturating_add(1);
-                    tracing::warn!(code = %code, failures, "vault pull failed");
+                    log_pull_failure(&code, failures, &mut said);
                     backoff(failures)
                 }
             };
             tokio::time::sleep(delay).await;
         }
     });
+}
+
+/// Why the hub refuses this machine's vault, and the next step, for a refusal that stays until
+/// someone acts (cmux-platform `server/vault/Vault.ts`, `VaultMachineAuthLive`): retrying never
+/// clears it. None for a refusal that may pass by itself.
+pub fn standing_refusal(code: &str) -> Option<&'static str> {
+    match code {
+        "vault.forbidden" => Some(
+            "the hub gives a person's vault only to a machine joined in that person's personal \
+             team, and this join is in another team; `acpmux machine doctor --here` names the team \
+             and how to move the join",
+        ),
+        "vault.not_granted" => Some(
+            "this machine was never granted its owner's vault; its owner grants it from the cmux \
+             app (PUT /v1/machines/{id}/vault)",
+        ),
+        "vault.grant_expired" => {
+            Some("this machine's vault grant lapsed; its owner renews it from the cmux app")
+        }
+        _ => None,
+    }
+}
+
+/// A failed pull in the log: a standing refusal ([`standing_refusal`]) is a warning with its
+/// cause and next step the first time, then debug while it stays; any other failure warns.
+fn log_pull_failure(code: &str, failures: u32, said: &mut Option<String>) {
+    match standing_refusal(code) {
+        Some(_) if said.as_deref() == Some(code) => {
+            tracing::debug!(code = %code, failures, "vault pull failed")
+        }
+        Some(why) => {
+            *said = Some(code.to_owned());
+            tracing::warn!(code = %code, failures, next = why, "vault pull refused; retrying won't help until fixed");
+        }
+        None => {
+            *said = None;
+            tracing::warn!(code = %code, failures, "vault pull failed");
+        }
+    }
 }
 
 /// 30 s, 60 s, 2 min ... up to [`EVERY`].

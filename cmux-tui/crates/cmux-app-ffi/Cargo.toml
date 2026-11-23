@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the cmux SDK daemon client and the Chrome cookie sync"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -14,12 +14,14 @@ description = "The one Rust static library the cmux macOS app links: the C ABIs 
 # dependency change in a crate they share needs one lock edit, not one per FFI
 # crate (#40883, #40898).
 [workspace]
-members = ["../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
+members = ["../cmux-launch-record", "../cmux-launch-shell","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
 
 [dependencies]
+# The no-I/O agent list client (src/ffi.rs); the app owns the socket.
+acpmux-client = { path = "../acpmux-client" }
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
@@ -38,18 +40,35 @@ cmux-cookie-sync = { path = "../cmux-cookie-sync" }
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The app health model (cmux-health-core src/ffi.rs: JSON ops, the repair ladder, the snapshot).
 cmux-health-core = { path = "../cmux-health-core" }
+# Each window's last frame for the launch's first frame (cmux-launch-image src/ffi.rs: naming, caps, pruning, when to capture).
+cmux-launch-image = { path = "../cmux-launch-image" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
 cmux-motion = { path = "../cmux-motion", default-features = false }
 # The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
 cmux-sdk-ffi = { path = "../cmux-sdk-ffi" }
+cmux-launch-record = { path = "../cmux-launch-record" }
+# Live wallpapers (src/wallpaper.rs, include/cmux_wallpaper_ffi.h): the program check
+# and its Metal translation (naga), the scheduler, the Frame packer.
+cmux-wallpaper = { path = "../cmux-wallpaper" }
+# What the stage-0 launch window shows and which input it holds (src/ffi.rs, include/cmux_launch_shell.h).
+cmux-launch-shell = { path = "../cmux-launch-shell" }
+# The files lister's child, owned (src/files_lister.rs): it ends with its lister.
+cmux-process = { path = "../cmux-process" }
+# The files lister client and the system calendar ops' JSON (src/files_lister.rs, src/system_calendar.rs).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
+unicode-segmentation = "1"
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites
 # a tracked file.
 [dev-dependencies]
 cbindgen = { version = "=0.29.2", default-features = false }
+# The wallpaper ABI test reads the manifest JSON it returns (src/wallpaper.rs).
+serde_json = "1"
 
 [profile.release]
 opt-level = 3

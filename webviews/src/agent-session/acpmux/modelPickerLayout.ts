@@ -7,6 +7,7 @@ import type { QuickSetup, UsedLook } from "./quickModelMenuModel";
 import type { SetupPick } from "./harnessSetup";
 import type { PickerProfile } from "./pickerProfiles";
 import type { SessionAuth } from "./sessionAuth";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -58,6 +59,7 @@ export type ModelPickerProps = {
     offLabel: string;
     lastOnValue?: string;
     values?: readonly string[];
+    choices?: readonly { value: string; name?: string }[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -115,11 +117,16 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
+  /// With no Claude connection that serves Cloud, the Claude section's Connect row
+  /// (ClaudeConnectRow.tsx, claudeConnect.ts); the composer holds its dialog.
+  claudeConnect?: ClaudeConnectRowProps;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
   /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
   /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /** A manifest contributes presentation only. All choices and picks still come from this session. */
+  reasoningMenu?: "column" | "separate";
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a

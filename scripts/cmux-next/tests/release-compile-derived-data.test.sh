@@ -180,4 +180,52 @@ source "$ROOT/scripts/cmux-next/lib/bench-swift-defines.sh"
 [[ "$(cat "$TMP/swiftflags")" == "OTHER_SWIFT_FLAGS=\$(inherited) $CMUX_BENCH_SWIFT_DEFINES" ]] \
   || fail "bench OTHER_SWIFT_FLAGS is '$(cat "$TMP/swiftflags")'"
 
+# 8. A measurement step builds the app in <checkout>/.build/DerivedData/cmux-measure (reload.sh,
+#    measurement_derived_data_path), which its worker keeps between steps. A step that reused such a folder
+#    failed with exit 65 on the lines below: the folder's module of the app FFI was older than the header.
+#    Those lines are a stale module, another build error is not; and the clear takes that one folder of the
+#    checkout the helper itself is in: no other folder of it, no folder of another checkout, no link.
+printf '%s\n' "<unknown>:0: error: file '/checkout/.build/DerivedData/cmux-measure/Build/Products/Release/include/CAcpmuxClientFFI/acpmux_client.h' has been modified since the module file '/checkout/.build/DerivedData/cmux-measure/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules/CAcpmuxClientFFI-B8DKNIPA8HRBV100IOQXLN9HL.pcm' was built" \
+  "<unknown>:0: note: size changed from expected 10416 to 11312" "** BUILD FAILED **" > "$TMP/stale.log"
+printf '%s\n' "/checkout/Packages/macOS/CmuxNext/Sources/CmuxNextAgentList/AcpmuxClient.swift:12:5: error: cannot find 'missing' in scope" \
+  "** BUILD FAILED **" > "$TMP/other.log"
+/bin/bash "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$TMP/stale.log" \
+  || fail "a measurement step's stale module lines were not taken as a stale module"
+if /bin/bash "$ROOT/scripts/cmux-next/stale-pcm-retry-needed.sh" "$TMP/other.log"; then
+  fail "another build error was taken as a stale module"
+fi
+CO="$RT/checkout"; MEASURE="$CO/.build/DerivedData/cmux-measure"
+mkdir -p "$CO/scripts/cmux-next" "$MEASURE/Build/Products" "$MEASURE/SourcePackages" \
+  "$CO/.build/DerivedData/cmux-one/Build" "$RT/other-checkout/.build/DerivedData/cmux-measure/Build"
+cp "$ROOT/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$CO/scripts/cmux-next/"
+checkout_clear() {
+  status=0
+  env -i PATH=/usr/bin:/bin /bin/bash "$CO/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$1" >"$TMP/out" 2>&1 || status=$?
+}
+checkout_clear "$MEASURE"
+[[ $status -eq 0 ]] || fail "the measurement DerivedData of the helper's own checkout was refused (exit $status)"
+[[ ! -e "$MEASURE/Build" && -d "$MEASURE/SourcePackages" ]] || fail "the measurement DerivedData was not cleared to its packages"
+checkout_clear "$CO/.build/DerivedData/cmux-one"
+[[ $status -eq 2 && -d "$CO/.build/DerivedData/cmux-one/Build" ]] || fail "another DerivedData of the checkout was cleared (exit $status)"
+checkout_clear "$RT/other-checkout/.build/DerivedData/cmux-measure"
+[[ $status -eq 2 && -d "$RT/other-checkout/.build/DerivedData/cmux-measure/Build" ]] \
+  || fail "another checkout's measurement DerivedData was cleared (exit $status)"
+checkout_clear "$MEASURE/../cmux-one"
+[[ $status -eq 2 && -d "$CO/.build/DerivedData/cmux-one/Build" ]] || fail "a .. path from the measurement DerivedData was cleared (exit $status)"
+rm -rf "$MEASURE"; ln -s "$victim" "$MEASURE"
+checkout_clear "$MEASURE"
+[[ $status -eq 2 && -d "$victim/Build" ]] || fail "a link named like the measurement DerivedData cleared $victim (exit $status)"
+# An empty path and / are refused. These two run with a stand-in rm that only records its call, so a broken
+# guard removes nothing.
+mkdir -p "$TMP/norm"
+printf '%s\n' '#!/bin/bash' "echo \"\$*\" >> \"$TMP/rm-calls\"" > "$TMP/norm/rm"; chmod +x "$TMP/norm/rm"
+no_rm_clear() {
+  status=0
+  env -i PATH="$TMP/norm:/usr/bin:/bin" /bin/bash "$CO/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$1" >"$TMP/out" 2>&1 || status=$?
+}
+no_rm_clear ""
+[[ $status -ne 0 && ! -e "$TMP/rm-calls" ]] || fail "an empty path was accepted (exit $status)"
+no_rm_clear /
+[[ $status -eq 2 && ! -e "$TMP/rm-calls" ]] || fail "the path / was accepted (exit $status)"
+
 printf 'release compile DerivedData tests: ok\n'

@@ -1,0 +1,41 @@
+// Arcade: the collection's look. A night-purple page, a darker sidebar, magenta accents, no
+// borders. Edit and save: the running app repaints at once, no relaunch.
+{
+  "name": "Arcade",
+  "description": "A night-purple page, a darker sidebar, magenta accents, no borders.",
+
+  // The terminal theme, and its own colors.
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#1a1325", "foreground": "#f2e9ff", "selection": "#d9c2ff", "accent": "#ff5fd2" },
+  "appearance.accent": "magenta",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#120c1b",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#1a1325",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "card",
+  "sidebar.groupHeader.background": "solid",
+  "sidebar.controlsOnHover": true,
+
+  // Arcade blocks: square tabs, sidebar rows, buttons and panes, a tight strip and a narrower sidebar.
+  "density": {
+    "basedOn": "compact",
+    "tokens": {
+      "tabCornerRadius": 2, "tabCloseCornerRadius": 2, "verticalTabCornerRadius": 2, "sidebarCornerRadius": 2,
+      "itemCornerRadius": 2, "tabGap": 3, "sidebarRowGap": 2, "sidebarWidth": 260
+    }
+  },
+  "layout.paneCornerRadius": 2,
+  "focus.inactiveTabStyle": "tonal",
+  "tabs.plusButton": "always",
+
+  // The chat a size down, tool calls and code with it.
+  "agentPane.display.font.size": 13,
+  "agentPane.display.code.scale": 0.9,
+
+  "ui.animationSpeed": "fast"
+}

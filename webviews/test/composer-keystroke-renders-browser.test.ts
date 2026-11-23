@@ -1,9 +1,11 @@
 // l10n-allow-file: typed test keys, not shipped UI.
-// A keystroke in the agent chat's prompt draws the composer and the parts that read its text, and
+// A keystroke in the agent chat's prompt draws the prompt box and the parts that read its text, and
 // nothing else, however long the chat (CMUX-571; Leo: "improve performance (chat, everything
 // related)"; Leo, 2026-11-12: long chats must have "no perceivable difference"). Not the pane root,
 // the transcript or a row; and not the model picker under the box, which does not read the text
-// (it read the composer's prompt-focus function, a new one on each composer render, from context).
+// (it read the composer's prompt-focus function, a new one on each composer render, from context),
+// and not the + menu (ComposerFrame, which the React Compiler leaves as written, built its rows and
+// handlers anew on each render).
 //
 // The real pane (`?mock`) built by vite.config.acpmux-pane.mjs as it ships (production React, React
 // Compiler on; the dev server's development build never drew the picker on a key, fix or not); a chat of
@@ -50,7 +52,7 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
     fs.rmSync(out, { recursive: true, force: true });
   });
 
-  test("a key in a long chat draws neither the transcript, a row nor the model picker", async () => {
+  test("a key in a long chat draws neither the transcript, a row, the model picker nor the + menu", async () => {
     const port = statics!.port!;
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
     await page.goto(`http://127.0.0.1:${port}/?mock`);
@@ -97,14 +99,18 @@ await requireBrowserLane("composer-keystroke-renders-browser.test.ts", async () 
       Object.entries(renders)
         .filter(([name]) => name.startsWith(prefix))
         .reduce((total, [, value]) => total + value, 0);
-    // The composer itself draws once a key: the text is its state.
-    expect(renders.composer ?? 0).toBeGreaterThanOrEqual(KEYS);
+    // The prompt box draws once a key: it reads the text from the prompt's store (composer/promptText.ts).
+    // The composer around it does not: the text is no longer its state (Leo: "we need typing in the gui to be
+    // fast too and smootha nd stuff"). It may draw once over the run (a facts change: the prompt went non-empty).
+    expect(renders["composer:box"] ?? 0).toBeGreaterThanOrEqual(KEYS);
+    expect(renders.composer ?? 0).toBeLessThanOrEqual(2);
     // The pane may draw once over the run (a clock tick), never once a key.
     expect(renders.pane ?? 0).toBeLessThanOrEqual(1);
     expect({
       transcript: renders.transcript ?? 0,
       rows: counted("row:") + counted("content:") + counted("frame:"),
       model: renders["composer:model"] ?? 0,
-    }).toEqual({ transcript: 0, rows: 0, model: 0 });
+      plus: renders["composer:plus"] ?? 0,
+    }).toEqual({ transcript: 0, rows: 0, model: 0, plus: 0 });
   });
 });

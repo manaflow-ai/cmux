@@ -13,6 +13,15 @@ public protocol DirectoryListing: Sendable {
     /// The current entry for one item, or nil when it no longer exists
     /// (for live updates of single paths).
     func entry(at url: URL) async -> FileEntry?
+
+    /// True when the folders are read in another process (a DEV build's cmux Files (dev) child):
+    /// nothing in this process should open them then, the folder watch included. It may look up
+    /// the child on first use, so ask it off the main thread.
+    var readsOutOfProcess: Bool { get }
+}
+
+extension DirectoryListing {
+    public var readsOutOfProcess: Bool { false }
 }
 
 /// Lists folders with `getattrlistbulk(2)`: name, type, dates, flags and size
@@ -20,18 +29,37 @@ public protocol DirectoryListing: Sendable {
 ///
 /// Measured on 100 000 files: ~230 ms with `FileManager` plus resource keys,
 /// against ~56 s for Finder's own `name of every item` (PARITY.md).
+///
+/// A DEV build that embeds "cmux Files (dev)" reads through ``ProcessDirectoryLister`` instead, so
+/// macOS asks about Desktop, Documents and Downloads once for every DEV build rather than once
+/// per tag (docs/cmux-files-host.md, "The Files pane"); when that child cannot answer, and in
+/// every shipped build, it reads here.
 public struct DirectoryLister: DirectoryListing {
-    /// Makes a lister. It holds no state.
-    public init() {}
+    private let outOfProcess: ProcessDirectoryLister?
+
+    /// Makes a lister that reads in this process. It holds no state.
+    public init() {
+        outOfProcess = nil
+    }
+
+    /// Makes a lister that reads through `outOfProcess` first: the app passes its one
+    /// ``ProcessDirectoryLister/forThisBuild()``.
+    public init(outOfProcess: ProcessDirectoryLister?) {
+        self.outOfProcess = outOfProcess
+    }
+
+    public var readsOutOfProcess: Bool { outOfProcess?.readsOutOfProcess ?? false }
 
     @concurrent
     public func list(_ folder: URL) async throws -> [FileEntry] {
-        try Self.listSync(folder)
+        if let lister = outOfProcess, let entries = try await lister.list(folder) { return entries }
+        return try Self.listSync(folder)
     }
 
     @concurrent
     public func entry(at url: URL) async -> FileEntry? {
-        Self.entrySync(at: url)
+        if let lister = outOfProcess, let entry = try? await lister.entry(at: url) { return entry }
+        return Self.entrySync(at: url)
     }
 
     /// The synchronous listing (also used by benchmarks).

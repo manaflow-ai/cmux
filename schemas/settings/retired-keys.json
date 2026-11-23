@@ -69,6 +69,26 @@
       "why": "The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: \"we want this to be the default way for screen sharing daemons and computer use daemons moving forward\")."
     },
     {
+      "key": "computerUse.enabled",
+      "reason": "computerUse.mode replaces it: set it to \"off\" to turn Computer Use off",
+      "why": "cmux Computer Use is built in and on by default (Aziz 2026-11-05); the mode picker (off, look only, ask every time, approved apps, full access) replaces the switch. An old \"enabled\": false still reads as mode \"off\" (RenamedSettingKeys)."
+    },
+    {
+      "key": "computerUse.driver",
+      "reason": "cmux Computer Use is built in; there is no driver to pick",
+      "why": "cmux Computer Use replaced the legacy cmux-cua and upstream Cua Driver helpers (Aziz 2026-11-05)."
+    },
+    {
+      "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+      "reason": "Cloud machines reach Claude through the Cloud service; no login is copied",
+      "why": "Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07)."
+    },
+    {
+      "key": "cloud.useMyCodexLoginOnMyCloudMachines",
+      "reason": "Cloud machines reach Codex through the Cloud service; no login is copied",
+      "why": "Cloud machines reach models through the Cloud service's model route, so cmux no longer copies a login from the Mac (cloud multiplayer lane A, 2026-11-07)."
+    },
+    {
       "key": "tabs.cmdWClosesPinnedTabs",
       "reason": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
       "why": "One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: \"make it consistent, match chrome's behavior\"): no kept pinned tab."
@@ -162,6 +182,11 @@
       "key": "agents.hiddenChats.discardAfterMinutes",
       "reason": "a hidden chat that is idle gives back its memory on its own; a working chat keeps it",
       "why": "Leo (2026-11-14): \"obviously if something isn't drawn/is completely proven idle then dont bother taking memory\"; Lawrence (#38022): no perf switch. A hidden idle chat and an archived chat always give back their page."
+    },
+    {
+      "key": "home.chiefPanel.seesScreen",
+      "reason": "Share Screen with Chief is gone: the floating Chief no longer looks at the screen when it opens",
+      "why": "Lawrence (2026-11-20): \"remove share screen with chief\". Its capture host had already gone with the cmux Computer Use helper."
     }
   ]
 }

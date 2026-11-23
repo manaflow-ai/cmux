@@ -26,6 +26,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 import { trayPanelLook } from "./trayPanel.experiment";
+import { RUNNING_TRAY_LINE } from "./subagentSelectors";
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
 
@@ -623,7 +624,7 @@ export default agentPaneEntry({
       snapshot: panel(29),
       play: async (ctx) => {
         await scrollPanel(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 31);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 31);
       },
     },
     "panel-two": {
@@ -644,7 +645,7 @@ export default agentPaneEntry({
       note: "One of the two chats ended: the header and its collapse stay while ended lines show (it used to unmount once fewer than two ran).",
       play: async (ctx) => {
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LINE));
         headInView(ctx);
       },
       snapshot: panel(3, 1),
@@ -817,7 +818,7 @@ export default agentPaneEntry({
       snapshot: loneCommandChat(),
       play: async (ctx) => {
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 1);
       },
     },
     "command-words": {
@@ -945,7 +946,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openTray(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 5);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
       },
       snapshot: planChat(),
     },
@@ -953,7 +954,7 @@ export default agentPaneEntry({
       note: "The opened hat in a dock with room for the header and about three rows: the checklist and the command lines share that height, each scrolling in place, so a command's Stop stays reachable.",
       play: async (ctx) => {
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
         const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
         const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
         const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
@@ -970,6 +971,9 @@ export default agentPaneEntry({
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
+      // The header-time test measures this time (hat-header-time-width.test.ts); the default draws none
+      // in a several-item header (trayHeadClock.experiment.ts).
+      experiments: { "subagent-tray-head-clock": "run" },
       play: trayLines(3),
       snapshot: chat(
         [
@@ -1117,7 +1121,7 @@ export default agentPaneEntry({
       note: "After the turn: a background subagent and two chats the agent started still run. The tray says so above the composer; the transcript ends with the turn's footer.",
       play: async (ctx) => {
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
         if (ctx.document.querySelector(".cv-bgwork")) throw new Error("no Running in background row in the transcript");
       },
       snapshot: (() => {
@@ -1158,8 +1162,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // One item heads the hat folded (Leo, 2026-11-07): its header opens it to the line.
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
-        const lines = ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line");
+        await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LINE));
+        const lines = ctx.document.querySelectorAll(RUNNING_TRAY_LINE);
         if (lines.length !== 1) throw new Error(`one line, the chat's own subagent; got ${lines.length}`);
         if ((ctx.document.querySelector(".acpmux-running-tray")?.textContent ?? "").includes("mac-studio-ultras"))
           throw new Error("a dispatched lane is never a running line");
@@ -1215,7 +1219,7 @@ export default agentPaneEntry({
       note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
       play: async (ctx) => {
         await openTray(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LINE));
         const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")];
         if (names.some((name) => /^[0-9a-f]{8}-/.test(name.textContent ?? "")))
           throw new Error("the chat is not one of its own subagents");

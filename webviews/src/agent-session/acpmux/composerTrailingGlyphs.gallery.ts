@@ -9,7 +9,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
-import { setComposerLook, type ComposerLook } from "./composerLook";
+import { setPreviewComposerLook, type ComposerLook } from "./composerLook";
 
 const startedChat = () =>
   chat([
@@ -38,7 +38,7 @@ async function draw(ctx: PlayContext, which: ComposerLook, altCSS = "") {
     style.textContent = altCSS;
     ctx.document.head.append(style);
   }
-  setComposerLook(which, { remember: false });
+  setPreviewComposerLook(which);
   await ctx.waitFor(() =>
     which === "codex"
       ? ctx.document.querySelector('[data-composer-look="codex"]')
@@ -99,7 +99,7 @@ export default agentPaneEntry({
       },
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
-        setComposerLook("claude", { remember: false });
+        setPreviewComposerLook("claude");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-send"));
       },
     },

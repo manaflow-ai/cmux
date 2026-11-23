@@ -5,14 +5,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import yaml
-import workflow_jobs
-from job_lists_routing import (
+# workflow_jobs and job_lists_routing are beside this file: `python3 -I` puts no script folder on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+from job_lists_routing import (  # noqa: E402
     NIGHTLY,
     merge_gating_jobs,
     unresolved_name_jobs,
@@ -21,7 +24,6 @@ from job_lists_routing import (
     unresolved_environment_jobs,
     workflow_texts,
 )
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
@@ -67,7 +69,7 @@ BLACKSMITH_LABEL = re.compile(r"blacksmith-\d+vcpu-[a-z0-9]+(?:[.-][a-z0-9]+)*")
 BLACKSMITH_RUNNER_NAME_CHECK = re.compile(
     r"startsWith\(runner\.name, '" + BLACKSMITH_LABEL.pattern + r"-'\)"
 )
-# The CLA jobs' runner identity guard (validate-cla-policy.rb is the
+# The CLA jobs' runner identity guard (main's validate-cla-policy.rb is the
 # authority): fail unless GitHub-hosted or a Blacksmith VM for an allowlisted
 # label, and always fail on an owned glaeda host.
 CLA_EPHEMERAL_RUNNER_GUARD_IF = (
@@ -123,6 +125,7 @@ RELEASE_JOBS_FORK_GATED = {
     "republish-nightly-deltas": "re-uploads deltas to the release; starts with the owner fork branch",
     "publish-release-notes": "publishes release notes; runs on GitHub-hosted ubuntu-24.04 behind the owner fork branch",
     "nightly-next-one": "builds, signs, notarizes and publishes nightly-next on the signing Mac; starts with the owner fork branch",
+    "sign-live-code-variant": "signs, notarizes and publishes the live code variant on the signing Mac; starts with the owner fork branch",
 }
 
 
@@ -164,21 +167,45 @@ HOSTED_LITERAL_RUNNER = re.compile(
 )
 # The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
 # only choose among ephemeral labels listed here, in the base-branch workflow:
-# GitHub-hosted, or a Blacksmith VM that runs one job and is destroyed. Any
-# other value, including a persistent mini's label, falls back to Blacksmith,
-# and a fork running its own CI gets GitHub-hosted. Either provider can then
-# carry the merge-gating checks while the other is down.
-TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+# a Blacksmith VM that runs one job and is destroyed. Any other value,
+# including a persistent mini's label or GitHub-hosted Ubuntu (the hosted pool
+# started nothing for hours on 2026-11-18), falls back to Blacksmith, and a
+# fork running its own CI gets GitHub-hosted.
+TRUSTED_RUNNER_LABELS = ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
 TRUSTED_RUNNER_EXPRESSION = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
     + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
     + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
 )
-TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# The pull-request and issue bots hold write tokens and may be started by an outsider's event, so they lead with the
+# PR control label (cmux-gcp-pr-control-jit-x64: one-job JIT VMs, deleted after the job, no persistent runner
+# registers it) after the fork branch, behind their own switch; the repair workflows lead with the repair label the
+# same way (main's copies, tests/test_ci_write_token_jit_label.py). Either operand turns off with its variable and
+# leaves the trusted selector after it unchanged, so it can only ever add that one literal label.
+PR_CONTROL_FIRST_OPERAND = "vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || "
+REPAIR_FIRST_OPERAND = "vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || "
+TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, *(
+    TRUSTED_RUNNER_EXPRESSION.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + operand, 1)
+    for operand in (PR_CONTROL_FIRST_OPERAND, REPAIR_FIRST_OPERAND)))
+TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$")
+# The one named exception: language-boundaries.yml keeps the selector that still admits ubuntu-24.04, because its
+# own guard refuses a change to it without Leo's leo-approved-port label; a follow-up PR carries it. Only that file.
+LEGACY_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace("('[", "('[\"ubuntu-24.04\",", 1)
+LEGACY_TRUSTED_RUNNER_WORKFLOWS = frozenset({"language-boundaries.yml"})
+LEGACY_TRUSTED_RUNNER_LINE = re.compile(
+    r"^\s*runs-on:\s*" + re.escape(LEGACY_TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+
+
+def trusted_runner_line(workflow: str, line: str) -> bool:
+    return bool(TRUSTED_RUNNER_LINE.match(line) or (
+        workflow in LEGACY_TRUSTED_RUNNER_WORKFLOWS and LEGACY_TRUSTED_RUNNER_LINE.match(line)))
+
+
 # Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
 # Derived, not hand-kept: every job that reports a context in REQUIRED_CHECKS
 # (scripts/ci/required_status_checks.py, kept honest by required-checks-drift.yml), plus the
-# jobs it needs. The hand list missed cla.yml's CLAAssistant and cla-policy-guard.yml's validate.
+# jobs it needs.
 # (workflow, job) -> why a merge-gating job takes another route.
 TRUSTED_RUNNER_EXEMPT = {
     ("merge-group-policy-checks.yml", "cla-assistant"): (
@@ -200,10 +227,6 @@ UNRESOLVED_NAME_EXEMPT = {
         "workflow_run/workflow_dispatch report job named by the analysis headline of a finished run; it reports "
         "on that run's commit after the fact, never a pull request's required context"
     ),
-    ("ci-guard-attribution.yml", "report"): (
-        "workflow_run report job named by the analysis headline of a finished run; it reports on that run's "
-        "commit after the fact, never a pull request's required context"
-    ),
     ("rust-workspaces.yml", "workspace"): (
         "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
         "key), never one of the required context names"
@@ -217,7 +240,7 @@ TRUSTED_RUNNER_EXTRA_JOBS = {
     ),
 }
 # Parser-regression anchors: a derivation that loses these has stopped reading the workflows.
-TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate"), ("cla.yml", "CLAAssistant")}
+TRUSTED_RUNNER_ANCHORS = {("backend-migrations.yml", "gate")}
 
 
 def trusted_runner_jobs(texts: dict[str, str]) -> set[tuple[str, str]]:
@@ -235,7 +258,7 @@ def trusted_runner_route_errors(texts: dict[str, str]) -> dict[tuple[str, str], 
             errors[(workflow, job)] = f"{workflow} has no job {job}"
             continue
         runs_on = workflow_jobs.runs_on(body)
-        if not TRUSTED_RUNNER_LINE.match(f"runs-on: {runs_on}"):
+        if not trusted_runner_line(workflow, f"runs-on: {runs_on}"):
             errors[(workflow, job)] = f"runs-on is not the trusted selector: {runs_on}"
     return errors
 
@@ -280,7 +303,7 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # pool (aws_side_reason), so every read of them is gated too. CI_FAST_LANE_RUNNER
 # names the fast tier's own owned label and CI_SESSION_LANE_RUNNER generated
 # files' session label, so they are gated as well.
-OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER|CI_SIDE_LANE_RUNNER|CI_SIDE_LANE_LABELS|CI_LIGHT_LANE_RUNNER|CI_AWS_SIDE_RUNNER|CI_FAST_LANE_RUNNER|CI_SESSION_LANE_RUNNER)"
 OWNED_RUNNER_VARIABLE = re.compile(
     rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
 )
@@ -633,6 +656,19 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _forks_first_inside(node: tuple) -> bool:
+    """Whether a guarded disjunct picks its value with the fork branch first.
+
+    e.g. ``verdict == 'pass' && (FORK && 'blacksmith-2vcpu-ubuntu-2404' ||
+    'cmux-linux')``: a fork pull request takes the Blacksmith literal inside
+    the parentheses, so the owned label after it is same-repository only.
+    """
+    if node[0] != "and" or not node[1]:
+        return False
+    tail = node[1][-1]
+    return tail[0] == "or" and bool(tail[1]) and _is_fork_pull_request_branch(tail[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -652,7 +688,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _forks_first_inside(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:
@@ -674,15 +710,28 @@ def _runner_value_error(
 FORK_WRAPPED_POOL_READ = re.compile(
     r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+    # The one Linux label's group (scripts/ci/one_linux_label.py): a fork takes CI_FORK_LINUX_RUNNER, a
+    # fork-only variable that is GitHub-hosted 'ubuntu-24.04' while unset, so the gate reads that literal.
+    r"|\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| ('ubuntu-24\.04')\) \|\| 'cmux-linux'\)"
 )
 # A route whose owned fallback is itself behind the macOS Blacksmith switch.
 # The fork branch still wins before the fallback; reduce the whole expression
 # to that branch so the detector does not mistake the guarded owner route for
-# an unguarded fork path.
+# an unguarded fork path. Since #43860 the fallback of some routes starts with
+# the switch's `pr-rescue` read: that clause is optional here, as an exact text.
 FORK_WRAPPED_GUARDED_POOL_READ = re.compile(
     r"\((github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
     r"github\.repository && 'blacksmith-[^']+') \|\| "
-    r"\(vars\.CI_BLACKSMITH_MACOS != 'on' && vars\.CI_SIDE_LANE_RUNNER \|\| "
+    r"\((?:\(vars\.CI_BLACKSMITH_MACOS != 'pr-rescue' \|\| github\.run_attempt < 2 \|\| "
+    r"github\.event_name != 'pull_request' && \(github\.event_name != 'workflow_dispatch' \|\| "
+    r"!contains\(fromJSON\('\[\"github-actions\[bot\]\",\"cmux-bot\[bot\]\"\]'\), github\.triggering_actor\) \|\| "
+    r"inputs\.same_tree_origin != '' && inputs\.same_tree_origin != 'pull_request' \|\| "
+    r"inputs\.dev_daily == true \|\| inputs\.tip_swift_suite == true \|\| inputs\.tip_daemon_suite == true \|\| "
+    r"inputs\.base_tier == true \|\| inputs\.no_reuse == true\)\) && )?"
+    r"vars\.CI_BLACKSMITH_MACOS != 'on' && "
+    r"(?:vars\.CI_SIDE_LANE_RUNNER|\(vars\.CI_SIDE_LANE_LABELS != '' && fromJSON\(vars\.CI_SIDE_LANE_LABELS\) \|\| "
+    r"vars\.CI_SIDE_LANE_RUNNER\)) \|\| "
     r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)\)"
 )
 
@@ -704,7 +753,7 @@ def fork_pull_request_gate_error(
     if not selector.search(line):
         return None
     line = FORK_WRAPPED_GUARDED_POOL_READ.sub(r"\1", line)
-    line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
+    line = FORK_WRAPPED_POOL_READ.sub(lambda m: m.group(1) or m.group(2), line)
     try:
         outside = EXPRESSION.sub("", line)
     except gh_expressions.Unterminated:
@@ -878,7 +927,7 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
         elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
-              and not TRUSTED_RUNNER_LINE.match(line)):
+              and not trusted_runner_line(name, line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -1399,7 +1448,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 )
 
                 with self.subTest(workflow=path.name, line=number):
-                    if "vars.LINUX_RUNNER" in line:
+                    # cmux-linux as the last fallback is what a fork reaches; as a same-repository first-attempt
+                    # clause (app-compile-placement) it never serves a fork.
+                    if "vars.LINUX_RUNNER" in line or re.search(r"\|\|\s*'cmux-linux'\s*\}\}", line):
                         saw_linux += 1
                         self.assertTrue(
                             hosted_linux or (fork_short_circuits and hosted_macos),
@@ -1428,8 +1479,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_outsider_triggered_workflows_pin_a_hosted_runner(self) -> None:
         """pull_request_target and comment events run fork-started jobs with trusted tokens."""
         roots = outsider_triggered_workflows()
-        self.assertIn(WORKFLOWS / "cla.yml", roots)
-        self.assertIn(WORKFLOWS / "claude.yml", roots)
+        self.assertIn(WORKFLOWS / "backend-migrations.yml", roots)
+        self.assertIn(WORKFLOWS / "auto-triage.yml", roots)
         # A reusable workflow called only from fully gated roots never runs
         # for a fork head either.
         ungated = [path for path in roots if not every_job_gated(path.read_text(encoding="utf-8"), SAME_REPOSITORY_GATE)]
@@ -1502,7 +1553,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         """A workflow_run follower of a pull_request_target workflow acts on fork runs too."""
         follower = (
             "on:\n  workflow_run:\n    workflows: [\"x\"]\n    types: [completed]\n"
-            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cla.yml\n"
+            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/backend-migrations.yml\n"
             "jobs:\n  retry:\n    if: github.event.workflow_run.conclusion == 'failure'\n"
             "    runs-on: ubuntu-24.04\n"
         )
@@ -1658,13 +1709,18 @@ class ForkRunnerRoutingTests(unittest.TestCase):
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
         for label in TRUSTED_RUNNER_LABELS:
-            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
-        widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
+            self.assertTrue(label.startswith("blacksmith-"), label)
+        widened = TRUSTED_RUNNER_EXPRESSION.replace('"blacksmith-2vcpu-ubuntu-2404",', '"glaeda-std-xcode-26.6","blacksmith-2vcpu-ubuntu-2404",')
         renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
         unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
         for variant in (widened, renamed, unforked):
             with self.subTest(variant=variant):
                 self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
+        # The hosted-admitting selector passes only in the one named file.
+        self.assertIn('"ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404"', LEGACY_TRUSTED_RUNNER_EXPRESSION)
+        legacy = f"jobs:\n  a:\n    runs-on: {LEGACY_TRUSTED_RUNNER_EXPRESSION}\n"
+        self.assertNotEqual(outsider_runner_errors("x.yml", legacy), [])
+        self.assertEqual(outsider_runner_errors("language-boundaries.yml", legacy), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.

@@ -35,6 +35,38 @@ pub struct ThemeInput {
     /// `appearance.themeEdits` (set by the app), else the theme file's
     /// `# cmux-accent = #rrggbb` line (set by `load`). Wins over `accent`.
     pub accent_color: Option<Rgb>,
+    /// What the selection fill takes (`appearance.selection`): the accent's
+    /// tint (the default) or the neutral fill whatever the accent.
+    pub selection: ThemeSelection,
+}
+
+/// `appearance.selection`: `Accent` (the default) tints the selection fill
+/// with the accent when there is one, as before; `Neutral` keeps the neutral
+/// fill whatever the accent (a gray selected row beside a blue Send button).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum ThemeSelection {
+    #[default]
+    Accent,
+    Neutral,
+}
+
+impl ThemeSelection {
+    /// Every value, in the schema's order.
+    pub const ALL: [ThemeSelection; 2] = [Self::Accent, Self::Neutral];
+
+    /// The cmux.json value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Accent => "accent",
+            Self::Neutral => "neutral",
+        }
+    }
+
+    /// The value cmux.json writes; `None` for anything else.
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|v| v.as_str() == s)
+    }
 }
 
 /// Ghostty's default ANSI 0...15.
@@ -70,6 +102,7 @@ impl ThemeInput {
         cursor: None,
         accent: ThemeAccent::Neutral,
         accent_color: None,
+        selection: ThemeSelection::Accent,
     };
 
     /// This theme with the chrome accent `accent` (`appearance.accent`).
@@ -231,13 +264,15 @@ impl ThemeTokens {
         let accent = app.map(|app| app.get(AppToken::Accent));
 
         let hover = color("hoverFill");
-        // An accent selection is the app theme's (the accent over the background).
-        let selection = match accent {
+        // An accent selection is the app theme's (the accent over the background);
+        // `appearance.selection: neutral` keeps the neutral fill whatever the accent.
+        let selection_accent = accent.filter(|_| input.selection == ThemeSelection::Accent);
+        let selection = match selection_accent {
             Some(accent) => accent.with_alpha(if is_dark { 0.26 } else { 0.16 }),
             None => color("selectionFill"),
         };
         // The other rows of a multi-selection: the selection's color at 0.7 of its weight.
-        let secondary_selection = match accent {
+        let secondary_selection = match selection_accent {
             Some(accent) => accent.with_alpha(if is_dark { 0.18 } else { 0.11 }),
             None => color("secondarySelectionFill"),
         };

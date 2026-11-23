@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,6 +131,19 @@ describe("judgeLoss", () => {
     expect(v.ok).toBe(false);
     expect(v.text).toContain("the client's stream jumps 46->49");
     expect(v.text).toContain("the client is missing step 4");
+  });
+
+  test("a gap names the journal's kind of each skipped seq", () => {
+    const j = turn(10).map((e) => e.seq === 47 ? { ...e, kind: "agent_message_chunk" } : e);
+    const client = j.filter((e) => e.seq !== 47);
+    const v = judgeLoss({ n: 10, journal: j, client });
+    expect(v.text).toContain("the client's stream jumps 46->48 [agent_message_chunk]");
+    const many = turn(10).filter((e) => e.seq < 45 || e.seq > 49);
+    expect(judgeLoss({ n: 10, journal: turn(10), client: many }).text).toContain("44->50 [?,?,?,...]");
+  });
+
+  test("journalEvent keeps the record's kind", () => {
+    expect(journalEvent("t", { seq: 7, kind: "agent_message_chunk", msg: {} })?.kind).toBe("agent_message_chunk");
   });
 
   test("a delivery received twice is doubled output", () => {
@@ -293,7 +306,7 @@ describe("journalEvent", () => {
     rawOutput: `chaos-t-${k}\n`, content: [{ type: "content", content: { type: "text", text: `chaos-t-${k}` } }], ...extra });
   test("a stored tool update counts its step once, keyed by its call", () => {
     const e = journalEvent("t", { seq: 7, at: 1, dir: "in", kind: "tool_call_update", msg: { jsonrpc: "2.0", method: "session/update", params: { sessionId: "s", update: update(12) } } });
-    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12" });
+    expect(e).toEqual({ seq: 7, ks: [12], call: "toolu_12", kind: "tool_call_update" });
   });
   test("the call's command, a replayed load and a raw transcript event carry no step", () => {
     const call = { sessionUpdate: "tool_call", toolCallId: "toolu_3", rawInput: { command: "sleep 0.2; printf '%s-%s-%s\\n' chaos t 3" } };
@@ -321,7 +334,7 @@ describe("journalCommand", () => {
       const r = spawnSync("sh", ["-c", `c=${join(bin, "c")}; ${journalCommand("ses-1", 4)}`], { encoding: "utf8" });
       expect(r.stdout.trim().split("\n").pop()).toBe("@@exit 0");
       const events = r.stdout.split("\n").filter((l) => l.startsWith("{")).map((l) => journalEvent("t", JSON.parse(l)));
-      expect(events).toEqual([{ seq: 5, ks: [] }, { seq: 6, ks: [1], call: "a" }]);
+      expect(events).toEqual([{ seq: 5, ks: [], kind: "agent_message_chunk" }, { seq: 6, ks: [1], call: "a", kind: "tool_call_update" }]);
       expect(r.stdout).not.toContain("xxxxx");
       expect(spawnSync("cat", [join(bin, "args")], { encoding: "utf8" }).stdout.trim()).toBe("acp tail ses-1 --since 4");
     } finally {
@@ -541,6 +554,30 @@ describe("the chat's surface after a restart", () => {
     } finally { chat.stop(); }
   });
 
+  // cmux#40159: the machine holds no login, and the app gives the person's model connection to each chat's agent at its
+  // start. A chaos chat started without it had nothing to reply with: every fault failed "the felt chat's warm-up got no
+  // reply within 120 s" before any fault ran (cloud-carrier-chaos-staging, 2026-11-18).
+  for (const credentials of [{ env: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test" } }, undefined]) test(`the chat's start carries ${credentials ? "the launch credential" : "none when the journey has none"}`, async () => {
+    const f = fakeDial((frame) => {
+      switch (frame.cmd) {
+        case "identify": return { registry_id: "r" };
+        case "create-workspace": return { workspace: 1 };
+        case "new-conversation-tab": return { surface: 7, tab_resource_id: "tab_chat" };
+        case "agent-session-start": return { session: "s-1" };
+        case "list-workspaces": return tree([{ surface: 7, tab_resource_id: "tab_chat", conversation: agent("s-1") }]).data;
+        case "agent-session-attach": return { lastSeq: 10, events: [], hasMore: false };
+        default: return {};
+      }
+    });
+    const chat = new chaos.ChatClient({ cmux: "", env: {}, machine: "m", exec: async () => ({ code: 0, stdout: "", stderr: "" }), guest: "", session: "", tag: "t", credentials }, f.make);
+    try {
+      await chat.open("claude");
+      const start = f.frames.find((x) => x.cmd === "agent-session-start");
+      expect(start?.credentials).toEqual(credentials);
+      expect("credentials" in (start ?? {})).toBe(Boolean(credentials));
+    } finally { chat.stop(); }
+  });
+
   test("after a redial the chat attaches, and prompts, on the tab's new surface", async () => {
     let surface = 7;
     const f = fakeDial((frame) => {
@@ -685,7 +722,65 @@ describe("the felt time after a send", () => {
     // Two refusals, each followed by a 500 ms pause: the person waited through them.
     expect(felt.felt_ms).toBeGreaterThanOrEqual(950);
     expect(felt.ack_ms).toBeGreaterThanOrEqual(950);
+    // Both refusals, one run of the same text, so a slow take names where its time went.
+    expect(felt.trail).toMatch(/^\d+-\d+ ms: .+ \(2\)$/);
     chat.stop();
+  });
+
+  test("the refusal trail keeps each change of refusal in order, with its first and last time", () => {
+    expect(chaos.refusalTrail([
+      { at: 10, text: "connection refused" },
+      { at: 600, text: "connection refused" },
+      { at: 1200, text: "session not restored" },
+    ])).toBe("10-600 ms: connection refused (2); 1200 ms: session not restored (1)");
+  });
+
+  test("the restart timeline reads journal times from the kill, corrected for the machine's clock", () => {
+    // The machine's clock runs 2 s ahead: its @@now is 2 s past when the runner read the answer.
+    const stdout = [
+      "@@now 1000012000",
+      "1000002.500000 vm systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL",
+      "1000005.600000 vm systemd[1]: Started acpmux.service.",
+      "1000007.000000 vm acpmux[42]: INFO ready",
+    ].join("\n");
+    expect(chaos.restartTimeline(stdout, 1000000000, 1000010000)).toBe(
+      "+500 ms systemd[1]: acpmux.service: Main process exited, code=killed, status=9/KILL | +3600 ms systemd[1]: Started acpmux.service. | +5000 ms acpmux[42]: INFO ready",
+    );
+    expect(chaos.restartTimelineCommand(1000000000)).toContain("journalctl --user -u acpmux.service --since @999999");
+  });
+
+  test("the restart timeline merges daemon.log's own times with the journal's, in time order", () => {
+    // 1000000000 ms is 1970-01-12T13:46:40Z; no skew given.
+    const stdout = [
+      "@@now 1000012000",
+      "1000003.000000 vm systemd[1]: Started acpmux.service.",
+      "1970-01-12T13:46:46.000Z  INFO agents may start",
+      "1970-01-12T13:46:44.500Z  INFO acpmux daemon ready",
+      "1970-01-12T13:40:00.000Z  WARN an older daemon's line",
+    ].join("\n");
+    expect(chaos.restartTimeline(stdout, 1000000000)).toBe(
+      "+3000 ms systemd[1]: Started acpmux.service. | +4500 ms INFO acpmux daemon ready | +6000 ms INFO agents may start",
+    );
+  });
+
+  test("the restart status sampler writes a line only when acpmux's answer changes, and the timeline reads it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "crn-sampler-"));
+    const fake = join(dir, "fake");
+    const count = join(dir, "n");
+    writeFileSync(
+      fake,
+      `#!/bin/bash\nn=$(cat ${count} 2>/dev/null || echo 0); echo $((n+1)) > ${count}\nif [ $n -lt 2 ]; then exit 1; elif [ $n -lt 4 ]; then echo '{"pid": 5, "loading": {"phase": "adopt agent hosts"}}'; else echo '{"pid": 5, "ready": true}'; fi\n`,
+    );
+    chmodSync(fake, 0o755);
+    const out = join(dir, "out");
+    const cmd = chaos.restartStatusSampler().replace("seq 120", "seq 7").replace("sleep 0.25", "sleep 0.01").replace(chaos.restartStatusFile(), out).replace(/&$/, "");
+    spawnSync("bash", ["-c", cmd], { env: { ...process.env, c: fake } });
+    const lines = readFileSync(out, "utf8").trim().split("\n");
+    rmSync(dir, { recursive: true, force: true });
+    expect(lines.map((l: string) => l.replace(/^\d+\.\d+ /, ""))).toEqual(['sampler status: no answer', 'sampler status: "phase": "adopt agent hosts" ', 'sampler status: "ready": true']);
+    const zero = Math.round(Number(lines[0].split(" ")[0]) * 1000);
+    expect(chaos.restartTimeline(lines.join("\n"), zero)).toStartWith("+0 ms status: no answer | +");
+    expect(chaos.restartTimelineCommand(1_000_000_000)).toContain(`cat ${chaos.restartStatusFile()}`);
   });
 
   test("no reply within the deadline is null, with the last error", async () => {
@@ -765,4 +860,36 @@ describe("the felt time after a send", () => {
   test("the felt prompt never plays the counting turn", () => {
     expect(new RegExp(countingTurnScript().match).test(chaos.feltMarker("t-0"))).toBe(false);
   });
+});
+
+describe("the machine at a stall", () => {
+  test("names acpmux's queues and the logs' attachment lines, and runs where journalctl is missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "chaos-stall-"));
+    try {
+      const c = join(dir, "c");
+      writeFileSync(c, `#!/bin/sh\nprintf '{"pid":7,\\n"gauges":{"queues":{"connections":3,"bytes":512,"overruns":0,"largest":[]}}}\\n'\n`);
+      chmodSync(c, 0o755);
+      const log = join(dir, ".acpmux");
+      spawnSync("mkdir", ["-p", log]);
+      writeFileSync(join(log, "daemon.log"), "INFO quiet\nWARN conn 4 lagged dropped 12\n");
+      const r = spawnSync("sh", ["-c", `c=${c}; ${chaos.STALL_FACTS_COMMAND}`], { encoding: "utf8", env: { HOME: dir, PATH: "/usr/bin:/bin" } });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain('@@queues "queues":{"connections":3,"bytes":512,"overruns":0');
+      expect(r.stdout).toContain("@@acpmux.service");
+      expect(r.stdout).toContain("@@cmux-host.service");
+      expect(r.stdout).toContain("WARN conn 4 lagged dropped 12");
+      expect(r.stdout).not.toContain("INFO quiet");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+test("the restart timeline names each startup phase of the new daemon at its start", () => {
+  const dir = mkdtempSync(join(tmpdir(), "crn-phases-"));
+  const c = join(dir, "c");
+  writeFileSync(c, `#!/bin/sh\necho '{"result":{"gauges":{"uptimeMs":30000,"startup":[{"name":"adopt agent hosts","atMs":160,"ms":9998}]}}}'\n`, { mode: 0o755 });
+  const out = spawnSync("bash", ["-c", `c=${c}; ${chaos.startupPhasesCommand()}`]).stdout.toString();
+  const zero = Date.now() - 30_000;
+  expect(chaos.restartTimeline(out, zero)).toMatch(/^\+1\d\d ms phase: adopt agent hosts 9998ms$/);
 });

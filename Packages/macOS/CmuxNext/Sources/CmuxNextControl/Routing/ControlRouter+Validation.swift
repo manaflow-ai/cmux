@@ -52,6 +52,7 @@ extension ControlRouter {
             }
             request.background = value
         }
+        request.besideTargetChat = params["beside_chat"]?.boolValue ?? false
         if let rawTarget = params["target"], !rawTarget.isNull {
             request.target = try target(from: rawTarget, allowedKinds: action.targets, knownKinds: knownKinds, action: action.id)
         }

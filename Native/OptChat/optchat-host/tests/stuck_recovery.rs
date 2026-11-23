@@ -64,6 +64,34 @@ fn a_request_too_large_for_the_model_keeps_its_input_as_the_line() {
     );
 }
 
+/// Claude Code's own refusal names no status. Read as transient, 110 such nodes took 8 tries each
+/// and 8 more every `STUCK_RETRY` for a week: about 55 compactor sessions a minute on Leo's
+/// laptop (2026-11-15). The node is built in one call, as for the API's 400.
+#[test]
+fn claude_codes_own_prompt_too_long_builds_the_stand_in_in_one_call() {
+    for message in [
+        "compactor session: Prompt is too long",
+        "compactor session: Prompt is too long · the request is ~1300979 tokens (limit 1000000) \
+         but this conversation is only ~729676 tokens — the rest is system prompt, tool \
+         definitions, and attachment content.",
+    ] {
+        let main = Fails {
+            message: Box::leak(message.to_owned().into_boxed_str()),
+            calls: AtomicUsize::new(0),
+        };
+        let built = build_node(&main, None, &request()).expect("the stand-in, not an error");
+        assert!(built.stand_in, "{built:?}");
+        assert!(built.text.contains("PR 26546"), "{built:?}");
+        assert_eq!(main.calls.load(Ordering::SeqCst), 1, "{message}");
+    }
+    // A transient failure still is one: it is retried, never written over the line.
+    let transient = Fails {
+        message: "starting a compactor session: session/new: no answer within 200 s",
+        calls: AtomicUsize::new(0),
+    };
+    assert!(build_node(&transient, None, &request()).is_err());
+}
+
 #[test]
 fn an_oversized_request_on_both_models_still_builds_the_stand_in() {
     let main = Fails {

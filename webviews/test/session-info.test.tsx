@@ -26,6 +26,7 @@ import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullReq
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 import {
   sessionInfoTopOffset,
   sessionInfoOverChat,
@@ -224,7 +225,7 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 
 const toggle = (container: HTMLElement) =>
   container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Session Info"]');
-const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-session-info");
+const panel = (container: HTMLElement) => container.querySelector<HTMLElement>(SESSION_INFO);
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-session-info-section[data-section="${id}"]`);
 const sectionIds = (container: HTMLElement) =>

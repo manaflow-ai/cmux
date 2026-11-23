@@ -82,12 +82,16 @@
 //! `cmux carrier key --public` prints this device's carrier Noise static
 //! public key on stdout as one line of unpadded base64url (32 bytes, 43
 //! characters), the `carrier.noise_key` a create request carries, and exits
-//! 0. The key is the one dial and serve use: on a Mac the login Keychain
-//! item `com.cmuxterm.app.next.carrier-noise-key` (account `device`), made
-//! the same way when it does not exist yet. Nothing private is printed.
-//! Elsewhere no key lasts past one dial, so it prints nothing on stdout and
-//! writes dial's failure line (`handshake`, exit 5), as it does when the
-//! Keychain refuses. Any other arguments are `bad_request`, exit 64.
+//! 0. The key is the one dial and serve use: on a Mac, for a Team-signed
+//! build, the login Keychain item `com.cmuxterm.app.next.carrier-noise-key`
+//! (account `device`, read with prompts off), and for a build with no Team
+//! ID (an ad-hoc DEV build) the 0600 file
+//! `~/Library/Application Support/cmux-next/builds/<build key>/carrier/noise-key`
+//! ([`noise_key`]); either is made the same way when it does not exist yet.
+//! Nothing private is printed. Elsewhere no key lasts past one dial, so it
+//! prints nothing on stdout and writes dial's failure line (`handshake`,
+//! exit 5), as it does when the store refuses. Any other arguments are
+//! `bad_request`, exit 64.
 //!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
 //! flags and environment and serves the same stream on a Unix socket: one
@@ -141,6 +145,7 @@ mod secrets;
 mod serve;
 mod serve_machine;
 mod serve_policy;
+mod serve_quiet;
 mod source;
 mod ssh;
 mod state_root;
@@ -149,6 +154,7 @@ mod supervise_wire;
 pub(crate) mod tunnel;
 mod tunnel_cli;
 pub(crate) mod tunnel_keeper;
+pub(crate) mod workspace;
 
 use std::io::Write as _;
 use std::path::PathBuf;

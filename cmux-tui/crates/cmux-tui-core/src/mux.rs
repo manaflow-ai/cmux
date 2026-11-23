@@ -240,6 +240,7 @@ pub use agent_presence::{AgentActivity, AgentPresence};
 pub(crate) use agent_prompts::{
     with_agent_list_replies, with_agent_session, with_kept_session, with_last_reply,
 };
+mod agent_notification_delivery;
 mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
@@ -257,8 +258,8 @@ mod layout_types;
 mod layout_undo;
 mod lifecycle;
 pub use layout_types::{
-    AppliedLayout, AppliedPane, Direction, LayoutLeafSpec, LayoutSpec, LayoutUndoError,
-    LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
+    AppliedLayout, AppliedPane, Direction, FloatPaneError, FloatPaneOutcome, LayoutLeafSpec,
+    LayoutSpec, LayoutUndoError, LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
 pub use events::{
@@ -408,7 +409,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };

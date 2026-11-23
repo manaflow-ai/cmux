@@ -8,7 +8,8 @@ import os
 /// (`cmux __adopt-build-homes`, cmux-tui `build_adopt.rs`), the same code
 /// `cmux acp` and `cmux chief` run, so the app and the CLI adopt alike.
 ///
-/// Every start of an acpmux daemon (``AcpmuxDaemonLauncher``), the Chief
+/// Every start of an acpmux daemon of a home it may still change
+/// (``AcpmuxDaemonLauncher``, ``AcpmuxAdoptionGate``), the Chief
 /// owner and the brain host awaits ``adoptBuildHomes()`` first: it runs
 /// once per process, and only in cmux NEXT (a DEBUG build may name NEXT in
 /// `CMUX_NEXT_CHIEF_BUILD_ID`, tests only); every other build returns at once.

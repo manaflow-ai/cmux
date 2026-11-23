@@ -99,7 +99,10 @@ class StatusFromOutside(unittest.TestCase):
         for tier, tested in status.TESTED.items():
             with self.subTest(tier=tier):
                 reporter = all_jobs[f"same-tree-status-{tier}"]
-                self.assertTrue(reporter["if"].replace("${{", "").strip().startswith("always()"))
+                # Runs after a failed or skipped tested job; a cancelled run queues no tail job (#48396), and its
+                # status stays pending (never a pass) until a re-run posts it.
+                self.assertTrue(reporter["if"].replace("${{", "").strip().startswith(("always()", "!cancelled()")),
+                                reporter["if"])
                 self.assertIn("inputs.same_tree_status_sha != ''", reporter["if"])
                 self.assertEqual(set(reporter["needs"]), {"same-tree-cmux-tui", *tested})
                 self.assertEqual(reporter["permissions"].get("statuses"), "write")
@@ -279,12 +282,27 @@ class RateLimitWait(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(slept, [201.0])
 
-    def test_a_reset_past_the_budget_is_red_without_waiting(self):
+    def test_cmux_43659_a_spent_installation_is_waited_out_to_its_reset(self):
+        # hq#11485: the installation's reset was ~50 min away; a 600 s budget gave up at once and the status sat
+        # pending 2.5 h. The wait now runs to the reset, inside the spare token's hour.
         reset = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(int(self.NOW) + 3000)}
+        ok, api, slept, _ = self.post([(403, SPENT, reset), (201, b"{}", {})])
+        self.assertTrue(ok)
+        self.assertEqual((len(api.posts), slept), (2, [3001.0]))
+
+    def test_a_reset_past_the_budget_is_a_no_verdict_red_without_waiting(self):
+        reset = {"x-ratelimit-remaining": "0",
+                 "x-ratelimit-reset": str(int(self.NOW) + status.RATE_LIMIT_BUDGET_S + 100)}
         ok, api, slept, logged = self.post([(403, SPENT, reset), (201, b"{}", {})])
         self.assertFalse(ok)
         self.assertEqual((len(api.posts), slept), (1, []))
         self.assertIn("rate limit", logged[-1])
+        self.assertIn("NO_VERDICT", logged[-1])
+        self.assertIn("re-run this job", logged[-1])
+
+    def test_the_budget_ends_inside_the_spare_tokens_hour(self):
+        self.assertGreaterEqual(status.RATE_LIMIT_BUDGET_S, 3000)
+        self.assertLess(status.RATE_LIMIT_BUDGET_S, 3600)
 
     def test_a_limit_that_never_lifts_is_red_within_the_budget(self):
         ok, api, slept, logged = self.post([(403, SECONDARY, {})] * 50)

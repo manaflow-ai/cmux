@@ -12,6 +12,9 @@ use std::os::fd::{AsRawFd, OwnedFd};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 
+/// The most one local read parses at once.
+const LOCAL_READ_BYTES: usize = 64 * 1024;
+
 pub(super) struct LocalOutput {
     #[cfg(unix)]
     pub(super) descriptor: Option<OwnedFd>,
@@ -81,7 +84,10 @@ impl LocalOutput {
         if journal_target.is_some() && journal_update.is_none() {
             return Ok(0);
         }
-        let mut buf = [0u8; 64 * 1024];
+        // On the heap for this read only, never on the reader's stack: a
+        // 64 KiB stack array stays resident in every reader thread once
+        // zeroed, so 1,000 idle terminals kept 64 MB of it (CMUX-571).
+        let mut buf = vec![0u8; LOCAL_READ_BYTES];
         let n = read(&mut buf)?;
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);
@@ -105,13 +111,19 @@ impl LocalOutput {
             let color_reapply_revision = term.color_reapply_revision();
             let cursor_activity =
                 term.cursor_activity().expect("valid local terminals expose cursor activity");
-            let normalized =
-                crate::prompt_mode_reset::write_output(&mut term, output, &mut self.shell_marks);
+            // One walk of the chunk reads its metadata and rewrites its titles.
+            let (rewritten, notifications) =
+                pty.observe_terminal_output_rewriting_titles(self.shell_marks.titles_mut(), output);
+            terminal_notifications = notifications;
+            let normalized = crate::prompt_mode_reset::write_rewritten_output(
+                &mut term,
+                rewritten,
+                &mut self.shell_marks,
+            );
             #[cfg(unix)]
             if let Some(sink) = self.parsed_sink.as_ref() {
                 sink.confirm_parsed();
             }
-            terminal_notifications = pty.observe_terminal_output(output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade()
                     .map_or(crate::shell_history::Recording::Off, |mux| mux.shell_recording())

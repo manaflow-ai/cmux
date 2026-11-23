@@ -10,6 +10,7 @@ import { setModelMenuWidth } from "./modelMenuWidth";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
+import { MODEL_PICKER } from "./composerSelectors";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
 type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
@@ -377,7 +378,7 @@ const manyProfiles: ModelPickerProps = {
 
 /// The compact list menu: a menu with no rail (a started chat that cannot fork).
 const openQuick: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
@@ -386,7 +387,7 @@ const openColumns = async (ctx: Parameters<Play>[0], width?: number) => {
   // The menu's width is kept for every composer (modelMenuWidth.ts): each state opens at the
   // default unless it names a dragged width, so one state's drag never carries into the next.
   setModelMenuWidth(width);
-  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.click({ selector: MODEL_PICKER });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null);
 };
 
@@ -599,6 +600,9 @@ export default componentEntry<GalleryProps>({
       </UpdateOfferContext.Provider>
     )),
   variants: {
+    "reasoning-column": { props: { ...quick, reasoningMenu: "column", detail: "Medium" }, play: openPicker },
+    "separate-reasoning": { props: { ...quick, reasoningMenu: "separate", detail: "Medium" }, play: openPicker },
+    "model-only": { props: { ...curated, reasoningMenu: "column" }, play: openPicker },
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {
@@ -712,6 +716,20 @@ export default componentEntry<GalleryProps>({
     "started-chat-accounts": { props: startedFork, play: openAccountCard("Anthropic API key") },
     // The columns as the model button opens them, and the same on a short harness list.
     "quick-menu": { props: quick, play: openColumns },
+    // Lawrence 2026-11-19 (clip 3.37.01 PM): "why does the model disappear briefly". "opus 5.5 m" is
+    // "medium" half typed: the list keeps Opus 5.5 instead of flashing No matching models.
+    "search-half-typed-effort": {
+      props: quick,
+      play: async (ctx) => {
+        await openColumns(ctx);
+        await ctx.type("opus 5.5 m", { selector: ".acpmux-cols-search input[type=search]" });
+        await ctx.waitFor(() => {
+          const list = ctx.document.querySelector(".acpmux-cols [role=listbox]");
+          if (list?.querySelector(".acpmux-cols-note")) throw new Error("a half-typed effort word emptied the list");
+          return list?.querySelector("[role=option]");
+        });
+      },
+    },
     "relevant-few": { props: relevantFew, play: openColumns },
     "relevant-many": { props: relevantMany, play: openColumns },
     "reported-claude-menu": { props: reportedClaude, play: openColumns },

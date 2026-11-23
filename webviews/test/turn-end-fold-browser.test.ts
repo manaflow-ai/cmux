@@ -9,6 +9,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -226,33 +227,36 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
 
     // Every painted frame of the running turn: the rows and calls drawn, and any the view showed
     // that left it (a row the virtualizer drops out of view, history above, is not one).
-    await page.evaluate(() => {
-      const seen = { shown: new Set<string>(), calls: new Set<string>(), left: [] as string[], frames: 0 };
-      (window as any).turnEndProbe = seen;
-      window.cmuxAfterPaint(() => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        if (!scroller) return;
-        const view = scroller.getBoundingClientRect();
-        const drawn = new Set<string>();
-        const shown = new Set<string>();
-        // Drawn: laid out with a height (a call inside a closed fold line is not).
-        const note = (key: string, node: HTMLElement) => {
-          const box = node.getBoundingClientRect();
-          if (box.height <= 0) return;
-          drawn.add(key);
-          if (box.bottom > view.top && box.top < view.bottom) shown.add(key);
-        };
-        for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
-          note(`row ${row.dataset.rowId}`, row);
-        for (const call of scroller.querySelectorAll<HTMLElement>("[data-tool-id]"))
-          note(`call ${call.dataset.toolId}`, call);
-        for (const key of seen.shown) if (!drawn.has(key)) seen.left.push(key);
-        seen.shown = shown;
-        seen.calls = new Set([...drawn].filter((key) => key.startsWith("call ")).map((key) => key.slice(5)));
-        seen.frames += 1;
-        return !(window as any).turnEndProbeStop;
-      });
-    });
+    await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const seen = { shown: new Set<string>(), calls: new Set<string>(), left: [] as string[], frames: 0 };
+        (window as any).turnEndProbe = seen;
+        window.cmuxAfterPaint(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (!scroller) return;
+          const view = scroller.getBoundingClientRect();
+          const drawn = new Set<string>();
+          const shown = new Set<string>();
+          // Drawn: laid out with a height (a call inside a closed fold line is not).
+          const note = (key: string, node: HTMLElement) => {
+            const box = node.getBoundingClientRect();
+            if (box.height <= 0) return;
+            drawn.add(key);
+            if (box.bottom > view.top && box.top < view.bottom) shown.add(key);
+          };
+          for (const row of scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW))
+            note(`row ${row.dataset.rowId}`, row);
+          for (const call of scroller.querySelectorAll<HTMLElement>("[data-tool-id]"))
+            note(`call ${call.dataset.toolId}`, call);
+          for (const key of seen.shown) if (!drawn.has(key)) seen.left.push(key);
+          seen.shown = shown;
+          seen.calls = new Set([...drawn].filter((key) => key.startsWith("call ")).map((key) => key.slice(5)));
+          seen.frames += 1;
+          return !(window as any).turnEndProbeStop;
+        });
+      },
+      { TRANSCRIPT_ROW },
+    );
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("Fix the flaky retry test");
     await page.keyboard.press("Enter");
@@ -283,37 +287,40 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
     for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
 
     // The turn ends: every painted frame for a while, where the prompt and the answer are drawn.
-    await page.evaluate(() => {
-      const samples: Sample[] = [];
-      (window as any).turnEndSamples = samples;
-      let frames = 0;
-      window.cmuxAfterPaint(() => {
-        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const view = scroller.getBoundingClientRect();
-        const prompt = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find((row) =>
-          row.textContent?.includes("Fix the flaky retry test"),
-        );
-        const answer = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")].find((row) =>
-          row.textContent?.includes("Fixed: the jitter now stays"),
-        );
-        samples.push({
-          prompt: prompt ? Math.round(prompt.getBoundingClientRect().top - view.top) : NaN,
-          answer: answer ? Math.round(view.bottom - answer.getBoundingClientRect().bottom) : NaN,
-          gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
-          // How much of the folded work is still drawn: the most opaque row showing its first call.
-          work: Math.max(
-            0,
-            ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
-              .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
-              .map((row) => Number(getComputedStyle(row).opacity)),
-          ),
-          worked: Boolean(scroller.querySelector("button.cv-worked")),
-          folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
+    await page.evaluate(
+      ({ TRANSCRIPT_ROW }) => {
+        const samples: Sample[] = [];
+        (window as any).turnEndSamples = samples;
+        let frames = 0;
+        window.cmuxAfterPaint(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const view = scroller.getBoundingClientRect();
+          const prompt = [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].find((row) =>
+            row.textContent?.includes("Fix the flaky retry test"),
+          );
+          const answer = [...scroller.querySelectorAll<HTMLElement>(TRANSCRIPT_ROW)].find((row) =>
+            row.textContent?.includes("Fixed: the jitter now stays"),
+          );
+          samples.push({
+            prompt: prompt ? Math.round(prompt.getBoundingClientRect().top - view.top) : NaN,
+            answer: answer ? Math.round(view.bottom - answer.getBoundingClientRect().bottom) : NaN,
+            gap: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+            // How much of the folded work is still drawn: the most opaque row showing its first call.
+            work: Math.max(
+              0,
+              ...[...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+                .filter((row) => row.querySelector(".cv-tool.is-run") && row.getBoundingClientRect().height > 0)
+                .map((row) => Number(getComputedStyle(row).opacity)),
+            ),
+            worked: Boolean(scroller.querySelector("button.cv-worked")),
+            folding: Boolean(scroller.querySelector("[data-turn-end-folding]")),
+          });
+          frames += 1;
+          return frames < 90;
         });
-        frames += 1;
-        return frames < 90;
-      });
-    });
+      },
+      { TRANSCRIPT_ROW },
+    );
     endTurn!();
     await turnEnded;
     await page.locator("button.cv-worked").first().waitFor();

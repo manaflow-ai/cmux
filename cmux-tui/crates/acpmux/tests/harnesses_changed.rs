@@ -75,6 +75,7 @@ async fn a_new_profile_file_reaches_watchers_as_harnesses_changed() {
         managed: vec![root.join("managed-missing")],
         user_dir: Some(user.clone()),
         cmux_json: Some(root.join("config").join("cmux.json")),
+        person_dir: None,
     };
     write(&root.join("home").join("config.json"), "{}");
     let mut cfg = Config::load_from_with(&root.join("home").join("config.json"), &sources).unwrap();
@@ -157,6 +158,7 @@ async fn a_profile_in_folders_made_after_the_start_reaches_watchers() {
         managed: vec![managed.clone()],
         user_dir: Some(user.clone()),
         cmux_json: Some(config.join("cmux.json")),
+        person_dir: None,
     };
     write(&root.join("config").join("config.json"), "{}");
     let mut cfg =
@@ -204,5 +206,75 @@ async fn a_profile_in_folders_made_after_the_start_reaches_watchers() {
     note_where(&mut rx, changed, wait, |n| names(n).iter().any(|h| h == "latecompany"))
         .await
         .expect("no harnesses_changed after the managed folder's whole path was made");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A folder made on the way to a missing source folder (a `~/.config` made by another program,
+/// with no `cmux` in it yet) changes no profile source: the watch follows it, but the catalog
+/// does not reload. A reload drops every pooled session that warms (`reload_catalog`), so a
+/// Linux daemon whose home or `~/.config` got a new folder lost its warm pool (session_pool on
+/// Linux). A profile written once the whole path exists still reloads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_folder_on_the_way_with_no_profile_does_not_reload_the_catalog() {
+    let root = scratch("on-the-way");
+    let config = root.join("home").join(".config").join("cmux");
+    let user = config.join("harnesses");
+    let sources = ProfileSources {
+        managed: vec![root.join("etc").join("cmux").join("harnesses")],
+        user_dir: Some(user.clone()),
+        cmux_json: Some(config.join("cmux.json")),
+        person_dir: None,
+    };
+    write(&root.join("config").join("config.json"), "{}");
+    let mut cfg =
+        Config::load_from_with(&root.join("config").join("config.json"), &sources).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.start_harness_watch();
+
+    let (tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    tx.send(Message::request(1, method::MUX_WATCH, json!({"enabled": true})).to_line())
+        .await
+        .unwrap();
+    let watching = async {
+        while let Some(line) = rx.recv().await {
+            if let Ok(Message::Response { id, error, .. }) = Message::parse(&line)
+                && serde_json::to_value(&id).ok() == Some(json!(1))
+            {
+                assert!(error.is_none(), "{line}");
+                return;
+            }
+        }
+        panic!("the connection ended before it answered the watch request");
+    };
+    tokio::time::timeout(Duration::from_secs(10), watching).await.expect("no watch answer");
+
+    let changed = method::MUX_HARNESSES_CHANGED;
+    assert!(
+        note_where(&mut rx, changed, Duration::from_millis(1000), |_| true).await.is_none(),
+        "the catalog reloaded with no change at all"
+    );
+    // Each folder on the way, one at a time, and an unrelated one beside them.
+    std::fs::create_dir(root.join("home").join(".config")).unwrap();
+    std::fs::create_dir(root.join("home").join(".cache")).unwrap();
+    std::fs::create_dir(&config).unwrap();
+    std::fs::create_dir(root.join("etc")).unwrap();
+    std::fs::create_dir(root.join("etc").join("cmux")).unwrap();
+    let reload = note_where(&mut rx, changed, Duration::from_millis(1500), |_| true).await;
+    assert!(reload.is_none(), "a folder on the way, with no profile in it, reloaded: {reload:?}");
+
+    std::fs::create_dir(&user).unwrap();
+    write(
+        &user.join("onthewayuser.toml"),
+        "schema = 1\nid = \"onthewayuser\"\nname = \"On The Way\"\ncommand = \"/bin/echo\"\n",
+    );
+    note_where(&mut rx, changed, Duration::from_secs(10), |n| {
+        names(n).iter().any(|h| h == "onthewayuser")
+    })
+    .await
+    .expect("no harnesses_changed after a profile was written once the whole path was made");
     let _ = std::fs::remove_dir_all(&root);
 }

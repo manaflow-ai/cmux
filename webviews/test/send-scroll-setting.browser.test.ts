@@ -8,6 +8,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -120,17 +121,20 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await frames(page, 5);
     await show(page, addReply(rows));
     await frames(page, 6);
-    const after = await page.evaluate(() => {
-      const node = document.querySelector<HTMLElement>('[data-row-id="turn-13-answer"]')! as HTMLElement & {
-        sendScrollMarker?: object;
-      };
-      return {
-        top: node.getBoundingClientRect().top,
-        marker: Boolean(node.sendScrollMarker),
-        jump: document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)")?.hasAttribute("data-shown") ?? false,
-        state: (window as unknown as { __sendState(): { following: boolean; sends: number } }).__sendState(),
-      };
-    });
+    const after = await page.evaluate(
+      ({ JUMP_LATEST }) => {
+        const node = document.querySelector<HTMLElement>('[data-row-id="turn-13-answer"]')! as HTMLElement & {
+          sendScrollMarker?: object;
+        };
+        return {
+          top: node.getBoundingClientRect().top,
+          marker: Boolean(node.sendScrollMarker),
+          jump: document.querySelector(JUMP_LATEST)?.hasAttribute("data-shown") ?? false,
+          state: (window as unknown as { __sendState(): { following: boolean; sends: number } }).__sendState(),
+        };
+      },
+      { JUMP_LATEST },
+    );
     await capture(page, "off-after");
     expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(1);
     expect(after.marker).toBe(true);
