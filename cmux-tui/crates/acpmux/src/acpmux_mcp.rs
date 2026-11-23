@@ -78,9 +78,11 @@ mod goal;
 #[path = "acpmux_mcp_guest.rs"]
 mod guest;
 #[path = "acpmux_mcp_pr.rs"]
-mod pr;
+pub(crate) mod pr;
 /// `pr_state`'s parse of a pull request, which the daemon's poller reads too (`pr_poller.rs`).
 pub(crate) use pr::pr_state;
+#[path = "acpmux_mcp_machine.rs"]
+mod machine;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 #[path = "acpmux_mcp_send_status.rs"]
@@ -105,6 +107,7 @@ pub(crate) fn tools() -> Value {
         list.extend(goal::tools());
         list.extend(watch::tools());
         list.push(send_status::tool());
+        list.extend(machine::tools());
         for tool in list.iter_mut() {
             let named = tool.get("name").and_then(Value::as_str);
             if named.is_some_and(|n| ALWAYS_LOADED.contains(&n)) {
@@ -463,6 +466,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
         name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
+        name if machine::TOOLS.contains(&name) => machine::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
