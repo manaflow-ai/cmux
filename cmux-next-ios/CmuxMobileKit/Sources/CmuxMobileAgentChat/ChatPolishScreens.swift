@@ -297,6 +297,13 @@ struct EventInspectorScreen: View {
             }
         }
         .searchable(text: $filter, prompt: "Filter")
+        #if DEBUG
+        // CAPTURE BASE rig seam (not a behaviour change): the list rig types the filter
+        // (verify/listperf/, `events-filter`), received exactly as #47189's head does.
+        .onChange(of: DemoDirector.shared.serial) {
+            if case .inspectorFilter(let text)? = DemoDirector.shared.command { filter = text }
+        }
+        #endif
         .sensoryFeedback(.success, trigger: copied)
         .navigationTitle("Event Inspector")
         .navigationBarTitleDisplayMode(.inline)
