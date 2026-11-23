@@ -293,7 +293,7 @@ impl Reassembler {
     /// When the earliest missing data shard of `p` is due for a request.
     fn nack_at(p: &Pending, after_us: u64, retry_us: u64) -> Option<u64> {
         (0..usize::from(p.count))
-            .filter(|&i| p.shards[i].is_none())
+            .filter(|&i| p.shards.get(i).is_some_and(Option::is_none))
             .map(|i| Self::shard_nack_at(p, i, after_us, retry_us))
             .min()
     }
@@ -329,16 +329,17 @@ impl Reassembler {
             .map(|(&frame, p)| {
                 let indexes: Vec<u16> = (0..usize::from(p.count))
                     .filter(|&i| {
-                        p.shards[i].is_none()
+                        p.shards.get(i).is_some_and(Option::is_none)
                             && now_us >= Self::shard_nack_at(p, i, after_us, retry_us)
                     })
                     .take(MAX_NACK_INDEXES)
                     .map(|i| i as u16)
                     .collect();
                 for &i in &indexes {
-                    let slot = &mut p.nacked[usize::from(i)];
-                    let times = slot.map_or(0, |m| m.times).saturating_add(1);
-                    *slot = Some(NackMark { at_us: now_us, times });
+                    if let Some(slot) = p.nacked.get_mut(usize::from(i)) {
+                        let times = slot.map_or(0, |m| m.times).saturating_add(1);
+                        *slot = Some(NackMark { at_us: now_us, times });
+                    }
                 }
                 Nack { frame, indexes }
             })
