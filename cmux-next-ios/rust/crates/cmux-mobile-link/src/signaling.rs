@@ -728,7 +728,7 @@ impl Shared {
             return false;
         }
         let sent = *self.link_stat_sent.lock().unwrap_or_else(PoisonError::into_inner);
-        if !sent.is_some_and(|at| at.elapsed() < LINK_STAT_ANSWER_WITHIN) {
+        if sent.is_none_or(|at| at.elapsed() >= LINK_STAT_ANSWER_WITHIN) {
             return false;
         }
         match serde_json::from_str::<SignalMessage>(text) {
