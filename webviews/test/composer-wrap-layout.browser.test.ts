@@ -33,9 +33,23 @@ await requireBrowserLane("composer-wrap-layout.browser.test.ts", async () => {
     // while the box grows upward from it (fieldGrowth.ts; Leo 2026-11-22: "the caret gets shot
     // down past the composer as it goes"): its last line holds still on the bottom edge, not its first
     // on the top. New Tab grows downward from a fixed top, so its text holds the top.
-    { entry: "agent-pane.composer-row", variant: "wrap-one-line", newTab: false, bottom: true, holds: "bottom", capped: true },
+    {
+      entry: "agent-pane.composer-row",
+      variant: "wrap-one-line",
+      newTab: false,
+      bottom: true,
+      holds: "bottom",
+      capped: true,
+    },
     // Codex's prompt has its own two-line floor, so its first line holds the top as New Tab's does.
-    { entry: "agent-pane.composer-look", variant: "codex-grow-line", newTab: false, bottom: true, holds: "top", capped: false },
+    {
+      entry: "agent-pane.composer-look",
+      variant: "codex-grow-line",
+      newTab: false,
+      bottom: true,
+      holds: "top",
+      capped: false,
+    },
   ];
   beforeAll(async () => {
     vite = await createServer({
