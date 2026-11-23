@@ -387,6 +387,15 @@ extension AgentTabStore {
             await client.close()
             return folders
         }
+        tabs.remoteListFolderScoped = { [weak services] key, path, files in
+            guard let services, let (tab, _) = services.locateTab(key.key, onMachine: key.machine),
+                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
+                  daemon.supports(DaemonCapability.agentSessionListDir.rawValue) else { return nil }
+            let client = AgentSessionAttachClient(surface: tab.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon))
+            let data = try? await client.listDirectory(path, files: files)
+            await client.close()
+            return data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        }
         tabs.shareMachineWithMeScoped = { [weak services, weak tabs] key in
             guard let services, let session = services.machines.session(key.machine) else {
                 return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)

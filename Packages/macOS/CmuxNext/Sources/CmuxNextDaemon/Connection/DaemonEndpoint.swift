@@ -391,6 +391,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// `agent-session-folders`: that machine's work folder (`$HOME/work`) and its folders, so a
     /// chat there with no folder starts in the work folder and Choose folder lists that machine's.
     case agentSessionFolders = "agent-session-folders-v1"
+    /// `agent-session-list-dir`: the folders of one folder of that machine's own disk (its folder chooser), so a
+    /// new chat there picks a folder from a list instead of a path typed from memory. Without it the page keeps the typed path.
+    case agentSessionListDir = "agent-session-list-dir-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
@@ -657,7 +660,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .conversationRunAnswers, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionFork, .agentSessionSide, .cloudChatRelay, .agentSessionObserve, .agentSessionStart, .agentSessionStartNoCwd, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionStartPermissionMode, .agentSessionStartMode, .agentSessionTrustVMKind, .agentSessionFolders, .agentSessionListDir,
              .agentSessionChildren, .agentSessionContent, .agentSessionPresence, .agentSessionSettings, .agentSessionLogin, .agentSessionShareEvents, .agentSessionLoginMachine, .agentSessionContext, .agentSessionBtw, .agentSessionPageBytes, .agentSessionSteer, .agentSessionQueueDecision, .agentSessionMember, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,

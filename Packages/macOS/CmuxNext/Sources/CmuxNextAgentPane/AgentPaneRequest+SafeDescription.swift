@@ -69,6 +69,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
         case .completeFolder: "completeFolder"
+        case .listMachineFolder: "listMachineFolder"
         case .agentAvatar: "agentAvatar"
         case .setAgentAvatar: "setAgentAvatar"
         case .removeAgentAvatar: "removeAgentAvatar"

@@ -507,6 +507,11 @@ extension AgentPaneRequest {
         case "folder.complete":
             if let path = params?["path"] as? String, AgentPaneFolderCompletion.isWellFormed(path) { self = .completeFolder(path) }
             else { self = .unsupported(method) }
+        case "machine.folder.list":
+            let path = params?["path"] as? String
+            if path.map({ $0.utf8.count <= 4096 && !$0.contains("\0") }) ?? true {
+                self = .listMachineFolder(path: path, files: params?["files"] as? Bool ?? false)
+            } else { self = .unsupported(method) }
         case "project.icon":
             if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
             else { self = .unsupported(method) }

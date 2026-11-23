@@ -152,6 +152,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `folder.complete {path}`: an absolute folder's subfolders, for the New Tab omnibar's
     /// "Start an agent in a folder" rows (``AgentPaneFolderCompletion``).
     case completeFolder(String)
+    /// `machine.folder.list {path?, files?}`: one folder of the chat's own machine's disk (its daemon's
+    /// `agent-session-list-dir`), for the folder chooser of a chat on another machine; no path starts
+    /// at that machine's work folder. Never this Mac's disk.
+    case listMachineFolder(path: String?, files: Bool)
     /// `agent.avatar {sessionId}`: the person's own avatar for agent session `sessionId`, as a small
     /// data URL, for its cards and sender chip; none answers nothing.
     case agentAvatar(String)
