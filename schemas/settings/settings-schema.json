@@ -55091,6 +55091,8 @@
         "source-sans",
         "geist",
         "cmux-sans",
+        "cmux-sans-squat",
+        "cmux-sans-candy",
         "hanken",
         "atkinson"
       ],
@@ -55166,6 +55168,20 @@
             "text" : "cmux Sans"
           },
           "value" : "cmux-sans"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSansSquat",
+            "text" : "cmux Sans Squat"
+          },
+          "value" : "cmux-sans-squat"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSansCandy",
+            "text" : "cmux Sans Candy"
+          },
+          "value" : "cmux-sans-candy"
         },
         {
           "title" : {
