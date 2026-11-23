@@ -1,6 +1,6 @@
 //! A fresh permission snapshot for the process responsible for this one, and the one request
 //! that asks macOS for a grant. On a Mac the app runs both from the Screen Sharing helper
-//! (`<app> Screen Sharing.app`, started with responsibility disclaimed;
+//! (`<app> Helper.app`, started with responsibility disclaimed;
 //! plans/cmux-next/screen-sharing-helper.md), so macOS checks and names the helper, never the
 //! app: a grant restarts at most the helper, never cmux. A fresh process each time, because a
 //! running one can keep an old Screen Recording answer after the person changes it.
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn a_launch_services_open_is_recognized_only_inside_a_bundle() {
         use std::path::Path;
-        let helper = Path::new("/x/cmux Screen Sharing.app/Contents/MacOS/cmux-screen-sharing");
+        let helper = Path::new("/x/cmux Helper.app/Contents/MacOS/cmux-screen-sharing");
         let cli = Path::new("/usr/local/bin/cmux-rd");
         assert!(crate::is_launch_services_open(&[], helper));
         assert!(crate::is_launch_services_open(&["-psn_0_1234".into()], helper));
