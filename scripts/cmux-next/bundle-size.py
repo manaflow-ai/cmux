@@ -577,7 +577,8 @@ def print_tree(t: dict, top: int) -> None:
 # lands in exactly one category, so the rows add up to the app; the cross-cutting rows (symbols, unwind
 # tables, identical copies) are parts of those files, shown again on their own.
 CEF_FRAMEWORK = "Contents/Frameworks/Chromium Embedded Framework.framework"
-WEBVIEW_ROOTS = ("Contents/Resources/markdown-viewer", "Contents/Resources/code-mode")
+WEBVIEW_ROOTS = ("Contents/Resources/markdown-viewer", "Contents/Resources/code-mode",
+                 "Contents/Resources/code-mode.tar.xz")
 CATEGORIES = (
     ("cef", "CEF (Chromium framework and its helper apps)"),
     ("cmux_tui", "cmux-tui (Resources/bin/cmux: cmux, acpmux, cmux-tui)"),

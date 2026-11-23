@@ -23,9 +23,11 @@ const allCatalogOperations = {
   ...catalog.operations,
   ...cloudCatalog.operations,
 };
+// The packed app's copy runs from the user's cache (bin/cmux-code-mode-unpack); its wrapper,
+// bin/cmux-code-mode-mcp, names the runner beside it.
 const runner = root === sourceRoot
   ? join(root, "scripts/cmux-next/cmux-code-mode-runner")
-  : join(root, "bin/cmux-code-mode-runner");
+  : process.env.CMUX_CODE_MODE_RUNNER || join(root, "bin/cmux-code-mode-runner");
 const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const { DEFAULT_TIMEOUT_MS, timeoutMs } = await import(root === sourceRoot

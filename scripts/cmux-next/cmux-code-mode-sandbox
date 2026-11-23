@@ -22,9 +22,10 @@ bun=$(command -v bun || true)
 if [ -d "$root/cmux-tui/bindings/typescript" ]; then
   sdk="$root/cmux-tui/bindings/typescript"
   catalog="$root/cmux-tui/spec/resource-operations-v2.json"
-elif [ -d "$root/Resources/code-mode/sdk" ]; then
-  sdk="$root/Resources/code-mode/sdk"
-  catalog="$root/Resources/code-mode/resource-operations-v2.json"
+elif [ -d "$root/Resources/code-mode/sdk" ] || [ -f "$root/Resources/code-mode.tar.xz" ]; then
+  code_mode=$("$(dirname -- "$0")/cmux-code-mode-unpack" "$root/Resources")
+  sdk="$code_mode/sdk"
+  catalog="$code_mode/resource-operations-v2.json"
 else
   sdk="$root/code-mode/sdk"
   catalog="$root/code-mode/resource-operations-v2.json"
