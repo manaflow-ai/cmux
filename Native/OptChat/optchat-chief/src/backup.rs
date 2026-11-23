@@ -746,7 +746,7 @@ impl Backup {
             return outcome;
         }
         let retry = retry_delay(self.retries);
-        self.due = Some(Instant::now() + retry);
+        self.due = Some(now + retry);
         self.last_error = Some(error.clone());
         Outcome::Failed { error, retry }
     }
