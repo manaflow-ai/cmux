@@ -177,6 +177,8 @@ mod vm_words;
 #[cfg(unix)]
 mod vnc;
 #[cfg(unix)]
+pub(crate) use app::spawn_daemon_updates;
+#[cfg(unix)]
 pub(crate) use auth_token::{app_token, app_token_in};
 
 /// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
