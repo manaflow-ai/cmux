@@ -35,7 +35,7 @@ env:
 
 jobs:
   fast-guards:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}
     name: CI fast guards
     # This read-only guard runs the same untrusted-source checks as the
     # standard CI route and needs no secrets or write token. Let the shared
@@ -54,7 +54,7 @@ jobs:
       - name: Checkout main runner-pool policy tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: refs/heads/main
           path: .runner-pool-tooling
           sparse-checkout: |
             .github/runners.json
@@ -75,7 +75,7 @@ jobs:
           # On this PR, use the exact head so the checked-out helper exists
           # before the feat branch receives the merge. Once merged, the normal
           # feat branch ref remains the source for later main wiring.
-          ref: ${{ github.event.pull_request.head.sha || 'feat-cmux-next' }}
+          ref: ${{ github.event.pull_request.head.sha || 'refs/heads/feat-cmux-next' }}
           path: .runner-pool-feat
           sparse-checkout: |
             .github/workflows/ci.yml
