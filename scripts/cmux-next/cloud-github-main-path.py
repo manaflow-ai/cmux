@@ -533,7 +533,8 @@ def main() -> None:
         if found:
             return found.group(0)
         browser(tab, "navigate", f"https://github.com/{REPO}/pulls?q=is%3Apr+head%3A{BRANCH}", timeout=30)
-        time.sleep(3)
+        # The PR list loaded: the tab is at the list and the document is complete.
+        poll(20, lambda: "/pulls" in tab_url(tab) and js(tab, "document.readyState") == "complete", step=0.5)
         found = pr_re.search(js(tab, "[...document.querySelectorAll('a[href*=\"/pull/\"]')].map(a => a.href).join(' ')"))
         return found.group(0) if found else None
     url = poll(900, pr_url, step=20)
@@ -548,7 +549,7 @@ def main() -> None:
     if args.close_pr:
         detail += "; closed" if click_text(tab, "button", "^close pull request$") else "; close button not found"
     done(detail)
-    time.sleep(3)  # the PR page in the last frames
+    time.sleep(3)  # sleep-ok: the recording's last 3 s hold the PR page (a recording window)
     finish("pass")
 
 

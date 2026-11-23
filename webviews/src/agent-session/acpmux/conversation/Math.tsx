@@ -11,6 +11,7 @@
 import { useSyncExternalStore } from "react";
 import { installMathCopy } from "./mathCopy";
 import { type KaTeX, typesetTeX } from "./mathModel";
+import { useUnsettledHeight } from "./unsettledHeights";
 
 let katex: KaTeX | null = null;
 const listeners = new Set<() => void>();
@@ -28,9 +29,11 @@ function load() {
     });
 }
 
-/** KaTeX once its chunk has run; components drawing math draw again then. */
+/** KaTeX once its chunk has run; components drawing math draw again then. Until then the math is
+ *  its source, at another height than the typeset equation: an opening chat waits for it
+ *  (unsettledHeights.ts). */
 function useKaTeX(): KaTeX | null {
-  return useSyncExternalStore(
+  const loaded = useSyncExternalStore(
     (listener) => {
       load();
       listeners.add(listener);
@@ -38,6 +41,8 @@ function useKaTeX(): KaTeX | null {
     },
     () => katex,
   );
+  useUnsettledHeight(loaded === null);
+  return loaded;
 }
 
 /** Inline math; `display` for a `$$…$$` written inside a paragraph, centered on its own line. */

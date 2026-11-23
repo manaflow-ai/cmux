@@ -6,6 +6,7 @@ it is not running. Each `daemon` command's `--help` lists every flag and ends wi
 | Task | Command |
 | --- | --- |
 | Status, hosts and the web URL | `cmux agent daemon status` |
+| Its busiest callers (client, pid, session) and methods over a recent window | `cmux agent daemon stats --since 5m` |
 | Start it unless one runs, and wait until it accepts clients | `cmux agent daemon start` |
 | Restart it; hosted sessions resume after | `cmux agent daemon restart` |
 | Stop it; hosted agents keep running for the next daemon | `cmux agent daemon shutdown` |
