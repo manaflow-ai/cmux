@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextSidebar
 import CmuxNextTerminal
 
@@ -35,7 +36,8 @@ extension KeyRouter {
     nonisolated static func keyContext(for focus: FocusState, appContext: ActionContext, facts: Facts) -> KeyContext {
         var bits = appContext.subtracting(ActionContext.focusBits)
         let implied = focus.context
-        if implied.terminal { bits.insert(.terminalFocused) }
+        // A text input outside the named terminal has the keyboard (#52840): the key is that input's.
+        if implied.terminal, !facts.typingOutsideFocusedTerminal { bits.insert(.terminalFocused) }
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
@@ -152,7 +154,18 @@ extension KeyRouter {
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
                      workspacesAsTabs: SidebarTunables.workspacesAsTabsOn,
-                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller),
+                     typingOutsideFocusedTerminal: typingOutsideFocusedTerminal(window, controller: controller))
+    }
+
+    /// The model names a terminal, but `window`'s first responder is a visible, editable text input
+    /// outside it (``KeyFacts/typingOutsideFocusedTerminal``, #52840). Only such an input counts: the
+    /// window itself or no responder (a terminal whose surface is on its way) keeps the terminal's keys.
+    private func typingOutsideFocusedTerminal(_ window: NSWindow, controller: WindowController) -> Bool {
+        guard case .terminal(let pane, _) = controller.focus.state.resolved,
+              let responder = window.firstResponder, responder.ownsTypedText else { return false }
+        guard case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return true }
+        return !entry.session.hasKeyboard(responder)
     }
 
     /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
