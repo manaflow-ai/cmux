@@ -197,4 +197,19 @@ PATH="$tmp/refbin:$PATH" bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail 
 [[ "$(cat "$repo/web/data/next-docs/settings-reference.generated.json")" == '{"settings":"new"}' ]] || fail "a stale settings reference must be regenerated without --docs-shortcuts"
 grep -q '^fixed: regenerated web/data/next-docs/settings-reference.generated.json' "$tmp/out" || fail "a regenerated settings reference must be reported"
 grep -qx 'web/scripts/export-next-docs.ts --settings' "$tmp/bun-args" || fail "the settings reference must be made with export-next-docs.ts --settings only"
+# Re-pin markers the regenerated exports settled are deleted with them (step 1a): an actions/ marker
+# whose id both exports now carry, a removal/ marker whose id neither has. The rest stay.
+pin="$tmp/pin"; pgen="$tmp/pin-generated"; mk=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
+mkdir -p "$pin/plans/cmux-next" "$pin/$mk/actions" "$pin/$mk/removal" "$pgen/plans/cmux-next"
+for f in actions/landed actions/waiting actions/half removal/gone removal/kept; do echo '# note' > "$pin/$mk/$f"; done
+echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-surfaces.json"
+echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"landed"},{"id":"half"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-surfaces.json"
+echo '{"actions":[{"id":"landed"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-catalog.json"
+git -C "$pin" init -q && git -C "$pin" add -A && git -C "$pin" -c user.name=t -c user.email=t@t commit -qm fixture
+bash "$FIX" --no-fmt --generated "$pgen" "$pin" > "$tmp/out" 2>&1 || fail "the fixer must succeed on settled re-pin markers"
+[[ ! -e "$pin/$mk/actions/landed" ]] || fail "an actions marker both regenerated exports carry must be deleted"
+[[ ! -e "$pin/$mk/removal/gone" ]] || fail "a removal marker neither regenerated export has must be deleted"
+for f in actions/waiting actions/half removal/kept; do [[ -e "$pin/$mk/$f" ]] || fail "the unsettled marker $f must stay"; done
+grep -q "^fixed: deleted $mk/actions/landed" "$tmp/out" || fail "a deleted marker must be reported"
 echo "base autofix: ok"

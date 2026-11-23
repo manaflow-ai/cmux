@@ -63,12 +63,56 @@ impl Join {
 /// for this hub: `cloud_join::read_join_credential`) and an `https://` hub origin. The value is
 /// read and dropped; only [`secret_now`] keeps it, for the proxy.
 pub(crate) fn now() -> Option<Join> {
-    let record = crate::machine_record::load().ok()??;
-    let join = Join::of(&record.hub_origin)?;
-    let credential =
-        Zeroizing::new(crate::cli::cloud_join::read_join_credential(join.origin()).ok()?);
+    state().ok().flatten()
+}
+
+/// [`now`] with its reason: `Ok(None)` when this machine never joined (no machine record),
+/// `Err` with the gate's own text when it joined but the join is unusable now (a record that
+/// does not read, a bad hub origin, or `read_join_credential`'s revoked, cloned, other-hub or
+/// malformed answer). A launch that opted in fails with that text rather than run own mode.
+pub(crate) fn state() -> Result<Option<Join>, String> {
+    let record = match crate::machine_record::load() {
+        Ok(Some(record)) => record,
+        Ok(None) => return Ok(None),
+        Err(error) => return Err(format!("the machine credential does not read: {error:#}")),
+    };
+    let join = Join::of(&record.hub_origin).ok_or_else(|| {
+        format!(
+            "the joined hub origin {:?} is not an https origin with a DNS host",
+            record.hub_origin
+        )
+    })?;
+    let credential = Zeroizing::new(
+        crate::cli::cloud_join::read_join_credential(join.origin())
+            .map_err(|error| format!("{error:#}"))?,
+    );
     drop(credential);
-    Some(join)
+    Ok(Some(join))
+}
+
+/// The launch error of a Claude launch on a joined machine with no sign-in of its own, no
+/// `CMUX_CLAUDE_AUTH` pin and no recorded choice: what is missing and the one fix. The choice
+/// file is what `cr use team claude` writes on a Cloud machine; a joined machine has no `cr use`.
+pub(crate) fn no_sign_in() -> String {
+    let file = format!("~/{}/claude", crate::codex_cloud_auth::CHOICE_DIR);
+    let dir = format!("~/{}", crate::codex_cloud_auth::CHOICE_DIR);
+    format!(
+        "This machine is joined to your team but has no Claude sign-in of its own and no choice \
+recorded. To use your team's model route, run `mkdir -p {dir} && echo team > {file}` (what `cr \
+use team claude` records on a cmux Cloud machine), or sign in to Claude here."
+    )
+}
+
+/// The launch error of a launch that chose the team's route (`CMUX_<AGENT>_AUTH=team` or the
+/// recorded choice `team`) on a joined machine whose route declined it, with `why`, the gate's
+/// own text.
+pub(crate) fn declined_text(agent: &str, why: &str) -> String {
+    let upper = agent.to_ascii_uppercase();
+    let file = format!("~/{}/{agent}", crate::codex_cloud_auth::CHOICE_DIR);
+    format!(
+        "This launch chose your team's model route (`team` in CMUX_{upper}_AUTH or {file}), but \
+this joined machine cannot use it: {why}."
+    )
 }
 
 /// The proxy's entry for `join`: `value` allowed only toward the hub origin's host.

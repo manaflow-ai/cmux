@@ -510,7 +510,7 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         self.assertFalse(published.exists())
 
     def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
-        """The commit's earlier publication attests acpmux for the four Unix targets."""
+        """The commit's earlier publication attests acpmux for the four Unix targets and cmux-rd."""
         self.box.build("1")
         self.assertEqual(self.box.run(self.upload).returncode, 0)
         list_names = lambda flag: subprocess.check_output(
@@ -533,10 +533,11 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         return result, commit, self.box.r2 / "cmux-tui" / "tree" / ("a" * 40), acpmux
 
     def test_a_new_tree_carries_the_commit_acpmux_in_completion_json(self) -> None:
-        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin.
+        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin, and cmux-rd
+        # with its notices for x86_64/aarch64 glibc.
         result, commit, published, acpmux = self.publish_tree_with_acpmux()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(acpmux), 4)
+        self.assertEqual(len(acpmux), 8)
         gate = json.loads((published / "completion.json").read_text())["binaries"]
         for n in acpmux:
             self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)

@@ -115,3 +115,73 @@ async fn a_start_for_an_agents_message_asks_for_no_suggestions_and_a_persons_doe
     );
     assert_eq!(asked(woken).as_deref(), Some("true"), "the person's start asked for none: {all:?}");
 }
+
+/// One answered Claude chat on a daemon with a 10-minute idle period, restarted so the next
+/// daemon adopts its host, after its meta is rewritten as an older daemon left it: no level it
+/// started the host at (`SessionMeta::start_level`). The host itself is this build's. That is a
+/// host started while an update waited out its restart window: the new binary in place, the old
+/// daemon still running. `person`: the person creates the chat. Returns the daemon, the chat and
+/// its harness.
+async fn chat_an_older_daemon_started(tag: &str, person: bool) -> (Daemon, String, i64) {
+    let mut daemon = Daemon::claude_router(tag, &[]);
+    if person {
+        daemon.sigterm();
+        daemon.key = Some(PROVEN_KEY.to_owned());
+        daemon.start();
+    }
+    let mut rpc = daemon.rpc().await;
+    if person {
+        prove(&mut rpc).await;
+    }
+    let created = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
+    let session = created["sessionId"].as_str().expect("session id").to_owned();
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    let answer = rpc.call("session/prompt", prompt).await;
+    assert_eq!(answer["stopReason"], "end_turn", "the first prompt was not answered: {answer}");
+    let record = daemon.host_record(&session);
+    assert_eq!(record["host_level"], acpmux::agent_host::HOST_LEVEL, "the host is this build's");
+    let harness = record["harness_pid"].as_i64().unwrap();
+    drop(rpc);
+    daemon.sigterm();
+    let path = daemon.saved_meta_path(&session);
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("startLevel");
+    std::fs::write(&path, meta.to_string()).unwrap();
+    daemon.env.push(("ACPMUX_IDLE_CHILD_SECS".into(), "600".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    (daemon, session, harness)
+}
+
+/// Red on the base: a script's chat whose host an older daemon started kept it, and with it a
+/// next-prompt suggestion after every turn, until its idle period: its host's record says this
+/// build's level. On one lane every start until 20:37Z asked for suggestions, about 80 minutes
+/// after its new binary came (sr2 audit, 2026-11-21). It moves at its next idle point and its next
+/// start is this daemon's.
+#[tokio::test]
+async fn a_scripts_chat_on_a_host_an_older_daemon_started_moves_at_its_next_idle_point() {
+    let (daemon, session, harness) = chat_an_older_daemon_started("hlstart", false).await;
+    let moved = gone_within(harness, Duration::from_secs(30));
+    if !moved {
+        daemon.rpc().await.call("_acpmux/kill", json!({"sessionId": session})).await;
+    }
+    assert!(moved, "a host an older daemon started kept a script's chat while idle");
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "again"}]});
+    let answer = daemon.rpc().await.call("session/prompt", prompt).await;
+    assert_eq!(answer["stopReason"], "end_turn", "the moved chat did not answer: {answer}");
+    let record = daemon.host_record(&session);
+    assert_ne!(record["harness_pid"].as_i64().unwrap(), harness, "no new harness answered");
+    daemon.rpc().await.call("_acpmux/kill", json!({"sessionId": session})).await;
+}
+
+/// A person's chat on such a host stays up until its idle period: its start asked for the
+/// suggestions the person gets anyway, so a move would only cost them a cold start.
+#[tokio::test]
+async fn a_persons_chat_on_a_host_an_older_daemon_started_stays_up() {
+    let (daemon, session, harness) = chat_an_older_daemon_started("hlstartp", true).await;
+    // Longer than the move's 10 s, far shorter than the 10-minute idle period.
+    std::thread::sleep(Duration::from_secs(20));
+    let kept = alive(harness);
+    daemon.rpc().await.call("_acpmux/kill", json!({"sessionId": session})).await;
+    assert!(kept, "a person's chat was moved off a host of this build");
+}

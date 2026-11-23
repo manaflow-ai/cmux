@@ -8,7 +8,7 @@
 //
 // It writes results.json and table.md (a Markdown table for a PR body) and prints a GitHub
 // `::warning::` for each budget a scenario exceeds. It exits 0 unless --strict. It is a lane-run
-// budget, not a CI gate (CLAUDE.md: no new CI gates or budgets): run it yourself before and after a
+// budget, not a CI gate (the 2026-10-23 no-new-CI rule, since lifted): run it yourself before and after a
 // change, on the fleet (`cmux-ci test ...`, see ENTRIES.md), never on a laptop.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
