@@ -2,7 +2,7 @@ public import Foundation
 public import WebKit
 import os
 
-private let hangLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
+nonisolated private let hangLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
 
 /// A WebKit page whose web content process stopped answering shows "Page unresponsive" with Wait and Exit
 /// page, as a Chromium one does (`CEFTab.answerUnresponsivePage`).
@@ -12,7 +12,7 @@ private let hangLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "w
 /// its last frame with no notice and no way out but closing the tab: a reload goes to the same hung process.
 /// WebKit's responsiveness timer reports the hang through its private navigation delegate calls below
 /// (`WKNavigationDelegatePrivate`); Exit page ends the process (`_killWebContentProcess`), which shows the
-/// sad tab with Reload.
+/// sad tab with Reload, and stays there: a page that hung while loading would hang again on a reload.
 extension WebKitTab: BrowserHangAnswering {
     /// WebKit's responsiveness timer saw no answer from the page's web content process.
     @objc(_webViewWebProcessDidBecomeUnresponsive:)
@@ -35,12 +35,13 @@ extension WebKitTab: BrowserHangAnswering {
     /// WebKit reports a hang only when the process stops answering, never again while it stays hung, so a page
     /// still hung then shows the notice again rather than staying stuck with no way out. Exit page ends the
     /// page's web content process (and any page sharing it, which hangs with it), and its end
-    /// (`webContentProcessEnded`) shows the sad tab with Reload.
+    /// (`webContentProcessEnded`) shows the sad tab with Reload: the person's end, so no automatic reload
+    /// follows even under memory pressure.
     public func answerUnresponsivePage(terminate: Bool) {
         guard state.isUnresponsive else { return }
         guard terminate else {
             apply(.unresponsiveChanged(false))
-            hangRecheck.schedule(after: hangRecheckDelay) { @MainActor [weak self] in
+            hangRecheck.schedule(after: Self.hangRecheckDelay) { @MainActor [weak self] in
                 guard let self, !self.isClosed, self.state.processExit == nil, !self.webProcessIsResponsive else { return }
                 self.apply(.unresponsiveChanged(true))
             }
@@ -55,12 +56,15 @@ extension WebKitTab: BrowserHangAnswering {
             return reload()
         }
         hangLogger.error("ending unresponsive web content process tab=\(self.id.rawValue, privacy: .public)")
+        endedByPerson = true
         webView.perform(kill)
     }
 
+    /// How long after Wait the page is looked at again.
+    static let hangRecheckDelay: Duration = .seconds(10)
+
     /// Whether the page's web content process answers now (WebKit's `_webProcessIsResponsive`).
     var webProcessIsResponsive: Bool {
-        if let webProcessIsResponsiveOverride { return webProcessIsResponsiveOverride() }
         // crash-allow: WebKit SPI, read only after webView.responds(to:) (no unknown-key exception).
         guard webView.responds(to: NSSelectorFromString("_webProcessIsResponsive")) else { return true }
         // crash-allow: KVC read of the WebKit SPI key just checked with responds(to:) (no undefined-key exception).
