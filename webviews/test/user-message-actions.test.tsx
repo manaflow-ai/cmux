@@ -253,7 +253,12 @@ test("a chat that cannot fork at an earlier prompt shows Fork there dimmed, sayi
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy", "Fork from here: This agent can fork only from its latest reply", "Save as Prompt"]);
+  expect(labels()).toEqual([
+    "just now",
+    "Copy",
+    "Fork from here: This agent can fork only from its latest reply",
+    "Save as Prompt",
+  ]);
   const fork = host.querySelector<HTMLButtonElement>(".cv-fork-button")!;
   expect(fork.dataset.forkState).toBe("unavailable");
   expect(fork.getAttribute("aria-disabled")).toBe("true");
