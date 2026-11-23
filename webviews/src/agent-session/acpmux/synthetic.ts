@@ -42,10 +42,11 @@ export function syntheticRows(count: number, mix: "mixed" | "short" = "mixed"): 
 /// resize bench uses it to keep the disclosure-control scan on the measured path.
 export function workedResizeRows(count: number): AcpmuxRow[] {
   const rows: AcpmuxRow[] = syntheticRows(Math.floor(count / 2));
+  const baseAt = (rows.length + 1) * 1_000;
   rows.push({
     id: "worked-resize-user",
     version: 1,
-    at: 1_000,
+    at: baseAt,
     kind: "user",
     text: "Keep working through this long task.",
   });
@@ -56,7 +57,7 @@ export function workedResizeRows(count: number): AcpmuxRow[] {
       {
         id: `${id}-activity`,
         version: 1,
-        at: (index + 2) * 1_000,
+        at: baseAt + (index + 1) * 1_000,
         kind: "activity",
         toolCount: 1,
         items: [
@@ -70,7 +71,7 @@ export function workedResizeRows(count: number): AcpmuxRow[] {
       {
         id: `${id}-commentary`,
         version: 1,
-        at: (index + 2) * 1_000 + 500,
+        at: baseAt + (index + 1) * 1_000 + 500,
         kind: "assistant",
         assistantPhase: "commentary",
         text: `Progress update ${index}: the task is still moving through its settled work.`,
@@ -81,14 +82,14 @@ export function workedResizeRows(count: number): AcpmuxRow[] {
     {
       id: "worked-resize-answer",
       version: 1,
-      at: (steps + 2) * 1_000,
+      at: baseAt + (steps + 1) * 1_000,
       kind: "assistant",
       text: "The long task is complete.",
     },
     {
       id: "worked-resize-summary",
       version: 1,
-      at: (steps + 3) * 1_000,
+      at: baseAt + (steps + 2) * 1_000,
       kind: "turnSummary",
       durationMs: steps * 1_000,
       toolCount: steps,
