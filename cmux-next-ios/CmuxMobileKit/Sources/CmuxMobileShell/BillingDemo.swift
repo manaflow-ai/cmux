@@ -51,10 +51,22 @@ private actor DemoBillingServer: BillingAPI {
 
     func accountToken() async throws -> BillingAccount {
         let sellsNothing = ["unavailable", "testflight", "testflight-free"].contains(state)
-        let products = sellsNothing ? [] : [BillingPlanID.go, .pro, .max].flatMap { plan in
-            BillingPeriod.allCases.map { period in
-                BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).\(period.rawValue)",
-                                        planID: plan, billingPeriod: period)
+        // Capture-only (cmux#50896): `next-free` is what that PR's server answers a
+        // cmux-next bundle: the NEXT plans, highest first, monthly only
+        // (web/services/billing/apple/config.ts APPLE_NEXT_PLAN_IDS, APPLE_PLAN_BILLING_PERIODS).
+        let products: [BillingProductReference] = if sellsNothing {
+            []
+        } else if state == "next-free" {
+            [BillingPlanID.nextMax, .nextPro, .nextPlus].map { plan in
+                BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).monthly",
+                                        planID: plan, billingPeriod: .monthly)
+            }
+        } else {
+            [BillingPlanID.go, .pro, .max].flatMap { plan in
+                BillingPeriod.allCases.map { period in
+                    BillingProductReference(productID: "\(bundleIdentifier).\(plan.rawValue).\(period.rawValue)",
+                                            planID: plan, billingPeriod: period)
+                }
             }
         }
         let reason: BillingIneligibilityReason? = switch state {
@@ -80,6 +92,8 @@ private struct DemoStoreKit: StoreKitClient {
     /// Server list prices: monthly, and yearly at 9.6× (`appleUsdListPrice`).
     private static let prices: [String: (name: String, monthly: String, yearly: String)] = [
         "go": ("Go", "14.99", "143.90"), "pro": ("Pro", "74.99", "719.90"), "max": ("Max", "299.99", "2879.90"),
+        "next_plus": ("Plus", "29.99", "287.90"), "next_pro": ("Pro", "74.99", "719.90"),
+        "next_max": ("Max", "299.99", "2879.90"),
     ]
 
     func products(for ids: [String]) async throws -> [StoreProduct] {
