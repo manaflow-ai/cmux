@@ -156,7 +156,10 @@ class Declared(unittest.TestCase):
         for label in sorted(runner_pools.PERSISTENT_LINUX_POOL_LABELS):
             with self.subTest(label=label):
                 self.assertEqual(runner_pools.mirror_problems({"LINUX_RUNNER": label}, pools, record=None), [])
-                self.assertNotIn(label, runner_pools.members(pools["linux"]))
+                # The owned GCP label (OWNED_GCP_LINUX) leads pools.linux by design and overflows when full
+                # (#49556); every other persistent label stays out.
+                if not runner_pools.owned_gcp(label):
+                    self.assertNotIn(label, runner_pools.members(pools["linux"]))
         self.assertTrue(runner_pools.mirror_problems({"LINUX_RUNNER": "glaeda-linux-arm64"}, pools, record=None))
 
     def test_an_owned_linux_vm_label_may_only_lead_a_pool_with_blacksmith_after_it(self) -> None:
@@ -449,7 +452,9 @@ class Evidence(unittest.TestCase):
                 pools = runner_pools.load_pools()
                 value, _ = runner_pools.reconcile({}, pools, dead_now=dead, served_now=started, now=NOW,
                                                   covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
-                self.assertEqual(value["linux"], "blacksmith-4vcpu-ubuntu-2404")
+                # A full GCP pool overflows to the Freestyle rung first (OWNED_FREESTYLE_LINUX); a pool too big for
+                # its 8 vCPU VMs goes straight to Blacksmith. Leo, 2026-11-19: "stop ... relying on it".
+                self.assertEqual(value["linux"], "cmux-freestyle-linux-x64")
                 self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
 
     def test_idle_runners_do_not_count_before_the_stall_cutoff_and_a_bad_reading_keeps_the_queue_rule(self) -> None:
