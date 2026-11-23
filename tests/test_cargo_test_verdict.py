@@ -242,7 +242,8 @@ class Scope(unittest.TestCase):
         changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-computer-use/SKILL.md", "cmux-tui/Cargo.lock",
                    "README.md", "webviews/src/app.tsx", "cmux-tui/crates/ghostty-vt/src/lib.rs"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, changed), changed[:3])
-        gates = ["scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/pr03d.gates"]
+        gates = ["scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/tests/run-v2-gates.test.sh",
+                 "scripts/cmux-next/v2-gates.d/pr03d.gates"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, gates), gates)  # read at test time
         self.assertEqual(verdict.touches(ROOT, "cmux-tui/crates/cmux-host", gates), [])
 
