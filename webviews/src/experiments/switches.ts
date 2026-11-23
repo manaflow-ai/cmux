@@ -38,5 +38,7 @@ function subscribe(listener: () => void) {
 
 /// Whether switch `name` is on; re-renders when the person flips it.
 export function useExperimentSwitch(name: string): boolean {
-  return useSyncExternalStore(subscribe, () => current[name] === true);
+  const on = () => current[name] === true;
+  // The same value on a server render: the transcript renders rows to strings (renderToString).
+  return useSyncExternalStore(subscribe, on, on);
 }
