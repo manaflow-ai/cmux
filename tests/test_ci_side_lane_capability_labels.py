@@ -54,7 +54,6 @@ ENV_COPY = {
     "cmux-next.yml#release-compile": "CMUX_NEXT_RUNNER",
     "cmux-next.yml#cmux-scheme-compile": "CMUX_NEXT_RUNNER",
     "cmux-next.yml#dev-landing-compile": "CMUX_NEXT_RUNNER",
-    "iroh-v2.yml#client": "REQUESTED_RUNNER",
 }
 # Arrays the variable may hold: what a std side job needs today (any side runner with Xcode 26.6; every one
 # has at least 16 GiB, the measured std footprint), and a job that needs a 48 GiB host.
