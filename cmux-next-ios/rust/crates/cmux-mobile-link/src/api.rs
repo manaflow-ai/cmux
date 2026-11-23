@@ -260,6 +260,23 @@ impl ApiClient {
         Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
     }
 
+    /// `POST /v1/devices/:deviceId/retract` (PROTOCOL.md "Retracting a resolved push"): the
+    /// pushes in `body` (`{clear: [{eventId, kind, sessionId?}]}`) were resolved, so the phones
+    /// that got them remove them. An older backend answers 404, which changes nothing.
+    pub async fn retract_body(
+        &self,
+        mac_device_id: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ApiError> {
+        let response = self
+            .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/retract"))
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| ApiError::Http(e.to_string()))?;
+        Self::check(response).await?.json().await.map_err(|e| ApiError::Http(e.to_string()))
+    }
+
     /// `GET /v1/me/devices`: every device the caller registered.
     pub async fn my_devices(&self) -> Result<Vec<MyDevice>, ApiError> {
         #[derive(Deserialize)]
