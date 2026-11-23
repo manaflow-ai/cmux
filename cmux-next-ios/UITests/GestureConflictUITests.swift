@@ -60,6 +60,28 @@ final class GestureConflictUITests: XCTestCase {
         attach(app, "short-after-swipe")
     }
 
+    /// The third cell: a long draft scrolled back to its top has nothing left to scroll down to,
+    /// so the next swipe down lowers the keyboard (the text keeps every drag until then).
+    @MainActor
+    func testChat_ComposerLongDraftAtTop_SwipeDown_LowersKeyboard() {
+        let app = launch(demo: "kbd-chat")
+        let field = openChatComposer(app)
+        field.typeText(Self.longDraft)
+        let top = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1))
+        let bottom = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
+        // Scroll the draft to its start; each drag is the text's, so the keyboard stays.
+        for _ in 0..<4 where app.keyboards.firstMatch.exists {
+            top.press(forDuration: 0.05, thenDragTo: bottom, withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "scrolling the draft to its top keeps the keyboard up")
+        attach(app, "long-at-top")
+        let start = field.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .fast,
+                    thenHoldForDuration: 0)
+        expect(app.keyboards.firstMatch, "exists == false", "a swipe down on a draft at its top lowers the keyboard")
+        attach(app, "long-at-top-after-swipe")
+    }
+
     // MARK: Back swipe: never from text being edited
 
     /// A rightward drag inside the terminal composer while editing moves the caret or selects;
