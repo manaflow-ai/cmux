@@ -59,7 +59,7 @@ def route_inputs() -> dict[str, frozenset[str]] | None:
 
 
 def plain_documentation(path: str) -> bool:
-    if path.startswith("skills/cmux-cua/") or path == "docs/cli-contract.md":
+    if path.startswith("skills/cmux-computer-use/") or path == "docs/cli-contract.md":
         return False
     name = path.rsplit("/", 1)[-1]
     if name in {"AGENTS.md", "CLAUDE.md"}:
@@ -154,11 +154,11 @@ RELEASE_NOTARY_INPUTS = (
     # The What's New highlights validator (scripts/whats-new/test_digest.py) reads the repository's highlights;
     # the nightly-next identity test reads retired-feed-announcements.json.
     "release-notes/",
-    # The live feed check reads the update ring, the feed resolver and the generated update settings; the
+    # The live feed check reads the update ring, the feed resolver and the update settings source; the
     # nightly-next identity test reads the release push listener (the Sparkle appcast client lives beside it).
     "Packages/macOS/CmuxUpdater/",
     "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+    "schemas/settings/source/updates.json",
     # The notices pair test runs the nightly's notices precondition on a clone of these at HEAD.
     "cmux-tui/dist/",
     "cmux-tui/build-support/notices/",

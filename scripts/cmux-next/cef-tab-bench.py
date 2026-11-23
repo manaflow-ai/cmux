@@ -23,8 +23,8 @@ refresh period. The summary gives p50/p95/max per case and the refresh rate: jud
 Three arms of the new Chromium tab (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
 visible_ms, page_ms and key_ms:
 
-  warm   the light cold_pane runs: Cmd-Shift-L in a fresh pane after `settle()` (1.2 s), so the spare
-         Chromium window is ready
+  warm   the light cold_pane runs: Cmd-Shift-L in a fresh pane after `settle()` (until the spare
+         Chromium window is live)
   quick  two quick presses, per round in a fresh terminal workspace: Cmd-Shift-L (debug.key, not timed), then at
          once the timed Cmd-Shift-L, with no wait for the spare window to refill
   cold   cold, no wait: the launch's first Cmd-Shift-L right after the socket answers (no first-workspace wait,
@@ -37,7 +37,7 @@ The bench's HEADLINE is the WORST arm (a missed run first, else the highest p95,
 60 workspaces, the measured one 14 panes x 6 tabs, 10 others with Chromium pages, 10 printing
 terminals) and runs the cases that need no split in the measured workspace's focused pane.
 
-Not a CI gate (Lawrence 2026-10-23): run it yourself on a fleet GUI host, before and after a change:
+Not a CI gate (Lawrence 2026-10-23, since lifted): run it yourself on a fleet GUI host, before and after a change:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-tab-bench.py --tag "$NX_APP_TAG" --app "$NX_APP" --out "$NX_ARTIFACTS" --sessions light,stress
 or, building the app in the step:
@@ -51,6 +51,7 @@ import argparse, glob, json, os, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # bench_arms, also under `python3 -I`
 import bench_arms  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -66,7 +67,9 @@ parser.add_argument("--arms", default="warm,quick,cold",
 parser.add_argument("--budget-ms", type=float, default=10.0, help="visible p95 target (reported, not enforced)")
 parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
                     help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
-parser.add_argument("--type", default="exa",
+parser.add_argument("--inactive", action="store_true",
+                    help="type with the app inactive and no key window, as the fleet launches it (no person can type so)")
+parser.add_argument("--type", default="qwz",
                     help="characters typed at once after each blank Cmd-Shift-L, through the real key path: focus_ms (the omnibar edits, as "
                          "first responder), typed_ms (it shows them) and typed_text (a key lost or typed twice); empty: none")
 parser.add_argument("--out", default="/tmp")
@@ -171,8 +174,28 @@ def terminal_workspace(name):
     if isinstance(reply, dict) and reply.get("error"):
         print("newTab:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
-    time.sleep(0.8)  # test harness: shell prompt
+    shell_prompt("the new workspace's shell prompt")
     return ok
+
+
+def shell_prompt(what):
+    """Until the focused terminal shows text (the shell's prompt) and it holds still. Best effort: a pane that shows a
+    New Tab page has no text to read, and a timeout is logged."""
+    if (focused() or {}).get("kind") != "terminal":
+        return
+    read = lambda: ((rpc("surface.read_text") or {}).get("text") or "").rstrip()
+    if wait_until(read, what, timeout=10, interval=0.05, raise_on_timeout=False) is None:
+        print(f"no text in the terminal: {what}", flush=True)
+        return
+    wait_stable(read, what, timeout=10, interval=0.1, reads=3, raise_on_timeout=False)
+
+
+def web_pages():
+    """Chromium web pages the app holds (not its own cmux-page:// views); None in a build without debug.cef_pages."""
+    pages = (rpc("debug.cef_pages") or {}).get("pages")
+    if not isinstance(pages, list):
+        return None
+    return sum(1 for p in pages if not str(p.get("origin", "")).startswith("cmux-page://"))
 
 
 def split(window):
@@ -180,18 +203,27 @@ def split(window):
     before = {p.get("pane") for p in panes()}
     key("d", ["command"], window)
     ok = wait(lambda: (focused() or {}).get("pane") not in before and len(panes()) > len(before), 15)
-    time.sleep(0.6)  # test harness: shell prompt in the new pane
+    shell_prompt("the shell prompt in the new pane")
     return ok
 
 
 def settle():
-    time.sleep(1.2)  # test harness: the page loads and Chromium goes idle before the next input
+    """Before the next input: the spare Chromium window is live again (the next press finds it ready). Best effort:
+    a build or tunable with no spare never says live, which is logged."""
+    state = lambda: (rpc("debug.cef") or {}).get("spare_window")
+    if wait_until(lambda: state() == "live", "a live spare Chromium window", timeout=15, interval=0.05,
+                  raise_on_timeout=False) is None:
+        print(f"settle: spare_window={state()!r}, not live after 15 s", flush=True)
 
 
 def create(params, case, session, rnd, arm=None):
     """One timed `bench_create` (the key goes through the real key path in the app), annotated and printed."""
     if opts.type and not params.get("url") and not params.get("type"):
         params = {**params, "type": opts.type}
+    if params.get("type") and not opts.inactive:
+        # A person types into an active app with a key window: an inactive app (the fleet launch) drops the replayed keys
+        # of its first cold Chromium tab (round 0, a1227 probes A/B), which no person can hit.
+        rpc("debug.window.focus", {"window": window_key(), "activate": True})
     result = rpc("debug.new_tab", params, timeout=30) or {}
     result.update(result.get("omnibar") or {})  # focus_ms, typed_ms, typed_text, focused_at_end
     result.update({"case": case, "session": session, "round": rnd})
@@ -203,7 +235,7 @@ def create(params, case, session, rnd, arm=None):
     print(f"{session} r{rnd} {case}: engine={result.get('engine')} key={result.get('key_ms')} "
           f"visible={result.get('visible_ms')} (frame {result['visible_frame']}) chrome={result.get('chrome_ms')} focus={result.get('focus_ms')} typed={result.get('typed_ms')} "
           f"text={result.get('typed_text')!r} focused_end={result.get('focused_at_end')} page={result.get('page_ms')} "
-          f"spare_after={result.get('spare_window')} confirmed={result.get('confirmed_ms')} "
+          f"spare_after={result.get('spare_window')} webkit_spare={result.get('webkit_spare')}/{result.get('webkit_spare_taken')} confirmed={result.get('confirmed_ms')} "
           f"refresh={(result.get('frames') or {}).get('refresh_ms')} "
           f"spans={[(s['name'], round(s['at'], 1), round(s['ms'], 1)) for s in spans][:12]} err={result.get('error')}", flush=True)
     return result
@@ -268,8 +300,16 @@ def arm_cold_launch(window):
 
 
 def close_workspace():
+    before_panes = {p.get("pane") for p in panes()}
+    before_pages = web_pages()
     action("closeWorkspace", {"confirm": True})
-    time.sleep(0.8)  # test harness: the workspace's pages close
+    # The workspace's panes leave the window, then its Chromium pages close (their count drops and holds).
+    wait_until(lambda: not before_panes & {p.get("pane") for p in panes()}, "the closed workspace's panes to go",
+               timeout=15, raise_on_timeout=False)
+    if before_pages:
+        wait_until(lambda: (web_pages() or 0) < before_pages, "the closed workspace's pages to close", timeout=15,
+                   raise_on_timeout=False)
+    wait_stable(web_pages, "the page count after the close", timeout=10, interval=0.1, reads=3, raise_on_timeout=False)
 
 
 def arm_samples(rows, metric):
@@ -356,10 +396,16 @@ def spare_cost():
     live = wait(lambda: (rpc("debug.cef") or {}).get("spare_window") == "live", 60, step=0.5)
     if not live:
         return {"spare": (rpc("debug.cef") or {}).get("spare_window"), "note": "no live spare"}
-    time.sleep(3)  # test harness: the spare's renderer settles
+    # The spare's renderer settles: the process count and resident memory (5 MB steps) hold for 2 s.
+    steady = lambda: (lambda mb, count: (count, round(mb / 5)))(*app_rss_mb())
+    wait_stable(steady, "the app's memory with the spare up", timeout=30, interval=0.5, reads=5, raise_on_timeout=False)
     with_spare = app_rss_mb()
     rpc("debug.cef", {"drop_spare": True})
-    time.sleep(5)  # test harness: the spare's renderer exits
+    # The spare's renderer exits: one process fewer, then memory holds again.
+    if wait_until(lambda: app_rss_mb()[1] < with_spare[1], "the spare's renderer to exit", timeout=20,
+                  interval=0.2, raise_on_timeout=False) is None:
+        print("SPARE-COST: no process left after drop_spare", flush=True)
+    wait_stable(steady, "the app's memory without the spare", timeout=30, interval=0.5, reads=5, raise_on_timeout=False)
     without = app_rss_mb()
     cost = {"with_spare_mb": with_spare[0], "with_spare_processes": with_spare[1], "without_mb": without[0],
             "without_processes": without[1], "spare_mb": round(with_spare[0] - without[0], 1)}
@@ -520,7 +566,10 @@ def main():
     rows, stress, spare, profiles = [], None, None, None
     if "cold" in ARMS:
         rows.append(arm_cold_launch(window))  # before any wait: the cold arm's launch press
-    time.sleep(2)  # test harness: first workspace
+    # The first workspace: a focused pane, and its shell prompt holding still.
+    if not wait(lambda: focused(), 30):
+        print("no focused pane in the first workspace", flush=True)
+    shell_prompt("the first workspace's shell prompt")
     for session in [s for s in opts.sessions.split(",") if s]:
         if session == "stress":
             stress = build_stress()
