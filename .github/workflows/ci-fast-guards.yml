@@ -35,7 +35,7 @@ env:
 
 jobs:
   fast-guards:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}
     name: CI fast guards
     # This read-only guard runs the same untrusted-source checks as the
     # standard CI route and needs no secrets or write token. Let the shared
