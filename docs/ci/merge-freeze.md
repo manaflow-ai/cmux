@@ -2,7 +2,7 @@
 
 A merge freeze stops pull requests that touch some paths from merging for a few hours. Use it for
 a release cut, or while one lane reworks an area that other merges would collide with. For a
-pull request's own risk, use [risk tiers](risk-tiers.md) on feat-cmux-next instead.
+pull request's own risk, use [risk tiers](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/docs/ci/risk-tiers.md) on feat-cmux-next instead.
 
 ## Freeze an area
 
@@ -13,7 +13,7 @@ says what is frozen and until when:
 ```
 paths: cmux-tui/crates/acpmux/ cmux-tui/spec/
 expires: 2026-10-20T18:00Z
-owner: @lawrencecchen      (optional; the issue's author by default)
+owner: @octocat           (optional; the issue's author by default)
 branch: feat-cmux-next     (optional; every branch by default)
 ```
 
@@ -55,7 +55,7 @@ whether it's active, lapsed or malformed.
 
 ## What this replaces
 
-Freezes used to be `FREEZE:` lines in `~/agent-mailbox/WINDOW` on cmux-lawrence, which
+Freezes used to be `FREEZE:` lines in `~/agent-mailbox/WINDOW` on one maintainer machine, which
 gh-merge-green read over ssh. Every token there had lapsed by 2026-10-10, but the tools kept
-refusing on them. A host that couldn't ssh to cmux-lawrence, such as Huge Blue, couldn't merge at
+refusing on them. A host that couldn't ssh to that machine couldn't merge at
 all, and nobody else could see the file.

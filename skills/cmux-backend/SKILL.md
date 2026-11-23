@@ -18,7 +18,7 @@ description: "Backend TypeScript and Cloud VM development rules for cmux. Use wh
 
 ## Secrets
 
-Cloud VM build, test, and local dev scripts read provider secrets from `~/.secrets/cmux.env`: `FREESTYLE_API_KEY` and the R2 upload vars `web/scripts/build-cloud-vm-images.ts` needs when creating Freestyle snapshots.
+Cloud VM build, test, and local dev scripts read provider secrets from `~/.secrets/cmux.env`: `FREESTYLE_API_KEY`, which `web/scripts/build-devbox-freestyle.ts` needs to build the devbox image.
 
 ```bash
 set -a

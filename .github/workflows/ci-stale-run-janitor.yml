@@ -20,6 +20,21 @@ on:
         required: true
         default: "25"
         type: string
+      superseded:
+        description: "Instead, cancel queued pull_request runs whose PR is open at a newer head"
+        required: false
+        default: false
+        type: boolean
+      dead_queued:
+        description: "Instead, cancel queued pull_request runs nobody will read: superseded, closed or merged PR, older same-SHA duplicates, draft heads unstarted 24 h"
+        required: false
+        default: false
+        type: boolean
+      max_superseded:
+        description: "Maximum superseded-head (or dead_queued) runs to cancel (1-500)"
+        required: false
+        default: "200"
+        type: string
 
 permissions: {}
 
@@ -30,13 +45,17 @@ concurrency:
   group: ci-stale-run-janitor
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   janitor:
     permissions:
       actions: write
       contents: read
       pull-requests: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted Actions control-plane token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 15
     steps:
       - name: Check out trusted workflow code
@@ -50,4 +69,7 @@ jobs:
           CLEANUP: ${{ inputs.cleanup || 'false' }}
           MIN_AGE_MINUTES: ${{ inputs.min_age_minutes || '1440' }}
           MAX_ACTIONS: ${{ inputs.max_actions || '25' }}
+          SUPERSEDED: ${{ inputs.superseded || 'false' }}
+          DEAD_QUEUED: ${{ inputs.dead_queued || 'false' }}
+          MAX_SUPERSEDED: ${{ inputs.max_superseded || '200' }}
         run: python3 scripts/ci/cleanup-stale-runs.py

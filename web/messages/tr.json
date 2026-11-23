@@ -80,6 +80,11 @@
       "message": "Bu makine başlatılıyor, duraklatılıyor veya çalışmıyor; bu yüzden şu anda bunu yapamıyor.",
       "action": "Biraz bekleyip tekrar deneyin. Makinenin durumunu cmux vm ls ile kontrol edin ve duraklatılmışsa önce sürdürün."
     },
+    "hostRecovery": {
+      "title": "Makinenin ana bilgisayarı kurtarılıyor",
+      "message": "Bu makinenin diski kurtarılmakta olan bir Cloud ana bilgisayarında, bu yüzden henüz başlatılamıyor. Dosyaları korunuyor.",
+      "action": "Birkaç dakika sonra tekrar deneyin. Makineyi silmeyin veya yeniden oluşturmayın: diski korunuyor ve makineyle birlikte geri gelecek. Bir saat sonra hâlâ başlamazsa iz kimliğiyle destek ekibine başvurun."
+    },
     "networkRuleCapacity": {
       "title": "Ağ kuralları kapasitede",
       "message": "Ağ politikanız kaydedildi ancak uygulanmadı: cmux Cloud ağ kuralı kapasitesine ulaştı.",
@@ -375,6 +380,7 @@
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
     "subtitle": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Dikey sekmeler, ajanlar ilgi gerektirdiğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için bir <cliLink>CLI</cliLink>.",
+    "nextCallout": "Yeni: Bir sonraki cmux'un önizlemesi olan <link>cmux NEXT</link>'i deneyin.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -979,7 +985,12 @@
         "deleteConfirmBody": "Bu işlem geri alınamaz ve hesabınızla ilişkili tüm verileri siler.",
         "deleteAcknowledge": "Hesabımın ve verilerinin kalıcı olarak silineceğini anlıyorum.",
         "deleteConfirm": "Hesabı sil",
-        "deleteError": "Hesap silinemedi. Tekrar deneyin."
+        "deleteError": "Hesap silinemedi. Tekrar deneyin.",
+        "deleteErrorPending": "Hesabınız zaten siliniyor. Biraz sonra tekrar deneyin.",
+        "deleteErrorRetryable": "Hesap silme işlemi tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+        "deleteAppStoreTitle": "App Store aboneliğiniz yenilenmeye devam edecek",
+        "deleteAppStoreBody": "cmux hesabınızı silmek App Store aboneliğinizi iptal etmez. Apple, App Store'da iptal edene kadar sizden ücret almaya devam eder.",
+        "deleteAppStoreManage": "Aboneliği App Store'da yönet"
       }
     },
     "teams": {
@@ -1257,7 +1268,10 @@
           "failed": "başarısız",
           "paused": "duraklatıldı",
           "destroyed": "silindi"
-        }
+        },
+        "wake": "Uyandır",
+        "waking": "Uyandırılıyor…",
+        "wakeError": "Bu makine uyandırılamadı. Tekrar deneyin."
       },
       "network": {
         "open": "Ağ",

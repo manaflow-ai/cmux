@@ -89,10 +89,22 @@ GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
-# stops queued steps and kills the running ones' process groups.
+# stops queued steps and kills the running ones' process groups. RUNNING maps
+# each running step's process group to its name and start time, so a run
+# stopped by a signal (a job timeout) says which steps were still going.
 STOPPING = threading.Event()
-RUNNING: set[int] = set()
+RUNNING: dict[int, tuple[str, float]] = {}
 RUNNING_LOCK = threading.Lock()
+# How many of the slowest steps a finished run lists.
+SLOWEST_SHOWN = 10
+
+
+def running_report(now: float | None = None) -> list[str]:
+    """One line per running step, the longest-running first."""
+    now = time.monotonic() if now is None else now
+    with RUNNING_LOCK:
+        running = sorted(RUNNING.values(), key=lambda item: item[1])
+    return [f"  still running {now - started:6.1f}s  {name}" for name, started in running]
 
 
 def stop_running() -> None:
@@ -323,14 +335,15 @@ def run_steps(
                     results.append(StepResult(unit, step, None, 0.0, ""))
                     continue
                 step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
-            returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
+            returncode, output = run_step(step, cwd, step_env, temp_path / "step.log",
+                                          label=f"{unit.label}: {step.name}")
             results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output))
             if returncode != 0 and not keep_going:
                 break
     return results
 
 
-def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tuple[int, str]:
+def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path, label: str = "") -> tuple[int, str]:
     """Run one step in its own session and reap whatever it leaves behind.
 
     Output goes to a file, not a pipe: a test that leaks a background child
@@ -351,12 +364,12 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
             start_new_session=True,
         )
         with RUNNING_LOCK:
-            RUNNING.add(proc.pid)
+            RUNNING[proc.pid] = (label or step.name, time.monotonic())
         try:
             returncode = proc.wait()
         finally:
             with RUNNING_LOCK:
-                RUNNING.discard(proc.pid)
+                RUNNING.pop(proc.pid, None)
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
@@ -467,7 +480,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--list", action="store_true", help="print the plan and exit")
     parser.add_argument("--no-stamp", action="store_true")
     parser.add_argument("--keep-going", action="store_true", help="keep running a sequential group after a failed step")
-    parser.add_argument("--verbose", action="store_true", help="print every step's output")
+    parser.add_argument("--verbose", action="store_true", help="also print every passing step's output")
     parser.add_argument("--step", action="append", default=[], help="run only this step (exact name); repeatable, no stamp")
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
@@ -535,7 +548,7 @@ def main(argv: list[str]) -> int:
     started = time.monotonic()
     print(
         f"cmux guards: {len(units)} groups, {sum(len(u.steps) for u in units)} steps, "
-        f"head {head_sha[:12]}, base {base_sha[:12] or 'none'}, {args.jobs} workers",
+        f"head {head_sha[:12]}, base {base_sha[:12] or 'none'}, {args.jobs} workers, {os.cpu_count()} CPUs",
         flush=True,
     )
     # A stateless group's steps are independent tasks; a group whose steps
@@ -548,24 +561,47 @@ def main(argv: list[str]) -> int:
             tasks.extend((unit, [step]) for step in unit.steps)
     tasks.sort(key=lambda task: -len(task[1]))
     results: list[StepResult] = []
+    # A job timeout ends this run with SIGTERM (Actions sends SIGINT first).
+    # Both stop it the same way, after it names the steps still running.
+    def interrupted(signum: int, _frame) -> None:
+        raise KeyboardInterrupt
+    previous_term = signal.signal(signal.SIGTERM, interrupted)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
     try:
         for future in concurrent.futures.as_completed(futures):
             for result in future.result():
                 results.append(result)
+                elapsed = time.monotonic() - started
+                # Every step prints as it finishes, so a run cut short by a
+                # timeout still shows what finished and when.
                 if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                    print(f"  FAIL {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
                     print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                elif result.ok:
+                    print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+                    if args.verbose:
+                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+        pool.shutdown()
     except KeyboardInterrupt:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        report = running_report()
+        print(f"cmux guards: interrupted after {time.monotonic() - started:.1f}s, "
+              f"{len(results)} steps done, {len(report)} still running:", flush=True)
+        for line in report:
+            print(line, flush=True)
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
         print("cmux guards: interrupted", file=sys.stderr)
         return 130
-    pool.shutdown()
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
     seconds = time.monotonic() - started
+    slowest = sorted((r for r in results if r.ok is not None), key=lambda r: -r.seconds)[:SLOWEST_SHOWN]
+    if slowest:
+        print(f"slowest {len(slowest)} steps:")
+        for result in slowest:
+            print(f"  {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}")
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
