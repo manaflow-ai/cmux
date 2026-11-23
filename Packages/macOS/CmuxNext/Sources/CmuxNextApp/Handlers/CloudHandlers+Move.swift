@@ -71,10 +71,7 @@ extension CloudHandlers {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             bind(id, registry, reason: cancels ? { nil } : reason) { invocation in
                 guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
-                let tab = context.daemonTab(invocation)?.0.id
-                // A chat-list row names its chat (`sessions`, one); the composer's controls act on the tab's own chat.
-                let named = invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) }
-                let row = named?.count == 1 ? named?.first : nil
+                let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }

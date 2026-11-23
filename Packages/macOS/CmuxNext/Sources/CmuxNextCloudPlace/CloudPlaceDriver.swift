@@ -60,6 +60,12 @@ public final class CloudPlaceDriver {
 
     private func chat(_ id: String) -> CloudPlaceChat? { host?.placeChats().first { $0.id == id } }
 
+    /// The chats an action's `sessions` names (comma-joined, as the pane forwards them); none when it names none.
+    public static func named(_ raw: String?) -> [String]? { raw.map { $0.split(separator: ",").map(String.init) } }
+
+    /// A chat-list row names exactly one chat; the composer's controls name none and act on the tab's own chat.
+    public static func row(_ named: [String]?) -> String? { named?.count == 1 ? named?.first : nil }
+
     /// The chat an action names: a chat-list row's session when it named one, else the tab's own chat.
     private func chat(tab: String?, session: String?) -> CloudPlaceChat? {
         if let session { return host?.placeChats().first { $0.session == session } }
