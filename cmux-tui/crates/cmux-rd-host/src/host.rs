@@ -531,6 +531,10 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::scales_pictures() {
         host_caps.push(caps::VIDEO_SCALED);
     }
+    // An OpenH264 viewer asks for Constrained Baseline (cmux#50591).
+    if crate::stream::offers_h264_baseline(&cfg.codec) {
+        host_caps.push(caps::H264_BASELINE);
+    }
     // The session clock (C8; the engine answers every ping) and the stage ledger (D8).
     host_caps.extend([caps::CLOCK, caps::LEDGER]);
     // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
