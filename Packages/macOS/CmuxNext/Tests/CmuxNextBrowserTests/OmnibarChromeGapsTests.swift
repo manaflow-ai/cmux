@@ -133,6 +133,19 @@ struct OmnibarChromeGapsTests {
         #expect(focused.fieldText == "https://www.example.com/a?b=1")
     }
 
+    /// A focusing click shows what the bar showed at rest, all selected, and Copy takes the full URL (Chromium). The bar
+    /// showed the host alone, so a click highlighted `github.com` while Copy gave the whole pull request link, and the
+    /// highlight read as a wrong address (https://github.com/manaflow-ai/cmux/issues/50986): now the highlight is the
+    /// page's own address.
+    @Test func aFocusingClickHighlightsThePagesAddressAndCopiesTheFullURL() throws {
+        let address = "https://github.com/manaflow-ai/cmux/pull/51008"
+        let (resting, _) = reduce(OmnibarState(pageURL: try #require(URL(string: address))), [])
+        let (focused, _) = reduce(resting, [.focusGained(.mouse)])
+        #expect(focused.fieldText == "github.com/manaflow-ai/cmux/pull/51008")
+        #expect(focused.edit.selection == NSRange(location: 0, length: (focused.fieldText as NSString).length))
+        #expect(OmnibarReducer.copyContent(of: focused, resolver: resolver)?.text == address)
+    }
+
     /// The bar follows the engine's setting from the start.
     @Test func theBarFollowsTheSetting() {
         let engine = OmniboxSuggestionEngine()
