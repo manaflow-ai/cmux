@@ -43,6 +43,9 @@ pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
 
+/// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
+pub const PROCESS_CENSUS: &str = "process-census-v1";
+
 /// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
 pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
 
@@ -140,6 +143,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
+    },
+    // A client that sends `initialize` with `_meta.acpmux.sessionChangedDelta: true` hears each
+    // chat's row change after the first as `_acpmux/session_patch`, only what changed
+    // (`server/session_patch.rs`); every other client hears the whole row in `session_changed`.
+    Capability {
+        id: crate::server::session_patch::CAPABILITY,
+        wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
@@ -257,6 +267,10 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_PROCESS_UPDATE,
         ],
     },
+    // Every process and lock acpmux owns on this machine, with acpmux's own judgment of each
+    // (`_acpmux/process/census`, what `acpmux ps --json` prints). Read-only; this machine's
+    // clients only. Without it, a client asks `acpmux ps --json`, never guesses from argv.
+    Capability { id: PROCESS_CENSUS, wire: &[method::MUX_PROCESS_CENSUS] },
     // Agent CLI health (`hub/health_view.rs`).
     Capability { id: "harness-health-v1", wire: &[method::MUX_HARNESS_HEALTH] },
     // The mode a new chat starts in, and its changes (`hub/start_mode.rs`).
