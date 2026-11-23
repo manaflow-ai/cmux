@@ -169,9 +169,8 @@ struct BrowserProfileNewTabMenuTests {
             PaneHandlers.focus(dock.layoutPaneID, in: content)
             try await PasswordManagerRouteTests.until({ window.focusedPane === dock }, report: { "the dock did not take the focus back" })
             let before = Set(services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-            try await PasswordManagerRouteTests.until({ services.cache.browsers[tab.id] != nil }, report: { "no browser page for \(tab.id) yet" })
-            let entry = try #require(services.cache.browsers[tab.id])
-            let menu = BrowserToolbarHandlers.profileMenu(for: entry, services: services)
+            // The tab was made without activating it, so it has no page yet: the menu needs only the tab.
+            let menu = BrowserToolbarHandlers.profileMenu(forTab: tab.id, services: services)
             let row = try #require(Self.rows(menu).first { ActionRegistry.menuRun(of: $0)?.id == ActionID(rawValue: action) }, "the profile menu has no \(action) row")
             let run = try #require(ActionRegistry.menuRun(of: row))
             let refusal = services.registry.capturingRefusal {

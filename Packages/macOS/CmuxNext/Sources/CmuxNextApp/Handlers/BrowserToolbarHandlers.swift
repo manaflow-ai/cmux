@@ -44,7 +44,7 @@ enum BrowserToolbarHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browser.profile.choose", run: { invocation in
             let (entry, chrome) = try context.shownPage(invocation)
-            chrome.toolbarButtons.present(profileMenu(for: entry, services: context.services), from: .profile)
+            chrome.toolbarButtons.present(profileMenu(forTab: entry.key, services: context.services), from: .profile)
         })
         registry.bind("browser.media.show", run: { invocation in
             let (_, chrome) = try context.shownPage(invocation)
@@ -134,9 +134,8 @@ enum BrowserToolbarHandlers {
 
     /// The profile button's menu (`ActionRegistry.makeBrowserProfileMenu`), for the tab by the key the App keeps it
     /// under: an adopted page's own id finds no tab, and Clear Browsing Data or Delete would act on Default.
-    static func profileMenu(for entry: BrowserEntry, services: AppServices) -> NSMenu {
+    static func profileMenu(forTab key: String, services: AppServices) -> NSMenu {
         let profiles = services.browserProfiles
-        let key = entry.key
         let current = services.cache.tabModel(key).map(profiles.profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
         let incognito = services.cache.browserTabs.isIncognitoTab(key)
         let workspace = services.workspaceID(ofTab: key)
