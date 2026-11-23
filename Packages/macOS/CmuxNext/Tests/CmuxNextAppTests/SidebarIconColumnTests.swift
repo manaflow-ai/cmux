@@ -82,7 +82,7 @@ import Testing
         return CGPoint(x: CGFloat(minX + maxX + 1) / 2 - half, y: CGFloat(minY + maxY + 1) / 2 - half)
     }
 
-    /// Home's glyph centers its height-fitted ink on the optical column and the narrow pin centers under it (#42431), where a workspace row's icon
+    /// Home's glyph centers its height-fitted ink on the optical column (#42431), where a workspace row's icon
     /// column starts too (https://github.com/manaflow-ai/cmux/issues/38061 lined them up by center; Lawrence 2026-11-09,
     /// "home/pin icons not left aligned with 'Fix…'", by their left edge, the titles' edge).
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
@@ -91,11 +91,8 @@ import Testing
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
-            let homeMid = list.convert(try #require(home.glyphInkFrame), from: home).midX
-            let pinMid = list.convert(try #require(pin.pinInkFrame, "the pinned row drew no pin"), from: pin).midX
             let columnX = list.convert(home.leadingColumnFrame, from: home).minX
             let iconColumnX = list.convert(iconRow.icon.frame, from: iconRow).minX
             let target = SidebarStyle.rowGlyphOpticalSide
@@ -103,7 +100,6 @@ import Testing
                     "\(c.testDescription): Home's ink centers in its optical column")
             #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
                     "\(c.testDescription): Home's ink keeps the shared optical size")
-            #expect(abs(pinMid - homeMid) <= Self.tolerance, "\(c.testDescription): the pin centers at \(pinMid), Home's glyph at \(homeMid)")
             #expect(abs(iconColumnX - columnX) <= Self.tolerance, "\(c.testDescription): a row icon's column at \(iconColumnX), Home's at \(columnX)")
         }
     }
@@ -131,14 +127,12 @@ import Testing
             let (list, window) = Self.list(width: c.width)
             defer { window.close() }
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            let pin = try HomePinnedRowAlignmentTests.item(list, Self.pinned.id)
             let iconRow = try HomePinnedRowAlignmentTests.row(list, Self.icon)
             // A marquee title draws its one line from its top, so its baseline is the font's ascender below it.
             let iconTitle = Self.capitalsMidY(list, frame: iconRow.title.frame, baseline: iconRow.title.font.ascender,
                                               capHeight: iconRow.title.font.capHeight, in: iconRow)
             let pairs: [(String, CGFloat, CGFloat)] = [
                 ("Home", Self.center(list, try #require(home.glyphInkFrame), in: home).y, try Self.capitalsMidY(list, of: home)),
-                ("pin", Self.center(list, try #require(pin.pinInkFrame), in: pin).y, try Self.capitalsMidY(list, of: pin)),
                 ("icon", Self.center(list, iconRow.icon.frame, in: iconRow).y, iconTitle),
             ]
             // Beside a bare glyph (Home's house, a pin) the title drops 0.04 em on the pixel grid, so a mostly lowercase

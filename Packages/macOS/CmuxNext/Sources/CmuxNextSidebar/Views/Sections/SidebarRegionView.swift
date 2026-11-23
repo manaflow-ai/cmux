@@ -511,8 +511,7 @@ final class SidebarRegionView: NSView {
         // its Pin row reads Unpin while it is pinned). Another item's ⋮ keeps its item menu.
         view.onMore = { [weak self, weak view] in
             guard let view, let button = view.hoverMore else { return }
-            let target: SidebarContextTarget = view.info.workspace.map { .workspaces([$0]) } ?? .layoutItem(id)
-            guard let menu = self?.contextMenuProvider?(target) else { return }
+            guard let menu = self?.contextMenuProvider?(view.moreMenuTarget(item: id)) else { return }
             view.showsMenu = true
             defer { view.showsMenu = false }
             _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)

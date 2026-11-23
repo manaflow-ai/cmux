@@ -73,4 +73,10 @@ extension SidebarItemRowView {
         }
         title.frame.size.width = max(0, min(title.frame.width, leading - Metrics.space2 - title.frame.minX))
     }
+
+    /// The menu the hover ⋮ opens: a workspace's own menu, the one its list row's ⋮ opens (a regular chat's, Unpin in
+    /// Pin's place), for a workspace tile; the item's menu for any other item.
+    func moreMenuTarget(item id: LayoutItemID) -> SidebarContextTarget {
+        info.workspace.map { .workspaces([$0]) } ?? .layoutItem(id)
+    }
 }

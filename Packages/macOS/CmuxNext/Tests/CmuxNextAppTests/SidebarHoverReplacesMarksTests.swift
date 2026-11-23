@@ -45,7 +45,7 @@ struct SidebarHoverReplacesMarksTests {
                     // on Leo's "in all cases").
                     let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: style, warned: warned)
                     defer { window.close() }
-                    // A pinned row draws the ⋮ and Unpin, no ✕ (Lawrence msg 19392); an unpinned one the ✕, the ⋮ and Pin.
+                    // A pinned row draws the ✕, the ⋮ and Unpin (Leo 2026-11-23, ask c-b5d3e0efb6); an unpinned one the ✕, the ⋮ and Pin.
                     sidebar.list.model.workspacePin = (isPinned: { _ in pinned }, toggle: { _ in })
                     sidebar.list.contextMenuProvider = { _ in NSMenu() }
                     window.orderFrontRegardless()
