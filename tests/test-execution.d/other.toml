@@ -827,6 +827,11 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins that each tool measuring a branch's own change from where HEAD meets origin/feat-cmux-next (affected tests, the Rust panic ratchet, build_class, gate-plan, the test-determinism scan, codebase-health, a manual arch-ratchet run) fetches that base first; run python3 -I tests/test_stale_base_readers.py yourself after changing one (a few seconds, no build)."
 
 [[test]]
+path = "tests/test_static_analysis_gitleaks.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_static_analysis_gitleaks.py"
+
+[[test]]
 path = "tests/test_static_analysis_ratchet.py"
 lane = "linux-guard"
 
