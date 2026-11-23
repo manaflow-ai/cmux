@@ -5,6 +5,10 @@ A stale janitor snapshot is not proof of no runners: cmux#47855 paged
 "Runner label starved: cmux-fleet-linux-x64" while that label had 64 runners
 online and 82 busy, and the sweep itself waited 77 minutes for one. The step
 reads the label's live roster (scripts/ci/janitor_watchdog_roster.py) first.
+
+Only a roster read twice as starved files the issue. cmux#50767, #51512 and
+#51605 opened on an unreadable roster (an API rate limit) and the next run
+closed each a minute later as "saturated, not starved".
 """
 
 from __future__ import annotations
@@ -41,10 +45,19 @@ if args[:1] == ["api"]:
         print(os.environ["FAKE_NEWEST"])
         sys.exit(0)
     if "runner" in path:
-        if os.environ.get("FAKE_ROSTER_FAIL"):
-            print("HTTP 403: Resource not accessible by integration", file=sys.stderr)
-            sys.exit(1)
         roster = json.loads((state / "roster.json").read_text())
+        if path.endswith("/actions/runners"):
+            # Each roster read starts with the repository's runners: count the reads, so a sequence
+            # (roster.json "reads": one roster or "fail" per read) can replay a flap.
+            with open(state / "reads", "a") as reads:
+                reads.write("x")
+        read = len((state / "reads").read_text()) - 1 if (state / "reads").exists() else 0
+        sequence = roster.get("reads")
+        if sequence:
+            roster = sequence[min(read, len(sequence) - 1)]
+        if os.environ.get("FAKE_ROSTER_FAIL") or roster == "fail":
+            print("gh: API rate limit exceeded for installation ID 164690637.", file=sys.stderr)
+            sys.exit(1)
         if path.endswith("/runner-groups"):
             print(json.dumps({"runner_groups": [{"id": int(key)} for key in roster["groups"]]}))
         elif "/runner-groups/" in path:
@@ -89,8 +102,10 @@ class WatchdogStepTests(unittest.TestCase):
         (self.tmp / "issues.json").write_text(json.dumps(issues))
 
     def run_step(self, *, repo_runners=(), groups=None, age_seconds=9159, route_token="route-token",
-                 roster_fail=False, label=LABEL) -> subprocess.CompletedProcess:
-        (self.tmp / "roster.json").write_text(json.dumps({"repo": list(repo_runners), "groups": groups or {}}))
+                 roster_fail=False, label=LABEL, reads=None) -> subprocess.CompletedProcess:
+        """reads: one roster per read ({"repo": [...], "groups": {...}} or "fail"), the last one repeating."""
+        (self.tmp / "roster.json").write_text(json.dumps({"repo": list(repo_runners), "groups": groups or {},
+                                                          "reads": reads}))
         newest = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=age_seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
         env = {
             "PATH": f"{self.bin}{os.pathsep}{os.environ.get('PATH', '')}",
@@ -99,6 +114,7 @@ class WatchdogStepTests(unittest.TestCase):
             "GH_REPO": REPO,
             "LABEL": label,
             "STALE_SECONDS": "1800",
+            "CONFIRM_SECONDS": "0",
             "ROUTE_TOKEN": route_token,
             "GITHUB_STEP_SUMMARY": str(self.summary),
             "FAKE_GH_STATE": str(self.tmp),
@@ -143,18 +159,51 @@ class WatchdogStepTests(unittest.TestCase):
         self.assertIn(TITLE, create)
         self.assertIn(f"no runner carrying `{LABEL}` is online", self.body_of(create))
 
-    def test_an_unreadable_roster_keeps_the_alert_and_names_it_unknown(self) -> None:
+    def assert_no_issue_write(self) -> None:
+        for verb in ("create", "comment", "close"):
+            self.assertEqual(self.issue_writes(verb), [], verb)
+
+    def test_an_unreadable_roster_files_no_issue_and_names_it_unknown(self) -> None:
+        # cmux#50767, #51512, #51605: the roster read hit an API rate limit, the issue opened, and the next run
+        # read 192 to 221 runners online and closed it as saturated a minute later.
         done = self.run_step(roster_fail=True)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        [create] = self.issue_writes("create")
-        self.assertIn(TITLE, create)
-        self.assertIn("unknown", self.body_of(create))
+        self.assert_no_issue_write()
+        self.assertIn("roster is unknown, so no starved issue", done.stdout)
+        self.assertIn("API rate limit exceeded", self.summary.read_text())
 
-    def test_no_routing_token_keeps_the_alert_and_names_the_roster_unknown(self) -> None:
+    def test_no_routing_token_files_no_issue_and_names_the_roster_unknown(self) -> None:
         done = self.run_step(route_token="")
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assert_no_issue_write()
+        self.assertIn("no routing token was minted", self.summary.read_text())
+
+    def test_the_flap_replayed_a_failed_read_then_a_saturated_one_files_no_issue(self) -> None:
+        # The opening run of each flap read "unknown"; the closing one read the same label as saturated.
+        done = self.run_step(reads=["fail", {"repo": [runner(1, busy=True), runner(2)], "groups": {}}])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assert_no_issue_write()
+        self.assertIn(f"Runner label saturated: {LABEL}", done.stdout)
+
+    def test_a_starved_read_then_a_saturated_one_files_no_issue(self) -> None:
+        done = self.run_step(reads=[{"repo": [runner(1, status="offline")], "groups": {}},
+                                    {"repo": [runner(1, busy=True)], "groups": {}}])
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assert_no_issue_write()
+
+    def test_a_starved_read_then_a_failed_one_files_no_issue(self) -> None:
+        done = self.run_step(reads=[{"repo": [runner(1, status="offline")], "groups": {}}, "fail"])
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assert_no_issue_write()
+        self.assertIn("starved is not confirmed", self.summary.read_text())
+
+    def test_two_starved_reads_file_the_issue(self) -> None:
+        done = self.run_step(reads=[{"repo": [runner(1, status="offline")], "groups": {}}])
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(len((self.tmp / "reads").read_text()), 2)
         [create] = self.issue_writes("create")
-        self.assertIn("no routing token was minted", self.body_of(create))
+        self.assertIn(TITLE, create)
+        self.assertIn("confirms it on two reads", self.body_of(create))
 
     def test_a_jit_sweep_label_reads_no_roster_and_names_the_variable(self) -> None:
         # The sweep runs on the one-job repair VM cmux-gcp-repair-jit-x64 by default (GitHub-hosted Ubuntu starts
@@ -213,6 +262,22 @@ class ClassifyTests(unittest.TestCase):
                  "orgs/manaflow-ai/actions/runner-groups/7/runners": {"runners": [runner(1, busy=True)]}}
         found = self.roster.roster(lambda path: pages[path.split("?")[0]], REPO)
         self.assertEqual(len(found), 1)
+
+    def test_confirmed_needs_two_starved_reads(self) -> None:
+        env = {"LABEL": LABEL, "GH_REPO": REPO}
+        reads = iter([[runner(1, status="offline")], [runner(1, busy=True)]])
+        pauses: list[float] = []
+        self.roster.roster = lambda fetch, repo: next(reads)
+        state, _ = self.roster.confirmed(env, fetch=lambda path: None, sleep=pauses.append)
+        self.assertEqual(state, "saturated")
+        self.assertEqual(pauses, [self.roster.CONFIRM_SECONDS])
+
+    def test_confirmed_reads_once_when_the_first_read_is_saturated(self) -> None:
+        reads = iter([[runner(1)]])
+        self.roster.roster = lambda fetch, repo: next(reads)
+        state, _ = self.roster.confirmed({"LABEL": LABEL, "GH_REPO": REPO}, fetch=lambda path: None,
+                                         sleep=lambda seconds: self.fail("slept"))
+        self.assertEqual(state, "saturated")
 
     def test_a_failed_read_is_unknown(self) -> None:
         def fail(path: str):
