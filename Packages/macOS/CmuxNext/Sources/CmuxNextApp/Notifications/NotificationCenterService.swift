@@ -261,7 +261,7 @@ final class NotificationCenterService {
         endViewHolds()
         guard let press = clickedTab(in: window, at: location) else { return }
         if left, press.onStrip, let window {
-            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic)
+            beginStripPress(tab: press.tab, target: interactionTarget(tabID: press.tab, in: window), at: screen ?? window.convertPoint(toScreen: location), synthetic: synthetic, enter: press.pane.flatMap { pane in content(of: window).map { content in { [weak content] in content?.layoutModel.enterAttention(pane, click: true) == true } } })
             return
         }
         if let pane = press.pane, content(of: window)?.layoutModel.enterAttention(pane, click: true) == true { return }
