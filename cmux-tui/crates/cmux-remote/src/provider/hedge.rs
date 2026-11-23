@@ -55,6 +55,25 @@ impl HedgePolicy {
     };
 }
 
+/// `addresses` IPv6 first, the two families alternating, the order within a family kept
+/// (RFC 8305). Callers hedge over this, not the resolver's order: acpmux ships as a static musl
+/// binary, and musl sorts every A record first on a host whose only IPv6 address is ULA and reads
+/// no `/etc/gai.conf`, so attempt 0 was always IPv4 and IPv6 was never used where it was the
+/// faster path. An IPv6 attempt that stalls is joined by IPv4 after [`HedgePolicy::stagger`]; one
+/// with no route fails at once. (The same order as `cmux_vault_egress::happy::v6_first`.)
+pub fn v6_first(addresses: &[std::net::SocketAddr]) -> Vec<std::net::SocketAddr> {
+    let (mut v6, mut v4): (Vec<_>, Vec<_>) =
+        addresses.iter().copied().partition(std::net::SocketAddr::is_ipv6);
+    v6.reverse();
+    v4.reverse();
+    let mut out = Vec::with_capacity(addresses.len());
+    while !v6.is_empty() || !v4.is_empty() {
+        out.extend(v6.pop());
+        out.extend(v4.pop());
+    }
+    out
+}
+
 /// Connects to one of `targets` through `connect`, hedged by `policy`
 /// (module docs). Attempt `n` dials `targets[n % targets.len()]`. The error
 /// is the last attempt's (an attempt that ran out of time is `TimedOut`). The

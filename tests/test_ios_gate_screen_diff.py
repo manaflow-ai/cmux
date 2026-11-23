@@ -14,6 +14,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -271,6 +272,59 @@ class StillsArtifactTests(unittest.TestCase):
     def test_none_kept_names_the_stills_artifact(self) -> None:
         result, _ = self.fetch({1: ["review-gate-lint-appstore"]})
         self.assertIn("ios-gate-stills-appstore-iphone", result["iphone"].problem)
+
+
+class ApiRetryTests(unittest.TestCase):
+    """The first live runs lost the baseline to a bare 403 in 8 of 28 runs: say why, and try again."""
+
+    def setUp(self) -> None:
+        self.mod = load()
+        self.sleeps: list[float] = []
+        patch = mock.patch.object(self.mod.time, "sleep", self.sleeps.append)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def error(self, code: int, message: str = "", headers: dict | None = None):
+        import io
+        import urllib.error
+        body = json.dumps({"message": message}).encode()
+        return urllib.error.HTTPError("https://x", code, "Forbidden", headers or {}, io.BytesIO(body))
+
+    def run_api(self, answers: list):
+        calls = iter(answers)
+
+        def request(req, deadline=None, max_bytes=None, raise_errors=False):
+            answer = next(calls)
+            if isinstance(answer, Exception):
+                raise answer
+            return 200, answer, {}
+
+        class Clock:
+            def left(self, what):
+                return 10.0
+
+        original = self.mod.deadline_http.request
+        self.mod.deadline_http.request = request
+        try:
+            return self.mod._api("https://x", "t", Clock())
+        finally:
+            self.mod.deadline_http.request = original
+
+    def test_a_rate_limit_is_retried_after_its_wait(self) -> None:
+        body = self.run_api([self.error(403, "rate limit", {"retry-after": "7"}), b"{}"])
+        self.assertEqual(body, b"{}")
+        self.assertEqual(self.sleeps, [7.0])
+
+    def test_the_reason_is_kept_when_retries_run_out(self) -> None:
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_api([self.error(403, "Resource not accessible by integration") for _ in range(3)])
+        self.assertIn("Resource not accessible by integration", str(caught.exception))
+        self.assertEqual(len(self.sleeps), 2)
+
+    def test_a_missing_page_is_not_retried(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self.run_api([self.error(404, "Not Found")])
+        self.assertEqual(self.sleeps, [])
 
 
 if __name__ == "__main__":
