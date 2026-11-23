@@ -20,6 +20,10 @@
 
 use super::*;
 
+/// Auto mode's import of a chat's Cloud copy: it settles an open turn as this file does.
+#[path = "auto_import.rs"]
+mod auto_import;
+
 /// What a deferred start read before its ready line, for the chat logs read after it.
 #[derive(Default)]
 pub(crate) struct LoadPlan {
