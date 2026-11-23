@@ -22,7 +22,12 @@
 //!   bytes, so it is capped ([`DEFAULT_CACHE_MAX_BYTES`], [`Overlay::with_cache_max`]): before a
 //!   new blob is admitted the least recently used ones go, and a later read fetches them again.
 //!   The upper layer is never evicted; it goes only once its edits are safe ([`crate::state`],
-//!   [`crate::reap`]).
+//!   [`crate::reap`]);
+//! - `working-set`: the files this session read first, written when the overlay goes, for the
+//!   next session's [`Overlay::prefetch`] ([`crate::working_set`]).
+//!
+//! Every change made through the overlay is noted in its [`Journal`], so a caller asks what
+//! changed since its last cursor instead of scanning the tree ([`Overlay::changed_since`]).
 
 use anyhow::Context as _;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -35,8 +40,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
+use crate::journal::{Journal, Since};
 use crate::manifest::{Kind, Manifest, ROOT};
 use crate::upper::{SetTime, Stat, Upper};
+use crate::working_set::{self, Budget, Prefetched, Recorder, Stop, Trace};
 use crate::{Fetch, FetchError};
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
@@ -294,6 +301,10 @@ pub struct Overlay {
     cache_index: Mutex<CacheIndex>,
     cache_max: u64,
     cache_evicted: AtomicU64,
+    journal: Journal,
+    /// This session's first reads, and the file they are kept in when the overlay goes.
+    recorder: Mutex<Recorder>,
+    working_set_file: PathBuf,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -484,6 +495,9 @@ impl Overlay {
             cache_index,
             cache_max: DEFAULT_CACHE_MAX_BYTES,
             cache_evicted: AtomicU64::new(0),
+            journal: Journal::default(),
+            recorder: Mutex::new(Recorder::new(working_set::DEFAULT_BYTES)),
+            working_set_file: state.join(working_set::FILE),
         };
         if rewrite {
             // Cut a torn tail off now (or end an older file's entries with NULs), or the next
@@ -502,6 +516,134 @@ impl Overlay {
         self.cache_max = bytes;
         self.evict_to_fit(&mut self.cache_lock(), 0);
         self
+    }
+
+    /// This overlay recording at most `budget.bytes` of first reads for the next session.
+    #[must_use]
+    pub fn with_working_set_budget(self, budget: Budget) -> Self {
+        self.recorder_lock().set_cap(budget.bytes);
+        self
+    }
+
+    fn recorder_lock(&self) -> MutexGuard<'_, Recorder> {
+        self.recorder.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// What this session has read first so far (what [`Self::save_working_set`] keeps).
+    #[must_use]
+    pub fn working_set(&self) -> Trace {
+        self.recorder_lock().trace(&self.manifest)
+    }
+
+    /// The working set the state folder holds (the last session's, until this one is saved).
+    #[must_use]
+    pub fn recorded_working_set(&self) -> Option<Trace> {
+        Trace::load(&self.working_set_file)
+    }
+
+    /// Keeps this session's first reads for the next session (also done when the overlay goes).
+    /// A session that read nothing leaves the last one's in place.
+    pub fn save_working_set(&self) -> std::io::Result<()> {
+        let recorder = self.recorder_lock();
+        if recorder.is_empty() {
+            return Ok(());
+        }
+        recorder.trace(&self.manifest).save(&self.working_set_file)
+    }
+
+    /// The change journal of everything written through this overlay.
+    #[must_use]
+    pub fn journal(&self) -> &Journal {
+        &self.journal
+    }
+
+    /// The paths changed since `cursor` (a token from an earlier answer), or an overflow that
+    /// says to scan everything.
+    #[must_use]
+    pub fn changed_since(&self, cursor: &str) -> Since {
+        self.journal.since_text(cursor)
+    }
+
+    /// Notes `ino`'s path in the journal, when it still has one.
+    fn note_ino(&self, ino: u64) {
+        if let Ok(path) = self.path_of(ino) {
+            self.journal.note(&path);
+        }
+    }
+
+    /// Fetches into the cache the files `declared` names (a folder stands for every file below
+    /// it), then `trace`'s, within `budget` (its bytes capped at the cache's own cap). Only files
+    /// small enough to come whole are prefetched; a file already cached, in the upper layer,
+    /// deleted, or being fetched by a read is passed over. Runs on the caller's thread, one ask
+    /// of at most [`working_set::PREFETCH_BATCH_BYTES`] at a time, and stops at the first
+    /// failure. Prefetched files are not this session's reads: they are not recorded.
+    pub fn prefetch(&self, declared: &[String], trace: &Trace, budget: Budget) -> Prefetched {
+        let mut done = Prefetched::default();
+        if !self.fetch.cache() || budget.asks == 0 {
+            return done;
+        }
+        let (planned, over) = working_set::plan(
+            &self.manifest,
+            declared,
+            &trace.paths,
+            budget.bytes.min(self.cache_max),
+            CHUNK,
+            |index, path| {
+                self.cache_lock().blobs.contains_key(&(index, WHOLE))
+                    || Self::hidden(&self.lock(), path)
+                    || self.upper.stat(path).is_ok()
+            },
+        );
+        let mut planned = planned.into_iter().peekable();
+        while planned.peek().is_some() {
+            if done.asks >= budget.asks {
+                done.stopped = Some(Stop::Asks);
+                return done;
+            }
+            let mut claim = Claim { overlay: self, keys: Vec::new() };
+            let mut batch = Vec::new();
+            let mut bytes = 0u64;
+            {
+                let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
+                while let Some(&(index, size)) = planned.peek() {
+                    let fits = bytes + size <= working_set::PREFETCH_BATCH_BYTES;
+                    if !batch.is_empty() && (!fits || batch.len() >= BATCH_FILES) {
+                        break;
+                    }
+                    planned.next();
+                    if inflight.insert((index, WHOLE)) {
+                        claim.keys.push((index, WHOLE));
+                        batch.push(index);
+                        bytes += size;
+                    }
+                }
+            }
+            if batch.is_empty() {
+                continue;
+            }
+            done.asks += 1;
+            for (index, answer) in batch.iter().zip(self.fetch.batch(&batch)) {
+                let expected = self.manifest.entry(*index).map_or(0, |entry| entry.size);
+                match answer {
+                    Ok(bytes) if bytes.len() as u64 == expected => {
+                        self.count(expected);
+                        self.store((*index, WHOLE), &bytes);
+                        done.files += 1;
+                        done.bytes += expected;
+                    }
+                    Ok(_) => done.stopped = Some(Stop::Failed(FetchError::Failed)),
+                    Err(error) => done.stopped = Some(Stop::Failed(error)),
+                }
+            }
+            drop(claim);
+            if done.stopped.is_some() {
+                return done;
+            }
+        }
+        if over {
+            done.stopped = Some(Stop::Bytes);
+        }
+        done
     }
 
     /// The bytes of the Mac's files cached on the machine now.
@@ -975,6 +1117,7 @@ impl Overlay {
             Kind::Link => return Err(EINVAL),
             Kind::File => {}
         }
+        self.recorder_lock().touch(index, entry.size);
         let total = entry.size;
         let end = total.min(offset.saturating_add(u64::from(size)));
         if offset >= end {
@@ -1294,6 +1437,7 @@ impl Overlay {
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
         if write {
             self.ensure_upper(&path)?;
+            self.journal.note(&path);
         }
         let (file, lower) = match self.node(&path).ok_or(ENOENT)? {
             Node::Upper(stat) if stat.format() == libc::S_IFREG => {
@@ -1365,6 +1509,7 @@ impl Overlay {
         match self.handle_file(handle) {
             Some(file) => {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+                self.note_ino(ino);
                 u32::try_from(data.len()).map_err(|_| EINVAL)
             }
             None if self.handles().contains_key(&handle) => Err(EBADF),
@@ -1378,6 +1523,7 @@ impl Overlay {
         self.ensure_upper(&path)?;
         let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
         file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+        self.journal.note(&path);
         u32::try_from(data.len()).map_err(|_| EINVAL)
     }
 
@@ -1385,7 +1531,11 @@ impl Overlay {
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
-        check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })
+        check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })?;
+        if let Some(ino) = self.handles().get(&handle).map(|open| open.ino) {
+            self.note_ino(ino);
+        }
+        Ok(())
     }
 
     /// Readies `child` (in folder `parent`) for a new path: nothing there, its folder in upper.
@@ -1448,6 +1598,7 @@ impl Overlay {
             return Err(error);
         }
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
+        self.journal.note(&child);
         let attr = self.lookup_path(&child)?;
         let handle =
             self.add_handle(Handle { ino: attr.ino, file: Some(Arc::new(file)), lower: None });
@@ -1459,6 +1610,7 @@ impl Overlay {
         self.make_room(&parent, &child)?;
         self.in_folder(&parent, || self.upper.mkdir(&child, 0o700))?;
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
+        self.journal.note(&child);
         self.lookup_path(&child)
     }
 
@@ -1490,6 +1642,7 @@ impl Overlay {
             _ => return Err(EINVAL),
         }
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
+        self.journal.note(&child);
         self.lookup_path(&child)
     }
 
@@ -1499,6 +1652,7 @@ impl Overlay {
         let target = target.as_os_str().as_encoded_bytes();
         self.in_folder(&parent, || self.upper.symlink(target, &child))?;
         self.adopt_new(&parent, &child, who, None)?;
+        self.journal.note(&child);
         self.lookup_path(&child)
     }
 
@@ -1518,6 +1672,7 @@ impl Overlay {
         let _ = self.lookup_path(&from)?;
         self.make_room(&to_parent, &to)?;
         self.in_folder(&to_parent, || self.upper.link(&from, &to))?;
+        self.journal.note(&to);
         self.lookup_path(&to)
     }
 
@@ -1546,6 +1701,7 @@ impl Overlay {
         } else {
             self.forget_name(path, ino, None, true);
         }
+        self.journal.note(path);
         self.hide_lower(path)
     }
 
@@ -1664,6 +1820,12 @@ impl Overlay {
             };
             self.forget_name(&to, ino, key, last);
         }
+        if is_dir {
+            self.journal.note_tree(&from);
+            self.journal.note_tree(&to);
+        }
+        self.journal.note(&from);
+        self.journal.note(&to);
         self.hide_lower(&from)?;
         self.unhide(&to)?;
         self.move_names(&from, &to, moved);
@@ -1709,6 +1871,10 @@ impl Overlay {
         self.ensure_upper(to)?;
         self.upper_folder(to_parent)?;
         self.upper.rename(from, to, libc::RENAME_EXCHANGE)?;
+        for path in [from, to] {
+            self.journal.note_tree(path);
+            self.journal.note(path);
+        }
         // Swap the two names' numbers (and everything below each).
         let temp = format!("\0exchange\0{a}");
         self.move_names(from, &temp, a);
@@ -1725,7 +1891,9 @@ impl Overlay {
         if let Some(file) = &by_handle
             && set != Set::default()
         {
-            return Self::setattr_open(ino, file, set);
+            let attr = Self::setattr_open(ino, file, set);
+            self.note_ino(ino);
+            return attr;
         }
         let path = match self.path_of(ino) {
             Ok(path) if self.node(&path).is_some() => Some(path),
@@ -1741,6 +1909,7 @@ impl Overlay {
         }
         if let Some(path) = &path {
             self.ensure_upper(path)?;
+            self.journal.note(path);
         }
         if let Some(size) = set.size {
             match (&file, &path) {
@@ -1823,6 +1992,13 @@ impl Overlay {
         } else {
             UNIX_EPOCH - Duration::from_nanos(ns.unsigned_abs())
         }
+    }
+}
+
+impl Drop for Overlay {
+    fn drop(&mut self) {
+        // Best effort: a state folder already freed (the reaper) keeps no trace.
+        let _ = self.save_working_set();
     }
 }
 

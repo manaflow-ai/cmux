@@ -87,6 +87,10 @@ struct ServeLine {
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
+    /// Paths (a folder for all below it) the session says it will read: prefetched first, before
+    /// the last session's trace, within the working-set budget.
+    #[serde(default)]
+    prefetch: Vec<String>,
 }
 
 /// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
@@ -663,7 +667,7 @@ fn attach(
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
     let state = state_of(&line.name)?;
-    let projected = mount(&line.name, manifest, &state, &at, digest)?;
+    let projected = mount(&line.name, manifest, &state, &at, digest, &line.prefetch)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
     {
@@ -713,6 +717,28 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
     Ok(path)
 }
 
+/// Warms the cache in the background with the declared paths, then the last session's trace,
+/// within the default working-set budget (its asks wait for the Mac's stream like any read).
+#[cfg(target_os = "linux")]
+fn prefetch(name: &str, overlay: Arc<cmux_projection::overlay::Overlay>, declared: Vec<String>) {
+    let trace = overlay.recorded_working_set().unwrap_or_default();
+    if declared.is_empty() && trace.paths.is_empty() {
+        return;
+    }
+    let name = name.to_owned();
+    let spawned = std::thread::Builder::new().name("projection-prefetch".into()).spawn(move || {
+        let budget = cmux_projection::working_set::Budget::default();
+        let done = overlay.prefetch(&declared, &trace, budget);
+        eprintln!(
+            "cmux-tui: projection {name}: prefetched {} files, {} bytes in {} asks ({:?})",
+            done.files, done.bytes, done.asks, done.stopped
+        );
+    });
+    if let Err(error) = spawned {
+        eprintln!("cmux-tui: projection prefetch thread: {error}");
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn mount(
     name: &str,
@@ -720,6 +746,7 @@ fn mount(
     state: &Path,
     at: &Path,
     digest: u64,
+    declared: &[String],
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
@@ -751,8 +778,10 @@ fn mount(
         (meta.uid(), meta.gid()),
     )
     .map_err(|error| io("opening the projection", &format!("{error:#}")))?;
-    let mounted = cmux_projection::mount::mount(Arc::new(overlay), at)
+    let overlay = Arc::new(overlay);
+    let mounted = cmux_projection::mount::mount(overlay.clone(), at)
         .map_err(|error| ("projection.mount_failed", format!("{error:#}")))?;
+    prefetch(name, overlay, declared.to_vec());
     let projected = Arc::new(Projected {
         link,
         digest,
@@ -783,6 +812,7 @@ fn mount(
     _state: &Path,
     _at: &Path,
     _digest: u64,
+    _declared: &[String],
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }

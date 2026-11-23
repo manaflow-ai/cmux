@@ -11,6 +11,7 @@
 //! listing and writes no files.
 
 pub mod git;
+pub mod journal;
 pub mod layer;
 pub mod link;
 pub mod manifest;
@@ -25,6 +26,7 @@ pub mod state;
 pub mod upper;
 pub mod way_back;
 pub mod wire;
+pub mod working_set;
 
 #[cfg(target_os = "linux")]
 pub mod mount;

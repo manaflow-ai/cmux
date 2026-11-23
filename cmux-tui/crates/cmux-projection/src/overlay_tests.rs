@@ -620,3 +620,212 @@ fn a_reopen_trims_a_cache_left_over_its_cap() {
     let bytes = big_bytes();
     assert_eq!(overlay.read(big, chunk, 16).unwrap(), bytes[chunk as usize..][..16]);
 }
+
+const CRAWL_FOLDERS: usize = 40;
+const CRAWL_FILES: usize = 64;
+const CRAWL_FILE_BYTES: usize = 8 * 1024;
+
+/// `CRAWL_FOLDERS` folders of `CRAWL_FILES` files of `CRAWL_FILE_BYTES` (20 MiB in all).
+fn crawl_tree() -> (Arc<Manifest>, Fake) {
+    let mut items = Vec::new();
+    let mut paths = Vec::new();
+    for folder in 0..CRAWL_FOLDERS {
+        for at in 0..CRAWL_FILES {
+            let path = format!("d{folder:02}/f{at:02}.rs");
+            items.push(Item {
+                path: path.clone(),
+                kind: Kind::File,
+                mode: 0o644,
+                size: CRAWL_FILE_BYTES as u64,
+                mtime_ns: 1,
+                link: None,
+            });
+            paths.push(path);
+        }
+    }
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let mut fake = Fake::default();
+    for path in paths {
+        let index = manifest.resolve(&path).unwrap();
+        fake.bytes.insert(index, vec![(index % 251) as u8; CRAWL_FILE_BYTES]);
+    }
+    (manifest, fake)
+}
+
+/// RFD 0007: a crawler (`rg` at the root) reads every file, and the projection still holds at
+/// most its cache cap, asks for at most its readahead budget per fault, records at most the
+/// working-set budget for the next session, and that session's prefetch spends at most its
+/// byte and ask budgets. A crawl never turns the projection into a full copy.
+#[test]
+fn a_crawler_stays_within_the_byte_and_fault_budgets() {
+    let (manifest, fake) = crawl_tree();
+    let fake = Arc::new(fake);
+    let state = tempfile::tempdir().unwrap();
+    let cap = 4 * 1024 * 1024;
+    let budget = Budget { bytes: 2 * 1024 * 1024, asks: 8 };
+    let total = (CRAWL_FOLDERS * CRAWL_FILES * CRAWL_FILE_BYTES) as u64;
+    let overlay =
+        open(state.path(), &manifest, &fake).with_cache_max(cap).with_working_set_budget(budget);
+    for folder in 0..CRAWL_FOLDERS {
+        for at in 0..CRAWL_FILES {
+            let ino = path_ino(&overlay, &format!("d{folder:02}/f{at:02}.rs"));
+            assert_eq!(overlay.read(ino, 0, 64).unwrap().len(), 64);
+            assert!(overlay.cache_bytes() <= cap, "cache at {} over {cap}", overlay.cache_bytes());
+        }
+    }
+    assert!(cache_on_disk_bytes(state.path()) <= cap, "the cache on disk is over its cap");
+    for batch in fake.batches.lock().unwrap().iter() {
+        let bytes = batch.len() as u64 * CRAWL_FILE_BYTES as u64;
+        assert!(batch.len() <= BATCH_FILES && bytes <= BATCH_BYTES, "a fault asked too much");
+    }
+    assert!(overlay.stats().remote_bytes >= total, "the crawl did not read the tree");
+    let trace = overlay.working_set();
+    assert!(trace.crawled, "a crawl past the budget was not marked");
+    assert!(trace.bytes <= budget.bytes, "the trace holds {} bytes", trace.bytes);
+    assert_eq!(trace.paths.len() as u64, budget.bytes / CRAWL_FILE_BYTES as u64);
+    drop(overlay);
+    let saved = Trace::load(&state.path().join(working_set::FILE)).unwrap();
+    assert_eq!(saved, trace);
+
+    // The next session, on a fresh state folder, prefetches from the trace within its budget.
+    let next = tempfile::tempdir().unwrap();
+    let fake = Arc::new(crawl_tree().1);
+    let overlay = open(next.path(), &manifest, &fake).with_cache_max(cap);
+    let done = overlay.prefetch(&[], &saved, budget);
+    assert!(done.bytes <= budget.bytes && done.asks <= budget.asks, "{done:?}");
+    assert_eq!(done.files as usize, saved.paths.len());
+    assert_eq!(fake.calls.load(Ordering::Relaxed), done.asks as usize);
+    for batch in fake.batches.lock().unwrap().iter() {
+        let bytes = batch.len() as u64 * CRAWL_FILE_BYTES as u64;
+        assert!(bytes <= working_set::PREFETCH_BATCH_BYTES, "a prefetch ask carried {bytes}");
+    }
+    // A prefetched file is read with no ask; one past the trace still faults in as before.
+    let asked = fake.calls.load(Ordering::Relaxed);
+    let first = path_ino(&overlay, &saved.paths[0]);
+    assert_eq!(overlay.read(first, 0, 16).unwrap().len(), 16);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked, "a prefetched file asked the Mac");
+    assert_eq!(overlay.working_set().paths.len(), 1, "the prefetch was recorded as reads");
+
+    // A declared folder bigger than the budget, and a tight ask budget: each stops at its own.
+    let tight = tempfile::tempdir().unwrap();
+    let fake = Arc::new(crawl_tree().1);
+    let overlay = open(tight.path(), &manifest, &fake).with_cache_max(cap);
+    let all = vec![String::new()];
+    let done = overlay.prefetch(&all, &Trace::default(), Budget { bytes: total, asks: 3 });
+    assert_eq!(done.stopped, Some(Stop::Asks));
+    assert_eq!(done.asks, 3);
+    assert!(done.bytes <= 3 * working_set::PREFETCH_BATCH_BYTES);
+    let done = overlay.prefetch(&all, &Trace::default(), Budget { bytes: total, asks: 1000 });
+    assert_eq!(done.stopped, Some(Stop::Bytes), "a prefetch past the cache cap was not cut");
+    assert!(overlay.cache_bytes() <= cap);
+}
+
+#[test]
+fn the_journal_lists_what_changed_since_a_cursor_and_a_restart_overflows() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let start = overlay.journal().cursor().to_string();
+    let readme = path_ino(&overlay, "README.md");
+    overlay.read(readme, 0, 16).unwrap();
+    assert_eq!(
+        overlay.changed_since(&start),
+        Since::Changes { paths: Vec::new(), cursor: overlay.journal().cursor() }
+    );
+    overlay.write(readme, 0, b"README").unwrap();
+    let src = path_ino(&overlay, "src");
+    overlay.unlink(src, "b.rs").unwrap();
+    let made = overlay.mkdir(overlay.root(), "made", 0o755, me()).unwrap();
+    overlay.create(made.ino, "x.rs", 0o644, me()).unwrap();
+    overlay.rename(overlay.root(), "made", overlay.root(), "kept", 0).unwrap();
+    let Since::Changes { paths, cursor } = overlay.changed_since(&start) else {
+        panic!("an overflow from a fresh cursor");
+    };
+    assert_eq!(paths, ["README.md", "src/b.rs", "made/x.rs", "made/", "kept/", "made", "kept"]);
+    let Since::Changes { paths, .. } = overlay.changed_since(&cursor.to_string()) else {
+        panic!("an overflow from the last answer's cursor");
+    };
+    assert!(paths.is_empty());
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert!(matches!(
+        overlay.changed_since(&cursor.to_string()),
+        Since::Overflow { why: crate::journal::Overflow::FreshInstance, .. }
+    ));
+}
+
+/// Waits `RTT` per ask, as the Mac across a link does.
+struct Slow(Arc<Fake>);
+
+const RTT: Duration = Duration::from_millis(20);
+
+impl Fetch for Slow {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
+        std::thread::sleep(RTT);
+        self.0.read(entry, offset, len)
+    }
+
+    fn batch(&self, entries: &[u32]) -> Vec<Result<Vec<u8>, FetchError>> {
+        std::thread::sleep(RTT);
+        self.0.batch(entries)
+    }
+}
+
+/// Before and after the working set, one harness: a session (a build) reads the first 8 files of
+/// every folder, then the next session reads them again, cold (before) or after a prefetch from
+/// the first session's trace (after). Prints the demand asks and the reads' wall time.
+/// `cargo test -p cmux-projection --release --lib a_bench_of -- --ignored --nocapture`
+#[test]
+#[ignore = "a bench: run by hand"]
+fn a_bench_of_a_second_session_on_its_working_set() {
+    let (manifest, fake) = crawl_tree();
+    let fake = Arc::new(fake);
+    let session = |overlay: &Overlay| {
+        let started = std::time::Instant::now();
+        for folder in 0..CRAWL_FOLDERS {
+            for at in 0..8 {
+                let ino = path_ino(overlay, &format!("d{folder:02}/f{at:02}.rs"));
+                overlay.read(ino, 0, CRAWL_FILE_BYTES as u32).unwrap();
+            }
+        }
+        started.elapsed()
+    };
+    let slow = |fake: &Arc<Fake>| -> Arc<dyn Fetch> { Arc::new(Slow(fake.clone())) };
+    let open_slow = |state: &Path, fake: &Arc<Fake>| {
+        Overlay::open(manifest.clone(), state, slow(fake), (me().uid, me().gid)).unwrap()
+    };
+    let first = tempfile::tempdir().unwrap();
+    let overlay = open_slow(first.path(), &fake);
+    session(&overlay);
+    let trace = overlay.working_set();
+    drop(overlay);
+
+    let before = tempfile::tempdir().unwrap();
+    let fake = Arc::new(crawl_tree().1);
+    let overlay = open_slow(before.path(), &fake);
+    let cold = session(&overlay);
+    let cold_asks = fake.calls.load(Ordering::Relaxed);
+    drop(overlay);
+
+    let after = tempfile::tempdir().unwrap();
+    let fake = Arc::new(crawl_tree().1);
+    let overlay = open_slow(after.path(), &fake);
+    let started = std::time::Instant::now();
+    let done = overlay.prefetch(&[], &trace, Budget::default());
+    let prefetch = started.elapsed();
+    let asked = fake.calls.load(Ordering::Relaxed);
+    let warm = session(&overlay);
+    let warm_asks = fake.calls.load(Ordering::Relaxed) - asked;
+    println!(
+        "working set bench ({} files, {} KiB, rtt {} ms): before {cold_asks} demand asks, {} ms; \
+         after {warm_asks} demand asks, {} ms (prefetch {} asks, {} KiB, {} ms)",
+        trace.paths.len(),
+        trace.bytes / 1024,
+        RTT.as_millis(),
+        cold.as_millis(),
+        warm.as_millis(),
+        done.asks,
+        done.bytes / 1024,
+        prefetch.as_millis(),
+    );
+    assert!(warm_asks < cold_asks);
+}
