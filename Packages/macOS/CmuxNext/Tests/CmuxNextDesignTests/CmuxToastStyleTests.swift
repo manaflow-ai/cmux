@@ -126,7 +126,7 @@ struct CmuxToastStyleTests {
             #expect(view.fittingSize.width > 80 && view.fittingSize.height >= 20, "\(style) \(toast.id) drew nothing")
             #expect((view.actionButton != nil) == (toast.action != nil))
             #expect((view.secondaryButton != nil) == (toast.secondaryAction != nil))
-            #expect((view.iconView != nil) == style.look.showsIcon)
+            #expect((view.iconView != nil) == (style.look.showsIcon || (style.look.marksTone && toast.tone != .neutral)))
             #expect((view.countdownRing != nil) == (style.look.showsCountdown && toast.duration != CmuxToast.untilClosed))
             if toast.action != nil { #expect(view.actionButton?.isFilled == style.look.fillsAction) }
         }

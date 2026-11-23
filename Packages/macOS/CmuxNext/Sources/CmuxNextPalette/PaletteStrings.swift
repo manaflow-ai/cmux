@@ -96,6 +96,10 @@ nonisolated enum PaletteStrings {
     static var searchEverythingPlaceholder: String {
         String(localized: "palette.placeholder.searchEverything", defaultValue: "Search workspaces, tabs, history, chats, settings and commands…", bundle: .localizedModule)
     }
+    /// The line under Search's field: how to search one kind of row.
+    static var searchFiltersHint: String {
+        String(localized: "palette.hint.searchFilters", defaultValue: "Narrow with in:tabs, in:history, in:settings, or leave a kind out with -in:chats", bundle: .module)
+    }
     static var goToAnythingPlaceholder: String {
         String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .localizedModule)
     }

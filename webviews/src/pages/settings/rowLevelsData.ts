@@ -73,6 +73,10 @@ export const ROW_LEVELS: {
     "appearance.displayBackgroundRotations": "hidden",
     // What each background mode last showed: the Background card keeps it, nothing edits it by hand.
     "appearance.backgroundMemory": "hidden",
+    // Written by the Background card's placement preview and Adjust Background…, not a row.
+    "appearance.backgroundPlacement": "hidden",
+    // The backgrounds shown before: the settings write keeps it, the Recent strip draws it.
+    "appearance.backgroundRecents": "hidden",
     "appearance.statusIndicator.animation": "more",
     "appearance.statusIndicator.showPageLoading": "more",
     "appearance.statusIndicator.size": "hidden",
@@ -295,7 +299,7 @@ export const ROW_LEVELS: {
     "agentPane.display.statusVerbs.mode": "more",
     "agentPane.showMachineLoadWarnings": "more",
     "agentPane.display.statusVerbs.custom": "hidden",
-    "agentPane.display.width": "hidden",
+    "agentPane.display.width": "more",
     "agentPane.display.vscodeMinimap": "hidden",
     "agentPane.display.trayHandle": "hidden",
     "agentPane.display.senderIcon.lead": "hidden",
