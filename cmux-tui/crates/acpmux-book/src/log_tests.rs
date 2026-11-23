@@ -464,6 +464,7 @@ fn a_large_body_goes_to_a_blob_and_is_read_by_range() {
         group: None,
         at: 1,
         open: false,
+        phase: crate::row::Phase::Settled,
         body: &body,
         est: 40,
     };

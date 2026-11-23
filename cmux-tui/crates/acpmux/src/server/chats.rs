@@ -114,6 +114,10 @@ pub(super) async fn route(
     if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
+    if let Some(reply) = super::machine_join_ssh::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     #[cfg(feature = "hub-carrier")]
     if let Some(reply) = super::machine_routes::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -251,6 +255,10 @@ pub(super) async fn route(
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
+            // A chats watch hears every chat's activity (`push_activity`), attached or not.
+            if on {
+                conn.interest.hear_activity();
+            }
             if let Some(service) = &service {
                 if !on {
                     service.watch_off(&conn.id);
