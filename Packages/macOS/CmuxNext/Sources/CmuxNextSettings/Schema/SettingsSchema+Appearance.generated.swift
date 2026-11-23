@@ -9,6 +9,12 @@ extension NekoIconThemeSetting {
     public nonisolated static let fallback: NekoIconTheme = .default
 }
 
+extension AppearanceModeSetting {
+    /// `appearance.mode`: The app's own appearance (NSApp.appearance): system (the default) follows macOS; light and dark pin it. Terminal themes with a light/dark pair and the chrome follow the effective appearance. AppearanceModeSetting parses and applies it.
+    public nonisolated static let configPath = ["appearance", "mode"]
+    public nonisolated static let fallback: AppearanceMode = .system
+}
+
 extension AppThemeSetting {
     /// `appearance.theme`: cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.
     public nonisolated static let configPath = ["appearance", "theme"]

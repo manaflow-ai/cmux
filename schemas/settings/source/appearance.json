@@ -63,6 +63,57 @@
       },
       "rows": [
         {
+          "key": "appearance.mode",
+          "note": "The app's own appearance (NSApp.appearance): system (the default) follows macOS; light and dark pin it. Terminal themes with a light/dark pair and the chrome follow the effective appearance. AppearanceModeSetting parses and applies it.",
+          "title": {
+            "key": "settings.appearance.mode",
+            "text": "Appearance"
+          },
+          "help": {
+            "key": "settings.appearance.mode.help",
+            "text": "Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "system",
+              "title": {
+                "key": "settings.choice.appearanceMode.system",
+                "text": "Match System"
+              }
+            },
+            {
+              "value": "light",
+              "title": {
+                "key": "settings.choice.appearanceMode.light",
+                "text": "Light"
+              }
+            },
+            {
+              "value": "dark",
+              "title": {
+                "key": "settings.choice.appearanceMode.dark",
+                "text": "Dark"
+              }
+            }
+          ],
+          "swift_enum": {
+            "name": "AppearanceMode"
+          },
+          "swift_owner": "AppearanceModeSetting",
+          "default": "system",
+          "keywords": [
+            "appearance",
+            "light",
+            "dark",
+            "light mode",
+            "dark mode",
+            "system",
+            "color scheme",
+            "mode"
+          ]
+        },
+        {
           "key": "appearance.theme",
           "note": "cmux's terminal theme: a Ghostty theme name or a light/dark pair; unset is the Ghostty config's theme.",
           "title": {

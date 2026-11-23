@@ -182,6 +182,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `sidebar.border` and `sidebar.borderWidth`; an unset border follows
     /// `chromeStyle`.
     public var sidebarBorder = SidebarBorder()
+    /// `appearance.mode`: the app's light or dark appearance; `system` (follow macOS) when unset or invalid.
+    public var appearanceMode: AppearanceMode = AppearanceModeSetting.fallback
     /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
     public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
     /// `appearance.iconTheme`: reserved for the optional Neko family. Neko
@@ -429,6 +431,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.workspaceGroups = WorkspaceGroupConfig.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.nowPlaying = NowPlayingSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.appearanceMode = AppearanceModeSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.iconTheme = NekoIconThemeSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? SidebarBorderSetting.borderDefault,

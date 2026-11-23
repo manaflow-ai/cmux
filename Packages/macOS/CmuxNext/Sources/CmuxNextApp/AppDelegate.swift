@@ -146,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settingsRead = SettingsController.readAtLaunch(
             file: CmuxConfigFile.launchFile(), buildDefaults: .thisBuild)
         TerminalThemeSetting.prime(settingsRead.snapshot)
+        AppearanceModeSetting.apply(settingsRead.snapshot.appearanceMode)  // appearance.mode before any window
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
@@ -377,6 +378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
             }
         }
+        AppearanceModeSetting.follow(settings)  // appearance.mode: Light, Dark or Match System
         // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) follows into the one toast center.
         Task { [weak settings] in
             guard let settings else { return }
