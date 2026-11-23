@@ -113375,13 +113375,6 @@
       "choices" : [
         {
           "title" : {
-            "key" : "settings.agents.cmuxMcp.ask",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
-        {
-          "title" : {
             "key" : "settings.agents.cmuxMcp.on",
             "text" : "On"
           },
