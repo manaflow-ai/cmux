@@ -120,6 +120,7 @@ if "--bench=settings-open" in sys.argv:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id, close_all_workspaces, wait_for_count  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 import bench_arms  # noqa: E402
 import bench_page_engine  # noqa: E402
 
@@ -284,7 +285,7 @@ def start_load():
     loop = f'while :; do "{CLI}" workspace list >/dev/null 2>&1; "{CLI}" tree >/dev/null 2>&1; done'
     for _ in range(opts.storm):
         LOAD.append(subprocess.Popen(["/bin/sh", "-c", loop], env=CLI_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    time.sleep(3)  # test harness: let the load ramp
+    time.sleep(3)  # sleep-ok: the load's warm-up window; the phase measures under load that has run a while, not just spawned
 
 
 def stop_load():
@@ -335,7 +336,8 @@ def new_tab_page(settle=True):
     rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window_key()})
     ok = wait(lambda: (focused() or {}).get("kind") not in (None, "terminal"), 10, step=0.05)
     if ok and settle:
-        time.sleep(1)  # test harness: the page's handshake and field, as before a person types
+        # sleep-ok: the person's pause between Cmd-T and typing the address, which the timed newtab_url press models
+        time.sleep(1)
     return ok
 
 
@@ -352,8 +354,21 @@ def ensure_terminal(settle=True):
     print("newTab:", json.dumps(reply)[:300], flush=True)
     ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30, step=0.25 if settle else 0.02)
     if settle:
-        time.sleep(1)  # test harness: shell prompt
+        shell_prompts("the new terminal's shell prompt")
     return ok
+
+
+def shell_prompts(what):
+    """Every terminal pane's shell drew its prompt: its mirror text (`debug.surfaces` text) is not empty and holds
+    still. Best effort, as the fixed wait it replaces: a note when it never does."""
+    def texts():
+        rows = [(p.get("text") or "").strip() for w in ((rpc("debug.surfaces", {"text": True}) or {}).get("windows") or [])
+                for p in w.get("panes", []) if p.get("kind") == "terminal"]
+        if not all(rows):
+            raise ValueError("a terminal has drawn nothing yet")
+        return rows
+    if wait_stable(texts, what, timeout=15, interval=0.1, reads=3, raise_on_timeout=False) is None:
+        print(f"note: no settled terminal text for {what} in 15 s", flush=True)
 
 
 def switch_keys(runs):
@@ -376,7 +391,9 @@ def switch_keys(runs):
     field = lambda: (rpc("browser.page.eval", {"tab": page, "script": "JSON.stringify({v: document.getElementById('i').value, at: window.at, f: document.hasFocus()})"}) or {})
     read = lambda: (lambda value: value if isinstance(value, dict) else json.loads(value or "{}"))(field().get("value"))
     wait(lambda: "v" in read(), 20)
-    time.sleep(1.5)  # test harness: the page takes its first focus before the first switch away
+    # The page took its first focus (document.hasFocus) before the first switch away.
+    if not wait(lambda: read().get("f"), 10, step=0.05):
+        print("switch-keys: note: the page never reported focus in 10 s", flush=True)
     clear = lambda: rpc("browser.page.eval", {"tab": page, "script": "document.getElementById('i').value=''; window.at=[]; 1"})
     for index, case in [(i, c) for c in ("plain", "driven") for i in range(runs)]:
         if case == "plain":
@@ -779,7 +796,7 @@ def main():
             open(opts.json, "w").write(json.dumps(result, indent=1))
         return True
     launch()
-    time.sleep(2)  # test harness: shell prompt
+    shell_prompts("the launched window's shell prompt")
     window = window_key()
     rows = []
     switched = switch_keys(opts.switch_keys) if opts.switch_keys else []

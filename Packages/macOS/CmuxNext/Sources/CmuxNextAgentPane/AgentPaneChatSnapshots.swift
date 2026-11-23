@@ -1,3 +1,4 @@
+import struct CmuxNextControl.LaunchMarkSink
 import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -177,6 +178,8 @@ public final class AgentPaneChatSnapshots {
         text += ";self.__cmuxRestoredChat="
         if allowed, let sessionId, !sessionId.isEmpty { JSONValue.string(sessionId).appendCompactText(to: &text) }
         else { text += "null" }
+        // A launch harness reads the launch marks: the page's settle watch (launchSettle.ts) runs only then.
+        if LaunchMarkSink.shared.isActive { text += ";self.__cmuxLaunchMeasured=true" }
         text += ";self.dispatchEvent(new Event('cmux-restored-chat'));self.\(Self.global)Boot?.();"
         return Data(text.utf8)
     }

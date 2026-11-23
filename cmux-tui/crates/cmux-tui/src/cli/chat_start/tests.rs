@@ -288,7 +288,7 @@ fn a_cloud_chat_takes_an_environment_and_auto_is_none() {
     assert_eq!(picked.environment.as_deref(), Some("staging-db"));
     assert!(TAKES_VALUE.contains(&"--environment"));
     // cmux Cloud's choice of place: a new machine in the environment, decided before any VM is
-    // read, so several VMs of yours (which `--on cloud` alone refuses as `which_vm`) never matter.
+    // read, so the VM `--on cloud` alone would pick from yours never matters.
     let reads = |signed_in: bool| Reads {
         catalog: || -> Result<Value, Value> { panic!("no catalog read") },
         signed_in: move || signed_in,
@@ -356,9 +356,10 @@ fn vm_targets_are_new_or_an_existing_vm_never_made_for_them() {
 
 #[test]
 fn cloud_is_a_selector_and_needs_a_sign_in() {
-    // Four VMs, none running: which one is not guessed, for `vm` and for `cloud` (today the same).
+    // Four VMs, none running: `vm` asks which one; `cloud` never asks, and has none to reuse.
+    assert_eq!(code(at("vm", true)), "chat_target.which_vm");
+    assert_eq!(at("cloud", true), Ok(Route::Cloud(Machine::New)));
     for on in ["cloud", "vm"] {
-        assert_eq!(code(at(on, true)), "chat_target.which_vm");
         assert_eq!(code(at(on, false)), "chat_target.signed_out");
     }
     // A device named "cloud" is reached by its id, never by the selector.
@@ -379,6 +380,83 @@ fn on_vm(listed: Value) -> Result<Route, Value> {
             peers: unread_peers,
         },
     )
+}
+
+/// `--on cloud` with the app's VM list `listed`.
+fn on_cloud(listed: Value) -> Result<Route, Value> {
+    route(
+        Some("cloud"),
+        Reads {
+            catalog: || -> Result<Value, Value> { panic!("catalog") },
+            signed_in: || true,
+            cloud_machines: || Ok(listed),
+            peers: unread_peers,
+        },
+    )
+}
+
+/// Leo's NIGHTLY, 2026-11-11: `cmux chat --on cloud` with seven VMs refused `which_vm`, though its
+/// help says "cmux Cloud runs it; where may change". Now cmux Cloud picks, the same VM for the
+/// same list: the person's most recently used running chat VM, else a new one.
+#[test]
+fn cloud_picks_my_most_recently_used_running_chat_vm_and_never_asks() {
+    // All made by `user_a`.
+    let vm = |id: &str, title: &str, status: &str, created: &str, active: Option<&str>| {
+        json!({"machine_id": id, "title": title, "status": status, "created_by": "user_a",
+               "created_at": created, "last_active_at": active})
+    };
+    // Leo's list, as the NIGHTLY's rows carry it (no `last_active_at`, no `account.user`).
+    let leo = |rows: Vec<Value>| json!({"account": {"signed_in": true}, "machines": rows});
+    let seven = vec![
+        vm("vm_e35", "chat-91c33c40", "paused", "2026-11-04T07:25:51Z", None),
+        vm("vm_5e3", "cloud-devloop", "running", "2026-11-05T06:20:17Z", None),
+        vm("vm_4e2", "Cloud Machine 2", "running", "2026-11-05T06:49:14Z", None),
+        vm("vm_b11", "lease-lease_45_32acd657", "paused", "2026-11-09T21:23:04Z", None),
+        vm("vm_d0c", "chat-800dd580cab0487c", "running", "2026-11-10T02:16:41Z", None),
+        vm("vm_dff", "lease-lease_7c_9d87501b", "running", "2026-11-10T23:39:21Z", None),
+        vm("vm_c4f", "chat-1ee79169fa414849", "running", "2026-11-10T23:56:32Z", None),
+    ];
+    // No use known: the newest running one, never the lease or the dev loop's machine.
+    assert_eq!(on_cloud(leo(seven.clone())), Ok(Route::Cloud(Machine::Target("vm_c4f".into()))));
+    // The same list in another order picks the same VM.
+    let mut reversed = seven.clone();
+    reversed.reverse();
+    assert_eq!(on_cloud(leo(reversed)), Ok(Route::Cloud(Machine::Target("vm_c4f".into()))));
+    // `--on vm` still asks.
+    assert_eq!(code(on_vm(leo(seven))), "chat_target.which_vm");
+
+    // Use known: the most recently used, though made earlier; a paused VM is never picked.
+    let used = vec![
+        vm("vm-old", "chat-aa", "running", "2026-11-01T00:00:00Z", Some("2026-11-10T12:00:00Z")),
+        vm("vm-new", "chat-bb", "running", "2026-11-09T00:00:00Z", Some("2026-11-09T01:00:00Z")),
+        vm("vm-nap", "chat-cc", "paused", "2026-11-10T00:00:00Z", Some("2026-11-10T23:00:00Z")),
+    ];
+    assert_eq!(on_cloud(leo(used.clone())), Ok(Route::Cloud(Machine::Target("vm-old".into()))));
+    // A teammate's VM is never mine, when the list says who I am.
+    let me =
+        |who: &str| json!({"account": {"signed_in": true, "user": who}, "machines": used.clone()});
+    assert_eq!(on_cloud(me("user_a")), Ok(Route::Cloud(Machine::Target("vm-old".into()))));
+    assert_eq!(on_cloud(me("user_b")), Ok(Route::Cloud(Machine::New)));
+    // A tie breaks on the machine id, so it is still one answer.
+    let tie = vec![
+        vm("vm-2", "chat-2", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-1", "chat-1", "running", "2026-11-01T00:00:00Z", None),
+    ];
+    assert_eq!(on_cloud(leo(tie)), Ok(Route::Cloud(Machine::Target("vm-1".into()))));
+    // Machines made for something else, whatever their case: none qualifies, a new VM.
+    let others = vec![
+        vm("vm-l", "lease-lease_1", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-p", "Probe-VM", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-d", "cloud-devloop", "running", "2026-11-01T00:00:00Z", None),
+        vm("vm-f", "chat-ff", "failed", "2026-11-01T00:00:00Z", None),
+    ];
+    assert_eq!(on_cloud(leo(others)), Ok(Route::Cloud(Machine::New)));
+    assert_eq!(on_cloud(leo(vec![])), Ok(Route::Cloud(Machine::New)));
+    // Signed out, or not loaded yet: refused as `--on vm` refuses, never a new VM.
+    let out = json!({"account": {"signed_in": false}, "machines": []});
+    assert_eq!(code(on_cloud(out)), "chat_target.signed_out");
+    let unloaded = json!({"account": {"signed_in": true}, "loaded": false, "machines": []});
+    assert_eq!(code(on_cloud(unloaded)), "chat_target.unavailable");
 }
 
 #[test]
@@ -1599,6 +1677,84 @@ fn a_failing_cmux_acp_keeps_its_pretty_answer() {
         joined::run_acp(shell, &["wait", "h/n"], None, Duration::from_secs(60)).unwrap_err();
     assert_eq!(error["code"], "acpmux.failed", "{error}");
     assert_eq!(error["details"]["answer"]["timedOut"], true, "{error}");
+}
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): `cmux device add` printed
+/// `cmux chat --on doora-vm-1 --prompt '…'`, and on a Mac with no cmux session running that
+/// line failed in 0 s with "cannot connect to cmux session": the catalog read had no app to
+/// ask, and that refusal was final. With no session, the joined machine is still found through
+/// acpmux and the account, which need no app.
+#[test]
+fn the_line_device_add_prints_finds_the_machine_with_no_cmux_session() {
+    let no_session = || {
+        Err(json!({"code": "daemon.unreachable", "message": "cannot connect to cmux session",
+                   "details": {}, "retryable": true}))
+    };
+    let on = |on: &'static str| {
+        route_or_joined(
+            Some(on),
+            || {
+                route(
+                    Some(on),
+                    Reads {
+                        catalog: no_session,
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: unread_peers,
+                    },
+                )
+            },
+            Sources {
+                hub: || vec![json!({"name": "doora-vm-1", "connected": true, "via": "hub"})],
+                rows: || {
+                    Ok(vec![json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1",
+                                   "hostname": "doora-vm-1", "state": "online"})])
+                },
+            },
+        )
+    };
+    assert_eq!(on("doora-vm-1"), joined_at(Some("m_vm1"), "doora-vm-1", "doora-vm-1"));
+    // A name no joined machine has keeps the session's own refusal.
+    assert_eq!(on("nowhere").unwrap_err()["code"], "daemon.unreachable");
+}
+
+/// Door A timing run: two Ubuntu VMs added as doora-vm-1 and doora-vm-2 both have the host
+/// name `ubuntu`. A current acpmux heartbeats with the name it joined with, so the hub lists
+/// `doora-vm-1`: the chat goes to that host, never to the shared host name.
+#[test]
+fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
+    let rows = || {
+        Ok(vec![
+            json!({"kind": "joined", "id": "m_vm1", "name": "doora-vm-1", "hostname": "ubuntu",
+                   "state": "online"}),
+            json!({"kind": "joined", "id": "m_vm2", "name": "doora-vm-2", "hostname": "ubuntu",
+                   "state": "online"}),
+        ])
+    };
+    let hub = || {
+        vec![
+            json!({"name": "doora-vm-1", "connected": true, "via": "hub"}),
+            json!({"name": "doora-vm-2", "connected": true, "via": "hub"}),
+        ]
+    };
+    for (name, id) in [("doora-vm-1", "m_vm1"), ("doora-vm-2", "m_vm2")] {
+        let found = route_or_joined(
+            Some(name),
+            || {
+                route(
+                    Some(name),
+                    Reads {
+                        catalog: || Ok(catalog()),
+                        signed_in: || true,
+                        cloud_machines: || Ok(listed()),
+                        peers: || Ok(peers()),
+                    },
+                )
+            },
+            Sources { hub, rows },
+        );
+        assert_eq!(found, joined_at(Some(id), name, name));
+    }
 }
 
 /// cmux#46701: `cmux chat --on cloud` takes what the composer's Cloud start picks: harness,
