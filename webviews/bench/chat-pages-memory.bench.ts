@@ -228,7 +228,8 @@ try {
         const keep =
           depth === 1 ||
           (name.startsWith("partition_alloc/partitions/") && depth === 3) ||
-          (name.startsWith("v8/main/heap/") && depth === 4);
+          (name.startsWith("v8/main/heap/") && depth === 4) ||
+          (process.env.MEMDUMP_ALL === "1" && depth <= 3);
         const size = dump.attrs?.size?.value;
         if (!keep || size === undefined) continue;
         sizes.set(name, (sizes.get(name) ?? 0) + parseInt(size, 16) / 1048576);
@@ -417,12 +418,31 @@ try {
   }
   if (process.env.PURGE === "1") {
     // What Chromium's own memory-pressure response gives back with every page kept (bench_memory.py --purge-hidden).
-    await pages[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+    // RELEASE=1 closed every page but the newest: the notice goes through a live one.
+    const kept = pages.filter(({ page }) => !page.isClosed());
+    await kept[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    const purged = await sample(pages);
+    const purged = await sample(kept);
+    await printDump(pages.length);
     console.log(
       `${pages.length} purged | ${purged.renderers} | ${purged.mb.toFixed(1)} | ${((purged.mb - empty.mb) / pages.length).toFixed(1)} | ${purged.heap.toFixed(1)} | -`,
     );
+    if (process.env.PURGE_EXPERIMENT === "1") {
+      await new Promise((resolve) => setTimeout(resolve, 30000));
+      const settled = await sample(kept);
+      await printDump(pages.length);
+      console.log(`${pages.length} settled30s | ${settled.mb.toFixed(1)} | ${settled.heap.toFixed(1)}`);
+      for (const { page, cdp } of kept) {
+        await setMinimized(cdp, true);
+        await setHidden(page, true);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 12000));
+      await kept[0]!.cdp.send("Memory.simulatePressureNotification", { level: "critical" });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const hidden = await sample(kept);
+      await printDump(pages.length);
+      console.log(`${pages.length} hidden-purged | ${hidden.mb.toFixed(1)} | ${hidden.heap.toFixed(1)}`);
+    }
   }
   const percentile = (values: number[], share: number) => {
     const sorted = [...values].sort((a, b) => a - b);

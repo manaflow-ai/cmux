@@ -93,6 +93,80 @@ def phase(pid: int, bundle: str, sock: str, label: str, items: int, seconds: flo
     return result
 
 
+def renderer_footprints(pid: int, bundle: str) -> list[float]:
+    """Every Chromium renderer's footprint now (MB), largest first: no window, one read per process."""
+    rows = bm.sample(pid, bundle, "chat-heap", 0)["processes"]
+    return sorted((r["footprint_mb"] for r in rows if r["kind"] == "cef-renderer"), reverse=True)
+
+
+def chat_heap(app: bm.App, pid: int, bundle: str, label: str) -> list[dict]:
+    """What the renderer of cmux's own pages holds in JS, and what a full collection and then a purge give back.
+
+    One cmux page per renderer (cmux pages share one renderer per site, so every page of it answers for the whole
+    isolate): its heap (`Runtime.getHeapUsage`: V8 used/total, Blink's Oilpan, backing stores) and its DOM counters
+    (`Memory.getDOMCounters`: documents counts detached ones not yet collected), then `HeapProfiler.collectGarbage`
+    and the same reads, then a critical `Memory.simulatePressureNotification` (PartitionAlloc discards its free
+    pages) and the same reads, with every renderer's footprint at each step. Read after the measured window: it
+    collects and purges, so it runs where no number after it is a memory number of this phase.
+    Settles whether a hibernated chat's memory is still reachable (used stays high, or documents stay above the
+    live pages) or garbage the renderer keeps mapped (used drops, footprint does not)."""
+    pages = (app.call("debug.cef_pages", timeout=30) or {}).get("pages")
+    if not isinstance(pages, list):
+        print(f"INFTABS-CHATHEAP label={label} error=no-debug.cef_pages", flush=True)
+        return []
+    own = [p for p in pages if isinstance(p, dict) and "browser" in p and str(p.get("origin", "")).startswith("cmux-page://")]
+    by_renderer: dict = {}
+    for page in own:
+        clients = sorted(int(c) for c in (page.get("renderer_clients") or []) if isinstance(c, (int, float)))
+        by_renderer.setdefault(clients[0] if clients else ("page", page["browser"]), []).append(page)
+
+    def call(browser, method: str, params: dict | None = None, timeout: float = 30) -> dict:
+        reply = app.call("debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=timeout)
+        if reply.get("error") or not isinstance(reply.get("result"), str):
+            return {"error": str(reply.get("error") or "no reply")[:120]}
+        try:
+            return json.loads(reply["result"]) or {}
+        except ValueError as error:
+            return {"error": str(error)[:120]}
+
+    def read(browser) -> dict:
+        heap, dom = call(browser, "Runtime.getHeapUsage"), call(browser, "Memory.getDOMCounters")
+        mb = lambda key: round(heap[key] / bm.MB, 1) if isinstance(heap.get(key), (int, float)) else None  # noqa: E731
+        return {"used_mb": mb("usedSize"), "total_mb": mb("totalSize"), "embedder_mb": mb("embedderHeapUsedSize"),
+                "backing_mb": mb("backingStorageSize"), "documents": dom.get("documents"), "nodes": dom.get("nodes"),
+                "listeners": dom.get("jsEventListeners"), "error": heap.get("error") or dom.get("error")}
+
+    rows = []
+    for renderer, members in by_renderer.items():
+        browser = min(p["browser"] for p in members)
+        row = {"renderer": renderer, "pages": len(members), "hidden": sum(1 for p in members if p.get("hidden")),
+               "paths": sorted({str(p.get("path") or "/") for p in members}), "before": read(browser)}
+        rows.append((browser, row))
+    steps = {"before": renderer_footprints(pid, bundle)}
+    for browser, row in rows:
+        call(browser, "HeapProfiler.collectGarbage", timeout=60)
+    time.sleep(2)  # test script: the collection's freed pages go back before the process is read
+    steps["gc"] = renderer_footprints(pid, bundle)
+    for browser, row in rows:
+        row["gc"] = read(browser)
+    if rows:
+        call(rows[0][0], "Memory.simulatePressureNotification", {"level": "critical"})  # reaches every process
+    time.sleep(3)  # test script: the purge's discards land before the process is read
+    steps["purge"] = renderer_footprints(pid, bundle)
+    for browser, row in rows:
+        row["purge"] = read(browser)
+    out = []
+    for browser, row in rows:
+        fields = " ".join(f"{step}_{key}={value}" for step in ("before", "gc", "purge")
+                          for key, value in row[step].items() if value is not None)
+        print(f"INFTABS-CHATHEAP label={label} renderer={row['renderer']} browser={browser} pages={row['pages']} "
+              f"hidden={row['hidden']} paths={','.join(row['paths'])} {fields}", flush=True)
+        out.append(row)
+    print(f"INFTABS-CHATHEAP label={label} renderer_footprints_mb "
+          + " ".join(f"{step}={json.dumps(values[:4])}" for step, values in steps.items()), flush=True)
+    return out
+
+
 def new_workspace(app: bm.App) -> str | None:
     made = app.run("workspace.newAtBottom")
     workspace = next((str(i) for i in made.get("created", []) if str(i).startswith("ws_")), None)
@@ -281,6 +355,7 @@ def run(argv: list[str]) -> int:
     try:
         time.sleep(args.settle)  # test script: the launched app settles before its empty sample
         phase(pid, bundle, sock, "empty", 0, args.measure, report)
+        report["chat_heap_empty"] = chat_heap(app, pid, bundle, "empty")  # after the window: the empty app's own floor
         chats = bm.FakeChats(app, bundle, args.fake_agent) if args.chats else None
         started = time.monotonic()
         for index in range(args.workspaces):
@@ -333,6 +408,9 @@ def run(argv: list[str]) -> int:
         print(f"PERF-ATTR full pump window_s={found['window_s']} delta={json.dumps(pump)}", flush=True)
         kinds_table(report["phases"]["empty"], full)
         bm.print_vmmap(full, "app,cef-renderer,tui-daemon")
+        # After full's window and its vmmap, before the switches: what the chat renderer still holds, and what a
+        # collection and a purge give back (the switches after it start from a collected renderer).
+        report["chat_heap_full"] = chat_heap(app, pid, bundle, "full")
         with_pages = [entry for entry in made if entry["pages"]]
         step = max(1, len(with_pages) // max(1, args.wake))
         for entry in with_pages[::step][: args.wake]:
