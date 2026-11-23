@@ -23,8 +23,18 @@ public struct TerminalDemoRoot: View {
                 palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
                 accent: "blue")), keep: false)
         }
-        let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
-            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
+        let session: any TerminalSession
+        if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
+            // A Mac pane of 120x40 (or `-CmuxMobileTerminalDemoMacGrid 39x26`, a
+            // pane narrower than the phone), through the session the app builds
+            // for a Mac terminal.
+            let grid = (UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoMacGrid") ?? "").split(separator: "x").compactMap { Int($0) }
+            let mac = grid.count == 2 ? MacPaneMockSession(columns: grid.first ?? 120, rows: grid.last ?? 40) : MacPaneMockSession()
+            session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
+        } else {
+            session = TerminalHostGridDemoSession.requestedSpec
+                .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession(macResize: Self.macResize)
+        }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
@@ -73,9 +83,7 @@ public struct TerminalDemoRoot: View {
                 }
                 return
             }
-            let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
-                .split(separator: ",").map(String.init)
-            await TerminalDemoDriver(model: model).run(phases: phases)
+            await TerminalDemoDriver(model: model).run(phases: TerminalDemoDriver.requestedPhases)
         }
     }
 }
@@ -88,6 +96,10 @@ final class TerminalDemoDriver {
 
     init(model: TerminalModel) { self.model = model }
     let clock = ContinuousClock()
+
+    static var requestedPhases: [String]? {
+        UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?.split(separator: ",").map(String.init)
+    }
 
     private func wait(_ seconds: Double) async {
         try? await clock.sleep(for: .milliseconds(Int(seconds * 1000)))
@@ -157,6 +169,7 @@ final class TerminalDemoDriver {
         if selected.contains("kbclaude") { await keyboardOverTUI(command: "claude") }
         if selected.contains("kbshell") { await keyboardOverShell() }
         if selected.contains("tuihold") { await holdTUI() }
+        if selected.contains("projection") { await projection() }
         if selected.contains("scrollbench") { await scrollBench() }
         if selected.contains("historyfling") { await historyFling() }
         for variant in ["primary", "mouse", "keys", "primary-load", "mouse-load", "keys-load"]
@@ -530,6 +543,34 @@ final class TerminalDemoDriver {
         }
         await wait(0.5)
         note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    /// `projection` (opt-in): a shell on a Mac pane of 120x40
+    /// (`MacPaneMockSession`). The keyboard is shown and hidden; then the
+    /// UI test switches apps and rotates the phone while `demoNote` keeps
+    /// `p.<stage>.mac<PTY resizes>.wide<wide grids>.rs<mirror resets>`
+    /// current (TerminalProjectionUITests).
+    private func projection() async {
+        let mac = model.session.underlyingSession as? MacPaneMockSession
+        func counters(_ stage: String) {
+            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets).ret\(model.lastReturnMs)"
+                + ".nar\(model.narrowKeyboardFrames).kbb\(model.keyboardBounces)")
+        }
+        counters("attach")
+        await wait(1)
+        counters("kbstart")
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kbup")
+        await wait(1)
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kb")
+        await wait(0.5)
+        for _ in 0..<600 {
+            counters("live")
+            await wait(0.25)
+        }
     }
 
     private func note(_ label: String) {
