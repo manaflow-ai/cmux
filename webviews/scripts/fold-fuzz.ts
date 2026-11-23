@@ -540,14 +540,20 @@ export function strayTable(results: Result[], looks: string[]) {
   return lines;
 }
 
+/** The kinds the CI ratchet holds: the three motion faults and the two stray starts
+ *  (docs/design/transcript-animation-rules.md, "The detector"). All five come from `countFlags`, so a
+ *  kind left out here is a kind the gate cannot see at all, whatever the baseline lists. */
+export const RATCHET_KINDS = ["move", "resize", "off-curve", "offscreen-start", "scroll-start"] as const;
+export type RatchetCounts = Record<(typeof RATCHET_KINDS)[number], number>;
+
 /** Each seed's detector counts for one look: what the CI ratchet (transcript-motion-baseline.json) holds. */
 export function seedFlags(results: Result[], look: string) {
-  const flags: Record<string, { move: number; resize: number; "off-curve": number }> = {};
+  const flags: Record<string, RatchetCounts> = {};
   for (const r of results) {
     if (r.look !== look || !ok(r.numbers) || !(r.numbers as Ok).motion) continue;
     const v = (r.numbers as Ok).motion!;
-    if (v.move + v.resize + v["off-curve"] > 0)
-      flags[r.seed] = { move: v.move, resize: v.resize, "off-curve": v["off-curve"] };
+    const counts = Object.fromEntries(RATCHET_KINDS.map((kind) => [kind, v[kind] ?? 0])) as RatchetCounts;
+    if (RATCHET_KINDS.some((kind) => counts[kind] > 0)) flags[r.seed] = counts;
   }
   return flags;
 }

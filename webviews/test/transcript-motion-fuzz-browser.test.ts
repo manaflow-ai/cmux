@@ -5,8 +5,10 @@
 // THESE SHOULD BE FLAGGABLE".
 //
 // Each seed plays through the fold recorder's page at real speed with the shipped fold look; every
-// element's box is read every frame. A seed fails when the detector flags a kind (`move`, `resize`,
-// `off-curve`) that transcript-motion-baseline.json does not list for it, in two plays out of two (a play
+// element's box is read every frame. A seed fails when the detector flags a kind -- `move`, `resize`,
+// `off-curve`, or a stray start (`offscreen-start`, `scroll-start`; docs/design/transcript-animation-rules.md,
+// "An animation plays only for a change the reader caused or is looking at, and only where the reader can see
+// it") -- that transcript-motion-baseline.json does not list for it, in two plays out of two (a play
 // is real time on a shared runner: a flag must repeat to count). The baseline lists the seeds that flag
 // today; it only shrinks: a listed seed that plays clean is printed so it comes out. Regenerate it from
 // the full run: `bun scripts/fold-fuzz.ts --seeds 500 --look wipe --jobs 6 --out DIR --baseline
@@ -15,8 +17,9 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import type { RatchetCounts } from "../scripts/fold-fuzz";
 
-type Counts = { move: number; resize: number; "off-curve": number };
+type Counts = RatchetCounts;
 type Baseline = { look: string; seeds: number; flagged: Record<string, Counts> };
 
 await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
@@ -29,7 +32,7 @@ await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
     return;
   }
   const { openRecorder } = await import("../scripts/fold-variants-record");
-  const { fuzz, seedFlags, detectorTable } = await import("../scripts/fold-fuzz");
+  const { fuzz, seedFlags, detectorTable, RATCHET_KINDS } = await import("../scripts/fold-fuzz");
   const baseline = (await Bun.file(path.join(import.meta.dir, "transcript-motion-baseline.json")).json()) as Baseline;
   /// The seeds CI plays: the baseline's first `CMUX_MOTION_FUZZ_SEEDS` (default 60; the full 500 is the report's run).
   const count = Number(process.env.CMUX_MOTION_FUZZ_SEEDS ?? 60);
@@ -42,7 +45,10 @@ await requireBrowserLane("transcript-motion-fuzz-browser.test.ts", async () => {
     await recorder?.close();
   });
 
-  const KINDS = ["move", "resize", "off-curve"] as const;
+  // Every kind the ratchet holds, the two stray starts included: `offscreen-start` (an animation on a
+  // row outside the view) and `scroll-start` (one the reader's own scroll started). The list comes from
+  // the fuzzer so the test cannot read fewer kinds than `seedFlags` reports.
+  const KINDS = RATCHET_KINDS;
   /** Each seed's kinds that the baseline does not list for it. */
   const fresh = (flags: Record<string, Counts>) =>
     Object.entries(flags)
