@@ -1882,7 +1882,7 @@ async fn run_registration_once(
                     Ok(RelayControl::Incoming { circuit, lane, generation, join_ticket }) => {
                         spawn_incoming(
                             circuits, &daemon, config, framing, tls, circuit, lane, generation,
-                            join_ticket,
+                            join_ticket, log,
                         );
                     }
                     Ok(_) => {}
@@ -1936,6 +1936,7 @@ async fn run_registration_once(
                             lane,
                             generation,
                             join_ticket,
+                            log,
                         );
                         continue;
                     }
@@ -1999,8 +2000,74 @@ async fn read_some(socket: Option<&mut RelaySocket>) -> Result<RelayControl, Pro
     }
 }
 
+/// How long one daemon-side Join of an `Incoming` circuit has alone before a
+/// second one starts beside it (on a new WebSocket, with the same join ticket).
+/// A fresh Cloud machine's daemon, paired with a parked Connect the moment it
+/// registered, sometimes never joined that first circuit: production
+/// `cloud-chat-replies-production`, cold starts 2026-11-22 18:00Z to 11-23
+/// 06:10Z, the first dial of 3 of 9 created machines waited out the client's
+/// whole 4 s peer-join wait (`outcome=relay`, link 7.2 to 11.7 s) though the
+/// daemon had registered in 340 ms, and the client's redial was joined in 0.6 to
+/// 1 s every time. The one Join was given up silently, and its WebSocket connect
+/// (resolve, TCP, TLS, upgrade) is bounded only by the relay's 10 s connect.
+/// A healthy Join is Ready in well under a second (both ends join on the same
+/// Allocated/Incoming pair), so a second attempt at 1 s lands inside the client's
+/// wait. An extra Join on a circuit the first already joined is refused by the
+/// relay (`duplicate-role`) and closes; the first keeps waiting.
+const DAEMON_JOIN_STAGGER: Duration = Duration::from_secs(1);
+/// Daemon-side Joins of one `Incoming` in all: one every [`DAEMON_JOIN_STAGGER`]
+/// while none is Ready, all kept in flight until the registration's control
+/// timeout.
+const DAEMON_JOIN_ATTEMPTS: usize = 4;
+
+/// The first of `attempt`'s results that is Ok, starting one attempt at once
+/// and another every `stagger` while none has been (at most `most` in all,
+/// every one kept in flight), within `budget`. The error is the last failed
+/// attempt's, or a join timeout when the budget ran out first.
+async fn hedged_join<T, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    budget: Duration,
+) -> Result<T, ProviderError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, ProviderError>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let deadline = Instant::now() + budget;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
+    let mut last_error = None;
+    loop {
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next(), if !running.is_empty() => match result {
+                Ok(joined) => return Ok(joined),
+                Err(error) => {
+                    last_error = Some(error);
+                    if running.is_empty() && !more {
+                        break;
+                    }
+                }
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
+            }
+            _ = tokio::time::sleep_until(deadline) => break,
+        }
+    }
+    Err(last_error.unwrap_or_else(|| relay_carrier_error("relay circuit join timed out")))
+}
+
 /// Joins the circuit an `Incoming` names and hands it to `daemon`, unless the
-/// circuit is already joined or the registration holds its most circuits.
+/// circuit is already joined or the registration holds its most circuits. The
+/// Join is hedged ([`DAEMON_JOIN_STAGGER`]); one that never became Ready is
+/// written to the registration's log, with how long it was tried.
 #[allow(clippy::too_many_arguments)]
 fn spawn_incoming(
     circuits: &mut IncomingCircuitTasks,
@@ -2012,6 +2079,7 @@ fn spawn_incoming(
     lane: LaneToken,
     generation: u64,
     join_ticket: String,
+    log: &RegisterLog,
 ) {
     let daemon = daemon.clone();
     let endpoint = config.endpoint.clone();
@@ -2019,24 +2087,41 @@ fn spawn_incoming(
     let maximum = config.maximum_frame_bytes;
     let timeout = config.control_timeout;
     let tls = tls.clone();
+    let label = log.label.clone();
     let task_circuit = circuit.clone();
     circuits.try_spawn(circuit, async move {
-        if let Ok(link) = join_circuit(
-            &endpoint,
-            &slot,
-            RelayRole::Daemon,
-            framing,
-            task_circuit,
-            lane,
-            generation,
-            join_ticket,
-            maximum,
+        let started = Instant::now();
+        let joined = hedged_join(
+            || {
+                join_circuit(
+                    &endpoint,
+                    &slot,
+                    RelayRole::Daemon,
+                    framing,
+                    task_circuit.clone(),
+                    lane.clone(),
+                    generation,
+                    join_ticket.clone(),
+                    maximum,
+                    timeout,
+                    &tls,
+                )
+            },
+            DAEMON_JOIN_STAGGER,
+            DAEMON_JOIN_ATTEMPTS,
             timeout,
-            &tls,
         )
-        .await
-        {
-            daemon.incoming(link).await;
+        .await;
+        match joined {
+            Ok(link) => daemon.incoming(link).await,
+            Err(error) => {
+                if let Some(label) = &label {
+                    eprintln!(
+                        "{label}: an incoming circuit was not joined after {} ms: {error}",
+                        started.elapsed().as_millis()
+                    );
+                }
+            }
         }
     });
 }

@@ -1742,3 +1742,165 @@ async fn plain_credentials_send_no_grant_on_connect() {
         RelayCredentialSource::callback(|| async { Ok::<_, ()>("plain-ticket".to_owned()) });
     assert_eq!(connect_grant_for(credentials).await, None);
 }
+
+/// The daemon's Join of an `Incoming` is hedged: an attempt that never answers
+/// gets a second beside it after the stagger, and the first Ok wins.
+#[tokio::test(start_paused = true)]
+async fn a_hung_daemon_join_gets_a_second_attempt_after_the_stagger() {
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let joined = hedged_join(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move {
+                    if n == 0 {
+                        std::future::pending::<()>().await;
+                    }
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    Ok::<_, ProviderError>(n)
+                }
+            }
+        },
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await
+    .unwrap();
+    assert_eq!(joined, 1, "the second attempt joined");
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 2, "no third attempt once one joined");
+    assert_eq!(started.elapsed(), Duration::from_millis(1_300));
+}
+
+/// A healthy Join is the only one; attempts that all fail end with the last
+/// error once they ran out; attempts that never answer end at the budget.
+#[tokio::test(start_paused = true)]
+async fn a_daemon_join_is_one_attempt_when_it_answers_and_bounded_when_none_does() {
+    let launched = Arc::new(AtomicUsize::new(0));
+    let fast = hedged_join(
+        {
+            let launched = launched.clone();
+            move || {
+                launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async { Ok::<_, ProviderError>(()) }
+            }
+        },
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert!(fast.is_ok());
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 1);
+
+    let started = Instant::now();
+    let launched = Arc::new(AtomicUsize::new(0));
+    let failing = hedged_join(
+        {
+            let launched = launched.clone();
+            move || {
+                let n = launched.fetch_add(1, AtomicOrdering::SeqCst);
+                async move { Err::<(), _>(relay_carrier_error(format!("refused {n}"))) }
+            }
+        },
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert_eq!(launched.load(AtomicOrdering::SeqCst), 4);
+    assert!(failing.unwrap_err().to_string().contains("refused 3"));
+    assert_eq!(started.elapsed(), Duration::from_secs(3));
+
+    let started = Instant::now();
+    let hung = hedged_join(
+        || std::future::pending::<Result<(), ProviderError>>(),
+        Duration::from_secs(1),
+        4,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert!(hung.unwrap_err().to_string().contains("join timed out"));
+    assert_eq!(started.elapsed(), Duration::from_secs(15));
+}
+
+/// A registered daemon whose first circuit WebSocket hangs before its upgrade
+/// (the relay never answers it) joins the circuit on a second WebSocket within
+/// the client's 4 s peer-join wait, instead of giving the circuit up at the
+/// relay's 10 s connect bound with nothing logged.
+#[tokio::test]
+async fn a_daemon_joins_an_incoming_circuit_on_a_second_socket_when_the_first_hangs() {
+    use crate::identity::AuthDatabase;
+    use crate::session::SessionLimits;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
+    let (joined_tx, joined_rx) = oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut control, _) = accept_with_authorization(stream).await;
+        assert!(matches!(receive_test_control(&mut control).await, RelayControl::Register { .. }));
+        send_test_control(&mut control, &RelayControl::Registered { lease_seconds: 30 }).await;
+        let circuit = CircuitId("first-circuit".into());
+        let lane = LaneToken("lane-0".into());
+        send_test_control(
+            &mut control,
+            &RelayControl::Incoming {
+                circuit: circuit.clone(),
+                lane: lane.clone(),
+                generation: 0,
+                join_ticket: "daemon-join".into(),
+            },
+        )
+        .await;
+        let accepted = Instant::now();
+        // The first circuit socket connects and is never answered.
+        let (_hung, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let second_after = accepted.elapsed();
+        let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
+        assert_eq!(authorization, "Bearer daemon-join");
+        assert!(matches!(
+            receive_test_control(&mut circuit_socket).await,
+            RelayControl::Join { role: RelayRole::Daemon, .. }
+        ));
+        send_test_control(
+            &mut circuit_socket,
+            &RelayControl::Ready { circuit, lane, generation: 0 },
+        )
+        .await;
+        let _ = joined_tx.send(second_after);
+        tokio::select! {
+            _ = async { while control.next().await.is_some() {} } => {}
+            _ = async { while circuit_socket.next().await.is_some() {} } => {}
+        }
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let auth = AuthDatabase::load_or_create(directory.path(), "relay-hedged-join", true).unwrap();
+    let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
+    let registration = register_relay_daemon(
+        daemon,
+        RelayDaemonConfig {
+            endpoint,
+            slot: "hedged-join-slot".into(),
+            ticket: "registration-ticket".into(),
+            maximum_frame_bytes: 65_535,
+            control_timeout: Duration::from_secs(15),
+        },
+    )
+    .await
+    .unwrap();
+    let second_after = tokio::time::timeout(Duration::from_secs(4), joined_rx)
+        .await
+        .expect("the daemon did not join on a second socket inside the client's 4 s wait")
+        .unwrap();
+    eprintln!("second circuit socket {second_after:?} after the Incoming");
+    assert!(second_after < Duration::from_secs(3), "{second_after:?}");
+    tokio::time::timeout(Duration::from_secs(2), registration.shutdown())
+        .await
+        .expect("relay registration shutdown did not complete");
+    server.abort();
+}
