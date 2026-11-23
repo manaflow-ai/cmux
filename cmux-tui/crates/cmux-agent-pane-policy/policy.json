@@ -23,6 +23,7 @@
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/agent_login/start", "_acpmux/agent_login/finish", "_acpmux/agent_login/api_key", "_acpmux/agent_login/cancel",
+    "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
     "_acpmux/cold_archive", "_acpmux/prompt_coach"
   ],
@@ -41,7 +42,8 @@
     "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
     "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
     "_acpmux/presets", "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-    "_acpmux/cold_archive", "_acpmux/prompt_coach"
+    "_acpmux/cold_archive", "_acpmux/prompt_coach",
+    "_acpmux/account/sign_in", "_acpmux/account/sign_in.finish", "_acpmux/account/sign_in.cancel"
   ],
   "optionally_session_scoped": [
     "acp.trust.get", "acp.trust.set", "_acpmux/session/auth",
@@ -75,6 +77,7 @@
     "_acpmux/app_reply": "always",
     "_acpmux/agent_login/start": "always",
     "_acpmux/agent_login/api_key": "always",
+    "_acpmux/account/sign_in": "always",
     "_acpmux/plan/build": "always",
     "_acpmux/race/start": "always",
     "_acpmux/presets": "always",
@@ -173,6 +176,9 @@
     "_acpmux/agent_login/finish": {"params": ["loginId", "code", "sessionId"], "acpmux": []},
     "_acpmux/agent_login/api_key": {"params": ["agent", "key", "sessionId"], "acpmux": []},
     "_acpmux/agent_login/cancel": {"params": ["loginId", "sessionId"], "acpmux": []},
+    "_acpmux/account/sign_in": {"params": ["family", "sessionId"], "acpmux": []},
+    "_acpmux/account/sign_in.finish": {"params": ["loginId", "sessionId"], "acpmux": []},
+    "_acpmux/account/sign_in.cancel": {"params": ["loginId", "sessionId"], "acpmux": []},
     "_acpmux/process/list": {"params": ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"], "acpmux": []},
     "_acpmux/process/tail": {"params": ["processId", "maxBytes"], "acpmux": []},
     "_acpmux/process/kill": {"params": ["sessionId", "processId"], "acpmux": []},
