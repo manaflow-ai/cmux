@@ -168,6 +168,8 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod input_qos;
+#[cfg(unix)]
+mod projection_away;
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
@@ -3061,6 +3063,7 @@ use journal_stream::{
     handle_journal_extension_request, prepare_session_journal_stream, start_session_journal_stream,
 };
 
+mod agent_app_control;
 mod incognito_orphans;
 mod incognito_remote;
 mod resource_connection;

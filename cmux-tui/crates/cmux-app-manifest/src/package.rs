@@ -66,6 +66,9 @@ pub fn validate_package_file(dir: &Path, file_name: &str) -> PackageReport {
         catalog = fragment;
         issues.extend(found);
     }
+    if crate::is_valid(&issues) {
+        issues.extend(wallpaper_folders(dir, &manifest));
+    }
     PackageReport { manifest: Some(manifest), catalog, issues }
 }
 
@@ -107,6 +110,15 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
     }
     for (i, notice) in m["notices"].as_array().into_iter().flatten().enumerate() {
         add(&format!("/notices/{i}/path"), notice.get("path"));
+    }
+    for (i, w) in m
+        .pointer("/contributes/wallpapers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        add(&format!("/contributes/wallpapers/{i}/path"), w.get("path"));
     }
     let files: Option<Vec<&str>> =
         m["files"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
@@ -152,6 +164,103 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
                     out.push(issue);
                 }
             }
+        }
+    }
+    out
+}
+
+/// `contributes.wallpapers` (plans/cmux-next/live-wallpapers.md): each listed
+/// folder's `wallpaper.json` passes cmux-wallpaper's manifest check, its program
+/// exists and is at most 64 KiB, and no two share an id. The program itself
+/// (sandbox and translation, naga) is checked only with the feature
+/// `wallpaper-programs`; without it the report carries a
+/// `wallpaper.programNotChecked` warning, never a pass. The paths themselves
+/// (inside the package, present, listed in `files`) were checked by
+/// `referenced_files`; every file read here also resolves through symlinks to
+/// a place inside the package ([`inside`]) and is read only up to its limit.
+fn wallpaper_folders(dir: &Path, m: &Value) -> Vec<Issue> {
+    let mut out = Vec::new();
+    let mut ids: Vec<String> = Vec::new();
+    let list = m.pointer("/contributes/wallpapers").and_then(Value::as_array);
+    for (i, w) in list.into_iter().flatten().enumerate() {
+        let at = format!("/contributes/wallpapers/{i}/path");
+        let Some(rel) = w["path"].as_str() else { continue };
+        let manifest_rel = format!("{}/wallpaper.json", rel.trim_end_matches('/'));
+        let limit = cmux_wallpaper::manifest::MAX_MANIFEST_BYTES as u64;
+        let raw = match inside(dir, &manifest_rel).and_then(|path| read_limited(&path, limit)) {
+            Some(raw) if raw.len() as u64 > limit => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{manifest_rel} is larger than {} KiB", limit >> 10),
+                ));
+                continue;
+            }
+            Some(raw) => raw,
+            None => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{rel}/wallpaper.json not found"),
+                ));
+                continue;
+            }
+        };
+        let manifest = match cmux_wallpaper::Manifest::parse(&raw) {
+            Ok(manifest) => manifest,
+            Err(e) => {
+                out.push(Issue::error(
+                    at,
+                    "wallpaper.manifest",
+                    format!("{rel}/wallpaper.json{}: {}", e.pointer, e.message),
+                ));
+                continue;
+            }
+        };
+        if ids.contains(&manifest.id) {
+            out.push(Issue::error(
+                at.clone(),
+                "wallpaper.duplicate",
+                format!("wallpaper id {} is contributed twice", manifest.id),
+            ));
+        }
+        ids.push(manifest.id.clone());
+        // The manifest's shader path is checked relative (no `..`, no leading `/`).
+        let shader_rel = format!("{}/{}", rel.trim_end_matches('/'), manifest.shader);
+        let limit = cmux_wallpaper::MAX_SOURCE_BYTES as u64;
+        match inside(dir, &shader_rel).and_then(|path| read_limited(&path, limit)) {
+            None => out.push(Issue::error(
+                at,
+                "wallpaper.program",
+                format!("{shader_rel} is not a file inside the package"),
+            )),
+            Some(source) if source.len() as u64 > limit => out.push(Issue::error(
+                at,
+                "wallpaper.program",
+                format!("{shader_rel} is larger than 64 KiB"),
+            )),
+            Some(source) => match cmux_wallpaper::check_program(&source) {
+                cmux_wallpaper::ProgramCheck::Passed => {}
+                cmux_wallpaper::ProgramCheck::Refused { message, location } => {
+                    let place = location.map(|(l, c)| format!(":{l}:{c}")).unwrap_or_default();
+                    out.push(Issue::error(
+                        at,
+                        "wallpaper.program",
+                        format!("{rel}/{}{place}: {message}", manifest.shader),
+                    ));
+                }
+                // This build has no shader compiler (feature `wallpaper-programs` off,
+                // as in the app, the daemon and the CLI): say so, never imply a pass.
+                cmux_wallpaper::ProgramCheck::NotChecked => out.push(Issue::warning(
+                    at,
+                    "wallpaper.programNotChecked",
+                    format!(
+                        "{rel}/{} was not checked: this build has no wallpaper program check \
+                         (cmux-app-manifest feature wallpaper-programs)",
+                        manifest.shader
+                    ),
+                )),
+            },
         }
     }
     out

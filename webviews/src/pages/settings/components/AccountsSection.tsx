@@ -11,6 +11,7 @@ import { Select } from "../editors/Select";
 import type { AccountsButton, AccountsCmux, AccountsRow, AccountsTeams } from "../ops";
 import { t } from "../strings";
 import { TeamsGroup } from "./AccountsTeams";
+import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
 
@@ -71,6 +72,7 @@ function AccountsBody() {
           </output>
         )}
       </section>
+      <AccountSignInSection />
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
