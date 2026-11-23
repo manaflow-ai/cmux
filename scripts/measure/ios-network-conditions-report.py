@@ -20,6 +20,7 @@ import sys
 from collections import defaultdict
 
 METRIC_ORDER = [
+    "r1_ms",
     "first_content_ms",
     "interactive_ms",
     "gap_after_link_back_ms",
@@ -33,9 +34,16 @@ METRIC_ORDER = [
     "bytes_up",
     "round_trips",
 ]
+READ_FIRST_LEGEND = (
+    "R2 time to fresh = first_content_ms (tap to the first frame from the Mac); "
+    "R1 time to readable = r1_ms (tap to the first frame from the phone's own store, link cut)"
+)
+# mode=duress: the idle fixture and the loaded daemon (mobile_link_conditions.rs open_path_under_duress).
+DURESS_SCALES = {"idle": 0, "duress": 1}
+DURESS_METRICS = ["round_trips", "bytes_down", "first_content_ms", "interactive_ms", "workspaces_shown"]
 # path-change is the app's redial on a blackout (the row targets read); harness-dark-dial is the
 # harness's own dial from the dark riding the shaper's SYN backoff, kept for comparison.
-PHASE_ORDER = ["cold", "warm", "warm-again", "warm-full", "streaming", "reconnect", "path-change", "harness-dark-dial"]
+PHASE_ORDER = ["cold", "warm", "warm-again", "warm-full", "streaming", "reconnect", "path-change", "harness-dark-dial", "fixture", "home", "reattach"]
 
 
 def first_content_summary(rows: list[dict]) -> list[str]:
@@ -78,8 +86,13 @@ def first_content_summary(rows: list[dict]) -> list[str]:
 
 
 def scale_order(scale: str) -> tuple:
-    # history scales sort by size ("1x" < "10x"); a named scale such as "ios" sorts after them
-    return (0, int(scale[:-1]), "") if re.fullmatch(r"\d+x", scale) else (1, 0, scale)
+    # history scales sort by size ("1x" < "10x"); duress scales (idle, duress) next; a named
+    # scale such as "ios" sorts after them
+    if re.fullmatch(r"\d+x", scale):
+        return (0, int(scale[:-1]), "")
+    if scale in DURESS_SCALES:
+        return (1, DURESS_SCALES[scale], "")
+    return (2, 0, scale)
 
 
 def percentile(values: list[float], q: float) -> float:
@@ -103,7 +116,7 @@ def fmt(summary: dict | None, metric: str) -> str:
         return "-"
     if "p50" not in summary:
         return f"miss {summary['miss']}/{summary['miss']}"
-    unit = "" if metric in ("round_trips",) else (" B" if metric.startswith("bytes") else " ms")
+    unit = "" if metric in ("round_trips", "workspaces_shown") else (" B" if metric.startswith("bytes") else " ms")
     p50, p95 = summary["p50"], summary["p95"]
     num = lambda v: f"{v:,.0f}" if abs(v) >= 10 else f"{v:g}"
     text = f"{num(p50)}{unit}" if p50 == p95 else f"{num(p50)} / {num(p95)}{unit}"
@@ -116,6 +129,55 @@ def change(before: dict | None, after: dict | None) -> str:
     if not before or not after or "p50" not in before or "p50" not in after or before["p50"] == 0:
         return ""
     return f"{(after['p50'] - before['p50']) / before['p50'] * 100:+.0f}%"
+
+
+def duress_table(rows: list[dict], before: str | None) -> list[str]:
+    """mode=duress: phase x metric, a column per link (the idle fixture first), before -> after
+    p50, and FLAG where a duress after-p50 is more than 2x the idle fixture's after-p50."""
+    duress = [row for row in rows if row["scale"] in DURESS_SCALES and row["phase"] in ("home", "reattach")]
+    if not duress:
+        return []
+    by_key = {(row["phase"], row["metric"], row["profile"], row["scale"]): row for row in duress}
+    links = sorted({row["profile"] for row in duress if row["scale"] == "duress"}, key=lambda p: (p != "none", p))
+    columns = []
+    for link in links:
+        name = "no shaper" if link == "none" else link
+        columns += [(link, "idle", f"{name}, idle fixture"), (link, "duress", f"{name} + duress")]
+    fixture = {row["scale"]: row for row in rows if row["phase"] == "fixture" and row["metric"] == "stream_bytes_per_s"}
+
+    def p50(summary: dict | None):
+        return summary.get("p50") if summary else None
+
+    def cell(row: dict | None, idle: dict | None) -> str:
+        if not row:
+            return "-"
+        after = row["after"]
+        text = fmt(after, row["metric"])
+        if before:
+            text = f"{fmt(row['before'], row['metric'])} -> {text}"
+        value, idle_after = p50(after), p50(idle["after"]) if idle else None
+        if row["scale"] == "duress" and row["metric"] != "workspaces_shown" and value is not None and idle_after:
+            if value > 2 * idle_after:
+                text += f" **FLAG {value / idle_after:.1f}x idle**"
+        return text
+
+    out = ["### duress: p50 (/ p95)" + (" before -> after" if before else "") + "; FLAG: a duress after > 2x the idle fixture's after on the same link", ""]
+    stream = fixture.get("duress")
+    if stream and stream.get("after"):
+        out.append(f"duress stream rate at the daemon: {fmt(stream['after'], 'bytes_down')}/s")
+        out.append("")
+    out.append("| phase | metric | " + " | ".join(label for _, _, label in columns) + " |")
+    out.append("|---|---|" + "---|" * len(columns))
+    for phase in ("home", "reattach"):
+        for metric in DURESS_METRICS:
+            cells = [by_key.get((phase, metric, link, scale)) for link, scale, _ in columns]
+            if not any(cells):
+                continue
+            idle = {link: by_key.get((phase, metric, link, "idle")) for link in links}
+            out.append(f"| {phase} | {metric} | " + " | ".join(
+                cell(row, idle[link]) for row, (link, _, _) in zip(cells, columns)) + " |")
+    out.append("")
+    return out
 
 
 def main() -> int:
@@ -169,7 +231,12 @@ def main() -> int:
     with open(args.json, "w") as handle:
         json.dump({"after": args.after, "before": args.before, "rows": rows}, handle, indent=1)
 
-    out = first_content_summary(rows)
+    # The read-first track's two headline numbers (goals/mobile-speed-ios-bench.md in cmuxterm-hq):
+    # R1 time to readable (tap to the first frame drawn from the phone's own store, link cut) and
+    # R2 time to fresh (tap to the frame that matches the Mac). This headless leg has no phone
+    # store, so its first_content_ms (first content from the real daemon) is R2; R1 comes from the
+    # simulator leg's r1_ms rows when present.
+    out = [READ_FIRST_LEGEND, ""] + first_content_summary(rows)
     for surface in sorted({row["surface"] for row in rows}):
         out.append(f"### {surface} (p50 / p95; after {args.after[:12]}" + (f", before {args.before[:12]})" if args.before else ")"))
         out.append("")
@@ -189,6 +256,7 @@ def main() -> int:
                 cells += [fmt(row["after"], row["metric"])]
             out.append("| " + " | ".join(cells) + " |")
         out.append("")
+    out += duress_table(rows, args.before)
     with open(args.markdown, "w") as handle:
         handle.write("\n".join(out))
     return 0
