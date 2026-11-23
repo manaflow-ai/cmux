@@ -54,8 +54,10 @@ the app instead (`input: in_app`, every round row and the TTI line say which pat
 launch has CMUX_NEXT_LAUNCH_TYPE_PROBE=1, so the app itself types one key into its key window at its first window
 frame (LaunchTypeProbe, the probe scripts/measure/launch-ready.swift's `type` mode uses), and the terminal's
 interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `terminal_echo` (input_ms): the same
-process start to the typed key taken. The app types at its first window frame; `terminal.probe_no_key_window` (no
-window was key then) fails the round. The app types that one key wherever its key window takes it, before a chat page is up, so on the in_app path a
+process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
+probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
+`window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
+round. The app types that one key wherever its key window takes it, before a chat page is up, so on the in_app path a
 chat round ends when the chat drew and fails nothing; the posted path's keys time the chat.
 
 Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
@@ -71,6 +73,7 @@ import json
 import mmap
 import os
 import plistlib
+import select
 import shutil
 import subprocess
 import sys
@@ -97,9 +100,12 @@ CHAT_MARK = "agent_pane.input_echoed"
 TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
 LAUNCH_DELAY_VARIABLE = "CMUX_NEXT_LAUNCH_TEST_DELAY_MS"  # LaunchTestDelay: the app waits this long before any window
 PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
+# LaunchTypeProbe found no key window at the first frame and took the front itself, as a Dock launch would: the app
+# was not active (a background runner's launch), or it was and no window was key. The round's `probe_focus` names it.
+PROBE_TOOK_FRONT = ("terminal.probe_app_inactive", "terminal.probe_window_not_key")
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
               CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
-              PROBE_NO_KEY_WINDOW)
+              PROBE_NO_KEY_WINDOW, *PROBE_TOOK_FRONT)
 
 
 def log(message: str) -> None:
@@ -241,6 +247,18 @@ def in_app_terminal_reading(marks: dict) -> dict:
     return {"accepted_ms": marks.get("terminal_input_accepted"), "input_ms": marks.get("terminal_echo")}
 
 
+def probe_focus(marks: dict) -> str | None:
+    """How the in-app key found its window (pure): `key` (a window was key at the first frame), `app_inactive` or
+    `window_not_key` (the probe took the front, PROBE_TOOK_FRONT), `none` (no window could take keys); None when the
+    probe did not run."""
+    took = next((m for m in PROBE_TOOK_FRONT if m in marks), None)
+    if took:
+        return took.removeprefix("terminal.probe_")
+    if PROBE_NO_KEY_WINDOW in marks:
+        return "none"
+    return "key" if PROBE_TYPED in marks else None
+
+
 def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
     """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
     way to type; the in_app path with no window key at its first frame typed nowhere. The in_app path's one key is typed
@@ -250,7 +268,7 @@ def round_failures(which: str, path: str, row: dict, marks: dict, settle: float)
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
     if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
         if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
-            out.append("the app typed no key: no window was key at its first frame (terminal.probe_no_key_window)")
+            out.append("the app typed no key: no window could take keys at its first frame (terminal.probe_no_key_window)")
         else:
             out.append(f"the {which} took no key within {settle:.0f} s ({path})")
     return out
@@ -421,7 +439,7 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
     if not shown:
         quit_app(inst, process)
         return None, "the prerun's window never showed"
-    time.sleep(seconds)
+    time.sleep(seconds)  # sleep-ok: the prerun stays up `seconds` after its window shows, on purpose
     rr.wait(lambda: rr.call(inst.sock, "system.ping", timeout=2).get("error") is None, 10, 0.25)
     return None, quit_app(inst, process)
 
@@ -497,7 +515,19 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             posted += 1
             last_post = time.monotonic()
         time.sleep(KEY_EVERY_S)
-    time.sleep(0.2)
+    # Marks written as the loop ended: read until the pipe stays quiet for 0.2 s (or ends), at most 2 s.
+    drain_end = time.monotonic() + 2.0
+    while time.monotonic() < drain_end:
+        try:
+            ready, _, _ = select.select([fd], [], [], 0.2)
+        except (OSError, ValueError):
+            break
+        if not ready:
+            break
+        before = (len(buf), len(marks))
+        read_marks(fd, buf, marks)
+        if (len(buf), len(marks)) == before:
+            break  # readable with nothing new: the writer closed the pipe
     read_marks(fd, buf, marks)
     os.close(fd)
     if which == "terminal":
@@ -512,6 +542,8 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     else:
         row.update(term)
     row.update(split(row.get("input_ms"), row["main_ms"]))
+    if path == "in_app":
+        row["probe_focus"] = probe_focus(marks)
     row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
     row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
