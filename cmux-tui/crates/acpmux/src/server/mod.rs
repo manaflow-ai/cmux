@@ -2614,6 +2614,7 @@ mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
+mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
@@ -2662,6 +2663,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod account_sign_in;
 mod accounts;
 #[cfg(test)]
 mod attach_latency_bench;
