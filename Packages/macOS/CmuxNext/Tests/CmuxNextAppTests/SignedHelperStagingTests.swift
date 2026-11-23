@@ -54,10 +54,10 @@ struct SignedHelperStagingTests {
     }
 
     static func staging(home: URL, operations: SignedHelperStaging.Operations,
-                        running: [String] = []) -> SignedHelperStaging {
+                        now: Date = Date().addingTimeInterval(2 * SignedHelperStaging.otherBuildsGrace)) -> SignedHelperStaging {
         let made = SignedHelperStaging.screenSharing(bundleID: "com.cmuxterm.app.test", home: home)
         var fileSystem = SignedHelperStaging.FileSystem()
-        fileSystem.runningExecutables = { running }
+        fileSystem.now = { now }
         return SignedHelperStaging(folder: made.folder, home: home, root: made.root, legacy: made.legacy,
                                    operations: operations, fileSystem: fileSystem)
     }
@@ -175,7 +175,7 @@ struct SignedHelperStagingTests {
         #expect(!FileManager.default.fileExists(atPath: legacy.appending(path: "cmux TEST Screen Sharing.app").path))
     }
 
-    @Test func otherBuildsCopiesGoUnlessRunningAndPerTagDevIDsAreForgotten() async throws {
+    @Test func otherBuildsCopiesGoOnceOldAndPerTagDevIDsAreForgotten() async throws {
         let home = try Self.home()
         defer { try? FileManager.default.removeItem(at: home) }
         let forgotten = Forgotten()
@@ -183,36 +183,41 @@ struct SignedHelperStagingTests {
         operations.forget = { await forgotten.add($0) }
         let made = Self.staging(home: home, operations: operations)
         let layout = try #require(made.legacy).deletingLastPathComponent()
-        // The old layout's folders of three dead builds (two DEV tags, a NIGHTLY side build), and one
-        // whose helper still runs.
+        // The old layout's folders of three builds (two DEV tags, a NIGHTLY side build), and one an
+        // older build just made.
         let devA = layout.appending(path: "0030a36c0aefb9f7/cmux DEV Screen Sharing.app")
         try Self.bundle(at: devA, body: "a", id: "com.cmuxterm.app.debug.rszbase.screen-sharing")
         let devB = layout.appending(path: "020848fe974a9e7c/cmux DEV Screen Sharing.app")
         try Self.bundle(at: devB, body: "b", id: "com.cmuxterm.app.debug.sendpop.screen-sharing")
         let side = layout.appending(path: "090b2d550d8ba0a8/cmux NIGHTLY Screen Sharing.app")
         try Self.bundle(at: side, body: "s", id: "com.cmuxterm.app.nightly.screen-sharing")
-        let live = layout.appending(path: "535aecfcfafc8c3c/cmux DEV Screen Sharing.app")
-        try Self.bundle(at: live, body: "l", id: "com.cmuxterm.app.debug.tryb0a2.screen-sharing")
+        let fresh = layout.appending(path: "535aecfcfafc8c3c/cmux DEV Screen Sharing.app")
+        try Self.bundle(at: fresh, body: "l", id: "com.cmuxterm.app.debug.tryb0a2.screen-sharing")
+        let young = Date().addingTimeInterval(-60)
+        try FileManager.default.setAttributes([.modificationDate: young], ofItemAtPath: fresh.path)
         // A per-tag DEV folder of the fixed-path layout beside this one.
         let tagged = made.root.appending(path: "com.cmuxterm.app.debug.old.screen-sharing/cmux DEV Helper.app")
         try Self.bundle(at: tagged, body: "t", id: "com.cmuxterm.app.debug.old.screen-sharing")
-        let staging = Self.staging(home: home, operations: operations,
-                                   running: [live.appending(path: "Contents/MacOS/helper").path])
+        let staging = Self.staging(home: home, operations: operations, now: Date())
+        for old in [devA, devB, side, tagged] {
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-2 * SignedHelperStaging.otherBuildsGrace)],
+                                                  ofItemAtPath: old.path)
+        }
         let source = home.appending(path: "v1/cmux TEST Helper.app")
         try Self.bundle(at: source, body: "one")
         #expect(await staging.stage(source) != nil)
         for gone in [devA, devB, side, tagged] {
             #expect(!FileManager.default.fileExists(atPath: gone.deletingLastPathComponent().path))
         }
-        #expect(FileManager.default.fileExists(atPath: live.path))
+        #expect(FileManager.default.fileExists(atPath: fresh.path))
         // Only per-tag DEV ids lose their privacy rows; NIGHTLY's id is shared by every NIGHTLY.
         #expect(await forgotten.ids.sorted() == ["com.cmuxterm.app.debug.old.screen-sharing",
                                                  "com.cmuxterm.app.debug.rszbase.screen-sharing",
                                                  "com.cmuxterm.app.debug.sendpop.screen-sharing"])
-        // The running one goes on a later start, once it has exited.
+        // The young one goes on a later start, once it is past the grace.
         let later = Self.staging(home: home, operations: operations)
         #expect(await later.stage(source) != nil)
-        #expect(!FileManager.default.fileExists(atPath: live.deletingLastPathComponent().path))
+        #expect(!FileManager.default.fileExists(atPath: fresh.deletingLastPathComponent().path))
         #expect(await forgotten.ids.contains("com.cmuxterm.app.debug.tryb0a2.screen-sharing"))
     }
 

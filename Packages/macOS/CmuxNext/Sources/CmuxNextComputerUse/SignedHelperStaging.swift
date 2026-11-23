@@ -30,7 +30,7 @@ import Security
 /// (bundle-screen-sharing-helper.sh), and a NIGHTLY side build's carries NIGHTLY's, so the folder is
 /// named by the source helper's own bundle id, never the app's. Copies of the old per-app layout
 /// (`cmux-next/screen-sharing/<16 hex>/`, one per build, never removed) and of per-tag DEV helper
-/// ids are removed when no process runs from them, and a per-tag DEV id's privacy rows are reset
+/// ids are removed once they are an hour old, and a per-tag DEV id's privacy rows are reset
 /// (`tccutil reset All <id>`), so System Settings keeps one row per channel.
 nonisolated struct SignedHelperStaging: Sendable {
     /// What decides that a copy is the same helper as its source.
@@ -85,8 +85,6 @@ nonisolated struct SignedHelperStaging: Sendable {
             defer { free(path) }
             return String(cString: path)
         }
-        /// The executable paths of this Mac's processes, read before another build's copy is removed.
-        var runningExecutables: @Sendable () -> [String] = { SignedHelperStaging.processExecutables() }
     }
 
     /// The private folder that holds the copy (one per helper bundle id, the same for every build).
@@ -97,7 +95,7 @@ nonisolated struct SignedHelperStaging: Sendable {
     /// The folder every copy of this kind lives under (`folder` must be inside it).
     let root: URL
     /// The folder builds before the fixed path kept this app's copy in, removed once (nil: none).
-    /// Its siblings, the other builds' folders of that layout, go too when nothing runs from them.
+    /// Its siblings, the other builds' folders of that layout, go too (``removeOtherBuildsCopies``).
     let legacy: URL?
 
     init(folder: URL, home: URL, root: URL, legacy: URL? = nil, operations: Operations = .system, fileSystem: FileSystem = .init()) {
@@ -292,12 +290,14 @@ nonisolated struct SignedHelperStaging: Sendable {
         }
     }
 
-    /// Removes the copies other builds left that no process runs from: ``legacy``'s sibling
-    /// `<16 hex>` folders (the old layout made one per build and never removed it) and per-tag DEV
-    /// helper folders beside ``folder``. Each per-tag DEV helper id it removed a copy of gets its
-    /// privacy rows reset, so System Settings stops listing a row per build. Only `*.app` and
-    /// `.staging-*` directories of this user are removed; a folder that holds anything else keeps
-    /// it, and stays.
+    /// Removes the copies other builds left: ``legacy``'s sibling `<16 hex>` folders (the old
+    /// layout made one per build and never removed it) and per-tag DEV helper folders beside
+    /// ``folder``. No build stages to either any more, so only a build from before this one writes
+    /// there; a copy younger than ``otherBuildsGrace`` stays for it. A helper still running from a
+    /// removed copy keeps its open files (as at a swap). Each per-tag DEV helper id it removed a
+    /// copy of gets its privacy rows reset, so System Settings stops listing a row per build. Only
+    /// `*.app` and `.staging-*` directories of this user are removed; a folder that holds anything
+    /// else keeps it, and stays.
     private func removeOtherBuildsCopies(logger: Logger) async {
         var folders: [URL] = []
         if let legacy {
@@ -310,14 +310,12 @@ nonisolated struct SignedHelperStaging: Sendable {
             .map { root.appending(path: $0, directoryHint: .isDirectory) }
         let candidates = folders.filter { Self.isRealDirectory($0.path) }
         guard !candidates.isEmpty else { return }
-        let running = fileSystem.runningExecutables()
+        let cutoff = fileSystem.now().addingTimeInterval(-Self.otherBuildsGrace)
         var forgotten = Set<String>()
         for directory in candidates {
             guard let entries = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { continue }
             for entry in entries where entry.pathExtension == "app" || entry.lastPathComponent.hasPrefix(".staging-") {
-                guard Self.isRealDirectory(entry.path) else { continue }
-                let prefix = entry.path + "/"
-                if running.contains(where: { $0.hasPrefix(prefix) }) { continue }
+                guard Self.isRealDirectory(entry.path), let info = fileSystem.inspect(entry), info.modified < cutoff else { continue }
                 let id = Self.bundleIdentifier(entry)
                 guard (try? FileManager.checked.removeItem(at: entry)) != nil else { continue }
                 logger.notice("helper copy: removed another build's copy \(entry.path, privacy: .public)")
@@ -333,6 +331,10 @@ nonisolated struct SignedHelperStaging: Sendable {
             _ = rmdir(directory.path)
         }
     }
+
+    /// How old another build's copy must be before it is removed: an older build still running
+    /// may have just made it.
+    static let otherBuildsGrace: TimeInterval = 3600
 
     /// A folder name of the old per-app layout: ``NextSupport/computerUseScope(_:)``'s 16 hex.
     static func isLegacyScopeName(_ name: String) -> Bool {
@@ -395,22 +397,6 @@ nonisolated struct SignedHelperStaging: Sendable {
         let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/tccutil"), ["reset", "All", bundleID],
                                      environment: ["PATH": "/usr/bin:/bin"], timeout: .seconds(10))
         _ = try? await AsyncProcess().run(request)
-    }
-
-    /// Every process's executable path (`proc_listallpids`, `proc_pidpath`); empty when unreadable.
-    static func processExecutables() -> [String] {
-        let estimate = proc_listallpids(nil, 0)
-        guard estimate > 0 else { return [] }
-        var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
-        let count = pids.withUnsafeMutableBytes { proc_listallpids($0.baseAddress, Int32(clamping: $0.count)) }
-        guard count > 0 else { return [] }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: MAXPATHLEN) * 4)
-        return pids.prefix(Int(count)).compactMap { pid in
-            guard pid > 0 else { return nil }
-            let length = proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))
-            guard length > 0 else { return nil }
-            return String(decoding: buffer.prefix(Int(clamping: length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        }
     }
 
     /// `/usr/bin/ditto --noqtn`: a bundle copy that keeps the signature and drops quarantine.
