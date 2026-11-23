@@ -83,6 +83,12 @@ impl Supervisor {
             matches!(table.check(op, params, &grant), Decision::Allow(_))
                 && matches!(table.check(op, params, &host.grant), Decision::Allow(_))
         };
+        // An extension signal source's stream (`signal_sources.rs`): its scope, or its own app.
+        if let Some(source) = Self::signal_source_for_stream(inner, stream) {
+            return !key.preview && key.app == source.app
+                || grant.scopes.contains(&source.scope)
+                    && host.grant.scopes.contains(&source.scope);
+        }
         // A stream the SDKs' table declares is readable with its `reads` op and `readsParams`
         // (`theme.changed` reads `settings.get`); a provider family's stream, with that family's
         // list or get.
