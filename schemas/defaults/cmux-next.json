@@ -533,7 +533,7 @@
     "setting.computerUse.menus": "open",
     "setting.computerUse.mode": "fullAccess",
     "setting.computerUse.pauseOnTakeover": true,
-    "setting.computerUse.settle": "openai",
+    "setting.computerUse.settle": "adaptive",
     "setting.computerUse.showCursor": true,
     "setting.contextMenus.showCustomizeItem": false,
     "setting.customize.fromTheApp": false,

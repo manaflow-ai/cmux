@@ -505,6 +505,20 @@ class OneBaseCheck(unittest.TestCase):
                                        str(tmp / "out2")], capture_output=True, text=True)
                 self.assertEqual(done.returncode, 1, bad)
 
+    def test_a_lone_shards_artifact_extracted_straight_into_the_folder_joins(self):
+        # download-artifact puts the one artifact a pattern matches straight into its path, not a folder of its name.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / "in").mkdir()
+            (tmp / "in" / history.HEAD_RESULTS).write_text("{}\n")
+            matrix = json.dumps([{"shard": 1, "shard_count": 8}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {})
+            # Two shards still need a folder each: a flat file does not stand in for a missing one.
+            self.assertIn("shard1", history.join_heads(tmp / "in", 2, tmp / "out2"))
+
     def test_the_rerun_cap_holds_per_head_shard(self):
         where = {f"test/s1-{i}.test.ts": 1 for i in range(25)} | {f"test/s2-{i}.test.ts": 2 for i in range(26)}
         one = [f"test/s1-{i}.test.ts" for i in range(25)]

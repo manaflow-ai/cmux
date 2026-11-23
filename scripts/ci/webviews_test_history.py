@@ -429,8 +429,13 @@ def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
     joined: dict | None = {}
     where: dict[str, int] = {}
     out.mkdir(parents=True, exist_ok=True)
-    for shard in (range(1, count + 1) if isinstance(count, int) else count):
+    ran = list(range(1, count + 1) if isinstance(count, int) else count)
+    for shard in ran:
         here = shards / HEAD_ARTIFACT.format(shard)
+        # One matching artifact is extracted straight into SHARDS, not into a folder of its name (download-artifact
+        # with a pattern that matches one; cmux#49577's lone shard 1, run 45107771882), so read it from there.
+        if len(ran) == 1 and not (here / HEAD_RESULTS).is_file() and (shards / HEAD_RESULTS).is_file():
+            here = shards
         if not (here / HEAD_RESULTS).is_file():
             return f"{HEAD_ARTIFACT.format(shard)} has no {HEAD_RESULTS}"
         try:
