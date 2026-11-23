@@ -6,6 +6,21 @@
 //! train expires quickly and a capacity estimate is returned only when enough
 //! distinct, ordered feedback samples make a conservative dispersion
 //! measurement possible.
+//!
+//! The media engine sends a train as one back-to-back burst (at most
+//! [`MAX_PROBE_BYTES`], 128 KB; 16 x MTU by default), not at the configured
+//! spacing: a host wakes about once a millisecond, so a spaced train would
+//! measure its wakeups. The measurement is the dispersion at the receiver: the
+//! bottleneck spreads the burst out, and each probe's socket departure
+//! ([`ProbePlanner::record_departure`]) bounds the span from below. The spacing
+//! then only orders the enqueue stamps.
+//!
+//! D10 (amendment 2026-11-17): a held rate comes only from what a train
+//! delivered at under 2% loss ([`MAX_PROBE_LOSS_PPM`]). A train is judged once
+//! all of it has left and all but under 2% of it has arrived; a lossier train
+//! never yields a capacity and expires, so ultra keeps its rate and the next
+//! idle probe tries again. Neither does a train that arrived out of the order it
+//! left: its spread is the path's jitter, not its capacity.
 
 use cmux_rd_proto::{Arrival, DatagramHeader, DatagramKind, HEADER_LEN, MAX_DATAGRAM_DEFAULT};
 
@@ -17,6 +32,8 @@ pub const MAX_PROBE_BYTES: usize = 128 * 1024;
 pub const MAX_PROBE_RATE_BPS: u64 = 150_000_000;
 /// Hard upper bound on how long an unfinished train may retain state.
 pub const MAX_PROBE_EXPIRY_US: u64 = 5_000_000;
+/// A train lossier than this (parts per million of its packets, 2%) yields no capacity.
+pub const MAX_PROBE_LOSS_PPM: u64 = 20_000;
 const MAX_PROBE_SPACING_US: u64 = 1_000_000;
 const CLOCK_HALF_RANGE: u32 = u32::MAX / 2;
 
@@ -166,6 +183,16 @@ pub struct ProbeEstimate {
     pub received_packets: usize,
     pub sent_packets: usize,
     pub dispersion_us: u32,
+    /// The train's loss, parts per million of its packets (always under
+    /// [`MAX_PROBE_LOSS_PPM`]: a lossier train yields no estimate).
+    pub loss_ppm: u32,
+}
+
+impl ProbeEstimate {
+    /// The share of the train that never arrived (0.0 to under 0.02).
+    pub fn loss_fraction(&self) -> f64 {
+        f64::from(self.loss_ppm) / 1_000_000.0
+    }
 }
 
 /// A caller-driven, bounded probe train planner and dispersion estimator.
@@ -327,17 +354,24 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     {
         return None;
     }
+    // D10: only a train that arrived with under 2% loss is a capacity. Judge it once
+    // all of it has left; until then (or until its expiry) the rest may still arrive.
+    if sent_packets < train.summary.packet_count {
+        return None;
+    }
+    let lost = sent_packets.saturating_sub(received_packets) as u64;
+    let loss_ppm = lost.saturating_mul(1_000_000) / sent_packets as u64;
+    if loss_ppm >= MAX_PROBE_LOSS_PPM {
+        return None;
+    }
     // A caller-supplied departure is required for every emitted packet. An
     // enqueue timestamp is not a wire observation and must not produce a
     // seemingly precise capacity result.
     if train.sent.iter().any(|sample| sample.departed_us.is_none()) {
         return None;
     }
-    if !train.sent.windows(2).all(|window| match window {
-        [before, after] => {
-            after.departed_us.unwrap_or_default() >= before.departed_us.unwrap_or_default()
-        }
-        _ => true,
+    if train.sent.windows(2).any(|window| {
+        matches!(window, [a, b] if b.departed_us.unwrap_or_default() < a.departed_us.unwrap_or_default())
     }) {
         return None;
     }
@@ -367,12 +401,29 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     if !found_earliest {
         return None;
     }
-    let earliest_arrival_us = train.received.get(earliest)?.arrival_us;
+    let earliest_us = train.received.get(earliest)?.arrival_us;
     if train
         .received
         .iter()
-        .any(|sample| sample.arrival_us.wrapping_sub(earliest_arrival_us) > CLOCK_HALF_RANGE)
+        .any(|sample| sample.arrival_us.wrapping_sub(earliest_us) > CLOCK_HALF_RANGE)
     {
+        return None;
+    }
+    // A bottleneck is first in, first out. A train that arrived out of the order it left
+    // crossed a path whose per-packet delay varies, and its spread measures that jitter,
+    // not a capacity (netem, 15 ms of jitter: 16 x 1.2 KB spread over about 35 ms read as
+    // 5 Mbit/s on a link that carried 80). Like a lossy train, it yields none.
+    let mut by_departure: Vec<(usize, u32)> = train
+        .received
+        .iter()
+        .filter_map(|sample| {
+            let index =
+                train.sent.iter().position(|sent| sent.transport_seq == sample.transport_seq)?;
+            Some((index, sample.arrival_us.wrapping_sub(earliest_us)))
+        })
+        .collect();
+    by_departure.sort_unstable_by_key(|&(index, _)| index);
+    if by_departure.windows(2).any(|pair| matches!(pair, [a, b] if b.1 < a.1)) {
         return None;
     }
 
@@ -396,7 +447,7 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
     // bytes are excluded, so N packets over N-1 intervals cannot look faster
     // merely because the first packet was counted in the numerator.
     let mut ordered = train.received.clone();
-    ordered.sort_by_key(|sample| sample.arrival_us.wrapping_sub(earliest_arrival_us));
+    ordered.sort_by_key(|sample| sample.arrival_us.wrapping_sub(earliest_us));
     let first_bytes = ordered.first()?.bytes;
     let received_bytes = ordered.iter().map(|sample| sample.bytes).sum::<usize>();
     let measured_bytes = received_bytes.checked_sub(first_bytes)?;
@@ -417,5 +468,6 @@ fn estimate(train: &ActiveTrain, config: &NormalizedConfig) -> Option<ProbeEstim
         received_packets,
         sent_packets,
         dispersion_us: span_us,
+        loss_ppm: loss_ppm as u32,
     })
 }

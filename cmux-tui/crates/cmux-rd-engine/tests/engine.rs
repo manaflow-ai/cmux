@@ -6,8 +6,7 @@
 use cmux_rd_core::flow::Rect;
 use cmux_rd_engine::{EncodeProfile, EncodeRequest, Encoded, EngineConfig, MediaEngine};
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, Feedback, HEADER_LEN, InputEvent, InputPacket, Nack,
-    flags,
+    DatagramHeader, DatagramKind, Feedback, HEADER_LEN, InputEvent, InputPacket, Nack, flags,
 };
 
 fn engine() -> MediaEngine {
@@ -858,6 +857,21 @@ fn standard_never_refines_and_carries_its_profile() {
 }
 
 #[test]
+fn ultra_engine_target_is_the_full_wire_budget_for_pacing() {
+    let mut e =
+        MediaEngine::new(EngineConfig { max_bps: 150_000_000, ..EngineConfig::default() }, 0);
+    e.set_profile(EncodeProfile::Ultra);
+    let req = e.start(0).expect("first frame");
+    let wire_bps = e.target_bps();
+    let media_bps = u64::from(req.target_kbps) * 1000;
+    assert!(media_bps * 11 / 10 <= wire_bps);
+    assert!((media_bps + 1000) * 11 / 10 > wire_bps, "10% parity plus kbps rounding");
+    let packets = send(&mut e, &req, true, 32_000, 0);
+    let (header, _) = DatagramHeader::decode(packets.first().expect("frame")).expect("header");
+    assert_eq!(header.fec_count, header.count.div_ceil(10));
+}
+
+#[test]
 fn ultra_refines_a_still_screen_within_two_frames() {
     let mut e = engine();
     e.set_profile(EncodeProfile::Ultra);
@@ -917,19 +931,6 @@ fn leaving_ultra_drops_a_due_refinement() {
 }
 
 #[test]
-fn ultra_engine_target_is_the_full_wire_budget_for_pacing() {
-    let mut e =
-        MediaEngine::new(EngineConfig { max_bps: 150_000_000, ..EngineConfig::default() }, 0);
-    e.set_profile(EncodeProfile::Ultra);
-    let req = e.start(0).expect("first frame");
-    assert_eq!(
-        e.target_bps(),
-        u64::from(req.target_kbps) * 1_000,
-        "pacer gets the full wire budget"
-    );
-}
-
-#[test]
 fn probe_planner_wiring_updates_ultra_capacity() {
     fn run(stamp_departures: bool) -> (u64, usize, u64) {
         let mut e = MediaEngine::new(
@@ -959,7 +960,7 @@ fn probe_planner_wiring_updates_ultra_capacity() {
         let arrivals = probes
             .iter()
             .enumerate()
-            .map(|(index, &transport_seq)| Arrival {
+            .map(|(index, &transport_seq)| cmux_rd_proto::Arrival {
                 transport_seq,
                 arrival_us: 10_000 + index as u32 * 200,
             })
@@ -973,4 +974,58 @@ fn probe_planner_wiring_updates_ultra_capacity() {
     assert_eq!(without_departures, startup_bps, "enqueue-only probes cannot establish capacity");
     assert!(with_departures > without_departures, "socket departures feed on_probe_capacity");
     assert_eq!(probe_count, 16);
+}
+
+/// D10: one tick sends the whole startup train (a host wakes at millisecond granularity,
+/// so a train sent one datagram per tick measured the wakeup rate); the viewer's arrivals
+/// of it give a capacity, and ultra holds min(150 Mbps, 0.8 x capacity). With no probe
+/// arrivals (an old viewer ignores probes) ultra keeps its start rate.
+#[test]
+fn ultra_holds_four_fifths_of_the_probed_capacity_under_its_ceiling() {
+    fn probed(arrival_gap_us: Option<u32>) -> (u64, usize) {
+        let mut e = MediaEngine::new(
+            EngineConfig { start_bps: 8_000_000, max_bps: 150_000_000, ..EngineConfig::default() },
+            0,
+        );
+        e.set_profile(EncodeProfile::Ultra);
+        let _ = e.start(0).expect("startup request");
+        let train: Vec<Vec<u8>> = e
+            .tick(false, 0)
+            .datagrams
+            .into_iter()
+            .filter(|d| DatagramHeader::decode(d).expect("header").0.kind == DatagramKind::Probe)
+            .collect();
+        assert_eq!(train.len(), 16, "one tick sends the whole train");
+        // The host sends the train back to back and stamps each departure.
+        for d in &train {
+            e.datagram_sent(d, 50);
+        }
+        let probes: Vec<(u16, usize)> = train
+            .iter()
+            .map(|d| (DatagramHeader::decode(d).expect("header").0.transport_seq, d.len()))
+            .collect();
+        if let Some(gap) = arrival_gap_us {
+            let arrivals = probes
+                .iter()
+                .enumerate()
+                .map(|(i, &(transport_seq, _))| cmux_rd_proto::Arrival {
+                    transport_seq,
+                    arrival_us: 10_000 + i as u32 * gap,
+                })
+                .collect();
+            e.on_datagram(&feedback(&Feedback { arrivals, ..Feedback::default() }), true, 20_000);
+        }
+        (e.target_bps(), probes[0].1)
+    }
+
+    let (old_viewer, _) = probed(None);
+    assert_eq!(old_viewer, 8_000_000, "no probe arrivals: the start rate, never 150 Mbps blind");
+    // 15 probe datagrams after the first, over 15 gaps of 400 us.
+    let (target, len) = probed(Some(400));
+    let capacity = (15 * len as u64 * 8 * 1_000_000) / (15 * 400);
+    assert!(capacity * 4 / 5 > 8_000_000, "the test path is faster than the start rate");
+    assert_eq!(target, capacity * 4 / 5, "0.8 x the measured capacity");
+    // A path faster than 187.5 Mbps holds the 150 Mbps ceiling.
+    let (fast, _) = probed(Some(1));
+    assert_eq!(fast, 150_000_000);
 }

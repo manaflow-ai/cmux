@@ -1,6 +1,6 @@
 // Every block in the agent chat column starts on the column's left edge (Leo 2026-10-14: a
-// recurring left indent on the queue and other blocks inserted over the composer). The column edge
-// is the composer card's left; each block's visible left is its own box when it paints (fill,
+// recurring left indent on the queue and other blocks inserted over the composer), and the
+// transcript's rows on the composer's + glyph (ask-2351b8cf41). The column edge is the composer card's left; each block's visible left is its own box when it paints (fill,
 // background image, border or shadow), else where its first text or icon starts. Real gallery frames at a wide and
 // a narrow pane; the failure lists every offender with its offset from the edge in px. A user
 // bubble stands at the right, so the transcript reads the other rows.
@@ -25,9 +25,19 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       variant: "trusted-permission-queue",
       edge: ".acpmux-composer-box",
       blocks: {
-        transcript: ".acpmux-row:not(.acpmux-user)",
         permission: ".acpmux-asks-stack > *",
         queue: ".acpmux-composer-queue",
+      },
+    },
+    // The transcript's rows start where the composer's + glyph does, one column inside the card as
+    // Claude Code draws it (conversation.css --cv-lead; ask-2351b8cf41, Leo 2026-11-22: "should we
+    // tuck it in a bit more like claude code?").
+    {
+      entry: "agent-pane.bottom-stack",
+      variant: "trusted-permission-queue",
+      edge: ".acpmux-composer-box .acpmux-picker-button svg",
+      blocks: {
+        transcript: ".acpmux-row:not(.acpmux-user)",
       },
     },
     {
@@ -132,7 +142,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         const { edgeLeft, found, what } = await page.evaluate(offsets, frame);
         await page.close();
         const label = `${frame.entry}:${frame.variant} @${width}`;
-        edges[label] = Math.round(edgeLeft);
+        // The card's edge, not the + glyph the transcript frame measures from.
+        edges[label] ??= Math.round(edgeLeft);
         for (const [name, offset] of Object.entries(found)) {
           if (offset === null) missing.push(`${label} ${name}`);
           else if (Math.abs(offset) > 1) {

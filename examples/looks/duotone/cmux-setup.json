@@ -1,0 +1,35 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/duotone-look",
+  "name": "Duotone",
+  "tagline": "Two tones of one gray: the chrome and the work. The selected row is neutral, never an accent colour.",
+  "description": "A whole cmux look built only from public surfaces. The window has exactly two tones of one gray, a fixed lightness step apart (0.03 in OKLCH, light and dark): the chrome (sidebar, tab strip, toolbar) and the work (the pane you are in). No hue separates anything and the selected row is neutral; lines only separate neighbours of the same tone. Every size is a fraction of one row height (28): a 16 icon, 13 type, a 6 inset, an 8 corner, a 40 strip, a 252 sidebar, a 756 reading column. Remove it and everything you had comes back.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": [],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "duotone",
+
+    // The reading column: 27 row heights (27 x 28 = 756), three times the sidebar (9 x 28 = 252).
+    "agentPane.display.width": 756,
+
+    // The sidebar: one line per row at the row height the theme files set.
+    "sidebar.workspaceRow.icon": true,
+    // Diffs and sidebar group colors from the theme's own palette.
+    "diff.colors": "theme",
+    "sidebar.groupPalette": "theme",
+
+    // The address field takes the control corner (2/7 of the row height).
+    "browser.omnibar.cornerRadius": 8
+
+    // Pending cmux#46780: the tab shape. Duotone's tab is the gooey one, and with that change the
+    // selected sidebar row runs into the pane the same way. Uncomment once your build has it.
+    // "appearance.tabShape": "gooey",
+    // Pending cmux#46516: the selected row's own setting. Until then the theme files set a neutral
+    // accent, which draws the selected row in the ink at low strength.
+    // "appearance.selection": "neutral"
+  }
+}

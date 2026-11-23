@@ -1,4 +1,5 @@
-//! Measured, held wire-rate policy. Only a standing queue reduces the wire rate;
+//! Measured, held wire-rate policy. Only a standing queue, or loss over what FEC covers
+//! lasting over a second, reduces the wire rate;
 //! parity and recovery policy are owned by their respective transport lanes.
 
 use crate::profile::ULTRA_MAX_KBPS;
@@ -36,7 +37,21 @@ pub(super) struct UltraState {
     queue_since_us: Option<u64>,
     pub standing_queue: bool,
     pub queue_clear: bool,
+    /// When the current run of loss samples over [`LOSS_CUT_FRACTION`] began, and when
+    /// the newest of them came.
+    loss_since_us: Option<u64>,
+    last_high_loss_us: Option<u64>,
+    /// Loss over what FEC covers has lasted [`SUSTAINED_LOSS_US`]: a cut signal.
+    pub sustained_loss: bool,
 }
+
+/// Loss above what FEC covers (D10 amendment 2026-11-17: about 5%) ...
+const LOSS_CUT_FRACTION: f64 = 0.05;
+/// ... lasting more than a second is a cut signal in ultra too.
+const SUSTAINED_LOSS_US: u64 = 1_000_000;
+/// Loss samples come about every 500 ms (the engine's loss meter); feedback between
+/// them carries none (0.0). A run of high samples ends when none came for this long.
+const LOSS_SAMPLE_GAP_US: u64 = 750_000;
 
 impl UltraState {
     pub fn held_wire_bps(&self, path_ceiling: u64) -> Option<u64> {
@@ -45,6 +60,34 @@ impl UltraState {
             let usable = (u128::from(capacity) * 4 / 5) as u64;
             usable.min(self.config.max_wire_bps).min(path_ceiling).max(1)
         })
+    }
+
+    /// One feedback's loss (a loss sample, or 0.0 when the feedback carries none). Loss
+    /// at or under [`LOSS_CUT_FRACTION`] never cuts: FEC covers it. Over it in samples
+    /// spanning [`SUSTAINED_LOSS_US`], it is a cut signal until a sample at or under it
+    /// comes, or none over it for [`LOSS_SAMPLE_GAP_US`].
+    pub fn observe_loss(&mut self, loss: f64, now_us: u64) {
+        let run_ended =
+            self.last_high_loss_us.is_none_or(|t| now_us.saturating_sub(t) > LOSS_SAMPLE_GAP_US);
+        if loss > LOSS_CUT_FRACTION {
+            if run_ended {
+                self.loss_since_us = None;
+            }
+            let since = *self.loss_since_us.get_or_insert(now_us);
+            self.last_high_loss_us = Some(now_us);
+            self.sustained_loss = now_us.saturating_sub(since) >= SUSTAINED_LOSS_US;
+        } else if loss > 0.0 || run_ended {
+            self.loss_since_us = None;
+            self.last_high_loss_us = None;
+            self.sustained_loss = false;
+        }
+    }
+
+    /// A cut signal holds: a standing queue, or loss over what FEC covers for over a
+    /// second. While one holds the rate is cut once per response window and never
+    /// restored.
+    pub fn cutting(&self) -> bool {
+        self.standing_queue || self.sustained_loss
     }
 
     pub fn reset_path(&mut self) {

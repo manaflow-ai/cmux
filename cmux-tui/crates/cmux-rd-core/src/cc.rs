@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::pacer::PACING_FACTOR;
 use crate::profile::EncodeProfile;
 use cmux_rd_proto::Arrival;
 
@@ -46,6 +47,11 @@ pub struct CcConfig {
     pub lan_rtt_us: u64,
 }
 
+/// A round trip under this is a LAN: the start jumps to `lan_start_bps`. Wi-Fi in one home
+/// (an iPhone or laptop viewing a Mac) sits at 5 to 10 ms, under a 5 ms limit it started at
+/// 8 Mbit/s and reached 15 Mbit/s only after about 1 s of motion. A WAN is 20 ms and up.
+pub const LAN_RTT_US: u64 = 10_000;
+
 impl Default for CcConfig {
     fn default() -> Self {
         Self {
@@ -54,7 +60,7 @@ impl Default for CcConfig {
             start_bps: 8_000_000,
             relay_max_bps: 4_000_000,
             lan_start_bps: 30_000_000,
-            lan_rtt_us: 5_000,
+            lan_rtt_us: LAN_RTT_US,
         }
     }
 }
@@ -408,6 +414,8 @@ pub struct CongestionController {
     capacity_bps: Option<f64>,
     last_increase_us: Option<u64>,
     last_decrease_us: Option<u64>,
+    /// One round trip (at least [`MIN_DECREASE_INTERVAL_US`]) between cuts, fixed
+    /// when a cut is taken: delay and loss cuts share it (ultra's too).
     response_window_us: u64,
     next_decrease_us: u64,
     usage: Usage,
@@ -452,8 +460,9 @@ impl CongestionController {
         self.profile
     }
 
-    /// Selection alone is not a capacity measurement. Until probes arrive the
-    /// ultra profile keeps the configured startup rate, including its FEC.
+    /// Selection alone is not a capacity measurement. Ultra starts at the configured
+    /// startup rate, including its FEC, and moves by standard's rules until a probe
+    /// train measures the path.
     pub fn set_profile(&mut self, profile: EncodeProfile) {
         if self.profile == profile {
             return;
@@ -486,9 +495,10 @@ impl CongestionController {
         }
         self.ultra.capacity_bps = Some(capacity_bps);
         if let Some(held) = self.ultra.held_wire_bps(self.ultra_path_ceiling()) {
-            // A new estimate cannot clear a queue that has not drained.
+            // A new estimate cannot clear a queue that has not drained, or a loss that
+            // has not stopped.
             self.ultra.wire_bps =
-                if self.ultra.standing_queue { self.ultra.wire_bps.min(held) } else { held };
+                if self.ultra.cutting() { self.ultra.wire_bps.min(held) } else { held };
         }
         self.clamp();
         true
@@ -498,6 +508,24 @@ impl CongestionController {
     /// are charged by the pacer; parity is owned by the FEC lane.
     pub fn wire_budget_bps(&self) -> u64 {
         if self.profile == EncodeProfile::Ultra { self.ultra.wire_bps } else { self.target_bps }
+    }
+
+    /// How fast the strict Ultra pacer lets datagrams leave: the probed capacity (never
+    /// under the held rate), else [`PACING_FACTOR`] times it until a train measures one.
+    /// The configured wire ceiling applies to the strict pacer in either case.
+    /// Pacing at the held rate itself left no slack: the encoder fills that rate, so a
+    /// burst queued for good and whole frames were dropped (netem at 30 Mbit/s: 1.5 fps,
+    /// key to frame p50 490 ms). The held rate stays the encoder's target.
+    pub fn pacing_bps(&self) -> u64 {
+        let held = self.wire_budget_bps();
+        if self.profile != EncodeProfile::Ultra {
+            return held;
+        }
+        let release_bps = match self.ultra.capacity_bps {
+            Some(capacity) => capacity.max(held),
+            None => (held as f64 * PACING_FACTOR) as u64,
+        };
+        release_bps.min(self.ultra_path_ceiling())
     }
 
     fn ultra_path_ceiling(&self) -> u64 {
@@ -608,9 +636,9 @@ impl CongestionController {
         self.outage.on_rtt(rtt_us);
     }
 
-    /// Under `lan_rtt_us`, before any overuse, a standard share's target jumps to
-    /// `lan_start_bps`. Ultra holds its startup rate until a probe train measures the path.
+    /// Under `lan_rtt_us`, before any overuse, the target jumps to `lan_start_bps`.
     fn lan_start(&mut self, rtt_us: u64) {
+        // Ultra starts from probes, not from a LAN guess.
         if self.profile == EncodeProfile::Standard
             && rtt_us < self.config.lan_rtt_us
             && self.path != PathKind::DoRelay
@@ -719,11 +747,21 @@ impl CongestionController {
             }
         }
         if self.profile == EncodeProfile::Ultra {
-            if has_samples {
-                self.update_ultra(now_us);
+            self.ultra.observe_loss(loss, now_us);
+            if self.ultra.capacity_bps.is_some() {
+                // Ultra holds its probe-measured rate: only a standing queue, or loss over
+                // what FEC covers lasting over a second, cuts it (loss at or under 5% never
+                // does), and there is no growth on media feedback. `loss` is after the
+                // outage screen: a radio outage's loss is not a cut signal.
+                if has_samples || self.ultra.sustained_loss {
+                    self.update_ultra(now_us);
+                }
+                self.clamp();
+                return;
             }
-            self.clamp();
-            return;
+            // No train has measured this path yet (a lossy or jittery path's trains yield
+            // none): until one does, ultra's rate moves by standard's measured rules
+            // below, within ultra's ceiling, rather than sitting at the start rate.
         }
         let overuse = evidence && self.usage == Usage::Overuse;
         if overuse || loss > 0.10 {
@@ -734,6 +772,10 @@ impl CongestionController {
                 Usage::Underuse | Usage::Overuse => self.last_increase_us = Some(now_us),
                 Usage::Normal => self.increase(now_us),
             }
+        }
+        if self.profile == EncodeProfile::Ultra {
+            // Unmeasured ultra (above): the standard rules set the wire rate.
+            self.ultra.wire_bps = self.target_bps;
         }
         self.clamp();
         self.after_feedback(before_bps, now_us);
@@ -782,11 +824,11 @@ impl CongestionController {
     }
 
     fn update_ultra(&mut self, now_us: u64) {
-        if self.ultra.standing_queue {
+        if self.ultra.cutting() {
             self.usage = Usage::Overuse;
             if self.last_decrease_us.is_none() || now_us >= self.next_decrease_us {
                 let before = self.ultra.wire_bps;
-                // Queue evidence, never loss alone, permits this cut. A low-rate
+                // A standing queue or sustained loss over 5% permits this cut. A low-rate
                 // encoder does not turn its throughput into a capacity estimate.
                 let mut next = (before as f64 * BETA) as u64;
                 if let Some(acked) = self.acked_bps()
@@ -975,6 +1017,10 @@ impl CongestionController {
         let floor = (anchor as f64 * CUT_FLOOR) as u64;
         if self.target_bps < floor {
             self.target_bps = floor;
+            if self.profile == EncodeProfile::Ultra {
+                // Unmeasured ultra (`on_feedback`): the wire rate is standard's target.
+                self.ultra.wire_bps = floor;
+            }
             self.clamp();
         }
     }
