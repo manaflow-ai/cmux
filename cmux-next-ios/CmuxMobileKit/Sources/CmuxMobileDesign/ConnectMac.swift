@@ -60,7 +60,7 @@ public struct ConnectMacSteps: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .accessibilityLabel("How to connect")
         .accessibilityIdentifier("connect-mac.help")
         .popover(isPresented: $showsHelp) {
