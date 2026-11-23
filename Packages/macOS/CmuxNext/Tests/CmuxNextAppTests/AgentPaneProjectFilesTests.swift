@@ -26,7 +26,7 @@ struct AgentPaneProjectFilesTests {
             source = Self.temporary("downloads")
             let root = folder
             model.workspaceRoots = { [root] }
-            model.onOpenFile = { [weak self] url, _ in
+            model.onOpenFile = { [weak self] url, _, _ in
                 self?.opened.append(url.lastPathComponent)
                 return true
             }

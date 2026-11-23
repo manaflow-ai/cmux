@@ -1,9 +1,9 @@
-//! Flow control, input delivery, congestion control and the quality ladder.
+//! Flow control, input delivery and congestion control (the resolution ladder's tests are in
+//! `resolution.rs`).
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind, Usage};
 use cmux_rd_core::flow::{FlowAction, FrameGate, Rect};
 use cmux_rd_core::input::{InputApplier, InputSender, MAX_SENDS};
-use cmux_rd_core::ladder::{ContentClass, LadderInput, choose};
 use cmux_rd_proto::{Arrival, HEADER_LEN, InputEvent, InputPacket, MAX_DATAGRAM_VPC};
 use proptest::prelude::*;
 
@@ -236,29 +236,6 @@ fn heavy_loss_cuts_the_target() {
     let before = cc.target_bps();
     cc.on_feedback(&[], 0.4, 0);
     assert!(cc.target_bps() < before);
-}
-
-#[test]
-fn ladder_keeps_text_sharp_and_motion_smooth() {
-    let base = LadderInput {
-        target_bps: 2_000_000,
-        content: ContentClass::Text,
-        path: PathKind::DirectWan,
-        display_fps: 60,
-        relay_max_fps: 15,
-        encode_us: 0,
-        min_bits_per_pixel: 0.02,
-        pixels: 1920 * 1080,
-    };
-    let text = choose(base);
-    assert_eq!(text.scale, 1.0);
-    assert!(text.fps < 60);
-    let motion = choose(LadderInput { content: ContentClass::Motion, ..base });
-    assert!(motion.scale < 1.0);
-    let relay = choose(LadderInput { path: PathKind::DoRelay, target_bps: 100_000_000, ..base });
-    assert!(relay.fps <= 15);
-    let slow_encoder = choose(LadderInput { encode_us: 40_000, target_bps: 100_000_000, ..base });
-    assert!(slow_encoder.fps <= 25);
 }
 
 #[test]

@@ -42,6 +42,12 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
         }
     }
 
+    /// The press opens the menu, and the held press's drag and release pick a row in it, as on a
+    /// pop-up button's `NSMenu` (Leo: "so he click and hold on the context menu start and then it
+    /// goes over and then release should go"). Downloads opens a popup, not a menu, which does not
+    /// follow a held press, so it keeps opening on the release.
+    public var followsPress: Bool { opensMenu && self != .downloads }
+
     /// Accessibility identifier (UI automation, `debug.extensions.toolbar`).
     public var identifier: String { "browser.toolbar.\(rawValue)" }
 
@@ -101,6 +107,8 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
 
     /// The More menu's Show in Toolbar submenu title.
     public static var showInToolbarTitle: String { Strings.toolbarShowInToolbar }
+    /// The More menu's zoom row title (before its −, percent, + and reset).
+    static var zoomRowTitle: String { Strings.toolbarMenuZoom }
 }
 
 /// What one toolbar button shows.

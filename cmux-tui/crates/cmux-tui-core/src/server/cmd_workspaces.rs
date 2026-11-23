@@ -104,6 +104,11 @@ pub(super) fn new_workspace(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> anyhow::Result<Value> {
+    // Its plain shell may wait for its first need (mux/terminal_respawn/lazy.rs).
+    let _lazy = crate::mux::terminal_respawn::lazy::lazy_create_scope(
+        mux,
+        !crate::mux::terminal_respawn::lazy::actor_shows_what_it_creates(&actor),
+    );
     let surface = mux.new_workspace_as(&actor, name, optional_surface_size(cols, rows))?;
     Ok(json!({ "surface": surface.id }))
 }
@@ -528,6 +533,9 @@ pub(super) fn select_workspace(
     delta: Option<isize>,
 ) -> anyhow::Result<Value> {
     mux.select_workspace_as(&actor, index, delta);
+    // Showing a workspace starts its parked tabs, as the app does
+    // (`wakeParkedTabs`; mux/terminal_respawn/lazy.rs).
+    mux.wake_parked_tabs_of_active_workspace();
     Ok(json!({}))
 }
 

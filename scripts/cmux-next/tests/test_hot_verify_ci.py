@@ -417,6 +417,13 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("CI_EVAL_STEP_GATEWAY", text)
         self.assertNotIn("cmux-ci", text.replace("cmux-ci-", ""))
 
+    def test_pr_reads_wait_through_github_api_rate_limits(self) -> None:
+        for job in ("target", "publish"):
+            with self.subTest(job=job):
+                block = "\n".join(self.job_block(job))
+                self.assertIn("scripts/ci/gh_budget_wait.sh", block)
+                self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", block)
+
     def test_the_plan_fetch_finds_the_merge_base_after_a_depth_one_checkout(self) -> None:
         # The fleet's looks on #43862, #43807, #43816 and #43779 failed at `git merge-base` (2026-11-15): the
         # checkout's depth-1 fetch left the base tip shallow and the step's --shallow-since fetch did not deepen it.
@@ -559,9 +566,13 @@ class Workflow(unittest.TestCase):
         self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
         self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
         self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
-        hand_off = "\n".join(self.job_block("hand-off"))
-        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", hand_off)
-        self.assertIn('-f kind="$KIND"', hand_off)
+        # The plan job's last step dispatches the look (the hand-off was its own job until 2026-11-23).
+        self.assertNotIn("  hand-off:", WORKFLOW.read_text().splitlines())
+        plan = self.job_block("plan")
+        dispatch = "\n".join(plan[next(i for i, line in enumerate(plan) if line.strip() == "- name: Dispatch the look"):])
+        self.assertIn("if: ${{ steps.plan.outputs.eligible == 'true' }}", dispatch)
+        self.assertIn("github.event.action == 'closed' && github.event.pull_request.merge_commit_sha", dispatch)
+        self.assertIn('-f kind="$KIND"', dispatch)
         # its own concurrency group: it never cancels a head look still queued when the PR merged
         self.assertIn("inputs.kind == 'merge') && '-merge'", text)
         merge = "c" * 40

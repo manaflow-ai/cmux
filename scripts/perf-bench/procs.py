@@ -225,7 +225,7 @@ class Instance:
         if during:
             during(seconds)
         else:
-            time.sleep(seconds)  # bench: the measured window
+            time.sleep(seconds)  # sleep-ok: the measured window
         elapsed = time.monotonic() - began
         kinds: dict[str, dict] = {}
         totals = {"mw": 0.0, "cpu_pct": 0.0, "wakeups_per_s": 0.0, "disk_kb_per_s": 0.0,

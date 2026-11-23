@@ -17,7 +17,7 @@ import Foundation
 /// (`team: 0` removes them). `width`, `select`, `search`, `unread`, `filter_look` (`HomeFilterLook`) set the list's look (`HomeSidebarView.debugLook`),
 /// after the rows (no `count` keeps them); the answer carries the header's frames.
 /// `new_message` (a team size) opens New Message and fills its list with fixture Chiefs and teammates;
-/// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows).
+/// `intro` ("welcome" | "askFocus") shows that intro on the shown Chief (neither touches other rows). `chatList` shows or folds the list (Chats).
 /// `hover_draft: true` moves the synthesized pointer (`DebugHover`) onto the New Message row, so
 /// its x shows (captures of the row's hover).
 @MainActor
@@ -37,6 +37,8 @@ enum DebugHomeSidebarFixture {
             return .object(["owners": .number(Double(DebugHover.move(to: point, in: window)))])
         }
         if params["intro"] != nil { return .object(["intro": .bool(page.host != nil)]) }
+        if let shown = params["chatList"]?.boolValue { page.split.showsList = shown; return .object(["chatList": .bool(page.split.showsList)]) }
+        if ["width", "select", "search", "unread", "filter_look"].contains(where: { params[$0] != nil }) { page.split.showsList = true }
         if let team = params["team"]?.intValue {
             page.sidebar.debugTeam = HomeSidebarFixtureRows.names.prefix(max(0, team)).reversed().enumerated().map { i, name in
                 HomeContact(id: ParticipantID("user_fixture_team_\(i)"), name: name, source: .team)
