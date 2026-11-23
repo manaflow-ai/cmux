@@ -1,5 +1,5 @@
 {
- "title": "How long each agent has worked, on its pill in the Chief's agents row (user 2026-11-19: \"would be useful to see how long it has been running for\"). The fixture's Chief run began 12 minutes ago: the agents still at work say \"12m\", the one that reported says how long it took. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/chief-agent-pill-times.json --mac",
+ "title": "How long each agent has worked, on its pill in the Chief's agents row (user 2026-11-19: \"would be useful to see how long it has been running for\"), counted from each agent's session start (user 2026-11-20), not the Chief's message. The fixture's Chief run began 12 minutes ago and each agent's session 2, 3, 4... minutes after it: the working agents say 10m, 9m, 8m...; the one that reported says how long it took. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/chief-agent-pill-times.json --mac",
  "steps": [
   {
    "title": "Launch",

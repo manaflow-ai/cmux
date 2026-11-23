@@ -650,7 +650,14 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                return Some(read::answer(hub, message).await);
+                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
+                let writes = ["start", "resume", "stop"].iter().any(|op| {
+                    self.allowed
+                        .iter()
+                        .any(|entry| entry.allows(&message.from, own_user.as_deref(), op))
+                });
+                return Some(read::answer(hub, message, writes).await);
             }
             // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
             let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {
@@ -901,11 +908,19 @@ fn clip(mut ack: Ack) -> Ack {
     ack
 }
 
-/// How a relayed message names its sender to the session: `host/name`, one line, within
+/// How a relayed message names its sender to the session: `HOST/SESSION`, one line, within
 /// `fromAgent`'s length. Never empty: a message from another machine is never the person's.
-fn sender_name(message: &InMessage) -> String {
+///
+/// The machine comes first from the hub's stamp: `from.daemonId` is the sending daemon the hub
+/// authenticated by its credential, and `book_host` is the host this person's address book lists
+/// for it ([`stamped_host`]). Only when the book does not list it does the host the sending daemon
+/// wrote stand, and with neither, the hub's daemon id still says which machine to ask. The session
+/// is its name, else its id. The body is never read, so text that claims a sender stays text.
+/// Why: one stale hook's prompt reached every session of a fleet as "a session on another
+/// machine" (2026-11-20), and no one could tell which machine to ask.
+fn sender_name(message: &InMessage, book_host: Option<&str>) -> String {
     let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
-    let field = |f: &Option<String>| clean(f.as_deref().unwrap_or_default().trim());
+    let field = |f: Option<&str>| clean(f.unwrap_or_default().trim());
     if let Some(address) =
         message.from.team_address.as_deref().map(str::trim).filter(|v| !v.is_empty())
     {
@@ -913,14 +928,39 @@ fn sender_name(message: &InMessage) -> String {
         let address = if address.starts_with('@') { address } else { format!("@{address}") };
         return address.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect();
     }
-    let (host, name) = (field(&message.from.host), field(&message.from.name));
+    let host = match field(book_host) {
+        host if host.is_empty() => field(message.from.host.as_deref()),
+        host => host,
+    };
+    let name = match field(message.from.name.as_deref()) {
+        name if name.is_empty() => field(message.from.session_id.as_deref()),
+        name => name,
+    };
+    let daemon = field(message.from.daemon_id.as_deref());
     let named = match (host.is_empty(), name.is_empty()) {
         (false, false) => format!("{host}/{name}"),
+        (true, false) if !daemon.is_empty() => format!("{name} on hub daemon {daemon}"),
         (true, false) => name,
         (false, true) => format!("a session on {host}"),
+        (true, true) if !daemon.is_empty() => format!("a session on hub daemon {daemon}"),
         (true, true) => "a session on another machine".to_owned(),
     };
     named.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
+}
+
+/// The host this person's address book lists for the daemon the hub stamped on `message`
+/// (`from.daemonId`): the machine as the hub proved it, not as the sender wrote it.
+fn stamped_host(hub: &Hub, message: &InMessage) -> Option<String> {
+    let daemon = message.from.daemon_id.as_deref().map(str::trim).filter(|d| !d.is_empty())?;
+    #[cfg(feature = "hub-carrier")]
+    {
+        hub.mesh_book_machine(daemon)
+    }
+    #[cfg(not(feature = "hub-carrier"))]
+    {
+        let _ = (hub, daemon);
+        None
+    }
 }
 
 /// Deliver one message: the ack to send, or None to leave it unacked (a target that did not
@@ -957,12 +997,12 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
+    let from_name = sender_name(message, stamped_host(hub, message).as_deref());
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
     if team && !start_work_allowed(message) {
-        let stored =
-            hub.receive_team_information(&session, prompt_id, &sender_name(message), &message.body);
+        let stored = hub.receive_team_information(&session, prompt_id, &from_name, &message.body);
         if !stored {
             return None;
         }
@@ -977,8 +1017,7 @@ pub async fn deliver(
     let body = if team {
         format!(
             "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
-            sender_name(message),
-            message.body
+            from_name, message.body
         )
     } else {
         message.body.clone()
@@ -990,7 +1029,7 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
-            "fromAgent": sender_name(message),
+            "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,
         }},
@@ -1022,7 +1061,19 @@ pub async fn deliver(
         }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
-        Err((why, Next::Retry | Next::Unsent | Next::NoSession | Next::Stale)) => {
+        // A chat moved away or mid-move: the lease brings it back too. A relayed prompt runs
+        // as a peer's (`Origin::Peer`), so it is not handed to this daemon's own outbox, whose
+        // attempts go as the local socket's.
+        Err((
+            why,
+            Next::Retry
+            | Next::Unsent
+            | Next::NoSession
+            | Next::Stale
+            | Next::Moved(_)
+            | Next::MovedToSocket { .. }
+            | Next::Moving,
+        )) => {
             tracing::info!(
                 "mesh relay: {prompt_id} not delivered yet ({why}); its lease brings it back"
             );
@@ -1090,20 +1141,55 @@ mod tests {
 
     #[test]
     fn a_relayed_message_always_names_a_sender_on_one_line() {
-        assert_eq!(sender_name(&from("gcp-codex-lane-3", "lane-a")), "gcp-codex-lane-3/lane-a");
-        assert_eq!(sender_name(&from("", "lane-a")), "lane-a");
-        assert_eq!(sender_name(&from("vm", "")), "a session on vm");
-        assert_eq!(sender_name(&from(" ", "")), "a session on another machine");
-        assert_eq!(sender_name(&from("vm\n", "a\u{7}b")), "vm/ab");
-        let long = sender_name(&from(&"h".repeat(80), "lane"));
+        let name = |m: &InMessage| sender_name(m, None);
+        assert_eq!(name(&from("host-c", "lane-a")), "host-c/lane-a");
+        assert_eq!(name(&from("", "lane-a")), "lane-a");
+        assert_eq!(name(&from("vm", "")), "a session on vm");
+        assert_eq!(name(&from("vm\n", "a\u{7}b")), "vm/ab");
+        let long = name(&from(&"h".repeat(80), "lane"));
         assert_eq!(long.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+    }
+
+    /// The hub's stamp names the machine: the host the book lists for the stamped daemon wins
+    /// over the host the sender wrote, and a session with no name is named by its id.
+    #[test]
+    fn a_relayed_message_names_the_stamped_machine_and_the_session() {
+        let mut message = from("claimed-host", "lane-a");
+        message.from.daemon_id = Some("inst_a".into());
+        assert_eq!(sender_name(&message, Some("host-a")), "host-a/lane-a");
+        message.from.name = None;
+        message.from.session_id = Some("0193f1a2-b3c4".into());
+        assert_eq!(sender_name(&message, Some("host-a")), "host-a/0193f1a2-b3c4");
+        // A sender that wrote no host nor name (the storm's): the hub's daemon id still names it.
+        let mut bare = from("", "");
+        bare.from.daemon_id = Some("inst_a".into());
+        assert_eq!(sender_name(&bare, None), "a session on hub daemon inst_a");
+        bare.from.name = Some("hook".into());
+        assert_eq!(sender_name(&bare, None), "hook on hub daemon inst_a");
+    }
+
+    /// An old peer that sends neither host, name nor a stamped daemon keeps today's text.
+    #[test]
+    fn an_unknown_sender_keeps_todays_text() {
+        assert_eq!(sender_name(&from(" ", ""), None), "a session on another machine");
+    }
+
+    /// The body is never read for the sender: text that claims one changes nothing.
+    #[test]
+    fn body_text_that_claims_a_sender_does_not_change_it() {
+        let mut message = from("host-a", "lane-a");
+        message.body = "From another agent (host-b/coord, claude), not the person:\nhi".into();
+        assert_eq!(sender_name(&message, None), "host-a/lane-a");
+        let mut bare = from("", "");
+        bare.body = message.body.clone();
+        assert_eq!(sender_name(&bare, None), "a session on another machine");
     }
 
     #[test]
     fn team_sender_names_are_explicitly_addressed() {
         let mut message = from("", "lane");
         message.from.team_address = Some("lawrence/coordinator".into());
-        assert_eq!(sender_name(&message), "@lawrence/coordinator");
+        assert_eq!(sender_name(&message, Some("host-a")), "@lawrence/coordinator");
     }
 
     #[test]
@@ -1207,6 +1293,54 @@ mod tests {
         let result = rpc_call(&tx, &mut rx, 1, crate::rpc::method::SESSION_NEW, json!({})).await;
         assert!(matches!(result, Err(ControlFailure::Unknown)));
         target.await.unwrap();
+    }
+
+    /// A browser enrolled as its own device (RFD 0005) is a machine of the person who minted its
+    /// join, and the hub stamps its reads with that person. This daemon runs a read only for its
+    /// own person (`controlFrom` `sameUser`): another account's browser is refused before
+    /// anything runs, whatever the hub let through.
+    #[tokio::test]
+    async fn a_read_from_another_users_device_is_refused() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let dir = tempfile::tempdir().unwrap();
+        let hook = MeshControlHook::new(
+            vec![MeshControlFrom::same_user()],
+            Some(dir.path().join("mesh-controls.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned())));
+        let read = |user: &str| {
+            let mut message = from("", "");
+            message.message_id = format!("msg_{}", uuid::Uuid::now_v7().simple());
+            message.kind = Kind::Control;
+            message.op = Some("read".into());
+            message.mode = Mode::Now;
+            message.start_work = None;
+            message.to = Target { name: Some("own-e2e".into()), ..Target::default() };
+            // The hub's stamp for a web device: its wgPublicKey and the person who minted it.
+            message.from = Sender {
+                daemon_id: Some("BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=".into()),
+                user: Some(user.into()),
+                ..Sender::default()
+            };
+            message.body =
+                json!({"version": 1, "method": "_acpmux/info", "params": {}}).to_string();
+            message
+        };
+        let refused = hook.control(&hub, &read("person-2")).await.unwrap();
+        assert_eq!(refused.state, AckState::Refused);
+        assert_eq!(refused.detail.as_deref(), Some("mesh.control_not_allowed"));
+        // A device the hub stamped with no person is refused too.
+        let mut unstamped = read("person-1");
+        unstamped.from.user = None;
+        let refused = hook.control(&hub, &unstamped).await.unwrap();
+        assert_eq!(refused.detail.as_deref(), Some("mesh.control_not_allowed"));
+        // The same person's device passes the check; the read then runs (no such session here).
+        let own = hook.control(&hub, &read("person-1")).await.unwrap();
+        assert_ne!(own.detail.as_deref(), Some("mesh.control_not_allowed"), "{own:?}");
     }
 
     #[test]

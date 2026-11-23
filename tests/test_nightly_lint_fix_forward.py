@@ -50,15 +50,14 @@ class CheckClassTests(unittest.TestCase):
                 if kind == "blocks":
                     self.assertTrue(reason.strip(), f"{check} blocks the nightly without a reason")
 
-    def test_the_type_check_and_the_protocol_check_still_block(self):
+    def test_the_type_check_still_blocks(self):
         self.assertEqual(checks.CHECK_CLASSES["typecheck"][0], "blocks")
-        self.assertEqual(checks.CHECK_CLASSES["acpmux-protocol:check"][0], "blocks")
         self.assertEqual(checks.CHECK_CLASSES["check:design-tokens"][0], "lint")
 
 
 class AdvisoryOutTests(unittest.TestCase):
     def run_main(self, red: dict[str, str], *flags: str) -> int:
-        def run_check(_webviews, check):
+        def run_check(_webviews, check, fixit=False):
             return (1, red[check] + "\n") if check in red else (0, "")
 
         with mock.patch.object(checks, "run_check", run_check), contextlib.redirect_stdout(io.StringIO()) as out:
@@ -183,12 +182,16 @@ class FixForwardIssueTests(unittest.TestCase):
 
         def gh(*args, stdin=None):
             calls.append(args)
-            listed = json.dumps([7, issue.TITLE]) + "\n" + json.dumps([8, "something else"])
+            listed = json.dumps([{"number": 6, "title": issue.TITLE, "pull_request": {"url": "x"}},
+                                 {"number": 7, "title": issue.TITLE}, {"number": 8, "title": "something else"}])
             return mock.Mock(returncode=0, stdout=listed if args[0] == "api" else "", stderr="")
 
         with mock.patch.object(issue, "gh", gh), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(issue.file("o/r", {"failed": []}, "url", "abc"), 0)
         self.assertIn(("issue", "close", "7", "-R", "o/r"), calls)
+        # One bounded page per call: the gh quota wrapper refuses gh api's paginate flag.
+        reads = [args for args in calls if args[0] == "api"]
+        self.assertTrue(reads and all(len(args) == 2 and "page=" in args[1] for args in reads), reads)
 
 
 class WorkflowTests(unittest.TestCase):

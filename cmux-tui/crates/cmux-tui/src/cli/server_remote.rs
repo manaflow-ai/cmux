@@ -115,6 +115,9 @@ pub(crate) struct Request {
     /// `--user`: the service runs only while you are logged in there;
     /// linger is left as it is.
     pub user: bool,
+    /// `--label LABEL`: the machine's name in the cmux app here (the
+    /// sidebar), instead of its host name.
+    pub label: Option<String>,
 }
 
 /// `Some` when `args` (the words after `server`) name an ssh:// endpoint.
@@ -133,7 +136,7 @@ pub(crate) fn request(args: &[String]) -> Option<Result<Request, String>> {
         Err(e) => return Some(Err(e)),
     };
     let allowed: &[&str] =
-        if install { &["yes", "nightly", "channel", "user"] } else { &["yes", "user"] };
+        if install { &["yes", "nightly", "channel", "user", "label"] } else { &["yes", "user"] };
     if let Some(flag) = parsed.flags.keys().find(|f| !allowed.contains(&f.as_str())) {
         return Some(Err(format!("--{flag} does not go with an ssh:// endpoint")));
     }
@@ -149,6 +152,13 @@ pub(crate) fn request(args: &[String]) -> Option<Result<Request, String>> {
             return Some(Err(format!("--channel takes stable or nightly, not {other:?}")));
         }
     };
+    let label = match parsed.value("label").map(str::trim) {
+        None => None,
+        Some(label) if label.is_empty() || label.chars().any(char::is_control) => {
+            return Some(Err("--label takes a one-line name".to_owned()));
+        }
+        Some(label) => Some(label.to_owned()),
+    };
     Some(Ok(Request {
         install,
         endpoint,
@@ -157,6 +167,7 @@ pub(crate) fn request(args: &[String]) -> Option<Result<Request, String>> {
         nightly,
         stable,
         user: parsed.has("user"),
+        label,
     }))
 }
 
@@ -226,15 +237,21 @@ pub(crate) fn uninstall_command() -> String {
     "for c in \"$HOME/.local/bin/cmux\" \"$HOME/.cmux/bin/cmux\"; do [ -x \"$c\" ] && exec \"$c\" server uninstall; done; echo 'cmux: no cmux on this machine' >&2; exit 3".to_owned()
 }
 
-/// The `cmux action run` argv that asks the app to connect to the machine.
-pub(crate) fn connect_action(endpoint: &Endpoint) -> Vec<String> {
+/// The `cmux action run` argv that asks the app to connect to the machine,
+/// named `label` in its sidebar when given.
+pub(crate) fn connect_action(endpoint: &Endpoint, label: Option<&str>) -> Vec<String> {
     let destination = match endpoint.port {
         Some(port) => format!("ssh://{}:{port}", endpoint.destination),
         None => endpoint.destination.clone(),
     };
-    ["action", "run", "remote.connect", "--destination", destination.as_str()]
-        .map(str::to_owned)
-        .to_vec()
+    let mut argv: Vec<String> =
+        ["action", "run", "remote.connect", "--destination", destination.as_str()]
+            .map(str::to_owned)
+            .to_vec();
+    if let Some(label) = label {
+        argv.extend(["--name".to_owned(), label.to_owned()]);
+    }
+    argv
 }
 
 struct Steps {
@@ -282,8 +299,9 @@ fn shown(argv: &[String]) -> String {
 /// Runs `argv`; its stdout goes to our stderr under --json. `stdin`: bytes to
 /// send. Returns the exit code (`None`: killed or not started).
 fn run(argv: &[String], stdin: Option<&str>, json: bool) -> Option<i32> {
-    let mut cmd = Command::new(&argv[0]);
-    cmd.args(&argv[1..]);
+    let (program, args) = argv.split_first()?;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
     if json {
         cmd.stdout(to_stderr()?);
     }
@@ -336,15 +354,20 @@ pub(crate) fn run_request(request: &Request) -> i32 {
 fn install(request: &Request, steps: &mut Steps) -> i32 {
     let ep = &request.endpoint;
     let batch = !steps.interactive;
-    let commit =
-        if request.nightly { None } else { install_commit(cmux_build_identity::BUILD_IDENTITY) };
+    // cmux-build-identity is a Unix-only dependency (Cargo.toml); a Windows
+    // build has no stamped commit, so it installs the current NIGHTLY build.
+    #[cfg(unix)]
+    let own = cmux_build_identity::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let own = "";
+    let commit = if request.nightly { None } else { install_commit(own) };
     let target = match (request.stable, commit) {
         (true, _) => Build::Stable,
         (false, Some(commit)) => Build::Commit(commit),
         (false, None) => Build::Nightly,
     };
     let build = match target {
-        Build::Commit(commit) => format!("cmux {}", &commit[..12]),
+        Build::Commit(commit) => format!("cmux {}", commit.get(..12).unwrap_or(commit)),
         Build::Nightly => "the current cmux NIGHTLY build".to_owned(),
         Build::Stable => "the latest stable cmux build".to_owned(),
     };
@@ -389,8 +412,10 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
         return 5;
     }
     let mut argv = vec!["cmux".to_owned()];
-    argv.extend(connect_action(ep));
-    let what = format!("Add {} to the cmux app here (Connect to Machine):", ep.destination);
+    argv.extend(connect_action(ep, request.label.as_deref()));
+    let shown_as = request.label.as_deref().map(|l| format!(" as {l}")).unwrap_or_default();
+    let what =
+        format!("Add {}{shown_as} to the cmux app here (Connect to Machine):", ep.destination);
     if !steps.confirm(&what, &shown(&argv)) {
         steps.say(&format!(
             "cmux server: {} is ready; connect later with: {}",
@@ -403,8 +428,8 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "cmux".to_owned());
     let mut cmd_argv = vec![program];
-    cmd_argv.extend(connect_action(ep));
-    let code = run_cmux_surface(&cmd_argv, steps.json);
+    cmd_argv.extend(connect_action(ep, request.label.as_deref()));
+    let code = run_as_cmux_cli(&cmd_argv, steps.json);
     steps.record("connect", &shown(&argv), code);
     if code == Some(0) {
         steps.say(&format!("cmux server: {} is set up and open in cmux", ep.destination));
@@ -418,11 +443,12 @@ fn install(request: &Request, steps: &mut Steps) -> i32 {
     0
 }
 
-/// Runs this binary as `cmux` (its surface comes from argv[0]).
-fn run_cmux_surface(argv: &[String], json: bool) -> Option<i32> {
-    let mut cmd = Command::new(&argv[0]);
+/// Runs this binary as `cmux` (argv[0] picks which command line it answers as).
+fn run_as_cmux_cli(argv: &[String], json: bool) -> Option<i32> {
+    let (program, args) = argv.split_first()?;
+    let mut cmd = Command::new(program);
     cmd.arg0("cmux");
-    cmd.args(&argv[1..]).stdin(Stdio::null());
+    cmd.args(args).stdin(Stdio::null());
     if json {
         cmd.stdout(to_stderr()?);
     }

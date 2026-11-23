@@ -17,7 +17,10 @@
 //!   16-color scheme, see `theme_scheme`) into the themes folder.
 //! - `use NAME`: makes NAME the active theme file.
 //! - `check [NAME|FILE]`: the problems the app would report, as
-//!   `FILE:LINE: key: message`; exit 1 when there are any.
+//!   `FILE:LINE: key: message`, and every ink on a fill the look draws
+//!   under its WCAG minimum (`themes/NAME.json: contrast: THEME: element FG
+//!   on BG is R:1, needs M:1`, `theme_file::contrast`); exit 1 when there
+//!   are any.
 //! - `schema [--install]`: the theme file JSON Schema (`--install` writes
 //!   `themes/.schema.json`, which `export` points `$schema` at).
 
@@ -44,7 +47,8 @@ cmux theme: the whole look of cmux as one file, ~/.config/cmux/themes/NAME.json.
   cmux theme set KEY VALUE [--theme NAME]           one look value, checked first
   cmux theme reset [KEY] [--theme NAME]             take KEY out; with no KEY, back to the stock look
   cmux theme import FILE [--name N] [--replace] [--use]   a theme file into the themes folder
-  cmux theme check [NAME|FILE|DIR]                  problems as FILE:LINE: key: message (DIR: a theme repo)
+  cmux theme check [NAME|FILE|DIR]                  problems as FILE:LINE: key: message, and text too faint
+                                                    on its fill (WCAG 4.5:1, 3:1 for marks) (DIR: a theme repo)
   cmux theme schema [--install]                     the theme file JSON Schema
   cmux theme path [NAME]
   cmux theme install HOST/OWNER/REPO[/PATH][@REF] [--yes]   a community theme from a git repository
@@ -227,6 +231,15 @@ fn read(paths: &Paths, name: &str, text: Option<&str>) -> ThemeFile {
         Schema::embedded(),
         &Domains::default(),
     )
+}
+
+/// The colors of the installed terminal theme `name` (Ghostty's theme folders), for the contrast
+/// check of a theme file that names a theme without its own `colors`.
+fn installed_theme(name: &str) -> Option<cmux_theme_tokens::ThemeInput> {
+    let path = cmux_theme_tokens::find_theme_file(&cmux_theme_tokens::Env::current(), name)?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    let scheme = cmux_theme_tokens::Scheme::parse(&text, name, None).ok()?;
+    Some(scheme.theme_input())
 }
 
 fn diagnostics_json(file: &ThemeFile) -> Value {
@@ -477,11 +490,18 @@ pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i
                     Err(code) => return code,
                 },
             };
-            let file = read(&paths, &name, text.as_deref());
-            let problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
+            let mut file = read(&paths, &name, text.as_deref());
+            // The font pack's face files: the check stats them, the read does not.
+            let faces = file.face_diagnostics();
+            file.diagnostics.extend(faces);
+            let contrast = file.contrast(&paths.settings_root(), &installed_theme);
+            let mut problems: Vec<String> = file.diagnostics.iter().map(|d| d.display()).collect();
+            problems.extend(
+                contrast.iter().map(|f| format!("themes/{name}.json: contrast: {}", f.display())),
+            );
             if matches!(global.output, OutputMode::Json | OutputMode::JsonLines) {
                 super::wire::print_local_success(
-                    &json!({ "theme": name, "ok": problems.is_empty(), "keys": file.keys(), "diagnostics": diagnostics_json(&file) }),
+                    &json!({ "theme": name, "ok": problems.is_empty(), "keys": file.keys(), "diagnostics": diagnostics_json(&file), "contrast": contrast }),
                     global.output,
                 );
             } else if problems.is_empty() {

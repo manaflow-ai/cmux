@@ -17,7 +17,7 @@ package struct ThinScrollerPresence: Equatable {
 
     /// The view scrolled and the rest delay has not passed yet.
     package private(set) var scrolledRecently = false
-    /// The pointer is within ``ThinScroller/nearDistance`` of the scroller's trailing edge.
+    /// The pointer is in the scroller's grab zone (``ThinScroller/grabZone``) at its trailing edge.
     package private(set) var pointerNear = false
     /// The pointer is near and holds the knob shown (see ``revealsNearPointerAtRest``).
     package private(set) var hovering = false

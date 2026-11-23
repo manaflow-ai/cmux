@@ -394,6 +394,13 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg:is([data-look="card"], [data-look="corner"]) .cv-agentmsg__open > :not(.cv-agentmsg__card) {
   margin-inline-start: var(--grid-icon-box);
 }
+/* A body that is a row, not words (a sent call with no text, AgentMessageRow `bare`): the row opens
+   bare under the line at the child step, as an opened group's rows do, never a row inside a card
+   (design/chat-row-anatomy.md: a row that holds rows opens them inline; one that holds content opens
+   one body). */
+.cv-agentmsg__bare {
+  min-width: 0;
+}
 /* A sender acpmux could not verify (UnverifiedMark.tsx): a status-sized mark in the muted tone right
    after the name, never words in it. */
 .cv-unverified {

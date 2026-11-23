@@ -84,9 +84,12 @@ for arg in "$@"; do
   esac
 done
 # --screen counts frames of the display: a display that this script was asked for and did not get is no display to
-# count on (below), and a rate that is no number stops the step here, before the build.
-if [[ "$screen" == 1 && -n "$vdisplay_hz" && ! "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-  echo "instant-new-surfaces: --screen: --vdisplay=$vdisplay_hz is not a rate in Hz" >&2
+# count on (below), and a rate that is no number above 0 stops the step here, before the build (the driver refuses
+# such a --display-hz too, but only after the build). The match runs with LC_ALL=C (in a subshell, so the script's
+# own locale stays): in a UTF-8 locale `[0-9]` also takes digits of other scripts. The driver's `float` takes those
+# as a number and the display's helper reads its rate with `atof`, so the display and the asked rate could differ.
+if [[ "$screen" == 1 && -n "$vdisplay_hz" ]] && ! (LC_ALL=C; [[ "$vdisplay_hz" =~ ^[0-9]+(\.[0-9]+)?$ && ! "$vdisplay_hz" =~ ^[0.]+$ ]]); then
+  echo "instant-new-surfaces: --screen: --vdisplay=$vdisplay_hz is not a rate in Hz above 0" >&2
   exit 2
 fi
 # --window-look=WORDS (--screen: the launched app's settings, scripts/cmux-next/new_surface_look.py): words that the
@@ -154,7 +157,18 @@ if [[ -n "$vdisplay_hz" ]]; then
     done
     display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
     echo "instant-new-surfaces: display: $display"
-    sleep 2  # WindowServer settles the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     display="the virtual display helper did not compile"
     echo "instant-new-surfaces: the virtual display helper did not compile; measuring on the real display"

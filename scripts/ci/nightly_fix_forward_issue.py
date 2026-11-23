@@ -26,6 +26,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_pages  # noqa: E402
+
 TITLE = "Nightly fix-forward: lint-class checks failing"
 LABEL = "nightly-fix-forward"
 OUTPUT_MAX = 6000  # a job output stays small; the run log holds every finding
@@ -95,14 +98,16 @@ def gh(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
 def open_issue(repo: str) -> str | None:
     """The open issue titled TITLE that the run's token opened, read from the issues list (as
     report-visual-gate-nightly does), not the search index, which lags and would let a quick rerun open a second."""
-    found = gh("api", "--paginate", f"repos/{repo}/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100",
-               "--jq", '.[] | select(.pull_request == null) | [.number, .title] | @json')
-    if found.returncode:
-        raise RuntimeError(found.stderr.strip()[:300])
-    for line in (found.stdout or "").splitlines():
-        number, title = json.loads(line)
-        if title == TITLE:
-            return str(number)
+    def fetch(url: str):
+        # One bounded page per call through gh() (the quota wrapper refuses gh api's paginate flag).
+        page = gh("api", url)
+        if page.returncode:
+            raise RuntimeError(page.stderr.strip()[:300])
+        return json.loads(page.stdout or "[]")
+
+    for issue in gh_pages.items(fetch, f"repos/{repo}/issues?state=open&creator=github-actions%5Bbot%5D"):
+        if issue.get("pull_request") is None and issue.get("title") == TITLE:
+            return str(issue["number"])
     return None
 
 
