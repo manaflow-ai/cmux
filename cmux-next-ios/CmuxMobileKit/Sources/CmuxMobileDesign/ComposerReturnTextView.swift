@@ -48,6 +48,7 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.numberOfLines = 1
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
+        panGestureRecognizer.addTarget(self, action: #selector(textPanned(_:)))
     }
 
     @available(*, unavailable)
@@ -180,6 +181,41 @@ open class ComposerReturnTextView: UITextView {
     public func updatePlaceholder() {
         placeholderLabel.isHidden = !(text ?? "").isEmpty
         accessibilityLabel = placeholder
+    }
+
+    // MARK: Drags on the text
+
+    /// Whether a drag starting now is this text's own scroll (`ComposerTextDragClaim`).
+    public var textOwnsDrag: Bool {
+        ComposerTextDragClaim.textOwnsDrag(contentHeight: contentSize.height, visibleHeight: bounds.height,
+                                           offsetFromTop: contentOffset.y + adjustedContentInset.top)
+    }
+
+    override open func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        ComposerTextDragHold.touchBegan(textOwnsDrag: textOwnsDrag)
+        super.touchesBegan(touches, with: event)
+    }
+
+    override open func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        ComposerTextDragHold.touchEnded()
+        super.touchesEnded(touches, with: event)
+    }
+
+    override open func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // The text's own scroll beginning cancels the touch: the hold lasts until it ends.
+        if !textScrolling { ComposerTextDragHold.touchEnded() }
+        super.touchesCancelled(touches, with: event)
+    }
+
+    private var textScrolling: Bool {
+        panGestureRecognizer.state == .began || panGestureRecognizer.state == .changed
+    }
+
+    @objc private func textPanned(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .ended, .cancelled, .failed: ComposerTextDragHold.touchEnded()
+        default: break
+        }
     }
 
     // MARK: Return
