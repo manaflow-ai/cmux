@@ -209,6 +209,11 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, spawn_effort, web_url,
     web_url_for_session,
 };
+// RFD 0002 steps 1 and 2: nothing consumes the rung until step 3's row field.
+#[cfg_attr(not(test), allow(dead_code))]
+mod earned_access;
+#[cfg_attr(not(test), allow(dead_code))]
+mod earned_events;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -228,7 +233,6 @@ mod tool_output_cut;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 #[cfg(test)]
 mod fork_retarget_tests;
-mod image_dims;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -301,6 +305,8 @@ mod settings_watch;
 mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
+// Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
+pub(crate) mod auto_evacuate;
 mod start_retry;
 mod start_watch;
 pub(crate) mod task_list;
@@ -322,6 +328,7 @@ pub use shutdown::SHUTTING_DOWN;
 mod bridge;
 pub(crate) mod desktop_bridge;
 pub(crate) mod register;
+mod terminal_input;
 pub(crate) use shutdown::{
     AGENT_END_BUDGET, CREATED as REFUSED_CREATED, shutting_down_before_create,
 };
@@ -353,7 +360,8 @@ mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
-    NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
+    NewRequest, SUFFIX_TAKEN_NAME, declared_model_json, profile_takes_model_at_spawn,
+    suffixed_name, terminal_harness_refusal,
 };
 pub use paging::{
     DEFAULT_PAGE_BYTES, EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes,
@@ -1199,6 +1207,9 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The app's `agents.chats.sessionRecap` (`away_recap.rs`), from its last chat settings push.
     pub(super) session_recap: AtomicBool,
+    /// The app's `agents.chats.terminalChatWritable` (`release_to_watch.rs`), from its last chat
+    /// settings push: whether a chat handed to a cmux terminal stays writable.
+    pub(super) terminal_chat_writable: AtomicBool,
     /// When each away chat's recap is asked for, in hub clock nanos (`away_recap.rs`).
     pub(super) recap_due: StdMutex<HashMap<String, u64>>,
     /// Chats whose host below the level moved, or will not, in this daemon's run (`host_level.rs`).
@@ -1645,6 +1656,7 @@ impl Hub {
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             session_recap: AtomicBool::new(away_recap::saved_setting()),
+            terminal_chat_writable: AtomicBool::new(release_to_watch::saved_setting()),
             recap_due: StdMutex::new(HashMap::new()),
             host_moved: StdMutex::new(HashSet::new()),
             recap_wake: Arc::new(Notify::new()),
@@ -1854,12 +1866,10 @@ impl Hub {
         self.events.subscribe()
     }
 
-    /// [`Hub::subscribe`] for a connection's fan-out task: each event's fan-out clock waits for
-    /// it until the seat drops (`gauges.fanout`).
-    pub(crate) fn subscribe_fanout(
-        &self,
-    ) -> (broadcast::Receiver<HubEvent>, list_guard::FanoutSeat) {
-        self.events.subscribe_fanout()
+    /// Which connections each event wakes (`server/interest.rs`): a connection's fan-out reads
+    /// its own inbox, not [`Hub::subscribe`].
+    pub(crate) fn fanout_router(&self) -> &Arc<crate::server::interest::Router> {
+        self.events.router()
     }
 
     pub fn mailbox(&self) -> &Mailbox {
@@ -2444,6 +2454,14 @@ impl Hub {
         drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
+        }
+        // A given name (`session_handle.rs`, "Mango") reaches its session as `key_route` tier 0
+        // does, ahead of former names and prefixes (Leo, 2026-11-23: "the renaming paradigm
+        // still hasn't hit yet").
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_handle_here(key)
+        {
+            return found;
         }
         // No session has it as its name now: one that had it before a rename
         // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it

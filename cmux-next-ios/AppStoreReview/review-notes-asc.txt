@@ -23,6 +23,7 @@ First launch:
 ## Hosted Chief answers in chat, with no Mac.
 Review path (no Mac needed):
 1. Home opens. Tap Chief (it is labeled Main · Cloud), type a message, for example: What can you help me with? Then tap Send. Chief answers in the conversation within a few seconds.
+   The first message asks "Chief Uses AI": Chief's replies come from third-party AI models (Anthropic and OpenAI), so the app asks before anything is shared (Guideline 5.1.2(i)). Tap "Agree and Send". Chief's info page turns sharing off again and has "Report a Response…" (Guideline 1.2).
 2. If Home shows "Chief Is Off" instead, tap "Turn On", then open Chief and send the message.
 3. Tap Chief's name at the top. Its page says "This Chief runs in cmux Cloud."
 ## REVIEW DEMO STEPS: END
