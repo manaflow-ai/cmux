@@ -892,7 +892,7 @@ python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 540
 title = "split-plan advisory"
 about = "a pull request that spans many surfaces or commits gets split-plan triggers as a warning"
 run = '''
@@ -904,7 +904,8 @@ repo="$RUNNER_TEMP/split-plan"
 rm -rf "$repo"
 git init -q "$repo"
 git -C "$repo" remote add origin "$URL"
-fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
+# At most four fetches (the window, its fallback, the deepen, its fallback), each bounded, inside the step's 540 s.
+fetch() { timeout 120 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
 # A SHA fetch works on GitHub; the pull request's head ref and the base branch are the fallback. Either
 # can find no commit that new (a head or base older than 14 days): the whole history below answers that.
 fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \

@@ -51,6 +51,7 @@ on:
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
@@ -92,6 +93,7 @@ on:
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
+      - "scripts/ci/apt-ensure.sh"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/**"
@@ -105,6 +107,9 @@ on:
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "schemas/settings/source/mcp-servers.json"
+      # The installers' signed release file check (linux-release-verify.test.sh) reads these.
+      - "web/public/tui/install-static.sh"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
   pull_request:
   workflow_dispatch:
     inputs:
@@ -267,7 +272,7 @@ jobs:
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
     if: ${{ (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    timeout-minutes: 10 # the machine join test runs its suite under three shells (about 4 min on a lane VM)
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -281,6 +286,11 @@ jobs:
 
       - name: Test the machine join script
         run: sh cmux-tui/scripts/machine-join.test.sh
+
+      # The signed Linux release file path of install-static.sh and machine-join.sh
+      # (cmuxterm-hq docs/design/linux-signed-packages.md section 8).
+      - name: Test the installers' signed release file check
+        run: sh cmux-tui/scripts/linux-release-verify.test.sh
 
       - name: Check protocol and TUI action inventory
         run: python3 cmux-tui/scripts/check-spec-inventory.py
@@ -332,7 +342,7 @@ jobs:
         run: cargo run --locked -p cmux-api-compat --bin api-compat-check
 
   # spec/acpmux-protocol.json is generated from acpmux's protocol registry, and
-  # webviews' acpmux-protocol:check only compares the TS with that committed IR. Only
+  # webviews' build generates its TS types from that committed IR. Only
   # cmux-tui.yml (dispatch) ran `protocol_ir_is_current`, so #27050 added
   # _acpmux/mesh_control to the registry without the IR and left a base red until
   # #27556. This runs acpmux's protocol module tests (the IR among them) when a change
@@ -498,8 +508,7 @@ jobs:
       - name: Install bubblewrap
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap
+          bash scripts/ci/apt-ensure.sh bubblewrap
           # Ubuntu 24.04 (the pool runners) refuses unprivileged user namespaces to unconfined
           # programs, so bwrap cannot start and the four linux_sandbox::bwrap tests fail on every
           # run, base included (as cmux-tui-sdks.yml).
@@ -870,9 +879,7 @@ jobs:
 
       - name: Install Linux build dependencies
         if: ${{ steps.tree.outputs.hit != 'true' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        run: bash scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
 
       # cmux-remote depends on ghostty-vt: ghostty-vt-sys builds libghostty-vt from the
       # ghostty-next gitlink with zig, as the clippy job does.
@@ -1015,7 +1022,7 @@ jobs:
 
       # A replay checks the old tree with this run's script.
       - name: Keep this run's check scripts
-        run: cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$RUNNER_TEMP/"
+        run: cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py scripts/ci/apt-ensure.sh "$RUNNER_TEMP/"
 
       - name: Check out the replayed commit
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.commit != '' }}
@@ -1052,9 +1059,10 @@ jobs:
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+        # Persistent fleet images already carry these packages. Avoid network and
+        # sudo work on that path; cold runners still install every missing package.
+        # The kept copy: a replayed commit from before the helper has no scripts/ci/apt-ensure.sh.
+        run: bash "$RUNNER_TEMP/apt-ensure.sh" clang libclang-dev pkg-config
 
       - name: Init the ghostty-next submodule (libghostty-vt for ghostty-vt-sys)
         run: bash scripts/ci/init-submodule.sh ghostty-next
