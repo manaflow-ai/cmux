@@ -45,7 +45,7 @@ env:
 jobs:
   decide:
     if: github.repository == 'manaflow-ai/cmux' && vars.IOS_INTERNAL_HOLD != '1' && (github.event_name != 'workflow_dispatch' || inputs.yolo == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       # actions: read lists earlier builds; actions: write dispatches one.
@@ -94,7 +94,7 @@ jobs:
   # iPhone YOLO: feat-cmux-next plus the named PRs, built by the INTERNAL builder like a nightly.
   yolo:
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.yolo != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       # contents: write pushes the ios-yolo/ stack branch; actions: write dispatches the builder;

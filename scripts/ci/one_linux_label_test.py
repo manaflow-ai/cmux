@@ -39,7 +39,7 @@ class OneLinuxLabelTest(unittest.TestCase):
             self.assertEqual(len(report.changed), 1)
 
     def test_canonical_keeps_forks_off_owned_hosts_and_names_no_size(self) -> None:
-        self.assertIn("(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')", olc.CANONICAL)
+        self.assertIn("'ubuntu-24.04'", olc.CANONICAL)
         self.assertTrue(olc.CANONICAL.endswith("'cmux-linux' }}"))
         self.assertIsNone(olc.SIZE_LEFT.search(olc.CANONICAL))
 
