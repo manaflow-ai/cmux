@@ -232,6 +232,14 @@ fn ultra_min_qp(env: Option<&str>) -> i32 {
         .unwrap_or(ULTRA_MIN_QP)
 }
 
+/// A QP floor no higher than the session's QP ceiling (`None`: no ceiling). VideoToolbox fails
+/// each frame whose MinAllowedFrameQP passes its MaxAllowedFrameQP with -12902
+/// (kVTParameterErr): the frame-size guard's floor reaches 51 on a small budget, and the
+/// resolution ladder's ceiling is 40.
+fn floor_under_ceiling(floor: i32, ceiling: Option<u8>) -> i32 {
+    ceiling.map_or(floor, |c| floor.min(i32::from(c)))
+}
+
 /// Whether a profile runs the frame-size guard: on unless its env var says `off` (a sweep).
 fn guard_enabled(env: Option<&str>) -> bool {
     env.map(str::trim) != Some("off")
@@ -625,12 +633,13 @@ impl VideoToolbox {
         self.session_low_latency = low_latency;
         self.color = None;
         self.apply_bitrate(self.kbps);
-        // A new session has no QP ceiling: set it again when one is asked for.
+        // A new session has no QP floor or ceiling: set them again when asked for, the floor
+        // under the ceiling.
+        self.applied_min_qp = NO_MIN_QP;
         self.max_qp_on_session = None;
         self.apply_max_qp();
-        self.applied_min_qp = NO_MIN_QP;
         if self.ultra_min_qp != NO_MIN_QP && self.ultra {
-            self.apply_min_qp(self.ultra_min_qp);
+            self.apply_min_qp(floor_under_ceiling(self.ultra_min_qp, self.max_qp_on_session));
         }
         Ok(true)
     }
@@ -685,6 +694,14 @@ impl VideoToolbox {
         if vt_qp_sys::available().is_err() {
             self.max_qp_refused = true;
             return;
+        }
+        // A floor already on the session comes down to the new ceiling first: a ceiling under
+        // the floor is refused, and the floor over it fails every frame (-12902).
+        if let Some(ceiling) = self.max_qp {
+            let floor = floor_under_ceiling(self.applied_min_qp, Some(ceiling));
+            if floor != self.applied_min_qp {
+                self.apply_min_qp(floor);
+            }
         }
         // H.264's largest QP lifts a ceiling the session already has.
         let qp = number_i32(i32::from(self.max_qp.unwrap_or(H264_MAX_QP)));
@@ -983,6 +1000,9 @@ impl VideoToolbox {
             // on standard, as before the guard).
             self.configured_min_qp()
         };
+        // Never above the session's QP ceiling (the resolution ladder's): VideoToolbox fails a
+        // frame whose MinAllowedFrameQP passes its MaxAllowedFrameQP (-12902, kVTParameterErr).
+        let floor = floor_under_ceiling(floor, self.max_qp_on_session);
         if floor != self.applied_min_qp {
             self.apply_min_qp(floor);
         }

@@ -31,6 +31,15 @@ fn ultra_holds_frame_rate_first_within_a_per_pixel_ceiling() {
 }
 
 #[test]
+fn a_qp_floor_never_passes_the_ladders_ceiling() {
+    // The guard's 51 on a 2 KB budget under the ladder's 40: 40, not a -12902 frame.
+    assert_eq!(floor_under_ceiling(51, Some(40)), 40);
+    assert_eq!(floor_under_ceiling(30, Some(40)), 30);
+    assert_eq!(floor_under_ceiling(0, Some(40)), 0, "no floor stays none");
+    assert_eq!(floor_under_ceiling(51, None), 51, "no ceiling, no clamp");
+}
+
+#[test]
 fn the_frame_guard_is_on_unless_a_sweep_says_off() {
     assert!(guard_enabled(None));
     assert!(guard_enabled(Some("on")));
