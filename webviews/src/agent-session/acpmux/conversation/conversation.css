@@ -8707,6 +8707,13 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   background: var(--agent-accent);
   align-self: center;
 }
+/* Last in its column (no time, check or state after it), the dot ends the line: flush on the right
+   edge the rows' times end on, with no room kept for a time it lacks (cmux#51746: a finished
+   subagent with no duration drew its dot 6px in from the edge, under nothing).
+   test/transcript-chevron-vertical-center.test.ts. */
+.cv-reaction-mark:last-child {
+  margin-right: 0;
+}
 /* A failed call draws no failure mark (Lucas, 2026-11-06): no "Failed" / "Exit 1" word, no
    "(N failed)" count, no cause line and no tint. The words stay for screen readers (Find already
    skips them), and an opened Shell block still says the exit code. */

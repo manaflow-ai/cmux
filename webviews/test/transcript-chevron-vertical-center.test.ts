@@ -7,7 +7,9 @@
 // Measured in Chromium over the transcript gallery scenes, at a wide and a narrow pane:
 // - every laid-out chevron's glyph middle lies within MAX_OFFSET px of the middle of the first text
 //   line of the row it opens;
-// - every trailing time or status (a thought's "4s", a call's duration) does the same.
+// - every trailing time or status (a thought's "4s", a call's duration) does the same;
+// - a finished subagent's new dot with no time shown beside it ends its line, flush on the row's
+//   right edge, on its words' middle, at every transcript spacing.
 //
 // CMUX_CHEVRON_LOG=1 logs every glyph measured.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -76,6 +78,7 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
         browser,
         params: { variant: SCENES.find((scene) => scene.entry === entry)!.variant },
       });
+    await warmGalleryFrame(vite, "agent-pane.subagent-done", { browser, params: { variant: "reply" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -268,4 +271,72 @@ await requireBrowserLane("transcript-chevron-vertical-center.test.ts", async () 
         expect(off).toEqual([]);
       });
     }
+
+  // A finished subagent's new dot (ReactionMark.tsx) with no time beside it at rest: the compact line
+  // whose time waits for hover, and a line with no duration at all. The dot ends the line, flush on
+  // the row's right edge (where a time or chevron column ends), and sits on its words' line, at each
+  // transcript spacing (cmux#51746: it sat 6px in, room kept for a time that was not shown).
+  const DOT_SCENES = ["reply", "reply-no-time"];
+  const SPACINGS = ["", "tight", "roomy"];
+  type Dot = { row: string; inset: number; offset: number | null };
+  const dots = async (variant: string, width: number, spacing: string): Promise<Dot[]> => {
+    const page = await browser.newPage({ viewport: { width: width + 40, height: 600 }, deviceScaleFactor: 2 });
+    try {
+      const port = (vite!.httpServer!.address() as { port: number }).port;
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.subagent-done", { variant, width, reducedMotion: "true" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
+        timeout: 120_000,
+      });
+      await page.evaluate((spacing) => {
+        if (spacing) document.documentElement.dataset.transcriptToolSpacing = spacing;
+        return document.fonts.ready;
+      }, spacing);
+      await page.mouse.move(0, 0);
+      await settle(page);
+      return await page.evaluate(() =>
+        [...document.querySelectorAll(".acpmux-row .cv-subagent-done-row .cv-reaction-mark")].map((dot) => {
+          const row = dot.closest(".cv-subagent-done-row")!;
+          const style = getComputedStyle(row);
+          const edge =
+            row.getBoundingClientRect().right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth);
+          const box = dot.getBoundingClientRect();
+          const sentence = row.querySelector(".cv-agent-activity__sentence");
+          const rects: DOMRect[] = [];
+          if (sentence) {
+            const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT);
+            for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+              if (!node.textContent?.trim()) continue;
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              for (const rect of range.getClientRects()) if (rect.width > 0 && rect.height > 0) rects.push(rect);
+            }
+          }
+          const middles = rects.map((rect) => (rect.top + rect.bottom) / 2).sort((a, b) => a - b);
+          return {
+            row: (row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50),
+            inset: edge - box.right,
+            offset: middles.length ? (box.top + box.bottom) / 2 - middles[Math.floor(middles.length / 2)] : null,
+          };
+        }),
+      );
+    } finally {
+      await page.close();
+    }
+  };
+  for (const variant of DOT_SCENES)
+    for (const width of WIDTHS)
+      for (const spacing of SPACINGS)
+        test(`agent-pane.subagent-done#${variant} at ${width}px, ${spacing || "default"} spacing: the new dot ends the line on its words' middle`, async () => {
+          const found = await dots(variant, width, spacing);
+          if (LOG)
+            console.log(`DOTS ${variant}@${width}/${spacing}\n${found.map((dot) => JSON.stringify(dot)).join("\n")}`);
+          expect(found.length).toBeGreaterThan(0);
+          expect(
+            found.filter(
+              ({ inset, offset }) => Math.abs(inset) > 0.5 || offset === null || Math.abs(offset) > MAX_OFFSET + 0.01,
+            ),
+          ).toEqual([]);
+        });
 });
