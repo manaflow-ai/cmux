@@ -117,6 +117,13 @@ public final class BrowserCommentThreads {
         picks.first { $0.value == pick }?.key
     }
 
+    /// Holds thread `key` for pick `pick` as "sending" at once, before its save, so the pick's chip and
+    /// release paths see it while the send is under way.
+    public func hold(_ key: String, pick: BrowserCommentPick) {
+        picks[key] = pick
+        update(key, BrowserCommentThread(commentID: nil, state: .sending))
+    }
+
     /// Records that tab `tab` can (or cannot) send; true when that changed and the page must hear it.
     /// A nil `available` forgets the tab (design mode turned off).
     public func offer(_ available: Bool?, on tab: String) -> Bool {
@@ -131,7 +138,7 @@ public final class BrowserCommentThreads {
     public func send<Git: DiffGitRunning & DiffCommentsStoring>(_ comment: BrowserComment, key: String, pick: BrowserCommentPick,
                                                                 git: Git, folder: String?, acpSession: String,
                                                                 opid: String) async throws(BrowserCommentSendFailure) -> BrowserCommentThread {
-        picks[key] = pick
+        hold(key, pick: pick)
         var root = folder ?? ""
         if let folder, let repository = try? await DiffPageRuntime.repository(at: URL(fileURLWithPath: folder, isDirectory: true), git: git) {
             root = repository.root
@@ -140,7 +147,12 @@ public final class BrowserCommentThreads {
             update(key, BrowserCommentThread(commentID: nil, state: .failed))
             throw .host(.failed)
         }
-        return try await send(comment, key: key, store: git, root: root, acpSession: acpSession, opid: opid, userGesture: true)
+        do {
+            return try await send(comment, key: key, store: git, root: root, acpSession: acpSession, opid: opid, userGesture: true)
+        } catch {
+            if threads[key]?.state == .sending { update(key, BrowserCommentThread(commentID: nil, state: .failed)) }
+            throw error
+        }
     }
 
     /// Whether any thread waits for the agent's reply.
@@ -169,9 +181,12 @@ public final class BrowserCommentThreads {
             throw .host(.failed)
         }
         let versions: [String: JSONValue] = saved["comment"]?["updatedAt"].map { [id: $0] } ?? [:]
+        // Resolved while it was saved: the comment leaves the host unsent.
+        guard threads[key] != nil else { return await abandon(id, store: store, root: root) }
         do {
             let sent = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [id], versions: versions,
                                                           text: comment.prompt, key: opid)
+            guard threads[key] != nil else { return await abandon(id, store: store, root: root) }
             let threaded = sent["threaded"]?.arrayValue?.compactMap(\.stringValue) ?? []
             let thread = BrowserCommentThread(commentID: id, state: threaded.contains(id) ? .sent : .failed)
             update(key, thread)
@@ -217,6 +232,12 @@ public final class BrowserCommentThreads {
             _ = try await home.store.deleteComments(root: home.root, ids: [id], versions: [:], key: UUID().uuidString)
         }
         drop(key)
+    }
+
+    /// Comment `id` of a thread resolved while it was being sent: deleted, its thread not brought back.
+    private func abandon(_ id: String, store: any DiffCommentsStoring, root: String) async -> BrowserCommentThread {
+        _ = try? await store.deleteComments(root: root, ids: [id], versions: [:], key: UUID().uuidString)
+        return BrowserCommentThread(commentID: id, state: .failed)
     }
 
     /// Thread `key` is gone: its observers hear it while its pick is still known.

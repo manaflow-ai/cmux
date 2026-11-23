@@ -77,7 +77,7 @@ final class BrowserDesignModeController {
         // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
         // through a304's `home.sendMessage`; other highlights wait in the composer.
         let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
-        let chat = home == nil ? chat(near: key)?.view : nil
+        let chat = home == nil ? self.chat(near: key)?.view : nil
         // A highlight removed on the page takes its card out of whichever composer holds it; a
         // threaded pick removed on the page resolves its thread.
         for id in change.removed {
@@ -100,7 +100,8 @@ final class BrowserDesignModeController {
             guard let page else { return }
             // Only the agent chat shows the crop; Home's one file per pick is the card's text.
             let shot = home == nil ? await page.designModeSnapshot() : nil
-            for card in rest {
+            // A pick sent as a thread meanwhile (Command-Return right after the snapshot) gets no chip.
+            for card in rest where self?.threads.threads[card.id] == nil {
                 let png = shot.flatMap { card.crop(from: $0) }
                 if let home {
                     // One file per pick: Home draws each file as its own chip, and two per pick
@@ -196,8 +197,9 @@ final class BrowserDesignModeController {
     }
 
     /// Tells the page of tab `key` whether Command-Return sends, when that changed.
+    /// Home's composer takes picks while it is shown, so sending is only for the workspace's chat.
     private func offerSend(on page: any BrowserTab, key: String) {
-        let available = threadTarget(near: key) != nil
+        let available = HomeNativeTranscriptView.shown(in: page.contentView.window) == nil && threadTarget(near: key) != nil
         guard threads.offer(available, on: key) else { return }
         Task { [weak page] in await page?.setDesignModeSendAvailable(available) }
     }
@@ -208,14 +210,16 @@ final class BrowserDesignModeController {
     private func handle(_ request: BrowserDesignModeThreadRequest, tracker: BrowserDesignModeCards, page: any BrowserTab, key: String) {
         switch request {
         case .send(let selector):
-            guard let card = tracker.card(at: selector) else { return }
+            guard let card = tracker.card(at: selector), HomeNativeTranscriptView.shown(in: page.contentView.window) == nil else { return }
             guard let target = threadTarget(near: key) else { return notice(strings.noAgentChat, key) }
+            let pick = BrowserCommentPick(tab: key, selector: selector)
+            threads.hold(card.id, pick: pick)
             AgentPaneDesignSelection.remove(card.id, from: target.view)
             let comment = BrowserComment(url: page.state.url?.absoluteString ?? "", title: page.state.title, selector: card.selector,
                                          quote: card.quote, message: card.comment, prompt: card.text)
             Task { [weak self] in
                 do {
-                    try await self?.threads.send(comment, key: card.id, pick: BrowserCommentPick(tab: key, selector: selector), git: target.git,
+                    try await self?.threads.send(comment, key: card.id, pick: pick, git: target.git,
                                                  folder: target.folder, acpSession: target.session, opid: "browser-comment-" + UUID().uuidString)
                 } catch { self?.notice(self?.strings.sendFailed ?? "", key) }
             }
