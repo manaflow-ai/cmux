@@ -448,8 +448,7 @@ impl Hub {
         if parent == id {
             return None;
         }
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&parent).cloned()?;
+        let session = self.session_get(&parent)?;
         let listed = session.read_meta(|m| {
             let at = crate::store::now_ms();
             m.lineage.is_none()
@@ -506,7 +505,7 @@ impl Hub {
         };
         let id = session.id.clone();
         runtime.spawn_blocking(move || {
-            let session = hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
+            let session = hub.session_get(&id);
             // Gone meanwhile (purged): nothing to seed.
             if let Some(session) = session {
                 hub.seed_time_breakdown(&session, backfill);

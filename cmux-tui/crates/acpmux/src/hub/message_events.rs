@@ -50,7 +50,7 @@ pub(super) fn embed_message_context(
 }
 
 fn resolve_exact(hub: &Hub, id: &str) -> Option<Arc<Session>> {
-    hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+    hub.session_get(id)
 }
 
 pub(super) fn message_context_from_provenance(provenance: &Value) -> Option<MessageContext> {

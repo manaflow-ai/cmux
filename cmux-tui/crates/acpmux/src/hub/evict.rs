@@ -1,0 +1,284 @@
+//! Part of `Hub`; see `hub/mod.rs`. An idle chat is a row, not a session in memory (Leo
+//! 2026-11-14: "memory and cpu staying flat on infinite chats ... the dream of never ever
+//! needing to close a tab or workspace or anything").
+//!
+//! A chat with no agent (hibernated, `idle.rs`, or closed), no client attached, no turn, nothing
+//! queued, asked or running below it, nothing unwritten, and no use for `ACPMUX_EVICT_IDLE_SECS`
+//! leaves the session map: its `Session` (channels, locks, the meta writer's saved copy, the
+//! context snapshot) is dropped, and the tier keeps an [`Evicted`] row: its metadata, for the
+//! whole-set reads (names, adoption, keys), and its list row's bytes in both forms, for a list
+//! page. Anything that reads it by id goes through [`Hub::session_get`], which reads its
+//! metadata from the store and makes the session again as a daemon start does
+//! (`install_stored_session`); its log is read when a reader asks for it, as after a start.
+//!
+//! A chat leaves only when the map's entry is the one handle anybody holds (checked under the map
+//! lock after the list order lets go of its own), so no request that already holds it can change
+//! a copy nobody sees again. Off unless `ACPMUX_EVICT_IDLE_SECS` is set (0: off).
+
+use super::*;
+
+/// The env var that turns eviction on: seconds of no use after which an idle chat leaves memory.
+pub(crate) const EVICT_IDLE_ENV: &str = "ACPMUX_EVICT_IDLE_SECS";
+
+/// How many chats one pass evicts at most, so a pass after a long sleep stays short.
+const EVICT_AT_ONCE: usize = 256;
+
+/// One evicted chat: what the whole-set reads and a list page need without its session.
+pub(crate) struct Evicted {
+    pub(super) meta: SessionMeta,
+    /// Its list row (no tools) and full row (with tools), serialized when it left.
+    list: Arc<str>,
+    full: Arc<str>,
+}
+
+impl Evicted {
+    pub(super) fn id(&self) -> &str {
+        &self.meta.id
+    }
+
+    pub(super) fn updated_at(&self) -> u64 {
+        self.meta.updated_at
+    }
+
+    pub(super) fn status(&self) -> SessionStatus {
+        self.meta.status
+    }
+
+    pub(super) fn row_text(&self, with_tools: bool) -> Arc<str> {
+        if with_tools { self.full.clone() } else { self.list.clone() }
+    }
+}
+
+/// The evicted chats, by id.
+pub(crate) struct Tier {
+    rows: StdMutex<HashMap<String, Arc<Evicted>>>,
+    /// Idle period after which a chat leaves, in hub clock nanoseconds; 0: never.
+    after_ns: AtomicU64,
+    pub(super) evictions: AtomicU64,
+    pub(super) rehydrations: AtomicU64,
+}
+
+impl Default for Tier {
+    fn default() -> Self {
+        let secs = std::env::var(EVICT_IDLE_ENV).ok().and_then(|v| v.trim().parse::<u64>().ok());
+        Self {
+            rows: Default::default(),
+            after_ns: AtomicU64::new(secs.unwrap_or(0).saturating_mul(1_000_000_000)),
+            evictions: AtomicU64::new(0),
+            rehydrations: AtomicU64::new(0),
+        }
+    }
+}
+
+impl Tier {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<Evicted>>> {
+        self.rows.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(super) fn after(&self) -> Option<std::time::Duration> {
+        let ns = self.after_ns.load(Ordering::Relaxed);
+        (ns != 0).then(|| std::time::Duration::from_nanos(ns))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_after(&self, after: Option<std::time::Duration>) {
+        let ns = after.map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX).max(1));
+        self.after_ns.store(ns, Ordering::Relaxed);
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.lock().len()
+    }
+
+    pub(super) fn contains(&self, id: &str) -> bool {
+        self.lock().contains_key(id)
+    }
+
+    pub(super) fn get(&self, id: &str) -> Option<Arc<Evicted>> {
+        self.lock().get(id).cloned()
+    }
+
+    /// Every evicted row, in no order.
+    pub(super) fn rows(&self) -> Vec<Arc<Evicted>> {
+        self.lock().values().cloned().collect()
+    }
+
+    /// Whether any evicted chat's metadata answers `pred`: the whole-set reads' other half.
+    pub(super) fn any_meta(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> bool {
+        self.lock().values().any(|row| pred(&row.meta))
+    }
+
+    /// The ids of the evicted chats whose metadata answers `pred`.
+    pub(super) fn ids_where(&self, mut pred: impl FnMut(&SessionMeta) -> bool) -> Vec<String> {
+        self.lock().values().filter(|row| pred(&row.meta)).map(|row| row.meta.id.clone()).collect()
+    }
+}
+
+impl Hub {
+    /// Session `id`, from the map or, when it was evicted, made again from the store: every read
+    /// by id that may meet an evicted chat goes through here.
+    pub(crate) fn session_get(&self, id: &str) -> Option<Arc<Session>> {
+        if let Some(session) = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id) {
+            return Some(session.clone());
+        }
+        self.rehydrate(id)
+    }
+
+    /// Makes evicted chat `id` a session in the map again, from its stored metadata. None when it
+    /// is not evicted (or the store no longer has it).
+    pub(super) fn rehydrate(&self, id: &str) -> Option<Arc<Session>> {
+        if !self.evicted.contains(id) {
+            return None;
+        }
+        let began = std::time::Instant::now();
+        // One rehydrate per chat at once: the map lock is held from the check to the insert by
+        // `install_stored_session`, and the tier row goes only after the session is in the map,
+        // so a reader between them finds one or the other.
+        let meta = match self.store.load_startup(id) {
+            Ok(Some(meta)) if meta.id == id => meta,
+            other => {
+                tracing::warn!(session = %id, ok = other.is_ok(), "evicted chat not in the store");
+                return None;
+            }
+        };
+        self.install_stored_session_quiet(meta);
+        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        if session.is_some() && self.evicted.lock().remove(id).is_some() {
+            self.evicted.rehydrations.fetch_add(1, Ordering::Relaxed);
+            tracing::debug!(session = %id, took_us = began.elapsed().as_micros() as u64, "rehydrated");
+        }
+        session
+    }
+
+    /// Brings back every evicted chat `key` may name (its id or qualified id, whole name, alias,
+    /// last name segments, or a prefix of id, name or alias), so a resolve by key picks among the
+    /// same chats it did before any left memory (`Hub::resolve_here` and the other name reads).
+    pub(super) fn rehydrate_named(&self, key: &str) {
+        if key.is_empty() || self.evicted.len() == 0 {
+            return;
+        }
+        let qualified = SessionReceipt::split_qualified_id(key)
+            .filter(|(host, _)| *host == LOCAL_HOST_ID)
+            .map(|(_, id)| id);
+        let bare = !key.contains('/');
+        let ids = self.evicted.ids_where(|m| {
+            let alias = m.tags.get("session.alias").map(|tag| tag.value.as_str());
+            qualified == Some(m.id.as_str())
+                || m.id.starts_with(key)
+                || m.name.starts_with(key)
+                || alias.is_some_and(|alias| alias.starts_with(key))
+                || m.handle.as_deref().is_some_and(|h| h.starts_with(key))
+                || m.former_names.iter().any(|n| n.starts_with(key))
+                || (bare && crate::session_name::ends_with_segments(&m.name, key))
+        });
+        for id in ids {
+            self.rehydrate(&id);
+        }
+    }
+
+    /// Whether `session` may leave memory now (`now`: hub clock, `after`: its idle period).
+    fn evictable(&self, session: &Session, now: u64, after: u64) -> bool {
+        if session.last_active.load(Ordering::SeqCst).saturating_add(after) > now {
+            return false;
+        }
+        let status = session.status();
+        let asleep = status == SessionStatus::Closed
+            || (status == SessionStatus::Idle && session.hibernated_at.load(Ordering::SeqCst) != 0);
+        asleep
+            && !self.stopping.load(Ordering::SeqCst)
+            && session.child.try_lock().is_ok_and(|c| c.is_none())
+            && session.attached.load(Ordering::SeqCst) == 0
+            && session.turn().is_none()
+            && !session.harness_turn.load(Ordering::SeqCst)
+            && session.queued() == 0
+            && session.asks_in_flight.load(Ordering::SeqCst) == 0
+            && session.agent_requests.load(Ordering::SeqCst) == 0
+            && session.pending_permissions().is_empty()
+            && !self.secrets.waiting_in(&session.id)
+            && !self.holds_work_below_read(session)
+            && !self.continuation_pending(session)
+            && session.moving.lock().is_ok_and(|m| m.is_none())
+            && !session.loading.load(Ordering::SeqCst)
+            && !session.restoring.load(Ordering::SeqCst)
+            && !session.closing.load(Ordering::SeqCst)
+            && !session.purging.load(Ordering::SeqCst)
+            && session.unflushed.lock().is_ok_and(|u| u.is_empty())
+            && session.parked.lock().is_ok_and(|p| p.is_none())
+            && session.read_meta(|m| {
+                m.watching.is_none() && views::next_tag_expiry(m, crate::store::now_ms()).is_none()
+            })
+    }
+
+    /// When the first resident chat's eviction falls due, on the hub clock (the idle reaper sleeps
+    /// until then). None when eviction is off or no chat is a candidate.
+    pub(super) fn next_evict_deadline(&self) -> Option<std::time::Duration> {
+        let after = self.evicted.after()?;
+        self.session_handles()
+            .iter()
+            .filter(|s| s.child.try_lock().is_ok_and(|c| c.is_none()))
+            .filter(|s| s.attached.load(Ordering::Relaxed) == 0)
+            .map(|s| std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed)) + after)
+            .min()
+    }
+
+    /// One pass of the idle reaper: every chat due leaves memory (at most [`EVICT_AT_ONCE`]).
+    pub(super) fn evict_idle_chats(&self) -> usize {
+        let Some(after) = self.evicted.after() else { return 0 };
+        let after = u64::try_from(after.as_nanos()).unwrap_or(u64::MAX);
+        let now = self.clock_now();
+        let due: Vec<Arc<Session>> = self
+            .session_handles()
+            .into_iter()
+            .filter(|s| self.evictable(s, now, after))
+            .take(EVICT_AT_ONCE)
+            .collect();
+        due.into_iter().filter(|s| self.evict(s.clone(), now, after)).count()
+    }
+
+    /// `session` leaves the map for a tier row, when nothing else holds it.
+    fn evict(&self, session: Arc<Session>, now: u64, after: u64) -> bool {
+        // Everything it changed is on disk first: its rehydrate reads the store.
+        if self.meta_barrier(&session).is_err() {
+            return false;
+        }
+        let list = self.own_row_text(&session, false);
+        let full = self.own_row_text(&session, true);
+        let row = Arc::new(Evicted { meta: session.meta(), list, full });
+        let id = session.id.clone();
+        // The other long-lived handles let go first: the chat activity's (rebuilt on its next read).
+        self.chat_activity_cache.drop_built();
+        let mut order = self.list_order_lock();
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        // Read again under the map lock: a request may have used it meanwhile.
+        let held = sessions.get(&id).is_some_and(|s| Arc::ptr_eq(s, &session));
+        if !held || !self.evictable(&session, now, after) {
+            return false;
+        }
+        let in_order = Self::order_evict(&mut order, &id, &row);
+        // The map's handle and this one: nobody else may still write to it.
+        if Arc::strong_count(&session) != 2 {
+            if in_order {
+                Self::order_restore(&mut order, &id, &session);
+            }
+            return false;
+        }
+        self.evicted.lock().insert(id.clone(), row);
+        sessions.remove(&id);
+        drop(sessions);
+        drop(order);
+        self.live_session_ids.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        self.chat_activity_cache.invalidate();
+        self.evicted.evictions.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(session = %id, "evicted: an idle chat is a row");
+        true
+    }
+
+    /// How many chats are evicted now, and how many were evicted and rehydrated since the start.
+    pub(crate) fn eviction_counts(&self) -> (usize, u64, u64) {
+        (
+            self.evicted.len(),
+            self.evicted.evictions.load(Ordering::Relaxed),
+            self.evicted.rehydrations.load(Ordering::Relaxed),
+        )
+    }
+}
