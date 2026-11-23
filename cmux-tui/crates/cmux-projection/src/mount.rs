@@ -25,7 +25,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_AUTO_INVAL_DATA};
+use fuser::consts::{FOPEN_KEEP_CACHE, FUSE_ATOMIC_O_TRUNC, FUSE_AUTO_INVAL_DATA};
 use fuser::{
     BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
     ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen,
@@ -328,6 +328,9 @@ impl Filesystem for Fs {
     fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
         // A kernel without it still works: an open of a changed file drops its pages anyway.
         let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        // open(O_TRUNC) arrives as one open with the flag, not an open and then a truncate: a
+        // lower file it empties copies up empty, never fetching the bytes it drops.
+        let _ = config.add_capabilities(FUSE_ATOMIC_O_TRUNC);
         Ok(())
     }
 

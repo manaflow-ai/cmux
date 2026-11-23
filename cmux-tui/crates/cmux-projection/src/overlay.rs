@@ -1751,7 +1751,13 @@ impl Overlay {
             return self.getattr(ino);
         }
         if let Some(path) = &path {
-            self.ensure_upper(path)?;
+            match self.node(path) {
+                // Truncated to nothing: the old bytes are dropped, so none are fetched.
+                Some(Node::Lower(index)) if set.size == Some(0) => {
+                    self.copy_up_keeping(path, index, false)?;
+                }
+                _ => self.ensure_upper(path)?,
+            }
         }
         if let Some(size) = set.size {
             match (&file, &path) {
