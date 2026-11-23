@@ -31,6 +31,7 @@ export function OutlineRail({ outline, strings }: { outline: Outline; strings: S
   };
   return (
     <div className="md-outline-host">
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the contents from any of its buttons, and leaving the outline closes a hover-opened panel. */}
       <nav
         className="md-outline"
         aria-label={label}
