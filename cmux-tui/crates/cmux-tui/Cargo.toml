@@ -69,8 +69,11 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 tempfile = "3"
 cmux-json.workspace = true
+cmux-lifeline.workspace = true
 cmux-build-space.workspace = true
 cmux-cloud-client.workspace = true
+# `cmux vm new --provider gcp`'s sizes (args::create_size), the app's create's table.
+cmux-cloud-handlers.workspace = true
 cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
@@ -80,6 +83,9 @@ cmux-cloud-start-core.workspace = true
 ghostty-vt.workspace = true
 cmux-theme-tokens.workspace = true
 png.workspace = true
+# `slides`: a Markdown deck compiled to the deck page (cli/mcp/md_deck.rs); already linked for
+# cmux-conversation, no new crate.
+pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.

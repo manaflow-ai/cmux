@@ -880,6 +880,33 @@ class RealTreeTests(unittest.TestCase):
                 self.assertIn(f"func {name}(", tests, entry["key"])
             self.assertNotIn("agent", rule, "no agent rule is pinned")
 
+    def test_the_app_store_build_names_no_private_framework_path(self) -> None:
+        # The binary scan's api.private-framework blocker (2.5.1) failed the
+        # 1.0.0 upload's IPA check (run 44431574873): CmuxConversationUI named
+        # ChatKit's PrivateFrameworks path. Packages compile into every
+        # configuration, so the path lives only in the app target, compiled out
+        # of every shipping build (CMUX_MOBILE_PRODUCTION: Production, TestFlight,
+        # which builds the cmux INTERNAL record, TestFlightStaging and AppStore),
+        # and the package is handed the bundle.
+        packages = [p for p in (ROOT / "Packages/iOS").rglob("*.swift") if "PrivateFrameworks/" in p.read_text()]
+        self.assertEqual(packages, [], "an iOS package names a PrivateFrameworks path")
+        app = (ROOT / "cmux-next-ios/App/CmuxMobileApp.swift").read_text()
+        self.assertIn("PrivateFrameworks/ChatKit.framework", app)
+        depth = 0
+        for line in app.splitlines():
+            stripped = line.strip()
+            if stripped == "#if !CMUX_MOBILE_PRODUCTION":
+                depth += 1
+            elif depth and stripped.startswith("#if"):
+                depth += 1
+            elif depth and stripped == "#endif":
+                depth -= 1
+            elif "PrivateFrameworks/" in line:
+                self.assertGreater(depth, 0, f"outside #if !CMUX_MOBILE_PRODUCTION: {stripped}")
+        project = (ROOT / gate.PROJECT_YML).read_text()
+        for conditions in ("CMUX_MOBILE_PRODUCTION CMUX_MOBILE_TESTFLIGHT", "CMUX_MOBILE_PRODUCTION CMUX_MOBILE_APPSTORE"):
+            self.assertIn(f"SWIFT_ACTIVE_COMPILATION_CONDITIONS: {conditions}", project)
+
     def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
         self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
