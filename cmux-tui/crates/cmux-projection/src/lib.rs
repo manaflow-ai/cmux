@@ -14,14 +14,16 @@ pub mod git;
 pub mod layer;
 pub mod link;
 pub mod manifest;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
+pub mod nfs;
+#[cfg(unix)]
 pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
 #[cfg(unix)]
 pub mod state;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod upper;
 pub mod way_back;
 pub mod wire;
@@ -47,11 +49,10 @@ impl FetchError {
     #[must_use]
     pub fn errno(self) -> i32 {
         match self {
-            // ESTALE, EIO, EACCES, EHOSTDOWN (Linux numbers; the mount is Linux only).
-            Self::Changed => 116,
-            Self::Failed => 5,
-            Self::Refused => 13,
-            Self::Away => 112,
+            Self::Changed => libc::ESTALE,
+            Self::Failed => libc::EIO,
+            Self::Refused => libc::EACCES,
+            Self::Away => libc::EHOSTDOWN,
         }
     }
 }

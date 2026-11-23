@@ -2209,11 +2209,13 @@ name = "cmux-projection"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bincode",
  "cmux-process",
  "flate2",
  "fuser",
  "libc",
+ "nfsserve",
  "reqwest",
  "rustls",
  "serde",
@@ -2221,6 +2223,7 @@ dependencies = [
  "sha1",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
  "zstd",
 ]
 
@@ -6089,6 +6092,22 @@ dependencies = [
  "windows",
  "windows-result",
  "wmi",
+]
+
+[[package]]
+name = "nfsserve"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1424b6d88c60a091931392970999ea3ceab132d968e6a5545c770fad5b97d7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "byteorder",
+ "filetime",
+ "num-derive",
+ "num-traits",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
