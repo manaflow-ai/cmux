@@ -1,7 +1,7 @@
-//! Pinning (plans/cmux-next/pinning-DESIGN.md): a workspace pinned inside a
-//! group stays in that group, first among its members; Unpin puts it right
-//! under the group's other pinned members; a top-level item pinned to the
-//! Pinned band goes back to where it was when it is unpinned.
+//! Pinning (plans/cmux-next/pinning-DESIGN.md): Pin puts any item, a group
+//! member too, at the end of the Pinned band, and Unpin puts it back where it
+//! was (into its group, after the sibling it followed). A member an older
+//! daemon pinned inside its group (`extra.pinned`) still unpins in place.
 
 use super::doc::Doc;
 use super::model::*;
@@ -74,58 +74,109 @@ fn fixture_lists_loose_rows_around_the_group() {
     assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
 }
 
+/// A pin an older daemon made inside the group: the member flagged pinned
+/// (`extra.pinned`), first among its members.
+fn legacy_pin_in_group(doc: &mut Doc, id: &str) {
+    let mut item = doc.item(&item_id(id)).expect("item").clone();
+    item.extra.insert(PINNED_IN_GROUP_KEY.into(), serde_json::Value::Bool(true));
+    let to = Target {
+        section: item.section.clone(),
+        parent: item.parent.clone(),
+        index: Some(0),
+        ..Target::default()
+    };
+    apply_rows(doc, &[Op::ItemPut { item }]);
+    run(doc, vec![Op::Move { items: vec![item_id(id)], to }]);
+}
+
 #[test]
-fn pin_in_a_group_keeps_the_workspace_in_the_group_on_top() {
+fn pin_in_a_group_moves_the_workspace_to_the_pinned_band() {
+    // Leo 2026-11-23 (ask-b5d3e0efb6): "these aren't pinned. they're in a fucking group".
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
     let item = doc.item(&item_id("w3")).unwrap();
+    assert_eq!((item.section.as_str(), item.parent.as_deref()), (PINNED_SECTION_ID, None));
+    assert!(!item.pinned_in_group(), "no pinned-in-group flag: it is in Pinned");
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w3"]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2"]);
+    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5"], "nothing else moves");
+}
+
+#[test]
+fn unpin_puts_a_member_back_in_its_group_where_it_was() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w3"]);
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w2")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"], "back after w1, in g1");
+    let item = doc.item(&item_id("w2")).unwrap();
     assert_eq!(item.parent.as_deref(), Some("g1"));
-    assert_eq!(item.section, machine());
-    assert!(item.pinned_in_group());
+    assert!(item.extra.get(UNPIN_TO_KEY).is_none(), "the remembered place is spent");
+}
+
+#[test]
+fn unpin_puts_a_first_member_back_first_in_its_group() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w1")] }]);
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w1")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+}
+
+#[test]
+fn a_member_whose_group_is_gone_unpins_to_the_top_of_its_machine() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    run(&mut doc, vec![Op::GroupUngroup { id: "g1".into() }]);
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w3")] }]);
+    let item = doc.item(&item_id("w3")).unwrap();
+    assert_eq!((item.section.clone(), item.parent.clone()), (machine(), None));
+    assert_eq!(list(&doc, &machine(), None).first().map(String::as_str), Some("w3"));
+}
+
+#[test]
+fn a_second_pin_from_a_group_lands_after_the_first() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w3", "w2"]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1"]);
+}
+
+#[test]
+fn pin_is_idempotent() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w3", "w2"], "pinning a pin keeps its place");
+}
+
+#[test]
+fn an_older_pin_in_a_group_moves_to_the_band_when_pinned_again() {
+    let mut doc = fixture();
+    legacy_pin_in_group(&mut doc, "w3");
     assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
-    assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5"], "nothing moves at the top level");
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["w3"]);
+    assert!(!doc.item(&item_id("w3")).unwrap().pinned_in_group());
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w3")] }]);
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
 }
 
 #[test]
-fn a_second_pin_in_a_group_lands_after_the_first() {
+fn an_older_pin_in_a_group_unpins_in_place() {
     let mut doc = fixture();
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
-    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w2", "w1"]);
-}
-
-#[test]
-fn pin_is_idempotent_in_a_group() {
-    let mut doc = fixture();
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
-    assert_eq!(
-        list(&doc, &machine(), Some("g1")),
-        ["w3", "w2", "w1"],
-        "pinning a pinned member keeps its place"
-    );
-}
-
-#[test]
-fn unpin_in_a_group_returns_under_the_pinned_members() {
-    let mut doc = fixture();
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    legacy_pin_in_group(&mut doc, "w3");
     run(&mut doc, vec![Op::Unpin { items: vec![item_id("w3")] }]);
     assert!(!pinned_in_group(&doc, "w3"));
-    assert_eq!(
-        doc.item(&item_id("w3")).unwrap().parent.as_deref(),
-        Some("g1"),
-        "unpin keeps it in its group"
-    );
-    assert_eq!(list(&doc, &machine(), Some("g1")), ["w2", "w3", "w1"]);
+    assert_eq!(doc.item(&item_id("w3")).unwrap().parent.as_deref(), Some("g1"));
+    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
 }
 
 #[test]
-fn an_unpinned_member_cannot_go_above_the_pinned_ones() {
+fn an_unpinned_member_cannot_go_above_an_older_pinned_one() {
     let mut doc = fixture();
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    legacy_pin_in_group(&mut doc, "w3");
     let to = Target {
         section: machine(),
         parent: Some("g1".into()),
@@ -137,19 +188,9 @@ fn an_unpinned_member_cannot_go_above_the_pinned_ones() {
 }
 
 #[test]
-fn a_pinned_member_cannot_go_below_the_unpinned_ones() {
+fn an_older_pinned_member_dragged_out_of_its_group_is_no_longer_pinned() {
     let mut doc = fixture();
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
-    let to = Target { section: machine(), parent: Some("g1".into()), ..Target::default() };
-    run(&mut doc, vec![Op::Move { items: vec![item_id("w3")], to }]);
-    assert_eq!(list(&doc, &machine(), Some("g1")), ["w3", "w1", "w2"]);
-    assert!(pinned_in_group(&doc, "w3"));
-}
-
-#[test]
-fn a_pinned_member_dragged_out_of_its_group_is_no_longer_pinned() {
-    let mut doc = fixture();
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
+    legacy_pin_in_group(&mut doc, "w3");
     run(&mut doc, vec![Op::Move { items: vec![item_id("w3")], to: Target::end(&machine()) }]);
     let item = doc.item(&item_id("w3")).unwrap();
     assert_eq!(item.parent, None);
@@ -158,12 +199,12 @@ fn a_pinned_member_dragged_out_of_its_group_is_no_longer_pinned() {
 }
 
 #[test]
-fn undo_of_a_pin_in_a_group_restores_the_order_and_the_flag() {
+fn undo_of_a_pin_from_a_group_puts_it_back_in_the_group() {
     let mut doc = fixture();
     let inverse = run(&mut doc, vec![Op::Pin { items: vec![item_id("w3")] }]);
     apply_rows(&mut doc, &inverse);
-    assert!(!pinned_in_group(&doc, "w3"));
     assert_eq!(list(&doc, &machine(), Some("g1")), ["w1", "w2", "w3"]);
+    assert!(list(&doc, PINNED_SECTION_ID, None).is_empty());
 }
 
 #[test]
@@ -286,8 +327,13 @@ fn pins_survive_a_save_and_load() {
     let text = serde_json::to_string(&(sections, items)).unwrap();
     let (sections, items): (Vec<Section>, Vec<Item>) = serde_json::from_str(&text).unwrap();
     let mut loaded = Doc::from_parts(doc.revision, sections, items);
-    assert!(pinned_in_group(&loaded, "w3"));
-    assert_eq!(list(&loaded, &machine(), Some("g1")), ["w3", "w1", "w2"]);
+    assert_eq!(list(&loaded, PINNED_SECTION_ID, None), ["w3", "w4"]);
+    run(&mut loaded, vec![Op::Unpin { items: vec![item_id("w3")] }]);
+    assert_eq!(
+        list(&loaded, &machine(), Some("g1")),
+        ["w1", "w2", "w3"],
+        "back in its group after a restart"
+    );
     run(&mut loaded, vec![Op::Unpin { items: vec![item_id("w4")] }]);
     assert_eq!(
         list(&loaded, &machine(), None),
