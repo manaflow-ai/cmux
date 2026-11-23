@@ -9,5 +9,4 @@ export const productionImportMetaEnv = { BASE_URL: "/", DEV: false, MODE: "produ
 
 export const productionDefine = {
   "process.env.NODE_ENV": '"production"',
-  "import.meta.env": JSON.stringify(productionImportMetaEnv),
 };
