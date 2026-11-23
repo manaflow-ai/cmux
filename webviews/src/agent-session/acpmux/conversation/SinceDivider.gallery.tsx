@@ -58,8 +58,14 @@ const RECAP =
 // 3:42 PM today, so the banner says "since 3:42 PM" in every capture.
 const FIRST_NEW = new Date(new Date().setHours(15, 42, 0, 0)).getTime();
 
-function Reply({ text }: { text: string }) {
-  return <p style={{ margin: 0, color: "var(--agent-text)", lineHeight: "20px" }}>{text}</p>;
+/// Its rows carry `data-row-id` as the transcript's do: the line finds the rows around it by them
+/// (sinceInk.ts).
+function Reply({ text, id }: { text: string; id: string }) {
+  return (
+    <p data-row-id={id} style={{ margin: 0, color: "var(--agent-text)", lineHeight: "20px" }}>
+      {text}
+    </p>
+  );
 }
 
 /// The new turn's "Worked for" line, drawn with the transcript's own classes (conversation.css), the
@@ -145,7 +151,7 @@ function UnreadLooks({
         </div>
       )}
       <div style={{ height: part === "banner" ? 32 : 0 }} />
-      <Reply text="I'll start by reading foo.rs to see how absent fields fail." />
+      <Reply id="reply-seen" text="I'll start by reading foo.rs to see how absent fields fail." />
       {/* The line's row takes no height; the turn gap under it is the transcript's, which it reads.
           Then the new turn's Worked for line, which look B lies on. The rows carry the transcript's
           row classes so the look's selectors (unread.css) read the same. The transcript places rows
@@ -153,6 +159,7 @@ function UnreadLooks({
           padding (.acpmux-row) never move the next one; here they would, so they are off. */}
       <div
         className="acpmux-row"
+        data-row-id="since"
         style={
           {
             position: "relative",
@@ -188,6 +195,7 @@ function UnreadLooks({
       </div>
       <div
         className={`acpmux-row ${task ? "acpmux-system" : working ? "acpmux-working" : "acpmux-worked"}`}
+        data-row-id="next-turn"
         // The stage's grid gap is 8; the margin makes the gap under the line's row the transcript's.
         // Over a task line the line's row gave back the gap above it, so this row also gives back the
         // gap under it: the task line sits `gap` under the reply, as in the transcript.
@@ -201,8 +209,8 @@ function UnreadLooks({
       >
         {task ? <TaskLine /> : <Worked />}
       </div>
-      <Reply text="Missing fields now default instead of failing; I added a test for each one." />
-      <Reply text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
+      <Reply id="reply-new" text="Missing fields now default instead of failing; I added a test for each one." />
+      <Reply id="reply-last" text="The fuzz corpus ran clean for 10 minutes. The PR is ready for review." />
     </div>
   );
 }

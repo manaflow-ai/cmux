@@ -11,7 +11,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
-import type { AcpmuxRow } from "../model";
+import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
@@ -107,6 +107,24 @@ export default agentPaneEntry({
         }),
         next,
       ]),
+    },
+    "background-task-new": {
+      note: '"Background task finished" under the footer, with the unread New mark in the gap between them (manaflow-ai/cmux#51747): the line lies midway between the footer\'s icons and the line\'s words, "New" on it.',
+      snapshot: {
+        ...chat([
+          ...opening,
+          row(SINCE_DIVIDER, 8.5, { id: SINCE_DIVIDER, since: { key: "gallery-session:41", seq: 41, turns: 1 } }),
+          row("backgroundTask", 8, {
+            id: "lone-task",
+            backgroundTask: { toolCallId: "lone-task", command: "bun test migrations", state: "completed" },
+          }),
+          next,
+          // Something new to read under the line (a quiet mark, only status lines and prompts, draws none).
+          assistant("Next is the retry budget for the fetch helper.", 1.9, { id: "lone-next-reply" }),
+        ]),
+        // As the client names the line's mark with its row (direct.ts snapshot `sinceKey`).
+        sinceKey: "gallery-session:41",
+      },
     },
     "background-tasks-run": {
       note: '"3 background tasks finished", a run of quiet task turns folded under one line: 8 under the footer.',
