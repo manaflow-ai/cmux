@@ -219,7 +219,13 @@ function RunningCount({ n }: { n: number }) {
   const t = useT();
   const label = t("statusIsland.running", { n });
   return (
-    <span className="acpmux-status-island__count" role="img" aria-label={label} title={label}>
+    <span
+      className="acpmux-status-island__count"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a dot and a number with a spoken name, not an image file
+      role="img"
+      aria-label={label}
+      title={label}
+    >
       <span className="acpmux-status-island__count-dot" aria-hidden="true" />
       {n}
     </span>

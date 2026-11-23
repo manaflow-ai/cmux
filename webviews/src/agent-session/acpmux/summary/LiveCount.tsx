@@ -11,7 +11,13 @@ export const LIVE_COUNT_ICON = "task.ai";
 
 export function LiveCount({ n, label }: { n: number; label: string }) {
   return (
-    <span className="acpmux-live-count" role="img" aria-label={label} title={label}>
+    <span
+      className="acpmux-live-count"
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon and a number with a spoken name, not an image file
+      role="img"
+      aria-label={label}
+      title={label}
+    >
       <Icon name={LIVE_COUNT_ICON} size={12} row />
       {n}
     </span>
