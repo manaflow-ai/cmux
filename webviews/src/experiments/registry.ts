@@ -102,6 +102,7 @@ import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.exp
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { sendStopMorph } from "../agent-session/acpmux/composer/sendStopMorph.experiment";
+import { stopPresence } from "../agent-session/acpmux/composer/stopPresence.experiment";
 import { sendMenuLook } from "../agent-session/acpmux/composer/sendMenuLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import { followMotion } from "../agent-session/acpmux/conversation/followMotion.experiment";
@@ -232,6 +233,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   emojiShortcodeLook,
   pastePlaceholderLook,
   sendStopMorph,
+  stopPresence,
   sendMenuLook,
   fieldGrowthMotion,
   composerDockMotion,

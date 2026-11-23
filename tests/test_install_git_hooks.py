@@ -535,6 +535,36 @@ done
                 staged = self.git("show", f":{package}/src/app.ts").stdout
                 self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
 
+    def link_web_install(self, target):
+        """webviews/node_modules as a link to TARGET (holding the recording vp), the way wt projects it."""
+        self.stage_web_file("webviews")
+        installed = self.repo / "webviews/node_modules"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.move(str(installed), str(target))
+        installed.symlink_to(target)
+
+    def test_pre_commit_runs_vp_from_a_node_modules_linked_outside_the_checkout(self):
+        """wt checkouts link webviews/node_modules to a shared install outside the checkout; the
+        hook refused that link ("passes through ... inside this checkout"), so no webviews commit
+        from a wt checkout could pass."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.root / "projection/webviews/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("inside this checkout", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+
+    def test_pre_commit_refuses_a_node_modules_linked_back_into_the_checkout(self):
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.repo / "elsewhere/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertFalse(vp_log.exists(), "a vp the checkout points at never runs")
+
     def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
         # A hook killed mid-install leaves its lock; this worktree has no vp yet.
         self.assertEqual(self.install().returncode, 0)
