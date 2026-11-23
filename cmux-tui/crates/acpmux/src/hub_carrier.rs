@@ -842,7 +842,7 @@ impl HubCarrier {
         // the hub has no carrier for it at all ([`ticket_refusal`]).
         let answer = self.tickets.connect(daemon).await.map_err(|e| {
             if e.contains("machine.not_found") {
-                ticket_refusal(e)
+                ticket_refusal(daemon, e)
             } else {
                 format!(
                     "{} no relay ticket: {e}",
@@ -1471,23 +1471,28 @@ pub(crate) fn carrier_not_serving(waited: Duration) -> String {
 }
 
 /// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` is
-/// [`not_a_teammate_machine`]; any other refusal keeps its text.
-pub(crate) fn ticket_refusal(text: String) -> String {
-    if text.contains("machine.not_found") { not_a_teammate_machine() } else { text }
+/// [`not_a_teammate_machine`], named for the machine `daemon`; any other refusal keeps its text.
+pub(crate) fn ticket_refusal(daemon: &str, text: String) -> String {
+    if text.contains("machine.not_found") { not_a_teammate_machine(daemon) } else { text }
 }
 
 /// The hub's connect ticket answers `machine.not_found` for any key that is not one of the
 /// caller's person's live machines joined in the caller's own team (cmux-platform
 /// `server/mesh/MeshCarrier.ts`: rows of `caller.team` minted by `caller.user`). Whether the far
 /// carrier serves does not enter into it: a machine joined in another team of the same person
-/// registers and serves on its own slot and still answers this, so the words name the team.
-pub(crate) fn not_a_teammate_machine() -> String {
-    "the hub knows no live machine of yours with that key in this machine's team: it is not \
-     joined, its join was revoked or expired, or it is joined in another of your teams (the hub \
-     carrier only connects machines joined in the same team). Compare teamId in `acpmux machine \
-     join --status --json` on both machines; `acpmux machine doctor --here` names the team and \
-     how to move a join. (carrier.not_serving)"
-        .to_owned()
+/// registers and serves on its own slot and still answers this, so the words name the machine
+/// and the team. The fix is on that machine (join it, in this team), and the reason
+/// (`machine.not_joined`) is one the CLI ends on at once
+/// ([`cmux_remote::provider::TERMINAL_REFUSALS`]) instead of redialing into its timeout.
+pub(crate) fn not_a_teammate_machine(daemon: &str) -> String {
+    format!(
+        "{daemon} is not joined to your hub in this machine's team: it never joined, its join \
+         was revoked or expired, or it is joined in another of your teams (the hub carrier only \
+         connects machines joined in the same team). On that machine, join it (`cmux machine add \
+         --cloud-token-stdin` / sign in to the cmux app), then retry. Compare teamId in `acpmux \
+         machine join --status --json` on both machines; `acpmux machine doctor --here` names \
+         the team and how to move a join. (machine.not_joined)"
+    )
 }
 
 /// A relay's refusal of a dial, as the dialer words it: the relay's `slot-offline` (no daemon
