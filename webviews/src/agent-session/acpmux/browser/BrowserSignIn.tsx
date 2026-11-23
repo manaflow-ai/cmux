@@ -31,7 +31,7 @@ const REASONS: Record<string, StringKey> = {
 };
 
 export function signInReasonKey(reason: string | undefined): StringKey {
-  return (reason && REASONS[reason]) || "browserSignIn.error.generic";
+  return (reason && Object.hasOwn(REASONS, reason) && REASONS[reason]) || "browserSignIn.error.generic";
 }
 
 export function BrowserSignIn({
