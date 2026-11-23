@@ -25,7 +25,7 @@ const virtualConsole = new VirtualConsole();
 virtualConsole.on("jsdomError", (error: Error) => {
   // jsdom reports what it does not implement the same way (the minimap's canvas `getContext`): a
   // notice, not this page's bug. Anything else is an exception the DOM swallowed.
-  if (!/^Not implemented:/.test(error.message)) errors.push(error);
+  if (!error.message.startsWith("Not implemented:")) errors.push(error);
 });
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
