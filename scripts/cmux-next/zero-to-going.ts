@@ -295,6 +295,9 @@ export const recoverySteps = (): LevelStep[] => LEVELS.agent.steps.filter((s) =>
  * The model tokens the session used so far, by model, read from Claude Code's own transcripts on the machine
  * (each assistant message's usage, once per message id). Tokens, not money: the pricing lane turns them into its caps.
  */
+/** How long a machine that already answers exec may take to have its agent daemon listening. */
+const DAEMON_BUDGET_MS = 90_000;
+
 const USAGE_PY = `import glob, json, os
 seen, out = set(), {}
 for f in glob.glob(os.path.expanduser('~/.claude/projects/**/*.jsonl'), recursive=True):
@@ -446,7 +449,16 @@ async function chatOp(ctx: Ctx): Promise<OpResult> {
     return { detail: `${ctx.machine}: running ${runningMs} ms, first exec ${execMs} ms, agent start ${chat.chatMs} ms, first reply ${chat.replyMs} ms after the send (${MODEL_LABEL.none})` };
   }
   const a0 = Date.now();
-  const started = await ctx.exec(`${GUEST}${launchCredentialStartProgram(ctx.session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", ctx.login)}`, 120_000);
+  // A machine can answer its first exec before its agent daemon listens: that start says so and is asked again,
+  // and the wait counts as agent start, as it would for the person.
+  const startProgram = `${GUEST}${launchCredentialStartProgram(ctx.session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", ctx.login)}`;
+  let started = await ctx.exec(startProgram, 120_000);
+  while (/@@nostart no acpmux socket/.test(started.stdout) && Date.now() - a0 < DAEMON_BUDGET_MS) {
+    // Any `acp` command brings the daemon up when nothing has yet (the newcomer path's `acp ensure` does the same).
+    await ctx.exec(`${GUEST}"$c" acp ls >/dev/null 2>&1; true`, 60_000).catch(() => undefined);
+    await sleep(1000);
+    started = await ctx.exec(startProgram, 120_000);
+  }
   if (started.code !== 0 || !/@@session \S+/.test(started.stdout)) throw new Error(`agent start refused: ${scrub(started.stdout.slice(-300) || started.stderr.slice(-300), [ctx.login])}`);
   const agentMs = Date.now() - a0;
   const s1 = Date.now();
