@@ -258,6 +258,15 @@ extension AgentPaneRequest {
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
                             settled: params?["settled"] as? Bool ?? false)
+        case "pane.launchSettle":
+            if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
+               let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
+               let shifts = params?["shifts"] as? Double, shifts.isFinite, shifts >= 0 {
+                self = .launchSettle(settledAt: Date(timeIntervalSince1970: epochMs / 1_000), maxMovePx: px,
+                                     element: params?["element"] as? String ?? "other", shifts: Int(min(shifts, 1_000_000)))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
@@ -554,7 +563,7 @@ extension AgentPaneRequest {
             if let pinch = AgentPaneSessionInfoPinch.decode(params) { self = .sessionInfoPinch(pinch) }
             else { self = .unsupported(method) }
         case "pane.toastAvoidance":
-            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first?.rect) }
+            if let rects = AgentPaneSessionInfoOverlay.decode(params?["rects"]), rects.count <= 1 { self = .toastAvoidance(rects.first) }
             else { self = .unsupported(method) }
         case "pane.toast":
             if let message = params?["message"] as? String, !message.isEmpty {
@@ -704,7 +713,8 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove":
+        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove",
+             "git.worktree.setup.run":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
         case "transport.gesture":

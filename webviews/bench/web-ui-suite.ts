@@ -59,6 +59,17 @@ export const BENCHES: readonly Bench[] = [
   // chat-open takes about 36 s on the perf runner (2026-11-12).
   { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
   { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
+  // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
+  // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
+  // part so it never pushes the suite past its cap.
+  {
+    name: "settled-page",
+    file: "settled-page.bench.ts",
+    args: ["3", "120"],
+    env: { ONLY: "chat_switch,workspace_switch" },
+    timeoutMs: 600_000,
+    ownPart: true,
+  },
   {
     name: "transcript-scroll-frame",
     file: "transcript-scroll-frame.bench.ts",
@@ -152,6 +163,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["100000", "20"],
     env: { CASES: "main" },
     timeoutMs: 1_200_000,
+    ownPart: true,
+  },
+  // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
+  // records: cmux-tui/crates/coord-sim, which must be built first; COORD_SIM_BIN names it). Run only by name.
+  {
+    name: "coord-sim-load",
+    file: "coord-sim-load.bench.ts",
+    args: ["3", "10", "60", "5000"],
+    timeoutMs: 600_000,
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
