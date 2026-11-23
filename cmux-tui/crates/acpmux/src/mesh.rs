@@ -37,6 +37,21 @@ pub struct SessionRow {
     /// refuses a whole heartbeat over one long field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// The rest of what a local row lists, which the hub keeps and its address book returns
+    /// (`mesh_book::row_of`), so another machine lists the chat as this one does. Each text is
+    /// left out past [`MAX_META_UNITS`] (`heartbeat_meta`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_given: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_build: Option<String>,
 }
 
 /// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
@@ -45,6 +60,15 @@ pub const MAX_CWD_UNITS: usize = 1024;
 /// `cwd` as a heartbeat may list it: none when the hub would refuse its length.
 pub fn heartbeat_cwd(cwd: &str) -> Option<String> {
     (!cwd.is_empty() && cwd.encode_utf16().count() <= MAX_CWD_UNITS).then(|| cwd.to_owned())
+}
+
+/// The longest title, model, agent session id or build (UTF-16 units) a heartbeat lists; the
+/// hub stores a longer one as null.
+pub const MAX_META_UNITS: usize = 1024;
+
+/// A text field as a heartbeat lists it: none when empty or past [`MAX_META_UNITS`].
+pub fn heartbeat_meta(text: &str) -> Option<String> {
+    (!text.is_empty() && text.encode_utf16().count() <= MAX_META_UNITS).then(|| text.to_owned())
 }
 
 /// The hub's address book (`GET /v1/mesh/sessions`): the team's live daemons and sessions.
@@ -267,8 +291,12 @@ impl OutMessage {
     pub fn validate(&self) -> Result<(), String> {
         match (self.kind, self.op.as_deref()) {
             (Kind::Control, Some("start" | "resume" | "stop" | "read")) => Ok(()),
+            // A chat moved through the hub (`hub/transfer_pull.rs`).
+            (Kind::Control, Some(crate::mesh_relay_config::MOVE_OP))
+            | (Kind::Control, Some(crate::mesh_relay_config::MOVE_FORGET_OP)) => Ok(()),
             (Kind::Control, _) => {
-                Err("control messages require op start, resume, stop or read".into())
+                Err("control messages require op start, resume, stop, read, move or move_forget"
+                    .into())
             }
             (Kind::Prompt, None) => Ok(()),
             (Kind::Prompt, Some(_)) => Err("prompt messages cannot carry an operation".into()),
