@@ -336,7 +336,7 @@
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-reduce-transparency], [data-glass="off"]) :is(.acpmux-composer-box, .acpmux-composer-box[data-focused]),
   :root[data-cmux-see-through]:not([data-reduce-transparency], [data-glass="off"]) .nt-composer-surface {
-    box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
+    box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--acpmux-composer-rim), var(--acpmux-composer-shadow, var(--elevation-1));
   }
   /* Under a queue the ring goes on the card's ::before layer (composerLocation.css), so the card
      adds only the rim and the shadow. (0,6,0) here outranks the rule above whatever the stylesheet
@@ -820,6 +820,43 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 body .nt-popover.nt-popover-focused.nt-popover-focused {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
 }
+/* HOVER GLASS RING (Leo 2026-10-20: "on hover, the Claude desktop, like that gives you the focus
+   ring ... it's the glass type focus ring. So it's not just one hard bar"). The pointer over the
+   card lays a soft band of the glass's own edge (--glass-edge: the host's card rim, so
+   appearance.borders none clears it too) just outside the hairline: two spread-only rings stepping
+   out, fainter going out, no blur (the elevation scale owns blur, test/subtle-elevation.test.ts) and
+   outside the card, so nothing moves and the edge colors inside stay one (composer-one-edge).
+   It is the box's own layer, --acpmux-composer-halo, after the card ring in every box-shadow the
+   card draws; at rest it is the same two rings, transparent, so hover only fades their color in and
+   out. Focus keeps its hairline step (no glow on focus, 2026-11-07); the band is the hover's alone.
+   Increase Contrast keeps the shared focus ring and no band. The default-off composer V2 draws its
+   own edge light and is left as it is. */
+.acpmux-composer-box,
+.nt-box {
+  --acpmux-composer-halo:
+    0 0 0 var(--cmux-hairline-ring, 1px) transparent,
+    0 0 0 3px transparent;
+}
+@media (hover: hover) and (not (prefers-contrast: more)) {
+  .acpmux-composer-box:not([data-composer-v2]):hover,
+  .nt-box:hover {
+    --acpmux-composer-halo:
+      0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--glass-edge) 60%, transparent),
+      0 0 0 3px color-mix(in srgb, var(--glass-edge) 24%, transparent);
+  }
+}
+/* The ring and the band fade in over the arrival step and out over the leave step (the motion scale's
+   own tokens), so focus's hairline step and the hover band ease instead of switching. */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer-box,
+  .nt-box {
+    transition: box-shadow var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-composer-box:is(:hover, :has(:focus-visible)),
+  .nt-box:is(:hover, :has(:focus-visible)) {
+    transition-duration: var(--agent-motion-in);
+  }
+}
 /* The stack is one outline: a focused composer lifts the edge of every part joined to it (the Goal
    banner, the running tray, the queue, attachment tiles) with the card's, never the card's alone
    (user 2026-11-20, "ensure all border colors are the same"). The dock's `data-focused` is written by
@@ -837,7 +874,7 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    appearance.borders none clears it. Over art or a see-through window the rule below adds the
    glass's light rim. */
 .nt-composer-surface.ui-glass {
-  box-shadow: var(--acpmux-card-ring), var(--glass-elevation);
+  box-shadow: var(--acpmux-card-ring), var(--acpmux-composer-halo, 0 0 transparent), var(--glass-elevation);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */
