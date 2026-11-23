@@ -2540,11 +2540,13 @@ def generated_freshness(repo: Path, base: str, head: str, trusted_scripts: Path 
         if stopped:
             found.append(NoVerdict(f"{script} --check {stopped} at the pushed head: {out_tail(out.splitlines())}"))
             continue
+        before = set(git(repo, "diff", "--name-only", "-z").decode().split("\0")) - {""}
         fix_code, fix_out = run(["python3", "-I", str(repo / script)], repo, timeout=60)
-        rewrote = [n for n in git(repo, "diff", "--name-only", "-z").decode().split("\0") if n]
+        rewrote = sorted(set(git(repo, "diff", "--name-only", "-z").decode().split("\0")) - {""} - before)
         if fix_code == 0 and rewrote:
-            found += [f"{name}: stale; {script} rewrote it in your checkout: commit it and push again"
-                      for name in rewrote]
+            shown = ", ".join(rewrote[:5]) + (f" and {len(rewrote) - 5} more" if len(rewrote) > 5 else "")
+            found.append(f"{script}: its outputs were stale at the pushed head, so it ran and rewrote {len(rewrote)} "
+                         f"file(s) in your checkout ({shown}): review and commit them, then push again")
         else:
             found.append(f"{script} --check fails at the pushed head and running it fixed nothing (exit {fix_code}); "
                          f"fix what it says: {out_tail((out + fix_out).splitlines())}")
