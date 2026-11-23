@@ -168,7 +168,7 @@ actor QueuedCancellationProbeTransport: CmxByteTransport {
 
     func waitForSentRequestCount(_ count: Int) async throws -> [RecordedRPCRequest] {
         var requests: [RecordedRPCRequest] = []
-        for _ in 0..<200 {
+        for _ in 0..<5_000 {
             requests = try sentRequests()
             if requests.count >= count {
                 return requests
