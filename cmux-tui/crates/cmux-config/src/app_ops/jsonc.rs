@@ -132,10 +132,21 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_keeps_the_line_number() {
+        let reply = parsed("// settings\n/* two\nlines */\n{ \"a\": , }\n");
+        let problem = reply["problem"].as_str().unwrap();
+        assert!(problem.contains("line 4"), "{problem}");
+        let reply = parsed("{\n  \"appearance\": {\n    \"accent\": blue\n  }\n}\n");
+        assert!(reply["problem"].as_str().unwrap().contains("line 3"), "{reply}");
+        assert!(parsed("{ \"a\": 1,, }")["problem"].as_str().unwrap().contains("line 1"));
+    }
+
+    #[test]
     fn position_counts_lines_and_characters() {
         assert_eq!(position(0, "abc"), "line 1, column 1");
         assert_eq!(position(5, "ab\ncd"), "line 2, column 3");
         assert_eq!(position(3, "é\nx"), "line 2, column 1");
+        assert_eq!(position(3, "\"é\""), "line 1, column 3");
     }
 
     #[test]
