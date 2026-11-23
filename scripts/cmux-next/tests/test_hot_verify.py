@@ -1311,6 +1311,57 @@ warning: build failed, waiting for other jobs to finish...
                          "error[E0425]: cannot find value `x`")
         self.assertEqual(hv.why_failed("fatal: not a git repository\n", 300), "fatal: not a git repository")
 
+    def test_a_thrown_script_error_is_kept_beside_bun_s_summary(self):
+        out = ("ENOENT: no such file or directory, scandir '/t/release-notes/next/highlights'\n"
+               "    at generatedTips (/t/webviews/scripts/pages/gen-feature-tips.mjs:59:6)\n"
+               "error: postinstall script from \"@cmux/webviews\" exited with 1\n")
+        said = hv.why_failed(out, 300)
+        self.assertIn("ENOENT: no such file or directory, scandir", said)
+        self.assertIn("TypeError: x is not a function", hv.why_failed("a\nTypeError: x is not a function\nb", 300))
+
+    def test_a_step_that_printed_nothing_still_says_why(self):
+        done = subprocess.CompletedProcess(["web-overlay.sh"], 1, stdout="", stderr="")
+        self.assertEqual(hv.why_exited(done), "exited 1 and printed nothing")
+        done = subprocess.CompletedProcess(["web-overlay.sh"], 1, stdout="no webviews/ in /t\n", stderr="")
+        self.assertEqual(hv.why_exited(done), "no webviews/ in /t")
+
+
+class WidenSparseTest(unittest.TestCase):
+    """`cmux app try .` from a wt checkout (sparse: /scripts/ and /webviews/ only) stopped at bun's postinstall,
+    which read release-notes/ and schemas/ the checkout did not have (2026-11-22): the engine adds them."""
+
+    def test_a_sparse_checkout_gets_what_its_web_reads_and_keeps_what_it_had(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            files = {"scripts/cmux-next/web-bundle-key.py": "import sys\nprint('webviews\\n:(glob)release-notes/next/*.md')\n",
+                     "webviews/package.json": "{}\n", "release-notes/next/a.md": "x\n",
+                     "schemas/gallery/fixtures.json": "{}\n", "docs/big.md": "x\n"}
+            for name, text in files.items():
+                (root / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / name).write_text(text)
+            env = git_fixture_env.fixture_env()
+            run = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True, env=env)
+            git_fixture_env.init_repo(root, "-q")
+            run("add", "-A")
+            run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+            run("sparse-checkout", "set", "--no-cone", "/*", "!/*/", "/scripts/", "/webviews/")
+            self.assertFalse((root / "release-notes/next/a.md").exists())
+            with contextlib.redirect_stderr(io.StringIO()), unittest.mock.patch.dict(os.environ, env, clear=True):
+                hv.widen_sparse(root)
+            self.assertTrue((root / "release-notes/next/a.md").exists())
+            self.assertTrue((root / "schemas/gallery/fixtures.json").exists())
+            self.assertTrue((root / "webviews/package.json").exists())
+            self.assertFalse((root / "docs/big.md").exists())
+
+    def test_a_full_checkout_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            git_fixture_env.init_repo(root, "-q")
+            with unittest.mock.patch.object(hv.subprocess, "run", wraps=subprocess.run) as ran, \
+                    unittest.mock.patch.dict(os.environ, git_fixture_env.fixture_env(), clear=True):
+                hv.widen_sparse(root)
+            self.assertFalse(any("web-bundle-key.py" in " ".join(map(str, c.args[0])) for c in ran.call_args_list))
+
 
 class BrowserEngineTest(unittest.TestCase):
     """The copy starts on WebKit unless the steps file says chromium: a Chromium-default NEXT nightly turns
