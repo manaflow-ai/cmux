@@ -127,8 +127,22 @@ export function fakeDaemon(history: Record_[]) {
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
     }
   };
+  /// acpmux's summary of the chat changed (`_acpmux/session_changed`): `fields` over the attach's.
+  const changed = (fields: Record<string, unknown>) =>
+    socket.onmessage?.({
+      data: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/session_changed",
+        params: {
+          sessionId: CHAT,
+          session: { ...session(CHAT), ...fields },
+          kind: "status",
+          seq: history.at(-1)?.seq ?? 0,
+        },
+      }),
+    });
   const resumes = () => requests.filter((request) => request.method === "_acpmux/agent_pair_resume");
-  return { open, push, requests, resumes, openOther };
+  return { open, push, changed, requests, resumes, openOther };
 }
 
 export async function connect(daemon: ReturnType<typeof fakeDaemon>) {
