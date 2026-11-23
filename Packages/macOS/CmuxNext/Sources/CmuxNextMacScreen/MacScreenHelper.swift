@@ -35,10 +35,12 @@ public nonisolated final class MacScreenHelper: Sendable {
     /// How long a short command (a probe, a request) may take before it is ended.
     private let clock: any Clock<Duration>
 
-    init(app: URL, launch: SignedHelperLaunch = .screenSharing(), clock: any Clock<Duration> = ContinuousClock()) {
+    /// `launch` defaults to the copy named by the helper's own bundle id (one per channel: a
+    /// NIGHTLY side build carries NIGHTLY's helper, every DEV build the one DEV helper).
+    init(app: URL, launch: SignedHelperLaunch? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.app = app
         name = String(app.deletingPathExtension().lastPathComponent)
-        self.launch = launch
+        self.launch = launch ?? .screenSharing(helperBundleID: SignedHelperLaunch.bundleIdentifier(of: app))
         self.clock = clock
     }
 
