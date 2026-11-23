@@ -270,7 +270,7 @@ struct PanesScreen: View {
                 }
             }
             if tab.kind == .agent {
-                Menu("Fork Conversation", systemImage: "arrow.triangle.branch") {
+                Menu("Fork Conversation", image: CmuxSymbol.forkImage) {
                     ForEach(ChatForkDestination.allCases) { destination in
                         Button(destination.title) { Task { await source.fork(tab.id, to: destination) } }
                     }
