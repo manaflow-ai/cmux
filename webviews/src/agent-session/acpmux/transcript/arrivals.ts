@@ -54,50 +54,6 @@ export class TokenRows {
   }
 }
 
-/// `kept.end`: where the kept room ends, measured from the top of the prompt it is kept under (`tail`
-/// below): the rows that come under the prompt fill the room instead of pushing it down.
-export type ReaderRoom = {
-  followed: boolean;
-  left?: true;
-  kept?: { room: number; prompt: string | undefined; end: number };
-};
-
-/// The room under the last row this pass, and what of it is kept for the reader (`heldRoom.reader`): followed,
-/// the stack's room (`followedRoom`), or more where the reader came back down to room held while they were
-/// scrolled up; scrolled up, the room held (`held`).
-/// The kept room is space the rows already had, so the turn's rows fill it as they come: its end stays where
-/// it was drawn (`end`, from the prompt's top) and each row that arrives takes its height out of it, so
-/// nothing the reader sees moves, and once the rows reach the stack's room it is gone. Kept as a fixed
-/// height, it stayed under the live line for the rest of the turn while every row arrived above it (Leo,
-/// 2026-11-22: "for some reason there's also a ton of space at the bottom? idk if it was accounting maybe
-/// for tool calls in a long steered with attachment situation").
-/// `tail`: the rows' height from the newest prompt's top (the whole content without one) to the rows' end.
-export function roomUnderRows(
-  { room: held, reader }: { room: number; reader: ReaderRoom },
-  pass: {
-    following: boolean;
-    sessionSwitched: boolean;
-    followedRoom: number;
-    prompt: string | undefined;
-    /// Read only while room is held or kept.
-    tail: () => number;
-  },
-): { room: number; kept: ReaderRoom["kept"] } {
-  if (pass.sessionSwitched) return { room: pass.followedRoom, kept: undefined };
-  if (!pass.following) return { room: held, kept: undefined };
-  const fresh = !reader.followed && reader.left === true && held > pass.followedRoom + 0.5;
-  const carried = reader.followed && reader.kept !== undefined && reader.kept.prompt === pass.prompt;
-  if (!fresh && !carried) return { room: pass.followedRoom, kept: undefined };
-  const tail = pass.tail();
-  const end = fresh ? tail + held : reader.kept!.end;
-  const left = Number.isFinite(end - tail) ? end - tail : 0;
-  // Filled down to the stack's room: nothing is kept any longer.
-  if (left <= pass.followedRoom + 0.5)
-    // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
-    return { room: pass.followedRoom, kept: undefined };
-  return { room: left, kept: { room: left, prompt: pass.prompt, end } };
-}
-
 /// The newest prompt's row index (a user row that is no line), or -1: the turn the room the reader
 /// came back to is kept for (`heldRoom.reader`). Reads back from the end to that prompt only.
 export function newestPromptIndex(rows: readonly AcpmuxRow[]): number {

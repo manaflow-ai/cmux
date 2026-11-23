@@ -242,11 +242,13 @@ class Recording:
 
 def stream(args) -> list[str]:
     recording = Recording(args.pid, args.category)
+    # A caller that runs the scenario itself starts it on this line (stderr): `log stream` is attached.
+    print("perf-signposts: recording", file=sys.stderr, flush=True)
     try:
         if args.command:
             subprocess.run(args.command, check=False)
         elif args.seconds:
-            time.sleep(args.seconds)  # the measurement window itself, not a wait for a condition
+            time.sleep(args.seconds)  # sleep-ok: the measurement window itself (--seconds)
         else:
             signal.pause()
     except KeyboardInterrupt:
