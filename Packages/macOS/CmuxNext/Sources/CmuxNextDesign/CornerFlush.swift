@@ -48,7 +48,8 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
     /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
     /// value, else `appearance.cornerFlush` when set (``chosen``), else the default where the default
     /// chrome fits it (``defaultFits``), else `off`.
-    @MainActor public static var current: CornerFlush {
+    @MainActor public static var current: CornerFlush { Metrics.memo.cornerFlush.value { uncachedCurrent } }
+    @MainActor private static var uncachedCurrent: CornerFlush {
         if Metrics.density == .compact { return .off }
         if let chosen { return chosen }
         return defaultFits ? tunable.defaultValue : .off

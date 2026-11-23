@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           fetch-depth: 1
           submodules: false
           # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs

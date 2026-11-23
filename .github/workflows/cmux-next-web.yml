@@ -59,7 +59,7 @@ jobs:
   coalesce:
     name: coalesce
     # A few seconds of work, no sleep: the reconciled Linux pool's small member, as the base tier kick does.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # One coalesce job decides at a time, so each reads the marker the one before it saved; a newer push's replaces a
     # pending one (never a started one). A push and the tick share the group. Any other dispatch (next_batch's web
@@ -143,7 +143,7 @@ jobs:
     name: web bisect
     needs: [coalesce, web]
     if: ${{ !cancelled() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.tick) && needs.coalesce.result == 'success' && needs.web.result == 'failure' && needs.coalesce.outputs.base != '' && needs.coalesce.outputs.base != 'all' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_LINUX_GATE_OWNED_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 75
     # actions: read: the base's webview test history is an artifact of its newest push.
     permissions:
@@ -205,14 +205,32 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
+      # Saved only on feat-cmux-next, whose scope every ref reads; a hand dispatch on another ref (tick=true) only
+      # restores, so it adds no copy that only that ref reads again (handbook run-scoped-cache-key-evicts-the-store).
       - name: Cache Bun package cache
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
+      - name: Cache Bun package cache (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
       - name: Cache Playwright browsers
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Playwright browsers (restore only off feat-cmux-next)
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}

@@ -94,7 +94,7 @@ class ChiefBenchmarkRouteTests(unittest.TestCase):
         harness.write_text(
             'set -euo pipefail\n'
             'mode="$1"; work="$2"; out="$3"; summary="$out/SUMMARY.md"\n'
-            'device_type="test-device"; runtime="test-runtime"\n'
+            'device_type="test-device"; runtime="test-runtime"; reduce_motion=0\n'
             'note() { printf "%s\\n" "$*" | tee -a "$summary"; }\n'
             # The script's own sim_create (stock here: no worker helper in the env).
             + script[script.index("# sim_create NAME"):script.index("# --- end sim_create")]

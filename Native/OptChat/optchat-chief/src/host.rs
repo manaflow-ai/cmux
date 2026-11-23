@@ -270,6 +270,13 @@ pub fn turn_preset(
         session_dir::TURN_TOOLS_ENV.to_owned(),
         session_dir::CHIEF_CMUX_TOOLS.join(","),
     );
+    // The cmux server reads the Chief's attached Cloud computer from its
+    // engine.json at each call: `cloud_computer`'s default machine (acpmux
+    // `agent_tools::CHIEF_ENGINE_ENV`, passed to the `cmux` server only).
+    env.insert(
+        session_dir::CHIEF_ENGINE_ENV.to_owned(),
+        crate::engine::path(home).display().to_string(),
+    );
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -1379,7 +1386,7 @@ fn start(
         .and_then(|s| s.program.clone())
         .and_then(|program| {
             let brain = crate::brain_home::brain("openclaw")?;
-            crate::brain_home_openclaw::Gateway::start(
+            crate::brain_home_openclaw::start_gateway(
                 std::path::Path::new(&program),
                 &crate::brain_home::dir(paths, brain),
                 &|line| log(line),
@@ -1388,6 +1395,27 @@ fn start(
                 log(format!("openclaw: starting its Gateway: {e}"));
                 if let Some(state) = brain_states.get("openclaw").and_then(|s| s.harness.clone()) {
                     brains.disable(&state, &format!("its Gateway did not start: {e}"));
+                }
+            })
+            .ok()
+        });
+    // Hermes' `acp` is a viewer of a gateway daemon it would otherwise start as a launchd job
+    // outside this host (brain_gateway.rs): this host runs it, one per Chief.
+    let _hermes_gateway = brain_states
+        .get("hermes")
+        .filter(|s| s.state == "ready")
+        .and_then(|s| s.program.clone())
+        .and_then(|program| {
+            let brain = crate::brain_home::brain("hermes")?;
+            crate::brain_gateway::start_hermes(
+                std::path::Path::new(&program),
+                &crate::brain_home::dir(paths, brain),
+                &|line| log(line),
+            )
+            .map_err(|e| {
+                log(format!("hermes: starting its gateway: {e}"));
+                if let Some(state) = brain_states.get("hermes").and_then(|s| s.harness.clone()) {
+                    brains.disable(&state, &format!("its gateway did not start: {e}"));
                 }
             })
             .ok()
@@ -1663,6 +1691,15 @@ fn start(
             ControlRequest::StopAll => {
                 let (reply, answer) = channel();
                 tx.send(Input::StopAll { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Automations(request) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Automations { request, reply })
+                    .map_err(stopping)?;
                 answer
                     .recv_timeout(wait)
                     .map(|v| v.to_string())
