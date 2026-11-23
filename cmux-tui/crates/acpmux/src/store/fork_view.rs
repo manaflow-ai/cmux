@@ -858,8 +858,43 @@ impl Store for ForkView {
     fn is_cold(&self, id: &str) -> bool {
         self.inner.is_cold(id)
     }
+    /// No `dropping` needed: the offload's commit runs under the inner store's cold lock and
+    /// skips a chat that has a segment again, so a fork's write of `id`'s history (which
+    /// rehydrates it first) between the upload and the commit leaves the archive in place.
+    fn offload_cold(&self, id: &str) -> Result<Option<u64>> {
+        self.inner.offload_cold(id)
+    }
+    fn register_cloud_root(&self) -> Result<Option<usize>> {
+        self.inner.register_cloud_root()
+    }
     fn on_rehydrate(&self, hook: RehydrateHook) {
         self.inner.on_rehydrate(hook)
+    }
+    /// A cold segment keeps every byte and reads back in place (`store/cold_segments.rs`): a fork
+    /// that shows the chat's records keeps its reference and reads them through the archive.
+    /// Segment `000000`, a fork's own history, never goes cold.
+    fn stage_cold_segments(
+        &self,
+        id: &str,
+        max: usize,
+        level: i32,
+    ) -> Result<Option<StagedColdSegments>> {
+        self.inner.stage_cold_segments(id, max, level)
+    }
+    fn prepare_cold_segments(&self, id: &str, staged: &StagedColdSegments) -> Result<bool> {
+        self.inner.prepare_cold_segments(id, staged)
+    }
+    fn commit_cold_segments(&self, id: &str, staged: StagedColdSegments) -> Result<ColdMoved> {
+        self.inner.commit_cold_segments(id, staged)
+    }
+    fn settle_cold_segments(&self, id: &str) -> Result<()> {
+        self.inner.settle_cold_segments(id)
+    }
+    fn warm_cold_segments(&self, id: &str) -> Result<ColdWarmed> {
+        self.inner.warm_cold_segments(id)
+    }
+    fn on_segment_sealed(&self, hook: SealHook) {
+        self.inner.on_segment_sealed(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.
