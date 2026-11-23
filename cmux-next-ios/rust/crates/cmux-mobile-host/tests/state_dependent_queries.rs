@@ -191,6 +191,7 @@ async fn exercise_selection_then_creation(
                     session_id: "test-session".into(),
                     video: None,
                     session_exposure: None,
+                    path: None,
                 },
                 Arc::new(LinkAuth::default()),
                 incoming,

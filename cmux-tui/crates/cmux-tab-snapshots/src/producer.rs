@@ -7,7 +7,9 @@
 //! start of the host process. Every manifest and delta carries it, and a
 //! `resume` from another epoch (or none) gets a manifest, so a phone's rev
 //! from an earlier run is never read as a rev of this one. `rev` starts at
-//! the value the host passes.
+//! the value the host passes. When the tab ids stop meaning what they did
+//! (the host is on a new run of the daemon that numbers them),
+//! [`Producer::new_epoch`] starts over under a new epoch.
 
 use crate::hash::{BlobHash, Mime};
 use crate::row::{Kind, Row, RowPatch, reorder};
@@ -143,6 +145,22 @@ impl Producer {
         }
         self.record(vec![patch], Vec::new(), false);
         true
+    }
+
+    /// Starts over under `epoch`: every row goes, and no delta reaches back
+    /// past this point, so a phone on the old epoch (resuming, or open
+    /// now) gets a manifest of the new rows only. `rev` keeps counting up,
+    /// so no rev of the old epoch is a rev of the new one either.
+    pub fn new_epoch(&mut self, epoch: impl Into<String>) {
+        for row in std::mem::take(&mut self.rows) {
+            for hash in row.hashes() {
+                self.store.release(hash);
+            }
+        }
+        self.epoch = epoch.into();
+        self.rev = self.rev.saturating_add(1);
+        self.oldest_base = self.rev;
+        self.history.clear();
     }
 
     /// Closes a tab. Returns false when no such tab is known.

@@ -38,6 +38,90 @@ fn offer_image_refuses_bad_input_and_keeps_pictures_for_tabs_not_listed_yet() {
 }
 
 #[test]
+fn a_new_daemon_run_drops_every_id_of_the_old_one_under_a_new_epoch() {
+    let tabs = Tabs::new("e");
+    tabs.offer_image("3", Part::Favicon, b"early".to_vec(), 0, 0, Mime::Png, 1);
+    // The first connection is the run the epoch began with: nothing goes.
+    assert!(!tabs.daemon_run("unused"));
+    assert_eq!(tabs.epoch(), "e");
+    tabs.set_tabs(vec![tab("1", Kind::Browser, json!({})), tab("3", Kind::Browser, json!({}))]);
+    assert_eq!(row(&tabs, "3").favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(b"early")));
+    tabs.offer_image("1", Part::Thumb, b"thumb1".to_vec(), 576, 768, Mime::Jpeg, 2);
+    tabs.set_screen("1", "old".into());
+    // A picture for a surface the old run had not listed yet.
+    tabs.offer_image("5", Part::Thumb, b"pending5".to_vec(), 576, 768, Mime::Jpeg, 3);
+    let rev = tabs.rev();
+
+    assert!(tabs.daemon_run("e2"));
+    assert_eq!(tabs.epoch(), "e2");
+    assert!(tabs.tab_ids().is_empty());
+    assert_eq!(tabs.stored_blobs(), 0);
+    assert!(tabs.rev() > rev);
+    assert!(tabs.lock().producer.delta_since(rev).is_none(), "no delta crosses the runs");
+    // The new run reuses 1 and 5 for other tabs: none of the old pictures,
+    // screen or title come back.
+    tabs.set_tabs(vec![tab("5", Kind::Terminal, json!({})), tab("1", Kind::Browser, json!({}))]);
+    assert_eq!(tabs.tab_ids(), ["5", "1"]);
+    let (one, five) = (row(&tabs, "1"), row(&tabs, "5"));
+    assert_eq!((one.thumb_hash, one.screen_hash, five.thumb_hash), (None, None, None));
+    assert!(!tabs.set_screen("3", "gone".into()), "an old run's tab is not listed");
+}
+
+const JPEG: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
+
+fn picture(path: &Path, part: Part) -> PictureFile {
+    PictureFile {
+        surface: 4,
+        part,
+        path: path.to_string_lossy().into_owned(),
+        w: 576,
+        h: 360,
+        captured_at_ms: 9,
+    }
+}
+
+#[tokio::test]
+async fn offer_file_reads_a_jpeg_thumb_and_a_png_favicon_by_surface() {
+    let dir = tempfile::tempdir().unwrap();
+    let (thumb, favicon) = (dir.path().join("4-thumb.jpg"), dir.path().join("4-favicon.png"));
+    std::fs::write(&thumb, JPEG).unwrap();
+    std::fs::write(&favicon, PNG).unwrap();
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("4", Kind::Browser, json!({}))]);
+    assert!(tabs.offer_file(&picture(&thumb, Part::Thumb)).await);
+    assert!(tabs.offer_file(&picture(&favicon, Part::Favicon)).await);
+    let r = row(&tabs, "4");
+    assert_eq!(r.thumb_hash, Some(cmux_tab_snapshots::BlobHash::of(JPEG)));
+    assert_eq!((r.thumb_w, r.thumb_h, r.thumb_mime), (576, 360, Mime::Jpeg));
+    assert_eq!(r.favicon_hash, Some(cmux_tab_snapshots::BlobHash::of(PNG)));
+}
+
+#[tokio::test]
+async fn offer_file_refuses_oversize_wrong_format_missing_links_and_relative_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("4", Kind::Browser, json!({}))]);
+    let big = dir.path().join("big.jpg");
+    let mut bytes = JPEG.to_vec();
+    bytes.resize(MAX_IMAGE_BYTES + 1, 0);
+    std::fs::write(&big, bytes).unwrap();
+    let gif = dir.path().join("x.gif");
+    std::fs::write(&gif, b"GIF89a....").unwrap();
+    let empty = dir.path().join("empty.png");
+    std::fs::write(&empty, b"").unwrap();
+    let good = dir.path().join("good.png");
+    std::fs::write(&good, PNG).unwrap();
+    let link = dir.path().join("link.png");
+    std::os::unix::fs::symlink(&good, &link).unwrap();
+    for path in [big, gif, empty, dir.path().join("missing.png"), link, dir.path().to_path_buf()] {
+        assert!(!tabs.offer_file(&picture(&path, Part::Favicon)).await, "{}", path.display());
+    }
+    assert!(!tabs.offer_file(&picture(Path::new("good.png"), Part::Favicon)).await);
+    assert_eq!(row(&tabs, "4").favicon_hash, None);
+}
+
+#[test]
 fn set_tabs_orders_removes_and_keeps_screens() {
     let tabs = Tabs::new("e");
     tabs.set_tabs(vec![tab("1", Kind::Terminal, json!({})), tab("2", Kind::Browser, json!({}))]);

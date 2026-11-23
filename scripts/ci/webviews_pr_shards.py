@@ -5,7 +5,7 @@ touches. A feat-cmux-next push runs every shard (ci-web.yml calls this only on a
     webviews_pr_shards.py --base REF [--head REF] --count N [--repo DIR]
     webviews_pr_shards.py --all --count N        # every shard: a push, the full-ci label, a failed pick
     webviews_pr_shards.py --base REF [--head REF] --count N --files-of 1,3   # those shards' test files
-    webviews_pr_shards.py --base REF [--head REF] --count N --direct-out F   # also each picked shard's touched tests
+    webviews_pr_shards.py --base REF [--head REF] --count N --direct-out F   # also shard 1's and the job's touched tests
 
 Prints the shard matrix as JSON (`[{"shard": 1, "shard_count": N}, ...]`) on stdout, and why on stderr.
 
@@ -20,7 +20,11 @@ a pull request runs:
     measured skipping; the closure put a test of every shard behind any shared module);
     the picked shards from 2 to N become one job that runs only those touched tests (--direct-out), not each shard's
     whole share of the affected closure: the shards were picked for them, and the closure share is what the 0%
-    above measured. Shard 1 keeps its whole share;
+    above measured. Shard 1 runs all its checks and, of the tests, only the touched ones in its own share (none when
+    it holds none), not its whole share of the closure: for a source edit the closure was nearly every file (2,776 of
+    3,170 test files for 56 changed paths, job 137236617956), about 37 of shard 1's 48 minutes. Its 9 own catches
+    over 11-13..19 were its checks: on a pull request Test webviews is continue-on-error and the job fails only on
+    its gate steps (a test red is react-apps-base-check's), and it keeps every gate step;
   - every shard for a build or runner input (webviews_affected.EVERYTHING: package.json, bun.lock, vite configs, the
     runner scripts, ci-web.yml, this file, the preload and what it imports). A test helper (test/support/) or
     webviews script (webviews/scripts/) counts as a source here: the tests that import it, or that are or import a
@@ -141,8 +145,7 @@ def touched(selector: "wa.Selector", files: list[str]) -> tuple[set[str] | None,
             return None, f"{f} is a build or runner input"
         if wa.EVERYTHING.search(f):
             # A test helper or webviews script (not the preload's): the tests that import it, as for a source, unless a
-            # build input loads it or a file reads it as data (below). A file nothing imports or names touches none;
-            # shard 1 still runs its whole share.
+            # build input loads it or a file reads it as data (below). A file nothing imports or names touches none.
             why, readers = read_beyond_imports(selector, f)
             if why:
                 return None, why
@@ -181,6 +184,17 @@ def shard_files(repo: Path, shard: int, count: int, selected: set[str] | None) -
     return {wa.WEB + line for line in out.splitlines() if line}
 
 
+def with_shard1(repo: Path, count: int, selected: set[str] | None, direct: set[str],
+                own: dict[int, list[str]]) -> dict[int, list[str]]:
+    """OWN plus shard 1's touched tests (webviews-relative, maybe none), as it splits SELECTED (None: every file).
+
+    An entry for shard 1, even an empty one, runs those tests in place of its share of the closure; an every-shard
+    pick writes none, and shard 1 runs its whole share.
+    """
+    mine = shard_files(repo, 1, count, selected) & direct if direct else set()
+    return {**own, 1: sorted(f.removeprefix(wa.WEB) for f in mine)}
+
+
 def sampled_shards(head_sha: str, count: int) -> list[int]:
     """SAMPLE_COUNT shards from 2 to COUNT, the same for one head commit and different across commits."""
     rest = list(range(2, count + 1))
@@ -215,22 +229,23 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str, 
         why = (f"{', '.join(sampled_inputs)} changed: shard 1 and {SAMPLE_WHY} {','.join(map(str, sample))} of "
                f"{count} (from head {head_sha[:12]})" + (f", and {len(next(iter(own.values())))} touched tests in one job"
                                                           if own else ""))
-        return sorted({1, *sample, *own}), why, own
+        return sorted({1, *sample, *own}), why, with_shard1(repo, count, None, direct, own)
     direct, why = touched(selector, files)
     if direct is None:
         return everything, why, {}
     if not direct:
-        return [1], "the change touches no webviews test", {}
+        return [1], "the change touches no webviews test", {1: []}
     selected, _ = selector.select(files)  # what each shard runs (None: every file), as the shards pick it
     hits = {shard: shard_files(repo, shard, count, selected) & direct for shard in everything[1:]}
     hits = {shard: hit for shard, hit in hits.items() if hit}
     if not hits:
-        return [1], f"{len(direct)} touched tests, all in shard 1", {}
+        return [1], f"{len(direct)} touched tests, all in shard 1", with_shard1(repo, count, selected, direct, {})
     # One job carries every touched test outside shard 1: a dozen files do not need a runner each, and each shard
     # job pays its own checkout, install and engines before its first test. It takes the lowest picked number.
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
-    return [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job", own
+    return ([1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
+            with_shard1(repo, count, selected, direct, own))
 
 
 def classes_on() -> bool:
@@ -344,17 +359,19 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
         more = f" (and {len(wide) - 1} more)" if len(wide) > 1 else ""
         why = (f"{wide[0]}{more}: shard 1 and {SAMPLE_WHY} {','.join(map(str, sample))} of {count} (from head "
                f"{head_sha[:12]})" + (f", and {len(next(iter(own.values())))} touched tests in one job" if own else ""))
-        return "sampled", sorted({1, *sample, *own}), why, own
+        return "sampled", sorted({1, *sample, *own}), why, with_shard1(repo, count, None, direct, own)
     if not direct:
-        return "sampled", [1], "the change touches no webviews test: shard 1", {}
+        return "sampled", [1], "the change touches no webviews test: shard 1's checks, no test file", {1: []}
     selected, _ = selector.select(rest)
     hits = {shard: shard_files(repo, shard, count, selected) & direct for shard in everything[1:]}
     hits = {shard: hit for shard, hit in hits.items() if hit}
     if not hits:
-        return "sampled", [1], f"{len(direct)} touched tests, all in shard 1", {}
+        return ("sampled", [1], f"{len(direct)} touched tests, all in shard 1",
+                with_shard1(repo, count, selected, direct, {}))
     first = min(hits)
     own = {first: sorted(f.removeprefix(wa.WEB) for hit in hits.values() for f in hit)}
-    return "sampled", [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job", own
+    return ("sampled", [1, first], f"{len(direct)} touched tests, {len(own[first])} outside shard 1 in one job",
+            with_shard1(repo, count, selected, direct, own))
 
 
 HOW_FULL = ("To run every shard, add the `full-ci` label and re-run. To turn the classes off for every pull request, "
@@ -385,7 +402,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--all", action="store_true", help="every shard (a push, full-ci): print the whole matrix")
     ap.add_argument("--files-of", help="comma-separated shards: print the test files they run, one a line")
     ap.add_argument("--direct-out", type=Path,
-                    help="write {shard: [touched test files]} for the one picked shard past 1 (JSON)")
+                    help="write {shard: [touched test files]} for shard 1 and the one picked shard past 1 (JSON)")
     ap.add_argument("--summary", type=Path, help="append the pick to this Markdown file (the job's step summary)")
     ap.add_argument("--class-out", type=Path, help="write the push class (fast, sampled, full) to this file")
     ap.add_argument("--full-why", help="with --all: the rule that ran every shard, for --summary (a push, full-ci)")
@@ -424,7 +441,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.class_out:
         args.class_out.write_text(cls + "\n")
     if args.direct_out:
-        # No entry for a shard (an empty map on every-shard picks) runs that shard's whole affected split.
+        # No entry for a shard (an empty map on every-shard picks) runs that shard's whole affected split; shard 1's
+        # entry, even an empty list, runs just those tests.
         args.direct_out.write_text(json.dumps({str(k): v for k, v in own.items()}, separators=(",", ":")) + "\n")
     print(f"webviews pr shards: {len(shards)} of {args.count} ({','.join(map(str, shards))}): {why}", file=sys.stderr)
     if args.summary and cls:

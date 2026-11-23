@@ -48,6 +48,47 @@ pub(super) const FILES: &[(&str, &str)] = &[
     ("cmux-tui-agent-screen-detection", "cmux-agent-screen-detection"),
 ];
 
+/// The second Screen Recording holder an app must not ship beside its Screen Sharing helper
+/// (cmux#47409's check-screen-share-identity.sh refuses the same bundle).
+pub(super) const COMPUTER_USE_APP: &str = "cmux Computer Use.app";
+
+/// The app's one Screen Sharing helper (`Contents/Library/* Screen Sharing.app`), `None` when it
+/// bundles none. Refuses an app holding two helpers, or cmux Computer Use.app: macOS keeps the
+/// grants under one holder, and a try never picks one of several.
+pub(super) fn library_helper(app: &Path) -> Result<Option<PathBuf>, String> {
+    let library = app.join(super::helper::LIBRARY);
+    if library.join(COMPUTER_USE_APP).exists() {
+        return Err(format!(
+            "the app holds {COMPUTER_USE_APP} beside its Screen Sharing helper (a second Screen \
+             Recording holder); nothing was swapped"
+        ));
+    }
+    let mut found = Vec::new();
+    if let Ok(entries) = fs::read_dir(&library) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+            if real_dir && !name.starts_with('.') && name.ends_with(super::helper::SUFFIX) {
+                found.push(entry.path());
+            }
+        }
+    }
+    found.sort();
+    match found.as_slice() {
+        [] => Ok(None),
+        [one] => Ok(Some(one.clone())),
+        many => Err(format!(
+            "the app holds {} Screen Sharing helpers, not one ({}); nothing was swapped",
+            many.len(),
+            many.iter()
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
 /// `cmux-tui/<commit>/mac-live.json`'s payload (CI's `cmux-machine-channel.py --purpose mac-live`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub(super) struct LivePayload {
@@ -66,6 +107,11 @@ pub(super) struct LivePayload {
     #[serde(default)]
     pub daemon_from: Vec<String>,
     pub targets: BTreeMap<String, BTreeMap<String, Binary>>,
+    /// The commit's signed Screen Sharing helper (try_cmd/helper.rs). A top-level key, never a
+    /// name in `targets`: a CLI from before it ignores the key (this struct denies no unknown
+    /// field) and leaves the app's helper as it is, where a new name in `targets` would refuse.
+    #[serde(default)]
+    pub screen_sharing_helper: Option<super::helper::HelperFile>,
 }
 
 /// The forward-only pointer published beside the per-commit files.  It uses
@@ -623,6 +669,10 @@ pub(super) struct Applied {
     pub prior: Map<String, Value>,
     pub steps: Value,
     pub changed: bool,
+    /// What the try did with the Screen Sharing helper (`steps.screen_sharing_helper`), and
+    /// what `undo` puts back (`undo.screen_sharing_helper`); set by the caller of [`apply`].
+    pub helper_step: Option<Value>,
+    pub helper_undo: Option<Value>,
 }
 
 fn place(bin: &Path, file: &str, to: Option<&(PathBuf, String)>) -> Result<(), String> {
@@ -713,6 +763,8 @@ pub(super) fn apply(
             prior: Map::new(),
             steps: json!({ "daemon": "unchanged" }),
             changed: false,
+            helper_step: None,
+            helper_undo: None,
         });
     }
 
@@ -786,7 +838,7 @@ pub(super) fn apply(
             (file, value)
         })
         .collect();
-    Ok(Applied { prior, steps, changed: true })
+    Ok(Applied { prior, steps, changed: true, helper_step: None, helper_undo: None })
 }
 
 fn rolled_back(error: String, left: &[String]) -> String {

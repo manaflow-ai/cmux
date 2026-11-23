@@ -116,6 +116,7 @@ async fn keystrokes_do_not_wait_for_workspace_side_queries() {
                 session_id: "test-session".into(),
                 video: None,
                 session_exposure: None,
+                path: None,
             },
             Arc::new(LinkAuth::default()),
             incoming,

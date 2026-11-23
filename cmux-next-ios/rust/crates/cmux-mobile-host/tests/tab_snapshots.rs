@@ -28,6 +28,8 @@ struct FakeDaemon {
     open: Arc<AtomicUsize>,
     remote_hellos: Arc<AtomicUsize>,
     screen_reads: Arc<Mutex<HashMap<u64, usize>>>,
+    /// Bumped by [`FakeDaemon::restart`]: every open connection ends.
+    run: watch::Sender<u64>,
 }
 
 fn tree(tabs: Value) -> Value {
@@ -45,7 +47,9 @@ impl FakeDaemon {
             open: Arc::default(),
             remote_hellos: Arc::default(),
             screen_reads: Arc::default(),
+            run: watch::channel(0).0,
         };
+        let run = daemon.run.clone();
         let (tree, events, open, remote, reads) = (
             Arc::clone(&daemon.tree),
             daemon.events.clone(),
@@ -56,6 +60,7 @@ impl FakeDaemon {
         tokio::spawn(async move {
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
+                let mut run = run.subscribe();
                 let (tree, mut events, open, remote, reads) = (
                     Arc::clone(&tree),
                     events.subscribe(),
@@ -104,6 +109,7 @@ impl FakeDaemon {
                                     break;
                                 }
                             }
+                            _ = run.changed() => break,
                             event = events.recv(), if subscribed => {
                                 let Ok(event) = event else { break };
                                 if write.write_all(format!("{event}\n").as_bytes()).await.is_err() {
@@ -117,6 +123,13 @@ impl FakeDaemon {
             }
         });
         daemon
+    }
+
+    /// A new run of the daemon on the same socket, listing `tabs`: the old
+    /// run's connections end.
+    fn restart(&self, tabs: Value) {
+        *self.tree.lock().unwrap() = tree(tabs);
+        self.run.send_modify(|n| *n += 1);
     }
 
     fn emit(&self, event: Value) {
@@ -307,6 +320,41 @@ async fn a_tab_of_a_chat_the_peer_may_not_see_is_absent() {
     p.until(|m| m.rows().is_empty()).await;
 }
 
+#[tokio::test]
+async fn a_new_daemon_run_is_a_new_epoch_and_no_old_surface_survives() {
+    let dir = tempfile::tempdir().unwrap();
+    let daemon = FakeDaemon::start(dir.path(), two_tabs());
+    let tabs = Arc::new(Tabs::new("run-a"));
+    tabs.offer_image("8", Part::Thumb, b"thumb8".to_vec(), 576, 768, Mime::Jpeg, 10);
+    let mut p = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    p.send(Message::Viewport(Viewport::default())).await;
+    p.until(|m| ids(m) == ["7", "8"] && filled(m) && m.rows()[0].screen_hash.is_some()).await;
+    assert_eq!(p.mirror.epoch(), "run-a");
+    let old_rev = tabs.rev();
+    // A picture for a surface the old run lists only later.
+    tabs.offer_image("11", Part::Thumb, b"thumb11".to_vec(), 576, 768, Mime::Jpeg, 11);
+
+    // The new run numbers its surfaces again: 8 is now a terminal, 11 a page.
+    daemon.restart(json!([
+        {"surface": 8, "kind": "pty", "title": "bash", "size": {"cols": 80, "rows": 24}},
+        {"surface": 11, "kind": "browser", "title": "New page"},
+    ]));
+    p.until(|m| m.epoch() != "run-a" && ids(m) == ["8", "11"] && m.rows()[0].screen_hash.is_some()).await;
+    let epoch = tabs.epoch();
+    assert_eq!(p.mirror.epoch(), epoch);
+    let (eight, eleven) = (&p.mirror.rows()[0], &p.mirror.rows()[1]);
+    assert_eq!((eight.title.as_str(), eight.thumb_hash), ("bash", None), "8's old thumbnail is gone");
+    assert_eq!(eleven.thumb_hash, None, "a picture held for an old surface is gone");
+    assert_eq!(tabs.feeds_started(), 1, "the same feeder reconnected");
+
+    // A phone resuming from the old run gets a manifest of the new one.
+    let mut back = phone(&tabs, Some(daemon.socket.clone()), None).await;
+    back.send(Message::Resume(Resume { epoch: "run-a".into(), rev: old_rev })).await;
+    back.send(Message::Viewport(Viewport::default())).await;
+    back.until(|m| ids(m) == ["8", "11"]).await;
+    assert_eq!(back.mirror.epoch(), epoch);
+}
+
 fn config(dir: &Path) -> Arc<ServiceConfig> {
     Arc::new(ServiceConfig {
         tui_socket_dir: dir.to_owned(),
@@ -336,8 +384,13 @@ async fn the_feeder_runs_while_a_phone_has_tabs_open_and_stops_when_the_last_lea
     tokio::spawn(async move {
         loop {
             let Some(incoming) = mac.accept().await else { return };
-            let peer =
-                Peer { device_id: "p".into(), session_id: "s".into(), video: None, session_exposure: None };
+            let peer = Peer {
+                device_id: "p".into(),
+                session_id: "s".into(),
+                video: None,
+                session_exposure: None,
+                path: None,
+            };
             tokio::spawn(serve(Arc::clone(&config), peer, Arc::new(LinkAuth::default()), incoming));
         }
     });

@@ -1,3 +1,4 @@
+import CmuxConversationUI
 import CmuxMobileAuth
 import CmuxMobileDesign
 import CmuxMobileLive
@@ -26,6 +27,16 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        #if !CMUX_MOBILE_PRODUCTION
+        // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
+        // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
+        // PrivateFrameworks path (App Review 2.5.1) and draws them.
+        var chatKitPath = "/System/Library/PrivateFrameworks/ChatKit.framework"
+        #if targetEnvironment(simulator)
+        if let root = ProcessInfo.processInfo.environment["IPHONE_SIMULATOR_ROOT"] { chatKitPath = root + chatKitPath }
+        #endif
+        ConversationSystemArt.bundle = Bundle(path: chatKitPath)
+        #endif
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug

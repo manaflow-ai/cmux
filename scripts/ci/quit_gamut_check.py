@@ -916,7 +916,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.paths:
             bundle_id, _ = smoke.bundle_info(bundle)
             with smoke.DefaultsAside(bundle_id, root):
-                env = smoke.fresh_env(root, root / "s.sock", -1)
+                # Only the sparkle-update path keeps the app's own updater on (it stages a real update); every
+                # other path's copy must never download one (fresh_env's UPDATER_OFF_VARIABLE).
+                env = smoke.fresh_env(root, root / "s.sock", -1, updater="sparkle-update" in args.paths)
                 env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
                 ui.login_keychain(env)
                 folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
