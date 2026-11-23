@@ -1088,12 +1088,19 @@ async fn bg_tools_refuse_arguments_that_are_not_an_object() {
 #[tokio::test]
 async fn run_wait_given_a_bg_task_id_reads_the_task_and_names_bg_output() {
     let (_hub, client, _dir) = daemon().await;
-    for args in
-        [json!({"id": "bg-581e5d78d9cd"}), json!({"task": "bg-581e5d78d9cd", "timeout": "600"})]
-    {
+    // The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):
+    // the shapes refused "give run or pr" and "repo must be OWNER/REPO" gave a repo beside the id.
+    for args in [
+        json!({"id": "bg-581e5d78d9cd"}),
+        json!({"task": "bg-581e5d78d9cd", "timeout": "600"}),
+        json!({"repo": "manaflow-ai/cmux", "id": "bg-581e5d78d9cd", "description": "step A"}),
+        json!({"repo": "-", "id": "bg-581e5d78d9cd", "description": "hq main fetch"}),
+    ] {
         let r = bg::call(&client, "any", "run_wait", &args).await;
         let t = text(&r);
         assert!(!t.contains("repo is required"), "{args}: {r}");
+        assert!(!t.contains("give run"), "{args}: {r}");
+        assert!(!t.contains("repo must be"), "{args}: {r}");
         assert!(t.contains("bg-581e5d78d9cd is a background task"), "{args}: {r}");
         assert!(t.contains("bg_output"), "{args}: {r}");
     }
@@ -1303,6 +1310,48 @@ fn instructions_stay_short() {
     assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
+}
+
+/// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)
+/// counted inbox_reply's `inbox.no_sender` refusals and calls naming `to` but no thread: both
+/// now reach the sender by name, and say so.
+#[tokio::test]
+async fn inbox_reply_with_no_session_in_its_thread_sends_to_the_thread_sender_by_name() {
+    let (hub, client, _dir) = daemon().await;
+    let me = session(&client, "reply-me").await;
+    let them = session(&client, "reply-them").await;
+    // A thread keyed by its sender's name with no message here: the old code refused it.
+    let args = json!({"thread": "from:reply-them/pr:12", "text": "answer one"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).contains("as send sends it"), "{r}");
+    assert!(r["structuredContent"]["rewritten"].as_str().unwrap().contains("reply-them"), "{r}");
+    assert!(received(&hub, &them, "answer one").await, "reply-them never got the reply");
+    // `to` with no thread is a send to it.
+    let args = json!({"to": "reply-them", "text": "answer two"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).contains("sent with send to `to`"), "{r}");
+    assert!(received(&hub, &them, "answer two").await, "reply-them never got the second reply");
+    // A thread whose sender is nobody known is still refused, naming both failures.
+    let args = json!({"thread": "declared:nobody-anywhere", "text": "lost"});
+    let r = inbox_tool(&client, &me, "inbox_reply", &args).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("inbox.no_sender") && text(&r).contains("nobody-anywhere"), "{r}");
+    // Neither thread nor to: refused as before.
+    let r = inbox_tool(&client, &me, "inbox_reply", &json!({"text": "x"})).await;
+    assert_eq!(r["isError"], true, "{r}");
+}
+
+#[test]
+fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
+    let thread = json!({"messages": [
+        {"fromName": "codex-a", "sender": {"relay": {"machine": "mac-1", "session": "codex-a"}}},
+        {"fromName": "codex-a"}
+    ]});
+    assert_eq!(thread_sender_names("from:codex-a/pr:7", &thread), ["mac-1/codex-a", "codex-a"]);
+    assert_eq!(thread_sender_names("declared:claude-b", &Value::Null), ["claude-b"]);
+    assert!(thread_sender_names("t-123", &Value::Null).is_empty());
 }
 
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)

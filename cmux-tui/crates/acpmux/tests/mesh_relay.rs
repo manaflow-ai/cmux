@@ -1163,16 +1163,18 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
 
-    // A supersede key cannot cross the hub: the send is refused, not sent without it.
+    // A supersede key cannot cross the hub: the send goes without it and says so, as the
+    // sender would have sent it again anyway (cmuxterm-hq
+    // docs/findings/2026-11-23-mcp-tool-error-census.md).
     let posted = fake.with(|s| s.sent.len());
     let mut keyed = send_queue("dep-land", "prompt-0004");
     keyed["request"]["_meta"]["acpmux"]["supersede"] = json!("status");
     let keyed = sender.call("_acpmux/send_queue", keyed).await;
-    assert_eq!(keyed.pointer("/error/data/reason"), Some(&json!("mesh.no_supersede")), "{keyed}");
-    // `acpmux send` reads "no session" in an error as not found and drops the rest of it.
-    let said = keyed.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
-    assert!(said.contains("--supersede") && !said.contains("no session"), "{keyed}");
-    assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
+    assert_eq!(keyed.pointer("/result/supersedeDropped"), Some(&json!(true)), "{keyed}");
+    let said = keyed.pointer("/result/note").and_then(Value::as_str).unwrap_or_default();
+    assert!(said.contains("no supersede key"), "{keyed}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted + 1, "a keyed send did not reach the hub");
+    let posted = posted + 1;
     // A class but result has no field on the hub's message: it goes as the text's first line,
     // and the sender's row says so (`server/mesh_send.rs`, #49350), never as a plain result.
     let mut block = send_queue("dep-land", "prompt-0005");
