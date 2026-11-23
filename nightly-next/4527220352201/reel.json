@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "build": "4527220352201",
+  "notes": "notes/4527220352201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 47609,
+      "title": "Chat interface font: cmux Sans Open, spacing matched to Quillet (opt-in)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52185,
+      "title": "ci: tooling-tests runs on pull requests again, routed by step (fifteen merged changes broke it while skipped)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43676,
+      "title": "bench: what one more idle agent chat costs in acpmux, on Linux (daemon, our helpers, the agent apart)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49182,
+      "title": "cmux ps / cmux gc: terminal hosts and state from the product's own records",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52630,
+      "title": "Action catalog: Rename Agent Session… in the palette (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47529,
+      "title": "Agent pane: shortcut keycaps inside buttons (experiment, off by default)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47529/hv-c3fdd3c7dcee-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 52370,
+      "title": "iOS: the Safari bar moves to the top; Back to workspaces is one tap with the keyboard up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52622,
+      "title": "Composer: Claude Code's modest corner (16) and the + in a rounded-square chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52349,
+      "title": "perf cron: chat-pages memory bench per tick, with a 10-chat ratio_vs_empty row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51275,
+      "title": "iOS: a connection chip says nothing for its first 10 s, then shows with its Retry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52681,
+      "title": "acpmux duress bench: host150 leg, peers knob, presence gap (successor of #52307)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52328,
+      "title": "Stats: parallel payoff, hours of agent work per clock hour (carries #51885)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51585,
+      "title": "Run the iPhone viewer's WebRTC screen host in the Screen Sharing helper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52065,
+      "title": "cmux-cloud-client: clear base clippy reds in lifecycle (#50971)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51362,
+      "title": "Agent chat: a queued prompt's echoed images take their shape from its attachments",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 43272,
+      "title": "Agent chat: the model logo and queueing picks survive a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52625,
+      "title": "Scene symbols: weather SF names draw the pack's sun, crescent or cloud on web; SDK doc says widgets are drawn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46846,
+      "title": "Looks: menu and popover tokens a look sets (--menu-*), off by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52700,
+      "title": "cmux-next-ios kit: regenerate the windowLayout binding and guard AgentAvatarMark to iOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50412,
+      "title": "webviews CI: give gallery stage, sweep and page tests real dependency edges",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52628,
+      "title": "ios sim: UI tests build with Sign in with Apple on, as the review gate does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 50558,
+      "title": "measure: new-tab-startup bench, Cmd-T key_to_visible_ms and typed_key_accepted_ms per round",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51952,
+      "title": "Composer hat icons: no black ring around provider marks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 51903,
+      "title": "Settings: cmux-next.json's reads as Rust ops the app links (step A)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 52334,
+      "title": "fix(acpmux): a 429 exit between turns holds the chat and revives it at the reset",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
