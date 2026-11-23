@@ -42,16 +42,16 @@ public final class UpdateWindowHandoff {
     /// The windows' pictures, when they stay on screen across the relaunch: the windows leave only once the
     /// pictures are up over them, so no frame shows neither.
     private let afterimage: RelaunchAfterimage?
-    /// `updates.keepWindowsDuringRestart`, read as each relaunch is decided. Off (the default; Leo, 2026-11-23:
-    /// "just do the normal close to update again ... the layout shift and the jarringness is a bit too much"):
-    /// no pictures, the windows leave at once and the relaunched app opens them again.
-    private let keepsWindows: @MainActor () -> Bool
+    /// `updates.keepWindowsDuringRestart` (the updater's ``UpdatePreferences/keepWindowsDuringRestart``, set by
+    /// ``attach(to:)``), read as each relaunch is decided. Off (the default; Leo, 2026-11-23: "just do the normal
+    /// close to update again ... the layout shift and the jarringness is a bit too much"): no pictures, the
+    /// windows leave at once and the relaunched app opens them again.
+    var keepsWindows: @MainActor () -> Bool = { false }
     /// Starts the pictures (the afterimage's ``RelaunchAfterimage/begin(activates:)``; replaced by tests).
     var startsPictures: (@MainActor () -> Void)?
 
-    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil, keepsWindows: @escaping @MainActor () -> Bool = { false }) {
+    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil) {
         self.unsaved = unsaved
-        self.keepsWindows = keepsWindows
         afterimage = stateDirectory.map { RelaunchAfterimage(stateDirectory: $0) }
     }
 
@@ -62,6 +62,7 @@ public final class UpdateWindowHandoff {
         updater.hidesForRelaunch = { _ = self.hide() }
         updater.installAbandoned = { self.restore() }
         updater.afterimage = afterimage
+        keepsWindows = { [weak updater] in updater?.preferences.keepWindowsDuringRestart == true }
     }
 
     /// A relaunch is decided (every path: ``UpdaterService/willRelaunch``): with `updates.keepWindowsDuringRestart`
