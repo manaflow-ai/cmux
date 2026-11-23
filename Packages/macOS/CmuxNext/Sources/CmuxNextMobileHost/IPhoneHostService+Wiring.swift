@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextCloud
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextMobile
@@ -59,8 +60,7 @@ extension IPhoneHostService {
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
         guard let base = auth.configuration.runtimeSelection?.mobileOrigin ?? serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let stateRoot = DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
+        let stateRoot = Self.stateRoot(applicationSupport: DaemonLauncher.applicationSupportDirectory(), bundleID: bundleID)
         let state = MobileHostStateDirectory(parent: auth.configuration.runtimeSelection?.storageNamespace.map {
             stateRoot.appendingPathComponent($0, isDirectory: true)
         } ?? stateRoot).resolve()
@@ -71,6 +71,7 @@ extension IPhoneHostService {
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
         defer {
             followWorkspaceFolders()
+            followBrowserWorkspaceSource()
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
@@ -80,6 +81,7 @@ extension IPhoneHostService {
             executable: executable,
             baseURL: base,
             stackProjectID: auth.configuration.stackProjectID,
+            buildSpace: auth.configuration.buildSpace,
             stateDirectory: state,
             keychainName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
                                                          storageNamespace: auth.configuration.runtimeSelection?.storageNamespace),
@@ -118,6 +120,8 @@ extension IPhoneHostService {
             surfaceHosts: surfaceHosts,
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
+            devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),
+            macDevTag: IPhoneDevAutoApprove.macDevTag(),
             chief: chief
         )
     }
@@ -130,5 +134,13 @@ extension IPhoneHostService {
             userID: user.id, teamID: MobileHostLaunch.teamID(selected: team, userID: user.id),
             teamName: team.flatMap { id in auth.teams.first { $0.id == id }?.displayName },
             email: user.primaryEmail)
+    }
+
+    /// hostd's state folder before the Cloud namespace: `<Application Support>/<folder>`, the bundle id's folder
+    /// (``BuildIdentity/stateFolderName(for:)`` of `build`, this process's by default), so two DEV copies never
+    /// share a phone pairing.
+    public nonisolated static func stateRoot(applicationSupport: URL, bundleID: String?,
+                                             build: BuildIdentity = BuildStatePaths.current.build) -> URL {
+        applicationSupport.appendingPathComponent(build.stateFolderName(for: bundleID) ?? "com.cmuxterm.app.next", isDirectory: true)
     }
 }

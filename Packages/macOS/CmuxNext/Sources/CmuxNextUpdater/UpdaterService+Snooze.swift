@@ -46,6 +46,9 @@ extension UpdaterService {
             switch flow.phase {
             case .ready(let version), .available(let version):
                 snooze.closedVersion = version ?? ""
+            case .hidden where installedNewerBuild != nil:
+                // The card for a build already installed on disk (``installedBuild``).
+                snooze.closedVersion = installedNewerBuild?.displayVersion ?? ""
             case .hidden, .checking, .downloading, .installing, .note:
                 log.append("update card close ignored: no update shown")
                 return

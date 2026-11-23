@@ -273,8 +273,7 @@
   inset-inline: var(--ds-space-2);
   padding: var(--ds-space-1) 0;
   border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  --glass-elevation: var(--ui-popup-drop, var(--elevation-2));
   overflow: hidden;
 }
 .hm-suggestions-list.ui-listbox {

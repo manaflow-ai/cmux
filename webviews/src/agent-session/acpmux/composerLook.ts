@@ -1,92 +1,55 @@
-// The composer's look (Leo 2026-10-22: "first dot claude, second dot codex. since it's just all looks
-// anyways"): one composer, two looks of the same controls. Both lay +, the prompt, the mic and Send
-// out as Claude's compact layout: + left of the prompt, the send slot and the mic right of it on the
-// prompt's row (Leo 2026-11-01: "the placement of the buttons are just really bad compared to our
-// claude code version", then "we already have a good version"). `claude` draws the mode, the model
-// and effort and the context ring in the quiet row under the box; `codex` draws that row inside the
-// chat's box under the prompt (Leo 2026-10-30: "the bypass/context/model picker stuff should
-// literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of an
-// agent chat doesn't do anything right now"), Codex's folder and computer tray tucked under the box's
-// top edge, and the accent on Full access (composerLook.css). Replaced: Codex's own row in the box
-// under the prompt with + in it (cmux #28901, last good commit 8b44a8a1dc2), kept in gallery
-// `agent-pane.composer-look` `codex-chat-alt-in-box-row`. Chat dots pick the look on hover in the
-// composer's bottom area (LookSwitch.tsx). The choice stays in localStorage across chats, panes
-// and launches. New Tab always uses Claude's look, including its shared controls.
+// The composer's look. `claude` is the one look a chat draws by default (the model and access in the
+// quiet row under the box); `codex` is the former in-box row, staged only by gallery previews and the
+// composer refresh (composerV2.ts). `studio` is opt-in, set only by Settings (`agentPane.composerLook`
+// "studio", composerSettings.ts): the in-box row laid out as a coding studio's composer draws it, the
+// model, effort and access chips on the row's left, the attach paperclip and a round accent Send on
+// its right (composerLook.css `data-composer-variant="studio"`). The New Tab page keeps Claude's.
 import { useContext, useSyncExternalStore } from "react";
+import { composerSettingsSnapshot, subscribeComposerSettings } from "./composerSettings";
 import { OnNewTab } from "./newTabComposer";
 
-export const COMPOSER_LOOKS = ["claude", "codex"] as const;
-export type ComposerLook = (typeof COMPOSER_LOOKS)[number];
+export type ComposerLook = "claude" | "codex" | "studio";
 
-/// A dot's name, over it while pointed at.
-export const COMPOSER_LOOK_NAMES: Readonly<Record<ComposerLook, string>> = {
-  // l10n-allow: product names (Claude, Codex), never translated.
-  claude: "Claude",
-  // l10n-allow: product names (Claude, Codex), never translated.
-  codex: "Codex",
-};
-
-/// New viewers use Codex's look across agent families; explicit choices remain saved.
-export const DEFAULT_COMPOSER_LOOK: ComposerLook = "codex";
-const KEY = "cmux.composer.look";
-
-function parse(value: unknown): ComposerLook {
-  return value === "claude" || value === "codex" ? value : DEFAULT_COMPOSER_LOOK;
+/// Whether `look` draws the mode, model and effort row inside the box (Codex's and Studio's).
+export function lookRowInBox(look: ComposerLook): boolean {
+  return look !== "claude";
 }
 
-/// The page's copy, for a page with no storage; storage's when there is one.
-let fallback: ComposerLook = DEFAULT_COMPOSER_LOOK;
-/// A look shown without being remembered (a gallery stage), over the stored one.
-let shown: ComposerLook | undefined;
+const defaultLook: ComposerLook = "claude";
+/// A gallery fixture's or browser harness's staged look, over Settings'.
+let previewLook: ComposerLook | undefined;
 const listeners = new Set<() => void>();
-
-/// The look the viewer chose (storage's, else the page's copy), under any gallery stage's shown one.
-export function savedComposerLook(): ComposerLook {
-  try {
-    return globalThis.localStorage ? parse(globalThis.localStorage.getItem(KEY)) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function current(): ComposerLook {
-  return shown ?? savedComposerLook();
-}
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  const onStorage = (event: StorageEvent) => {
-    // A null key is the storage cleared (localStorage.clear()): the look is back to the default.
-    if (event.key === KEY || event.key === null) listener();
-  };
-  globalThis.addEventListener?.("storage", onStorage);
+  // Settings' look (agentPane.composerLook) arrives on the host's `composer` event.
+  const offSettings = subscribeComposerSettings(listener);
   return () => {
     listeners.delete(listener);
-    globalThis.removeEventListener?.("storage", onStorage);
+    offSettings();
   };
 }
 
-/// Sets every composer's look, and remembers it; with `remember: false` (a gallery stage) the page
-/// shows it without writing it.
-export function setComposerLook(look: ComposerLook, { remember = true }: { remember?: boolean } = {}) {
-  if (!remember) {
-    shown = parse(look);
-    for (const listener of listeners) listener();
-    return;
-  }
-  shown = undefined;
-  fallback = parse(look);
-  try {
-    globalThis.localStorage?.setItem(KEY, fallback);
-  } catch {
-    // Storage off: the page's copy still holds it.
-  }
+/// The look Settings sets (`agentPane.composerLook`): only "studio" draws another look; "auto"
+/// keeps the app's own.
+function settingLook(): ComposerLook | undefined {
+  return composerSettingsSnapshot().composerLook === "studio" ? "studio" : undefined;
+}
+
+function current(): ComposerLook {
+  return previewLook ?? settingLook() ?? defaultLook;
+}
+
+/// Stages a layout in a gallery fixture or browser harness; with no look, Settings' (else Claude's)
+/// is back.
+export function setPreviewComposerLook(look?: ComposerLook) {
+  if (look === previewLook) return;
+  previewLook = look;
   for (const listener of listeners) listener();
 }
 
-/// The composer's look; re-renders the caller when it changes, here or in another pane.
 export function useComposerLook(): ComposerLook {
   const onNewTab = useContext(OnNewTab);
   const look = useSyncExternalStore(subscribe, current, current);
-  return onNewTab ? "claude" : look;
+  return onNewTab ? defaultLook : look;
 }

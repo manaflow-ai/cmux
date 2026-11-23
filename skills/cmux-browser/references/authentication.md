@@ -30,6 +30,30 @@ finish the provider step or the 2FA code in the tab, then confirm with
 `cmux browser "$TAB" state`, or wait for the return URL with
 `wait --url-contains`.
 
+## Hand the tab back to the person
+
+A password you were not given, a 2FA code, a CAPTCHA, a payment or any
+consent screen is the person's step, not yours. Stop driving the tab and hand
+it back:
+
+1. Leave the page as it is. Do not type guesses, retry a code, or click
+   through a payment or consent button.
+2. Tell the person in chat, in one message: the tab (its name or `tab_…` id),
+   the site, and the step they need to take ("Sign in to github.com in the
+   Research tab, then I will open the PR"). Do not focus the tab or move their
+   pointer; they open it when they are ready.
+3. Block on the page's next state instead of asking them to report back:
+   `cmux browser "$TAB" wait --url-contains /dashboard --timeout-ms 120000`
+   (or `wait --text`, or `page.waitForURL` in the REPL). On a timeout, run the
+   same wait again a few times; if the page still has not moved, take a
+   `snapshot` and say what it shows.
+4. When the wait returns, confirm with `state` and carry on in the same tab.
+   Say in one line that you have resumed. Do not repeat the step they just
+   did.
+
+One hand-back per step. If the site asks again (a second factor after the
+password), hand back again with the new step named.
+
 ## Saved state and cookies
 
 The per-tab CLI reads and sets cookies (`cookies get|set|clear`, see

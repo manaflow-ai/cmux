@@ -14,6 +14,7 @@ export type ErrorCode =
   | "not_host"
   | "session_not_pending"
   | "session_not_active"
+  | "needs_approval"
   | "ticket_invalid"
   | "role_taken"
   | "rate_limited"

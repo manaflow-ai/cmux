@@ -2,8 +2,8 @@ public import Foundation
 public import Observation
 import CmuxNextCompat
 
-/// Chief teleport's state for every surface that shows it (the Home header's location chip, the
-/// Chief card's row): where this Mac's Chief runs (``location``, from its home's `moved.json`), the
+/// Chief teleport's state for every surface that shows it (the Chief card's
+/// Runs On row, the Chief conversation's notice): where this Mac's Chief runs (``location``, from its home's `moved.json`), the
 /// running or last move (``phase``), and the app's move targets.
 ///
 /// The app makes one at its composition root and wires ``destinations``, ``onMove`` and

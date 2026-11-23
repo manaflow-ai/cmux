@@ -10,16 +10,19 @@ import { JSDOM } from "jsdom";
 import {
   HOST_GLASS_DEADLINE_MS,
   HOST_GLASS_DRAWN_ATTRIBUTE,
-  HOST_GLASS_ENGINES_ATTRIBUTE,
   HOST_GLASS_HOLD_FRAMES,
   HOST_GLASS_MAX,
-  HOST_GLASS_ROLE_ATTRIBUTE,
   HOST_GLASS_ROOT_ATTRIBUTE,
   hostGlassApplies,
-  hostGlassSurface,
   reportHostGlass,
   type HostGlassSurface,
+  HOST_GLASS_ENGINES_ATTRIBUTE,
+  HOST_GLASS_ROLE_ATTRIBUTE,
+  hostGlassSurface,
+  hostGlassPageZoom,
+  HOST_GLASS_OWN_ATTRIBUTE,
 } from "../src/ui/glass/hostGlass";
+import { INTERFACE_SCALE_EVENT } from "../src/ui/interfaceScale";
 
 let dom: JSDOM | undefined;
 let stop: (() => void) | undefined;
@@ -159,6 +162,30 @@ test("a surface that fell back while host glass did not apply goes back to the A
   expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
 });
 
+test("Liquid Glass off withdraws the App's glass at once, and on again brings it back", async () => {
+  const doc = page();
+  doc.documentElement.setAttribute("data-glass", "plain");
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const element = surface(doc);
+  await frames();
+  await settled();
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  // appearance.liquidGlass off: the host sends data-glass="off"; nothing is reported, the page's own
+  // (solid) surface shows.
+  doc.documentElement.setAttribute("data-glass", "off");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toEqual([]);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("0");
+  expect(doc.documentElement.hasAttribute(HOST_GLASS_ROOT_ATTRIBUTE)).toBe(false);
+  doc.documentElement.setAttribute("data-glass", "plain");
+  await frames();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
 test("an App that refuses the report leaves every surface on the page's glass and is not asked again", async () => {
   const doc = page();
   let calls = 0;
@@ -206,6 +233,12 @@ test("only a see-through Chromium page gets the App's glass", () => {
   const reduced = page();
   reduced.documentElement.setAttribute("data-reduce-transparency", "");
   expect(hostGlassApplies(reduced)).toBe(false);
+  // Liquid Glass off (appearance.liquidGlass, data-glass="off"): no glass, the App's included.
+  const off = page();
+  off.documentElement.setAttribute("data-glass", "off");
+  expect(hostGlassApplies(off)).toBe(false);
+  off.documentElement.setAttribute("data-glass", "plain");
+  expect(hostGlassApplies(off)).toBe(true);
   // The live background's canvas covers what is under the page, as the lens's does.
   const live = page();
   live.documentElement.setAttribute("data-live-background", "");
@@ -625,4 +658,198 @@ test("a pinch after the surface settled moves its report with no layout change",
   zoom({ scale: 1.5, offsetLeft: 0, offsetTop: 0 });
   await frames();
   expect(reports.at(-1)?.[0]).toMatchObject({ left: 60, top: 90, right: 360, bottom: 270, radius: 18 });
+});
+
+// Page zoom (cmux#42413 switched host glass off for this; Leo, 2026-11-20: "we have glass project / i
+// add background / it refract / boom done"). A box is in CSS px and the App needs view points: each
+// report carries the zoom its boxes were measured at, so the App never places them with a zoom of its
+// own, and a zoom that leaves a surface's CSS box as it was still reports again.
+function setPageZoom(doc: Document, zoom: number) {
+  doc.documentElement.style.setProperty("--cmux-ui-scale", String(zoom));
+  doc.defaultView!.dispatchEvent(new doc.defaultView!.Event(INTERFACE_SCALE_EVENT));
+}
+
+for (const zoom of [0.9, 1, 1.25, 1.5])
+  test(`at page zoom ${zoom} the report carries the zoom its boxes were measured at`, async () => {
+    const doc = page();
+    setPageZoom(doc, zoom);
+    expect(hostGlassPageZoom(doc)).toBe(zoom);
+    const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+    stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+    surface(doc);
+    await frames();
+    expect(reports.at(-1)).toEqual({
+      surfaces: [{ id: "g1", level: "popover", left: 40, top: 60, right: 240, bottom: 180, radius: 12, opacity: 1 }],
+      zoom,
+    });
+  });
+
+test("a zoom that leaves the CSS box as it was reports again, at the new zoom", async () => {
+  const doc = page();
+  setPageZoom(doc, 1);
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  const before = reports.length;
+  expect(reports.at(-1)?.zoom).toBe(1);
+  for (const zoom of [1.25, 1.5, 0.9, 1]) {
+    setPageZoom(doc, zoom);
+    await frames();
+    expect(reports.at(-1)?.zoom).toBe(zoom);
+    expect(reports.at(-1)?.surfaces[0]).toMatchObject({ left: 40, top: 60, right: 240, bottom: 180 });
+  }
+  expect(reports.length).toBe(before + 4);
+});
+
+// A NIGHTLY's video showed the App's glass leading the page by 2 to 3 frames on 3 of 6 zoom changes
+// with the model picker open: the App moved its glass at once, the page's frame at the new zoom
+// reached the screen later, and a stray rim showed at the new box inside the old picker.
+/** A report at a new zoom waits as long as a new surface's box does (hostGlass.ts). */
+const ZOOM_HOLD_FRAMES = HOST_GLASS_HOLD_FRAMES;
+
+test("a report at a new zoom goes to the App only after the hold, so its glass never leads the page", async () => {
+  const doc = page();
+  setPageZoom(doc, 1);
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  for (const zoom of [1.25, 0.9]) {
+    const before = reports.length;
+    setPageZoom(doc, zoom);
+    // The frames that put the page's content at the new zoom on screen: the App's glass stays put.
+    await frames(ZOOM_HOLD_FRAMES);
+    expect(reports.length).toBe(before);
+    // The next frame: one report, at the new zoom.
+    await frames(1);
+    expect(reports.length).toBe(before + 1);
+    expect(reports.at(-1)?.zoom).toBe(zoom);
+    await frames(4);
+    expect(reports.length).toBe(before + 1);
+  }
+});
+
+test("a box that moves while a new zoom is held goes to the App as last measured", async () => {
+  const doc = page();
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  setPageZoom(doc, 1.25);
+  await frames(1);
+  element.getBoundingClientRect = () =>
+    ({ left: 50, top: 75, right: 300, bottom: 225, width: 250, height: 150, x: 50, y: 75 }) as DOMRect;
+  element.style.width = "250px";
+  await frames(ZOOM_HOLD_FRAMES + 1);
+  expect(reports.at(-1)).toMatchObject({ zoom: 1.25, surfaces: [{ left: 50, top: 75, right: 300, bottom: 225 }] });
+});
+
+test("a surface that goes during a zoom hold is withdrawn at once", async () => {
+  const doc = page();
+  const reports: { surfaces: HostGlassSurface[]; zoom: unknown }[] = [];
+  stop = reportHostGlass(doc, async (surfaces, measured) => void reports.push({ surfaces, zoom: measured }));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  setPageZoom(doc, 1.25);
+  await frames(1);
+  element.remove();
+  await settled();
+  expect(reports.at(-1)?.surfaces).toEqual([]);
+});
+
+test("a resizing surface is reported in every frame it changes, never a stale box", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, async (surfaces) => void reports.push(surfaces));
+  const element = surface(doc);
+  await frames(HOST_GLASS_HOLD_FRAMES + 6);
+  for (let step = 1; step <= 6; step += 1) {
+    const width = 200 + step * 15;
+    const height = 120 + step * 10;
+    element.getBoundingClientRect = () =>
+      ({ left: 40, top: 60, right: 40 + width, bottom: 60 + height, width, height, x: 40, y: 60 }) as DOMRect;
+    // Base UI sizes a popup through its inline style; the reporter watches it.
+    element.style.width = `${width}px`;
+    await frames(1);
+    expect(reports.at(-1)?.[0]).toMatchObject({ right: 40 + width, bottom: 60 + height });
+  }
+});
+
+// Leo, 2026-11-21: "did we/did lucad figure out how to get rid of the double glassed thing on certain
+// menus and whatnot". A drawn surface that keeps the page's own glass (over the composer, or a cover
+// surface with nothing to blur in place) had the App's glass drawn under it too: two glasses. The
+// detector: such a surface is never in a report, is withdrawn in the task it starts to keep the page's
+// glass, and keeps that glass until the App answers for it again.
+test("a surface over the composer keeps only the page's glass: the App draws none under it", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()));
+  const element = surface(doc);
+  element.setAttribute("data-glass-keeps-underlay", "");
+  await frames();
+  await settled();
+  await frames();
+  expect(reports.every((report) => report.length === 0)).toBe(true);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+  expect(element.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  // No frame loop while it stays: it waits for no report.
+  const window = dom!.window as unknown as Window;
+  let asked = 0;
+  const paint = window.requestAnimationFrame;
+  window.requestAnimationFrame = (callback) => ((asked += 1), paint(callback));
+  // fixed-wait: proves an absence (no frame is asked for), so no event marks the end; 100 ms spans several frames.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(asked).toBe(0);
+  window.requestAnimationFrame = paint;
+});
+
+test("a drawn surface that reaches the composer leaves the App's glass in that task, and gets it back after", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  const answers: (() => void)[] = [];
+  stop = reportHostGlass(
+    doc,
+    (surfaces) => (reports.push(surfaces), new Promise<void>((resolve) => answers.push(resolve))),
+  );
+  const element = surface(doc);
+  await frames();
+  answers.shift()!();
+  await settled();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(false);
+  // It reaches the composer: withdrawn before any frame paints the two glasses together.
+  const window = dom!.window as unknown as Window;
+  const paint = window.requestAnimationFrame;
+  window.requestAnimationFrame = () => 0;
+  element.setAttribute("data-glass-keeps-underlay", "");
+  await settled();
+  expect(reports.at(-1)).toEqual([]);
+  expect(element.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  window.requestAnimationFrame = paint;
+  // It leaves the composer: reported again, on the page's glass until the App answers.
+  element.removeAttribute("data-glass-keeps-underlay");
+  await frames();
+  expect(reports.at(-1)).toHaveLength(1);
+  expect(element.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
+  while (answers.length > 0) answers.shift()!();
+  await settled();
+  expect(element.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(false);
+  expect(element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE)).toBe("1");
+});
+
+test("a cover surface with nothing under it to blur is never reported: one glass, the page's", async () => {
+  const doc = page();
+  const reports: HostGlassSurface[][] = [];
+  stop = reportHostGlass(doc, (surfaces) => (reports.push(surfaces), Promise.resolve()), {
+    candidates: () => [],
+  });
+  const menu = surface(doc, "menu");
+  menu.setAttribute("data-host-glass-cover", "");
+  await frames();
+  await settled();
+  await frames();
+  expect(menu.hasAttribute("data-glass-over")).toBe(false);
+  expect(reports.every((report) => report.length === 0)).toBe(true);
+  expect(menu.hasAttribute(HOST_GLASS_OWN_ATTRIBUTE)).toBe(true);
 });

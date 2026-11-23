@@ -141,8 +141,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     },
     {
       name: "chat-codex",
-      entry: "agent-pane.composer-row",
-      variant: "claude-auto",
+      entry: "agent-pane.composer-look",
+      variant: "codex-chat",
       width: 760,
       look: "codex",
       type: "helo",
@@ -151,7 +151,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     {
       name: "home-codex",
       entry: "agent-pane.new-chat-composer",
-      variant: "claude",
+      variant: "codex",
       width: 760,
       look: "codex",
       // Codex's folder tray is set 22 px in from the box's sides (composerLook.css
@@ -164,7 +164,7 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
       variant: "minimal-default",
       width: 760,
       look: "codex",
-      // A saved Codex chat look leaves New Tab in Claude's layout.
+      // An old Codex preference leaves New Tab in its standard layout.
       expect: ["foot"],
       trailing: ["mic", "send"],
       actionsGap: 2, // New Tab ships the tight arm of new-tab-composer-trailing-gap (Leo's pick)
@@ -199,14 +199,8 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
 
   const open = async (layout: Layout, scheme: "light" | "dark"): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: layout.width, height: 600 }, deviceScaleFactor: 2 });
-    // The look is the viewer's (composerLook.ts, localStorage), read as the page starts.
-    await page.addInitScript((look) => {
-      try {
-        localStorage.setItem("cmux.composer.look", look);
-      } catch {
-        // No storage: the default look.
-      }
-    }, layout.look);
+    if (layout.name === "new-tab-saved-codex")
+      await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "codex"));
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const theme = scheme === "light" ? "Apple System Colors Light" : "Apple System Colors";
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(layout.entry, { variant: layout.variant, theme })}`);
@@ -546,12 +540,12 @@ await requireBrowserLane("composer-plus-geometry.test.ts", async () => {
     const glyphLeft = glyph ? glyph.left - m.box.left : null;
     const glyphCenter = glyph ? centerX(glyph) - m.box.left : null;
     // The suggestions' popover frosts what is under it: every popup's one material, the menu
-    // level's tint (78%) and blur (glass.css GLASS LEVELS; Leo 2026-11-11, "the styles mix").
+    // level's tint (80% light, 72% dark) and blur (glass.css GLASS LEVELS; Leo 2026-11-11, "the styles mix").
     if (layout.expect?.includes("suggestions")) {
       if (!m.popover) out.push("the suggestions' popover is not drawn");
       else {
-        if (m.popover.alpha < 0.77)
-          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menu level's 0.78`);
+        if (m.popover.alpha < 0.71)
+          out.push(`the suggestions' fill is ${f(m.popover.alpha)} opaque, under the menu level's 0.72 (dark)`);
         if (!/blur\(/.test(m.popover.backdrop))
           out.push(`the suggestions' popover has no blur (${m.popover.backdrop})`);
       }
