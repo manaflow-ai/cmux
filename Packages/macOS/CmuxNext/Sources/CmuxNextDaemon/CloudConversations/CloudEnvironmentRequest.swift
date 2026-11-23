@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The Cloud environment editor over the existing daemon HTTP transport.
 /// Only the verified native app supplies the platform origin and install bearer.
