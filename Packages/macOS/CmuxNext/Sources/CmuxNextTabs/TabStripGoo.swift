@@ -178,7 +178,8 @@ final class TabStripGoo {
     /// distance; past `break_distance` it snaps off and retracts into the slot with a settle wobble, and back within
     /// `capture_distance` it holds again. The lifted tab draws itself (`Metrics.frameLiftSurface`).
     private func dragNeck(_ strip: TabStripView, cell: TabCell, slot: CmuxGooBlob, tuning: CmuxGooTuning) {
-        guard let clip = strip.tabsClip.layer, let layer = cell.layer else { return }
+        guard let clip = strip.tabsClip.layer else { return }
+        let layer = cell.layer
         let shown = clip.convert(layer.bounds, from: layer)
         var pill = strip.metrics.pillFrame(slotWidth: shown.width, height: shown.height)
         pill.origin = CGPoint(x: shown.minX + pill.minX, y: shown.minY + pill.minY)
@@ -354,8 +355,9 @@ final class TabStripGoo {
     }
 
     private static func same(_ a: CmuxGooBlob, _ b: CmuxGooBlob) -> Bool {
-        a.left == b.left && a.right == b.right && a.top == b.top && a.baseline == b.baseline
-            && a.corner_radius == b.corner_radius && a.feet_radius == b.feet_radius && a.skips_leading == b.skips_leading
+        let edges = [a.left - b.left, a.right - b.right, a.top - b.top, a.baseline - b.baseline]
+        let radii = [a.corner_radius - b.corner_radius, a.feet_radius - b.feet_radius]
+        return (edges + radii).allSatisfy { $0 == 0 } && a.skips_leading == b.skips_leading
     }
 
     private static func spring(_ event: CmuxGooEvent, _ tuning: CmuxGooTuning) -> CmuxGooSpring {
