@@ -93,7 +93,8 @@ fn a_display_point_is_hit_tested_to_its_window_and_denied_apps_stay_denied() {
     let k = 1456.0 / 1000.0;
     let out = e.call(&ctx(), "move_pointer", &json!({"x": 150.0 * k, "y": 150.0 * k}));
     assert!(!out.is_error, "{}", out.body);
-    let [Event::Move { window, point: Some(p), .. }] = moves(&d).as_slice() else {
+    let moved = moves(&d);
+    let [Event::Move { window, point: Some(p), .. }] = moved.as_slice() else {
         panic!("{:?}", d.events())
     };
     assert_eq!(window, "1");
@@ -133,7 +134,8 @@ fn foreground_needs_its_setting_and_is_passed_on() {
     let (d, e, _) = rig(config);
     let out = e.call(&ctx(), "move_pointer", &args);
     assert!(!out.is_error, "{}", out.body);
-    let [Event::Move { delivery, .. }] = moves(&d).as_slice() else { panic!("{:?}", d.events()) };
+    let moved = moves(&d);
+    let [Event::Move { delivery, .. }] = moved.as_slice() else { panic!("{:?}", d.events()) };
     assert_eq!(*delivery, Delivery::Foreground);
 }
 
