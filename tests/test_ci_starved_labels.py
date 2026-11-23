@@ -90,6 +90,31 @@ class StarvedDetectionTests(unittest.TestCase):
         self.assertEqual(starved(queued, job(label="cmux-fleet-linux-x64", status="in_progress", created=30,
                                              started=20, runner="cmux-gha-runner-1116-1")), [])
 
+    def test_the_persistent_linux_pool_label_is_in_scope(self) -> None:
+        # Same-repository jobs name cmux-linux (PR #47956); a pool that stops listening must alert too.
+        queued = job(label="cmux-linux", created=780, name="web / react-doctor")
+        self.assertEqual([entry["label"] for entry in starved(queued)], ["cmux-linux"])
+        self.assertEqual(starved(queued, job(label="cmux-linux", status="in_progress", created=30,
+                                             started=20, runner="cmux-gha-runner-1120-1")), [])
+
+    def test_one_pool_label_running_serves_the_other(self) -> None:
+        # Every pool runner registers both cmux-linux and cmux-fleet-linux-x64, so either label's running job
+        # proves a listener for the other (router-review F1 on #47956).
+        for queued_label, running_label in (("cmux-linux", "cmux-fleet-linux-x64"),
+                                            ("cmux-fleet-linux-x64", "cmux-linux")):
+            with self.subTest(queued=queued_label):
+                queued = job(label=queued_label, created=60)
+                running = job(label=running_label, status="in_progress", created=30, started=20,
+                              runner="cmux-runner-pool-c1f-0014-1")
+                self.assertEqual([e["label"] for e in starved(queued)], [queued_label])
+                # Two runs, so the running job is no sibling that may gate the queued one (wait_start()).
+                self.assertEqual(starved_labels.starved([{"id": 1}, {"id": 2}], {1: [queued], 2: [running]},
+                                                        now=NOW), [])
+        # A glaeda label is not the pool's: a pool job (in another run, so it is no sibling) serves no Mac label.
+        pool_job = job(label="cmux-linux", status="in_progress", created=30, started=20, runner="p-1")
+        found = starved_labels.starved([{"id": 1}, {"id": 2}], {1: [job(created=60)], 2: [pool_job]}, now=NOW)
+        self.assertEqual([e["label"] for e in found], [SIDE])
+
     def test_a_cancelled_job_that_never_got_a_runner_is_no_start(self) -> None:
         found = starved(job(created=60), job(status="completed", created=8, started=8, runner=None))
         self.assertEqual([entry["label"] for entry in found], [SIDE])
@@ -441,6 +466,18 @@ class RescueTests(unittest.TestCase):
         starved_labels.sync_issues(github, found, iso(0), now=NOW)
         self.assertEqual(dispatches(github), ["11"])
 
+    def test_the_persistent_pool_label_alerts_but_starts_no_rescue(self) -> None:
+        # A job on cmux-linux names it literally, so the rescue cannot move it (PR #47956 review).
+        stuck = job(label="cmux-linux", created=231, name="full bake")
+        stuck["run_id"], stuck["run_attempt"] = 11, 1
+        found = starved_labels.starved([{"id": 11}], {11: [stuck]}, now=NOW)
+        self.assertEqual([entry["label"] for entry in found], ["cmux-linux"])
+        self.assertEqual(starved_labels.rescue_plan(found[0], {}, NOW), [])
+        github = FakeGitHub([])
+        starved_labels.sync_issues(github, found, iso(0), now=NOW)
+        self.assertEqual(dispatches(github), [])
+        self.assertEqual(github.opened(), 1)
+
     def test_a_label_starved_under_thirty_minutes_only_alerts(self) -> None:
         found = starved_labels.starved([{"id": 11}], {11: [self.stuck_ios(11, 25)]}, now=NOW)
         self.assertEqual(len(found), 1)
@@ -492,7 +529,7 @@ class WorkflowTests(unittest.TestCase):
         concurrency = workflow["concurrency"]
         self.assertIs(concurrency["cancel-in-progress"], False)
         # every run that sweeps shares one group; only a run whose job starts no sweep gets its own
-        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor' }}"), concurrency["group"])
+        self.assertTrue(concurrency["group"].endswith("|| 'ci-queue-janitor-v2' }}"), concurrency["group"])
 
     def test_the_alert_step_uses_the_bot_token_and_adds_no_permission(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))

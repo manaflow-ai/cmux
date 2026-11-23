@@ -428,9 +428,16 @@ class Workflow(unittest.TestCase):
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("pick-nightly-app-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(", runs_on)
-        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}", runs_on)
+        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}", runs_on)
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
+
+    def test_the_build_and_sign_picks_put_6vcpu_first(self) -> None:
+        # #39585 F1: the build pick's `cloud` is never empty, so runs-on's literal 6 vCPU fallback alone never
+        # applies; without FIRST the pick leads with the starved blacksmith-12vcpu-macos-26.
+        for name in ("pick-nightly-app-runner", "pick-classic-sign-runner"):
+            with self.subTest(name):
+                self.assertRegex(self.job(name), r"\n          FIRST: 6vcpu\n")
 
     def test_prepare_takes_the_pinned_mini_only_on_the_prepare_pick(self) -> None:
         job = self.job("prepare-nightly-variant")
