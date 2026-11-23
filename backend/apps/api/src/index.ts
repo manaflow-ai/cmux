@@ -39,6 +39,8 @@ export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
 export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
+// Named entrypoint for cmux-platform's joined-machine GitHub token route only (integrations/machine-github.ts).
+export { MachineGitHub } from "./integrations/machine-github.ts"
 export { ModelKeys } from "./model-keys.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"

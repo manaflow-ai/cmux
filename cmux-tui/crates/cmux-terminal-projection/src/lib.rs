@@ -137,6 +137,7 @@ impl Projection {
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
+            view.pushed_at_paint = old.pushed_at_paint;
             // The reader's lines (in the old view's rows, above its live
             // part) and a screen above them stay in the window.
             let live = old.live_rows();
@@ -241,6 +242,16 @@ impl Projection {
             segments.push(paint);
         }
         segments
+    }
+
+    /// Paints what feeds with `paint` false changed since the last paint:
+    /// a phone that takes several chunks before it draws paints them once.
+    /// Nothing on the alternate screen (its bytes went through as they came).
+    pub fn flush(&mut self) -> Vec<Segment> {
+        if self.term.is_alternate() {
+            return Vec::new();
+        }
+        self.paint().into_iter().collect()
     }
 
     /// Answers for the program (cursor and text area reports, in host cells).

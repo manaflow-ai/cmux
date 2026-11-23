@@ -474,6 +474,28 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "action app-try-undo",
         ..Action::DEFAULT
     },
+    // The recovery key (customization capability matrix row `recovery-hotkey`): one fixed chord
+    // that runs `cmux customize revert`, so a look that broke the window is undone without
+    // finding Settings or a terminal. Its handler runs the bundled CLI's verb (the engine is
+    // cmux-customize `try_on.rs`), as Settings' Revert Now does. The chord is one no other
+    // default, macOS or Ghostty takes (`tests/default_keymap_conflicts.rs`). A person's
+    // keybindings can still rebind it: the catalog has no unbindable flag, and safe mode
+    // (`cmux safe-mode on`) loads the defaults with no customization.
+    Action {
+        id: "customize.revert",
+        group: GROUP,
+        title: t("ActionCatalog", "action.customize.revert", "Undo Look Change"),
+        hint: Some(t("ActionCatalog", "action.customize.revert.hint", "Stop trying on a look and put back what was there before.")),
+        description: Some("Runs `cmux customize revert`: ends the look being tried on and puts back what was there before."),
+        keywords: &["customize", "customization", "look", "theme", "revert", "undo", "put back", "broken", "recover", "reset", "try on"],
+        default_shortcut: Some(Shortcut { key: "z", modifiers: CTRL | OPT | CMD }),
+        category: "settings",
+        symbol: "arrow.uturn.backward.circle",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action customize-revert",
+        ..Action::DEFAULT
+    },
     Action {
         id: "palette.pro.upgrade",
         group: GROUP,
