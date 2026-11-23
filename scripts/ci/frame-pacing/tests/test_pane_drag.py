@@ -87,6 +87,13 @@ class Judge(unittest.TestCase):
         self.assertTrue(got["landed"])
         self.assertEqual(got["jumps"], 0)
 
+    def test_stall_stacks_keep_the_apps_frames_longest_first(self):
+        hangs = {"records": [{"duration_ms": 40, "kind": "stall", "frames": ["libsystem x", "CmuxNextApp a"]},
+                             {"duration_ms": 120.04, "kind": "stall", "frames": ["AppKit y", "CmuxNextBridge b"]}]}
+        got = pd.stall_stacks(hangs)
+        self.assertEqual([g["ms"] for g in got], [120.0, 40])
+        self.assertEqual(got[0]["frames"], ["CmuxNextBridge b"])
+
     def test_no_layout_change_is_not_landed(self):
         got = pd.judge_drop(drop([(BEFORE, [], [])] * 40))
         self.assertFalse(got["landed"])

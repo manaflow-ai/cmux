@@ -38,25 +38,25 @@ extension GitHubConnections {
 }
 
 private extension GitHubConnections {
-    static var connect: String { String(localized: "github.connect", defaultValue: "Connect GitHub", table: "GitHubConnection", bundle: .module) }
-    static var disconnect: String { String(localized: "github.disconnect", defaultValue: "Disconnect", table: "GitHubConnection", bundle: .module) }
-    static var reconfigure: String { String(localized: "github.reconfigure", defaultValue: "Reconfigure", table: "GitHubConnection", bundle: .module) }
-    static var confirm: String { String(localized: "github.confirm", defaultValue: "Disconnect GitHub? Agents will lose access through this connection.", table: "GitHubConnection", bundle: .module) }
-    static var cancel: String { String(localized: "github.cancel", defaultValue: "Cancel", table: "GitHubConnection", bundle: .module) }
-    static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .module) }
-    static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.", table: "GitHubConnection", bundle: .module) }
-    static var signIn: String { String(localized: "github.signIn", defaultValue: "Sign in to cmux to connect GitHub.", table: "GitHubConnection", bundle: .module) }
-    static var unavailable: String { String(localized: "github.unavailable", defaultValue: "GitHub connections are unavailable on this deployment.", table: "GitHubConnection", bundle: .module) }
-    static var pendingText: String { String(localized: "github.pending", defaultValue: "Finish connecting in your browser, then refresh.", table: "GitHubConnection", bundle: .module) }
-    static var failed: String { String(localized: "github.failed", defaultValue: "GitHub could not be updated. Refresh to try again.", table: "GitHubConnection", bundle: .module) }
-    static var reauth: String { String(localized: "github.reauth", defaultValue: "GitHub access was suspended or removed. Connect GitHub again.", table: "GitHubConnection", bundle: .module) }
-    static var connectionError: String { String(localized: "github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", table: "GitHubConnection", bundle: .module) }
-    static var linkExpired: String { String(localized: "github.linkExpired", defaultValue: "The link expired; connect again.", table: "GitHubConnection", bundle: .module) }
+    static var connect: String { String(localized: "github.connect", defaultValue: "Connect GitHub", table: "GitHubConnection", bundle: .localizedModule) }
+    static var disconnect: String { String(localized: "github.disconnect", defaultValue: "Disconnect", table: "GitHubConnection", bundle: .localizedModule) }
+    static var reconfigure: String { String(localized: "github.reconfigure", defaultValue: "Reconfigure", table: "GitHubConnection", bundle: .localizedModule) }
+    static var confirm: String { String(localized: "github.confirm", defaultValue: "Disconnect GitHub? Agents will lose access through this connection.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var cancel: String { String(localized: "github.cancel", defaultValue: "Cancel", table: "GitHubConnection", bundle: .localizedModule) }
+    static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .localizedModule) }
+    static var detail: String { String(localized: "github.detail", defaultValue: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var signIn: String { String(localized: "github.signIn", defaultValue: "Sign in to cmux to connect GitHub.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var unavailable: String { String(localized: "github.unavailable", defaultValue: "GitHub connections are unavailable on this deployment.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var pendingText: String { String(localized: "github.pending", defaultValue: "Finish connecting in your browser, then refresh.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var failed: String { String(localized: "github.failed", defaultValue: "GitHub could not be updated. Refresh to try again.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var reauth: String { String(localized: "github.reauth", defaultValue: "GitHub access was suspended or removed. Connect GitHub again.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var connectionError: String { String(localized: "github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", table: "GitHubConnection", bundle: .localizedModule) }
+    static var linkExpired: String { String(localized: "github.linkExpired", defaultValue: "The link expired; connect again.", table: "GitHubConnection", bundle: .localizedModule) }
     static func status(_ status: String?) -> String {
-        if status == "active" { return String(localized: "github.connected", defaultValue: "Connected", table: "GitHubConnection", bundle: .module) }
+        if status == "active" { return String(localized: "github.connected", defaultValue: "Connected", table: "GitHubConnection", bundle: .localizedModule) }
         if status == "pending" { return pendingText }
         if status == "needs_reauth" { return reauth }
         if status == "error" { return connectionError }
-        return String(localized: "github.reconnect", defaultValue: "Connect GitHub again to restore access.", table: "GitHubConnection", bundle: .module)
+        return String(localized: "github.reconnect", defaultValue: "Connect GitHub again to restore access.", table: "GitHubConnection", bundle: .localizedModule)
     }
 }

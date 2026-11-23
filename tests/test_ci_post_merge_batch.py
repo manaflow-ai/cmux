@@ -4,16 +4,25 @@ judgement and the bisect, plus the manifest, the caller jobs and the callees kep
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
+from argparse import Namespace
+from unittest import mock
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 import post_merge_batch as pmb  # noqa: E402
 
@@ -44,10 +53,36 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120)[0], "skip")
         self.assertEqual(pmb.tick_decision("a" * 40, runs[:1], NOW, 120)[0], "dispatch")
 
+    def test_redispatches_a_tip_batch_with_no_verdict_once(self) -> None:
+        # Drill-8 run 44966393364: the plan lost its runner, so the tip was never tested.
+        runs = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+        runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
         self.assertEqual(pmb.window_minutes("45"), 45)
+
+
+class WebTickTest(unittest.TestCase):
+    """The batch's `web` suite replaced cmux-next-web.yml's coalescing tick: a tick dispatches no web run."""
+
+    def test_a_tick_dispatches_no_web_workflow(self) -> None:
+        calls = []
+
+        def api(path, method="GET", fields=None, **_):
+            calls.append((method, path, fields))
+            return {"sha": "a" * 40} if path.endswith("/commits/feat-cmux-next") else None
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", window_minutes="120", dry_run=True)
+        with unittest.mock.patch.object(pmb, "gh_api", api), \
+                unittest.mock.patch.object(pmb, "list_runs", lambda repo, branch: [run(1, "a" * 40, "2026-11-21T11:00:00Z")]), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(pmb.cmd_tick(args), 0)
+        self.assertFalse([call for call in calls if "cmux-next-web.yml" in call[1]])
 
 
 class PlanAndJudgeTest(unittest.TestCase):
@@ -192,17 +227,25 @@ class BisectTest(unittest.TestCase):
         probe = pmb.Probe("s", "s / j", "j", "c3", "g", "", "1")
         self.assertEqual(pmb.next_step(probe, "success", ["c1", "c2", "c3"])[0], "flake")
 
-    def test_a_probe_without_verdict_retries_once(self) -> None:
+    def test_a_probe_without_verdict_retries_then_stops(self) -> None:
         probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
-        step, again = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
-        self.assertEqual((step, again.tries), ("retry", 1))
-        self.assertEqual(pmb.next_step(again, "cancelled", ["c1", "c2", "c3"])[0], "lost")
+        for n in range(1, pmb.MAX_PROBE_RETRIES + 1):
+            step, probe = pmb.next_step(probe, "cancelled", ["c1", "c2", "c3"])
+            self.assertEqual((step, probe.tries), ("retry", n))
+        self.assertEqual(pmb.next_step(probe, "", ["c1", "c2", "c3"])[0], "lost")
+
+    def test_a_probe_judge_runs_when_its_plan_died(self) -> None:
+        # Drill-8 probe run 44980687386: the plan job lost its runner and the bisect stopped with no judge.
+        judge = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]
+        self.assertIn("inputs.mode == 'probe'", judge["if"])
+        self.assertIn("!cancelled()", judge["if"])
 
     def test_first_parent_range_on_a_real_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             def g(*argv: str) -> str:
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=tmp, check=True, capture_output=True, text=True).stdout.strip()
-            g("init", "-q")
+                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *argv], cwd=tmp, check=True,
+                                      capture_output=True, text=True, env=git_fixture_env.fixture_env()).stdout.strip()
+            git_fixture_env.init_repo(tmp)
             shas = []
             for i in range(4):
                 Path(tmp, "f").write_text(str(i))
@@ -242,6 +285,203 @@ class WiringTest(unittest.TestCase):
                 gate = str(callee["jobs"][job_id].get("if", ""))
                 self.assertIn(f"inputs.only == '{job_id}'", gate, f"{key}/{job_id}")
             self.assertIn("inputs.sha", (WORKFLOW.parent / suite.workflow).read_text(), key)
+
+    def test_a_hung_checkout_is_bounded_and_tried_once_more(self) -> None:
+        """A fetch that hangs must not take the job's whole budget and its verdict with it (plan job
+        137288423007 and judge job 137302455752, 2026-11-22: cancelled in "Fetching the repository")."""
+        for key in ("plan", "judge", "revert"):
+            job = self.workflow["jobs"][key]
+            steps = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@")]
+            self.assertEqual(len(steps), 2, f"{key}: one checkout and one retry")
+            first, again = steps
+            self.assertTrue(first.get("continue-on-error"), key)
+            self.assertEqual(again.get("if"), f"steps.{first.get('id')}.outcome != 'success'", key)
+            self.assertEqual(first["with"], again["with"], key)
+            self.assertEqual(first["uses"], again["uses"], key)
+            bound = first.get("timeout-minutes", 0) + again.get("timeout-minutes", 0)
+            self.assertTrue(0 < first.get("timeout-minutes", 0) and 0 < again.get("timeout-minutes", 0), key)
+            history = next(s for s in job["steps"] if s.get("name") == "Fetch this ref's history")
+            self.assertGreater(job["steps"].index(history), job["steps"].index(again), key)
+            bound += history["timeout-minutes"]
+            self.assertLess(bound, job["timeout-minutes"], f"{key}: every try fits inside the job's budget")
+            # Only this ref: fetch-depth 0 fetches every branch of the repository, which is what hung.
+            self.assertNotIn("fetch-depth", first["with"], key)
+            self.assertIn('origin "$(git rev-parse HEAD)"', history["run"], key)
+            self.assertIn("--unshallow", history["run"], key)
+
+
+class GuardTest(unittest.TestCase):
+    """A probe's inputs are checked against the batch run that found the red; a teammate's culprit gets a held revert."""
+
+    COMMITS = ["c1", "c2", "c3", "c4"]
+    ORIGIN = {"id": 50, "display_title": "batch schedule", "path": ".github/workflows/cmux-next-post-merge.yml", "head_branch": "feat-cmux-next", "head_sha": "c4"}
+    FOUND = [("s / j", "s", "g")]
+
+    def refusal(self, probe, origin=ORIGIN, found=FOUND) -> str:
+        return pmb.probe_refusal(probe, "feat-cmux-next", origin, found, lambda good, head: self.COMMITS if (good, head) == ("g", "c4") else [])
+
+    def test_the_bisect_the_batch_started_passes(self) -> None:
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c4", "g", "", "50")), "")
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "c4", "50")), "")
+        self.assertEqual(self.refusal(pmb.Probe("s", "s / j", "j", "c3", "c2", "c4", "50")), "")
+
+    def test_a_forged_range_is_refused(self) -> None:
+        # bad=X, good=X^ naming any X: X is not in the batch's covered commits.
+        self.assertIn("sha", self.refusal(pmb.Probe("s", "s / j", "j", "x", "x0", "x", "50")))
+        self.assertIn("bad", self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "x", "50")))
+        self.assertIn("good", self.refusal(pmb.Probe("s", "s / j", "j", "c3", "x0", "c4", "50")))
+        self.assertIn("confirming", self.refusal(pmb.Probe("s", "s / j", "j", "c2", "g", "", "50")))
+
+    def test_a_job_that_was_not_a_new_red_is_refused(self) -> None:
+        self.assertIn("not a new red", self.refusal(pmb.Probe("s", "s / k", "k", "c4", "g", "", "50")))
+        self.assertIn("not a new red", self.refusal(pmb.Probe("s", "s / j", "j", "c4", "g", "", "50"), found=[]))
+
+    def test_an_origin_that_is_not_our_batch_run_is_refused(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c4", "g", "", "50")
+        self.assertIn("unreadable", self.refusal(probe, origin=None))
+        for change in ({"display_title": "probe s j at c4"}, {"path": ".github/workflows/other.yml"}, {"head_branch": "lane/x"}):
+            self.assertIn("not a batch run", self.refusal(probe, origin={**self.ORIGIN, **change}))
+
+    def test_a_teammates_culprit_is_held(self) -> None:
+        self.assertEqual(pmb.merged_by_teammate("o/r", "7", api=lambda path: {"user": {"login": "lawrencecchen"}}), "lawrencecchen")
+        self.assertEqual(pmb.merged_by_teammate("o/r", "7", api=lambda path: {"user": {"login": "some-agent"}}), "")
+        self.assertEqual(pmb.merged_by_teammate("o/r", "", api=lambda path: 1 / 0), "")
+
+        def unreadable(path):
+            raise RuntimeError("gh api: 403")
+
+        self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
+        self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
+
+
+class PushTest(unittest.TestCase):
+    """GitHub's workflow-scope check timing out is retried; any other refusal is not."""
+
+    def pusher(self, errors):
+        calls = []
+
+        def run(*argv):
+            calls.append(argv)
+            if errors:
+                raise RuntimeError(errors.pop(0))
+            return ""
+
+        return run, calls
+
+    def test_a_timed_out_workflow_check_is_retried(self) -> None:
+        run, calls = self.pusher(["! [remote rejected] HEAD -> x (Unable to determine if workflow can be created or updated due to timeout; `workflows` scope may be required.)"] * 2)
+        waits = []
+        pmb.push_branch("u", "HEAD:refs/heads/x", run=run, sleep=waits.append)
+        self.assertEqual((len(calls), waits), (3, [15, 45]))
+
+    def test_other_refusals_and_a_lasting_timeout_raise(self) -> None:
+        run, calls = self.pusher(["! [remote rejected] (protected branch)"])
+        with self.assertRaises(RuntimeError):
+            pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
+        self.assertEqual(len(calls), 1)
+        run, calls = self.pusher(["due to timeout"] * 9)
+        with self.assertRaises(RuntimeError):
+            pmb.push_branch("u", "r", run=run, sleep=lambda s: None)
+        self.assertEqual(len(calls), 4)
+
+
+class StartBranchTest(unittest.TestCase):
+    """The revert branch is created by API at the tip; one left by an earlier try is reused."""
+
+    def test_creates_the_ref_at_the_tip(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "revert/x", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "push", "GH_TOKEN": "job"}):
+            pmb.start_branch("o/r", "revert/y", "abc", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls[0][0], "repos/o/r/git/refs")
+        self.assertEqual(calls[0][1]["fields"], {"ref": "refs/heads/revert/x", "sha": "abc"})
+        self.assertEqual(calls[1][1]["tokens"], ["push"])
+
+    def test_an_existing_branch_is_reused_and_other_errors_raise(self) -> None:
+        def exists(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Reference already exists (HTTP 422)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=exists)
+
+        def denied(path, **kw):
+            raise RuntimeError("gh api POST repos/o/r/git/refs: Resource not accessible by integration (HTTP 403)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=denied, sleep=lambda s: None)
+
+    def test_a_github_5xx_is_retried_then_raises(self) -> None:
+        tries, waits = [], []
+
+        def flaky(path, **kw):
+            tries.append(1)
+            if len(tries) < 2:
+                raise RuntimeError("gh api POST repos/o/r/git/refs: gh: Server Error (HTTP 502)")
+
+        pmb.start_branch("o/r", "revert/x", "abc", api=flaky, sleep=waits.append)
+        self.assertEqual((len(tries), waits), (2, [15]))
+
+        def down(path, **kw):
+            raise RuntimeError("gh: Server Error (HTTP 502)")
+
+        with self.assertRaises(RuntimeError):
+            pmb.start_branch("o/r", "revert/x", "abc", api=down, sleep=lambda s: None)
+
+
+class PushTokenTest(unittest.TestCase):
+    """The swap-out, probe or revert branch is created and pushed with the workflows-write token when the job has one
+    (a ref at a feat-cmux-next commit needs it, drill 9); else with the contents-write token, and a diff that
+    touches .github/workflows/** then stops with the command and the issue to fix it, never a skip.
+    The routing App had no Workflows permission, so a combined contents+workflows mint failed every revert job
+    (run 45021631601, hq#18499)."""
+
+    ENV = {"PUSH_TOKEN": "contents", "WORKFLOWS_TOKEN": "workflows", "GH_TOKEN": "job"}
+
+    def test_any_diff_takes_the_workflows_token_when_minted(self) -> None:
+        # A ref at a feat-cmux-next commit needs workflows write whatever the diff: drill 9 run 45096141472 got
+        # HTTP 403 creating its piece probe branch with the contents token.
+        with mock.patch.dict(os.environ, self.ENV):
+            self.assertEqual(pmb.push_token([".github/post-merge-drill-red", "webviews/src/pages/a.tsx"]), "workflows")
+            self.assertEqual(pmb.push_token([]), "workflows")
+
+    def test_a_diff_with_no_workflow_file_falls_back_to_the_contents_token(self) -> None:
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "contents", "GH_TOKEN": "job"}, clear=True):
+            self.assertEqual(pmb.push_token([".github/post-merge-drill-red", "webviews/src/pages/a.tsx"]), "contents")
+            self.assertEqual(pmb.push_token([]), "contents")
+        with mock.patch.dict(os.environ, {"GH_TOKEN": "job"}, clear=True):
+            self.assertEqual(pmb.push_token(["a.txt"]), "job")
+
+    def test_a_workflow_file_takes_the_workflows_token(self) -> None:
+        with mock.patch.dict(os.environ, self.ENV):
+            self.assertEqual(pmb.push_token(["a.txt", ".github/workflows/x.yml"]), "workflows")
+
+    def test_a_workflow_file_with_no_workflows_token_stops_with_the_fix(self) -> None:
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "contents", "GH_TOKEN": "job"}, clear=True):
+            with self.assertRaises(pmb.WorkflowsTokenMissing) as caught:
+                pmb.push_token([".github/workflows/x.yml"], command="git push origin abc:refs/heads/swapout/x")
+        text = str(caught.exception)
+        self.assertIn("hq#18499", text)
+        self.assertIn(".github/workflows/x.yml", text)
+        self.assertIn("git push origin abc:refs/heads/swapout/x", text)
+
+    def test_the_push_url_takes_the_chosen_token(self) -> None:
+        self.assertEqual(pmb.push_url("https://x-access-token:{token}@github.com/o/r.git", "t"), "https://x-access-token:t@github.com/o/r.git")
+        self.assertEqual(pmb.push_url("origin", "t"), "origin")
+
+    def test_start_branch_uses_the_token_it_is_given(self) -> None:
+        calls = []
+        pmb.start_branch("o/r", "swapout/x", "abc", api=lambda path, **kw: calls.append(kw), token="contents")
+        self.assertEqual(calls[0]["tokens"], ["contents"])
+
+    def test_the_workflow_mints_contents_and_workflows_tokens_apart(self) -> None:
+        steps = {s.get("id"): s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["revert"]["steps"] if s.get("id")}
+        push, wf = steps["push-token"], steps["workflows-token"]
+        self.assertEqual(push["with"].get("permission-contents"), "write")
+        self.assertNotIn("permission-workflows", push["with"])
+        self.assertEqual(wf["with"].get("permission-workflows"), "write")
+        self.assertTrue(wf.get("continue-on-error"))
+        run = next(s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["revert"]["steps"] if "post_merge_batch.py revert" in str(s.get("run")))
+        self.assertIn("steps.workflows-token.outputs.token", run["env"]["WORKFLOWS_TOKEN"])
+        self.assertIn("{token}", run["run"])
 
 
 if __name__ == "__main__":

@@ -32,6 +32,19 @@ pub struct SessionRow {
     /// `coordinator`). The hub prefixes it with the member/team namespace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_address: Option<String>,
+    /// The session's working directory, which the hub keeps and its address book returns, so
+    /// another machine lists the chat under its folder. Left out past [`MAX_CWD_UNITS`]: the hub
+    /// refuses a whole heartbeat over one long field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+/// The longest `cwd` (UTF-16 units, as the hub counts) a heartbeat lists (`MeshSessionAnnouncement`).
+pub const MAX_CWD_UNITS: usize = 1024;
+
+/// `cwd` as a heartbeat may list it: none when the hub would refuse its length.
+pub fn heartbeat_cwd(cwd: &str) -> Option<String> {
+    (!cwd.is_empty() && cwd.encode_utf16().count() <= MAX_CWD_UNITS).then(|| cwd.to_owned())
 }
 
 /// The hub's address book (`GET /v1/mesh/sessions`): the team's live daemons and sessions.
@@ -69,6 +82,23 @@ pub struct BookSession {
     pub state: String,
     #[serde(default)]
     pub last_seen_at: u64,
+    /// The rest of a row a local one carries: read whenever the hub returns them, each `None`
+    /// when it does not. Every hub row lists every one of these keys, null when unknown, so a
+    /// reader never tells a hub row from a local one by a missing key (`mesh_book::row_of`).
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub title_source: Option<String>,
+    #[serde(default)]
+    pub name_given: Option<bool>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub agent_session_id: Option<String>,
+    #[serde(default)]
+    pub host_build: Option<String>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -352,6 +382,23 @@ pub struct HubError {
     pub retry_after: Option<Duration>,
     /// The HTTP status the hub answered, when it answered one.
     pub status: Option<u16>,
+    /// Where the failure came from: this daemon before it asked, the hub's answer, or no answer.
+    /// It words a failure (`server/team.rs` `inbox_failure`); `refused` alone says whether to
+    /// try again.
+    pub source: HubErrorSource,
+}
+
+/// Where a [`HubError`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HubErrorSource {
+    /// This daemon, before it asked the hub: no token command, a token command that failed, a
+    /// request it would not send.
+    Daemon,
+    /// The hub's answer: a status, a revoked credential, two tokens refused, an answer too large
+    /// or not the shape of the contract.
+    Hub,
+    /// No answer: no connection, a dropped one, or none in time.
+    NoAnswer,
 }
 
 impl HubError {
@@ -363,10 +410,17 @@ impl HubError {
         self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
     }
 
+    /// A failure that may pass, with no answer from the hub (no connection, none in time).
     pub fn unavailable(message: impl Into<String>) -> Self {
-        Self { refused: false, ..Self::refused(message) }
+        Self { refused: false, source: HubErrorSource::NoAnswer, ..Self::refused(message) }
     }
 
+    /// A failure that may pass, made by this daemon before it asked (a token command that failed).
+    pub fn local(message: impl Into<String>) -> Self {
+        Self { source: HubErrorSource::Daemon, ..Self::unavailable(message) }
+    }
+
+    /// A refusal this daemon made before it asked; [`HubError::from_hub`] marks the hub's.
     pub fn refused(message: impl Into<String>) -> Self {
         let message = message.into();
         Self {
@@ -376,7 +430,13 @@ impl HubError {
             candidates: None,
             retry_after: None,
             status: None,
+            source: HubErrorSource::Daemon,
         }
+    }
+
+    /// This failure, as the hub's answer.
+    pub fn from_hub(self) -> Self {
+        Self { source: HubErrorSource::Hub, ..self }
     }
 }
 

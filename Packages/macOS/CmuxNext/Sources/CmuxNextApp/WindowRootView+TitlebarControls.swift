@@ -27,7 +27,7 @@ extension WindowRootView {
     /// indicator and the live mode badge (while the sidebar is hidden) after it.
     var titlebarAccessoryFrame: CGRect {
         let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
-        let shown = [titlebarBadgeFrame] + [hostPressureIndicator, liveModeBadge].map { $0.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) } }
+        let shown = [titlebarBadgeFrame] + [hostPressureIndicator, extensionStatusStrip, liveModeBadge].map { $0.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) } }
         return shown.compactMap(\.self).reduce(band) { $0.union($1) }
     }
 
@@ -38,6 +38,7 @@ extension WindowRootView {
         WindowTitlebar.layoutAccessories(after: toolbarBand.frame, badge: showsTitlebarBadge ? titlebarBadge : nil,
                                         indicator: hostPressureIndicator,
                                         indicatorWidth: (hostPressureIndicator as? HostPressureIndicatorView)?.width ?? TitlebarBandButton.side,
-                                        centeredOn: midY, scale: window?.backingScaleFactor ?? 1, trailing: liveModeBadge, showsTrailing: sidebarHidden)
+                                        centeredOn: midY, scale: window?.backingScaleFactor ?? 1, extensionStatus: extensionStatusStrip,
+                                        extensionStatusWidth: extensionStatusStrip?.width ?? 0, trailing: liveModeBadge, showsTrailing: sidebarHidden)
     }
 }
