@@ -62,6 +62,36 @@ struct CatalogRequestHandlersTests {
         #expect(missing == .failure(ActionCatalogRequest.MissingTarget(kind: .workspace)))
     }
 
+    @Test func generatedKeyIsFreshForEachInvocation() throws {
+        let keyParam: [String: Any] = ["name": "idempotency_key", "idempotencyKey": true]
+        let wire: [String: Any] = ["lane": "app", "operation": "test.run", "params": [keyParam]]
+        let request = try #require(ActionCatalogRequest.decode(wire))
+        #expect(request.params.map(\.source) == [.idempotencyKey])
+
+        func sentKey() throws -> String {
+            let values = try request.values(arguments: [], invocation: ActionInvocation()) { _ in nil }.get()
+            let control = try #require(CatalogRequestHandlers.controlRequest(request.operation, values))
+            return try #require(control.params["idempotency_key"]?.stringValue)
+        }
+        let first = try sentKey()
+        let second = try sentKey()
+        let format = "^cli-[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+        #expect(first.range(of: format, options: .regularExpression) != nil)
+        #expect(second.range(of: format, options: .regularExpression) != nil)
+        #expect(first != second)
+    }
+
+    @Test func anUnknownSourceSkipsOnlyItsRequest() {
+        let unknown: [String: Any] = [
+            "id": "test.future", "request": ["lane": "app", "operation": "test.run",
+                                             "params": [["name": "key", "futureSource": true]]],
+        ]
+        let (requests, lists) = RustActionCatalog.catalogRequests([unknown, Self.row])
+        #expect(requests["test.future"] == nil)
+        #expect(requests["closed.delete"] != nil)
+        #expect(lists["op:closed.list"] != nil)
+    }
+
     @Test func listRowsBecomeSuggestions() throws {
         let list = ActionCatalogListSource(lane: .session, operation: "closed.list", items: nil, value: "id", title: "name")
         let data = try JSONSerialization.data(withJSONObject: [["id": "cl_1", "name": "Tab"], ["id": "cl_2"], ["name": "no id"]])
