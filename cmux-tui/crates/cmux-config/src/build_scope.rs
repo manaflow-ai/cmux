@@ -89,10 +89,7 @@ pub fn extract(root: &Value) -> Value {
     let mut out = Value::Object(Map::new());
     let Some(members) = root.as_object() else { return out };
     for path in SCOPED_PATHS {
-        let nested = path
-            .iter()
-            .try_fold(root, |node, key| node.get(*key))
-            .cloned();
+        let nested = path.iter().try_fold(root, |node, key| node.get(*key)).cloned();
         let flat = members.get(&path.join(".")).cloned();
         let off = Value::String("off".into());
         let value = if path == &["agents", "cmuxMcp"] && (flat.as_ref() == Some(&off)) {
@@ -107,7 +104,10 @@ pub fn extract(root: &Value) -> Value {
     // Flat keys below a scoped object (`"computerUse.mode"`) fill what the nested object leaves out.
     for (key, value) in members {
         let parts: Vec<&str> = key.split('.').collect();
-        if parts.len() > 1 && is_scoped_path(&parts) && !SCOPED_PATHS.iter().any(|p| p.join(".") == *key) {
+        if parts.len() > 1
+            && is_scoped_path(&parts)
+            && !SCOPED_PATHS.iter().any(|p| p.join(".") == *key)
+        {
             let present = parts.iter().try_fold(&out, |node, key| node.get(*key)).is_some();
             if !present {
                 insert(&mut out, &parts, value.clone());
@@ -152,7 +152,9 @@ pub fn overlaid_source(source: &str, values: &Value) -> String {
         }
     }
     for path in SCOPED_PATHS {
-        let Some(value) = path.iter().try_fold(values, |node, key| node.get(*key)) else { continue };
+        let Some(value) = path.iter().try_fold(values, |node, key| node.get(*key)) else {
+            continue;
+        };
         let owned: Vec<String> = path.iter().map(|key| (*key).to_string()).collect();
         match jsonc::set(&text, &owned, value) {
             Ok(next) => text = next,
@@ -181,7 +183,8 @@ pub fn build_values(build_file: &Path, shared: &str) -> Value {
             match write_new(build_file, &render(&values)) {
                 Ok(()) => values,
                 // Another reader wrote it first: its copy is the build's.
-                Err(_) => match std::fs::read_to_string(build_file).map(|text| jsonc::parse(&text)) {
+                Err(_) => match std::fs::read_to_string(build_file).map(|text| jsonc::parse(&text))
+                {
                     Ok(Ok(value @ Value::Object(_))) => value,
                     _ => values,
                 },
@@ -266,9 +269,8 @@ pub fn split(merged: &str, shared_on_disk: &str) -> Option<(Value, Option<String
     let values = extract(&merged_root);
     let disk_values = migrated(shared_on_disk);
     let shared_next = overlaid_source(merged, &disk_values);
-    let unscoped = |text: &str| {
-        jsonc::parse(&overlaid_source(text, &Value::Object(Map::new()))).ok()
-    };
+    let unscoped =
+        |text: &str| jsonc::parse(&overlaid_source(text, &Value::Object(Map::new()))).ok();
     let changed = unscoped(&shared_next) != unscoped(shared_on_disk)
         || (shared_on_disk.trim().is_empty() && !is_empty_document(&shared_next));
     Some((values, changed.then_some(shared_next)))

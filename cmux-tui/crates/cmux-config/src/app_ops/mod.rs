@@ -54,7 +54,10 @@ fn build_scope_source(request: &Value) -> Result<Value, OpError> {
     let source = match request.get("buildFile").and_then(Value::as_str).filter(|p| !p.is_empty()) {
         Some(file) => {
             let file = std::path::Path::new(file);
-            crate::build_scope::overlaid_source(source, &crate::build_scope::build_values(file, source))
+            crate::build_scope::overlaid_source(
+                source,
+                &crate::build_scope::build_values(file, source),
+            )
         }
         None => source.to_string(),
     };

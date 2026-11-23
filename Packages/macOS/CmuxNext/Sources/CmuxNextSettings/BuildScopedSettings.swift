@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The settings that belong to this build, not to the Mac account: the cmux tools answer
@@ -38,7 +39,7 @@ public nonisolated enum BuildScopedSettings {
 
     /// The build file's text, nil without one.
     public static func text(of buildFile: URL?) -> String? {
-        buildFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        buildFile.flatMap { try? String(blockingContentsOf: $0, encoding: .utf8) }
     }
 
     /// ``overlay(_:buildFile:)`` with the build file's text already read (nil: none).

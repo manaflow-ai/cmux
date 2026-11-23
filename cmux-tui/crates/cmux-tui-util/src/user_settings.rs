@@ -381,9 +381,7 @@ impl AgentsCmuxMcp {
 
     /// [`Self::from_config_text_for`] over the settings file at `path`.
     pub fn from_config_file_for(path: &Path, agent: &str) -> Self {
-        read_scoped(path)
-            .map(|text| Self::from_config_text_for(&text, agent))
-            .unwrap_or_default()
+        read_scoped(path).map(|text| Self::from_config_text_for(&text, agent)).unwrap_or_default()
     }
 
     /// [`Self::current`] for one agent (the `claude` and `codex` shims).

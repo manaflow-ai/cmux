@@ -91,7 +91,8 @@ impl ConfigStore {
         {
             state = state.with_revision(revision + 1);
         }
-        let mut store = ConfigStore { state, config_path, seed_path, state_dir, reader, build_file };
+        let mut store =
+            ConfigStore { state, config_path, seed_path, state_dir, reader, build_file };
         store.migrate_once();
         store.write_cache();
         store
@@ -185,16 +186,14 @@ impl ConfigStore {
         }
         let result = match store::apply(&self.state, op) {
             Err(refusal) => Err(refusal),
-            Ok(applied) => {
-                match applied.write.as_deref().map(|text| self.publish(text)) {
-                    Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
-                    _ => {
-                        self.state = applied.state;
-                        changes.extend(applied.changes);
-                        Ok(applied.outcome)
-                    }
+            Ok(applied) => match applied.write.as_deref().map(|text| self.publish(text)) {
+                Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
+                _ => {
+                    self.state = applied.state;
+                    changes.extend(applied.changes);
+                    Ok(applied.outcome)
                 }
-            }
+            },
         };
         // A write that picks another theme file: read that file now.
         if self.state.theme_wanted().is_some_and(|(_, stale)| stale)
@@ -329,7 +328,11 @@ fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
 }
 
 /// [`read_settings`], with this build's values over it when it has a file of its own.
-fn read_with_build(config_path: &Path, seed_path: Option<&Path>, build_file: Option<&Path>) -> FileRead {
+fn read_with_build(
+    config_path: &Path,
+    seed_path: Option<&Path>,
+    build_file: Option<&Path>,
+) -> FileRead {
     match (read_settings(config_path, seed_path), build_file) {
         (FileRead::Text(text), Some(build_file)) => {
             let values = crate::build_scope::build_values(build_file, &text);

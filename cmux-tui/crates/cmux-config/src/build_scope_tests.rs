@@ -13,7 +13,9 @@ fn scoped_keys_are_the_cmux_tools_answer_and_every_computer_use_key() {
     for key in ["agents.cmuxMcp", "agents.cmuxMcpClaude", "computerUse", "computerUse.mode"] {
         assert!(is_scoped_key(key), "{key}");
     }
-    for key in ["agents.cmuxMcpX", "agents.defaultPermissionMode", "computerUseX", "appearance.density"] {
+    for key in
+        ["agents.cmuxMcpX", "agents.defaultPermissionMode", "computerUseX", "appearance.density"]
+    {
         assert!(!is_scoped_key(key), "{key}");
     }
 }
@@ -81,7 +83,10 @@ fn the_overlay_replaces_only_build_scoped_members_and_keeps_the_rest_byte_for_by
     assert_eq!(root.pointer("/computerUse/mode"), Some(&json!("askEveryTime")));
     // A missing shared file and no values stays missing.
     assert_eq!(overlaid_source("", &json!({})), "");
-    assert_eq!(parse(&overlaid_source("", &json!({"agents": {"cmuxMcp": "off"}}))), json!({"agents": {"cmuxMcp": "off"}}));
+    assert_eq!(
+        parse(&overlaid_source("", &json!({"agents": {"cmuxMcp": "off"}}))),
+        json!({"agents": {"cmuxMcp": "off"}})
+    );
 }
 
 #[test]
@@ -90,8 +95,11 @@ fn the_first_read_copies_the_shared_values_once_then_builds_part() {
     let shared_path = root.path().join("cmux-next.json");
     let nightly = root.path().join("builds/com.cmuxterm.app.nightly/build-settings.json");
     let release = root.path().join("builds/com.cmuxterm.app/build-settings.json");
-    std::fs::write(&shared_path, r#"{"agents": {"cmuxMcp": "off"}, "computerUse": {"mode": "fullAccess"}, "x": 1}"#)
-        .unwrap();
+    std::fs::write(
+        &shared_path,
+        r#"{"agents": {"cmuxMcp": "off"}, "computerUse": {"mode": "fullAccess"}, "x": 1}"#,
+    )
+    .unwrap();
     // Each build's first read migrates what the person chose before the split.
     for file in [&nightly, &release] {
         let text = effective_text_with(&shared_path, Some(file)).unwrap();
@@ -113,7 +121,10 @@ fn the_first_read_copies_the_shared_values_once_then_builds_part() {
     assert_eq!(parse(&release_text).pointer("/computerUse/mode"), Some(&json!("fullAccess")));
     assert_eq!(parse(&release_text).get("x"), Some(&json!(2)));
     // Without a build file the shared file reads as it is.
-    assert_eq!(effective_text_with(&shared_path, None).unwrap(), std::fs::read_to_string(&shared_path).unwrap());
+    assert_eq!(
+        effective_text_with(&shared_path, None).unwrap(),
+        std::fs::read_to_string(&shared_path).unwrap()
+    );
 }
 
 #[test]
