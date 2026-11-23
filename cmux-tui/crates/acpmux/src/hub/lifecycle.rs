@@ -1249,9 +1249,11 @@ impl Hub {
         // Cleared only once the fork has started; a failed start retries it.
         let fork_from = session.fork_from.lock().unwrap().clone();
         // Resume a Claude conversation only from a store that has it: one
-        // that never finished a turn may not be stored at all, and one that
+        // that never finished a turn may not be stored at all, one that
         // another profile ran lives in that profile's store (a failover onto
-        // a fallback with its own CLAUDE_CONFIG_DIR). Else a fresh one starts
+        // a fallback with its own CLAUDE_CONFIG_DIR), and a transcript can be
+        // gone from its own profile's store (the compactor deletes one it
+        // folded; a store can be pruned or deleted). Else a fresh one starts
         // with the restored transcript, never a turn failed on `--resume`.
         if is_claude
             && fork_from.is_none()
