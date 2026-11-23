@@ -237,8 +237,8 @@ public final class PanePaintHold {
         releasePlace()
         if let outgoing { release?(outgoing) }
         // Shown first: a page back from out of sight never lies in place under a clear view (hidden to Chromium).
-        incoming?.alphaValue = 1
         showUnseen()
+        incoming?.alphaValue = 1
         if let incoming { PageWebView.syncChromiumVisibility(in: incoming) }
         if let outgoing { PageWebView.syncChromiumVisibility(in: outgoing) }
         ended?()
