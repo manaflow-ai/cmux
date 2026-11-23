@@ -12,11 +12,18 @@
 //! parks it on its prompt. It then leaves the alternate screen back to the shell's lines and
 //! scrollback, and the shell prints more.
 //!
-//! At each quiet point (both streams idle for 300 ms) every retained row of the active screen
-//! (scrollback included) is compared cell by cell: the grapheme, wide or narrow, foreground,
-//! background, attributes and underline style (a blank's foreground and text attributes do not
-//! show and are not compared, as in `cmux-terminal-projection/tests/parity.rs`), then the
-//! cursor cell, its visibility and which screen is active. The target is 0 mismatches.
+//! A third viewer, `control`, declares the shell lines alone (today's lean stream).
+//!
+//! At each quiet point (the streams idle for 300 ms) every row both the bytes and frames phones
+//! retain of the active screen (scrollback included, aligned at the bottom) is compared cell by
+//! cell: the grapheme, wide or narrow, foreground, background, attributes and underline style
+//! (a blank's foreground and text attributes do not show and are not compared, as in
+//! `cmux-terminal-projection/tests/parity.rs`), then the cursor cell, its visibility and which
+//! screen is active. The target is 0 mismatches. The shell lines carry what scrolls past
+//! between two frames as one screen's shift, so a burst of more than a screen of lines leaves
+//! the lean phones less scrollback than the bytes phone; those rows are counted apart, and the
+//! frames phone must equal the control phone on every row, scrollback included: the full-screen
+//! frames lose nothing the shell lines keep.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -64,34 +71,47 @@ impl BytesPhone {
 }
 
 /// Every message each viewer has now, applied; whether there was any.
-fn pump(
-    bytes: &Viewer,
-    bytes_phone: &mut BytesPhone,
-    frames: &Viewer,
-    phone: &mut LinesPhone,
-) -> bool {
+fn pump(viewers: &Viewers, phones: &mut Phones) -> bool {
     let mut any = false;
-    while let Some(message) = bytes.outbound.try_pop() {
+    while let Some(message) = viewers.bytes.outbound.try_pop() {
         any = true;
-        bytes_phone.apply(&serde_json::from_str(&message).expect("outbound JSON"));
+        phones.bytes.apply(&serde_json::from_str(&message).expect("outbound JSON"));
     }
-    while let Some(message) = frames.outbound.try_pop() {
-        any = true;
-        let event: Value = serde_json::from_str(&message).expect("outbound JSON");
-        if matches!(event["event"].as_str(), Some("agent-cli-lean" | "output")) {
-            phone.apply(&event);
+    for (viewer, phone) in
+        [(&viewers.frames, &mut phones.frames), (&viewers.control, &mut phones.control)]
+    {
+        while let Some(message) = viewer.outbound.try_pop() {
+            any = true;
+            let event: Value = serde_json::from_str(&message).expect("outbound JSON");
+            if matches!(event["event"].as_str(), Some("agent-cli-lean" | "output")) {
+                phone.apply(&event);
+            }
         }
     }
     any
 }
 
+/// The three viewers of the one shell.
+struct Viewers {
+    bytes: Viewer,
+    frames: Viewer,
+    control: Viewer,
+}
+
+/// What each viewer's phone draws.
+struct Phones {
+    bytes: BytesPhone,
+    frames: LinesPhone,
+    control: LinesPhone,
+}
+
 /// Pumps until both streams have been quiet for `QUIET`.
-fn settle(bytes: &Viewer, bytes_phone: &mut BytesPhone, frames: &Viewer, phone: &mut LinesPhone) {
+fn settle(viewers: &Viewers, phones: &mut Phones) {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut quiet = Instant::now();
     while quiet.elapsed() < QUIET {
         assert!(Instant::now() < deadline, "the streams never went quiet");
-        if pump(bytes, bytes_phone, frames, phone) {
+        if pump(viewers, phones) {
             quiet = Instant::now();
         } else {
             std::thread::sleep(Duration::from_millis(2));
@@ -158,8 +178,12 @@ fn snapshot(term: &Vt) -> Snapshot {
 #[derive(Default)]
 struct Score {
     cells: usize,
+    /// Cells that differ on rows both phones hold, and the cursor, its visibility and screen.
     mismatched: usize,
     notes: Vec<String>,
+    /// Cells of rows only one phone holds (its scrollback reaches further back).
+    one_sided: usize,
+    one_sided_notes: Vec<String>,
 }
 
 impl Score {
@@ -178,7 +202,20 @@ impl Score {
             (i + s.rows.len()).checked_sub(n).and_then(|i| s.rows.get(i)).map(Vec::as_slice)
         }
         for i in 0..n {
-            let (a, b) = (row(&want, i, n).unwrap_or(&[]), row(&got, i, n).unwrap_or(&[]));
+            let (a, b) = match (row(&want, i, n), row(&got, i, n)) {
+                (Some(a), Some(b)) => (a, b),
+                (a, b) => {
+                    self.one_sided += a.or(b).map_or(0, <[Cell]>::len);
+                    if self.one_sided_notes.len() < 4 {
+                        self.one_sided_notes.push(format!(
+                            "{at}: row {} only in {}",
+                            i as isize - n as isize,
+                            if a.is_some() { "the first" } else { "the second" }
+                        ));
+                    }
+                    continue;
+                }
+            };
             for c in 0..a.len().max(b.len()) {
                 self.cells += 1;
                 let (ka, kb) = (a.get(c).map(Key::of), b.get(c).map(Key::of));
@@ -257,22 +294,33 @@ fn redraw(top: usize, len: usize, rows: usize) -> Vec<u8> {
 #[test]
 fn full_screen_frames_end_on_the_raw_bytes_screen_cell_by_cell() {
     let (mux, surface) = shell_terminal("full-screen-frames-parity");
-    let bytes = declaring(&mux, &[]);
-    let frames = declaring(&mux, &[SHELL_LINES, &["terminal-full-screen-frames-v1"][..]].concat());
-    bytes.attach(&mux, &surface, json!({}));
-    frames.attach(&mux, &surface, json!({}));
-    let mut bytes_phone = BytesPhone { term: None };
-    let mut phone = LinesPhone { decoder: LeanDecoder::new(), phone: None };
+    let viewers = Viewers {
+        bytes: declaring(&mux, &[]),
+        frames: declaring(&mux, &[SHELL_LINES, &["terminal-full-screen-frames-v1"][..]].concat()),
+        control: declaring(&mux, SHELL_LINES),
+    };
+    for viewer in [&viewers.bytes, &viewers.frames, &viewers.control] {
+        viewer.attach(&mux, &surface, json!({}));
+    }
+    let lines = || LinesPhone { decoder: LeanDecoder::new(), phone: None };
+    let mut phones = Phones { bytes: BytesPhone { term: None }, frames: lines(), control: lines() };
+    // `score`: the frames phone against the raw bytes phone. `control`: against the phone of
+    // the shell lines alone (no full-screen frames), every row: what the cut must not change.
     let mut score = Score::default();
+    let mut control = Score::default();
     let mut checkpoints = 0;
-    let mut check =
-        |at: &str, bytes_phone: &mut BytesPhone, phone: &mut LinesPhone, score: &mut Score| {
-            settle(&bytes, bytes_phone, &frames, phone);
-            let want = bytes_phone.term.as_ref().expect("the bytes phone drew");
-            let got = &phone.phone.as_ref().expect("the frames phone drew").term;
-            score.compare(at, want, got);
-            checkpoints += 1;
-        };
+    let mut depths = String::new();
+    let mut check = |at: &str, phones: &mut Phones, score: &mut Score, control: &mut Score| {
+        settle(&viewers, phones);
+        let want = phones.bytes.term.as_ref().expect("the bytes phone drew");
+        let got = &phones.frames.phone.as_ref().expect("the frames phone drew").term;
+        let lines = &phones.control.phone.as_ref().expect("the shell lines phone drew").term;
+        score.compare(at, want, got);
+        control.compare(at, lines, got);
+        let depth = |t: &Vt| t.scrollback_rows() + usize::from(t.rows());
+        let _ = write!(depths, " {at}={}/{}/{}", depth(want), depth(got), depth(lines));
+        checkpoints += 1;
+    };
 
     // The shell's lines, past a screen of them, so scrollback holds some.
     let mut prologue = Vec::new();
@@ -281,8 +329,8 @@ fn full_screen_frames_end_on_the_raw_bytes_screen_cell_by_cell() {
     }
     prologue.extend_from_slice(b"$ less +F build.log\r\n");
     surface.inject_output_for_test(&prologue);
-    check("shell", &mut bytes_phone, &mut phone, &mut score);
-    let rows = usize::from(bytes_phone.term.as_ref().unwrap().rows());
+    check("shell", &mut phones, &mut score, &mut control);
+    let rows = usize::from(phones.bytes.term.as_ref().unwrap().rows());
 
     // The pager: the alternate screen, the mouse, the file's tail, streaming 20 lines/s.
     let mut len = FILE_LINES;
@@ -295,9 +343,9 @@ fn full_screen_frames_end_on_the_raw_bytes_screen_cell_by_cell() {
         std::thread::sleep(STREAM_EVERY);
         len += 1;
         surface.inject_output_for_test(&redraw(follow(len), len, rows));
-        pump(&bytes, &mut bytes_phone, &frames, &mut phone);
+        pump(&viewers, &mut phones);
     }
-    check("stream", &mut bytes_phone, &mut phone, &mut score);
+    check("stream", &mut phones, &mut score, &mut control);
 
     // Ten pans of 1 s, 22 wheel steps each (up, then down), the stream going on beneath.
     let mut top = follow(len);
@@ -322,32 +370,41 @@ fn full_screen_frames_end_on_the_raw_bytes_screen_cell_by_cell() {
                 len += 1;
                 surface.inject_output_for_test(&redraw(top, len, rows));
             }
-            pump(&bytes, &mut bytes_phone, &frames, &mut phone);
+            pump(&viewers, &mut phones);
             std::thread::sleep(Duration::from_millis(2));
         }
         assert_eq!(wheels, WHEEL_SENDS, "pan {pan}");
-        check(&format!("pan {pan}"), &mut bytes_phone, &mut phone, &mut score);
+        check(&format!("pan {pan}"), &mut phones, &mut score, &mut control);
     }
 
     // It ends: back to the shell's screen and scrollback, and the shell goes on.
     surface.inject_output_for_test(b"\x1b[?1006l\x1b[?1000l\x1b[?1049l$ ");
-    check("exit", &mut bytes_phone, &mut phone, &mut score);
+    check("exit", &mut phones, &mut score, &mut control);
     let mut after = b"echo \xe6\xbc\xa2\xf0\x9f\x9a\x80 done\r\n".to_vec();
     for i in 0..30 {
         after.extend_from_slice(format!("{}\r\n", file_line(FILE_LINES + i)).as_bytes());
     }
     after.extend_from_slice(b"$ ");
     surface.inject_output_for_test(&after);
-    check("after", &mut bytes_phone, &mut phone, &mut score);
+    check("after", &mut phones, &mut score, &mut control);
 
     println!(
-        "FULL-SCREEN-FRAMES-PARITY mismatched={} cells={} checkpoints={checkpoints}",
-        score.mismatched, score.cells
+        "FULL-SCREEN-FRAMES-PARITY mismatched={} cells={} checkpoints={checkpoints} \
+         scrollback_only_in_one={} vs_shell_lines_mismatched={} vs_shell_lines_one_sided={}",
+        score.mismatched, score.cells, score.one_sided, control.mismatched, control.one_sided
     );
-    for note in &score.notes {
+    println!("FULL-SCREEN-FRAMES-PARITY rows bytes/frames/shell-lines:{depths}");
+    for note in score.notes.iter().chain(&score.one_sided_notes) {
         println!("FULL-SCREEN-FRAMES-PARITY note {note}");
     }
+    for note in control.notes.iter().chain(&control.one_sided_notes) {
+        println!("FULL-SCREEN-FRAMES-PARITY vs-shell-lines {note}");
+    }
+    // Every cell both phones hold, the cursor, its visibility and the screen: the raw bytes'.
     assert_eq!(score.mismatched, 0, "cells that differ: {:#?}", score.notes);
-    disconnect_client(&mux, bytes.client, false);
-    disconnect_client(&mux, frames.client, false);
+    // And the full-screen frames change nothing the shell lines alone draw, scrollback included.
+    assert_eq!(control.mismatched + control.one_sided, 0, "{:#?}", control.notes);
+    for viewer in [&viewers.bytes, &viewers.frames, &viewers.control] {
+        disconnect_client(&mux, viewer.client, false);
+    }
 }
