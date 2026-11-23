@@ -2238,6 +2238,8 @@ impl Hub {
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);
+        // Opt-in team usage sharing (`usage_share.rs`): nothing while it is off.
+        super::usage_share::turn_ended(session, turn_result);
     }
 
     /// Whether the failover onto profile `to` is skipped because it runs through the local
