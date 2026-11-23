@@ -351,6 +351,7 @@ mod tags;
 mod tailnet_controller;
 mod tap;
 pub(crate) use crate::time_breakdown;
+mod capacity_retry;
 mod titles;
 mod tool_installs;
 mod tool_paths;
@@ -407,6 +408,8 @@ pub fn peer_snapshot_reads_fail(peer: &str, n: u32) {
 pub fn peer_snapshot_bound(n: usize) {
     peer_snapshot::BOUND_EVENTS.store(n, std::sync::atomic::Ordering::SeqCst);
 }
+mod moved_forward;
+pub use moved_forward::{MAX_MOVES_FOLLOWED, MOVED_HOPS_FIELD};
 mod peers;
 mod remote_rows;
 mod remote_table;
@@ -870,6 +873,7 @@ pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Val
 /// `turn_result`.
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
+    capacity_retries: capacity_retry::Retries,
     /// `messageId` of the assistant message streaming now.
     pub(super) open_message: Option<String>,
     /// Set by a harness retry signal while `open_message` was streaming:
@@ -887,6 +891,9 @@ pub(super) struct StreamState {
     pub(super) reply_segment: Option<String>,
     /// Reply segments started in this turn, which numbers the next one.
     pub(super) reply_segments: u32,
+    /// Reply segments started outside any turn since the daemon started (`reply_segment_for`):
+    /// never reset, so text between turns never reuses an earlier id.
+    pub(super) loose_segments: u32,
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
@@ -3173,7 +3180,7 @@ impl Hub {
         let mut timing = history_timing::Timing::default();
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let _ = self.scan_kinds_off(&session.id, &kinds, &mut |e: EventRecord| {
             let mut opened = false;
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
