@@ -123,16 +123,26 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 
 /// The stored value when valid, else the default (what the app applies).
 /// An unset row that replaced a retired key reads that key through the
-/// retired-keys table (`super::retired`), as the app does.
+/// retired-keys table (`super::retired`), as the app does, and an old choice
+/// value reads as its replacement (`super::aliases`).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
     let stored = crate::value::value_at(root, &row.path).or_else(|| {
         let replaced = super::replaced_by_row(&row.path)?;
         replaced.read(crate::value::value_at(root, &replaced.old)?)
     });
+    let stored = stored.map(|stored| aliased(row, stored));
     match stored {
-        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
+        Some(stored) if row_accepts(row, &stored, domains) => Some(stored),
         _ => row.default.clone(),
     }
+}
+
+/// `value` as the row reads it: an old choice value as its replacement.
+pub fn aliased(row: &Row, value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(|old| super::choice_alias(&row.key, old))
+        .map_or_else(|| value.clone(), |new| Value::String(new.to_owned()))
 }
 
 fn is_backdrop_selection(row: &Row) -> bool {

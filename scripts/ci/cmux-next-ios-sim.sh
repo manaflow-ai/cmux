@@ -980,8 +980,18 @@ if [[ $reduce_motion -eq 1 ]]; then
 fi
 simctl install "$udid" "$app"
 simctl launch "$udid" "$bundle_id" >/dev/null
-# A bounded wait for the first screen to draw; the launch itself has no signal to wait on.
-sleep 8
+# Until the first screen has drawn and holds still: three screenshots in a row the same, 0.5 s apart, at most 30 s.
+# Best effort: past it, the capture below shows whatever is on screen.
+settle_png="$out/screens/.launch-settle.png" settle_last="" settle_same=0
+for _ in $(seq 60); do
+  settle_hash="$(simctl io "$udid" screenshot "$settle_png" >/dev/null 2>&1 && shasum -a 256 "$settle_png" | awk '{ print $1 }')" || settle_hash=""
+  if [ -n "$settle_hash" ] && [ "$settle_hash" = "$settle_last" ]; then settle_same=$((settle_same + 1)); else settle_same=0; fi
+  [ "$settle_same" -ge 2 ] && break
+  settle_last="$settle_hash"
+  sleep 0.5
+done
+rm -f "$settle_png"
+[ "$settle_same" -ge 2 ] || note "- launch: the screen never held still in 30 s; captured as it is"
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
@@ -1032,7 +1042,14 @@ if [[ "$mode" == handoff ]]; then
     # SIGINT below never reached the recorder and the step hung until its 6 h timeout (2026-11-18).
     xcrun simctl --set "$sims" io "$udid" recordVideo --codec h264 --force "$out/recording.mp4" >"$work/recording.log" 2>&1 &
     rec_pid=$!
-    sleep 1  # the recorder's first frame; a bounded start, it has no ready signal
+    # Until the recorder says "Recording started" (simctl prints it once its first frame is in), at most 10 s.
+    for _ in $(seq 100); do
+      grep -q "Recording started" "$work/recording.log" 2>/dev/null && break
+      kill -0 "$rec_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    grep -q "Recording started" "$work/recording.log" 2>/dev/null ||
+      note "- recording: the recorder never said it started in 10 s ($(tail -n 1 "$work/recording.log" 2>/dev/null))"
     for leg in auto_login restored; do
       nonce="$(python3 -I -c 'import secrets; print(secrets.token_hex(16))')"
       simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
