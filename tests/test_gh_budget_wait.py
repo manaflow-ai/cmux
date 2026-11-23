@@ -172,7 +172,7 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.waited(), 0)
 
     def test_a_refused_spare_moves_to_the_next_pool_before_any_wait(self) -> None:
-        # Run 45060092627 (2026-11-22 19:22Z): the hot verify hand-off's github.token hour read 0 left and the job
+        # Run 45060092627 (2026-11-22 19:22Z): the hot verify dispatch's github.token hour read 0 left and the job
         # failed. Each App installation has its own hour, so a refused pool hands the call to the next one.
         h = self.harness(refusals=3, GH_BUDGET_WAIT_MAX_SECONDS="0", GH_TOKEN="workflow", SPARE="pool3",
                          GH_TOKEN_SPARE="bot", GH_TOKEN_SPARES="pool3 pool4")
@@ -193,7 +193,7 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.waited(), 1)
 
     def test_the_hot_verify_dispatch_goes_out_with_a_spare_pool(self) -> None:
-        # The dispatch is the plan job's last step since #51558 (no hand-off job).
+        # The dispatch is the plan job's last step since #51558 (the hand-off job is gone).
         text = (ROOT / ".github" / "workflows" / "cmux-next-hot-verify.yml").read_text()
         hand_off = text[text.index("  plan:\n"):text.index("\n  target:\n")]
         self.assertIn("bash scripts/ci/gh_budget_wait.sh --install", hand_off)
@@ -438,10 +438,10 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
-    # The dispatches: run 42726398544's sign dispatch failed on "HTTP 403: API rate limit exceeded for
+    # The dispatches: run 42726398544's dispatch failed on "HTTP 403: API rate limit exceeded for
     # installation" and nothing published for two hours (2026-11-10). A refused dispatch did nothing on
     # GitHub's side, so waiting and trying it again never starts a second run.
-    "dispatch-nightly-next-sign", "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
+    "dispatch-published-in", "retry-nightly-next", "wake-nightly-next-tick",
 )
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a

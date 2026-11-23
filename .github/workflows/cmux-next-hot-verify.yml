@@ -128,9 +128,9 @@ jobs:
     name: plan the look
     if: ${{ vars.CI_QUOTA_HOLD != '1' && github.repository == 'manaflow-ai/cmux' && github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'closed' || github.event.pull_request.merged) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # 10 minutes for the plan, 65 for the dispatch's waiting at most (GH_BUDGET_WAIT_MAX_SECONDS): a reset is at
+    # 10 minutes for the plan; the dispatch waits 65 minutes at most (GH_BUDGET_WAIT_MAX_SECONDS): a reset is at
     # most an hour away.
-    timeout-minutes: 75
+    timeout-minutes: 80
     permissions:
       contents: read
       # the merged half reads the PR's comments for a look receipt (hot-verify-receipt.py)
@@ -154,7 +154,7 @@ jobs:
       - name: Checkout the base branch's scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           filter: blob:none
           sparse-checkout: scripts
@@ -273,7 +273,8 @@ jobs:
           app-id: ${{ vars.CMUX_BOT_APP_ID }}
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: write
-      - name: Wait through GitHub API rate limits in this job's gh calls
+      # The base branch's wrapper (checked out with its scripts above).
+      - name: Wait through GitHub API rate limits in the dispatch's gh calls
         if: ${{ steps.plan.outputs.eligible == 'true' }}
         run: bash scripts/ci/gh_budget_wait.sh --install
       # Start the look on feat-cmux-next. Data only: the run there reads the pull request again and takes nothing
