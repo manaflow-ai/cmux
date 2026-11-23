@@ -653,6 +653,47 @@ try {
             if (instrument === "trace") {
               const count = (selector: string) => document.querySelectorAll(selector).length;
               trace.push(
+                `${now.toFixed(0)} visible: ${[...document.querySelectorAll("[data-row-id]")]
+                  .filter((el) => {
+                    const r = el.getBoundingClientRect();
+                    return r.bottom > 0 && r.top < innerHeight && r.height > 0;
+                  })
+                  .map((el) => `${el.getAttribute("data-row-id")}@${el.getBoundingClientRect().top.toFixed(0)}`)
+                  .join(" ")}; latest text in ${(() => {
+                  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                  let n;
+                  while ((n = w.nextNode()))
+                    if (n.textContent?.includes(latestText)) {
+                      const el = n.parentElement;
+                      const r = el?.getBoundingClientRect();
+                      return `${el?.closest("[data-row-id]")?.getAttribute("data-row-id") ?? el?.className} top ${r?.top.toFixed(0)} h ${r?.height.toFixed(0)}`;
+                    }
+                  return "?";
+                })()}`,
+              );
+              {
+                let last = "";
+                const end = now + 700;
+                const sample = () => {
+                  const t = performance.now();
+                  const scroller = document
+                    .querySelector("[data-row-id]")
+                    ?.closest("[class*=scroll], [style*=overflow]") as HTMLElement | null;
+                  const vis = [...document.querySelectorAll("[data-row-id]")]
+                    .filter((el) => {
+                      const r = el.getBoundingClientRect();
+                      return r.bottom > 0 && r.top < innerHeight && r.height > 0;
+                    })
+                    .map((el) => `${el.getAttribute("data-row-id")}@${el.getBoundingClientRect().top.toFixed(0)}`)
+                    .join(" ");
+                  const line = `${vis || "(none)"} scrollTop=${scroller?.scrollTop.toFixed(0)} sh=${scroller?.scrollHeight}`;
+                  if (line !== last) trace.push(`${t.toFixed(0)} FRAME ${line}`);
+                  last = line;
+                  if (t < end) requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+              }
+              trace.push(
                 `${now.toFixed(0)} drawn: ${count("[data-row-id]")} rows, ${count(".acpmux-minimap__entry")} rail entries, ${count("*")} elements, ${count(".acpmux-composer *, .acpmux-header *")} in composer and header`,
               );
             }
