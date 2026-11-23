@@ -97,7 +97,12 @@ const order = (container: HTMLElement) =>
 
 test("a next-step ask that fits shows whole, with no Show more", async () => {
   const card = await renderCard(".nothing-is-cut");
-  expect(card.querySelector(".acpmux-next-step__question")?.textContent).toBe(
+  // The ask's tag draws as a chip before the question, never as "[irreversible]" text (Leo,
+  // 2026-11-19, on a pinned tagged ask: "odd looking").
+  const question = card.querySelector(".acpmux-next-step__question")!;
+  const chip = question.querySelector(".acpmux-next-step__tag");
+  expect(chip?.textContent).toBe("Irreversible");
+  expect(question.textContent?.slice(chip!.textContent!.length)).toBe(
     "Should I promote tonight's nightly to everyone now?",
   );
   expect(card.querySelector(".acpmux-next-step__more")).toBeNull();
