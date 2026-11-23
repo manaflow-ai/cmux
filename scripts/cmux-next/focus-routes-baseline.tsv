@@ -179,7 +179,7 @@ webviews/src/agent-session/acpmux/header/PullRequestMerge.tsx	1
 webviews/src/agent-session/acpmux/locationPopover.ts	1
 webviews/src/agent-session/acpmux/markdownFormat.ts	1
 webviews/src/agent-session/acpmux/newtab/ChatFilterMenu.tsx	1
-webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx	24
+webviews/src/agent-session/acpmux/newtab/NewTabScreen.tsx	23
 webviews/src/agent-session/acpmux/newtab/StyleSwitch.tsx	1
 webviews/src/agent-session/acpmux/pasteProbe.ts	2
 webviews/src/agent-session/acpmux/prototype/WorkspaceShell.tsx	1
