@@ -484,3 +484,40 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
         },
     );
 }
+
+/// Past [`PARALLEL_BYTES`] a pass is split across cores; the answer is the one a single thread
+/// gives, every hit and its newest message, at any split.
+#[test]
+fn a_pass_split_across_cores_finds_what_one_thread_finds() {
+    let line = "lorem ipsum dolor sit amet ".repeat(400);
+    let docs: Vec<(String, Arc<Doc>)> = (0..400)
+        .map(|i| {
+            let said =
+                if i % 37 == 0 { format!("{line} the deploy failed {i}") } else { line.clone() };
+            let doc = Doc::new(Stamp { updated_ms: i, messages: None }, &[turn("x", &said)]);
+            (format!("codex:{i}"), Arc::new(doc))
+        })
+        .collect();
+    let bytes: usize = docs.iter().map(|(_, doc)| doc.text.len()).sum();
+    assert!(bytes > PARALLEL_BYTES, "{bytes} bytes: the split path");
+    let words = needle("DEPLOY fail");
+    let matcher = Matcher::new(&words);
+    let search = |key: &String, doc: &Arc<Doc>| {
+        let matched = doc.find(&words, &matcher)?;
+        Some((key.clone(), Found { doc: doc.clone(), matched }))
+    };
+    let one: HashMap<String, Found> =
+        docs.iter().filter_map(|(key, doc)| search(key, doc)).collect();
+    let split = across_cores(docs.iter().map(|(key, doc)| (key, doc)).collect(), &search);
+    let mut keys: Vec<&String> = split.keys().collect();
+    keys.sort();
+    let mut want: Vec<&String> = one.keys().collect();
+    want.sort();
+    assert_eq!(keys, want);
+    assert_eq!(keys.len(), 11);
+    for (key, found) in &split {
+        assert_eq!(found.matched, one[key].matched);
+    }
+    // Under the bound, or one chat: one thread, the same answer.
+    assert_eq!(across_cores(docs.iter().take(1).map(|(k, d)| (k, d)).collect(), &search).len(), 1);
+}
