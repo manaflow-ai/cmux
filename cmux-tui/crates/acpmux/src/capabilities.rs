@@ -77,6 +77,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_HARNESSES,
             method::MUX_HARNESSES_CHANGED,
             method::MUX_HARNESS_ENABLE,
+            method::MUX_HARNESS_DISABLE,
             "_acpmux/models",
             method::MUX_ROUTE_LIST,
             method::MUX_KILL,
