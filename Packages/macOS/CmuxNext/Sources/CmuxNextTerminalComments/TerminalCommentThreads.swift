@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemonService
+public import CmuxNextDiff
 import Foundation
 
 /// Every terminal's comment threads (`terminal.sendSelectionToChat`, comment-threads-v1): one

@@ -449,6 +449,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTabs",
                 "CmuxNextTaskManagerPage",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalComments",
                 "CmuxNextTerminalFind",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextUpdater",
@@ -1345,6 +1346,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Comment… on a terminal selection (comment-threads-v1): the card over a terminal that shows
+        // its comment threads and the agent's replies, and the per-host thread models (CmuxNextDiff).
+        .target(
+            name: "CmuxNextTerminalComments",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextDiff",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
         // action, working local agents and (sessions.keepAwakeForCommands) long terminal
         // commands, released on battery unless the user chose Always. IOKit's power-source
@@ -2233,8 +2249,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentPane",
                 "CmuxNextCompat",
                 "CmuxNextDaemonService",
-                // The terminal comment threads' card (NativePopupHost, Glass, Typography).
-                "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",

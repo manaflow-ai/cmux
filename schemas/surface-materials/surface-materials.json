@@ -116,7 +116,6 @@
     "CmuxNextDesign/Toast/CmuxToastView.swift": "native-overlay",
     "CmuxNextDesign/Tooltip/TooltipPanel.swift": "material-source",
     "CmuxNextDesign/WindowMaterialView.swift": "window-chrome",
-    "CmuxNextDiff/TerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetBubble.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetRail.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetReplyPanel.swift": "native-overlay",
@@ -166,6 +165,7 @@
     "CmuxNextTabs/TabStripView.swift": "window-chrome",
     "CmuxNextTerminal/TerminalDictationPreview.swift": "native-overlay",
     "CmuxNextTerminal/TerminalFindBarView.swift": "native-overlay",
+    "CmuxNextTerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextUpdater/Share/ShareCmuxView.swift": "native-overlay",
     "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay"
   },

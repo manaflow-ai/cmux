@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDiff
 import CmuxNextPages
+import CmuxNextTerminalComments
 import Foundation
 
 /// Comment… on a terminal selection (`terminal.sendSelectionToChat`, comment-threads-v1): the cmux

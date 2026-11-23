@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextDiff
 import Observation
 import SwiftUI
 

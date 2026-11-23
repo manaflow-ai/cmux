@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The terminal selection comment's text (Resources/TerminalComments.xcstrings).
@@ -14,6 +15,6 @@ public enum TerminalCommentStrings {
     public static var notSent: String { text("terminalComments.notSent", "The comment was not sent to the chat.") }
 
     private static func text(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "TerminalComments", bundle: .localizedModule)
+        String(localized: key, defaultValue: english, table: "TerminalComments", bundle: .module.inAppLanguage)
     }
 }
