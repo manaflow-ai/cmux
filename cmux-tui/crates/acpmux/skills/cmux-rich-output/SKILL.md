@@ -53,17 +53,20 @@ A deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (
 into the project (for example `slides/<topic>.html`), then change only the slides between
 `<main class="deck">` and `</main>`, the `<title>`, and if needed a `--cmux-*` or `--deck-*` value
 at the top of the `<style>`. Keep the `<script>` last and unchanged: it draws the slide strip, the
-arrow keys, Present, the presenter view, Export PDF and Export .pptx.
+arrow keys, Present (F, Esc exits), Present with speaker notes (S), Export PDF and Export .pptx.
 
 - A slide is 1280 x 720 pixels. One idea per slide, about 40 words at most, text 24px or larger.
 - `<section class="title">` for a title slide, `class="center"` for a quote or one number,
   `<div class="cols">` for two columns.
 - Each layer of a slide is its own element, never mixed into the visible text:
   - what the audience sees: the slide's content;
-  - what to say: `<aside class="notes">`, sentences to read aloud (the script);
+  - what to say: `<aside class="notes">`, sentences to read aloud (the script); Present with
+    speaker notes shows them large;
   - the pace: `data-seconds="N"` on the `<section>`, the seconds this slide gets;
   - the appendix: slides from `<section class="appendix-start">` on (numbers, links, method) are
-    outside the timed run but stay one arrow key away.
+    outside the timed run but stay one arrow key away;
+  - a backup slide: `<section data-skip>`, which Present, the pace and the exports pass over
+    (`<!-- skip -->` in a Markdown deck).
 - The look follows Claude's launch slides: a warm flat canvas, ink text, one coral accent, a serif
   headline, monospace labels, no shadows or gradients. Building blocks: `<p class="kicker">` (a
   monospace label), `<div class="split">` (a label column, then the content), `<ul class="tree">`
@@ -83,15 +86,18 @@ arrow keys, Present, the presenter view, Export PDF and Export .pptx.
 ### Present it in cmux
 
 - Present (F; Esc exits): the slide alone, full screen, or filling its pane when the pane cannot go
-  full screen.
-- Presenter view (S, or open the file with `?presenter`): the current slide, the next one, the
-  script with the sentence to say now marked, the time since it opened (T restarts it), and the pace
-  against the `data-seconds` budget: ahead, on pace or behind, and this slide's time of its budget.
-  Laser (L) draws a red pointer that follows the mouse over the slide. Captions (C) show the script
-  on the slide, one sentence at a time, spread over the slide's budget.
-- Audience window: opens the slides alone (`?audience`) in a second window or pane, for the screen
-  you share. It follows the presenter's slide, laser and captions. Two panes on the same file follow
-  each other the same way.
+  full screen. A slide arrives with a short cross-fade.
+- Present with speaker notes (S, the Present menu, or open the file with `?presenter`): this window
+  presents and a second window, the presenter's, shows the current slide, the next one (skipping
+  backup slides), the script with the sentence to say now marked, the clock, the time spoken (Pause,
+  and T or Reset restarts it), and the pace against the `data-seconds` budget: ahead, on pace or
+  behind, and this slide's time of its budget. A− and A+ size the script. Where a pane blocks a second
+  window, this window becomes the presenter's; its Audience window button opens the slides alone
+  (`?audience`) for the screen you share.
+- In the presenter's window, Laser (L) draws a red pointer that follows the mouse over the slide, and
+  Captions (C) show the script on the presented slide, one sentence at a time, spread over its
+  budget. The windows follow each other's slide, laser and captions; End (Esc) closes both. Two panes
+  on the same file follow each other the same way.
 - The slide is in the URL (`#3`), and the mode, timer, laser and captions survive a reload.
 
 ### Edit it while it shows

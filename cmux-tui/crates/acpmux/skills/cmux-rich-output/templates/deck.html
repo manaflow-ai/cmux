@@ -33,11 +33,11 @@ html, body { margin: 0; height: 100%; }
 body { background: var(--deck-page); color: var(--cmux-text); font: var(--deck-body)/1.4 var(--cmux-font); -webkit-font-smoothing: antialiased; }
 
 /* A slide is 1280 x 720 CSS pixels; the runtime scales it to fit. */
-:is(main.deck, .deck-thumb, .deck-next) > section { width: 1280px; height: 720px; padding: 72px 96px; background: var(--deck-slide); display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section { width: 1280px; height: 720px; padding: 72px 96px; background: var(--deck-slide); display: flex; flex-direction: column; gap: 24px; overflow: hidden; }
 /* A title slide: a label at the top, the title large at the bottom. */
-:is(main.deck, .deck-thumb, .deck-next) > section.title { justify-content: space-between; padding-bottom: 88px; }
-:is(main.deck, .deck-thumb, .deck-next) > section.title h1 { font-size: 120px; margin-top: auto; }
-:is(main.deck, .deck-thumb, .deck-next) > section.center { justify-content: center; align-items: center; text-align: center; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.title { justify-content: space-between; padding-bottom: 88px; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.title h1 { font-size: 120px; margin-top: auto; }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section.center { justify-content: center; align-items: center; text-align: center; }
 section h1, section h2, section h3, section p, section ul, section ol, section blockquote, section pre, section figure { margin: 0; }
 section h1, section h2, section blockquote { font-family: var(--deck-display); font-weight: 400; }
 section h1 { font-size: var(--deck-title); line-height: 1.05; letter-spacing: -0.025em; }
@@ -71,7 +71,7 @@ section .chip { display: inline-block; padding: 2px 12px; border-radius: 999px; 
 section .chip ins { color: var(--deck-ahead); text-decoration: none; }
 section .chip del { color: var(--deck-behind); text-decoration: none; }
 /* An optional mark in each slide's corner: set --deck-mark to a short string, such as "cmux". */
-:is(main.deck, .deck-thumb, .deck-next) > section::after { content: var(--deck-mark); position: absolute; right: 48px; bottom: 36px; font: 18px var(--cmux-mono); color: var(--cmux-muted); }
+:is(main.deck, .deck-thumb, .deck-console-next .frame) > section::after { content: var(--deck-mark); position: absolute; right: 48px; bottom: 36px; font: 18px var(--cmux-mono); color: var(--cmux-muted); }
 section aside.notes { display: none; }
 
 /* The viewer: a slide strip, the slide, and a bar. */
@@ -83,13 +83,21 @@ body.deck-ready { display: grid; grid-template: "strip bar" auto "strip stage" 1
 .deck-thumb[aria-current="true"] { outline: 2px solid var(--cmux-accent); }
 .deck-thumb:focus-visible { outline: 2px solid var(--cmux-accent); outline-offset: 2px; }
 .deck-thumb > section { position: relative; transform: scale(0.13125); transform-origin: 0 0; pointer-events: none; }
+.deck-thumb[data-skip] > section { opacity: 0.35; }
+.deck-thumb[data-skip]::after { content: "Skipped"; position: absolute; right: 6px; bottom: 6px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--cmux-control); color: var(--cmux-muted); }
 .deck-bar { grid-area: bar; display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; }
 .deck-bar .deck-count { min-width: 64px; text-align: center; color: var(--cmux-muted); font-variant-numeric: tabular-nums; }
 .deck-bar .deck-status { margin-left: auto; color: var(--cmux-muted); }
 .deck-bar button { font: 13px var(--cmux-font); color: var(--cmux-text); background: var(--cmux-control); border: 1px solid var(--cmux-border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .deck-bar button:disabled { opacity: 0.5; cursor: default; }
-.deck-bar button[aria-pressed="true"] { border-color: var(--cmux-accent); color: var(--cmux-accent); }
-.deck-bar .deck-only-presenter { display: none; }
+.deck-present { position: relative; display: inline-flex; }
+.deck-present > button:first-child { border-radius: 6px 0 0 6px; }
+.deck-present > button:last-child { border-radius: 0 6px 6px 0; border-left: 0; padding: 4px 6px; }
+.deck-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 2; display: grid; min-width: 220px; padding: 4px; border-radius: 8px; background: var(--deck-slide); border: 1px solid var(--cmux-border); box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); }
+.deck-menu[hidden] { display: none; }
+.deck-bar .deck-menu button { border: 0; background: transparent; text-align: left; padding: 6px 10px; border-radius: 4px; }
+.deck-bar .deck-menu button:not(:disabled):hover { background: var(--cmux-control); }
+.deck-menu kbd { float: right; color: var(--cmux-muted); font: 12px var(--cmux-font); }
 main.deck { grid-area: stage; position: relative; overflow: hidden; }
 body.deck-ready main.deck > section { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; display: none; outline: 1px solid var(--cmux-border); }
 body.deck-ready main.deck > section[data-current] { display: flex; }
@@ -102,7 +110,7 @@ body.deck-ready main.deck > section[data-current] { display: flex; }
   .deck-bar { flex-wrap: wrap; }
 }
 
-/* Laser pointer and captions: drawn over the slide, in this window and the audience window. */
+/* Laser pointer and captions: drawn over the slide, in the presenter's window and the presented one. */
 .deck-laser { position: absolute; z-index: 2; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, #fff 0 18%, var(--deck-laser) 30% 55%, transparent 72%); box-shadow: 0 0 14px 4px color-mix(in srgb, var(--deck-laser) 55%, transparent); }
 .deck-laser[hidden], .deck-captions[hidden] { display: none; }
 html.deck-laser-on main.deck { cursor: none; }
@@ -113,35 +121,50 @@ html.deck-presenting body { grid-template: "stage" 1fr / 1fr; background: #000; 
 html.deck-presenting .deck-strip, html.deck-presenting .deck-bar, html.deck-presenting .deck-notes { display: none; }
 html.deck-presenting main.deck > section { outline: none; }
 
-/* Presenter view: the current slide, the next one, the script and the pace, for the person speaking. */
-.deck-presenter { display: none; }
-html.deck-presenter-view body { grid-template: "bar bar" auto "stage side" 1fr / minmax(0, 1fr) clamp(280px, 34%, 520px); }
-html.deck-presenter-view .deck-strip, html.deck-presenter-view .deck-notes, html.deck-presenter-view .deck-only-viewer { display: none; }
-html.deck-presenter-view .deck-bar .deck-only-presenter { display: inline-block; }
-html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-direction: column; gap: 14px; min-height: 0; padding: 4px 16px 16px; font-size: 14px; }
-.deck-next-label, .deck-script-label { font: 12px var(--cmux-mono); color: var(--cmux-muted); }
-.deck-next { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; outline: 1px solid var(--cmux-border); overflow: hidden; background: var(--deck-slide); flex: none; }
-.deck-next > section { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
-.deck-next-end { display: grid; place-items: center; height: 100%; color: var(--cmux-muted); }
-.deck-clock { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 2px 14px; font-variant-numeric: tabular-nums; }
-.deck-elapsed { font: 400 36px var(--cmux-mono); letter-spacing: -0.02em; }
-.deck-pace { justify-self: end; font-size: 15px; font-weight: 600; color: var(--cmux-muted); }
+/* A slide arrives with a short cross-fade while presenting (Claude Slides' Present plays transitions too). */
+@keyframes deck-in { from { opacity: 0; } }
+html:is(.deck-presenting, .deck-console) main.deck > section[data-current] { animation: deck-in 240ms cubic-bezier(0, 0, 0.58, 1); }
+@media (prefers-reduced-motion: reduce) { html main.deck > section[data-current] { animation: none; } }
+
+/* Present with speaker notes: the presenter's own window (or this one, when a second window is not
+   allowed) shows the current slide, the next one, the script, the clock, the time spoken and the pace. */
+html.deck-console { color-scheme: dark; }
+html.deck-console body { grid-template: "top top" auto "stage next" minmax(0, 1fr) "stage notes" minmax(0, 1.4fr) "foot foot" auto / minmax(0, 1.7fr) minmax(280px, 1fr); background: #101012; color: #f2f2f4; }
+html.deck-console .deck-strip, html.deck-console .deck-bar, html.deck-console .deck-notes { display: none; }
+html.deck-console main.deck > section { box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12); }
+.deck-console-top, .deck-console-foot, .deck-console-next, .deck-console-notes { display: none; }
+html.deck-console .deck-console-top { grid-area: top; display: flex; align-items: baseline; gap: 24px; padding: 14px 24px 6px; font-variant-numeric: tabular-nums; }
+.deck-console-top .clock { font-size: 15px; color: #a1a1a6; }
+.deck-console-top .timer { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; }
+.deck-console-top .timer[data-paused] { color: #a1a1a6; }
+.deck-console-top .count { margin-left: auto; font-size: 15px; color: #a1a1a6; }
+html.deck-console .deck-console-next { grid-area: next; display: grid; grid-template-rows: auto 1fr auto auto; gap: 8px; padding: 12px 24px 0 0; min-height: 0; }
+.deck-console-next .label, .deck-console-notes .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: #a1a1a6; }
+.deck-console-next .frame { position: relative; overflow: hidden; min-height: 0; }
+.deck-console-next .frame > section { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12); }
+.deck-console-next .end { display: grid; place-items: center; height: 100%; color: #a1a1a6; font-size: 15px; border: 1px dashed rgb(255 255 255 / 0.18); border-radius: 6px; }
+.deck-pace { font-size: 15px; font-weight: 600; color: #a1a1a6; }
 .deck-pace[data-pace="ahead"] { color: var(--deck-ahead); }
 .deck-pace[data-pace="behind"] { color: var(--deck-behind); }
-.deck-slide-time { grid-column: 1 / -1; color: var(--cmux-muted); font-size: 12px; }
-.deck-budget { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--cmux-control); overflow: hidden; }
+.deck-slide-time { color: #a1a1a6; font-size: 12px; font-variant-numeric: tabular-nums; }
+.deck-budget { height: 4px; border-radius: 2px; background: #2c2c30; overflow: hidden; }
+.deck-budget[hidden] { display: none; }
 .deck-budget > i { display: block; height: 100%; width: 0; background: var(--cmux-accent); }
 .deck-budget[data-over] > i { background: var(--deck-behind); }
-.deck-script { flex: 1; min-height: 0; overflow-y: auto; font: 21px/1.5 var(--deck-display); color: var(--cmux-muted); }
-.deck-script .deck-said { color: var(--cmux-text); }
-.deck-script .deck-now { color: var(--cmux-text); background: color-mix(in srgb, var(--cmux-accent) 18%, transparent); border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-.deck-script:empty::before { content: "No script on this slide (add an aside.notes)."; font-size: 14px; }
+html.deck-console .deck-console-notes { grid-area: notes; display: grid; grid-template-rows: auto 1fr; gap: 8px; padding: 16px 24px 12px 0; min-height: 0; }
+.deck-console-notes .deck-script { overflow-y: auto; font-size: var(--deck-console-notes, 22px); line-height: 1.45; color: #a1a1a6; }
+.deck-script .deck-said { color: #f2f2f4; }
+.deck-script .deck-now { color: #fff; background: color-mix(in srgb, var(--cmux-accent) 30%, transparent); border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.deck-script:empty::before { content: "No notes for this slide."; color: #6e6e73; }
+html.deck-console .deck-console-foot { grid-area: foot; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 24px 16px; }
+.deck-console-foot button { font: 13px var(--cmux-font); color: #f2f2f4; background: #2c2c30; border: 1px solid #3a3a3e; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+.deck-console-foot button[aria-pressed="true"] { border-color: var(--cmux-accent); color: var(--cmux-accent); }
+.deck-console-foot button[hidden] { display: none; }
+.deck-console-foot .spacer { flex: 1; }
 @media (max-width: 720px) {
-  html.deck-presenter-view body { grid-template: "bar" auto "stage" 42vh "side" minmax(0, 1fr) / minmax(0, 1fr); }
-  html.deck-presenter-view .deck-bar { flex-wrap: wrap; }
-  html.deck-presenter-view .deck-presenter { overflow-y: auto; }
-  .deck-next { width: 50%; }
-  .deck-script { flex: none; overflow: visible; }
+  html.deck-console body { grid-template: "top" auto "stage" 40vh "next" auto "notes" minmax(0, 1fr) "foot" auto / minmax(0, 1fr); }
+  html.deck-console .deck-console-next { padding: 8px 16px 0; grid-template-rows: auto 22vh auto auto; }
+  html.deck-console .deck-console-notes { padding: 8px 16px; }
 }
 
 /* Export PDF: one slide per page, at full size, in the light theme. */
@@ -149,12 +172,14 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
 @media print {
   :root { color-scheme: light; }
   html, body, body.deck-ready { display: block; height: auto; overflow: visible; background: #fff; }
-  .deck-strip, .deck-bar, .deck-notes, .deck-presenter, .deck-laser, .deck-captions { display: none !important; }
+  .deck-strip, .deck-bar, .deck-notes, .deck-laser, .deck-captions, .deck-console-top, .deck-console-next, .deck-console-notes, .deck-console-foot { display: none !important; }
+  body.deck-ready main.deck > section[data-skip], main.deck > section[data-skip] { display: none !important; }
   main.deck { overflow: visible; }
   body.deck-ready main.deck > section, main.deck > section { display: flex !important; position: relative; left: 0; top: 0; transform: none !important; outline: none; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
 }
 </style>
 </head>
+<body>
 <body>
 <main class="deck">
 
@@ -213,8 +238,8 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
 
 </main>
 <script>
-// cmux deck runtime: slide strip, present mode, presenter view, live reload in place, Export PDF and
-// Export .pptx. Keep it as the file's last element.
+// cmux deck runtime: slide strip, Present, Present with speaker notes (the presenter view), live
+// reload in place, Export PDF and Export .pptx. Keep it as the file's last element.
 (() => {
   // Pure helpers (no DOM): the slide from a URL hash, the pace against data-seconds, the script's
   // sentences and the caption for a moment. tests/deck.test.mjs runs this block under node.
@@ -229,6 +254,15 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     timedCount(appendixFlags) {
       const first = appendixFlags.indexOf(true);
       return first === -1 ? appendixFlags.length : first;
+    },
+    // Each slide's data-seconds (0 when unset); a backup slide (data-skip) is passed over, so its
+    // budget is 0 and the pace never counts it.
+    budgets(seconds, skips) {
+      return seconds.map((s, i) => (skips[i] ? 0 : Math.max(0, Number(s) || 0)));
+    },
+    // Seconds spoken since startedAt, standing still while paused (pausedAt set). Times in ms.
+    spoken(startedAt, pausedAt, now) {
+      return startedAt ? Math.max(0, ((pausedAt || now) - startedAt) / 1000) : 0;
     },
     // budgets: each slide's data-seconds (0 when unset). elapsed and onSlide in seconds.
     // delta > 0 is behind plan, < 0 ahead: the time now minus the time the plan says you would have
@@ -285,16 +319,19 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   if (!slides.length) return;
   const el = (tag, props = {}, ...kids) => { const node = Object.assign(document.createElement(tag), props); node.append(...kids); return node; };
   const button = (text, title, onclick) => el("button", { type: "button", textContent: text, title, onclick });
+  const skips = slides.map((s) => s.hasAttribute("data-skip"));
   const timed = deckLogic.timedCount(slides.map((s) => s.classList.contains("appendix-start")));
-  const budgets = slides.map((s) => Math.max(0, Number(s.dataset.seconds) || 0));
+  const budgets = deckLogic.budgets(slides.map((s) => s.dataset.seconds), skips);
   const scripts = slides.map((s) => deckLogic.sentences(s.querySelector("aside.notes")?.textContent));
+  const hasNotes = slides.some((s) => s.querySelector("aside.notes")?.textContent.trim());
+  const canPresenter = hasNotes || budgets.some(Boolean);
 
   // State that outlives a reload of this tab (the file was rewritten): the mode, the timer, the
   // laser and the captions. The slide itself is in the URL hash. Kept twice, in sessionStorage and
   // in the history entry, because a file:// page's sessionStorage now and then reads empty on reload.
   const KEY = `cmux-deck:${location.pathname}`;
   const saved = (() => { try { return JSON.parse(sessionStorage.getItem(KEY)) || history.state?.deck || {}; } catch { return history.state?.deck || {}; } })();
-  const state = { mode: null, startedAt: null, enteredAt: null, laser: false, captions: false, sig: null, ...saved };
+  const state = { mode: null, startedAt: null, pausedAt: null, enteredAt: null, laser: false, captions: false, sig: null, ...saved };
   const save = () => {
     try { history.replaceState({ deck: state }, ""); } catch { /* history off */ }
     try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch { /* storage off: the history entry has it */ }
@@ -302,21 +339,27 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   const sig = deckLogic.signature(deck.innerHTML);
   const edited = state.sig && state.sig !== sig;
   state.sig = sig;
-  // ?presenter opens the presenter view; ?audience (the window it opens) presents the slides alone.
+  // The presenter's window is the one Present with speaker notes opened (or ?presenter); ?audience
+  // (the window the presenter view opens when it is this window) presents the slides alone.
+  const CONSOLE = "cmux-deck-presenter";
+  const popup = window.name === CONSOLE && Boolean(window.opener);
   const query = new URLSearchParams(location.search);
-  if (query.has("presenter")) state.mode = "presenter";
-  else if (query.has("audience") && !state.audience) Object.assign(state, { audience: true, mode: "present" });
+  let initial = state.mode;
+  if (popup || query.has("presenter")) initial = "presenter";
+  else if (query.has("audience") && !state.audience) state.audience = true, initial = "present";
+  const restore = saved.mode === initial;
 
-  // Windows of the same deck (the presenter and the audience) follow each other's slide, laser and
-  // captions, and a window that reloads onto a newer file tells the others to reload too.
+  // Windows of the same deck (the presenter's and the presented one) follow each other's slide,
+  // laser and captions; End closes both; a window that reloads onto a newer file reloads the others.
   const born = Date.now();
   const channel = "BroadcastChannel" in window ? new BroadcastChannel(KEY) : null;
   const send = (message) => channel?.postMessage(message);
 
   const strip = el("nav", { className: "deck-strip", ariaLabel: "Slides" });
   const thumbs = slides.map((slide, i) => {
-    const thumb = button("", `Slide ${i + 1}`, () => go(i));
+    const thumb = button("", `Slide ${i + 1}${skips[i] ? " (skipped)" : ""}`, () => go(i));
     thumb.className = "deck-thumb";
+    thumb.toggleAttribute("data-skip", skips[i]);
     const copy = slide.cloneNode(true);
     copy.removeAttribute("id");
     copy.inert = true;
@@ -328,53 +371,101 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   const count = el("span", { className: "deck-count" });
   const status = el("span", { className: "deck-status", role: "status" });
   const pptxButton = button("Export .pptx", "Download as PowerPoint (loads a writer from cdn.jsdelivr.net once)", exportPptx);
-  const only = (node, which) => { node.classList.add(`deck-only-${which}`); return node; };
-  const laserButton = only(button("Laser", "Laser pointer over the slide (L)", () => setLaser(!state.laser)), "presenter");
-  const captionsButton = only(button("Captions", "Show the script as captions on the slide (C)", () => setCaptions(!state.captions)), "presenter");
+  // Present, as Claude Slides has it: the deck full screen, or with a presenter window beside it.
+  const menu = el("div", { className: "deck-menu", role: "menu", hidden: true });
+  const item = (text, key, onclick, disabled = false) => {
+    const node = button(text, "", () => { menu.hidden = true; onclick(); });
+    node.role = "menuitem";
+    node.disabled = disabled;
+    node.append(el("kbd", { textContent: key }));
+    return node;
+  };
+  menu.append(item("Present", "F", present),
+    item("Present with speaker notes", "S", presentWithNotes, !canPresenter));
+  const more = button("▾", "Present options", () => { menu.hidden = !menu.hidden; });
+  more.ariaHasPopup = "menu";
+  const presentGroup = el("span", { className: "deck-present" },
+    button("Present", "Present full screen (F; Esc exits)", present), more, menu);
+  document.addEventListener("pointerdown", (event) => { if (!presentGroup.contains(event.target)) menu.hidden = true; });
   const bar = el("div", { className: "deck-bar" },
     button("‹", "Previous (Left arrow)", () => go(current - 1)), count,
     button("›", "Next (Right arrow)", () => go(current + 1)),
-    only(button("Present", "Present full screen (F; Esc exits)", present), "viewer"),
-    only(button("Presenter view", "Current and next slide, script and pace (S)", () => setMode("presenter")), "viewer"),
-    only(button("Export PDF", "Print or save as PDF, one slide per page", () => window.print()), "viewer"),
-    only(pptxButton, "viewer"),
-    laserButton, captionsButton,
-    only(button("Restart timer", "Start the clock again from 0:00 (T)", restartTimer), "presenter"),
-    only(button("Audience window", "Open the slides alone in a second window that follows this one", openAudience), "presenter"),
-    only(button("Exit", "Leave the presenter view (Esc)", () => setMode(null)), "presenter"),
-    status);
+    presentGroup,
+    button("Export PDF", "Print or save as PDF, one slide per page", () => window.print()),
+    pptxButton, status);
   const notes = el("div", { className: "deck-notes", ariaLabel: "Speaker notes" });
-  const next = el("div", { className: "deck-next", ariaLabel: "Next slide" });
-  const elapsedOut = el("span", { className: "deck-elapsed", title: "Time since the presenter view opened (T restarts)" });
-  const paceOut = el("span", { className: "deck-pace" });
-  const slideTimeOut = el("span", { className: "deck-slide-time" });
-  const budgetFill = el("i");
-  const budgetBar = el("div", { className: "deck-budget" }, budgetFill);
-  const script = el("div", { className: "deck-script", ariaLabel: "Script" });
-  const presenter = el("aside", { className: "deck-presenter", ariaLabel: "Presenter view" },
-    el("div", { className: "deck-next-label", textContent: "Next" }), next,
-    el("div", { className: "deck-clock" }, elapsedOut, paceOut, budgetBar, slideTimeOut),
-    el("div", { className: "deck-script-label", textContent: "Script" }), script);
   const laser = el("div", { className: "deck-laser", hidden: true });
   const captions = el("div", { className: "deck-captions", hidden: true, ariaLive: "polite" });
   deck.append(laser, captions);
   document.body.prepend(strip, bar);
-  document.body.append(notes, presenter);
+  document.body.append(notes);
   document.body.classList.add("deck-ready");
 
+  // The presenter view: the current slide, the next one (backup slides passed over), the script with
+  // the sentence being said, the clock, the time spoken, the pace against data-seconds and controls.
+  const consoleTop = el("div", { className: "deck-console-top" });
+  const consoleNext = el("div", { className: "deck-console-next" });
+  const consoleNotes = el("div", { className: "deck-console-notes" });
+  const consoleFoot = el("div", { className: "deck-console-foot" });
+  const clockOut = el("span", { className: "clock" });
+  const timer = el("span", { className: "timer", title: "Time spoken (Pause stops it; T or Reset starts it again)" });
+  const paceOut = el("span", { className: "deck-pace" });
+  const consoleCount = el("span", { className: "count" });
+  const nextFrame = el("div", { className: "frame" });
+  const slideTimeOut = el("span", { className: "deck-slide-time" });
+  const budgetFill = el("i");
+  const budgetBar = el("div", { className: "deck-budget" }, budgetFill);
+  const script = el("div", { className: "deck-script", ariaLabel: "Script" });
+  let notesSize = 22;
+  const sizeNotes = (by) => { notesSize = Math.max(14, Math.min(44, notesSize + by)); root.style.setProperty("--deck-console-notes", `${notesSize}px`); };
+  const pauseButton = button("Pause", "Pause the timer", togglePause);
+  const laserButton = button("Laser", "Laser pointer over the slide (L)", () => setLaser(!state.laser));
+  const captionsButton = button("Captions", "Show the script as captions on the slide (C)", () => setCaptions(!state.captions));
+  const audienceButton = button("Audience window", "Open the slides alone in a second window that follows this one", openAudience);
+  audienceButton.hidden = popup;
+  consoleTop.append(timer, paceOut, clockOut, consoleCount);
+  consoleNext.append(el("span", { className: "label", textContent: "Next" }), nextFrame, budgetBar, slideTimeOut);
+  consoleNotes.append(el("span", { className: "label", textContent: "Notes" }), script);
+  consoleFoot.append(button("‹ Previous", "Previous (Left arrow)", () => go(current - 1)),
+    button("Next ›", "Next (Right arrow or Space)", () => go(current + 1)),
+    el("span", { className: "spacer" }),
+    button("A−", "Smaller notes", () => sizeNotes(-2)), button("A+", "Larger notes", () => sizeNotes(2)),
+    laserButton, captionsButton, pauseButton,
+    button("Reset", "Start the timer again from 0:00 (T)", restartTimer),
+    audienceButton,
+    button("End", "End the presentation (Esc)", end));
+
+  const inConsole = () => root.classList.contains("deck-console");
+  const showing = () => root.classList.contains("deck-presenting") || inConsole();
   let current = -1;
   function fit() {
     const box = deck.getBoundingClientRect();
-    const pad = root.classList.contains("deck-presenting") ? 0 : root.classList.contains("deck-presenter-view") ? 16 : 24;
+    const pad = root.classList.contains("deck-presenting") ? 0 : inConsole() ? 16 : 24;
     const scale = Math.max(0.05, Math.min((box.width - pad * 2) / W, (box.height - pad * 2) / H));
     for (const slide of slides) slide.style.transform = `scale(${scale}) translate(-50%, -50%)`;
-    const preview = next.firstElementChild;
-    if (preview?.tagName === "SECTION") preview.style.transform = `scale(${next.clientWidth / W})`;
+    fitNext();
     return scale;
   }
-  // silent: a move another window asked for, or the export's walk; it is not sent on.
-  function go(index, silent = false) {
-    const to = Math.max(0, Math.min(slides.length - 1, index));
+  function fitNext() {
+    const copy = nextFrame.querySelector("section");
+    if (!copy) return;
+    const box = nextFrame.getBoundingClientRect();
+    copy.style.transform = `scale(${Math.max(0.05, Math.min(box.width / W, box.height / H))})`;
+  }
+  // While presenting, a backup slide (data-skip) is passed over in the direction of travel.
+  function shown(index, step) {
+    let at = Math.max(0, Math.min(slides.length - 1, index));
+    if (!showing()) return at;
+    while (skips[at]) {
+      const after = at + (step || 1);
+      if (after < 0 || after >= slides.length) return slides[current] && !skips[current] ? current : at;
+      at = after;
+    }
+    return at;
+  }
+  // quiet: a move another window asked for, or the export's walk; it is not sent on.
+  function go(index, step = Math.sign(index - current), quiet = false) {
+    const to = shown(index, step);
     if (to === current) return;
     slides[current]?.removeAttribute("data-current");
     thumbs[current]?.setAttribute("aria-current", "false");
@@ -385,31 +476,37 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     thumbs[current].scrollIntoView({ block: "nearest" });
     count.textContent = `${current + 1} / ${slides.length}`;
     notes.textContent = slides[current].querySelector("aside.notes")?.textContent.trim() ?? "";
-    history.replaceState({ deck: state }, "", `${location.pathname}${location.search}#${current + 1}`);
+    try { history.replaceState({ deck: state }, "", `${location.pathname}${location.search}#${current + 1}`); } catch { /* history off */ }
     // A reload lands on the slide it left, and keeps the time already spent on it.
     if (!(first && state.enteredAt)) state.enteredAt = Date.now();
     save();
-    drawPresenter();
+    if (inConsole()) paintConsole();
     tick();
-    if (!silent) send({ t: "go", i: current });
+    if (!quiet) send({ t: "go", i: current });
   }
-  function drawPresenter() {
-    if (!root.classList.contains("deck-presenter-view") || current < 0) return;
-    const after = slides[current + 1];
-    if (after) {
-      const copy = after.cloneNode(true);
+  function upcoming() {
+    for (let at = current + 1; at < slides.length; at += 1) if (!skips[at]) return at;
+    return -1;
+  }
+  function paintConsole() {
+    const at = upcoming();
+    nextFrame.replaceChildren(at < 0 ? el("div", { className: "end", textContent: "End of the deck" }) : (() => {
+      const copy = slides[at].cloneNode(true);
       copy.removeAttribute("id");
       copy.removeAttribute("data-current");
+      copy.style.display = "flex";
       copy.inert = true;
-      next.replaceChildren(copy);
-    } else {
-      next.replaceChildren(el("div", { className: "deck-next-end", textContent: "End of deck" }));
-    }
+      return copy;
+    })());
     script.replaceChildren(...scripts[current].map((s) => el("span", { textContent: `${s} ` })));
-    fit();
+    const order = slides.filter((_, i) => !skips[i]);
+    const place = order.indexOf(slides[current]);
+    consoleCount.textContent = place < 0 ? `Backup slide ${current + 1}` : `Slide ${place + 1} of ${order.length}`;
+    fitNext();
   }
-  // The clock, the pace and the caption, four times a second while either shows.
+  // The clock, the time spoken, the pace and the caption, four times a second while either shows.
   function tick() {
+    if (current < 0) return;
     const now = Date.now();
     const onSlide = (now - (state.enteredAt ?? now)) / 1000;
     const said = deckLogic.captionAt(scripts[current], onSlide, budgets[current]);
@@ -417,37 +514,46 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
       captions.textContent = scripts[current][said] ?? "";
       captions.hidden = !captions.textContent;
     }
-    if (!root.classList.contains("deck-presenter-view")) return;
-    const elapsed = (now - (state.startedAt ?? now)) / 1000;
+    if (!inConsole()) return;
+    const elapsed = deckLogic.spoken(state.startedAt, state.pausedAt, now);
+    timer.textContent = deckLogic.clock(elapsed);
+    timer.toggleAttribute("data-paused", Boolean(state.pausedAt));
+    pauseButton.textContent = state.pausedAt ? "Resume" : "Pause";
+    pauseButton.setAttribute("aria-pressed", String(Boolean(state.pausedAt)));
+    clockOut.textContent = new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     const p = deckLogic.pace(budgets, timed, current, elapsed, onSlide);
-    elapsedOut.textContent = deckLogic.clock(elapsed);
     const word = p.planned ? deckLogic.paceWord(p.delta) : "on";
     paceOut.dataset.pace = word;
     paceOut.textContent = !p.planned ? "" : word === "on" ? "On pace" : `${deckLogic.clock(Math.abs(p.delta))} ${word}`;
-    paceOut.title = p.planned ? `Planned run ${deckLogic.clock(p.planned)} (the slides before the appendix)` : "";
+    paceOut.title = p.planned ? `Planned run ${deckLogic.clock(p.planned)} (the slides before the appendix, backup slides left out)` : "";
     budgetBar.hidden = p.appendix || !p.budget;
     budgetFill.style.width = `${Math.min(100, (onSlide / (p.budget || 1)) * 100)}%`;
     budgetBar.toggleAttribute("data-over", p.left < 0);
     slideTimeOut.textContent = p.appendix ? `Appendix, untimed · ${deckLogic.clock(onSlide)} here`
       : p.budget ? `This slide ${deckLogic.clock(onSlide)} of ${deckLogic.clock(p.budget)}${p.left < 0 ? ` (${deckLogic.clock(-p.left)} over)` : ""}`
-      : `This slide ${deckLogic.clock(onSlide)} (no data-seconds)`;
+      : `This slide ${deckLogic.clock(onSlide)}`;
     [...script.children].forEach((span, i) => { span.className = i < said ? "deck-said" : i === said ? "deck-now" : ""; });
   }
   let ticker = null;
   function keepTicking() {
-    const want = state.captions || root.classList.contains("deck-presenter-view");
+    const want = state.captions || inConsole();
     if (want && !ticker) ticker = setInterval(tick, 250);
     else if (!want && ticker) clearInterval(ticker), ticker = null;
   }
 
-  function setMode(mode) {
+  // mode: null (the viewer), "present" (the slides alone) or "presenter" (the presenter view).
+  // restore: a reload coming back to the mode it left, so the timer keeps running.
+  function setMode(mode, restoring = false) {
+    const fresh = mode === "presenter" && !(restoring && state.startedAt);
     state.mode = mode;
-    root.classList.toggle("deck-presenter-view", mode === "presenter");
     root.classList.toggle("deck-presenting", mode === "present");
-    if (mode === "presenter" && !state.startedAt) state.startedAt = Date.now();
+    root.classList.toggle("deck-console", mode === "presenter");
+    if (fresh) Object.assign(state, { startedAt: Date.now(), pausedAt: null });
+    if (mode === "presenter" && !consoleTop.isConnected) document.body.append(consoleTop, consoleNext, consoleNotes, consoleFoot);
     if (mode !== "presenter" && state.laser) setLaser(false);
     save();
-    drawPresenter();
+    if (mode) go(current, 1, true);
+    if (mode === "presenter") paintConsole();
     keepTicking();
     tick();
     fit();
@@ -457,15 +563,54 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     try { await root.requestFullscreen(); } catch { /* a frame without fullscreen still presents in place */ }
     fit();
   }
-  function restartTimer() {
-    state.startedAt = state.enteredAt = Date.now();
-    save();
-    tick();
+  function stop() {
+    if (state.mode === "present") setMode(null);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    fit();
+  }
+  // Present with speaker notes: this window presents and a second one, the presenter's, shows the
+  // presenter view; the two follow each other's slide. Where a second window is not allowed (a pane
+  // that blocks pop-ups), this window becomes the presenter's, and its Audience window opens the slides.
+  function presentWithNotes() {
+    // Open beside the deck. A browser can report the page offscreen (screenX far outside the
+    // screen), so when the opener's geometry isn't on screen, fall back to the screen's top-left.
+    const w = 1180, h = 760, x0 = screen.availLeft || 0, y0 = screen.availTop || 0, aw = screen.availWidth || w;
+    const sx = window.screenX, sy = window.screenY, ow = window.outerWidth;
+    const onScreen = sx >= x0 - 16 && sx + ow <= x0 + aw + 16 && sy >= y0 - 16 && sy < y0 + (screen.availHeight || h);
+    // On screen: the side of the deck with more room, narrowed to fit there (at least 640 px), same aspect.
+    const roomRight = x0 + aw - (sx + ow) - 12, roomLeft = sx - x0 - 12;
+    const onRight = roomRight >= roomLeft;
+    const cw = onScreen ? Math.max(640, Math.min(w, onRight ? roomRight : roomLeft)) : w;
+    const ch = Math.round(cw * h / w);
+    const left = !onScreen ? x0 + 12 : onRight ? sx + ow + 12 : Math.max(x0, sx - cw - 12);
+    const top = onScreen ? sy : y0 + 96;
+    const url = `${location.pathname}${location.search}#${current + 1}`;
+    const win = window.open(url, CONSOLE, `popup,width=${cw},height=${ch},left=${left},top=${top}`);
+    if (win) present();
+    else setMode("presenter");
   }
   function openAudience() {
     const url = `${location.pathname}?audience#${current + 1}`;
     const opened = window.open(url, "cmux-deck-audience", "popup");
     status.textContent = opened ? "Audience window open: it follows this one" : "The browser blocked a second window: open this file again in another pane";
+  }
+  function togglePause() {
+    const now = Date.now();
+    if (state.pausedAt) state.startedAt += now - state.pausedAt, state.pausedAt = null;
+    else state.pausedAt = now;
+    save();
+    tick();
+  }
+  function restartTimer() {
+    Object.assign(state, { startedAt: Date.now(), pausedAt: null, enteredAt: Date.now() });
+    save();
+    tick();
+  }
+  // End: both windows stop; the presenter's own window closes.
+  function end() {
+    send({ t: "end" });
+    if (popup) { window.close(); return; }
+    setMode(null);
   }
   function setLaser(on) {
     state.laser = on;
@@ -474,14 +619,14 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     if (!on) laser.hidden = true, send({ t: "laser", off: true });
     save();
   }
-  function setCaptions(on, silent = false) {
+  function setCaptions(on, quiet = false) {
     state.captions = on;
     captionsButton.setAttribute("aria-pressed", String(on));
     captions.hidden = !on;
     save();
     keepTicking();
     tick();
-    if (!silent) send({ t: "captions", on });
+    if (!quiet) send({ t: "captions", on });
   }
   // The laser in slide pixels (0..1280, 0..720), so each window places it on its own scale.
   function showLaser(x, y) {
@@ -501,10 +646,14 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
   deck.addEventListener("pointerleave", () => { if (state.laser) laser.hidden = true, send({ t: "laser", off: true }); });
 
   if (channel) channel.onmessage = ({ data }) => {
-    if (data.t === "go") go(data.i, true);
-    else if (data.t === "laser") data.off ? (laser.hidden = true) : showLaser(data.x, data.y);
-    else if (data.t === "captions") setCaptions(data.on, true);
-    else if (data.t === "hello" && data.sig !== sig && data.born > born) location.reload();
+    if (data?.t === "go") go(data.i, Math.sign(data.i - current), true);
+    else if (data?.t === "laser") data.off ? (laser.hidden = true) : showLaser(data.x, data.y);
+    else if (data?.t === "captions") setCaptions(data.on, true);
+    else if (data?.t === "end") popup && inConsole() ? window.close() : stop();
+    else if (data?.t === "hello") {
+      if (data.sig !== sig && data.born > born) location.reload();
+      else if (!inConsole()) send({ t: "go", i: current });
+    }
   };
 
   document.addEventListener("fullscreenchange", () => {
@@ -517,20 +666,20 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     if (step) go(current + (event.shiftKey && event.key === " " ? -1 : step));
     else if (event.key === "Home") go(0);
     else if (event.key === "End") go(slides.length - 1);
-    else if (event.key === "f") present();
-    else if (event.key === "s") setMode(state.mode === "presenter" ? null : "presenter");
-    else if (event.key === "l" && state.mode === "presenter") setLaser(!state.laser);
+    else if (event.key === "f" && !inConsole()) present();
+    else if (event.key === "s" && canPresenter && !showing()) presentWithNotes();
+    else if (event.key === "l" && inConsole()) setLaser(!state.laser);
+    else if (event.key === "t" && inConsole()) restartTimer();
     else if (event.key === "c") setCaptions(!state.captions);
-    else if (event.key === "t" && state.mode === "presenter") restartTimer();
-    else if (event.key === "Escape") setMode(null);
+    else if (event.key === "Escape") inConsole() ? end() : root.classList.contains("deck-presenting") ? (send({ t: "end" }), stop()) : (menu.hidden = true);
     else return;
     event.preventDefault();
   });
   window.addEventListener("hashchange", () => go(deckLogic.slideFromHash(location.hash, slides.length)));
   new ResizeObserver(fit).observe(deck);
-  new ResizeObserver(fit).observe(next);
-  go(deckLogic.slideFromHash(location.hash, slides.length), true);
-  setMode(state.mode);
+  new ResizeObserver(fitNext).observe(nextFrame);
+  go(deckLogic.slideFromHash(location.hash, slides.length), 1, true);
+  setMode(initial, restore);
   setLaser(state.laser);
   setCaptions(state.captions, true);
   send({ t: "hello", sig, born });
@@ -539,6 +688,8 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     setTimeout(() => { status.textContent = ""; }, 8000);
   }
   root.dataset.deckLoaded = String(born);
+  // The presenter's window takes the focus, so its keys work at once.
+  if (popup) { window.focus(); document.body.tabIndex = -1; document.body.focus({ preventScroll: true }); }
 
   // Export .pptx: each slide's text, lists and pictures become native, editable PowerPoint shapes, placed
   // where they sit on the slide. The writer (pptxgenjs, about 157 KB gzipped) loads on the first click only.
@@ -573,7 +724,8 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
       pptx.title = document.title;
       const inch = 13.333 / W;
       for (const [i, slide] of slides.entries()) {
-        go(i, true);
+        if (slide.hasAttribute("data-skip")) continue;
+        go(i, 1, true);
         const scale = fit();
         const origin = slide.getBoundingClientRect();
         const box = (node) => {
@@ -612,7 +764,7 @@ html.deck-presenter-view .deck-presenter { grid-area: side; display: flex; flex-
     } catch (error) {
       status.textContent = `Export .pptx failed: ${error.message}`;
     } finally {
-      go(back, true);
+      go(back, 0, true);
       fit();
       pptxButton.disabled = false;
     }
