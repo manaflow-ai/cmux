@@ -260,7 +260,7 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
-			<string>An extension id that draws New Tab, such as "local/showcase-newtab". Unset: cmux's own.</string>
+			<string>An extension that draws over the New Tab composer, by its id, such as "local/showcase-newtab". The composer always stays. Not used by the native New Tab page.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabApp</string>
 			<key>pfm_title</key>
