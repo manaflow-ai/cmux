@@ -112,7 +112,7 @@ cat > "$TMP/bin/gh" <<STUB
 printf '%s\n' "\$*" >> "$TMP/gh.log"
 if [[ "\$1 \$2" == "run list" ]]; then
   # \$TMP/gh-runs-json (a run list as JSON) is filtered by the call's own --jq.
-  if [[ -f "$TMP/gh-runs-json" && " \$* " == *" --json status,conclusion "* ]]; then
+  if [[ -f "$TMP/gh-runs-json" && " \$* " == *" --json status,conclusion,event "* ]]; then
     q=""; prev=""; for a in "\$@"; do [[ "\$prev" == --jq ]] && q="\$a"; prev="\$a"; done
     jq -r "\$q" "$TMP/gh-runs-json"; exit 0
   fi
@@ -820,11 +820,13 @@ rm -f "$TMP/gh-starved" "$TMP/gh-active-runs"
 # walked past coalesced tips and cut commits 40-87 min old). A failed or running
 # run still counts.
 echo 0 > "$TMP/gh-runs"
-echo '[{"status":"completed","conclusion":"success"}]' > "$TMP/gh-runs-json"
+echo '[{"status":"completed","conclusion":"success","event":"push"}]' > "$TMP/gh-runs-json"
 RUN_ID=129 request --tree-ready "$pending"
 [[ "$status" == 0 ]] && backfilled && ! dispatched "$pending" \
   || fail "a tip whose only run succeeded without a tree must be backfilled:" "$out" "$(cat "$TMP/gh.log")"
-for run in '{"status":"completed","conclusion":"failure"}' '{"status":"in_progress","conclusion":null}'; do
+# A green backfill dispatch that published nothing is not re-dispatched every tick.
+for run in '{"status":"completed","conclusion":"failure","event":"push"}' '{"status":"in_progress","conclusion":null,"event":"push"}' \
+           '{"status":"completed","conclusion":"success","event":"workflow_dispatch"}'; do
   echo "[$run]" > "$TMP/gh-runs-json"
   RUN_ID=130 request --tree-ready "$pending"
   [[ "$status" == 0 ]] && ! backfilled || fail "a tip run $run must still count (no backfill):" "$out" "$(cat "$TMP/gh.log")"
