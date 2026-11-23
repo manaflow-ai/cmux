@@ -138,6 +138,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "requestId",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
     "sessionCreatedAt",
     "senderHarness",
@@ -182,6 +183,8 @@ keyed! {
     ArchiveParams: ["sessionId", "archived", "opId"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
+    /// `_acpmux/turn_shots`.
+    TurnShotsParams: ["sessionId", "turnId"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.
@@ -243,7 +246,7 @@ keyed! {
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit", "recent"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.

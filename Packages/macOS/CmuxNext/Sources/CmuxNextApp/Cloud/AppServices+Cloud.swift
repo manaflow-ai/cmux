@@ -68,7 +68,7 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
-        cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
+        cloud.agentCreatePolicy = { [weak self] in self?.settings.map { CloudMachineCreatePolicy(asksFirst: !$0.cloudAgentsSkipAsking, pauseAgentMachines: $0.snapshot.pauseAgentMachines) } ?? CloudMachineCreatePolicy() }
         // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
         cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }

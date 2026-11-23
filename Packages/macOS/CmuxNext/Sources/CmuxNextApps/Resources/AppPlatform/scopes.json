@@ -421,6 +421,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.pause_all": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
     "cloud.machine.rename": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -470,6 +474,10 @@
       "class": "mutation"
     },
     "cloud.snapshot.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.surge.preview": {
       "scope": "cloud:read",
       "class": "read"
     },
@@ -1617,6 +1625,18 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "signal.publish": {
+      "scope": "none",
+      "class": "mutation"
+    },
+    "signal.read": {
+      "scope": "none",
+      "class": "read"
+    },
+    "signal.sources.list": {
+      "scope": "none",
+      "class": "read"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
@@ -2141,6 +2161,7 @@
     "cloud.fs.remove",
     "cloud.machine.archive_delete",
     "cloud.machine.chat_access",
+    "cloud.machine.chief_start",
     "cloud.machine.create",
     "cloud.machine.delete",
     "cloud.machine.io",
@@ -2173,6 +2194,7 @@
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "cloud.surge.create",
     "cloud.vm.domains",
     "cloud.vm.firewall_create",
     "cloud.vm.firewall_delete",
@@ -2242,6 +2264,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "language_packs.ensure",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",

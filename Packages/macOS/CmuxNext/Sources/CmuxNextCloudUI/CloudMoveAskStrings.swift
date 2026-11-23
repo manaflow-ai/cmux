@@ -5,34 +5,34 @@ public struct CloudMoveAskStrings {
     public init() {}
     public static func ask(_ folder: String) -> String {
         String(format: String(localized: "cloud.moveAsk.ask", defaultValue: "The agent asks to move this chat to Cloud, copying %@ to a Cloud machine.",
-                              table: "Cloud", bundle: .module), folder)
+                              table: "Cloud", bundle: .localizedModule), folder)
     }
-    public static var move: String { String(localized: "cloud.moveAsk.move", defaultValue: "Move", table: "Cloud", bundle: .module) }
-    public static var notNow: String { String(localized: "cloud.moveAsk.notNow", defaultValue: "Not now", table: "Cloud", bundle: .module) }
-    public static var always: String { String(localized: "cloud.moveAsk.always", defaultValue: "Always", table: "Cloud", bundle: .module) }
+    public static var move: String { String(localized: "cloud.moveAsk.move", defaultValue: "Move", table: "Cloud", bundle: .localizedModule) }
+    public static var notNow: String { String(localized: "cloud.moveAsk.notNow", defaultValue: "Not now", table: "Cloud", bundle: .localizedModule) }
+    public static var always: String { String(localized: "cloud.moveAsk.always", defaultValue: "Always", table: "Cloud", bundle: .localizedModule) }
     public static func alwaysHint(_ folder: String) -> String {
-        String(format: String(localized: "cloud.moveAsk.alwaysHint", defaultValue: "Move without asking whenever an agent in %@ asks", table: "Cloud", bundle: .module),
+        String(format: String(localized: "cloud.moveAsk.alwaysHint", defaultValue: "Move without asking whenever an agent in %@ asks", table: "Cloud", bundle: .localizedModule),
                folder)
     }
     public static func movingAlways(_ folder: String) -> String {
         String(format: String(localized: "cloud.moveAsk.movingAlways", defaultValue: "Moving this chat to Cloud. Agents in %@ move without asking.",
-                              table: "Cloud", bundle: .module), folder)
+                              table: "Cloud", bundle: .localizedModule), folder)
     }
-    public static var askFirst: String { String(localized: "cloud.moveAsk.askFirst", defaultValue: "Ask first next time", table: "Cloud", bundle: .module) }
-    public static var dismiss: String { String(localized: "cloud.moveAsk.dismiss", defaultValue: "Dismiss", table: "Cloud", bundle: .module) }
+    public static var askFirst: String { String(localized: "cloud.moveAsk.askFirst", defaultValue: "Ask first next time", table: "Cloud", bundle: .localizedModule) }
+    public static var dismiss: String { String(localized: "cloud.moveAsk.dismiss", defaultValue: "Dismiss", table: "Cloud", bundle: .localizedModule) }
     public static var notInChat: String {
-        String(localized: "cloud.moveAsk.notInChat", defaultValue: "Only an agent in a chat on this Mac can ask to move it to Cloud.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.moveAsk.notInChat", defaultValue: "Only an agent in a chat on this Mac can ask to move it to Cloud.", table: "Cloud", bundle: .localizedModule)
     }
     public static var onlyOwnChat: String {
-        String(localized: "cloud.moveAsk.onlyOwnChat", defaultValue: "An agent can ask to move only its own chat.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.moveAsk.onlyOwnChat", defaultValue: "An agent can ask to move only its own chat.", table: "Cloud", bundle: .localizedModule)
     }
     public static var noPage: String {
-        String(localized: "cloud.moveAsk.noPage", defaultValue: "Couldn't show the question in the chat, so nothing moved. Ask the person to run Move to Cloud on this chat.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.moveAsk.noPage", defaultValue: "Couldn't show the question in the chat, so nothing moved. Ask the person to run Move to Cloud on this chat.", table: "Cloud", bundle: .localizedModule)
     }
     public static var noMove: String {
-        String(localized: "cloud.moveAsk.noMove", defaultValue: "Move to Cloud isn't available for this chat right now.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.moveAsk.noMove", defaultValue: "Move to Cloud isn't available for this chat right now.", table: "Cloud", bundle: .localizedModule)
     }
     public static var bringBackIsPersons: String {
-        String(localized: "cloud.moveAsk.bringBackIsPersons", defaultValue: "Only a person can bring a chat back from Cloud.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.moveAsk.bringBackIsPersons", defaultValue: "Only a person can bring a chat back from Cloud.", table: "Cloud", bundle: .localizedModule)
     }
 }

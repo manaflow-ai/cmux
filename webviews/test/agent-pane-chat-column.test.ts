@@ -369,7 +369,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   test("the transcript and the composer share one column, inset by the page edge, Chat Text Width wide", async () => {
     const chat = newChat();
-    const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
+    const columns: Record<number, { main: number; row: number[]; composer: number[]; plus: number; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
       const page = await open(chat, width);
       columns[width] = await page.evaluate(() => {
@@ -388,6 +388,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           main: Math.round(main.width),
           row: edges(".acpmux-row.acpmux-assistant"),
           composer: edges(".acpmux-composer-box"),
+          // The composer's + glyph, where the transcript's rows start (ask-2351b8cf41).
+          plus: Math.round(
+            document.querySelector(".acpmux-composer-box .acpmux-picker-button svg")!.getBoundingClientRect().left -
+              main.left,
+          ),
           edge,
         };
       });
@@ -398,21 +403,23 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const pageEdge = columns[480]!.edge;
     expect(pageEdge).toBe(16);
     const column = (viewport: number) => {
-      const { main, row } = columns[viewport]!;
-      return main - row[0]! - row[1]!;
+      const { main, composer } = columns[viewport]!;
+      return main - composer[0]! - composer[1]!;
     };
-    // The composer's card spans the same column as the transcript's rows, at every width.
-    for (const [viewport, { row, composer }] of Object.entries(columns))
-      expect({ viewport, composer }).toEqual({ viewport, composer: row });
+    // The transcript's rows share the composer card's right edge and start on its + glyph, one
+    // column inside the card as Claude Code draws it (Leo 2026-11-22: "should we tuck it in a bit
+    // more like claude code?"), at every width.
+    for (const [viewport, { row, composer, plus }] of Object.entries(columns))
+      expect({ viewport, row }).toEqual({ viewport, row: [plus, composer[1]!] });
     // A narrow pane leaves the page edge on each side.
-    expect(columns[480]!.row).toEqual([pageEdge, pageEdge]);
+    expect(columns[480]!.composer).toEqual([pageEdge, pageEdge]);
     // Every pane that fits it draws Chat Text Width's 800px (within the whole-pixel inset's 1px), not a
     // share of the pane (https://github.com/manaflow-ai/cmux/issues/36299); it stays centered.
     for (const viewport of [900, 1400, 1900]) {
       expect(column(viewport)).toBeGreaterThanOrEqual(800);
       expect(column(viewport)).toBeLessThanOrEqual(801);
     }
-    expect(Math.abs(columns[1900]!.row[0]! - columns[1900]!.row[1]!)).toBeLessThanOrEqual(1);
+    expect(Math.abs(columns[1900]!.composer[0]! - columns[1900]!.composer[1]!)).toBeLessThanOrEqual(1);
   });
 
   test("a streaming reply keeps the view at its end, through a growing command and a queue", async () => {
@@ -624,7 +631,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
 
   // A long thought folds once done (conversation/ThoughtRow.tsx): only what is below it moves, so the rows above it stay put.
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
-  // Closed, a thought's button reads its words (Codex parity); open, "Thought".
+  // A thought's button reads its own first line (Codex parity), closed and open.
   const thoughtToggle = (page: Page) => page.locator("button.cv-thought[aria-expanded]");
 
   test("a long thought draws as its folded line while it streams, and the next step moves nothing above it", async () => {

@@ -59,6 +59,8 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.

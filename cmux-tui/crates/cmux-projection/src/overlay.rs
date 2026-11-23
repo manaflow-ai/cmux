@@ -13,18 +13,25 @@
 //! The state folder holds:
 //! - `upper/`: every file or folder the agent made or changed, at its relative path;
 //! - `whiteouts`: lower paths the agent deleted or renamed away, each ended by a NUL (a name may
-//!   hold a newline; an older file of newline-ended lines still reads);
+//!   hold a newline; an older file of newline-ended lines still reads). A new one is appended; the
+//!   file is rewritten only when one goes away, so deleting a big lower tree is linear in its
+//!   size, not quadratic, and a path without its end (a crash inside an append) is no whiteout;
 //! - `cache/`: lower bytes fetched from the Mac, whole files as `cache/<entry>` and the chunks of a
 //!   big file as `cache/<entry>.<chunk>`, with `cache/manifest-id` naming the manifest they belong
-//!   to (a new manifest starts a fresh cache).
+//!   to (a new manifest starts a fresh cache). The cache holds only clean copies of the Mac's
+//!   bytes, so it is capped ([`DEFAULT_CACHE_MAX_BYTES`], [`Overlay::with_cache_max`]): before a
+//!   new blob is admitted the least recently used ones go, and a later read fetches them again.
+//!   The upper layer is never evicted; it goes only once its edits are safe ([`crate::state`],
+//!   [`crate::reap`]).
 
+use anyhow::Context as _;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -38,6 +45,11 @@ pub const CHUNK: u64 = 4 * 1024 * 1024;
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
 const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most bytes of the Mac's files one projection keeps cached on the machine's disk (RFD 0007,
+/// hard case 8).
+pub const DEFAULT_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+/// The cache's own file naming the manifest it belongs to (never evicted).
+pub const CACHE_ID_FILE: &str = "manifest-id";
 
 /// `errno` values (Linux numbers; the mount is Linux only).
 pub mod errno {
@@ -117,6 +129,20 @@ pub struct Attr {
     pub uid: u32,
     pub gid: u32,
     pub rdev: u64,
+    /// Whether the path is in the upper folder (the machine's disk), not only in the manifest.
+    pub upper: bool,
+}
+
+/// What a file's bytes are at one moment. A lower file is its manifest entry (fixed for the life
+/// of an [`Overlay`]: a new manifest is a new mount); an upper file is its inode on the machine's
+/// disk with its size and times, which every write moves (with multigrain timestamps a write after
+/// a `stat` always gets a new `ctime`). Equal versions mean the same bytes, so the mount lets the
+/// kernel keep the pages it cached since the earlier open (`FOPEN_KEEP_CACHE`) and drops them on
+/// any other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Version {
+    Lower { entry: u32, size: u64, mtime_ns: i64 },
+    Upper { dev: u64, ino: u64, size: u64, mtime_ns: i64, ctime_ns: i64 },
 }
 
 /// Who asks: the caller's file system user and group (what a new path is owned by).
@@ -143,6 +169,73 @@ pub struct Stats {
     pub remote_reads: u64,
     pub remote_bytes: u64,
     pub cache_hits: u64,
+}
+
+/// The cached blobs, least recently used first, and their bytes.
+#[derive(Default)]
+struct CacheIndex {
+    /// Each blob's bytes and the tick it was last used at.
+    blobs: HashMap<Key, (u64, u64)>,
+    order: BTreeMap<u64, Key>,
+    bytes: u64,
+    tick: u64,
+}
+
+impl CacheIndex {
+    fn insert(&mut self, key: Key, bytes: u64) {
+        self.remove(key);
+        self.tick += 1;
+        self.blobs.insert(key, (bytes, self.tick));
+        self.order.insert(self.tick, key);
+        self.bytes += bytes;
+    }
+
+    fn touch(&mut self, key: Key) {
+        if let Some(&(bytes, _)) = self.blobs.get(&key) {
+            self.insert(key, bytes);
+        }
+    }
+
+    fn remove(&mut self, key: Key) -> Option<u64> {
+        let (bytes, tick) = self.blobs.remove(&key)?;
+        self.order.remove(&tick);
+        self.bytes = self.bytes.saturating_sub(bytes);
+        Some(bytes)
+    }
+
+    fn oldest(&self) -> Option<Key> {
+        self.order.values().next().copied()
+    }
+}
+
+/// The key a cache file's name stands for (`<entry>` or `<entry>.<chunk>`).
+fn cache_key(name: &str) -> Option<Key> {
+    match name.split_once('.') {
+        None => Some((name.parse().ok()?, WHOLE)),
+        Some((index, part)) => Some((index.parse().ok()?, part.parse().ok()?)),
+    }
+}
+
+/// What an earlier daemon cached in `cache`, oldest written first.
+fn cache_on_disk(cache: &Path) -> CacheIndex {
+    use std::os::unix::fs::MetadataExt as _;
+    let mut blobs: Vec<(i64, Key, u64)> = fs::read_dir(cache)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let key = cache_key(entry.file_name().to_str()?)?;
+            let meta = entry.metadata().ok()?;
+            let written = meta.mtime().saturating_mul(1_000_000_000) + meta.mtime_nsec();
+            meta.is_file().then_some((written, key, meta.len()))
+        })
+        .collect();
+    blobs.sort_unstable();
+    let mut index = CacheIndex::default();
+    for (_, key, bytes) in blobs {
+        index.insert(key, bytes);
+    }
+    index
 }
 
 /// Where a path lives now.
@@ -186,6 +279,9 @@ pub struct Overlay {
     cache: PathBuf,
     scratch: PathBuf,
     whiteouts_file: PathBuf,
+    /// The whiteouts file may end in a torn entry (an append and both its repairs failed): the
+    /// next change writes the whole file, not one more entry.
+    whiteouts_stale: AtomicBool,
     inner: Mutex<Inner>,
     handles: Mutex<HashMap<u64, Handle>>,
     next_handle: AtomicU64,
@@ -195,6 +291,9 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
+    cache_index: Mutex<CacheIndex>,
+    cache_max: u64,
+    cache_evicted: AtomicU64,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -277,6 +376,58 @@ fn read_at(file: &fs::File, offset: u64, size: u32) -> Result<Vec<u8>, i32> {
     Ok(bytes)
 }
 
+/// `len` bytes of `file` at `offset`, or `None` when it has fewer (a damaged cache file).
+fn read_range(file: &fs::File, offset: u64, len: usize) -> Option<Vec<u8>> {
+    let mut bytes = vec![0u8; len];
+    let mut filled = 0;
+    while filled < len {
+        match file.read_at(bytes.get_mut(filled..)?, offset + filled as u64) {
+            Ok(0) => return None,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    Some(bytes)
+}
+
+/// The whole whiteouts of `bytes` (each ended by a NUL, or by a newline in an older file); a last
+/// one without its end is a torn append, cut off as bytes (a crash can tear a name inside a
+/// multi-byte character). Each entry is decoded alone: one that is not UTF-8 is skipped, never
+/// the file with it. Says too whether the file must be written again (a torn tail to cut, an
+/// entry skipped, or the older format, so the next append starts an entry of its own).
+fn parse_whiteouts(bytes: &[u8]) -> (BTreeSet<String>, bool) {
+    let ends = if bytes.contains(&0) { 0 } else { b'\n' };
+    let mut skipped = false;
+    let whole = bytes
+        .split_inclusive(|byte| *byte == ends)
+        .filter_map(|path| path.strip_suffix(&[ends]))
+        .filter(|path| !path.is_empty())
+        .filter_map(|path| {
+            let path = String::from_utf8(path.to_vec()).ok();
+            skipped |= path.is_none();
+            path
+        })
+        .collect();
+    (whole, !bytes.is_empty() && (ends != 0 || bytes.last() != Some(&0) || skipped))
+}
+
+/// Appends `bytes` to `file` through `write`; when that fails part way (a full disk), cuts the
+/// file back to where it was, so no unterminated entry is left for the next append to glue onto.
+fn append_entry(
+    file: &mut fs::File,
+    bytes: &[u8],
+    write: impl FnOnce(&mut fs::File, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let len = file.metadata()?.len();
+    let written = write(file, bytes);
+    if written.is_err() {
+        // A cut that fails too leaves the caller's full rewrite to end the torn entry.
+        file.set_len(len)?;
+    }
+    written
+}
+
 impl Overlay {
     /// The overlay of `manifest` with its state in `state`, fetching bytes through `fetch`, every
     /// lower path owned by `owner` (uid, gid).
@@ -291,7 +442,7 @@ impl Overlay {
         let scratch = state.join("scratch");
         let whiteouts_file = state.join("whiteouts");
         let id = format!("{:016x}\n", fnv(&bincode::serialize(manifest.as_ref())?));
-        let id_file = cache.join("manifest-id");
+        let id_file = cache.join(CACHE_ID_FILE);
         if fs::read_to_string(&id_file).ok().as_deref() != Some(id.as_str()) {
             if cache.exists() {
                 fs::remove_dir_all(&cache)?;
@@ -303,14 +454,16 @@ impl Overlay {
             fs::remove_dir_all(&scratch)?;
         }
         fs::create_dir_all(&scratch)?;
-        let whiteouts = fs::read_to_string(&whiteouts_file)
-            .map(|text| {
-                let ends = if text.contains('\0') { '\0' } else { '\n' };
-                text.split(ends).filter(|path| !path.is_empty()).map(str::to_owned).collect()
-            })
-            .unwrap_or_default();
+        // Only a file not there is no whiteouts: one that cannot be read fails the open, never
+        // shows every deleted lower path again.
+        let bytes = match fs::read(&whiteouts_file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            read => read.with_context(|| format!("reading {}", whiteouts_file.display()))?,
+        };
+        let (whiteouts, rewrite) = parse_whiteouts(&bytes);
         let next = manifest.len() as u64 + 2;
-        Ok(Self {
+        let cache_index = Mutex::new(cache_on_disk(&cache));
+        let overlay = Self {
             manifest,
             fetch,
             owner,
@@ -318,6 +471,7 @@ impl Overlay {
             cache,
             scratch,
             whiteouts_file,
+            whiteouts_stale: AtomicBool::new(false),
             inner: Mutex::new(Inner { whiteouts, next, ..Inner::default() }),
             handles: Mutex::new(HashMap::new()),
             next_handle: AtomicU64::new(1),
@@ -327,7 +481,54 @@ impl Overlay {
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
-        })
+            cache_index,
+            cache_max: DEFAULT_CACHE_MAX_BYTES,
+            cache_evicted: AtomicU64::new(0),
+        };
+        if rewrite {
+            // Cut a torn tail off now (or end an older file's entries with NULs), or the next
+            // append would glue a path onto it.
+            let inner = overlay.lock();
+            overlay.write_whiteouts(&inner).map_err(std::io::Error::from_raw_os_error)?;
+        }
+        // A cache an earlier daemon (or a bigger cap) left goes down to the cap now.
+        overlay.evict_to_fit(&mut overlay.cache_lock(), 0);
+        Ok(overlay)
+    }
+
+    /// This overlay with its cache capped at `bytes` (what is over goes now).
+    #[must_use]
+    pub fn with_cache_max(mut self, bytes: u64) -> Self {
+        self.cache_max = bytes;
+        self.evict_to_fit(&mut self.cache_lock(), 0);
+        self
+    }
+
+    /// The bytes of the Mac's files cached on the machine now.
+    #[must_use]
+    pub fn cache_bytes(&self) -> u64 {
+        self.cache_lock().bytes
+    }
+
+    /// The bytes the cache let go to stay under its cap so far.
+    #[must_use]
+    pub fn cache_evicted(&self) -> u64 {
+        self.cache_evicted.load(Ordering::Relaxed)
+    }
+
+    fn cache_lock(&self) -> MutexGuard<'_, CacheIndex> {
+        self.cache_index.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Drops the least recently used blobs until `incoming` more bytes fit under the cap.
+    fn evict_to_fit(&self, index: &mut CacheIndex, incoming: u64) {
+        while index.bytes.saturating_add(incoming) > self.cache_max {
+            let Some(oldest) = index.oldest() else { break };
+            let bytes = index.remove(oldest).unwrap_or(0);
+            // Gone already (the reaper freed it) is as good as removed.
+            let _ = fs::remove_file(self.cache_path(oldest));
+            self.cache_evicted.fetch_add(bytes, Ordering::Relaxed);
+        }
     }
 
     /// Whether reads leave access times as they are (the mount's `noatime`, the default), or let
@@ -512,6 +713,7 @@ impl Overlay {
                     uid,
                     gid,
                     rdev: 0,
+                    upper: false,
                 }
             }
         }
@@ -531,7 +733,28 @@ impl Overlay {
             uid: stat.uid,
             gid: stat.gid,
             rdev: stat.rdev,
+            upper: true,
         }
+    }
+
+    /// The version of file `ino`'s bytes now ([`Version`]); `None` for anything but a file.
+    pub fn version(&self, ino: u64) -> Result<Option<Version>, i32> {
+        let path = self.path_of(ino)?;
+        Ok(match self.node(&path).ok_or(ENOENT)? {
+            Node::Upper(stat) if stat.format() == libc::S_IFREG => Some(Version::Upper {
+                dev: stat.dev,
+                ino: stat.ino,
+                size: stat.size,
+                mtime_ns: stat.mtime_ns,
+                ctime_ns: stat.ctime_ns,
+            }),
+            Node::Upper(_) => None,
+            Node::Lower(index) => {
+                self.manifest.entry(index).filter(|entry| entry.kind == Kind::File).map(|entry| {
+                    Version::Lower { entry: index, size: entry.size, mtime_ns: entry.mtime_ns }
+                })
+            }
+        })
     }
 
     fn attr(&self, path: &str, node: &Node) -> Attr {
@@ -572,8 +795,12 @@ impl Overlay {
             text.push('\0');
         }
         let temp = self.scratch_path();
-        fs::write(&temp, text).map_err(|error| io_errno(&error))?;
-        fs::rename(&temp, &self.whiteouts_file).map_err(|error| io_errno(&error))
+        let written = fs::write(&temp, text).and_then(|()| fs::rename(&temp, &self.whiteouts_file));
+        if written.is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+        self.whiteouts_stale.store(written.is_err(), Ordering::Relaxed);
+        written.map_err(|error| io_errno(&error))
     }
 
     fn set_whiteout(&self, path: &str, on: bool) -> Result<(), i32> {
@@ -583,6 +810,21 @@ impl Overlay {
         if !changed {
             return Ok(());
         }
+        if on && !self.whiteouts_stale.load(Ordering::Relaxed) {
+            // A new whiteout is one appended entry (one write: a crash leaves it whole or not
+            // there), not a rewrite of every whiteout so far.
+            let entry = format!("{path}\0");
+            let appended = fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&self.whiteouts_file)
+                .and_then(|mut file| {
+                    append_entry(&mut file, entry.as_bytes(), |file, bytes| file.write_all(bytes))
+                });
+            if appended.is_ok() {
+                return Ok(());
+            }
+        }
         self.write_whiteouts(&inner)
     }
 
@@ -591,16 +833,23 @@ impl Overlay {
     /// a folder deleted and made again comes back empty.
     fn unhide(&self, path: &str) -> Result<(), i32> {
         let mut inner = self.lock();
-        if !inner.whiteouts.remove(path) {
+        if !inner.whiteouts.contains(path) {
             return Ok(());
         }
+        let before = inner.whiteouts.clone();
+        inner.whiteouts.remove(path);
         if let Some(index) = self.manifest.resolve(path) {
             let (_, children) = self.manifest.children(index);
             for entry in children {
                 inner.whiteouts.insert(join(path, &entry.name));
             }
         }
-        self.write_whiteouts(&inner)
+        let written = self.write_whiteouts(&inner);
+        if written.is_err() {
+            // What the file on disk still says: the path stays deleted.
+            inner.whiteouts = before;
+        }
+        written
     }
 
     fn scratch_path(&self) -> PathBuf {
@@ -731,21 +980,32 @@ impl Overlay {
         if offset >= end {
             return Ok(Vec::new());
         }
+        let len = (end - offset) as usize;
         if total <= CHUNK {
+            // Only the asked range off the disk, not the whole cached file per request.
+            if let Some(bytes) = self.cached_range((index, WHOLE), offset, len) {
+                return Ok(bytes);
+            }
             let whole = self.whole(index)?;
             let from = usize::try_from(offset).unwrap_or(usize::MAX);
             let to = usize::try_from(end).unwrap_or(usize::MAX);
             return Ok(whole.get(from..to).unwrap_or_default().to_vec());
         }
-        let mut out = Vec::with_capacity((end - offset) as usize);
+        let mut out = Vec::with_capacity(len);
         let mut at = offset;
         while at < end {
             let chunk = u32::try_from(at / CHUNK).map_err(|_| EIO)?;
-            let bytes = self.chunk(index, chunk, total)?;
-            let start = (at - u64::from(chunk) * CHUNK) as usize;
-            let stop = ((end - u64::from(chunk) * CHUNK) as usize).min(bytes.len());
-            out.extend_from_slice(bytes.get(start..stop).ok_or(EIO)?);
-            at = u64::from(chunk + 1) * CHUNK;
+            let base = u64::from(chunk) * CHUNK;
+            let (start, stop) = (at - base, (end - base).min(CHUNK));
+            // A cached chunk gives only the asked range, not its 4 MiB per 128 KiB request.
+            if let Some(bytes) = self.cached_range((index, chunk), start, (stop - start) as usize) {
+                out.extend_from_slice(&bytes);
+            } else {
+                let bytes = self.chunk(index, chunk, total)?;
+                let stop = (stop as usize).min(bytes.len());
+                out.extend_from_slice(bytes.get(start as usize..stop).ok_or(EIO)?);
+            }
+            at = base + CHUNK;
         }
         Ok(out)
     }
@@ -762,8 +1022,27 @@ impl Overlay {
         if !self.fetch.cache() {
             return None;
         }
-        let bytes = fs::read(self.cache_path(key)).ok()?;
+        let Ok(bytes) = fs::read(self.cache_path(key)) else {
+            self.cache_lock().remove(key);
+            return None;
+        };
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.cache_lock().touch(key);
+        Some(bytes)
+    }
+
+    /// `len` bytes at `offset` of cached `key`, read off the disk without the rest of it.
+    fn cached_range(&self, key: Key, offset: u64, len: usize) -> Option<Vec<u8>> {
+        if !self.fetch.cache() {
+            return None;
+        }
+        let Ok(file) = fs::File::open(self.cache_path(key)) else {
+            self.cache_lock().remove(key);
+            return None;
+        };
+        let bytes = read_range(&file, offset, len)?;
+        self.cache_hits.fetch_add(1, Ordering::Relaxed);
+        self.cache_lock().touch(key);
         Some(bytes)
     }
 
@@ -772,7 +1051,24 @@ impl Overlay {
             return;
         }
         let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
+        if fs::write(&temp, bytes).is_err() {
+            let _ = fs::remove_file(&temp);
+            return;
+        }
+        let size = bytes.len() as u64;
+        if size > self.cache_max {
+            // Never fits: it is served, not kept.
+            let _ = fs::remove_file(&temp);
+            return;
+        }
+        // Room first, then the blob lands and is counted, under one lock: the cache never holds
+        // more than its cap, and no eviction races a blob landing.
+        let mut index = self.cache_lock();
+        index.remove(key);
+        self.evict_to_fit(&mut index, size);
+        if fs::rename(&temp, self.cache_path(key)).is_ok() {
+            index.insert(key, size);
+        } else {
             let _ = fs::remove_file(&temp);
         }
     }
@@ -1127,12 +1423,30 @@ impl Overlay {
 
     /// Makes file `name` in `parent` for `who` and opens it (read and write: the kernel enforces
     /// the caller's own access mode on its descriptor).
+    /// The upper folder is made only when the first try finds it missing (one `stat` per folder
+    /// level saved on every create after the first in a folder); an upper path already there is
+    /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
         let (parent, child) = self.child(parent, name)?;
-        self.make_room(&parent, &child)?;
-        let file = self.in_folder(&parent, || {
-            self.upper.open_file(&child, libc::O_CREAT | libc::O_EXCL | libc::O_RDWR, 0o600)
-        })?;
+        if self.lower(&child).is_some() {
+            return Err(EEXIST);
+        }
+        let open =
+            || self.upper.open_file(&child, libc::O_CREAT | libc::O_EXCL | libc::O_RDWR, 0o600);
+        let file = match self.in_folder(&parent, open) {
+            Err(ENOENT) => {
+                self.upper_folder(&parent)?;
+                self.in_folder(&parent, open)?
+            }
+            opened => opened?,
+        };
+        // After the file is there: a failed create leaves a deleted lower path deleted, and no
+        // new upper file to show through it.
+        if let Err(error) = self.unhide(&child) {
+            drop(file);
+            let _ = self.in_folder(&parent, || self.upper.unlink(&child));
+            return Err(error);
+        }
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
         let attr = self.lookup_path(&child)?;
         let handle =
@@ -1237,7 +1551,13 @@ impl Overlay {
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
         let (_, child) = self.child(parent, name)?;
-        let node = self.node(&child).ok_or(ENOENT)?;
+        // The upper path first: the manifest is asked only when the disk has nothing there, and
+        // the disk's refusal (EPERM in a sticky folder and the rest) is the answer as it said it.
+        let node = match self.upper.stat(&child) {
+            Ok(stat) => Node::Upper(stat),
+            Err(ENOENT) => Node::Lower(self.lower(&child).ok_or(ENOENT)?),
+            Err(errno) => return Err(errno),
+        };
         if Self::kind(&node, &self.manifest) == Type::Dir {
             return Err(EISDIR);
         }
@@ -1246,6 +1566,14 @@ impl Overlay {
 
     pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), i32> {
         let (_, child) = self.child(parent, name)?;
+        if self.lower(&child).is_none() {
+            // Only in the upper layer: one rmdir, the disk checks that it is a folder and empty.
+            let stat = self.upper.stat(&child)?;
+            if !stat.is_dir() {
+                return Err(ENOTDIR);
+            }
+            return self.remove(&child, &Node::Upper(stat), true);
+        }
         let node = self.node(&child).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) != Type::Dir {
             return Err(ENOTDIR);
@@ -1393,6 +1721,12 @@ impl Overlay {
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
         let by_handle = handle.and_then(|handle| self.handle_file(handle));
+        // A change through an open handle goes to the file it holds: no lookup, no open.
+        if let Some(file) = &by_handle
+            && set != Set::default()
+        {
+            return Self::setattr_open(ino, file, set);
+        }
         let path = match self.path_of(ino) {
             Ok(path) if self.node(&path).is_some() => Some(path),
             _ => None,
@@ -1441,6 +1775,25 @@ impl Overlay {
             }
         }
         self.getattr(ino)
+    }
+
+    /// [`Self::setattr`] through `file`, the upper file a handle of `ino` holds open: every field
+    /// of `set` on that descriptor, and its attributes from it (the path may name another file by
+    /// now, a save by rename, or none).
+    fn setattr_open(ino: u64, file: &fs::File, set: Set) -> Result<Attr, i32> {
+        if let Some(size) = set.size {
+            file.set_len(size).map_err(|error| io_errno(&error))?;
+        }
+        if set.uid.is_some() || set.gid.is_some() {
+            fd_chown(file, set.uid.unwrap_or(u32::MAX), set.gid.unwrap_or(u32::MAX))?;
+        }
+        if let Some(mode) = set.mode {
+            fd_chmod(file, mode)?;
+        }
+        if set.atime.is_some() || set.mtime.is_some() {
+            fd_utimes(file, set.atime, set.mtime)?;
+        }
+        Ok(Self::upper_attr(ino, &Upper::fstat(file)?))
     }
 
     /// Flushes open handle `handle`'s file to disk.

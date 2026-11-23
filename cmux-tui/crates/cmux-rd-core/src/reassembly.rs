@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_proto::{
     DatagramHeader, DatagramKind, FrameBody, MAX_NACK_FRAMES, MAX_NACK_INDEXES, Nack, REF_NONE,
-    flags,
+    fec_blocks, flags,
 };
 
 use crate::fec;
@@ -26,6 +26,13 @@ pub struct CompleteFrame {
     pub frame: u32,
     pub flags: u8,
     pub body: FrameBody,
+    /// When the frame's first shard arrived (the caller's clock, as passed to `push`).
+    pub first_shard_us: u64,
+    /// When the shard that made it decodable arrived (its last needed shard).
+    pub last_shard_us: u64,
+    /// When it was released to the decoder: later than `last_shard_us` while it
+    /// waited for an older frame.
+    pub released_us: u64,
 }
 
 /// What [`Reassembler`] reports for a frame that will never be released.
@@ -41,6 +48,8 @@ pub enum FrameLoss {
 struct Pending {
     first_seen_us: u64,
     last_seen_us: u64,
+    /// When the frame first had enough shards to decode.
+    complete_us: Option<u64>,
     highest_index: u16,
     last_nack_us: Option<u64>,
     flags: u8,
@@ -133,12 +142,13 @@ impl Reassembler {
             || no_room
         {
             self.expire(now_us);
-            return self.release_ready();
+            return self.release_ready(now_us);
         }
         let total = usize::from(header.count) + usize::from(header.fec_count);
         let entry = self.pending.entry(header.frame).or_insert_with(|| Pending {
             first_seen_us: now_us,
             last_seen_us: now_us,
+            complete_us: None,
             highest_index: header.index,
             last_nack_us: None,
             flags: header.flags,
@@ -164,15 +174,18 @@ impl Reassembler {
             self.pending_bytes += payload.len();
             entry.held += payload.len();
             *slot = Some(payload.to_vec());
+            if entry.complete_us.is_none() && Self::decodable(entry) {
+                entry.complete_us = Some(now_us);
+            }
         }
         self.expire(now_us);
-        self.release_ready()
+        self.release_ready(now_us)
     }
 
     /// Advances time with no new datagram: drops frames past their deadline.
     pub fn tick(&mut self, now_us: u64) -> Vec<CompleteFrame> {
         self.expire(now_us);
-        self.release_ready()
+        self.release_ready(now_us)
     }
 
     /// Missing data shard indexes of incomplete frames that waited at least
@@ -257,7 +270,21 @@ impl Reassembler {
     }
 
     fn decodable(p: &Pending) -> bool {
-        p.shards.iter().filter(|s| s.is_some()).count() >= usize::from(p.count)
+        let count = usize::from(p.count);
+        if p.shards.iter().filter(|s| s.is_some()).count() < count {
+            return false;
+        }
+        // A frame over one FEC block needs enough shards in every block (design D6).
+        let blocks = Self::blocks(p);
+        blocks == 1
+            || p.shards.get(..count).is_some_and(|data| data.iter().all(Option::is_some))
+            || fec::decodable_blocks(&p.shards, count, blocks)
+    }
+
+    /// The frame's FEC blocks (cmux-rd-proto `fec_blocks`): one unless it is larger.
+    fn blocks(p: &Pending) -> usize {
+        let parity = p.shards.len().saturating_sub(usize::from(p.count));
+        fec_blocks(p.count, u16::try_from(parity).unwrap_or(u16::MAX))
     }
 
     fn expire(&mut self, now_us: u64) {
@@ -313,10 +340,11 @@ impl Reassembler {
 
     /// Rebuilds and parses a decodable frame's body, once.
     fn assemble(p: &mut Pending) -> &Result<FrameBody, ()> {
+        let (count, blocks) = (usize::from(p.count), Self::blocks(p));
+        let shards = &mut p.shards;
         p.body.get_or_insert_with(|| {
-            let count = usize::from(p.count);
-            fec::reconstruct(&mut p.shards, count).map_err(|_| ())?;
-            let bytes: Vec<u8> = p.shards[..count].iter().flatten().flatten().copied().collect();
+            fec::reconstruct_blocks(shards, count, blocks).map_err(|_| ())?;
+            let bytes: Vec<u8> = shards[..count].iter().flatten().flatten().copied().collect();
             FrameBody::decode(&bytes).map_err(|_| ())
         })
     }
@@ -334,7 +362,18 @@ impl Reassembler {
         self.finished_through = self.finished_through.max(frame);
     }
 
-    fn release_ready(&mut self) -> Vec<CompleteFrame> {
+    fn complete(frame: u32, p: &Pending, body: FrameBody, now_us: u64) -> CompleteFrame {
+        CompleteFrame {
+            frame,
+            flags: p.flags,
+            body,
+            first_shard_us: p.first_seen_us,
+            last_shard_us: p.complete_us.unwrap_or(p.last_seen_us),
+            released_us: now_us,
+        }
+    }
+
+    fn release_ready(&mut self, now_us: u64) -> Vec<CompleteFrame> {
         let mut out = Vec::new();
         while let Some(frame) = self.next_candidate() {
             let older: Vec<u32> = self.pending.range(..frame).map(|(&f, _)| f).collect();
@@ -354,7 +393,7 @@ impl Reassembler {
                 // stream; its ref_frame names the surface stream's video frame.
                 self.last_released = frame;
                 self.need_recovery = false;
-                out.push(CompleteFrame { frame, flags: p.flags, body });
+                out.push(Self::complete(frame, &p, body, now_us));
                 continue;
             }
             let keyframe = p.flags & flags::KEYFRAME != 0 || body.ref_frame == REF_NONE;
@@ -372,7 +411,7 @@ impl Reassembler {
                 }
                 self.released_recent.push_back(frame);
                 self.need_recovery = false;
-                out.push(CompleteFrame { frame, flags: p.flags, body });
+                out.push(Self::complete(frame, &p, body, now_us));
             } else {
                 self.losses.push(FrameLoss::BrokenReference { frame, ref_frame: body.ref_frame });
                 self.need_recovery = true;

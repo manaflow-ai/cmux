@@ -161,7 +161,7 @@ test("O7: a row arriving under the kept row while the fold plays fades at its fi
   }
 });
 
-test("O8: a text row with its own entrance stays at its final place and holds until the move lands", async () => {
+test("O8: a text row with its own entrance stays at its final place; its entrance is its only fade", async () => {
   const p = page();
   const capture = endOfTurn(p);
   const fold = playTurnEnd(p.thread, capture, "chat")!;
@@ -171,12 +171,39 @@ test("O8: a text row with its own entrance stays at its final place and holds un
     await p.observed();
     const mine = p.played.slice(before).filter((e) => e.node === next);
     expect(translates(mine).length).toBe(0);
-    // Held at no ink over the kept rows still sliding in, then faded in at its place once the move
-    // has landed: one fold fade, delayed by the move (the entrance's own CSS fade runs under the hold).
+    // No kept row crosses its place (the reply above lands at 184, its top): the fold plays nothing on
+    // it, so it has one fade, its own entrance, never a second one from the fold (cmux#48689 review).
+    expect(opacities(mine).length).toBe(0);
+  } finally {
+    settleTurnEnd(p.thread, fold);
+    p.dom.window.close();
+  }
+});
+
+test("O8b: a row with its own entrance holds at no ink while a kept row slides through its place", () => {
+  const p = page();
+  // The header was drawn far below its place (a long turn's work above it folds away): it slides up
+  // through the place of the reply that first mounts in the settle snapshot.
+  p.draw("working-u", "working", 0, 34);
+  p.draw("work", "activity", 34, 260);
+  p.draw(LIVE_THINKING, "thinking", 294, 22);
+  p.draw("worked-u", "worked", 320, 34);
+  const capture = captureTurnEnd(p.thread, p.thread, [row("worked-u", "worked"), row("answer")], "chat")!;
+  p.thread.replaceChildren();
+  p.draw("worked-u", "worked", 100, 34);
+  const reply = p.draw("answer", "assistant", 134, 50, "acpmux-row--message-enter");
+  const fold = playTurnEnd(p.thread, capture, "chat")!;
+  try {
+    const mine = p.played.filter((e) => e.node === reply);
+    expect(translates(mine).length).toBe(0);
     const hold = opacities(mine);
     expect(hold.length).toBe(1);
     expect(hold[0]!.keyframes[0]!.opacity).toBe(0);
-    expect(hold[0]!.delay).toBeGreaterThan(0);
+    // Past the exit lead by the time the header takes to clear the reply's box.
+    const lead = opacities(p.played.filter((e) => e.node !== reply)).reduce((ms, e) => Math.max(ms, e.duration), 0);
+    expect(hold[0]!.delay).toBeGreaterThan(lead + 20);
+    // The backstop waits for the held fade's end (its delay and length), not the move's alone.
+    expect(p.timers.at(-1)!.delay).toBeGreaterThanOrEqual(hold[0]!.delay + hold[0]!.duration);
   } finally {
     settleTurnEnd(p.thread, fold);
     p.dom.window.close();

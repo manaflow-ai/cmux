@@ -82,6 +82,10 @@ def problems(entries: dict, found: dict[str, str]) -> list[str]:
         if entry.get("pending"):
             continue
         named = sizes(found[key])
+        if not named:
+            # The job takes the one Linux label, cmux-linux (scripts/ci/one_linux_label.py, Leo 2026-11-20: "you
+            # shouldn't have to think about sizing your CI"); its entry stays as the measurement on record.
+            continue
         for field in ("size", "failover"):
             if field in entry and entry[field] not in named:
                 out.append(f"{key}: linux_sizes {field} {entry[field]} is not a label its runner text names {sorted(named)}")
