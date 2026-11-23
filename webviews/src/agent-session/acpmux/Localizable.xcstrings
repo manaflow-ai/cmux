@@ -101119,6 +101119,138 @@
         }
       }
     },
+    "message.senderNotFoundOnHost": {
+      "comment": "Agent pane: a notice after a click on a received message's sender chip naming a chat on another machine that acpmux cannot find; {name} is the chat, {host} the machine it was on",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر العثور على محادثة {name} على {host}. ربما انتهت، أو أن {host} غير متصل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće pronaći chat {name} na {host}. Možda je završen ili je {host} van mreže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan ikke finde chatten {name} på {host}. Den kan være afsluttet, eller {host} er offline."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat {name} auf {host} nicht gefunden. Er wurde vielleicht beendet, oder {host} ist offline."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can't find {name}'s chat on {host}. It may have ended, or {host} is offline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encuentra el chat de {name} en {host}. Puede que haya terminado o que {host} esté sin conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de trouver le chat de {name} sur {host}. Il est peut-être terminé, ou {host} est hors ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile trovare la chat di {name} su {host}. Potrebbe essere terminata, oppure {host} è offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} に {name} のチャットが見つかりません。終了したか、{host} がオフラインの可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកមិនឃើញការជជែករបស់ {name} នៅលើ {host} ទេ។ វាអាចបានបញ្ចប់ ឬ {host} មិនមានអ៊ីនធឺណិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host}에서 {name}의 채팅을 찾을 수 없습니다. 종료되었거나 {host}이(가) 오프라인일 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finner ikke chatten {name} på {host}. Den kan være avsluttet, eller {host} er frakoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można znaleźć czatu {name} na {host}. Mógł się zakończyć albo {host} jest offline."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível encontrar o chat de {name} em {host}. Ele pode ter terminado, ou {host} está offline."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удаётся найти чат {name} на {host}. Возможно, он завершён или {host} не в сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่พบแชตของ {name} บน {host} แชตอาจจบไปแล้ว หรือ {host} ออฟไลน์อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} üzerinde {name} sohbeti bulunamıyor. Sohbet bitmiş olabilir ya da {host} çevrimdışı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдається знайти чат {name} на {host}. Можливо, він завершився або {host} не в мережі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không tìm thấy cuộc trò chuyện của {name} trên {host}. Có thể nó đã kết thúc, hoặc {host} đang ngoại tuyến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {host} 上找不到 {name} 的对话。它可能已结束，或 {host} 处于离线状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 {host} 上找不到 {name} 的對話。它可能已結束，或 {host} 處於離線狀態。"
+          }
+        }
+      }
+    },
     "message.inboxThreads": {
       "comment": "Collapsed inbox-notice batch: number of distinct inbox threads; {n} is the thread count.",
       "extractionState": "manual",

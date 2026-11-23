@@ -15,7 +15,7 @@ const ICON = `data:image/svg+xml,${encodeURIComponent(
 )}`;
 
 const chrome: CookieImportCardModel = {
-  title: "Import cookies from Google Chrome",
+  title: "Import sign-ins from Google Chrome",
   importTitle: "Import…",
   notNowTitle: "Not Now",
   neverTitle: "Don't Show Again",

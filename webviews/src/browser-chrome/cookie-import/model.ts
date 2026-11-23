@@ -4,7 +4,7 @@
 
 /** What the card shows. The host localizes every line; the page adds no text of its own. */
 export type CookieImportCardModel = {
-  /** "Import cookies from Google Chrome": the card's one line. */
+  /** "Import sign-ins from Google Chrome": the card's one line. */
   title: string;
   importTitle: string;
   notNowTitle: string;

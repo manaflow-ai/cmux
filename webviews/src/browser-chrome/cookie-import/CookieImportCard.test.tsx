@@ -73,7 +73,7 @@ afterEach(() => {
 });
 
 const model: CookieImportCardModel = {
-  title: "Import cookies from Google Chrome",
+  title: "Import sign-ins from Google Chrome",
   importTitle: "Import…",
   notNowTitle: "Not Now",
   neverTitle: "Don't Show Again",
@@ -89,7 +89,7 @@ test("the app's look is the dialog card: icon, the line, Don't Show Again quiet,
   );
   const card = doc.querySelector(".ci-card")!;
   expect(APP_COOKIE_IMPORT_LOOK).toBe("toast");
-  expect(card.textContent).toBe("Import cookies from Google ChromeDon't Show AgainNot NowImport…");
+  expect(card.textContent).toBe("Import sign-ins from Google ChromeDon't Show AgainNot NowImport…");
   expect(card.querySelectorAll("input, [role=checkbox]").length).toBe(0);
   expect(card.querySelector(".ci-close")).toBeNull();
   const buttons = [...card.querySelectorAll("button")];
