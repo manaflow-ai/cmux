@@ -36,6 +36,10 @@ pub mod codes {
     pub const MACHINE_PAUSED: &str = "cmux.cloud.machine_paused";
     /// `cloud.allotment.off`: team allotments are off in this deployment.
     pub const ALLOTMENT_OFF: &str = "cmux.cloud.allotment_off";
+    /// `cloud.surge.unavailable`: this deployment has no burst provider.
+    pub const SURGE_UNAVAILABLE: &str = "cmux.cloud.surge_unavailable";
+    /// `cloud.surge.capacity`: the burst provider has no room for the request.
+    pub const SURGE_CAPACITY: &str = "cmux.cloud.surge_capacity";
     /// `cloud.migration.unavailable`.
     pub const MIGRATION_UNAVAILABLE: &str = "cmux.cloud.migration_unavailable";
     /// `cloud.machine.not_classic`.
@@ -126,6 +130,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
     ("cloud.allotment.off", codes::ALLOTMENT_OFF),
+    ("cloud.surge.unavailable", codes::SURGE_UNAVAILABLE),
+    ("cloud.surge.capacity", codes::SURGE_CAPACITY),
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
