@@ -42,7 +42,9 @@ impl Folded {
         }
     }
 
-    /// The patches after version `from`, or None when the oldest kept is past it.
+    /// The patches after version `from`, or None when the oldest kept is past it. Versions rise
+    /// along `recent`, so the first one past `from` is a binary search: a live delta costs the
+    /// patches it sends, not the 2 MB a god chat's first read keeps.
     fn since(&self, from: u64) -> Option<Vec<Patch>> {
         if from >= self.table.version() {
             return Some(Vec::new());
@@ -51,13 +53,8 @@ impl Folded {
         if oldest > from.saturating_add(1) {
             return None;
         }
-        Some(
-            self.recent
-                .iter()
-                .filter(|(p, _)| p.version() > from)
-                .map(|(p, _)| p.clone())
-                .collect(),
-        )
+        let first = self.recent.partition_point(|(p, _)| p.version() <= from);
+        Some(self.recent.range(first..).map(|(p, _)| p.clone()).collect())
     }
 }
 

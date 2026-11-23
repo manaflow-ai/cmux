@@ -491,6 +491,20 @@ fn a_follower_too_far_behind_is_told_it_lagged() {
     assert_eq!(super::serve::since(&folded, folded_version(&folded)).map(|p| p.len()), Some(0));
 }
 
+#[test]
+fn a_follower_is_sent_exactly_the_patches_past_its_version() {
+    let mut log =
+        vec![mux(1, "user_message", json!({"promptId": "p", "turnId": "t", "text": "go"}))];
+    log.extend((2..500).map(|seq| chunk(seq, "d", Some("m"), None)));
+    let folded = super::serve::folded_with(&log);
+    let top = folded_version(&folded);
+    for from in [0, 1, top / 2, top - 3, top - 1] {
+        let sent = super::serve::since(&folded, from).expect("all kept");
+        let versions: Vec<u64> = sent.iter().map(Patch::version).collect();
+        assert_eq!(versions, ((from + 1)..=top).collect::<Vec<_>>(), "from {from}");
+    }
+}
+
 fn folded_version(folded: &super::serve::Folded) -> u64 {
     super::serve::version(folded)
 }

@@ -445,9 +445,13 @@ impl RowTable {
             .filter(|s| !s.is_empty());
         let goes_on = match (stamped, self.open_reply.as_ref()) {
             // acpmux named the segment: its row, if that is the reply streaming now.
-            (Some(segment), Some((open, _))) => {
-                self.by_id.get(&format!("reply:{segment}")).copied().filter(|at| at == open)
-            }
+            // Row ids are unique, so "its row is the open one" is the open row's id: no id built
+            // and no probe of a map as large as the chat, per delta.
+            (Some(segment), Some((open, _))) => self
+                .rows
+                .get(*open)
+                .filter(|row| row.head.id.strip_prefix("reply:") == Some(segment))
+                .map(|_| *open),
             (Some(_), None) => None,
             // Counted as `hub/stream.rs` does: the same message, nothing between.
             (None, Some((at, open))) if *open == message_id => Some(*at),
