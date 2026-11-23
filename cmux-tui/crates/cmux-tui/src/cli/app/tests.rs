@@ -359,6 +359,22 @@ fn mac_screens_reads_the_release_mac_screen_state() {
     assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
 }
 
+/// `cmux app clicks` reads the app's release click trace, all of it or the
+/// newest `--limit`; it takes no other word and no zero or negative limit.
+#[test]
+fn clicks_reads_the_release_click_trace() {
+    let (method, params) = call(parse(&args(&["app", "clicks"])).unwrap().unwrap());
+    assert_eq!(method, "input.clicks");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "clicks", "--limit", "20"])).unwrap().unwrap());
+    assert_eq!(method, CLICKS_METHOD);
+    assert_eq!(params, json!({ "limit": 20 }));
+    assert!(parse(&args(&["app", "clicks", "clear"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "x"])).is_err());
+}
+
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
 /// `machine.list` and `device.join_line`, never `app call` (debug builds only)
 /// and never an `action.run`.
@@ -1218,6 +1234,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Share(_)
         | AppCommand::Published(_)
         | AppCommand::LaunchTimes(_)
+        | AppCommand::WebPieces(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }

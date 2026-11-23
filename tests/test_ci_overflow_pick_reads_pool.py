@@ -39,6 +39,7 @@ import workflow_jobs  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 POOL = "fromJSON(vars.RUNNER_POOLS).linux"
+LABEL = "'cmux-linux'"
 OUT_OF_SCOPE = re.compile(r"nightly|notarization")
 PICK = re.compile(
     r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404'"
@@ -229,10 +230,9 @@ class ClassifierTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_stuck_cmux_tui_spec_jobs_read_the_pool(self) -> None:
-        # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Its other
-        # waiting jobs (acpmux-tests, acpmux-protocol-ir, clippy) are measured 8 vCPU compile jobs and keep
-        # their size and outage switch (tests/test_ci_linux_compile_runners.py).
+    def test_the_stuck_cmux_tui_spec_jobs_take_the_one_linux_label(self) -> None:
+        # Run 41299099061: inventory and rustfmt waited on LINUX_RUNNER's stalled 4 vCPU size. Since
+        # 2026-11-20 every Linux x64 job takes the one label, cmux-linux (scripts/ci/one_linux_label.py).
         jobs = workflow_jobs.jobs(WORKFLOWS / "cmux-tui-spec.yml")
         for name in ("inventory", "rustfmt"):
             with self.subTest(job=name):
@@ -241,7 +241,8 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(len(cells), 1, cells)
                 runs_on = cells[0]
                 self.assertFalse(picks_one_size(runs_on), runs_on)
-                self.assertTrue(runs_on.rstrip().endswith("|| " + POOL + " }}"), runs_on)
+                self.assertTrue(runs_on.rstrip().endswith("|| " + LABEL + " }}"), runs_on)
+                self.assertNotIn(POOL, runs_on)
 
     def test_no_workflow_adds_a_one_size_linux_pick(self) -> None:
         grown = {name: (count, PICKS.get(name, 0)) for name, count in counts().items() if count > PICKS.get(name, 0)}
