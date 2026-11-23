@@ -111,7 +111,9 @@ export function helpRows(): Row[] {
   const rows: Row[] = [
     help("cmux", [], "help"),
     help("cmux", ["vm"], "help", [], "vm"),
-    help("cmux", ["cloud"], "help", [], "start-chat"),
+    // The overview's quick start is `cmux chat --on vm:new` (cloud_help.rs INTRO); it never named
+    // `start-chat`, so a row asking for that failed on every run (Greptile P1 on #52473).
+    help("cmux", ["cloud"], "help", [], "cmux chat --on"),
     help("cmux", ["machine"], "help", []),
     help("cmux", ["link"], "help", []),
     help("cmux", ["remote"], "help", []),
