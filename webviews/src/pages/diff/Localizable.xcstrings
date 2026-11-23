@@ -12968,127 +12968,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتم العثور على فروق للملفات في مدخلات الرقعة."
+            "value": "لا توجد تغييرات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nema razlika datoteka u unesenoj zakrpi."
+            "value": "Nema promjena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen filforskelle fundet i patch-input."
+            "value": "Ingen ændringer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Datei-Diffs in Patch-Eingabe gefunden."
+            "value": "Keine Änderungen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No file diffs found in patch input."
+            "value": "No changes"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron diferencias de archivo en la entrada del parche."
+            "value": "No hay cambios"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun diff de fichier trouvé dans le patch fourni."
+            "value": "Aucune modification"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna differenza di file trovata nella patch."
+            "value": "Nessuna modifica"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パッチにファイルの差分がありません。"
+            "value": "変更はありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រកមិនឃើញភាពខុសគ្នាឯកសារក្នុងបំណះទេ។"
+            "value": "គ្មានការផ្លាស់ប្តូរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "패치 입력에서 파일 변경 사항을 찾을 수 없습니다."
+            "value": "변경 사항 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen filforskjeller funnet i patch-inndata."
+            "value": "Ingen endringer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie znaleziono różnic plików w łatce."
+            "value": "Brak zmian"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma diferença de arquivo encontrada no patch."
+            "value": "Nenhuma alteração"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В патче не найдены различия файлов."
+            "value": "Нет изменений"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่พบความแตกต่างของไฟล์ในแพตช์"
+            "value": "ไม่มีการเปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yama girdisinde dosya farkı bulunamadı."
+            "value": "Değişiklik yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У патчі не знайдено відмінностей файлів."
+            "value": "Немає змін"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在补丁输入中未找到文件差异。"
+            "value": "没有更改"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在修補檔輸入中找不到檔案差異。"
+            "value": "沒有變更"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không tìm thấy diff tệp nào trong đầu vào patch."
+            "value": "Không có thay đổi"
           }
         }
       }
@@ -14543,127 +14543,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر عرض هذه الفروقات. تحقق من مدخلات الرقعة وحاول مرة أخرى."
+            "value": "تعذر عرض هذه الفروقات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije moguće prikazati ovu razliku. Provjerite zakrpu i pokušajte ponovo."
+            "value": "Nije moguće prikazati ovu razliku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke vise denne diff. Kontrollér patch-inputtet, og prøv igen."
+            "value": "Kunne ikke vise denne diff."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieses Diff konnte nicht gerendert werden. Überprüfe die Patch-Eingabe und versuche es erneut."
+            "value": "Dieses Diff konnte nicht angezeigt werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not render this diff. Check the patch input and try again."
+            "value": "Could not show this diff."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo renderizar esta diferencia. Comprueba la entrada del parche e inténtalo de nuevo."
+            "value": "No se pudo mostrar esta diferencia."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de générer le rendu de ce diff. Vérifiez le patch fourni et réessayez."
+            "value": "Impossible d’afficher ce diff."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile visualizzare le differenze. Controlla la patch e riprova."
+            "value": "Impossibile visualizzare le differenze."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この差分を表示できませんでした。パッチの入力を確認してもう一度お試しください。"
+            "value": "この差分を表示できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចបង្ហាញភាពខុសគ្នានេះបានទេ។ ពិនិត្យបំណះហើយព្យាយាមម្តងទៀត។"
+            "value": "មិនអាចបង្ហាញភាពខុសគ្នានេះបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 변경 사항을 렌더링할 수 없습니다. 패치 입력을 확인하고 다시 시도하세요."
+            "value": "이 변경 사항을 표시할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke vise denne diffen. Kontroller patch-inndataene og prøv igjen."
+            "value": "Kunne ikke vise denne diffen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się wyświetlić różnic. Sprawdź łatkę i spróbuj ponownie."
+            "value": "Nie udało się wyświetlić różnic."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível exibir as diferenças. Verifique o patch e tente novamente."
+            "value": "Não foi possível exibir as diferenças."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось отобразить различия. Проверьте патч и повторите попытку."
+            "value": "Не удалось отобразить различия."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงความแตกต่างนี้ไม่ได้ ตรวจสอบแพตช์แล้วลองอีกครั้ง"
+            "value": "แสดงความแตกต่างนี้ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu fark görüntülenemedi. Yama girdisini kontrol edip tekrar deneyin."
+            "value": "Bu fark görüntülenemedi."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося відобразити відмінності. Перевірте патч і спробуйте ще раз."
+            "value": "Не вдалося відобразити відмінності."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法渲染此差异。请检查补丁输入后重试。"
+            "value": "无法显示此差异。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法轉譯此差異。請檢查修補檔輸入並重試。"
+            "value": "無法顯示此差異。"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể render diff này. Kiểm tra đầu vào patch và thử lại."
+            "value": "Không thể hiển thị diff này."
           }
         }
       }

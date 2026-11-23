@@ -55,7 +55,11 @@ start_free=$(df_free)
 now_ms() { python3 -c 'import time; print(time.time_ns() // 1000000)'; }
 emit() { printf 'WSFACTORY %s\n' "$1"; }
 
-# The factory itself: std-only Rust, built here so the step needs no published binary.
+# The factory itself: std-only Rust, built here so the step needs no published binary. A worker's
+# shared rustup has no default toolchain, only the ones steps pin: use cmux-tui's, as other benches do.
+toolchain="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$repo/cmux-tui/rust-toolchain.toml")"
+[ -n "$toolchain" ] || { echo "workspace-factory: no channel in cmux-tui/rust-toolchain.toml" >&2; exit 2; }
+export RUSTUP_TOOLCHAIN="$toolchain"
 build_started=$(now_ms)
 cargo build --quiet --release --manifest-path "$factory_src/Cargo.toml" --target-dir "$root/factory-target"
 wsf="$root/factory-target/release/wsfactory"

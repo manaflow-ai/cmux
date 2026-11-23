@@ -85,6 +85,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     private var contentHeight: CGFloat = 0
     /// The stack's measured height (the guide's height follows it).
     private var stackHeight: CGFloat = 96
+    /// The settled stack height a deferred spring is about to take (`stackHeightFrame`).
+    private var springTarget: CGFloat?
     /// The stack height the transcript's bottom inset was last set from. The inset's change
     /// splits into the stack moving (the keyboard) and the stack growing (a composer line):
     /// only the move carries a scrolled-up reader's view (`updateInsets`).
@@ -406,6 +408,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             view.layoutIfNeeded()
             return
         }
+        // A stack not measured yet rests from the page's bottom: placed again at the page's size.
+        if placement == .external, externalRest == nil { externalMetricsChanged() }
         let top = headerBottom
         if openAreaTop?.constant != top { openAreaTop?.constant = top }
         updateStackCeiling(headerBottom: top)
@@ -650,6 +654,37 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// timing never has to match SwiftUI's.
     private func stackHeightFrame(_ height: CGFloat) {
         guard abs(stackHeight - height) > 0.01 else { return }
+        // A frame of the stack's own spring toward the height it settles at
+        // (`surface.stackHeight`, its laid-out height): the transcript takes that
+        // height once, on a UIKit spring with the stack's timing
+        // (`cmuxMobileSmooth`), so the render server moves the newest turn.
+        // Setting the inset and offset on every frame laid out the list and its
+        // hosted rows each frame, alongside the keyboard: 27 main-thread
+        // iterations of 4 ms and more per show (KeyboardMotionBenchUITests with
+        // `-cmux-mobile-input-latency`, step 517bb683).
+        if let target = surface.stackHeight, target > 0, abs(target - height) > 0.5,
+           view.window != nil, !UIAccessibility.isReduceMotionEnabled {
+            guard abs(stackHeight - target) > 0.01,
+                  springTarget.map({ abs($0 - target) > 0.01 }) ?? true else { return }
+            // This runs inside SwiftUI's graph update (an Animatable setter);
+            // laying out the hosted stack from here aborts in AttributeGraph
+            // (step a9eaae4e), so the spring starts on the next main-queue turn.
+            springTarget = target
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.springTarget == target else { return }
+                self.springTarget = nil
+                UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                    self.applyStackHeight(target)
+                    self.view.layoutIfNeeded()
+                }
+            }
+            return
+        }
+        springTarget = nil
+        applyStackHeight(height)
+    }
+
+    private func applyStackHeight(_ height: CGFloat) {
         stackHeight = height
         dockContainer?.interactiveHeight = height
         dockHeightConstraint?.constant = height
@@ -657,12 +692,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         UIView.performWithoutAnimation { updateInsets() }
     }
 
+    /// In a window and drawn at the size it is laid out at: no zoom or card scale on it or an
+    /// ancestor, so a window point converts into it as it will once the page rests.
+    private var isDrawnAtOwnSize: Bool {
+        guard let window = view.window, view.bounds.width > 0, view.bounds.height > 0 else { return false }
+        let drawn = view.convert(view.bounds, to: window)
+        return abs(drawn.width - view.bounds.width) < 0.5 && abs(drawn.height - view.bounds.height) < 0.5
+    }
+
     /// The external stack's height and resting bottom from the surface.
     private func externalMetricsChanged() {
         guard placement == .external, isViewLoaded else { return }
         // The stack's bottom is reported in screen space; with the keyboard
         // down it is the resting place (TabsKit puts it above its toolbar).
-        if let maxY = surface.stackMaxY, !surface.composerFocused, view.window != nil {
+        // Measured only while the page is drawn at its own size. In the tab grid and during the
+        // zoom that opens a card, TabsKit draws the page scaled down, and the stack's bottom (a
+        // window point from when the page was last shown) converted into the scaled page lands
+        // far below it: 1,485 for 776 on an iPhone 17 Pro, which dropped the newest turn 146 pt
+        // under the card's place until the zoom landed and the page measured again (cmux#45442).
+        if let maxY = surface.stackMaxY, !surface.composerFocused, isDrawnAtOwnSize {
             let rest = view.convert(CGPoint(x: 0, y: maxY), from: nil).y
             if externalRest != rest {
                 externalRest = rest
@@ -670,10 +718,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                 externalRestBottomMax?.constant = rest
                 view.setNeedsLayout()
             }
+            // The resting stack the tab's grid card is drawn with, and any tab not measured yet.
+            if let height = surface.stackHeight, height > 0, view.bounds.height > 0 {
+                let resting = ChatRestingStack(height: height, bottomGap: view.bounds.height - rest)
+                if surface.restingStack != resting { surface.restingStack = resting }
+                AgentChatSurface.lastRestingStack = resting
+            }
         } else if externalRest == nil {
-            let rest = view.bounds.height - 72 - Self.dockGap
-            externalRestBottom?.constant = rest
-            externalRestBottomMax?.constant = rest
+            // Not measured yet (the page is built under the zoom that opens it, before TabsKit
+            // shows its composer): placed as its card was (`AgentChatSurface.placementStack`),
+            // so the card opens into the page without a jump.
+            let stack = surface.placementStack
+            let rest = view.bounds.height - stack.bottomGap
+            if externalRestBottom?.constant != rest {
+                externalRestBottom?.constant = rest
+                externalRestBottomMax?.constant = rest
+                view.setNeedsLayout()
+            }
+            if surface.drawnStackHeight == nil, abs(stackHeight - stack.height) > 0.01 {
+                stackHeight = stack.height
+                dockHeightConstraint?.constant = stack.height
+            }
         }
     }
 
@@ -898,7 +963,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
         // A jump ends the reader's own drag and fling first, before its layout pass.
         scrollView.haltScrollMomentum()
-        let id = ChatTranscriptList.rowID(findBlock: findBlock)
+        var id = ChatTranscriptList.rowID(findBlock: findBlock)
+        // A match in a turn's folded work opens its "Worked for", and the reader goes to its line.
+        var position = position
+        if let fold = list.openFold(holding: id) {
+            id = fold
+            position = 0
+        }
         list.layOutNow(id)
         view.layoutIfNeeded()
         guard let top = list.layout.top(of: id) else { return }

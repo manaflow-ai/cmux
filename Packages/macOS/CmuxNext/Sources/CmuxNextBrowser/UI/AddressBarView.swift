@@ -205,7 +205,7 @@ public final class AddressBarView: NSView {
         addSubview(badges)
         let fieldCenter = field.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.barHeight(scale: OmnibarStyle.scale(of: self)) },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
             pill.trailingAnchor.constraint(equalTo: trailingAnchor),
             pill.topAnchor.constraint(equalTo: topAnchor),
@@ -226,7 +226,8 @@ public final class AddressBarView: NSView {
             },
             fieldToEdge,
             fieldCenter,
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.edgeInset - 2),
+            // The star's plate sits as far from the bar's end as from its top, as Helium's does (2 pt at Compact).
+            density.bind(badges.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.badgesTrailingInset },
             badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
@@ -245,6 +246,8 @@ public final class AddressBarView: NSView {
             updateChrome()
         }
         density.start()
+        pill.onHoverChange = { [weak self] hovering in self?.updateQuietIcons(fade: ChromeHover.fade(showing: hovering)) }
+        pill.onLookChange = { [weak self] in self?.repaintInk() }
         followDisplay()
     }
 
@@ -298,6 +301,8 @@ public final class AddressBarView: NSView {
         set { profileBadgeView.makeMenu = newValue }
     }
 
+    /// The profile badge's text color now (tests).
+    var profileBadgeTextColor: NSColor? { profileBadgeView.shownTextColor }
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
@@ -628,6 +633,7 @@ public final class AddressBarView: NSView {
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()
+        updateQuietIcons(fade: nil)
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -635,10 +641,30 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The bar was sized before it had a window, at the main screen's scale: its height snaps to this window's pixels.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { density.reapply() }
+    }
+
+    /// A move to a screen with another scale snaps the bar's height again (Spacious's 37.5 pt: 38 at 1x, 37.5 at 2x).
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if !field.isFieldEditorActive {
             field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
         }
+    }
+
+    /// Every mark on the bar takes the bar's ink again (`OmnibarStyle.ink`): the look changed (glass, transparent,
+    /// flat, its tint or coverage), which brings no appearance change and no theme repaint.
+    func repaintInk() {
+        field.repaintInk()
+        chip.repaintInk()
+        for view in [starButton, profileBadgeView, machineBadgeView] as [NSView] { view.needsDisplay = true }
     }
 }

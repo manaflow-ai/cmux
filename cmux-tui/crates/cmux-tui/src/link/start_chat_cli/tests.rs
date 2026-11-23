@@ -30,7 +30,7 @@ fn a_lost_create_answer_keeps_its_name_team_and_pending_create_before_a_workspac
         json!({"ok": true})
     );
     assert_eq!(
-        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create),
+        super::create_sent(&path, &key, ACCOUNT, "billed-team", &Keys::of(&key).create, None),
         json!({"ok": true})
     );
     assert_eq!(
@@ -63,7 +63,10 @@ fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick
         super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &Keys::of(&key).create)["ok"],
         true
     );
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], true);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create, None)["ok"],
+        true
+    );
     assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], true);
     let request = json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME,
         "machines": [{"id": "other", "title": "cloud-chats", "created_by": TEAMMATE, "status": "running"}]}).to_string();
@@ -78,9 +81,12 @@ fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick
         super::create_begin(&path, &key, ACCOUNT, "stale-name", &original.create)["ok"],
         false
     );
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create)["ok"], false);
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key)["ok"], true);
-    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key)["ok"], false);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &original.create, None)["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", new_key, None)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-b", new_key, None)["ok"], false);
     assert_eq!(super::create_refused(&path, &key, ACCOUNT, &original.create)["ok"], false);
     assert_eq!(plan(&path, &request)["create_key"], new_key);
     assert_eq!(plan(&path, &request)["create_sent"], true);
@@ -90,6 +96,80 @@ fn a_definitive_create_refusal_rotates_only_that_attempt_and_allows_a_fresh_pick
     let request = json!({"key": key, "account": ACCOUNT, "workspace": "ws-1", "loaded": true,
         "user": ME, "machines": [{"id": "other", "title": "cloud-chats", "created_by": ME, "status": "running"}]}).to_string();
     assert_eq!(plan(&path, &request)["machine"], Value::Null);
+}
+
+/// The server keeps a create's key per caller: the person's session (direct) and the Mac's
+/// install (relay) are two. A retry of a sent create on the other route would be a second
+/// machine, so the ledger keeps the first send's route, the plan names it, and the other is refused.
+#[test]
+fn a_sent_create_keeps_its_route_and_a_retry_on_the_other_route_is_refused() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let create = Keys::of(&key).create;
+    let request =
+        json!({"key": key, "account": ACCOUNT, "loaded": true, "user": ME, "machines": []})
+            .to_string();
+    let fresh = plan(&path, &request);
+    assert_eq!(fresh["create_routes"], true, "{fresh}");
+    assert_eq!(fresh["create_route"], Value::Null);
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &create)["ok"], true);
+    assert_eq!(plan(&path, &request)["create_route"], Value::Null, "nothing went out yet");
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("direct"))["ok"],
+        true
+    );
+    let retry = plan(&path, &request);
+    assert_eq!(retry["create_key"], create.as_str());
+    assert_eq!(retry["create_sent"], true);
+    assert_eq!(retry["create_route"], "direct");
+    assert_eq!(retry["create_routes"], true);
+    // The retry's own send: the same route passes, the relay (named or not) is refused.
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("direct"))["ok"],
+        true
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("relay"))["ok"],
+        false
+    );
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &create, None)["ok"], false);
+    assert_eq!(plan(&path, &request)["create_route"], "direct");
+    // A refusal that made no machine gives a new key, which may take either route.
+    assert_eq!(super::create_refused(&path, &key, ACCOUNT, &create)["ok"], true);
+    let rotated = plan(&path, &request);
+    let new_key = rotated["create_key"].as_str().expect("rotated key").to_string();
+    assert_ne!(new_key, create);
+    assert_eq!(rotated["create_route"], Value::Null);
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &new_key)["ok"], true);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &new_key, Some("relay"))["ok"],
+        true
+    );
+    assert_eq!(plan(&path, &request)["create_route"], "relay");
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &new_key, Some("direct"))["ok"],
+        false
+    );
+}
+
+/// A create sent before routes were kept went on the relay, the only route then.
+#[test]
+fn a_create_sent_with_no_route_is_the_relays() {
+    let scratch = scratch();
+    let path = ledger_in(scratch.path());
+    let key = key();
+    let create = Keys::of(&key).create;
+    assert_eq!(super::create_begin(&path, &key, ACCOUNT, "cloud-chats", &create)["ok"], true);
+    assert_eq!(super::create_sent(&path, &key, ACCOUNT, "team-a", &create, None)["ok"], true);
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("relay"))["ok"],
+        true
+    );
+    assert_eq!(
+        super::create_sent(&path, &key, ACCOUNT, "team-a", &create, Some("direct"))["ok"],
+        false
+    );
 }
 
 #[test]
@@ -110,8 +190,9 @@ fn a_tab_retry_keeps_its_target_pane_on_the_pinned_machine() {
 }
 
 /// Codex review F1 on #40957: a start that can't go on deletes the machine made for it only when
-/// it is still that start's alone. A second chat from the same workspace that planned onto the
-/// machine first keeps it; one that plans after the strand never finds it.
+/// it is still that start's alone. Since #40159 every new start plans a machine of its own, so a
+/// second chat shares one only when it is pinned there (the person picked it); that chat keeps
+/// it, and one that plans after the strand never finds it.
 #[test]
 fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
     let scratch = scratch();
@@ -121,19 +202,24 @@ fn a_stranded_start_deletes_its_machine_only_when_no_other_send_took_it() {
             "machines": [{"id": "vm-new", "title": "cloud-chats", "created_by": ME, "status": "running"}]})
         .to_string()
     };
-    // The first start made vm-new and pinned it; a second chat of ws-1 planned onto it while the first copied.
+    // The first start made vm-new and pinned it; a second chat of ws-1 was pinned to it while the first copied.
     let (first, second) = (key(), key());
     assert_eq!(pin(&path, &first, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
+    assert_eq!(
+        plan(&path, &on(&key()))["machine"],
+        Value::Null,
+        "a new start makes its own machine"
+    );
+    assert_eq!(pin(&path, &second, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(plan(&path, &on(&second))["machine"], "vm-new");
     // The first start fails for good: the machine is the second chat's too, so it is released, not deleted.
     assert_eq!(
         super::strand(&path, &first, ACCOUNT, "vm-new"),
         json!({"ok": true, "delete": false})
     );
-    assert_eq!(plan(&path, &on(&key()))["machine"], "vm-new", "the workspace keeps its machine");
-    // The second fails for good too, after the third planned onto it: still shared.
+    // The second fails for good too, after a third was pinned to it: still shared.
     let third = key();
-    assert_eq!(plan(&path, &on(&third))["machine"], "vm-new");
+    assert_eq!(pin(&path, &third, ACCOUNT, "vm-new", Some("ws-1"))["ok"], true);
     assert_eq!(super::strand(&path, &second, ACCOUNT, "vm-new")["delete"], false);
 
     // Alone on its machine: the strand deletes it, and the workspace's next send never finds it.
@@ -166,7 +252,7 @@ fn send(key: &str) -> Send {
 }
 
 fn machine(id: &str, title: &str) -> Candidate {
-    Candidate { id: id.into(), title: title.into() }
+    Candidate { id: id.into(), title: title.into(), disk_mb: None }
 }
 
 fn key() -> String {
@@ -354,18 +440,18 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 #[test]
 fn a_copied_folder_keeps_move_to_clouds_name_under_the_sends_place() {
     // The name `CloudMoveFolder.remoteName` gives: the folder's name and 24 bits of FNV-1a.
-    assert_eq!(remote_name("/Users/me/src/paint"), "paint-33f597");
-    assert_eq!(remote_name("/"), format!("folder-{}", &remote_name("/")[7..]));
+    assert_eq!(remote_name("/Users/me/src/paint"), "paint");
+    assert_eq!(remote_name("/"), "folder");
     let copy = copy_of("/Users/me/src/paint", "web/app");
     let place = copy.fresh_place();
     let send = format!("chats/{}/", copy.key.to_lowercase());
     assert!(place.starts_with(&send) && place.len() == send.len() + 8, "{place}");
     assert_ne!(copy.fresh_place(), place, "each copy gets a folder of its own");
     let (folder, chat) = copy.remote("/home/cmux/work", &place);
-    assert_eq!(folder, format!("/home/cmux/work/{place}/paint-33f597"));
-    assert_eq!(chat, format!("/home/cmux/work/{place}/paint-33f597/web/app"));
+    assert_eq!(folder, format!("/home/cmux/work/{place}/paint"));
+    assert_eq!(chat, format!("/home/cmux/work/{place}/paint/web/app"));
     let top = StartCopy { subpath: String::new(), ..copy };
-    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint-33f597"));
+    assert_eq!(top.remote("/root/work/", &place).1, format!("/root/work/{place}/paint"));
 }
 
 fn copy_of(local: &str, subpath: &str) -> StartCopy {
@@ -408,7 +494,7 @@ fn a_copy_tries_the_next_work_root_only_when_the_first_is_not_the_machines_home(
     // Both roots were tried with the same folder of the send's own.
     let place = seen.borrow()[1].strip_prefix("/root/work/").unwrap().to_string();
     assert_eq!(seen.borrow()[0], format!("/home/cmux/work/{place}"));
-    let place = place.strip_suffix("/paint-33f597").unwrap();
+    let place = place.strip_suffix("/paint").unwrap();
     assert_eq!(answer["chat"], json!(copy.remote("/root/work", place).1));
 
     // Another failure stops at once, with its code (the App's outdated-machine retry reads it).
@@ -2070,4 +2156,183 @@ fn a_refused_seed_answers_its_fallback_code_and_what_a_copy_would_send() {
     assert_eq!(answer["copy_files"], json!(2), "{answer}");
     assert_eq!(answer["copy_bytes"], json!(5), "{answer}");
     assert_eq!(answer["seed_state"], json!("failed"), "{answer}");
+}
+
+/// A folder the chat size cannot hold asks the platform for its size (`preflight`'s `needed_size`), and never with a
+/// warm spare's reservation: every spare is `sm`. The chat size itself, or none, sends no size (an older platform's body).
+#[test]
+fn a_larger_size_goes_with_the_ensure_and_takes_no_spare() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let bodies = RefCell::new(Vec::new());
+    let ensure = |ask: &Ensure, _: &str| {
+        bodies.borrow_mut().push(ask.body());
+        Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
+    };
+    for size in [Some("lg"), Some("sm"), None] {
+        let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,
+            "local": folder.to_str().unwrap(), "credential_on_stdin": true, "reservation_key": key()});
+        if let Some(size) = size {
+            request["size"] = json!(size);
+        }
+        let answer = super::plan_with_calls(
+            &path,
+            &request.to_string(),
+            &mut "token\n".as_bytes(),
+            &ensure,
+            &|_, _| panic!("the ensure made the machine"),
+        );
+        assert!(answer["machine"].is_string(), "{answer}");
+    }
+    let bodies = bodies.borrow();
+    assert_eq!(bodies[0][super::ENSURE_SIZE_FIELD], "lg");
+    assert!(bodies[0].get("reservationKey").is_none(), "{}", bodies[0]);
+    for body in &bodies[1..] {
+        assert!(body.get(super::ENSURE_SIZE_FIELD).is_none(), "{body}");
+        assert!(body.get("reservationKey").is_some(), "{body}");
+    }
+}
+
+/// Under a plan known (`plan_max`), a size whose own disk is below the folder's needed disk asks it grown, in GiB rounded
+/// up to 4 and at most the plan's largest disk (`disk_gib`); with no plan known, a folder the size holds, unknown bytes
+/// or the chat size, none.
+#[test]
+fn a_folder_past_its_sizes_disk_asks_a_grown_disk() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let folder = dir.path().join("project");
+    std::fs::create_dir(&folder).unwrap();
+    let bodies = RefCell::new(Vec::new());
+    let ensure = |ask: &Ensure, _: &str| {
+        bodies.borrow_mut().push(ask.body());
+        Ok(json!({"machine": {"id": format!("vm-{}", bodies.borrow().len())}, "created": true}))
+    };
+    let asks = [
+        // cmux NEXT Pro, 48 GiB: `lg` grown to 72.
+        (Some("lg"), Some(48 * GIB), Some("lg"), Some(72)),
+        // cmux NEXT Pro, 60 GiB: `lg` grown to 92.
+        (Some("lg"), Some(60 * GIB), Some("lg"), Some(92)),
+        // cmux NEXT Pro, 100 GiB: `lg` grown to Pro's 128 at most.
+        (Some("lg"), Some(100 * GIB), Some("lg"), Some(128)),
+        // cmux NEXT Max, 90 GiB: `xl` grown to 136; 200 GiB: `2xl` grown to Max's 256 at most.
+        (Some("xl"), Some(90 * GIB), Some("2xl"), Some(136)),
+        (Some("2xl"), Some(200 * GIB), Some("2xl"), Some(256)),
+        // No plan known: the size's own disk, as before.
+        (Some("lg"), Some(48 * GIB), None, None),
+        (Some("xl"), Some(100 * GIB), None, None),
+        (Some("lg"), None, Some("lg"), None),
+        (Some("sm"), Some(50 * GIB), Some("lg"), None),
+    ];
+    for (size, bytes, plan_max, _) in asks {
+        let mut request = json!({"key": key(), "account": "user-leo/", "loaded": false,
+            "local": folder.to_str().unwrap(), "credential_on_stdin": true});
+        if let Some(size) = size {
+            request["size"] = json!(size);
+        }
+        if let Some(bytes) = bytes {
+            request["bytes"] = json!(bytes);
+        }
+        if let Some(plan_max) = plan_max {
+            request["plan_max"] = json!(plan_max);
+        }
+        let answer = super::plan_with_calls(
+            &path,
+            &request.to_string(),
+            &mut "token\n".as_bytes(),
+            &ensure,
+            &|_, _| panic!("the ensure made the machine"),
+        );
+        assert!(answer["machine"].is_string(), "{answer}");
+    }
+    let bodies = bodies.borrow();
+    assert_eq!(bodies.len(), asks.len());
+    for ((size, _, _, disk), body) in asks.iter().zip(bodies.iter()) {
+        if *size != Some("sm") {
+            assert_eq!(body[super::ENSURE_SIZE_FIELD], json!(size), "{body}");
+        }
+        match disk {
+            Some(disk) => assert_eq!(body[super::ENSURE_DISK_FIELD], json!(disk), "{body}"),
+            None => assert!(body.get(super::ENSURE_DISK_FIELD).is_none(), "{body}"),
+        }
+    }
+}
+
+/// A larger size whose ensure made no machine never binds a spare: the App makes it cold.
+#[test]
+fn a_larger_size_never_binds_a_spare_and_an_unknown_size_is_refused() {
+    let dir = scratch();
+    let path = ledger_in(dir.path());
+    let request = json!({"key": key(), "account": "user-leo/team-a", "loaded": false,
+        "credential_on_stdin": true, "reservation_key": key(), "size": "md"});
+    let answer = super::plan_with_calls(
+        &path,
+        &request.to_string(),
+        &mut "token\n".as_bytes(),
+        &|_, _| panic!("a team send ensures nothing"),
+        &|_, _| panic!("a larger size binds no spare"),
+    );
+    assert_eq!(answer["machine"], Value::Null, "{answer}");
+    let bad = json!({"key": key(), "account": "user-leo/", "size": "huge"});
+    assert_eq!(plan(&path, &bad.to_string())["error_code"], "bad_request");
+}
+
+/// The platform refusing the workspace machine's size: the line names the size asked, the largest the plan gives and
+/// the plan that lifts it, for the App's start card (`cloud_size_locked`).
+#[test]
+fn a_size_refusal_names_its_sizes_for_the_start_card() {
+    use crate::cli::PlatformCallError as E;
+    let facts = cmux_cloud_machine::refusals::Facts::read(
+        Some(&json!({"code": "cloud.size.locked", "retryable": false,
+            "details": {"needed": "xl", "allowed": "lg", "upgrade_plan": "max"}})),
+        None,
+    );
+    let line = ensure_answer(Err(E::Status {
+        status: 403,
+        code: "cloud.size.locked",
+        facts: Some(facts),
+    }));
+    assert_eq!(line["error_code"], "cloud.size.locked", "{line}");
+    assert_eq!(
+        line["size_locked"],
+        json!({"needed": "xl", "allowed": "lg", "upgrade_plan": "max"}),
+        "{line}"
+    );
+    // No plan lifts it (null) is `nothing`; a field the platform left out stays out.
+    let top = cmux_cloud_machine::refusals::Facts::read(
+        Some(
+            &json!({"code": "cloud.size.locked", "details": {"needed": "2xl", "upgrade_plan": null}}),
+        ),
+        None,
+    );
+    let line =
+        ensure_answer(Err(E::Status { status: 403, code: "cloud.size.locked", facts: Some(top) }));
+    assert_eq!(line["size_locked"], json!({"needed": "2xl", "upgrade_plan": "nothing"}), "{line}");
+}
+
+#[test]
+fn a_projection_goes_first_and_only_a_folder_not_projected_is_seeded_or_copied() {
+    // Projected: the seed or copy never runs.
+    let projected = json!({"mode": "projected", "projected": {"name": "chat-k"}});
+    let answer = super::projected_or(
+        || Some(Ok(projected.clone())),
+        || panic!("a projected folder is never seeded or copied too"),
+    );
+    assert_eq!(answer, Ok(projected));
+
+    // Not projected (off, a machine without projection-v1, or projecting failed): the
+    // head-first seed or held copy runs, and its answer or failure is the push's.
+    let ran = std::cell::Cell::new(false);
+    let answer = super::projected_or(
+        || None,
+        || {
+            ran.set(true);
+            Err(anyhow::anyhow!("the machine went away"))
+        },
+    );
+    assert!(ran.get(), "a folder not projected is seeded or copied");
+    let failure = answer.unwrap_err();
+    assert_eq!(failure["ok"], json!(false), "{failure}");
 }

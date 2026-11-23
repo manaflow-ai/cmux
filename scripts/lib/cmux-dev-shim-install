@@ -15,6 +15,11 @@
 
 CMUX_DEV_SHIM_HEADERS=("cmux dev shim (managed by scripts/reload.sh)" "cmux dev shim (managed by reload-cloud.sh)")
 CMUX_DEV_SHIM_FALLBACK="/Applications/cmux.app/Contents/Resources/bin/cmux"
+# The last resort, after the fallback above: the NIGHTLY app's CLI. A Mac that
+# has NIGHTLY but no stable app (an agent host) otherwise ends with "no
+# reload-selected dev cmux CLI found" whenever no dev build is selected or the
+# selected one stopped. A leading "~/" is the caller's home at run time.
+CMUX_DEV_SHIM_NIGHTLY_CLIS=("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux" "~/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux")
 
 reload_socket_is_live() {
   local socket_path="$1"
@@ -73,6 +78,15 @@ write_dev_cli_shim() {
   local cli_path_file_literal=""
   local fallback_bin_literal=""
   local socket_probe_function=""
+  local nightly_clis_literal="" nightly_cli=""
+  for nightly_cli in "${CMUX_DEV_SHIM_NIGHTLY_CLIS[@]}"; do
+    if [[ "$nightly_cli" == "~/"* ]]; then
+      # Expanded when the shim runs, so one shim serves whoever's HOME runs it.
+      nightly_clis_literal+=" \"\${HOME:-}\"/$(printf '%q' "${nightly_cli#"~/"}")"
+    else
+      nightly_clis_literal+=" $(printf '%q' "$nightly_cli")"
+    fi
+  done
   printf -v cli_path_file_literal '%q' "$cli_path_file"
   printf -v fallback_bin_literal '%q' "$fallback_bin"
   socket_probe_function="$(declare -f reload_socket_is_live)"
@@ -247,7 +261,17 @@ if [[ -x ${fallback_bin_literal} ]]; then
   exec ${fallback_bin_literal} "\$@"
 fi
 
-echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
+# No dev CLI is selected (or the selected one stopped) and there is no stable
+# app: run the NIGHTLY app's CLI, and say so on stderr so a caller who wanted
+# a dev build knows which CLI answered.
+for NIGHTLY_CLI in${nightly_clis_literal}; do
+  if [[ -f "\$NIGHTLY_CLI" && -x "\$NIGHTLY_CLI" && "\$NIGHTLY_CLI" != "\$0" ]]; then
+    echo "cmux: no reload-selected dev cmux CLI found; using \$NIGHTLY_CLI" >&2
+    exec "\$NIGHTLY_CLI" "\$@"
+  fi
+done
+
+echo "error: no reload-selected dev cmux CLI found, and no stable or NIGHTLY app CLI. Run ./scripts/reload.sh --tag <name> first, or install cmux NIGHTLY." >&2
 exit 1
 EOF
   chmod 0755 "$temporary" || { rm -f "$temporary"; return 1; }

@@ -210,6 +210,21 @@ fn decode(
     path: &Path,
     open: &mut dyn FnMut(&Entry) -> Result<Option<File>>,
 ) -> Result<(Header, Vec<String>)> {
+    decode_files(path, &mut |entry, part, hash| match open(entry)? {
+        Some(out) => {
+            let mut out = std::io::BufWriter::with_capacity(256 * 1024, out);
+            let copied = copy_hashed(part, &mut out, hash)?;
+            out.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+            Ok(copied)
+        }
+        None => copy_hashed(part, &mut std::io::sink(), hash),
+    })
+}
+
+fn decode_files(
+    path: &Path,
+    read: &mut dyn FnMut(&Entry, &mut dyn Read, &mut Sha256) -> Result<u64>,
+) -> Result<(Header, Vec<String>)> {
     // Read in the held home (#41462 review F1): an archive a replacement home holds at the same
     // path is never what a removal here decides by.
     let file = crate::home_fs::private_state_file(path)?;
@@ -222,16 +237,7 @@ fn decode(
         anyhow::ensure!(log_file(&entry.name), "a cold archive names {:?}", entry.name);
         let mut hash = Sha256::new();
         let mut part = (&mut reader).take(entry.len);
-        let copied = match open(entry)? {
-            Some(out) => {
-                let mut out = std::io::BufWriter::with_capacity(256 * 1024, out);
-                let copied = copy_hashed(&mut part, &mut out, &mut hash)?;
-                let out = out.into_inner().map_err(|e| e.into_error())?;
-                out.sync_all()?;
-                copied
-            }
-            None => copy_hashed(&mut part, &mut std::io::sink(), &mut hash)?,
-        };
+        let copied = read(entry, &mut part, &mut hash)?;
         anyhow::ensure!(copied == entry.len, "{} is cut short in the cold archive", entry.name);
         hashes.push(hex(&hash.finalize()));
     }
@@ -285,6 +291,34 @@ fn remove_dir_if_there(path: &Path) -> Result<()> {
 }
 
 impl LocalStore {
+    /// Read the search projector's records out of a cold chat, preserving the archive.
+    pub(super) fn cold_search_records(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(EventRecord),
+    ) -> Result<()> {
+        decode_files(&self.cold_path(id), &mut |entry, part, hash| {
+            if !entry.name.ends_with(".ndjson") {
+                return copy_hashed(part, &mut std::io::sink(), hash);
+            }
+            let mut reader = BufReader::new(part);
+            let mut line = Vec::new();
+            let mut copied = 0;
+            while reader.read_until(b'\n', &mut line)? > 0 {
+                hash.update(&line);
+                copied += line.len() as u64;
+                if super::text_index::wanted(&line)
+                    && let Ok(record) = parse_record(&line)
+                {
+                    visit(record);
+                }
+                line.clear();
+            }
+            Ok(copied)
+        })?;
+        Ok(())
+    }
+
     pub(super) fn cold_path(&self, id: &str) -> PathBuf {
         self.dir(id).join(COLD_FILE)
     }
@@ -513,6 +547,9 @@ impl LocalStore {
         {
             let mut writers = self.writers.lock_or_recover();
             let _cold = self.cold.lock(id);
+            // Closed first: a write in flight to it finishes, and none lands until `events/` is
+            // renamed (a write runs under its segment's lock: `store/segment_writer.rs`).
+            self.close_writer_locked(id, &mut writers);
             let unchanged = self.log_files(id)?.is_some_and(|now| {
                 now.len() == staged.files.len()
                     && now.iter().zip(&staged.files).all(|((name, path), entry)| {
@@ -522,9 +559,6 @@ impl LocalStore {
             });
             if !unchanged {
                 return Ok(false);
-            }
-            if let Some(w) = writers.open.remove(id) {
-                w.close(id, &self.sync_failed);
             }
             // The renames go through the held home (`home_fs`).
             crate::config::refuse_lost_home(&dir)?;

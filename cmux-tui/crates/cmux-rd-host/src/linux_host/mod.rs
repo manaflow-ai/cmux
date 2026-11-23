@@ -10,7 +10,8 @@
 //!       turns sharing on. The person's own devices view and control it with no prompt here
 //!       (`--view-only` keeps control off); on Wayland it asks the portal once, now (`grant`),
 //!       so no viewer's session asks again.
-//!       `--non-interactive` (the machine join, often over ssh): takes no account token and opens
+//!       `--non-interactive` (the machine join: acpmux's daemon runs it at its start on a joined
+//!       machine, with no one there): takes no account token and opens
 //!       no browser, finds the desktop through logind, waits a minute at most on the portal
 //!       dialog, sets up a virtual X display (started on demand) when there is no graphical
 //!       session, and installs the host unit on a desktop still enabled or a machine joined to
@@ -42,6 +43,7 @@
 // Consent is shared with `cmux-rd windows-host` (src/screen_host/).
 use crate::screen_host::consent;
 mod machine;
+mod serving;
 mod setup;
 pub(crate) mod stack_login;
 mod status_json;
@@ -267,26 +269,47 @@ fn stack_token(args: &Args) -> Res<String> {
 /// The enabled host: its device, account and hub.
 /// A desktop never enabled and never joined signs in first; a joined machine signs itself in
 /// with its machine credential, so the host needs no step on it (machine.rs).
-fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
+fn load(old: serving::OldRecord) -> Res<(std::path::PathBuf, Hub, Account)> {
+    let (dir, hub, account, _) = load_locked(old)?;
+    Ok((dir, hub, account))
+}
+
+/// [`load`], with the identity's [`serving::Lock`] still held for a caller that writes.
+fn load_locked(old: serving::OldRecord) -> Res<(std::path::PathBuf, Hub, Account, serving::Lock)> {
     const NOT_ENABLED: &str = "not enabled: run `cmux-rd linux-host enable` first";
     let dir = identity::config_dir()?;
+    let lock = serving::lock(&dir)?;
     let Some(account) = Account::load(&dir)? else {
         let (home, credential) = machine::current()?.ok_or(NOT_ENABLED)?;
+        let join = machine::Join::of(&home, credential)?;
         identity::private_dir(&dir)?;
-        let (hub, account) = sign_in_machine(&dir, DEFAULT_HUB, &home, credential)?;
-        return Ok((dir, hub, account));
+        // Nothing is signed in, so no host serves yet: there is no unit to stop first.
+        let device = serving::join(&dir, &join, &serving::ThisProcess)?;
+        let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
+        return Ok((dir, hub, account, lock));
     };
+    if let Some(joined) = machine::Joined::load(&dir)? {
+        // Only the current join's host serves, at its own hub (serving.rs); a record from
+        // before joins were marked may sign in again, so the device and account are read after.
+        let join = serving::current_join(&dir, &joined, machine::Join::read, old)?;
+        let account = Account::load(&dir)?.ok_or(NOT_ENABLED)?;
+        let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
+        let hub = Hub::with_renewal(&join.hub, device, None, machine_renewal(join.credential))?;
+        return Ok((dir, hub, account, lock));
+    }
     let device = Device::load(&dir)?.ok_or(NOT_ENABLED)?;
-    let hub = match machine::Joined::load(&dir)? {
-        Some(joined) => {
-            let credential = machine::load(&joined.acpmux_home)?.ok_or_else(|| {
-                Fatal::needs("This machine's join was revoked or removed", Fatal::JOIN)
-            })?;
-            Hub::with_renewal(&account.hub, device, None, machine_renewal(credential))?
-        }
-        None => Hub::new(&account.hub, device, Some(account.user_id.clone()))?,
-    };
-    Ok((dir, hub, account))
+    // A person's sign-in is always anchored; an unanchored one with no join record is a join
+    // whose sign-in did not finish, and serves nobody.
+    if account.anchored_until == 0 {
+        return Err(Fatal::needs(
+            "This desktop's sign-in is incomplete: it has no join and no anchor",
+            Fatal::ENABLE,
+        )
+        .into());
+    }
+    let hub = Hub::new(&account.hub, device, Some(account.user_id.clone()))?;
+    Ok((dir, hub, account, lock))
 }
 
 /// Signs a joined machine in with its credential (`POST /v1/auth/machine`), registers this
@@ -295,10 +318,13 @@ fn load() -> Res<(std::path::PathBuf, Hub, Account)> {
 /// only here, at the first sign-in, so a person's later "off" from any device stays off.
 fn sign_in_machine(
     dir: &std::path::Path,
-    hub_url: &str,
-    acpmux_home: &std::path::Path,
-    credential: machine::MachineCredential,
+    join: &machine::Join,
+    previous: Option<&machine::Joined>,
 ) -> Res<(Hub, Account)> {
+    let (hub_url, acpmux_home, credential) = (join.hub.as_str(), &join.home, &join.credential);
+    // The join record first: records that a crash leaves half written are never read as a
+    // person's (`load`).
+    machine::Joined::signed_in(previous, acpmux_home, credential).save(dir)?;
     let device = match Device::load(dir)? {
         Some(device) => device,
         None => {
@@ -317,7 +343,6 @@ fn sign_in_machine(
     let user_id = hub.user_id().ok_or("no userId in the hub's answer")?;
     let account = Account { hub: hub_url.to_owned(), user_id, anchored_until: 0 };
     account.save(dir)?;
-    machine::Joined { acpmux_home: acpmux_home.to_owned() }.save(dir)?;
     Ok((hub, account))
 }
 
@@ -374,80 +399,127 @@ fn enable_for_join(args: &Args) -> Res<()> {
 fn set_up_for_join(args: &Args) -> Res<()> {
     let dir = identity::config_dir()?;
     identity::private_dir(&dir)?;
-    let consent = enable_consent(args);
-    consent.save(&dir)?;
+    // Held until the host is installed: a person's `enable` waits, then sees the join.
+    let _lock = serving::lock(&dir)?;
+    // The identity first, before any step that can fail: a person's host that was here is torn
+    // down now, not left running when a later step fails.
+    let joined = machine::current()?;
+    let from_join = joined.is_some();
+    // The join this machine was signed in for before this run signs it in again: a join from
+    // before consent-join.json existed keeps its consent through that ([`join_consent`]).
+    let before = machine::Joined::load(&dir).ok().flatten();
+    let mark = joined.as_ref().map(|(home, credential)| machine::Joined::of(home, credential));
+    // Before signing in: signing in rewrites joined.json, so a run stopped after it would
+    // otherwise make a join from before the marker read as this build's stopped first run.
+    mark_join_from_before_marker(&dir, before.as_ref(), mark.as_ref())?;
+    let Some(device) = join_device(&dir, args.get("hub"), joined, &serving::HostUnit)? else {
+        println!("{NOT_INSTALLED}");
+        return Ok(());
+    };
     let desktop = setup::detect_desktop();
-    grant_capture_now(consent.full, &desktop, Some(JOIN_GRANT_WAIT));
+    // The portal's grant is asked for only with consent this run wrote: a join's kept (or
+    // withdrawn) choice is never asked again on someone's screen.
+    let consent = join_consent(&dir, mark.as_ref(), args, &mut |control| {
+        grant_capture_now(control, &desktop, Some(JOIN_GRANT_WAIT))
+    })?;
     let virtual_display = desktop == setup::Desktop::None;
     if virtual_display {
         let display = setup::set_up_virtual_display()?;
         println!("{}", setup::virtual_display_line(display));
     }
-    // Signed in by an earlier `enable` and still anchored: the host renews by its device key.
-    // Else a joined machine signs itself in with its machine credential.
-    let device = match (Account::load(&dir)?, Device::load(&dir)?, machine::current()?) {
-        (Some(account), Some(device), _) if account.anchored_until > now_ms() => device,
-        (Some(_), Some(device), Some((home, _)))
-            if machine::Joined::load(&dir)?.is_some_and(|j| j.acpmux_home == home) =>
-        {
-            device
-        }
-        (_, _, Some((home, credential))) => {
-            let hub_url = args.get("hub").unwrap_or(DEFAULT_HUB);
-            sign_in_machine(&dir, hub_url, &home, credential)?.0.device
-        }
-        _ => {
-            println!("{NOT_INSTALLED}");
-            return Ok(());
-        }
-    };
     // The host this installs serves sessions at once, so its encoder is there first.
     let encoder = openh264_line();
+    if from_join {
+        serving::still_current(&dir, &serving::HostUnit)?;
+    }
     setup::install_host(virtual_display)?;
     println!(
         "This desktop is shared as \"{}\" ({}), {}; the host runs as {}. {encoder}.",
         device.name,
         device.id,
-        shares_line(&Ok(consent), host_applies_input()),
+        shares_line(&consent, host_applies_input()),
         setup::HOST_UNIT
     );
     Ok(())
 }
 
-/// Signs in, registers this desktop (a new identity when the hub refuses the old one), anchors
-/// it, installs the encoder and turns sharing on; the device and the encoder's line.
+/// The device `enable --non-interactive` installs the host as, or None when nothing signed
+/// this machine in. A join always goes through [`serving::join`]: the host is the joiner's, at
+/// the hub of the credential's own deployment ([`machine::Join`]). `expected_hub` is the hub the
+/// caller (the acpmux daemon's `--hub`) read for the join: when the credential read here is
+/// another deployment's (a leave and a join elsewhere came since), nothing is sent anywhere and
+/// the daemon sets the new join up at its next check, from its own read of it.
+fn join_device(
+    dir: &std::path::Path,
+    expected_hub: Option<&str>,
+    joined: Option<(std::path::PathBuf, machine::MachineCredential)>,
+    unit: &dyn serving::Unit,
+) -> Res<Option<Device>> {
+    let Some((home, credential)) = joined else {
+        // Not joined: a person's own `enable`, while anchored, renews by its device key.
+        return Ok(match (Account::load(dir)?, Device::load(dir)?) {
+            (Some(account), Some(device)) if account.anchored_until > now_ms() => Some(device),
+            _ => None,
+        });
+    };
+    let join = machine::Join::of(&home, credential)?;
+    if let Some(expected) = expected_hub.filter(|hub| hub.trim_end_matches('/') != join.hub) {
+        return Err(format!(
+            "this machine's join is now at {}, not {}: it was joined again since the caller read it, so nothing was signed in",
+            join.hub,
+            printable(expected)
+        )
+        .into());
+    }
+    serving::join(dir, &join, unit).map(Some)
+}
+
+/// The seam the identity tests stop the unit through.
+#[cfg(test)]
+struct NoUnit;
+
+#[cfg(test)]
+impl serving::Unit for NoUnit {
+    fn stop(&self) -> Res<()> {
+        Ok(())
+    }
+}
+
+/// Deletes this desktop's sign-in: its device key, account and join records. Every one is tried
+/// even when one fails; the first failure is returned.
+fn forget_sign_in(dir: &std::path::Path) -> Res<()> {
+    let mut first = None;
+    for file in ["device.json", "account.json", machine::JOINED_FILE] {
+        match std::fs::remove_file(dir.join(file)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                first.get_or_insert(e);
+            }
+            _ => {}
+        }
+    }
+    first.map_or(Ok(()), |e| Err(e.into()))
+}
+
+/// A person's own `enable`: signs in, registers this desktop, anchors it, installs the encoder
+/// and turns sharing on ([`serving::person`]); the device and the encoder's line.
 fn sign_in_and_register(args: &Args, dir: &std::path::Path) -> Res<(Device, String)> {
+    // Held through the sign-in, so a join's enable cannot begin between the check and the
+    // writes; one already under way finishes first and is seen.
+    let _lock = serving::lock(dir)?;
+    // A joined machine's host is the joiner's (#45369): refused before any token is read.
+    if let Some(account) = serving::join_owner(dir)? {
+        return Err(format!(
+            "this machine is joined to {account}; run `acpmux machine leave` first"
+        )
+        .into());
+    }
     let token = stack_token(args)?;
     let hub_url = match (args.get("hub"), Account::load(dir)?) {
         (Some(url), _) => url.to_owned(),
         (None, Some(account)) => account.hub,
         (None, None) => DEFAULT_HUB.to_owned(),
     };
-    let device = match Device::load(dir)? {
-        Some(mut device) => {
-            if let Some(name) = args.get("name") {
-                device.name = name.to_owned();
-            }
-            device
-        }
-        None => Device::generate(
-            args.get("name").map_or_else(identity::host_name, str::to_owned).as_str(),
-        )?,
-    };
-    let (_, (hub, user_id)) = with_fresh_identity(device, |device| {
-        device.save(dir)?;
-        let hub = Hub::new(&hub_url, device.clone(), None)?;
-        let user_id = hub.sign_in_with_stack(&token)?;
-        hub.register("linux")?;
-        Ok((hub, user_id))
-    })?;
-    let anchored_until = hub.anchor()?;
-    // The encoder before sharing turns on: a viewer must not reach a host that cannot encode.
-    let encoder = openh264_line();
-    hub.set_shared(true)?;
-    Account { hub: hub_url, user_id, anchored_until }.save(dir)?;
-    machine::Joined::clear(dir)?;
-    Ok((hub.device, encoder))
+    serving::person(dir, &hub_url, &token, args.get("name"), &openh264_line, &serving::HostUnit)
 }
 
 /// Cisco's OpenH264 in the per-user data directory (downloaded from Cisco the first time), in
@@ -544,6 +616,84 @@ fn enable_consent(args: &Args) -> LocalConsent {
     LocalConsent { view: true, full: !args.flag("view-only") }
 }
 
+/// Beside `consent.json`: the join whose consent it is, written only after the consent itself
+/// (review F1 of #45480). A rerun for that join keeps the consent as its person left it; a run
+/// that stopped before this file was written writes the consent again on its next run, so a
+/// joined machine is never left unshared by a crash.
+const CONSENT_JOIN_FILE: &str = "consent-join.json";
+
+fn write_consent_join(dir: &std::path::Path, mark: &machine::Joined) -> Res<()> {
+    identity::write_private(&dir.join(CONSENT_JOIN_FILE), &serde_json::to_vec_pretty(mark)?)
+}
+
+/// The join `consent.json` was written for, if a run finished writing it.
+fn consent_join(dir: &std::path::Path) -> Res<Option<machine::Joined>> {
+    match identity::read_private(&dir.join(CONSENT_JOIN_FILE))? {
+        Some(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+        None => Ok(None),
+    }
+}
+
+/// Writes the marker for the join `mark` when `before` (joined.json as this run found it, before
+/// signing in) is that join from a build before the marker: from this home, naming this machine
+/// or no machine at all (a record from before joins were marked), without
+/// [`machine::Joined::consent_tracked`]. Its consent is then kept exactly as found: present,
+/// missing (withdrawn) or unreadable. A record with the flag is this build's, so no marker
+/// means its first run stopped before the consent, and [`join_consent`] writes it.
+fn mark_join_from_before_marker(
+    dir: &std::path::Path,
+    before: Option<&machine::Joined>,
+    mark: Option<&machine::Joined>,
+) -> Res<()> {
+    let (Some(before), Some(mark)) = (before, mark) else { return Ok(()) };
+    let from_before = !before.consent_tracked
+        && (before.same_machine(mark) || before.unmarked_from(&mark.acpmux_home));
+    if from_before && consent_join(dir)?.is_none() {
+        write_consent_join(dir, mark)?;
+    }
+    Ok(())
+}
+
+/// The consent `enable --non-interactive` leaves in `dir` for the join `mark` (None: not a
+/// join), asking `grant` for the portal's grant (with control or not) only when it wrote it.
+/// One join is one machine from one acpmux home: a credential generation the hub raises for
+/// it (recovery) is no choice made at this screen.
+fn join_consent(
+    dir: &std::path::Path,
+    mark: Option<&machine::Joined>,
+    args: &Args,
+    grant: &mut dyn FnMut(bool),
+) -> Res<Res<LocalConsent>> {
+    let same_join = match (mark, consent_join(dir)?) {
+        (Some(mark), Some(written)) => mark.same_machine(&written),
+        _ => false,
+    };
+    if same_join {
+        // The person's choice stays, including a withdrawn one (no file). Only a narrower one
+        // is taken: `--view-only` turns control off, never on.
+        return match LocalConsent::load(dir) {
+            Ok(kept) if kept.full && args.flag("view-only") => {
+                let narrowed = LocalConsent { full: false, ..kept };
+                narrowed.save(dir)?;
+                Ok(Ok(narrowed))
+            }
+            kept => Ok(kept),
+        };
+    }
+    let consent = enable_consent(args);
+    consent.save(dir)?;
+    // The consent first, then whose it is: a run cut off between the two writes it again.
+    match mark {
+        Some(mark) => write_consent_join(dir, mark)?,
+        None => match std::fs::remove_file(dir.join(CONSENT_JOIN_FILE)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e.into()),
+            _ => {}
+        },
+    }
+    grant(consent.full);
+    Ok(Ok(consent))
+}
+
 /// On a Wayland desktop, asks the portal for its grant now, while the person who ran `enable` is
 /// at the screen (with `control`, the RemoteDesktop grant: keyboard and pointer too), and keeps
 /// the restore token it returns: later sessions start from that token with no dialog, so no
@@ -592,15 +742,23 @@ pub(crate) fn with_fresh_identity<T>(
 }
 
 fn share_on(args: &Args) -> Res<()> {
-    let (dir, hub, mut account) = load()?;
+    let (dir, hub, mut account, _lock) = load_locked(serving::OldRecord::Keep)?;
     if machine::Joined::load(&dir)?.is_some() {
         // A joined machine's session may turn its own sharing on (PROTOCOL.md, Machine sign-in).
         hub.set_shared(true)?;
         println!("Sharing is on.");
         return Ok(());
     }
-    // Turning sharing on needs the account itself (a host session may only turn it off).
-    hub.sign_in_with_stack(&stack_token(args)?)?;
+    // Turning sharing on needs the account itself (a host session may only turn it off), and
+    // only this desktop's own: another account's token anchors nothing here (serving.rs).
+    let user = hub.sign_in_with_stack(&stack_token(args)?)?;
+    if user != account.user_id {
+        return Err(format!(
+            "this desktop is signed in as {}, not {user}; to share it as {user}, run: cmux-rd linux-host enable",
+            account.user_id
+        )
+        .into());
+    }
     account.anchored_until = hub.anchor()?;
     hub.set_shared(true)?;
     account.save(&dir)?;
@@ -609,7 +767,7 @@ fn share_on(args: &Args) -> Res<()> {
 }
 
 fn share_off() -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     hub.set_shared(false)?;
     println!("Sharing is off; the hub ended any session.");
     Ok(())
@@ -648,7 +806,7 @@ fn requests() -> Res<()> {
 }
 
 fn approve(id: &str, args: &Args) -> Res<()> {
-    let (dir, hub, _) = load()?;
+    let (dir, hub, _) = load(serving::OldRecord::Keep)?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -679,7 +837,7 @@ fn approve(id: &str, args: &Args) -> Res<()> {
 }
 
 fn deny(id: &str) -> Res<()> {
-    let (_, hub, _) = load()?;
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
     let runtime = identity::runtime_dir()?;
     let pending = Pending::new(&runtime);
     let now = now_ms();
@@ -811,7 +969,11 @@ fn withdraw_unconsented(
 }
 
 fn run(args: &Args) -> Res<()> {
-    let (dir, hub, account) = load()?;
+    let (dir, hub, account) = load(serving::OldRecord::Heal)?;
+    // What this process serves as, read now; it exits once the records say otherwise.
+    let serving_as = serving::Serving::now(&dir)?;
+    // Held while this process lives: a teardown that takes it knows no host serves.
+    let _running = cmux_hub_host::host_process::hold(&dir)?;
     let runtime = identity::runtime_dir()?;
     identity::private_dir(&runtime)?;
     // Read at start so a bad file fails now; read again for every ticket and every second.
@@ -855,8 +1017,14 @@ fn run(args: &Args) -> Res<()> {
     loop {
         let started = Instant::now();
         let (result, stopped) = hold_link(&current, || {
-            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input)
+            hold_socket(&hub, &dir, &runtime, &serve_args, &current, applies_input, &serving_as)
         });
+        // The host keeps the identity invariant itself (serving.rs): a sign-in that changed or
+        // went away, or a join that was replaced or left, ends the link, the session (above)
+        // and this process.
+        if let Some(why) = serving_as.changed(&dir) {
+            return Err(retired(&why));
+        }
         if let Some(id) = stopped {
             eprintln!("linux-host: the hub link dropped; the session it served stopped");
             end_later(&hub, &id, "peer_offline");
@@ -873,9 +1041,21 @@ fn run(args: &Args) -> Res<()> {
         if started.elapsed() > Duration::from_secs(60) {
             backoff = Duration::from_secs(1);
         }
-        std::thread::sleep(backoff);
+        if let Some(why) = serving::wait_serving(&serving_as, &dir, backoff, serving::WATCH_EVERY) {
+            return Err(retired(&why));
+        }
         backoff = (backoff * 2).min(Duration::from_secs(30));
     }
+}
+
+/// Why a host that is no longer this desktop's identity exits; it is not restarted.
+fn retired(why: &str) -> Box<dyn std::error::Error + Send + Sync> {
+    eprintln!("linux-host: {why}; the session stopped and the host exits");
+    Fatal::needs(
+        &format!("The host no longer serves as this desktop's sign-in: {why}"),
+        Fatal::ENABLE,
+    )
+    .into()
 }
 
 /// How long the virtual display stays up with no share and no app window on it.
@@ -931,11 +1111,20 @@ fn hold_socket(
     serve_args: &ServeCommand,
     current: &Current,
     applies_input: bool,
+    serving_as: &serving::Serving,
 ) -> Res<()> {
     let mut ws = hub.user_socket()?;
     let mut last_ping = Instant::now();
     let mut last_consent = Instant::now();
+    let mut last_identity = Instant::now();
     loop {
+        if last_identity.elapsed() >= serving::WATCH_EVERY {
+            // No longer this desktop's identity: `run` stops the session and exits.
+            if serving_as.changed(dir).is_some() {
+                return Ok(());
+            }
+            last_identity = Instant::now();
+        }
         if last_consent.elapsed() >= CONSENT_EVERY {
             // `enable --view-only` while this runs: a control session stops now.
             let consent = LocalConsent::load(dir);
@@ -990,11 +1179,24 @@ enum OnTicket {
     Drop(String),
 }
 
-/// The answer to a host ticket `push`; `admit` maps its scope to `Some(view_only)` or None
+/// The hub says both devices are signed in to one account (`ownerKind: "user"`, which the hub
+/// writes from its own authenticated record, never from the viewer): the person reaching their
+/// own desktop. A missing field (an older hub) or any other owner is not shown to be own.
+fn own_account(push: &Value) -> bool {
+    push.get("ownerKind").and_then(Value::as_str) == Some("user")
+}
+
+/// The answer to a host ticket `push`; `admit` maps a scope to `Some(view_only)` or None
 /// when this desktop does not allow it. A ticket that does not parse is ended too, as the
 /// Mac host does: the hub approved the session, and only `/end` closes it.
-fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket {
-    let ticket = match Ticket::from_push(push) {
+///
+/// The person's own device (``own_account``) is never refused a screen this desktop shares
+/// (Leo, 2026-11-17, ask-834a26b463: "if i've connected, i need to share the screen"): a
+/// control ticket on a desktop enabled `--view-only` is served view only, as a `view` session,
+/// instead of ended. This desktop's `--view-only` still keeps control off. A refusal ends the
+/// session `consent_required`, as the Mac hosts do, so the viewer reads why.
+fn on_ticket(push: &Value, admit: impl Fn(&str) -> Option<bool>) -> OnTicket {
+    let mut ticket = match Ticket::from_push(push) {
         Ok(t) => t,
         Err(e) => {
             return match push["sessionId"].as_str().filter(|id| !id.is_empty()) {
@@ -1003,14 +1205,19 @@ fn on_ticket(push: &Value, admit: impl FnOnce(&str) -> Option<bool>) -> OnTicket
             }
         }
     };
-    match admit(&ticket.scope) {
-        Some(view_only) => OnTicket::Serve(ticket, view_only),
-        None => OnTicket::End(
-            ticket.session_id,
-            "failed",
-            format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
-        ),
+    if let Some(view_only) = admit(&ticket.scope) {
+        return OnTicket::Serve(ticket, view_only);
     }
+    if own_account(push) && ticket.scope == "full" && admit("view").is_some() {
+        // Served and watched as the view session it is (`withdraw_unconsented` reads this scope).
+        ticket.scope = "view".to_owned();
+        return OnTicket::Serve(ticket, true);
+    }
+    OnTicket::End(
+        ticket.session_id,
+        "consent_required",
+        format!("a {} session is not allowed on this desktop", printable(&ticket.scope)),
+    )
 }
 
 fn handle_push(
@@ -1104,7 +1311,7 @@ fn start_session(
         }
         let ended = session::serve(&hub, &ticket, view_only, &args, &stop);
         eprintln!("linux-host: session ended: {}", ended.reason);
-        if let Some(reason) = ended.tell_hub {
+        if let Some(reason) = ended.tell_hub.as_deref() {
             if let Err(e) = hub.end(&ticket.session_id, reason) {
                 eprintln!("linux-host: end not sent: {e}");
             }
@@ -1175,6 +1382,47 @@ mod tests {
         assert_eq!(enable(&[]), LocalConsent { view: true, full: true });
         assert_eq!(enable(&["--allow-control"]), LocalConsent { view: true, full: true });
         assert_eq!(enable(&["--view-only"]), LocalConsent { view: true, full: false });
+    }
+
+    /// A person's own `enable` on a joined machine would make the host theirs until the next
+    /// daemon start signs them out again: refused before any token is read, the join kept.
+    #[test]
+    fn a_person_cannot_sign_in_over_a_join() {
+        let dir = consent_dir("person-over-join");
+        let home = dir.join("acpmux-home");
+        identity::private_dir(&home).unwrap();
+        identity::write_private(
+            &home.join(machine::CREDENTIAL_FILE),
+            br#"{"credential":"cmm_b","name":"lane-vm"}"#,
+        )
+        .unwrap();
+        Device::generate("lane-vm").unwrap().save(&dir).unwrap();
+        Account { hub: DEFAULT_HUB.into(), user_id: "p:b".into(), anchored_until: 0 }
+            .save(&dir)
+            .unwrap();
+        machine::Joined { acpmux_home: home.clone(), ..Default::default() }.save(&dir).unwrap();
+        let token = dir.join("token");
+        identity::write_private(&token, b"person-token").unwrap();
+        let args = Args::parse(&[
+            "enable".into(),
+            "--stack-token-file".into(),
+            token.display().to_string(),
+        ])
+        .unwrap();
+        let Err(e) = sign_in_and_register(&args, &dir) else { panic!("signed in over the join") };
+        assert_eq!(
+            e.to_string(),
+            "this machine is joined to p:b; run `acpmux machine leave` first"
+        );
+        assert_eq!(
+            machine::Joined::load(&dir).unwrap(),
+            Some(machine::Joined { acpmux_home: home.clone(), ..Default::default() })
+        );
+        assert_eq!(Account::load(&dir).unwrap().unwrap().user_id, "p:b");
+        // After `acpmux machine leave` (the credential gone) a person may enable it again.
+        std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
+        assert_eq!(serving::join_owner(&dir).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1519,9 +1767,8 @@ mod tests {
         identity::private_dir(&dir).unwrap();
         let credential: machine::MachineCredential =
             serde_json::from_str(r#"{"credential":"cmm_x","name":"lane-vm"}"#).unwrap();
-        let (hub, account) =
-            sign_in_machine(&dir, &origin, std::path::Path::new("/acpmux-home"), credential)
-                .unwrap();
+        let join = machine::Join::at(std::path::Path::new("/acpmux-home"), credential, &origin);
+        let (hub, account) = sign_in_machine(&dir, &join, None).unwrap();
         assert_eq!(hub.device.name, "lane-vm", "named as the join named the machine");
         assert_eq!(
             account,
@@ -1530,7 +1777,12 @@ mod tests {
         assert_eq!(Account::load(&dir).unwrap(), Some(account));
         assert_eq!(
             machine::Joined::load(&dir).unwrap(),
-            Some(machine::Joined { acpmux_home: "/acpmux-home".into() })
+            Some(machine::Joined {
+                acpmux_home: "/acpmux-home".into(),
+                consent_tracked: true,
+                ..Default::default()
+            }),
+            "a first sign-in by this build tracks its join's consent"
         );
         machine::Joined::clear(&dir).unwrap();
         assert_eq!(machine::Joined::load(&dir).unwrap(), None);
@@ -1551,6 +1803,52 @@ mod tests {
         // Registered as a Linux desktop, and joining is the consent: sharing on.
         assert_eq!(serde_json::from_str::<Value>(&seen[1].body).unwrap()["platform"], "linux");
         assert_eq!(serde_json::from_str::<Value>(&seen[2].body).unwrap()["shared"], true);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// With no join, a person's anchored sign-in is the host's, and nothing is not signed in.
+    #[test]
+    fn without_a_join_an_anchored_account_stays() {
+        let dir = consent_dir("no-join");
+        identity::private_dir(&dir).unwrap();
+        assert!(join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().is_none());
+        let old = Device::generate("desk").unwrap();
+        old.save(&dir).unwrap();
+        let hub = "http://127.0.0.1:1".to_owned();
+        Account { hub, user_id: "p:a".into(), anchored_until: now_ms() + 60_000 }
+            .save(&dir)
+            .unwrap();
+        let kept = join_device(&dir, Some("http://127.0.0.1:1"), None, &NoUnit).unwrap().unwrap();
+        assert_eq!(kept.id, old.id);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review F2 of #45480: the machine left and joined again under another deployment while
+    /// the acpmux daemon kept the first join's device hub. The credential on disk is the new
+    /// deployment's, so it is never sent to the earlier deployment's hub, and nothing is set
+    /// up for it there.
+    #[test]
+    fn a_rejoin_under_another_deployment_never_signs_in_at_the_earlier_hub() {
+        use super::stack_login::tests::stub;
+        let (earlier_hub, seen) = stub(|_, _| {
+            (
+                200,
+                serde_json::json!({ "session": "s", "userId": "p:u", "expiresAt": now_ms() + 3_600_000 }),
+            )
+        });
+        let dir = consent_dir("rejoin-other-deployment");
+        identity::private_dir(&dir).unwrap();
+        let credential: machine::MachineCredential = serde_json::from_str(
+            r#"{"credential":"cmm_new","name":"vm","machine_id":"m-new","credential_generation":1,"hub_origin":"https://cmux-platform-production.debussy.workers.dev"}"#,
+        )
+        .unwrap();
+        let home = dir.join("acpmux-home");
+        let got = join_device(&dir, Some(&earlier_hub), Some((home, credential)), &NoUnit);
+        assert!(got.is_err(), "a hub that is not the credential's own deployment's is refused");
+        let calls: Vec<String> = seen.lock().unwrap().iter().map(|s| s.path.clone()).collect();
+        assert!(calls.is_empty(), "the earlier deployment's hub saw {calls:?}");
+        assert_eq!(Account::load(&dir).unwrap(), None, "nothing is signed in");
+        assert_eq!(machine::Joined::load(&dir).unwrap(), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1584,7 +1882,7 @@ mod tests {
         assert!(matches!(on_ticket(&ticket_push("s1"), |_| Some(true)), OnTicket::Serve(_, true)));
         assert!(matches!(
             on_ticket(&ticket_push("s1"), |_| None),
-            OnTicket::End(id, "failed", _) if id == "s1"
+            OnTicket::End(id, "consent_required", _) if id == "s1"
         ));
         // A ticket that does not agree with its JWS is ended too, as the Mac host does: the
         // approved session would otherwise stay open on the hub.
@@ -1603,6 +1901,46 @@ mod tests {
         assert!(matches!(on_ticket(&malformed, |_| Some(true)), OnTicket::Drop(_)));
     }
 
+    /// The person's own device (`ownerKind: "user"`) gets the screen on a desktop enabled
+    /// `--view-only`: its control ticket serves view only, watched as a `view` session, where
+    /// another device's is ended `consent_required`. Nothing serves what the desktop refuses.
+    #[test]
+    fn an_own_device_control_ticket_serves_view_only_on_a_view_only_desktop() {
+        let view_only = LocalConsent { view: true, full: false };
+        let admit = |scope: &str| view_only.serve(scope, true);
+        let mut own = ticket_push("s1");
+        own["ownerKind"] = "user".into();
+        match on_ticket(&own, admit) {
+            OnTicket::Serve(ticket, true) => {
+                assert_eq!(ticket.scope, "view");
+                let current: Current = Arc::new(Mutex::new(Some(Served {
+                    id: ticket.session_id,
+                    scope: ticket.scope,
+                    stop: Arc::new(AtomicBool::new(false)),
+                })));
+                // The view-only consent it was served under does not withdraw it a second later.
+                assert_eq!(withdraw_unconsented(&current, Ok(view_only), true), None);
+            }
+            other => panic!("own device not served view only: {other:?}"),
+        }
+        for kind in [Value::Null, "team".into(), "shared".into()] {
+            let mut push = ticket_push("s1");
+            push["ownerKind"] = kind;
+            assert!(matches!(
+                on_ticket(&push, admit),
+                OnTicket::End(id, "consent_required", _) if id == "s1"
+            ));
+        }
+        // A desktop that allows control serves it as asked; one whose consent is unreadable
+        // (`admit` None for every scope) serves nothing, own device or not.
+        let both = LocalConsent { view: true, full: true };
+        assert!(matches!(
+            on_ticket(&own, |s| both.serve(s, true)),
+            OnTicket::Serve(t, false) if t.scope == "full"
+        ));
+        assert!(matches!(on_ticket(&own, |_| None), OnTicket::End(_, "consent_required", _)));
+    }
+
     #[test]
     fn approve_and_status_read_the_capture_the_host_recorded() {
         let dir = consent_dir("capture");
@@ -1613,5 +1951,231 @@ mod tests {
         identity::write_private(&dir.join("capture"), b"x11").unwrap();
         assert_eq!(host_capture(Some(&dir)), CaptureBackend::X11);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod join_consent_tests {
+    use super::*;
+
+    fn dir(tag: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("cmux-rd-join-consent-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        identity::private_dir(&dir).unwrap();
+        dir
+    }
+
+    fn args(extra: &[&str]) -> Args {
+        let words: Vec<String> =
+            ["enable", "--non-interactive"].iter().chain(extra).map(|w| (*w).to_owned()).collect();
+        Args::parse(&words).unwrap()
+    }
+
+    fn mark(machine_id: &str) -> machine::Joined {
+        machine::Joined {
+            acpmux_home: "/acpmux-home".into(),
+            machine_id: machine_id.into(),
+            credential_generation: 1,
+            consent_tracked: false,
+        }
+    }
+
+    /// joined.json as this build's sign-in for `machine_id` writes it.
+    fn signed_in(machine_id: &str) -> machine::Joined {
+        machine::Joined { consent_tracked: true, ..mark(machine_id) }
+    }
+
+    /// joined.json as a build from before consent-join.json wrote it for `machine_id` (empty:
+    /// from before joins were marked).
+    fn from_before(machine_id: &str) -> machine::Joined {
+        machine::Joined { consent_tracked: false, ..mark(machine_id) }
+    }
+
+    /// `dir` as a run for the join m-a left it once it finished: signed in, and its consent
+    /// written (`consent`, or deleted afterwards by its person when None).
+    fn finished(tag: &str, consent: Option<LocalConsent>) -> std::path::PathBuf {
+        let d = dir(tag);
+        let mut asked = |_| {};
+        join_consent(&d, Some(&mark("m-a")), &args(&[]), &mut asked).unwrap().unwrap();
+        signed_in("m-a").save(&d).unwrap();
+        match consent {
+            Some(consent) => consent.save(&d).unwrap(),
+            None => std::fs::remove_file(d.join("consent.json")).unwrap(),
+        }
+        d
+    }
+
+    /// Runs the enable's consent steps for `join` in `d`, as `set_up_for_join` does with
+    /// joined.json as it finds it: the consent left, and each grant asked.
+    fn rerun(d: &std::path::Path, join: &str, extra: &[&str]) -> (Res<LocalConsent>, Vec<bool>) {
+        let mut grants = Vec::new();
+        let before = machine::Joined::load(d).unwrap();
+        mark_join_from_before_marker(d, before.as_ref(), Some(&mark(join))).unwrap();
+        let got = join_consent(d, Some(&mark(join)), &args(extra), &mut |c| grants.push(c));
+        (got.unwrap(), grants)
+    }
+
+    /// Review F1 of #45480: replacing cmux-rd reruns the enable for the same join, and its
+    /// person's view-only choice stays, with no portal dialog.
+    #[test]
+    fn a_rerun_for_the_same_join_keeps_view_only() {
+        let d = finished("view-only", Some(LocalConsent { view: true, full: false }));
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(!kept.unwrap().full);
+        assert!(!LocalConsent::load(&d).unwrap().full, "a view-only desktop stays view-only");
+        assert!(grants.is_empty(), "no portal grant is asked again: {grants:?}");
+    }
+
+    /// Review F1 of #45480: a withdrawn grant (consent.json deleted) stays withdrawn when
+    /// cmux-rd is replaced, and the rerun asks for no portal grant.
+    #[test]
+    fn a_rerun_for_the_same_join_keeps_a_withdrawn_grant_withdrawn() {
+        let d = finished("withdrawn", None);
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(kept.is_err(), "nothing is shared");
+        assert!(LocalConsent::load(&d).is_err(), "no consent.json is written again");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Only a narrower choice is taken on a rerun: --view-only turns control off.
+    #[test]
+    fn a_rerun_may_narrow_but_never_widen() {
+        let d = finished("narrowed", Some(LocalConsent { view: true, full: true }));
+        let (now, grants) = rerun(&d, "m-a", &["--view-only"]);
+        assert!(!now.unwrap().full && !LocalConsent::load(&d).unwrap().full);
+        assert!(grants.is_empty());
+    }
+
+    /// The architect's case: a first run signed the join in (joined.json written) and stopped
+    /// before it wrote the consent. The next run writes it and asks for the grant, so the
+    /// machine is never left joined and silently unshared.
+    #[test]
+    fn a_join_whose_first_run_stopped_before_its_consent_writes_it_next_run() {
+        let d = dir("stopped-first-run");
+        signed_in("m-a").save(&d).unwrap();
+        let (now, grants) = rerun(&d, "m-a", &[]);
+        assert!(now.unwrap().full);
+        assert!(LocalConsent::load(&d).unwrap().full, "the join's consent is written");
+        assert_eq!(grants, [true], "the grant is asked once, with control");
+    }
+
+    /// A new join is the consent (hq docs/design/remote-screen-share-zero-touch.md, L3): it
+    /// writes its own, whatever an earlier join or its person left, and asks for the grant.
+    #[test]
+    fn a_new_join_writes_its_own_consent() {
+        let d = finished("new-join", Some(LocalConsent { view: true, full: false }));
+        signed_in("m-b").save(&d).unwrap();
+        let (now, grants) = rerun(&d, "m-b", &[]);
+        assert!(now.unwrap().full && LocalConsent::load(&d).unwrap().full);
+        assert_eq!(grants, [true]);
+        let d = finished("new-join-withdrawn", None);
+        signed_in("m-b").save(&d).unwrap();
+        let (_, grants) = rerun(&d, "m-b", &["--view-only"]);
+        assert!(!LocalConsent::load(&d).unwrap().full);
+        assert_eq!(grants, [false]);
+    }
+
+    /// Review F1 of #45480, (A): the hub may raise the credential generation of the same
+    /// machine (recovery.rs). That is no choice made at this screen: view-only and a withdrawn
+    /// grant stay, and no portal grant is asked.
+    #[test]
+    fn a_new_credential_generation_for_the_same_machine_keeps_the_consent() {
+        let next = machine::Joined { credential_generation: 2, ..mark("m-a") };
+        let d = finished("generation-view-only", Some(LocalConsent { view: true, full: false }));
+        let mut grants = Vec::new();
+        let kept = join_consent(&d, Some(&next), &args(&[]), &mut |c| grants.push(c)).unwrap();
+        assert!(!kept.unwrap().full && !LocalConsent::load(&d).unwrap().full, "view-only stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+        let d = finished("generation-withdrawn", None);
+        let kept = join_consent(&d, Some(&next), &args(&[]), &mut |c| grants.push(c)).unwrap();
+        assert!(kept.is_err() && LocalConsent::load(&d).is_err(), "a withdrawn grant stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Review F1 of #45480, (B): a machine joined before consent-join.json existed has
+    /// joined.json for this machine and its consent.json, and no marker. Its first run after
+    /// the update keeps that consent, writes the marker, and asks for no grant.
+    #[test]
+    fn a_join_from_before_the_marker_keeps_its_consent() {
+        let d = dir("upgraded");
+        from_before("m-a").save(&d).unwrap();
+        LocalConsent { view: true, full: false }.save(&d).unwrap();
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(!kept.unwrap().full && !LocalConsent::load(&d).unwrap().full, "view-only stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+        assert!(d.join(CONSENT_JOIN_FILE).exists(), "the marker is written");
+        let (_, grants) = rerun(&d, "m-a", &[]);
+        assert!(grants.is_empty() && !LocalConsent::load(&d).unwrap().full, "and stays kept");
+    }
+
+    /// Review F1 of #45480, upgrade (1): a machine joined before the marker whose person
+    /// withdrew the grant (no consent.json) stays withdrawn: on that build a stopped enable was
+    /// retried, so a lasting "joined, no consent" is a withdrawal, not a crash.
+    #[test]
+    fn a_join_from_before_the_marker_keeps_a_withdrawn_grant_withdrawn() {
+        let d = dir("upgraded-withdrawn");
+        from_before("m-a").save(&d).unwrap();
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(kept.is_err() && LocalConsent::load(&d).is_err(), "nothing is shared");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Review F1 of #45480, upgrade (2): an unreadable consent.json shares nothing
+    /// (shares_line), so the enable never widens it by writing over it.
+    #[test]
+    fn a_join_from_before_the_marker_never_rewrites_an_unreadable_consent() {
+        let d = dir("upgraded-unreadable");
+        from_before("m-a").save(&d).unwrap();
+        identity::write_private(&d.join("consent.json"), b"not json").unwrap();
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(kept.is_err(), "nothing is shared");
+        assert_eq!(std::fs::read(d.join("consent.json")).unwrap(), b"not json");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Review F1 of #45480, upgrade (3): a record from before joins were marked (no machine
+    /// id) from this home keeps its view-only consent.
+    #[test]
+    fn a_join_from_before_joins_were_marked_keeps_view_only() {
+        let d = dir("upgraded-unmarked");
+        from_before("").save(&d).unwrap();
+        LocalConsent { view: true, full: false }.save(&d).unwrap();
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(!kept.unwrap().full && !LocalConsent::load(&d).unwrap().full, "view-only stays");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Review F1 of #45480: the marker is written before signing in, so an upgraded machine
+    /// whose run stopped after the marker, even after a sign-in that wrote this build's
+    /// joined.json, still keeps its (withdrawn) consent.
+    #[test]
+    fn an_upgraded_join_stopped_after_its_marker_keeps_its_consent() {
+        let d = dir("upgraded-stopped");
+        from_before("m-a").save(&d).unwrap();
+        mark_join_from_before_marker(&d, Some(&from_before("m-a")), Some(&mark("m-a"))).unwrap();
+        signed_in("m-a").save(&d).unwrap();
+        let (kept, grants) = rerun(&d, "m-a", &[]);
+        assert!(kept.is_err() && LocalConsent::load(&d).is_err(), "still withdrawn");
+        assert!(grants.is_empty(), "no portal grant is asked: {grants:?}");
+    }
+
+    /// Signing the same join in again keeps its record's flag: a sign-in (the serving start
+    /// runs one before any enable) never makes an upgraded join read as a stopped first run.
+    #[test]
+    fn signing_the_same_join_in_again_keeps_whether_its_consent_was_tracked() {
+        let credential: machine::MachineCredential = serde_json::from_str(
+            r#"{"credential":"cmm_a","machine_id":"m-a","credential_generation":2}"#,
+        )
+        .unwrap();
+        let home = std::path::Path::new("/acpmux-home");
+        let again = |previous: machine::Joined| {
+            machine::Joined::signed_in(Some(&previous), home, &credential).consent_tracked
+        };
+        assert!(!again(from_before("m-a")), "the same machine, a new generation");
+        assert!(!again(from_before("")), "a record from before joins were marked");
+        assert!(again(signed_in("m-a")));
+        assert!(again(from_before("m-b")), "another machine is a new join");
+        assert!(machine::Joined::signed_in(None, home, &credential).consent_tracked);
     }
 }

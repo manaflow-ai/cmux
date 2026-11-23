@@ -7,7 +7,8 @@ import Testing
 /// session of 826 workspaces, with a store only (no app, no window): the workspaces that a pass over the holder's
 /// list visits. The count is the module's own work counter (``ObservationWork``), which the test sets around the
 /// holder's start. After each step the kept rows and the kept folders are those of a walk over every workspace of
-/// the store, made then.
+/// the store, made then. The same counter gives the workspaces whose folders the holder joined again, and the
+/// test counts the calls of the holder's `changed`.
 @MainActor @Suite
 struct NewTabPlacesKeptCostTests {
     @MainActor final class Events {
@@ -23,6 +24,10 @@ struct NewTabPlacesKeptCostTests {
     /// A title change of one tab and a folder change of one tab visit no other workspace in a pass over the list;
     /// a workspace that comes or goes has no condition on its visits (a change of the list makes one pass). The
     /// print has each count, and the time of one join of the folders of all workspaces (a report, no condition).
+    ///
+    /// The holder's `changed` runs one time for a title change, one time for a folder change, and one time for
+    /// the title changes of 2 tabs of 2 workspaces in one turn. The holder joins the folders of no workspace for
+    /// a title change and of every workspace, one time, for a folder change.
     ///
     /// The sign that the holder took a change is a condition of the setup: its `changed` ran for the step.
     @Test func aChangeOfOneRowOrOneFolderVisitsNoOtherWorkspaceAndTheKeptRowsStayTheWalks() async throws {
@@ -67,6 +72,9 @@ struct NewTabPlacesKeptCostTests {
         #expect(kept.rows == titled, "the kept rows are not the walk's rows after a title change")
         #expect(kept.folders == NewTabPlaces.folders(titled), "the kept folders are not the walk's folders after a title change")
         #expect(titleListed == 0, "a title change of one tab visited \(titleListed) workspaces of \(size.workspaces) in passes over the list, want 0")
+        let titleJoined = title.visits["NewTabPlacesKept.join"] ?? 0
+        #expect(title.events == 1, "the holder's `changed` ran \(title.events) times for a title change of one tab, want 1")
+        #expect(titleJoined == 0, "a title change of one tab joined the folders of \(titleJoined) workspaces, want 0")
 
         let foldersBefore = kept.folders
         let folder = await step { place.tab.cwd = "/tmp/large/kept/src" }
@@ -78,6 +86,27 @@ struct NewTabPlacesKeptCostTests {
         #expect(kept.folders == NewTabPlaces.folders(moved), "the kept folders are not the walk's folders after a folder change")
         #expect(folderListed == 0,
                 "a folder change of one tab visited \(folderListed) workspaces of \(size.workspaces) in passes over the list, want 0")
+        let folderJoined = folder.visits["NewTabPlacesKept.join"] ?? 0
+        #expect(folder.events == 1, "the holder's `changed` ran \(folder.events) times for a folder change of one tab, want 1")
+        #expect(folderJoined == size.workspaces,
+                "a folder change of one tab joined the folders of \(folderJoined) workspaces, want one join of \(size.workspaces)")
+
+        // 2 tabs of 2 workspaces change in one turn: the holder takes 2 changes and calls `changed` one time.
+        let second = try #require(terminals.first(where: { $0.workspace != place.workspace }),
+                                  "setup: the session has no terminal in a second workspace")
+        let pair = await step {
+            place.tab.titleText = "kept row 2"
+            second.tab.titleText = "kept row 3"
+        }
+        let paired = walk()
+        let pairMapped = pair.visits["ObservedItems.map"] ?? 0
+        let pairListed = pair.visits["ObservedItems.list"] ?? 0
+        try #require(pairMapped == 2, "setup: the title changes of 2 tabs of 2 workspaces in one turn mapped \(pairMapped) workspaces, want 2")
+        let pairTitled = paired.filter { rows in rows.tabs.contains(where: { $0.title == "kept row 2" || $0.title == "kept row 3" }) }.count
+        try #require(pairTitled == 2, "setup: the walk has the 2 changed titles in \(pairTitled) workspaces, want 2")
+        #expect(kept.rows == paired, "the kept rows are not the walk's rows after the title changes of 2 tabs in one turn")
+        #expect(pairListed == 0, "the title changes of 2 tabs in one turn visited \(pairListed) workspaces in passes over the list, want 0")
+        #expect(pair.events == 1, "the holder's `changed` ran \(pair.events) times for the changes of 2 workspaces in one turn, want 1")
 
         var tree = LargeSessionFixture.tree(size)
         let shell = TabSnapshot(surface: SurfaceID(rawValue: 990_002), tabResourceID: ResourceID(rawValue: "tab_kept_shell"), kind: .pty,
@@ -103,6 +132,7 @@ struct NewTabPlacesKeptCostTests {
         let joined = NewTabPlaces.folders(less)
         let joinTime = Self.milliseconds(since: began)
         print("new tab kept rows, \(size.workspaces) workspaces: a title change visited \(title.visits), a folder change visited \(folder.visits), "
+            + "the title changes of 2 tabs of 2 workspaces in one turn visited \(pair.visits) and ran `changed` \(pair.events) time(s), "
             + "a workspace that came visited \(came.visits), a workspace that went visited \(went.visits); "
             + "one join of the folders of all workspaces (\(joined.count) folders) took \(joinTime) ms")
     }

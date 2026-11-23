@@ -325,9 +325,9 @@ struct AgentPaneCloudStartTests {
         #expect(model.transport.replacements.beginSandbox())
     }
 
-    @Test func noGestureAStartedOrRemoteChatOrABadRequestStartsNothing() async {
+    /// (Where a gesture is still needed: ``aSendWithNoGestureStillPicksNoOutsideFolderAndSendsNoSeededPrompt``.)
+    @Test func aStartedOrRemoteChatOrABadRequestStartsNothing() async {
         let starts = Starts()
-        _ = await Self.pane(starts).respond(to: Self.start(Self.good))
         let started = Self.pane(starts, sessionId: "chat")
         started.transport.gestures.record()
         _ = await started.respond(to: Self.start(Self.good))
@@ -673,6 +673,184 @@ struct AgentPaneCloudReservationTests {
             "method": "cloud.releaseReservation", "params": ["composeKey": first],
         ]))
         #expect(released["ok"] as? Bool == true)
+    }
+
+    @MainActor private final class Recorded {
+        var reservations: [AgentPaneCloudReservationRequest] = []
+        var starts: [AgentPaneCloudStart] = []
+    }
+
+    /// A pane showing `sessionId` (an empty local chat, webviews `emptyLocalChat`, when set) that records
+    /// what reaches the App: each reservation call and each Cloud start.
+    private static func pane(_ recorded: Recorded, sessionId: String? = nil) -> AgentPaneModel {
+        let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
+        if sessionId != nil { model.transport.replacements.set(waiting: 0, opened: true) }
+        model.onCloudReservation = { request in
+            recorded.reservations.append(request)
+            return ["ok": true, "machine": "vm-warm"]
+        }
+        model.onCloudStartChat = { start in
+            recorded.starts.append(start)
+            return AgentPaneReply.success(["machine": "vm-warm"])
+        }
+        return model
+    }
+
+    private static func reserve(_ key: String, replacing chat: String? = nil, release: Bool = false) -> AgentPaneRequest {
+        var params: [String: Any] = ["composeKey": key]
+        if let chat { params["replacesChat"] = chat }
+        return AgentPaneRequest(body: ["method": release ? "cloud.releaseReservation" : "cloud.reserve", "params": params])
+    }
+
+    private static func send(_ chat: String?, reservation: String?) -> AgentPaneRequest {
+        var params: [String: Any] = ["task": "fix the build", "home": true, "key": UUID().uuidString]
+        if let chat { params["replacesChat"] = chat }
+        if let reservation { params["reservationKey"] = reservation }
+        return AgentPaneRequest(body: ["method": "cloud.startChat", "params": params])
+    }
+
+    private static func code(_ reply: [String: Any]) -> String? { (reply["error"] as? [String: Any])?["code"] as? String }
+
+    /// Cloud picked in an empty local chat (New Cloud Chat beside a chat): its compose reserves ahead as a pane with
+    /// no chat does, naming the chat it would replace, and the Send that replaces that chat starts on that machine.
+    @Test func anEmptyLocalChatReservesAheadAndItsSendStartsOnThatMachine() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded, sessionId: "chat-1")
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        // Naming no chat, or another one, reserves nothing for a pane with a chat.
+        #expect(Self.code(await model.respond(to: Self.reserve(key))) == "unsupported")
+        #expect(Self.code(await model.respond(to: Self.reserve(key, replacing: "chat-2"))) == "unsupported")
+        #expect(recorded.reservations.isEmpty)
+        let reserved = await model.respond(to: Self.reserve(key, replacing: "chat-1"))
+        #expect(reserved["ok"] as? Bool == true)
+        #expect(recorded.reservations.map(\.composeKey) == [key])
+        // The chat it names stays in the pane: Rust gets the compose key alone.
+        #expect(recorded.reservations.first?.params["replacesChat"] == nil)
+        #expect(recorded.reservations.first?.replacesChat == "chat-1")
+        // A renewal of the same key needs no gesture.
+        #expect(await model.respond(to: Self.reserve(key, replacing: "chat-1"))["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        let sent = await model.respond(to: Self.send("chat-1", reservation: key))
+        #expect(sent["ok"] as? Bool == true)
+        #expect(recorded.starts.map(\.reservationKey) == [key])
+        #expect(recorded.starts.map(\.replacesChat) == ["chat-1"])
+    }
+
+    /// The checks a start replacing the chat takes: a chat on another machine, no Cloud start runner, or another chat
+    /// starting or opening in the pane (a harness switch) reserves nothing.
+    @Test func anEmptyChatsReserveTakesTheChecksItsReplacingStartTakes() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded, sessionId: "chat-1")
+        model.transport.replacements.set(waiting: 1, opened: true)
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: Self.reserve(UUID().uuidString, replacing: "chat-1"))) == "unsupported")
+        model.transport.replacements.set(waiting: 0, opened: true)
+        model.onCloudStartChat = nil
+        #expect(Self.code(await model.respond(to: Self.reserve(UUID().uuidString, replacing: "chat-1"))) == "unsupported")
+        let remote = Self.pane(recorded, sessionId: "chat-1")
+        remote.remoteChat = true
+        remote.transport.gestures.record()
+        #expect(Self.code(await remote.respond(to: Self.reserve(UUID().uuidString, replacing: "chat-1"))) == "unsupported")
+        #expect(recorded.reservations.isEmpty)
+        // A malformed chat id is no request at all.
+        #expect(Self.code(await model.respond(to: Self.reserve(UUID().uuidString, replacing: ""))) == "unsupported")
+    }
+
+    /// The pane's chat changed after the reserve (a harness switch): the pane no longer binds that machine, the page's
+    /// release still reaches Rust (once), and the new chat reserves a machine of its own, never refused `unavailable_now`.
+    @Test func aChatChangeAfterTheReserveLeavesItToThePagesReleaseAndTheNextComposeReserves() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded, sessionId: "chat-1")
+        let first = UUID().uuidString
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.reserve(first, replacing: "chat-1"))["ok"] as? Bool == true)
+        model.adoptSession("chat-2")
+        #expect(!model.ownsCloudReservation(first))
+        #expect(await model.respond(to: Self.reserve(first, release: true))["ok"] as? Bool == true)
+        #expect(await model.respond(to: Self.reserve(first, release: true))["ok"] as? Bool == true)
+        #expect(recorded.reservations.map(\.release) == [false, true])
+        let second = UUID().uuidString
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.reserve(second, replacing: "chat-2"))["ok"] as? Bool == true)
+        #expect(model.ownsCloudReservation(second))
+    }
+
+    /// A Send that still names the reservation its compose made before the chat changed goes cold, never refused, and
+    /// that machine is released (the page handed its key off, so it releases nothing).
+    @Test func aSendNamingAReservationLeftByAChatChangeGoesColdAndReleasesIt() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded, sessionId: "chat-1")
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.reserve(key, replacing: "chat-1"))["ok"] as? Bool == true)
+        model.adoptSession("chat-2")
+        model.transport.gestures.record()
+        let sent = await model.respond(to: Self.send("chat-2", reservation: key))
+        #expect(sent["ok"] as? Bool == true)
+        #expect(recorded.starts.count == 1)
+        #expect(recorded.starts.first?.reservationKey == nil)
+        #expect(recorded.reservations.map(\.release) == [false, true])
+        #expect(recorded.reservations.last?.composeKey == key)
+        // A key the pane never had is still refused.
+        model.transport.replacements.endSandbox()
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: Self.send("chat-2", reservation: UUID().uuidString))) == "unavailable_now")
+    }
+
+    /// A reservation a Send named is that start's: once the chat started on it the pane owns it no longer, and a
+    /// chat change after a Send whose answer failed neither releases it nor lets a later Send go cold with it
+    /// (a retry of a Send whose answer was lost must never make a second machine).
+    @Test func aReservationASendNamedIsNeverReleasedOrSentColdAfterAChatChange() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded)
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.reserve(key))["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.send(nil, reservation: key))["ok"] as? Bool == true)
+        #expect(!model.ownsCloudReservation(key))
+        model.adoptSession("cloud-chat")
+        #expect(await model.respond(to: Self.reserve(key, release: true))["ok"] as? Bool == true)
+        #expect(recorded.reservations.map(\.release) == [false])
+
+        let failing = Self.pane(recorded, sessionId: "chat-1")
+        failing.onCloudStartChat = { start in
+            recorded.starts.append(start)
+            return AgentPaneReply.failure(code: "cloud_start_failed", message: "cloud_start_failed")
+        }
+        let lost = UUID().uuidString
+        failing.transport.gestures.record()
+        #expect(await failing.respond(to: Self.reserve(lost, replacing: "chat-1"))["ok"] as? Bool == true)
+        failing.transport.gestures.record()
+        #expect(Self.code(await failing.respond(to: Self.send("chat-1", reservation: lost))) == "cloud_start_failed")
+        failing.adoptSession("chat-2")
+        failing.transport.gestures.record()
+        #expect(Self.code(await failing.respond(to: Self.send("chat-2", reservation: lost))) == "unavailable_now")
+        #expect(await failing.respond(to: Self.reserve(lost, release: true))["ok"] as? Bool == true)
+        #expect(recorded.reservations.filter(\.release).isEmpty)
+        #expect(recorded.starts.count == 2)
+    }
+
+    /// A reserve that went before the host adopted the empty chat it names stays the pane's once that chat is adopted;
+    /// a no-chat compose's reservation is left to the page's release when a chat opens, which reaches Rust.
+    @Test func aReserveBeforeItsChatWasAdoptedStaysOwnedAndANoChatOneIsReleasedWhenAChatOpens() async {
+        let recorded = Recorded()
+        let model = Self.pane(recorded)
+        let named = UUID().uuidString
+        model.transport.gestures.record()
+        #expect(await model.respond(to: Self.reserve(named, replacing: "chat-1"))["ok"] as? Bool == true)
+        model.adoptSession("chat-1")
+        #expect(model.ownsCloudReservation(named))
+
+        let fresh = Self.pane(recorded)
+        let plain = UUID().uuidString
+        fresh.transport.gestures.record()
+        #expect(await fresh.respond(to: Self.reserve(plain))["ok"] as? Bool == true)
+        fresh.adoptSession("chat-9")
+        #expect(!fresh.ownsCloudReservation(plain))
+        #expect(await fresh.respond(to: Self.reserve(plain, release: true))["ok"] as? Bool == true)
+        #expect(recorded.reservations.filter(\.release).map(\.composeKey) == [plain])
     }
 
     @Test func sendForwardsOnlyAValidReservationKey() throws {

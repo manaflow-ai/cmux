@@ -363,13 +363,13 @@ describe("Return picks only a command the person means", () => {
     expect(matchCommands(list, "emil").map((match) => match.command.name)).toEqual(["$emil", "$emil-color"]);
   });
 
-  test("Return picks a row whose name the word begins, or one the arrows chose", () => {
+  test("Return picks the highlighted row whenever the list shows", () => {
+    // Leo, 2026-11-20: "i click enter and it should do it".
     const [vocabulary] = mid("voc");
-    expect(returnPicks(vocabulary, "voc", false)).toBe(false);
-    expect(returnPicks(vocabulary, "voc", true)).toBe(true);
-    expect(returnPicks(mid("des")[0], "des", false)).toBe(true);
+    expect(returnPicks(vocabulary, "voc")).toBe(true);
+    expect(returnPicks(mid("des")[0], "des")).toBe(true);
     // Typed in full with no arguments to take: Return sends it.
-    expect(returnPicks(mid("design-vocabulary")[0], "design-vocabulary", false)).toBe(false);
-    expect(returnPicks(undefined, "x", true)).toBe(false);
+    expect(returnPicks(mid("design-vocabulary")[0], "design-vocabulary")).toBe(false);
+    expect(returnPicks(undefined, "x")).toBe(false);
   });
 });

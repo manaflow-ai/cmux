@@ -11,7 +11,10 @@
 # The checkout's export files are put back as they were before it ran (the job's "Regenerate stale
 # files" step reads them after this), on every exit path.
 #
-# Usage: scripts/cmux-next/base-autofix-exports-pack.sh OUT
+# Usage: scripts/cmux-next/base-autofix-exports-pack.sh OUT [--pr]
+# --pr: a same-repository pull request's generated-files job packs its merge commit for the PR autofix
+#   (cmux-next-pr-autofix.yml's generated-exports job) under the PR pack's name (key --pr), never the
+#   base's.
 # CMUX_BASE_EXPORTS_REGENERATE_ACTIONS / _SETTINGS: the regenerations, run as `CMD DIR` (default the
 #   repository's scripts; tests replace them).
 set -euo pipefail
@@ -28,7 +31,9 @@ exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/action-catalog.jso
 while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$here/settings-exports.txt")
 
 sha="$(git rev-parse HEAD)"
-name="$(python3 -I "$helper" key "$sha")"
+key=(key "$sha")
+[[ "${2:-}" == --pr ]] && key+=(--pr)
+name="$(python3 -I "$helper" "${key[@]}")"
 
 work="$(mktemp -d)"
 saved="$work/saved"
@@ -46,7 +51,7 @@ trap restore EXIT
 
 marker="$work/marker"
 : > "$marker"
-sleep 1 # anything the regenerations write is newer than the marker
+sleep 1 # sleep-ok: an mtime-granularity tick; anything the regenerations write is newer than the marker
 "$regen_actions" "$work/actions" >&2
 CMUX_SETTINGS_EXPORTS_ALL=1 "$regen_settings" "$work/settings" >&2
 

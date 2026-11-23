@@ -187,6 +187,29 @@ class WrapperTests(unittest.TestCase):
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
         self.assertEqual(h.gh("api", "x").returncode, 0)
 
+    def test_a_request_that_never_reached_github_is_tried_again(self) -> None:
+        # Run 44154643146: wake-nightly-next-tick's `gh workflow run` and retry-nightly-next's died on
+        # one "net/http: TLS handshake timeout", and nothing restarted the nightly loop. A request
+        # that failed before it was sent did nothing on GitHub's side, so a dispatch is safe to retry.
+        for error in ('Get "https://api.github.com/repos/o/r/actions/workflows/nightly.yml": '
+                      "net/http: TLS handshake timeout",
+                      'Post "https://api.github.com/graphql": dial tcp 140.82.112.6:443: i/o timeout',
+                      'Get "https://api.github.com/x": dial tcp: lookup api.github.com: no such host'):
+            with self.subTest(error=error):
+                h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR=error)
+                result = h.gh("workflow", "run", "nightly-next-tick.yml")
+                self.assertEqual(result.returncode, 0, result)
+                self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
+                self.assertIn("did not reach GitHub", result.stderr)
+                self.assertEqual(h.waited(), 1)
+
+    def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
+        # A reset or timeout after the request went out may have dispatched it already.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR='Post "https://api.github.com/x": read tcp 10.0.0.2:5->1.2.3.4:443: read: connection reset by peer')
+        self.assertEqual(h.gh("workflow", "run", "x.yml").returncode, 1)
+        self.assertEqual(h.calls(), ["call workflow run x.yml"])
+
     def test_another_failure_is_not_retried(self) -> None:
         h = self.harness(FAKE_FAIL="HTTP 404: Not Found")
         result = h.gh("api", "repos/o/r/releases/tags/v9")
@@ -441,6 +464,10 @@ SHARED_TOKEN_ONLY = {
     # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
     # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
     ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
+    # The loop's retry of a commit whose nightly-next-one left the slot before nightly-next moved: a workflow
+    # dispatch like retry-nightly-next's, for the same reason (the release App cannot dispatch). Its nightly-next
+    # read is git ls-remote.
+    ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),

@@ -125,6 +125,16 @@ impl LocalStore {
         self.dir(id).join("events").join(MARKER)
     }
 
+    /// The digest of `id`'s compaction marker as it is now (`none` without one): every pass
+    /// writes a new one. A fold saved beside the log (`Store::save_adoption_checkpoint`) is tied
+    /// to it.
+    pub(super) fn compaction_digest(&self, id: &str) -> String {
+        match held_file_bytes(&self.marker(id)) {
+            Some(bytes) => crate::sha256::sha256_hex(&bytes),
+            None => "none".to_owned(),
+        }
+    }
+
     fn cut_intent(&self, id: &str) -> PathBuf {
         self.dir(id).join("events").join(CUT)
     }
@@ -145,9 +155,7 @@ impl LocalStore {
         let intent: CutIntent = serde_json::from_slice(&text)
             .with_context(|| format!("read the cut left in {}", path.display()))?;
         tracing::warn!(session = %id, after = intent.after, "a cut of this log was left halfway; it is finished first");
-        if let Some(w) = writers.open.remove(id) {
-            w.close(id, &self.sync_failed);
-        }
+        self.close_writer_locked(id, writers);
         // Its lines change: the count goes up before the first rename and after the last
         // (`store/log_bytes.rs`), so no read of it is taken for one of the log before.
         self.bump_stamp_locked(id, writers, 1)?;
@@ -180,7 +188,7 @@ impl LocalStore {
     /// that logs nothing does not.
     /// None for a cold-archived chat, which is not rehydrated to answer.
     pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
-        let (_, newest) = self.segment_files(id).ok()?.pop()?;
+        let (_, newest) = self.segment_files(id).ok()?.last()?.clone();
         let at = crate::home_fs::symlink_metadata(newest).ok()?.modified().ok()?;
         let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
         u64::try_from(ms).ok()
@@ -203,7 +211,7 @@ impl LocalStore {
     fn stage_segments(
         &self,
         id: &str,
-        segments: Vec<(u32, PathBuf)>,
+        segments: SegmentList,
         mode: CompactMode,
     ) -> Result<Option<Staged>> {
         if segments.is_empty() {
@@ -324,6 +332,11 @@ impl LocalStore {
         let mut marker = Marker { last_seq, at: now_ms(), complete: false, stats: staged.stats };
         {
             let mut writers = self.writers.lock_or_recover();
+            // Closed first: a write in flight to it finishes, and none lands until the renames
+            // are done (a write runs under its segment's lock, not this one:
+            // `store/segment_writer.rs`). Its next append opens the compacted segment, not the
+            // old one's descriptor.
+            self.close_writer_locked(id, &mut writers);
             // Listed as they are: a cut left halfway is a change (`stage_compaction` finished
             // any before it read the log).
             let (now, cut_pending) = self.list_segments(id)?;
@@ -352,10 +365,6 @@ impl LocalStore {
             let intent = staged.cut.filter(|_| !crate::hub::journal_restore::rules_of_b749());
             if let Some(after) = intent {
                 write_durably(&self.cut_intent(id), &serde_json::to_vec(&CutIntent { after })?)?;
-            }
-            // Its next append opens the compacted segment, not the old one's descriptor.
-            if let Some(w) = writers.open.remove(id) {
-                w.close(id, &self.sync_failed);
             }
             // A line that reads differently (a long string cut, a line dropped or cut away)
             // bumps the log's count before the first rename and after the last, under this lock

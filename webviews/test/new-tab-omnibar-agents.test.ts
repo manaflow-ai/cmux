@@ -1,17 +1,16 @@
 // Lawrence 2026-11-13: "omnibar needs to be able to create new agent chats, search through all
 // existing workspaces/terminals/panes/etc, search through history, and also launch claude
-// code/codex/opencode in certain directories". The New Tab field lists the chats it finds and
-// "Start <agent> in <folder>" rows, the folder completed from the known folders and, for a typed
+// code/codex/opencode in certain directories". The New Tab field lists
+// "Start <agent> in <folder>" rows (no chats: Lucas 2026-11-18), the folder completed from the known folders and, for a typed
 // path, the disk's answer; the rows come in ranked sections with headers.
 import { expect, test } from "bun:test";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
 import {
-  chatRows,
   folderMatches,
   launchIntent,
   launchRows,
   listingWanted,
-  omnibarChats,
+  omnibarFolder,
   omnibarFolders,
   type LaunchAgent,
 } from "../src/agent-session/acpmux/newtab/launchRows";
@@ -22,7 +21,7 @@ import {
   screenRows,
   type ScreenRow,
 } from "../src/agent-session/acpmux/newtab/screenModel";
-import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
+import { type AcpmuxSessionEntry, recentFolders } from "../src/agent-session/acpmux/sessionList";
 
 const HOME = "/Users/me";
 const AGENTS: LaunchAgent[] = [
@@ -166,69 +165,22 @@ test("a word that names a folder offers the default agent there, under the open 
   expect(kinds(rows).indexOf("launch")).toBeGreaterThan(workspace);
 });
 
-test("chats are searched by title and folder, newest first, a live chat once with its device row", () => {
-  const sessions = [
-    {
-      sessionId: "s1",
-      displayTitle: "Fix the omnibar ranking",
-      harness: "claude",
-      cwd: "/Users/me/fun/cmux",
-      activityAt: 10,
-      agentSessionId: "a1",
-    },
-    { sessionId: "s2", displayTitle: "Omnibar perf", harness: "codex", cwd: "/Users/me/fun/cmux", activityAt: 20 },
-    { sessionId: "s3", displayTitle: "Unrelated", harness: "codex", cwd: "/Users/me/notes", activityAt: 30 },
-  ] as AcpmuxSessionEntry[];
-  const chats = omnibarChats(
-    sessions,
-    [],
-    [{ key: "claude:a1", harness: "claude", title: "Fix the omnibar ranking", updatedAt: 5 }],
-  );
-  const rows = chatRows("omni", chats);
-  expect(rows.map((row) => row.id)).toEqual(["s2", "s1"]);
-  expect(rows[0]).toEqual({ type: "chat", id: "s2", title: "Omnibar perf", harness: "codex" });
-  // The folder's name finds a chat too.
-  expect(chatRows("notes", chats).map((row) => row.id)).toEqual(["s3"]);
-  // Two letters find a chat only at a word's start.
-  expect(chatRows("ni", chats)).toEqual([]);
-});
-
-test("chats the device index found for the text list with their key, for chats.open", () => {
-  const chats = omnibarChats(
-    [],
-    [{ key: "codex:x9", harness: "codex", title: "Ship the omnibar", cwd: "/Users/me/fun/cmux", updatedAt: 3 }],
-    [],
-  );
-  expect(chatRows("ship", chats)).toEqual([
-    {
-      type: "chat",
-      id: "codex:x9",
-      key: "codex:x9",
-      title: "Ship the omnibar",
-      harness: "codex",
-    },
-  ]);
-});
-
-test("the rows come in ranked sections: lead, open, chats, start, history, commands, web search", () => {
+test("the rows come in ranked sections: lead, open, start, history, commands, web search", () => {
   const rows = screenRows(
     "cmux",
-    context(
-      {
-        tabs: [{ id: "t1", kind: "terminal", title: "cmux build", workspace: "cmux" }],
-        history: [{ url: "https://github.com/manaflow-ai/cmux", title: "manaflow-ai/cmux" }],
-        actions: [{ id: "a1", title: "cmux: Reload", keywords: [] }],
-      },
-      { chats: [{ id: "s1", title: "cmux omnibar", at: 1 }] },
-    ),
+    context({
+      tabs: [{ id: "t1", kind: "terminal", title: "cmux build", workspace: "cmux" }],
+      history: [{ url: "https://github.com/manaflow-ai/cmux", title: "manaflow-ai/cmux" }],
+      actions: [{ id: "a1", title: "cmux: Reload", keywords: [] }],
+    }),
   );
   // The exact name ("cmux", the tab's workspace) and Ask lead; the sections follow in their order.
   expect(kinds(rows).slice(0, 2)).toEqual(["tab", "ask"]);
   const sections = rows.slice(2).map(rowSection);
-  const order = ["lead", "open", "chats", "start", "pages", "actions", "web"];
+  const order = ["lead", "open", "start", "pages", "actions", "web"];
   const ranks = sections.map((section) => order.indexOf(section));
   expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
-  expect(sections).toEqual(expect.arrayContaining(["chats", "start", "pages", "actions", "web"]));
+  expect(sections).toEqual(expect.arrayContaining(["start", "pages", "actions", "web"]));
 });
 
 test("the folders are this Mac's projects, then the newest chats' folders, never home or a private folder", () => {
@@ -238,9 +190,12 @@ test("the folders are this Mac's projects, then the newest chats' folders, never
     { sessionId: "c", cwd: "/Users/me", activityAt: 10 },
     { sessionId: "d", cwd: "/Users/me/elsewhere", peer: "ssh://box", activityAt: 11 },
   ] as AcpmuxSessionEntry[];
-  expect(omnibarFolders([{ cwd: "/Users/me/fun/cmux/" }, { cwd: "/srv/remote", peer: "ssh://box" }], sessions)).toEqual(
-    ["/Users/me/fun/cmux", "/Users/me/new", "/Users/me/old"],
-  );
+  const recent = recentFolders(sessions, omnibarFolder);
+  expect(omnibarFolders([{ cwd: "/Users/me/fun/cmux/" }, { cwd: "/srv/remote", peer: "ssh://box" }], recent)).toEqual([
+    "/Users/me/fun/cmux",
+    "/Users/me/new",
+    "/Users/me/old",
+  ]);
 });
 
 test("without agent sources the rows are as before", () => {
@@ -248,28 +203,24 @@ test("without agent sources the rows are as before", () => {
   expect(kinds(before)).toEqual(["ask", "search"]);
 });
 
-test("the rows above the commands stay at most eight, whatever the chats and starts add", () => {
+test("the rows above the commands stay at most eight, whatever the starts add", () => {
   const many = Array.from({ length: 2 }, (_, i) => ({ id: `w${i}`, name: `cmux ${i}` }));
-  const chats = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, title: `cmux chat ${i}`, at: i }));
   const rows = screenRows(
     "cmux",
-    context(
-      {
-        workspaces: many,
-        history: Array.from({ length: 6 }, (_, i) => ({ url: `https://cmux${i}.dev/`, title: `cmux ${i}` })),
-      },
-      { chats },
-    ),
+    context({
+      workspaces: many,
+      history: Array.from({ length: 6 }, (_, i) => ({ url: `https://cmux${i}.dev/`, title: `cmux ${i}` })),
+    }),
   );
   const listed = rows.filter((row) => row.type !== "action");
   expect(listed.length).toBeLessThanOrEqual(MAX_SUGGESTIONS);
   // Each section the text finds keeps a row: none is pushed out by another's many.
   const sections = new Set<string>(listed.map(rowSection));
-  for (const section of ["open", "chats", "start", "pages"]) expect(sections).toContain(section);
+  for (const section of ["open", "start", "pages"]) expect(sections).toContain(section);
   // Named starts count too.
   const named = screenRows(
     "codex",
-    context({ workspaces: many }, { chats, folders: [...FOLDERS, ...FOLDERS.map((f) => `${f}2`)] }),
+    context({ workspaces: many }, { folders: [...FOLDERS, ...FOLDERS.map((f) => `${f}2`)] }),
   );
   expect(named.filter((row) => row.type !== "action").length).toBeLessThanOrEqual(MAX_SUGGESTIONS);
 });

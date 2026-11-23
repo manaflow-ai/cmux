@@ -62,6 +62,10 @@ struct CloudStartSession {
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
+            // An agent's or the CLI's chat on a machine whose computer the person holds waits until they give it back.
+            if let held = request.machineID ?? request.name.flatMap({ name in services.machines.cloud.first(where: { $0.machine.title == name })?.machineID }) {
+                if let refusal = services.cloud.computerControl.heldRefusal(invocation, machine: held) { throw ActionFailure(message: refusal) }
+            }
             guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
             // A person's palette or menu run without a machine means the one they look at.
             if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
@@ -125,8 +129,8 @@ struct CloudStartSession {
                     }
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named))
                     do {
-                        // The account the agent asked in: a switch while the card was open refuses.
-                        let fields = try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: caller, revealing: false)
+                        // The account the agent asked in: a switch while the card was open refuses. `capCard`: the card's Start is the person's click, so its create may go direct.
+                        let fields = try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: true, askedBy: caller, revealing: false)
                         // Nothing is shown on its own (the person is in the asking chat); the card
                         // links to the new chat, and Open Chat, the person's click, shows it.
                         guard case .string(let opened)? = fields["tab_id"] else {
@@ -221,12 +225,12 @@ struct CloudStartSession {
     private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
                           revealing: Bool) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
-        try still(request.name ?? request.machineID ?? "")
+        try still(request.name ?? request.machineID ?? ""); if let refused = await services.cloud.setup.refusal(harness: request.agent, model: request.model) { throw ActionFailure(message: CloudStartSessionStrings.setupRequired(agent: request.agent, family: refused.family, localLogin: refused.localLogin, link: "\(services.linkScheme)://settings/cloud/\(refused.settingsRow)", command: request.command)) } // Cloud first use, as the composer's start (CloudStartChat.reply): nothing on this Mac or the team serving the agent takes or creates no machine (its first turn could only fail)
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
-        if let local = request.fromFolder, let cli = services.cloud.move.cli, let refusal = await CloudMoveCLI(binary: cli).startChatPreflight(local: local) { throw ActionFailure(message: refusal.message) } // past the copy's limits
+        if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps
-        let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
+        let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
@@ -234,12 +238,12 @@ struct CloudStartSession {
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
         try await connected(session, request, account: account, byPerson: byPerson)
-        steps.done("connect")
-        try still(name)
-        let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
-        try still(name)
-        try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {}
-        steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.startCredentialsCapability) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
+        steps.done("connect"); try still(name)
+        // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected.
+        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
+            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
+        }, cwd = copy?.chat ?? request.cwd
+        try still(name); steps.done("approvals"); if await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -368,7 +372,7 @@ struct CloudStartSession {
     static let listFresh: Duration = .seconds(15)
 
     /// The machine named by id, else by name, else a new one with that name.
-    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?) async throws -> CloudMachineSession {
+    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?) async throws -> (machine: CloudMachineSession, made: Bool) { // made: by this run's own creation (CloudStartRuns.creatingOwn), so nobody's agent runs there yet
         let machines = services.machines
         let cloud = services.cloud
         if let id = request.machineID {
@@ -377,7 +381,7 @@ struct CloudStartSession {
             try Self.checked(account, now: cloud.account, request.asked(machine: id))
             guard cloud.hasLoadedCurrentMachines else { throw ActionFailure(message: CloudStartSessionStrings.targetUnread(request.asked(machine: id))) }
             guard let session = machines.session(id) else { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
-            return session
+            return (session, false)
         }
         let name = request.name ?? ""
         // A list the server answered just now for this account: a machine by this name made
@@ -386,21 +390,21 @@ struct CloudStartSession {
         if !cloud.hasCurrentList(within: Self.listFresh) { await cloud.refresh() }
         try Self.checked(account, now: cloud.account, request.asked(machine: name))
         guard cloud.hasCurrentList(within: Self.listFresh) else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
-        if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+        if let named = machines.cloud.first(where: { $0.machine.title == name }) { return (named, false) }
         do {
-            return try await cloud.startSessionRuns.creating(name, account: account) { [machines] in
+            return try await cloud.startSessionRuns.creatingOwn(name, account: account) { [machines] in
                 // Another ask's creation may have ended first.
-                if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+                if let named = machines.cloud.first(where: { $0.machine.title == name }) { return (named, false) }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                return try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                return (try await cloud.createMachine(name: name, startedByPerson: byPerson, ownCreate: capCard && invocation.isPersonsOwnRun && ActionRunScope.isPersonsAction(), capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still), true)
             }
         } catch is CancellationError {
             throw CancellationError()
         } catch let changed as AccountChanged {
             throw changed.failure
         } catch {
-            let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+            let detail = CloudSizeLocked.of(error).flatMap(CloudStartSessionStrings.sizeLocked) ?? (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error) // a size the plan lacks names it and its upgrade
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
                             CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: CloudStartCore.reason(detail)))
         }

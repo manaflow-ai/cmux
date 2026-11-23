@@ -68,7 +68,7 @@ extension CloudStartChat {
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {
-            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
+            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message ?? (error as? CloudMachineRoute.NeedsConnection)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat repick failed: \(message, privacy: .public)")
             CloudMove.toast(services, toastID, message, duration: .seconds(12))

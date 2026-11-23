@@ -1,6 +1,6 @@
 // Leo, 2026-10-14: tooltips are glass, not a solid box; 2026-10-21: "WHERE IS THE GLASS EVERYWHERE,
 // all these hover tooltips and hover previews". A tooltip is the liquid glass (`.ui-glass`,
-// ui/glass/glass.css) in the tooltip frost, in every glass mode: a strong backdrop blur under a tint
+// ui/glass/glass.css) in the shared transient frost, in every glass mode: a strong backdrop blur under a tint
 // dense enough that the text reads over anything (the host's, TooltipSurface.swift), the glass rim as
 // its one edge and a small tight shadow; the opaque popup surface under Reduce Transparency.
 // A tooltip shows and goes in one frame, with no fade and no rise, under every motion setting (Leo,
@@ -172,7 +172,7 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
       expect({ mode, background: surface.background, blur: surface.blur }).toEqual({
         mode,
         background: tint,
-        blur: "blur(24px) saturate(1.6)",
+        blur: "blur(32px) saturate(1.6)",
       });
       // The glass rim is the one edge: the border keeps its width, clear.
       expect(surface.border).toBe("rgba(0, 0, 0, 0)");
@@ -318,38 +318,172 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     expect(swift).toContain("static var shadow: Elevation { PopupStyle.elevation1 }");
     expect(desktop).toContain("--tooltip-shadow: var(--elevation-1);");
   });
-  test("wide rows keep compact scaled bubbles close to the control with title/detail hierarchy", async () => {
+  // Lawrence 2026-11-20: one tooltip everywhere, on the composer's "Select effort ⌃⇧M". The page's
+  // tooltip has the native one's shape (TooltipMetrics.swift): regular text at the detail size, one
+  // height with or without keys, the keys on a keycap inset the same from the top, bottom and end with
+  // its corner nested in the tooltip's, below its control.
+  test("the tooltip's shape is TooltipMetrics.swift's: regular text, a keycap inset 4px, one height, below its control", async () => {
+    const swift = fs.readFileSync(
+      path.resolve(
+        import.meta.dir,
+        "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tooltip/TooltipMetrics.swift",
+      ),
+      "utf8",
+    );
+    const metric = (name: string) => Number(swift.match(new RegExp(`static let ${name}: CGFloat = ([\\d.]+)`))![1]);
     for (const scale of [1, 1.25]) {
       const page = await open(
         theme("dark", `--cmux-interface-scale:${scale};`),
-        '<button id="wide" style="position:absolute;left:20px;top:180px;width:450px;overflow:hidden;white-space:nowrap" title="Fork from here" data-tooltip-detail="Start a new thread. This one stays as it is.">A long truncated control label that extends beyond its row and must not dictate the tooltip width</button>',
+        `<div style="display:flex;gap:40px;padding:40px">
+           <button id="keyed" title="Select effort" data-tooltip-shortcut="⌃⇧M" style="width:28px;height:28px"></button>
+           <button id="plain" title="Back" style="width:28px;height:28px"></button>
+         </div>`,
       );
       try {
-        await hoverAndWait(page, "wide");
+        const measure = async (id: string) => {
+          await hoverAndWait(page, id);
+          return page.evaluate((target) => {
+            const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
+            const rect = tip.getBoundingClientRect();
+            const anchor = document.getElementById(target)!.getBoundingClientRect();
+            const style = getComputedStyle(tip);
+            const text = getComputedStyle(tip.querySelector(".ui-tooltip-text") ?? tip);
+            const hint = tip.querySelector<HTMLElement>(".ui-tooltip-hint");
+            const key = hint?.getBoundingClientRect();
+            return {
+              height: rect.height,
+              below: rect.top - anchor.bottom,
+              radius: parseFloat(style.borderTopLeftRadius),
+              fontSize: parseFloat(text.fontSize),
+              fontWeight: Number(text.fontWeight),
+              key: key && {
+                height: key.height,
+                top: key.top - rect.top,
+                bottom: rect.bottom - key.bottom,
+                end: rect.right - key.right,
+                radius: parseFloat(getComputedStyle(hint!).borderTopLeftRadius),
+                fill: getComputedStyle(hint!).backgroundColor,
+              },
+            };
+          }, id);
+        };
+        const keyed = await measure("keyed");
+        await page.mouse.move(480, 290);
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden);
+        const plain = await measure("plain");
+        const height = (metric("lineHeight") + 2 * metric("paddingBlock")) * scale;
+        const inset = metric("keycapInset") * scale;
+        for (const seen of [keyed, plain]) {
+          expect(Math.abs(seen.height - height)).toBeLessThanOrEqual(0.5);
+          expect(Math.abs(seen.below - metric("gap") * scale)).toBeLessThanOrEqual(0.5);
+          expect(seen.radius).toBeCloseTo(metric("radius") * scale, 1);
+          expect(seen.fontSize).toBeCloseTo(metric("fontSize") * scale, 1);
+          expect(seen.fontWeight).toBe(400);
+        }
+        expect(plain.key).toBeUndefined();
+        const key = keyed.key!;
+        expect(key.height).toBeCloseTo(metric("keycapHeight") * scale, 1);
+        // The rim is one device pixel inside the box; the plate's inset is from the box's edge.
+        for (const side of [key.top, key.bottom, key.end]) expect(Math.abs(side - inset)).toBeLessThanOrEqual(1);
+        expect(key.radius).toBeCloseTo((metric("radius") - metric("keycapInset")) * scale, 1);
+        expect(key.fill).not.toBe("rgba(0, 0, 0, 0)");
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/49650: the composer's model chip ("Opus 5.5 Medium") showed "Opus 5.5 ⌃⌘M" in a tooltip at the
+  // whole max width, wider than the chip and off its center: the keycap floats to the box's end, and
+  // the fit measured from the text to that far edge. A keyed tooltip is as wide as its text and keycap.
+  test("a tooltip with a shortcut hugs its text and keycap, centered under its control (https://github.com/manaflow-ai/cmux/issues/49650)", async () => {
+    for (const scale of [1, 1.25]) {
+      const page = await open(
+        theme("dark", `--cmux-interface-scale:${scale};`),
+        `<div style="display:flex;justify-content:center;padding:40px">
+           <button id="chip" title="Opus 5.5" data-tooltip-shortcut="⌃⌘M"
+             style="width:${Math.round(170 * scale)}px;height:${Math.round(26 * scale)}px">Opus 5.5 Medium</button>
+         </div>`,
+      );
+      try {
+        await hoverAndWait(page, "chip");
         const seen = await page.evaluate(() => {
           const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
-          tip.getAnimations().forEach((animation) => animation.finish());
           const rect = tip.getBoundingClientRect();
-          const anchor = document.getElementById("wide")!.getBoundingClientRect();
-          const title = getComputedStyle(tip.querySelector(".ui-tooltip-text")!);
-          const detail = getComputedStyle(tip.querySelector(".ui-tooltip-detail")!);
+          const anchor = document.getElementById("chip")!.getBoundingClientRect();
+          const text = tip.querySelector(".ui-tooltip-text")!.getBoundingClientRect();
+          const key = tip.querySelector(".ui-tooltip-hint")!.getBoundingClientRect();
+          const style = getComputedStyle(tip);
           return {
             width: rect.width,
-            gap: anchor.top - rect.bottom,
-            titleWeight: Number(title.fontWeight),
-            detailWeight: Number(detail.fontWeight),
-            titleColor: title.color,
-            detailColor: detail.color,
-            text: tip.textContent,
+            height: rect.height,
+            lineHeight: parseFloat(style.lineHeight),
+            anchorWidth: anchor.width,
+            centerOffset: rect.left + rect.width / 2 - (anchor.left + anchor.width / 2),
+            // The room between the text's end and the keycap: the keycap gap, never the rest of the max width.
+            between: key.left - text.right,
+            maxWidth: parseFloat(style.maxWidth),
           };
         });
-        expect(seen.width).toBeLessThanOrEqual(320 * scale);
-        expect(seen.width).toBeLessThan(450);
-        // Placement rounds its top to a CSS pixel, including fractional scaled line heights.
-        expect(Math.abs(seen.gap - 4 * scale)).toBeLessThanOrEqual(0.5);
-        expect(seen.titleWeight).toBeGreaterThan(seen.detailWeight);
-        expect(seen.titleColor).not.toBe(seen.detailColor);
-        expect(seen.text).toContain("This one stays as it is.");
+        const gap = await page.evaluate(() =>
+          parseFloat(getComputedStyle(document.querySelector(".ui-tooltip-hint")!).marginInlineStart),
+        );
+        expect(seen.width).toBeLessThan(seen.anchorWidth);
+        expect(seen.width).toBeLessThan(seen.maxWidth / 2);
+        expect(Math.abs(seen.centerOffset)).toBeLessThanOrEqual(1);
+        expect(seen.between).toBeGreaterThanOrEqual(gap - 0.5);
+        expect(seen.between).toBeLessThanOrEqual(gap + 2);
+        // One line: the keycap never wraps under its text.
+        expect(seen.height).toBeLessThan(seen.lineHeight * 2);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  // A tooltip is one line, like the native one (Chief, 2026-11-21: "Make web tooltips one line, like
+  // native"; TooltipContentView.swift): a long title ends in an ellipsis at the widest tooltip, a
+  // title's second line never shows, and a detail line is gone (its words describe the control).
+  test("a tooltip is one line: a long title ends in an ellipsis, and only its first line shows", async () => {
+    const long = "Open the pull request for the payments service in a new tab beside this chat and keep it there";
+    for (const scale of [1, 1.25]) {
+      const page = await open(
+        theme("dark", `--cmux-interface-scale:${scale};`),
+        `<button id="wide" style="position:absolute;left:20px;top:150px;width:28px;height:28px" title="${long}"></button>` +
+          '<button id="rows" style="position:absolute;left:80px;top:150px;width:28px;height:28px" title="Fork from here&#10;Start a new thread." data-tooltip-detail="This one stays as it is."></button>',
+      );
+      try {
+        const seen = async (id: string) => {
+          await hoverAndWait(page, id);
+          return page.evaluate(() => {
+            const tip = document.querySelector<HTMLElement>(".ui-title-tooltip")!;
+            const text = tip.querySelector<HTMLElement>(".ui-tooltip-text")!;
+            const style = getComputedStyle(tip);
+            return {
+              text: tip.textContent,
+              width: tip.getBoundingClientRect().width,
+              height: tip.getBoundingClientRect().height,
+              line: parseFloat(style.lineHeight),
+              padding: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+              rim: parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth),
+              cut: text.scrollWidth > text.clientWidth,
+              ellipsis: getComputedStyle(text).textOverflow,
+              details: tip.querySelectorAll(".ui-tooltip-detail").length,
+            };
+          });
+        };
+        const wide = await seen("wide");
+        expect(wide.text).toBe(long);
+        expect(wide.width).toBeLessThanOrEqual(320 * scale + 0.5);
+        expect(Math.abs(wide.height - (wide.line + wide.padding + wide.rim))).toBeLessThanOrEqual(0.5);
+        expect(wide.cut).toBe(true);
+        expect(wide.ellipsis).toBe("ellipsis");
+        await page.mouse.move(400, 280);
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".ui-title-tooltip")!.hidden);
+        const rows = await seen("rows");
+        expect(rows.text).toBe("Fork from here");
+        expect(rows.details).toBe(0);
+        expect(Math.abs(rows.height - (rows.line + rows.padding + rows.rim))).toBeLessThanOrEqual(0.5);
       } finally {
         await page.close();
       }

@@ -38,6 +38,9 @@ export function tailLines(output: string | undefined, maxLines = 10): string | u
 export type BackgroundTaskOutputSource = {
   listProcesses(sessionId: string): Promise<unknown>;
   tailProcess(processId: string, maxBytes: number): Promise<unknown>;
+  /// The end of an acpmux background task's output and its record (`_acpmux/bg/output`), by its
+  /// `bg-…` id: what a "Background task finished: bg-…" line opens to (backgroundTurnTask.ts).
+  tailTask?(taskId: string, maxBytes: number): Promise<unknown>;
 };
 
 /// The source and the chat it reads for; none outside the app's pane (tests, the gallery's preview).

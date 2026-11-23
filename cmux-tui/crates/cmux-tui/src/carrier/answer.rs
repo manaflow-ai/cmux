@@ -403,6 +403,30 @@ pub(super) trait CarrierSource: Send + Sync {
     ) -> Result<ExecReply, SourceError> {
         Err(SourceError::fatal("this source runs no command"))
     }
+
+    /// `machine`'s status (`running`, `paused`, ...) from the platform's
+    /// machine read (`POST /v1/read` `cloud.machine.get`), which wakes no
+    /// machine: what `carrier serve`'s quiet socket reads before it dials
+    /// ([`super::serve_quiet`]). A source without it reads nothing.
+    async fn machine_status(&self, _machine: &str) -> Result<String, SourceError> {
+        Err(SourceError::fatal("this source reads no machine"))
+    }
+}
+
+/// The machine read's answer (`{op, value: {status, ...}, stream, revision}`):
+/// its status, else why there is none.
+pub(super) fn read_machine_status(status: u16, body: &Value) -> Result<String, SourceError> {
+    if status == 200
+        && let Some(text) = body.pointer("/value/status").and_then(Value::as_str)
+    {
+        return Ok(text.to_owned());
+    }
+    let detail = format!("the machine read answered HTTP {status}");
+    if matches!(status, 408 | 429 | 500..=599) {
+        Err(SourceError::retry(detail))
+    } else {
+        Err(SourceError::fatal(detail))
+    }
 }
 
 /// What an exec answered: its exit code and output.
@@ -478,7 +502,7 @@ pub(crate) struct HttpSource {
     replaced: Mutex<Option<Zeroizing<String>>>,
     /// Sent as `x-cmux-team` when set (a machine of a shared team).
     team: Option<String>,
-    client: reqwest::Client,
+    clients: cmux_cloud_client::connect_retry::Clients,
 }
 
 impl HttpSource {
@@ -489,13 +513,18 @@ impl HttpSource {
         team: Option<String>,
     ) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(FETCH_TIMEOUT)
-            .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| "the HTTP client is unavailable".to_owned())?;
-        Ok(Self { api, credential, replaced: Mutex::new(None), team, client })
+        let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
+        // A black-holed SYN costs 1 s per address, then a new socket (`connect_retry`); the last
+        // try connects with no connect timeout. Both clients carry the space.
+        let clients = cmux_cloud_client::connect_retry::Clients::build(|| {
+            reqwest::Client::builder()
+                .default_headers(space.clone())
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(FETCH_TIMEOUT)
+                .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        })
+        .map_err(|_| "the HTTP client is unavailable".to_owned())?;
+        Ok(Self { api, credential, replaced: Mutex::new(None), team, clients })
     }
 
     /// Every later fetch uses `token`.
@@ -547,7 +576,8 @@ impl HttpSource {
     ) -> Result<(u16, Value), SourceError> {
         let credential = self.request_credential().await?;
         let mut request = self
-            .client
+            .clients
+            .fast
             .post(format!("{}{path}", self.api))
             .timeout(timeout)
             .bearer_auth(credential.as_str())
@@ -555,8 +585,10 @@ impl HttpSource {
         if let Some(team) = &self.team {
             request = request.header(TEAM_HEADER, team);
         }
-        let response =
-            request.send().await.map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
+        // Sent again only when it did not connect: no byte of it reached the platform.
+        let response = cmux_cloud_client::connect_retry::send(&self.clients, request)
+            .await
+            .map_err(|_| SourceError::retry("cmux-platform did not answer"))?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
@@ -646,6 +678,12 @@ impl CarrierSource for HttpSource {
             )
             .await?;
         read_exec(status, &body)
+    }
+
+    async fn machine_status(&self, machine: &str) -> Result<String, SourceError> {
+        let body = json!({ "op": "cloud.machine.get", "params": { "machine": machine } });
+        let (status, body) = self.post("/v1/read", &body).await?;
+        read_machine_status(status, &body)
     }
 }
 

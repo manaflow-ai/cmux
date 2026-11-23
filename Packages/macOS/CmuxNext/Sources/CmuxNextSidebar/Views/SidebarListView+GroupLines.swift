@@ -206,7 +206,8 @@ extension SidebarGroupLine {
         }
         let soleLines = soles.map { id, row in
             let head = frame(row), tail = frame(last[id] ?? row), bar = SidebarStyle.groupBarX(membersMinX: head.minX)
-            let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX)) : bar
+            let x = layout == .inside ? max(bar, SidebarStyle.groupLineX(membersMinX: head.minX))
+                : layout == .edge ? bar + SidebarStyle.groupRailInset : bar
             let rail = CGRect(x: x, y: head.minY, width: width, height: tail.maxY - head.minY)
             if blocks, tint(id, last[id] ?? row).isNone {
                 return block(id, head, frame(lastAny[id] ?? last[id] ?? row), level: nested ? max(0, row.depth - 1) : 0, rail: rail)
@@ -232,15 +233,18 @@ extension SidebarGroupLine {
             // at most the gap down to the row under the header, so the line never starts part way down that row
             // (Lawrence 2026-10-30, "alignment here is bad": a 6 pt cut under a 2.5 pt gap).
             let cutTop = below[id].map { max(head.maxY, frame($0).minY) } ?? head.maxY + SidebarStyle.groupLineCut
-            let top = layout == .joined && joinsBar ? head.maxY : min(head.maxY + SidebarStyle.groupLineCut, cutTop), bottom = tail.maxY
+            let top = layout == .joined && joinsBar ? head.maxY : min(head.maxY + SidebarStyle.groupLineCut, cutTop)
+            let bottom = tail.maxY
             guard bottom > top else { return nil }
             // At the header bar's left edge, which reaches left of the group's own members' x by the rail and its gap
             // (`SidebarListView.railReach(for:)`; not the subtree's last row, which may sit deeper). `inside`, the bar
             // reaches further and the line keeps the rail's x, its first member's less the reach.
             let insideRail = first[id].map(frame).map { $0.minX - SidebarStyle.groupRailReach }
                 ?? head.minX + SidebarStyle.groupHeaderOverhang
+            // `edge`: centred in its lane, the same room from the bar's left edge as from its members' fills (Lawrence
+            // 2026-11-17: "have slight padding on left as well"), on the rows' own half-point grid.
             let x = layout == .inside ? max(head.minX, insideRail)
-                : head.minX
+                : layout == .edge ? head.minX + SidebarStyle.groupRailInset : head.minX
             return CGRect(x: x, y: top, width: width, height: bottom - top)
         }
         return soleLines + headers.compactMap { id, header in

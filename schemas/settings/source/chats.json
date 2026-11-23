@@ -150,6 +150,102 @@
           ]
         },
         {
+          "key": "agents.chats.deleteHistoryAfterDays",
+          "name": "deleteHistoryAfterDays",
+          "note": "0 (never) by default: nothing is deleted, as before. The customization matrix row history-retention (Claude Code cleanupPeriodDays, Codex history.persistence). A number of days: the acpmux daemon's retention worker deletes every closed chat (or cold-archived idle one) with no record and no change for that long, as `acpmux session rm` does; never one that is open, pinned, running, attached or busy. Irreversible. Read from the settings file at each pass (cmux-tui acpmux hub/history_delete.rs).",
+          "title": {
+            "key": "settings.chats.deleteHistoryAfterDays",
+            "text": "Delete Chat History After"
+          },
+          "help": {
+            "key": "settings.chats.deleteHistoryAfterDays.help",
+            "text": "Permanently deletes closed chats unused for this many days. 0 never deletes."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 3650,
+            "step": 1,
+            "unit": "days"
+          },
+          "default": 0,
+          "keywords": [
+            "agents",
+            "chats",
+            "history",
+            "delete",
+            "retention",
+            "cleanup",
+            "old",
+            "days",
+            "disk",
+            "privacy"
+          ]
+        },
+        {
+          "key": "agents.chats.archiveInactive",
+          "name": "archiveInactive",
+          "note": "Never by default (Leo, 2026-11-18: \"there's the archived/settled chats for it, etc\", the Claude app's Archive inactive sessions). A number of days: the acpmux daemon archives every chat with no activity for that long (tags archived=<ms> and archivedBy=auto), never one that is running or waiting, has background commands or subagents, is pinned or is a side chat; a pass every 10 minutes, read from the settings file at each pass (cmux-tui acpmux hub/inactive_archive.rs). The daemon also reads a plain number of days.",
+          "title": {
+            "key": "settings.chats.archiveInactive",
+            "text": "Archive Inactive Chats"
+          },
+          "help": {
+            "key": "settings.chats.archiveInactive.help",
+            "text": "Archives chats after a period of no activity. Chats that are running or have background work never are."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "never",
+              "title": {
+                "key": "settings.choice.archiveInactiveNever",
+                "text": "Never"
+              }
+            },
+            {
+              "value": "1d",
+              "title": {
+                "key": "settings.choice.archiveInactiveOneDay",
+                "text": "After 1 Day"
+              }
+            },
+            {
+              "value": "3d",
+              "title": {
+                "key": "settings.choice.archiveInactiveThreeDays",
+                "text": "After 3 Days"
+              }
+            },
+            {
+              "value": "7d",
+              "title": {
+                "key": "settings.choice.archiveInactiveSevenDays",
+                "text": "After 7 Days"
+              }
+            },
+            {
+              "value": "30d",
+              "title": {
+                "key": "settings.choice.archiveInactiveThirtyDays",
+                "text": "After 30 Days"
+              }
+            }
+          ],
+          "default": "never",
+          "keywords": [
+            "agents",
+            "chats",
+            "archive",
+            "archived",
+            "settled",
+            "inactive",
+            "idle",
+            "auto archive",
+            "days"
+          ]
+        },
+        {
           "key": "agents.chats.coldSegments",
           "name": "coldSegments",
           "note": "Off by default while it is reviewed (Leo: \"dont delete automatically but maybe we can add an option for people to opt in release old chats if theyre really idle and old or store them\"; lossless compression of history is allowed, deleting it is not). On: as a chat's 8 MiB log segment seals, the acpmux daemon's one worker compresses it into the chat's cold-segments/ folder as checksummed zstd frames, verifies the archive against the segment's SHA-256, then removes the plain segment; the chat pages back through the frames as before. Measured at 100k rows: 152.1 MB local before (scripts/measure/chat-cold-segments.py). Off stops new moves; segments already compressed stay readable, and `cmux chats warm` (acpmux `_acpmux/chats_warm`) brings them all back as plain files, checked byte for byte (cmux-tui acpmux store/cold_segments.rs, hub/cold_segments.rs, read from the settings file at each pass).",

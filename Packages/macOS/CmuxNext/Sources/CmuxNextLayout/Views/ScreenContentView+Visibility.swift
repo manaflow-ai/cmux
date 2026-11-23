@@ -50,7 +50,10 @@ extension ScreenContentView {
                 border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
                 attention: attention[pane],
                 attentionSettings: style.attention,
-                readByEntry: isFocused && context.model.attentionReadByEntry.contains(pane),
+                // Not gated on focus: a click into an agent chat's Chromium page reads the pane
+                // before the page's focus reaches the layout (cmux#42210), and the set names only
+                // the panes the person went into.
+                readByEntry: context.model.attentionReadByEntry.contains(pane),
                 focused: isFocused, flashesFocus: flashes,
                 animated: animated
             )
@@ -97,6 +100,7 @@ extension ScreenContentView {
     func pane(at localPoint: NSPoint) -> PaneID? {
         // Canvas panes overlap: the front-most one under the point.
         if let canvas = canvasState.canvas { return canvas.pane(at: localPoint) }
+        if let front = geometry.floating.last(where: { geometry.floatingCards[$0]?.contains(localPoint) == true }) { return front }
         // A pane scrolled out of its scroll area's window takes no click there.
         func shown(_ pane: PaneID) -> Bool { displayedAreaWindow(of: pane)?.contains(localPoint) ?? true }
         if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {

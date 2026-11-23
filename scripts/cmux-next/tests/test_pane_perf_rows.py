@@ -4,7 +4,9 @@
 Run: python3 -I scripts/cmux-next/tests/test_pane_perf_rows.py
 No app, display or subprocess is run: the definitions are loaded without the script's top-level app launch.
 - moving_frames: New Column moves only the strip camera (column-scroll.md R3b), so a count of the pane and divider
-  springs alone (`layout.travel`) read 0 for every New Column (BENCH BASE REDS 3).
+  springs alone (`layout.travel`) read 0 for every New Column (BENCH BASE REDS 3). A split, a close, a zoom and an
+  unzoom are one commit whose panes move on the render server (PaneCommitMotion, `layout.commit`), so a count of the
+  springs and the camera alone read 0 for each of them (a1279, 2026-11-21: 36 rows of RESULT FAIL 85/121).
 - not_applicable: a one-column layout (1x2) has no vertical divider, so its drag is not applicable, not a FAIL.
 - activate: the bench opens its bundle through LaunchServices and waits for a key window.
 """
@@ -68,6 +70,26 @@ class MovingFrames(unittest.TestCase):
         samples = [{"name": "layout.camera", "v": 500}, {"name": "layout.travel", "v": 0},
                    {"name": "clock.dt_ms", "v": 8.3}, {"name": "layout.camera", "v": 500}]
         self.assertEqual(self.moving_frames(samples), 0)
+
+    def test_a_commit_move_counts_its_render_server_frames(self):
+        # The pane-perf red: a zoom moves its pane on the render server; the layout's springs and camera stay at 0,
+        # and ScreenContentView.step samples nothing at rest, so the tick has only PaneCommitMotion's sample.
+        samples = [{"name": "clock.dt_ms", "v": 8.33}]
+        for animations in (6, 6, 6, 0):
+            samples += [{"name": "clock.dt_ms", "v": 8.33}, {"name": "layout.commit", "v": animations}]
+        self.assertEqual(self.moving_frames(samples), 3)
+
+    def test_a_tick_that_moves_springs_and_a_commit_counts_once(self):
+        # One tick samples the screen first (travel, camera), then its commit motion (LayoutRootView: step, then
+        # zoomDim.step).
+        samples = frames((40, 0)) + [{"name": "layout.commit", "v": 4}]
+        self.assertEqual(self.moving_frames(samples), 1)
+        samples = frames((0, 0)) + [{"name": "layout.commit", "v": 4}]
+        self.assertEqual(self.moving_frames(samples), 1)
+
+    def test_a_commit_in_one_frame_is_not_motion(self):
+        # An act that showed in one frame records no move: zero animations on the layers is no motion.
+        self.assertEqual(self.moving_frames([{"name": "layout.commit", "v": 0}] * 3), 0)
 
     def test_no_samples(self):
         for samples in (None, [], {}, [None, 3]):

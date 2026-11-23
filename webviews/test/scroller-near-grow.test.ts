@@ -97,8 +97,8 @@ await requireBrowserLane("scroller-near-grow.test.ts", async () => {
       // The scrolling mark clears; the page has no fade durations, so the thumb goes at once.
       await page.waitForFunction(() => !document.getElementById("list")!.hasAttribute("data-cmux-scrolling"));
       const rested = await inkColumns(page);
-      // Approach the edge from the content, as a hand does (the pointer stops short of the lane).
-      await page.mouse.move(186, 100, { steps: 4 });
+      // Approach the edge from the content, as a hand does, onto the bar's lane (where a press grabs it).
+      await page.mouse.move(196, 100, { steps: 4 });
       await page.waitForFunction(() => document.getElementById("list")!.hasAttribute("data-cmux-scroller-near"));
       const near = await inkColumns(page);
       await page.mouse.move(40, 100);

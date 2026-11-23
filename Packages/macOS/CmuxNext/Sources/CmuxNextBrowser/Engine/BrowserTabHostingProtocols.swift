@@ -92,6 +92,17 @@ public protocol BrowserFreezing: AnyObject {
     ///   counts it visible (`WebContents::SetPageFrozen` freezes hidden pages only).
     @discardableResult
     func setFrozen(_ frozen: Bool) -> Bool
+
+    /// True when a freeze would cost the page events it cannot get back: an enabled extension can run
+    /// its scripts in the page, and a port disconnect its service worker sends while the page is frozen
+    /// never reaches the page (its old content scripts stay live beside the ones the restarted worker
+    /// injects). Such a page stays awake; it can still hibernate, which reloads it.
+    @MainActor var freezeDropsExtensionEvents: Bool { get }
+}
+
+public extension BrowserFreezing {
+    /// No extension runs in the page (WebKit pages, cmux pages).
+    @MainActor var freezeDropsExtensionEvents: Bool { false }
 }
 
 /// A freezing engine that also says whether its page is frozen now, and when a frozen page was lost

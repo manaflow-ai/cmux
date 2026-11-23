@@ -211,3 +211,34 @@ describe("POST /v1/auth/machine", () => {
     expect(other.json).toMatchObject({ userId: a.userId, teamId: "team_B" });
   });
 });
+
+describe("a joined machine and another account", () => {
+  // Leo, 2026-11-16: "you shouldn't need permissions on it... you just ask it on the machine that you
+  // initiated on". The joining account's own devices reach its machine with nothing done there; that is
+  // safe because no other account can: each account's devices live in its own UserDO.
+  it("gives a second account's viewer no device and no session for the first account's machine", async () => {
+    const a = await signIn();
+    const b = await signIn();
+    const credential = await joinedMachine(a.sub);
+    const { machine } = await machineHost(a, credential);
+    await machine.share(true);
+    const host = await machine.connect();
+
+    const guest = await Device.create(b, "Guest", "linux");
+    await guest.register();
+    const listed = (await guest.call("GET", "/v1/devices")).json.devices.map((d: any) => d.id);
+    expect(listed).not.toContain(machine.id);
+    for (const scope of ["view", "full"] as const) {
+      const asked = await guest.call("POST", "/v1/sessions", { hostId: machine.id, scope });
+      expect([asked.status, asked.json.error.code]).toEqual([404, "not_found"]);
+    }
+    expect(await host.none((f) => typeof f.type === "string" && f.type.startsWith("session."))).toBe(true);
+
+    // The joining account's own viewer does reach it: the refusal above is the account, not the machine.
+    const own = await Device.create(a, "Laptop", "macos");
+    await own.register();
+    expect((await own.call("GET", "/v1/devices")).json.devices.map((d: any) => d.id)).toContain(machine.id);
+    const mine = await own.call("POST", "/v1/sessions", { hostId: machine.id, scope: "view" });
+    expect(mine.status, JSON.stringify(mine.json)).toBe(200);
+  });
+});

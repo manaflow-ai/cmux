@@ -26,7 +26,7 @@ public nonisolated enum RemoteBrowserFailure: Error, Sendable, Hashable {
         case .stoppedByViewer: return nil
         case .consentDenied, .signInRequired: self = .refused(hadSecret: hadSecret)
         case .connectionLost: self = streamed ? .connectionLost : .unreachable
-        case .hostStoppedSharing, .disconnectedBy: self = .hostEnded
+        case .hostStoppedSharing, .hostFailed, .disconnectedBy: self = .hostEnded
         }
     }
 }

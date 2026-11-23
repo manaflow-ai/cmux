@@ -33,8 +33,11 @@ fn stdin(team: Option<&str>) -> String {
     format!("tok\n{}\n", install(team))
 }
 
+/// The platform's answer as it sends it (SpareWarmRoute.ts): the warm's object under `value`.
 fn owner(_: &Request, _: &str, _: &str) -> Result<Value, PlatformCallError> {
-    Ok(json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}))
+    Ok(
+        json!({"ok": true, "value": {"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}}),
+    )
 }
 
 #[test]
@@ -193,6 +196,31 @@ fn a_lock_that_cannot_be_taken_refuses_before_the_platform_call() {
 }
 
 #[test]
+fn a_warm_reads_the_spare_from_the_platforms_wrapped_answer_and_from_a_bare_one() {
+    for body in [
+        json!({"ok": true, "value": {"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}}),
+        json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"}),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let transport = move |_: &Request, _: &str, _: &str| Ok(body.clone());
+        let answer = run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            1,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap();
+        assert_eq!(
+            (answer["machine"].clone(), answer["fresh"].clone(), answer["vm_kind"].clone()),
+            (json!(MACHINE), json!(true), json!("owner"))
+        );
+        assert_eq!(answer["warm_until"], json!(1_600_000));
+        assert_eq!(answer["copy"]["machine"], json!(MACHINE));
+    }
+}
+
+#[test]
 fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
     let input = stdin(Some(TEAM));
     let warm =
@@ -207,6 +235,16 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
         warm(r#"{"account":"u"}"#, &input, &none),
         json!({"ok": true, "machine": null, "fresh": false, "reason": "spare.none"})
     );
+    // The platform's own shape: the reason and what it said about the pool come through.
+    let wrapped = |_: &Request, _: &str, _: &str| {
+        Ok(
+            json!({"ok": true, "value": {"machine": null, "reason": "no_plan", "why": "plan", "spares": 0}}),
+        )
+    };
+    assert_eq!(
+        warm(r#"{"account":"u"}"#, &input, &wrapped),
+        json!({"ok": true, "machine": null, "fresh": false, "reason": "no_plan", "why": "plan", "spares": 0})
+    );
     let refused_ = |_: &Request, _: &str, _: &str| {
         Err(PlatformCallError::Status { status: 403, code: "auth.forbidden", facts: None })
     };
@@ -220,40 +258,37 @@ fn no_spare_is_no_copy_and_a_refusal_keeps_its_code() {
 }
 
 #[test]
-fn no_spare_and_errors_are_attempts_the_gap_throttles() {
-    for answer in [
-        Ok(json!({"machine": null, "reason": "spare.none"})),
-        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None }),
-    ] {
-        let dir = tempfile::tempdir().unwrap();
-        let calls = Cell::new(0_usize);
-        let transport = |_: &Request, _: &str, _: &str| {
-            calls.set(calls.get().saturating_add(1));
-            answer.clone()
-        };
-        let warm = |now| {
-            run(
-                &flags(r#"{"account":"user_a"}"#),
-                dir.path(),
-                now,
-                &mut stdin(Some(TEAM)).as_bytes(),
-                &transport,
-            )
-            .unwrap()
-        };
-        let first = warm(1_000_000);
-        assert!(first.get("copy").is_none());
-        // Every activation within the gap replays the attempt: no platform call.
-        for now in [1_010_000, 1_060_000, 1_110_000] {
-            let again = warm(now);
-            assert_eq!(again["throttled"], json!(true));
-            assert_eq!((again["ok"].clone(), again.get("copy")), (first["ok"].clone(), None));
-        }
-        assert_eq!(calls.get(), 1);
-        // Past the gap the platform is asked again.
-        assert!(warm(1_130_000).get("throttled").is_none());
-        assert_eq!(calls.get(), 2);
+fn errors_are_attempts_the_gap_throttles() {
+    let answer: Result<Value, PlatformCallError> =
+        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None });
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let transport = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        answer.clone()
+    };
+    let warm = |now| {
+        run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            now,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap()
+    };
+    let first = warm(1_000_000);
+    assert!(first.get("copy").is_none());
+    // Every activation within the gap replays the attempt: no platform call.
+    for now in [1_010_000, 1_060_000, 1_110_000] {
+        let again = warm(now);
+        assert_eq!(again["throttled"], json!(true));
+        assert_eq!((again["ok"].clone(), again.get("copy")), (first["ok"].clone(), None));
     }
+    assert_eq!(calls.get(), 1);
+    // Past the gap the platform is asked again.
+    assert!(warm(1_130_000).get("throttled").is_none());
+    assert_eq!(calls.get(), 2);
 }
 
 #[test]
@@ -280,8 +315,12 @@ fn an_abandoned_copy_is_answered_again_within_the_gap() {
         (json!(true), json!(MACHINE))
     );
     assert_eq!(calls.get(), 1);
-    // Handed out again: the next warm in the gap copies nothing.
-    assert_eq!(warm(1_030_000)["fresh"], json!(false));
+    // Handed out again: the next warm in the gap copies nothing, and still says the spare is the person's own.
+    let replayed = warm(1_030_000);
+    assert_eq!(
+        (replayed["fresh"].clone(), replayed["vm_kind"].clone()),
+        (json!(false), json!("owner"))
+    );
     assert!(warm(1_040_000).get("copy").is_none());
     // Another machine's abandon is not this warm's.
     let other = r#"{"account":"user_a","abandoned":"vm_ffffffffffffffffffff"}"#;
@@ -841,4 +880,180 @@ fn a_scope_whose_install_token_names_another_team_mints_no_receipt() {
         receipt_scoped(dir.path(), "user_a", MACHINE, "claude", Some(&scope), 1_000_200)["installed"],
         false
     );
+}
+
+const _: () = assert!(NONE_GAP_MS < WARM_GAP_MS && NONE_GAP_MS <= 15_000);
+
+/// Burst 43951741299: a warm that found no spare replayed that answer for the whole 120 s gap, so a
+/// 290 s wait asked the platform about three times while the claim, asking fresh, took a ready spare
+/// in 7 of 9 claims. A "no spare" is replayed only for NONE_GAP_MS: a spare that turns ready after it
+/// is named by the next warm past that, never hidden for the error gap.
+#[test]
+fn no_spare_then_a_ready_spare_is_named_by_the_next_warm() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let ready_at = 1_015_000;
+    let now_of = Cell::new(0_u64);
+    let transport = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        Ok(if now_of.get() >= ready_at {
+            json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"})
+        } else {
+            json!({"machine": null, "reason": "spare.none"})
+        })
+    };
+    let warm = |now: u64| {
+        now_of.set(now);
+        run(
+            &flags(r#"{"account":"user_a"}"#),
+            dir.path(),
+            now,
+            &mut stdin(Some(TEAM)).as_bytes(),
+            &transport,
+        )
+        .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["machine"], json!(null));
+    // Within NONE_GAP_MS a burst of activations is one platform call.
+    let again = warm(1_000_000 + NONE_GAP_MS - 1);
+    assert_eq!((again["machine"].clone(), again["throttled"].clone()), (json!(null), json!(true)));
+    assert_eq!(calls.get(), 1);
+    // The spare turned ready at 1_015_000: the next warm (well inside the old 120 s gap) names it.
+    let named = warm(ready_at);
+    assert_eq!(named["machine"], json!(MACHINE));
+    assert!(named.get("throttled").is_none());
+    assert_eq!(calls.get(), 2);
+}
+
+/// A cloud.spare.ready for the pair ends the "no spare" replay at once: the next warm asks the
+/// platform even inside NONE_GAP_MS. A failure's replay is not a "no spare" and stays.
+#[test]
+fn a_ready_event_clears_the_no_spare_replay_but_not_an_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let spare = Cell::new(false);
+    let transport = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        Ok(if spare.get() {
+            json!({"machine": MACHINE, "warm_until": 1_600_000, "vm_kind": "owner"})
+        } else {
+            json!({"machine": null, "reason": "spare.none"})
+        })
+    };
+    let ask = |request: &str, now: u64| {
+        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &transport)
+            .unwrap()
+    };
+    assert_eq!(ask(r#"{"account":"user_a"}"#, 1_000_000)["machine"], json!(null));
+    spare.set(true);
+    ask(&format!(r#"{{"account":"user_a","ready":"{MACHINE}"}}"#), 1_001_000);
+    let named = ask(r#"{"account":"user_a"}"#, 1_002_000);
+    assert_eq!(named["machine"], json!(MACHINE));
+    assert_eq!(calls.get(), 2);
+
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let down = |_: &Request, _: &str, _: &str| {
+        calls.set(calls.get().saturating_add(1));
+        Err(PlatformCallError::Status { status: 503, code: "owner.unreachable", facts: None })
+    };
+    let ask = |request: &str, now: u64| {
+        run(&flags(request), dir.path(), now, &mut stdin(Some(TEAM)).as_bytes(), &down).unwrap()
+    };
+    ask(r#"{"account":"user_a"}"#, 1_000_000);
+    ask(&format!(r#"{{"account":"user_a","ready":"{MACHINE}"}}"#), 1_001_000);
+    let replay = ask(r#"{"account":"user_a"}"#, 1_002_000);
+    assert_eq!((replay["ok"].clone(), replay["throttled"].clone()), (json!(false), json!(true)));
+    assert_eq!(calls.get(), 1);
+}
+
+/// The platform names [`MACHINE`] once, then [`OTHER`] (the next spare).
+fn spare_then_other(
+    calls: &Cell<usize>,
+) -> impl Fn(&Request, &str, &str) -> Result<Value, PlatformCallError> + '_ {
+    move |_: &Request, _: &str, _: &str| {
+        let machine = if calls.get() == 0 { MACHINE } else { OTHER };
+        calls.set(calls.get().saturating_add(1));
+        Ok(json!({"machine": machine, "warm_until": 9_000_000, "vm_kind": "owner"}))
+    }
+}
+
+/// Production probe, 2026-11-19: 5 of 13 claimed starts paid `approvals.key` (about 4.5 s) because
+/// a warm within the gap replayed the machine the previous chat had just claimed. No caller sends
+/// `claimed: M` any more; the start's own pin in the start-chat ledger is the claim.
+#[test]
+fn a_warm_in_the_gap_never_replays_the_machine_a_start_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let transport = spare_then_other(&calls);
+    let warm = |now| {
+        let input = stdin(Some(TEAM));
+        run(&flags(r#"{"account":"user_a"}"#), dir.path(), now, &mut input.as_bytes(), &transport)
+            .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["machine"], json!(MACHINE));
+    // Unclaimed, the record answers within the gap with no platform call.
+    assert_eq!((warm(1_010_000)["machine"].clone(), calls.get()), (json!(MACHINE), 1));
+    // The chat's start takes M: the App's create, pinned to the send (`start-chat pin`).
+    let ledger = dir.path().join(ledger::FILE);
+    let key = "0000000a-0000-4000-8000-000000000001";
+    assert_eq!(super::super::pin(&ledger, key, "user_a/", MACHINE, None)["ok"], json!(true));
+    // A warm 60 s later, within the gap: M is taken, so the platform is asked and names the next spare.
+    let next = warm(1_060_000);
+    assert_eq!((next["machine"].clone(), next["fresh"].clone()), (json!(OTHER), json!(true)));
+    assert_eq!(next["copy"]["machine"], json!(OTHER));
+    assert_eq!(calls.get(), 2);
+    // That next spare is replayed as before.
+    assert_eq!((warm(1_070_000)["machine"].clone(), calls.get()), (json!(OTHER), 2));
+}
+
+#[test]
+fn a_warm_in_the_gap_never_replays_the_machine_a_reservation_bound() {
+    use super::super::reservations::Call;
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let transport = spare_then_other(&calls);
+    let warm = |now| {
+        let input = stdin(Some(TEAM));
+        run(&flags(r#"{"account":"user_a"}"#), dir.path(), now, &mut input.as_bytes(), &transport)
+            .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["machine"], json!(MACHINE));
+    // The send binds its compose reservation, which the platform answers with the warmed spare.
+    let request = json!({"key": "0000000a-0000-4000-8000-000000000002", "account": "user_a/",
+        "loaded": false, "reservation_key": "0000000a-0000-4000-8000-000000000003",
+        "credential_on_stdin": true})
+    .to_string();
+    let bind = |_: &Call, _: &str| Ok(json!({"leaseId": "lease-1", "machine": MACHINE}));
+    let never_ensure = |_: &super::super::Ensure, _: &str| panic!("no project");
+    let plan = super::super::plan_with_calls(
+        &dir.path().join(ledger::FILE),
+        &request,
+        &mut format!("tok\n{}\n", install(Some(TEAM))).as_bytes(),
+        &never_ensure,
+        &bind,
+    );
+    assert_eq!(plan["machine"], json!(MACHINE), "{plan}");
+    let next = warm(1_090_000);
+    assert_eq!((next["machine"].clone(), next["fresh"].clone()), (json!(OTHER), json!(true)));
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn an_unreadable_start_ledger_takes_nothing_and_the_warm_still_replays() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(ledger::FILE), b"{not a ledger").unwrap();
+    let warm = |now| {
+        let input = stdin(Some(TEAM));
+        run(&flags(r#"{"account":"user_a"}"#), dir.path(), now, &mut input.as_bytes(), &owner)
+            .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["fresh"], json!(true));
+    let replay = warm(1_010_000);
+    assert_eq!(
+        (replay["fresh"].clone(), replay["machine"].clone()),
+        (json!(false), json!(MACHINE))
+    );
+    // Nothing was moved aside: the start's own locked read still finds the file as it is.
+    assert!(dir.path().join(ledger::FILE).exists());
 }

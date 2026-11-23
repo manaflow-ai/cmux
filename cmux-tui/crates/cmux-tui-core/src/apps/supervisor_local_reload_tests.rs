@@ -158,6 +158,38 @@ fn apps_list_names_the_watched_local_folder() {
     assert_eq!(f.supervisor.list()["local_dir"], json!(local.to_string_lossy()));
 }
 
+/// Sets `local/spy`'s `contributes.menus` to one workspace-row row titled `title`.
+fn save_spy_menu(state: &Path, version: &str, title: &str) {
+    let path = state.join("apps/local/spy/cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["version"] = json!(version);
+    manifest["contributes"] = json!({ "menus": [{ "id": "go", "target": "workspace", "title": title, "op": "local.spy.go" }] });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+/// A save that adds or retitles a `contributes.menus` row reaches the apps
+/// list with `apps-changed`, which the Mac's right-click menus read on their
+/// next open: no relaunch (base red: the schema had no `menus`, so the save
+/// was refused and the app left the list).
+#[test]
+fn a_save_that_changes_a_menu_row_lists_it_on_apps_changed() {
+    let f = fixture();
+    let mut prints = f.supervisor.reload_local_apps(&Default::default());
+    for (version, title) in [("1.0.1", "Copy Branch"), ("1.0.2", "Copy Branch Name")] {
+        save_spy_menu(&f.state, version, title);
+        prints = f.supervisor.reload_local_apps(&prints);
+        f.wait("apps-changed for the save", |e| {
+            e["event"] == "apps-changed"
+                && e["app"] == "local/spy"
+                && e["transaction"] == "local-reload"
+        });
+        let spy = app_entry(&f.supervisor.list(), "local/spy");
+        assert_eq!(spy["version"], version, "{spy}");
+        assert_eq!(spy["manifest"]["contributes"]["menus"][0]["title"], title, "{spy}");
+    }
+}
+
 /// An app in a `CMUX_APPS_DIRS` folder (`Sources::extra`: a person's own
 /// checkout of an extension, or a fork of a first-party app) reloads on a
 /// save like a local app, and its open view is mounted again with the saved
@@ -330,4 +362,206 @@ fn an_asked_pass_names_a_refused_folder() {
         rejected.iter().any(|r| r["dir"] == bad.display().to_string() && r["issue"].is_string()),
         "{answer}"
     );
+}
+
+/// Stress: a save of one sidebar app among `apps` local apps (each a 256 KiB
+/// bundle, the size of a small built extension) plus five malformed
+/// manifests. The cost of the pass a save makes must not grow with the
+/// number of apps that did not change (Leo: break sidebar customization with
+/// 50+ sections, rapid `ext dev` save loops and malformed manifests).
+/// Prints `apps | p50 ms | p95 ms` and the warn lines a pass repeats.
+#[test]
+fn local_reload_stress_one_save_among_many_apps() {
+    let bundle = "x".repeat(256 * 1024);
+    let mut rows = Vec::new();
+    for apps in [1usize, 50, 200] {
+        let f = fixture();
+        let local = f.state.join("apps/local");
+        for i in 0..apps {
+            write_app(&local, &format!("s{i}"), &format!("local/s{i}"), json!({}));
+            std::fs::write(local.join(format!("s{i}/dist/main.js")), &bundle).unwrap();
+        }
+        for i in 0..5 {
+            let bad = local.join(format!("bad{i}"));
+            std::fs::create_dir_all(&bad).unwrap();
+            std::fs::write(
+                bad.join("cmux-app.json"),
+                ["{ not json", "{}", "[]", "{\"id\":5}", "\u{0}"][i],
+            )
+            .unwrap();
+        }
+        // The first pass reports the malformed folders: that is the once.
+        let mut prints = f.supervisor.reload_local_apps(&Default::default());
+        let _: Vec<Value> = f.events.try_iter().collect();
+        // The pass a save makes: the watch and `cmux ext dev` name the folder.
+        let mut samples = Vec::new();
+        for save in 0..30 {
+            save_version(&local.join("s0"), &format!("1.0.{}", save + 1));
+            let start = Instant::now();
+            prints = f.supervisor.reload_local_apps_saved(&prints, [local.join("s0")]);
+            samples.push(start.elapsed());
+        }
+        // A pass over every folder (`cmux ext reload`, a lost event), for the table.
+        let start = Instant::now();
+        prints = f.supervisor.reload_local_apps(&prints);
+        let full = start.elapsed();
+        assert!(!prints.is_empty());
+        let events: Vec<Value> = f.events.try_iter().collect();
+        let changed = events.iter().filter(|e| e["event"] == "apps-changed").count();
+        let logs = f.supervisor.logs(CLIENT, "cmux/supervisor", false);
+        let warns = logs["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| l["level"] == "warn" && l["message"].as_str().unwrap().contains("/bad"))
+            .count();
+        assert_eq!(changed, 30, "every save reached the app");
+        assert_eq!(app_entry(&f.supervisor.list(), "local/s0")["version"], "1.0.30");
+        samples.sort();
+        let (p50, p95) = (samples[15], samples[28]);
+        println!(
+            "local reload: {apps} apps | p50 {:.2} ms | p95 {:.2} ms | {warns} warn lines over 30 saves | every folder {:.2} ms",
+            p50.as_secs_f64() * 1e3,
+            p95.as_secs_f64() * 1e3,
+            full.as_secs_f64() * 1e3
+        );
+        rows.push((apps, p50, warns));
+    }
+    let (_, one, _) = rows[0];
+    for (apps, p50, warns) in &rows {
+        // A malformed folder is said once, not again on every other app's save.
+        assert!(*warns <= 10, "{apps} apps: {warns} warn lines for 5 malformed folders");
+        // One save costs about what it costs with one app; 3x room for noise.
+        assert!(
+            *p50 <= one * 3 + Duration::from_millis(2),
+            "{apps} apps: one save took {p50:?} vs {one:?} with one app"
+        );
+    }
+}
+
+/// A pass reuses the read of each unchanged folder (`earlier_reads`); a
+/// folder whose files change is read again, so a malformed manifest that is
+/// fixed loads, and its unchanged neighbour keeps its package.
+#[test]
+fn a_fixed_manifest_loads_while_unchanged_folders_are_reused() {
+    let f = fixture();
+    let local = f.state.join("apps/local");
+    write_app(&local, "late", "local/late", json!({}));
+    let good = std::fs::read_to_string(local.join("late/cmux-app.json")).unwrap();
+    std::fs::write(local.join("late/cmux-app.json"), "{ not json").unwrap();
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(app_entry(&f.supervisor.list(), "local/late"), Value::Null);
+    let prints = f.supervisor.reload_local_apps(&prints);
+    assert_eq!(app_entry(&f.supervisor.list(), "local/late"), Value::Null, "still refused");
+    std::fs::write(local.join("late/cmux-app.json"), good).unwrap();
+    f.supervisor.reload_local_apps(&prints);
+    assert_eq!(app_entry(&f.supervisor.list(), "local/late")["version"], "1.0.0");
+    assert_eq!(app_entry(&f.supervisor.list(), "local/spy")["version"], "1.0.0");
+}
+
+/// The pass a save makes reads only the folders it names: among them a new
+/// app folder loads and a folder whose manifest went is removed, while an
+/// app the save did not name keeps what the last pass read. Every app's
+/// change is read by the pass that names it or reads every folder.
+#[test]
+fn a_pass_for_named_folders_reads_those_folders_only() {
+    let f = fixture();
+    let local = f.state.join("apps/local");
+    write_app(&local, "a", "local/a", json!({}));
+    write_app(&local, "b", "local/b", json!({}));
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    write_app(&local, "c", "local/c", json!({}));
+    std::fs::remove_file(local.join("b/cmux-app.json")).unwrap();
+    save_version(&local.join("a"), "2.0.0");
+    let prints = f.supervisor.reload_local_apps_saved(&prints, [local.join("b"), local.join("c")]);
+    let list = f.supervisor.list();
+    assert_eq!(app_entry(&list, "local/c")["version"], "1.0.0", "the new folder loads");
+    assert_eq!(app_entry(&list, "local/b"), Value::Null, "the folder without a manifest goes");
+    assert_eq!(app_entry(&list, "local/a")["version"], "1.0.0", "an unnamed folder is not read");
+    f.supervisor.reload_local_apps_saved(&prints, [local.join("a")]);
+    assert_eq!(app_entry(&f.supervisor.list(), "local/a")["version"], "2.0.0");
+}
+
+/// The person's customize folder app (`local/customize`): sidebar row
+/// decorations, a sidebar section and a pane, from one script that draws
+/// `word` (`customize_script`).
+fn write_customize(dir: &Path, word: &str) {
+    std::fs::write(dir.join("main.js"), customize_script(word)).unwrap();
+    let manifest = json!({
+        "manifestVersion": 2, "id": "local/customize", "name": "Mine", "version": "1.0.0",
+        "description": "d", "engines": { "cmux": "^2.0" }, "runtime": { "main": "main.js" },
+        "implements": {
+            "cmux.sidebar.rows/1": { "export": "renderRows" },
+            "cmux.section/1": { "export": "renderSection", "title": "Mine" },
+            "cmux.pane/1": { "export": "renderPane", "title": "Mine", "symbol": "bolt" }
+        }
+    });
+    std::fs::write(dir.join("cmux-app.json"), manifest.to_string()).unwrap();
+}
+
+/// A customize script whose every view draws `word` (the scripted host's
+/// `SCENE_TEXT`).
+fn customize_script(word: &str) -> String {
+    format!("// SCENE_TEXT {word}\nvar __cmuxAppExports = {{}};\n")
+}
+
+/// Ten in-place saves of the customize folder's `main.js` (open, truncate,
+/// write: `edit-repaint.py`'s save), each through the real file watch, each
+/// redrawing the open `interface` view with the saved script. Returns each
+/// save's ms to the new scene.
+fn ten_saves_redraw_the_open_view(interface: &str) -> Vec<u128> {
+    let f = fixture_customize();
+    let dir = f.customize.clone().unwrap();
+    write_customize(&dir, "save0");
+    f.supervisor.reload_local_apps(&Default::default());
+    let entry = app_entry(&f.supervisor.list(), "local/customize");
+    assert_eq!(entry["installed"], true, "the customize app installs itself: {entry}");
+    f.supervisor.mount(CLIENT, "v1", "local/customize", interface, json!({})).unwrap();
+    let first = f.wait("the first scene", |e| e["event"] == "apps-scene" && e["mount_id"] == "v1");
+    assert_eq!(first["ops"][0]["props"]["text"], "save0", "{first}");
+    f.supervisor.start_local_watch_for_test();
+    // The watch reads once as it starts; let that settle.
+    std::thread::sleep(Duration::from_millis(500));
+    while f.events.try_recv().is_ok() {}
+    (1..=10)
+        .map(|n| {
+            let word = format!("save{n}");
+            let start = Instant::now();
+            std::fs::write(dir.join("main.js"), customize_script(&word)).unwrap();
+            f.wait(&format!("save {n} redraws the open {interface} view"), |e| {
+                e["event"] == "apps-scene"
+                    && e["mount_id"] == "v1"
+                    && e["ops"][0]["op"] == "create"
+                    && e["ops"][0]["props"]["text"] == word.as_str()
+            });
+            start.elapsed().as_millis()
+        })
+        .collect()
+}
+
+/// A save of the customize folder's script redraws the sidebar's row
+/// decorations (`cmux.sidebar.rows/1`), every time (capability matrix
+/// item 17: no test saved a rows change).
+#[test]
+fn a_rows_save_redraws_the_sidebar_rows_each_time() {
+    let ms = ten_saves_redraw_the_open_view("cmux.sidebar.rows/1");
+    eprintln!("rows save to scene ms: {ms:?}");
+}
+
+/// A save redraws an extension pane that is open (`cmux.pane/1`), every
+/// time, without closing it (capability matrix item 17: the DEV tour opened
+/// the pane after a reload, but never reloaded it while open).
+#[test]
+fn a_save_redraws_an_open_pane() {
+    let ms = ten_saves_redraw_the_open_view("cmux.pane/1");
+    eprintln!("pane save to scene ms: {ms:?}");
+}
+
+/// `edit-repaint.py`'s extension case on the daemon alone: ten in-place
+/// saves of the customize folder's `main.js` redraw its open sidebar
+/// section, every time (the fleet run saw 0 of 10 by pixels).
+#[test]
+fn a_customize_section_save_redraws_each_time() {
+    let ms = ten_saves_redraw_the_open_view("cmux.section/1");
+    eprintln!("section save to scene ms: {ms:?}");
 }
