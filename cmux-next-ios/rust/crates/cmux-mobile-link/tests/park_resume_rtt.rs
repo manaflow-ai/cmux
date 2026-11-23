@@ -14,6 +14,13 @@
 //!
 //! `cargo test -p cmux-mobile-link --test park_resume_rtt -- --ignored --nocapture`
 //! prints one `PARK_RESUME_RTT {json}` line per case.
+//!
+//! `profiles` plays cmux-fault's named phone links (`lte`, `lossy-3`: rate, delay, jitter and loss
+//! per datagram, `testing::shape_by_profile`) instead of a fixed delay, each idle and under
+//! duress: the Mac streams 512-byte frames every 10 ms on the channel from just before the park
+//! (a terminal or chat streaming while the phone locks), so the parked Mac holds a backlog the
+//! resume must flush ahead of the first echo. It prints `PARK_RESUME_PROFILE {json}`; the profile
+//! is process-wide, so run it alone: `... --test park_resume_rtt profiles -- --ignored --nocapture`.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -21,7 +28,9 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
-use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
+use cmux_mobile_link::testing::{
+    FakeOptions, FakeSignaling, LinkProfile, set_link_profile, shape_by_profile, shaped_counts,
+};
 use cmux_mobile_link::{
     Channel, ChannelEvent, DialOptions, Link, LinkConfig, SignalingClient, TransportKind,
 };
@@ -46,6 +55,10 @@ struct Bench {
     options: DialOptions,
     slot: usize,
     rtt_ms: u64,
+    /// A named link profile instead of a fixed delay (`delay` switches it).
+    profile: Option<LinkProfile>,
+    /// The Mac streams on the echo channel once the phone sends `go`.
+    duress: bool,
 }
 
 impl Bench {
@@ -55,6 +68,28 @@ impl Bench {
             impair_inbound: Some(impair::<SLOT>),
             ..DialOptions::default()
         };
+        Self::start_with(options, SLOT, rtt_ms, None, false).await
+    }
+
+    async fn start_profiled(profile: &str, duress: bool) -> Bench {
+        let profile = LinkProfile::named(profile);
+        let options = DialOptions {
+            include_loopback: true,
+            impair_inbound: Some(shape_by_profile),
+            timeout: Duration::from_secs(40),
+            ..DialOptions::default()
+        };
+        let rtt_ms = profile.rtt_ms;
+        Self::start_with(options, 0, rtt_ms, Some(profile), duress).await
+    }
+
+    async fn start_with(
+        options: DialOptions,
+        slot: usize,
+        rtt_ms: u64,
+        profile: Option<LinkProfile>,
+        duress: bool,
+    ) -> Bench {
         let server = FakeSignaling::start(FakeOptions::default()).await;
         let mac_id = uuid::Uuid::new_v4().to_string();
         let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -75,8 +110,22 @@ impl Bench {
                     };
                     while let Some(mut incoming) = connected.link.accept().await {
                         tokio::spawn(async move {
-                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
-                                let _ = incoming.channel.send(bytes).await;
+                            let mut streaming = false;
+                            let mut tick = tokio::time::interval(Duration::from_millis(10));
+                            loop {
+                                tokio::select! {
+                                    event = incoming.channel.recv() => {
+                                        let Some(ChannelEvent::Data(bytes)) = event else { break };
+                                        if duress && bytes.as_ref() == b"go" {
+                                            streaming = true;
+                                        } else {
+                                            let _ = incoming.channel.send(bytes).await;
+                                        }
+                                    }
+                                    _ = tick.tick(), if streaming => {
+                                        let _ = incoming.channel.send(Bytes::from(vec![b'S'; 512])).await;
+                                    }
+                                }
                             }
                         });
                     }
@@ -86,10 +135,14 @@ impl Bench {
         let phone_id = uuid::Uuid::new_v4().to_string();
         let phone =
             SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-        Bench { _server: server, phone, mac_id, options, slot: SLOT, rtt_ms }
+        Bench { _server: server, phone, mac_id, options, slot, rtt_ms, profile, duress }
     }
 
     fn delay(&self, on: bool) {
+        if let Some(profile) = &self.profile {
+            set_link_profile(on.then(|| profile.clone()), 0x5052_0000);
+            return;
+        }
         ONE_WAY_MS[self.slot].store(if on { self.rtt_ms / 2 } else { 0 }, Ordering::Relaxed);
     }
 
@@ -118,7 +171,14 @@ impl Bench {
 
 async fn echo(channel: &mut Channel, frame: &'static [u8]) {
     channel.send(Bytes::from_static(frame)).await.unwrap();
-    let back = tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("the first frame");
+    let back = loop {
+        let back =
+            tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("the first frame");
+        // The duress stream's frames (`S...`) are not the echo.
+        if !matches!(back, Some(ChannelEvent::Data(ref bytes)) if bytes.first() == Some(&b'S')) {
+            break back;
+        }
+    };
     assert!(matches!(back, Some(ChannelEvent::Data(ref bytes)) if bytes.as_ref() == frame), "{back:?}");
 }
 
@@ -126,6 +186,10 @@ async fn echo(channel: &mut Channel, frame: &'static [u8]) {
 async fn parked(bench: &Bench, silent: Duration) -> (f64, f64) {
     bench.delay(false);
     let (link, session_id, mut channel) = bench.link_up().await.expect("the phone links up");
+    if bench.duress {
+        channel.send(Bytes::from_static(b"go")).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert!(link.park(Duration::from_secs(600), Duration::from_secs(5)).await.unwrap(), "parked");
     tokio::time::sleep(silent).await;
     bench.delay(true);
@@ -211,4 +275,39 @@ async fn rtt_20ms_after_125s() {
 #[ignore = "measurement"]
 async fn rtt_300ms_after_125s() {
     measure(Bench::start::<3>(300).await, 1, Duration::from_secs(125)).await;
+}
+
+/// Resume against a redial under each named profile, idle and under duress (see the module doc).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement"]
+async fn profiles() {
+    let names = std::env::var("PARK_PROFILES").unwrap_or_else(|_| "lte,lossy-3".into());
+    for name in names.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+        for duress in [false, true] {
+            let bench = Bench::start_profiled(name, duress).await;
+            let samples = 5;
+            let (mut probe, mut first, mut redials, mut redial_failures) =
+                (Vec::new(), Vec::new(), Vec::new(), 0);
+            for _ in 0..samples {
+                let (probed, first_frame) = parked(&bench, Duration::from_secs(2)).await;
+                probe.push(probed);
+                first.push(first_frame);
+                match redial(&bench).await {
+                    Some(ms) => redials.push(ms),
+                    None => redial_failures += 1,
+                }
+            }
+            let (parked_ms, redial_ms) = (median(first.clone()), median(redials.clone()));
+            let (delivered, dropped) = shaped_counts();
+            println!(
+                "PARK_RESUME_PROFILE {}",
+                json!({"profile": name, "duress": duress, "silent_s": 2, "samples": samples,
+                       "parked": {"probe_ms": median(probe), "first_frame_ms": parked_ms, "all_first_frame_ms": first},
+                       "redial": {"first_frame_ms": redial_ms, "all_first_frame_ms": redials,
+                                  "timed_out": redial_failures},
+                       "datagrams_delivered": delivered, "datagrams_dropped": dropped})
+            );
+            set_link_profile(None, 0);
+        }
+    }
 }
