@@ -131,9 +131,18 @@ import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos
 import { clientSpans, hopDurations, readStartTrace, slowestHop, traceMarkdown } from "./cloud-start-trace.ts";
 import { answeredPath, answerTimings, DAEMON_CHECK, MachineFailed, pickVmApiTenant, type StartPath, type StartSample, type StartTarget, startBenchMarkdown, summarize, timeStart, traceFacts } from "./cloud-start-bench.ts";
 
-// The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (4/16/64).
-// A smaller explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
-const CHAT_START_SIZE = Object.freeze({ cpu: 4, memory_mb: 16384, disk_mb: 65536 });
+// The shipped app's CloudMachineCreateFlow.named and the platform's CHAT_START_SHAPE (2/4/20, cmux-platform#1756).
+// Any other explicit ask cannot claim that pool, even when warm-spare just reported a ready machine.
+export const CHAT_START_SIZE = Object.freeze({ cpu: 2, memory_mb: 4096, disk_mb: 20480 });
+/** The "default machine size" step: after the create, cloud.machine.get reads back the chat start size. */
+export const DEFAULT_SIZE_STEP = "default machine size";
+
+/** Null when the size cloud.machine.get recorded is CHAT_START_SIZE on every axis; else what it read. */
+export function defaultSizeProblem(size: { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined): string | null {
+  const read = `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
+  const want = `${CHAT_START_SIZE.cpu}/${CHAT_START_SIZE.memory_mb}/${CHAT_START_SIZE.disk_mb}`;
+  return read === want ? null : `cloud.machine.get size ${read}, not the default ${want} (cpu/memory_mb/disk_mb)`;
+}
 /**
  * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
  * size only and gives one only to a create asking exactly that (cmux-platform Scaler requestShape), so a create at md
@@ -2732,7 +2741,7 @@ const FACTS_READ_MS = 10_000;
 /** The guest's size, measured on it: CPU count, memory and root disk, in the form sizeReadingProblem reads. */
 export const SIZE_READ = "echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)";
 export const COLD_CREATE_STEP = "cold create (asked size)";
-export const JOURNEY_ONLY_STEPS = ["listed", "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
+export const JOURNEY_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP, "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
 export function swiftRawString(source: string, name: string): string {
@@ -4534,6 +4543,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
         return { value: null, detail: `${rows.length} machines${size}` };
+      });
+      // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
+      // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
+      if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
+        const m = await Promise.race([
+          api.read("cloud.machine.get", { machine: created.id }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cloud.machine.get: no answer in 30 s")), 30_000).unref?.()),
+        ]);
+        const why = defaultSizeProblem(m?.size);
+        if (why) throw new Error(why);
+        return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
       });
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the

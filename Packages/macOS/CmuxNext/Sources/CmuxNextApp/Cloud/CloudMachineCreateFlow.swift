@@ -82,10 +82,10 @@ struct CloudMachineCreateFlow {
     /// How long the same-key calls go on after the approval before ``Failure/stillPending`` (the op call's own timeout), read on `now`.
     var patience: Duration = CloudAppOpRunner.timeout, now: @MainActor () -> ContinuousClock.Instant = { .now }
 
-    /// The default machine named `name` (trimmed; empty is none): 4 vCPU, 16 GB of memory and a 64 GB disk, so a
-    /// chat's folder fits (the backend checks the plan); `sizeShown` false when the plan picks the size.
+    /// The default machine named `name` (trimmed; empty is none): 2 vCPU, 4 GB, 20 GB disk, the platform's spare size (cmux-platform#1756),
+    /// so a start claims a warm spare; a larger folder raises the disk (`atLeast`); `sizeShown` false when the plan picks the size.
     static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
-        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 4, memoryMB: 16384, diskMB: 65536, sizeShown: sizeShown, askedBy: askedBy)
+        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 20480, sizeShown: sizeShown, askedBy: askedBy)
     }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
