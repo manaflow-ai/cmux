@@ -53,9 +53,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextPhone/Live/SimulatorHIDTransport.swift	1
 Packages/macOS/CmuxNext/Sources/CmuxNextRemote/SSH/SSHMachineSecrets.swift	2	a Cloud or SSH machine's file (written there over SSH or read by acpmux on that machine), not this Mac's state
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions/RemoteVNCCredentialStore.swift	1	debug VNC credentials of a remote Mac the person typed (CMUX_NEXT_VNC_DEBUG_CREDENTIALS_FILE in tests), an input like the dev sign-in
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigFile.swift	1	its default only: a DEV build's launch sets the variable that names its own file (BuildStatePaths.environment)
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentGuidance.generated.swift	1	text only (help, a description, an error message), no path is read
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance2.generated.swift	2	text only (help, a description, an error message), no path is read
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift	1	text only (help, a description, an error message), no path is read
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+ConfigFiles.swift	1	an input of this Mac read by every build on purpose: the dev sign-in or a third-party app's config (Ghostty), never written
 Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultFiles.swift	1	reads classic cmux's and Ghostty's own config files (input, never written); classic's path is per bundle id
 Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/SingleInstanceGuard.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
