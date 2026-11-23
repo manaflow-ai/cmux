@@ -9571,10 +9571,13 @@ class SpendLess(unittest.TestCase):
     def test_a_dispatch_whose_run_read_finds_the_budget_spent_ends_green(self):
         # The dispatch reads its named run before end_on_spent is set in
         # main(), so a spent budget on that first read waited for the reset
-        # instead of ending as an infra skip.
-        seen, patch = Tokens.refusing(self, [self.spent_refusal()])
+        # instead of ending as an infra skip. One frozen wall clock for the refusal's reset and the limiter's read.
+        now = rescue.time.time()
+        with unittest.mock.patch.object(rescue.time, "time", lambda: now):
+            seen, patch = Tokens.refusing(self, [self.spent_refusal()])
         waits = []
-        with patch, unittest.mock.patch("sys.stderr", io.StringIO()):
+        with patch, unittest.mock.patch("sys.stderr", io.StringIO()), \
+                unittest.mock.patch.object(rescue.time, "time", lambda: now):
             clock = Clock()
             api = rescue.GitHub("repo-token", "o/r")
             api.sleep = waits.append
