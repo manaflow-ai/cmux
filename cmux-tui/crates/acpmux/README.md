@@ -1214,7 +1214,16 @@ the newest build. A daemon that does not answer is started at once, a stamp from
 is ignored, a rollback is never held, and `machine update --now`, `machine setup --now` or `machine
 self-update --now` restarts it anyway. The window is the host's: seconds in
 `~/.acpmux/update.restart-window`, else `ACPMUX_UPDATE_RESTART_WINDOW_SECS` in `acpmux.service`'s
-environment or the host shell's; 0 turns it off. The updates reach the daemon through the
+environment or the host shell's; 0 turns it off. The hour bounds a *forced* restart; the timer's
+update (`machine self-update`) also restarts at the first run that finds no session mid-turn or
+waiting on a permission, even inside the window (the sessions are read before the copy and again
+right before the restart, and the binary goes back if a turn started). A run that finds one busy
+changes nothing (`busy`, reason `restartWindow`) and the first run after the window forces the
+restart as before. It always installs the channel's newest build, so moves that land while it waits
+are one restart, and a window gets at most one such early restart (`~/.acpmux/update.idle-restarted`
+holds the stamp it was made under; the next waits for a restart that was not one). New behaviour,
+default on: `0` in `~/.acpmux/update.idle-restart`, else `ACPMUX_UPDATE_IDLE_RESTART=0` in the
+timer's environment, gives back the plain hour. The updates reach the daemon through the
 `ACPMUX_HOME` and `ACPMUX_SOCKET` that `acpmux.service` and its drop-ins set.
 `--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `held`, `needsBinary`,
 `rolledBack` or `failed`. `machine setup` needs ssh + scp access and a Mac or Linux box with `launchctl`

@@ -616,6 +616,99 @@ async fn a_self_update_and_a_host_update_restart_a_daemon_once_an_hour() {
     peer.assert_only_read(&installed, newer);
 }
 
+/// A self-update of a peer the window holds, pushing `build`, idle or not as
+/// the fake host's `sessions.json` says.
+async fn windowed_apply(peer: &FakePeer, build: &str) -> PeerUpdate {
+    let files = serving(&fake_acpmux(build, Some(build)));
+    let plan = ready(peer, &files).await;
+    apply(peer, &plan, TARGET, false)
+}
+
+const IDLE: &str = r#"{"sessions": []}"#;
+const MID_TURN: &str =
+    r#"{"sessions": [{"name": "w", "status": "running", "turn": {"startedAt": 1}}]}"#;
+
+/// While the window holds and no session is mid-turn, the update goes in at
+/// once, one restart; and a second channel move inside the same window waits
+/// (at most one idle restart per window), so restarts per host per hour stay
+/// at the window's bound plus this one.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_window_that_holds_an_idle_daemon_restarts_it_once() {
+    let peer = FakePeer::new("idle-early");
+    peer.write("sessions.json", IDLE);
+    restarted_ago(&peer, 5 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    let stamp = peer.read(".acpmux/update.restarted");
+    assert_eq!(peer.read(".acpmux/update.idle-restarted").trim(), stamp.trim());
+
+    // A newer build a few minutes on: coalesced into the window's forced restart.
+    let newer = "b2c3d4e5f 2026-10-22";
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, newer).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+
+    // The window's forced restart still comes, as today, newest build.
+    restarted_ago(&peer, 61 * 60);
+    let up = windowed_apply(&peer, newer).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
+}
+
+/// A session mid-turn keeps the window as it is: nothing installed, busy;
+/// the first run after the window forces the restart as before.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_window_that_holds_a_busy_daemon_changes_nothing_until_it_ends() {
+    let peer = FakePeer::new("idle-early-busy");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+    assert!(peer.read(".acpmux/update.idle-restarted").is_empty(), "no early restart was made");
+
+    // Idle a run later: it restarts then.
+    peer.write("sessions.json", IDLE);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+
+    // Busy for the whole window: the forced restart after it, as today.
+    let peer = FakePeer::new("idle-early-forced");
+    peer.write("sessions.json", MID_TURN);
+    restarted_ago(&peer, 61 * 60);
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+}
+
+/// `0` in `~/.acpmux/update.idle-restart` is today's behaviour.
+#[tokio::test]
+#[cfg(unix)]
+async fn the_idle_restart_switch_turns_it_off() {
+    let peer = FakePeer::new("idle-early-off");
+    peer.write("sessions.json", IDLE);
+    peer.write(".acpmux/update.idle-restart", "0\n");
+    restarted_ago(&peer, 5 * 60);
+    let installed = peer.read(".local/bin/acpmux");
+    let up = windowed_apply(&peer, NEW).await;
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Busy, Some("restartWindow")),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(".local/bin/acpmux"), installed, "nothing installed");
+}
+
 /// A person's `--now` (no window) restarts it within the hour.
 #[test]
 #[cfg(unix)]

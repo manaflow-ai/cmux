@@ -20,10 +20,10 @@
 
 use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
-use super::super::{Remote, RemoteOut};
+use super::super::{REMOTE_HOME, Remote, RemoteOut};
 use super::{
-    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, UpdateOptions, embedded_build, is_own_unit,
-    local_target, update_peer,
+    CLOUD_VM_MARK, OWN_UNIT, Outcome, PeerUpdate, RESTART_STAMP, RESTART_WINDOW, UpdateOptions,
+    embedded_build, is_own_unit, local_target, update_peer,
 };
 use crate::cli::output::print_json;
 use anyhow::{Context, Result, anyhow, bail};
@@ -379,7 +379,11 @@ pub(super) fn apply(
         caller: None,
         now,
     };
-    let mut up = update_peer(&plan.lease.fence(remote), &opts);
+    let fenced = plan.lease.fence(remote);
+    let mut up = update_peer(&fenced, &opts);
+    if !now && up.outcome == Outcome::Busy && up.reason.as_deref() == Some(RESTART_WINDOW) {
+        up = idle_restart(&fenced, &opts, up);
+    }
     up.target.get_or_insert(target);
     if up.outcome == Outcome::Current && up.build.is_none() {
         up.build = installed.map(str::to_owned);
@@ -395,6 +399,82 @@ pub(super) fn apply(
         }
     }
     up
+}
+
+/// The file in [`REMOTE_HOME`] that turns [`idle_restart`] off when it says
+/// `0` (else `ACPMUX_UPDATE_IDLE_RESTART` in the timer's environment).
+pub(crate) const IDLE_RESTART_FILE: &str = "update.idle-restart";
+
+/// The file in [`REMOTE_HOME`] that holds the [`RESTART_STAMP`] an idle
+/// restart was made under: the window that stamp opened has had its one
+/// early restart.
+pub(crate) const IDLE_RESTARTED_FILE: &str = "update.idle-restarted";
+
+/// Starts the lines [`idle_state`] reads.
+const IDLE_STATE: &str = "ACPMUX_IDLE_STATE=";
+
+/// The host's idle-restart switch, restart stamp, and the stamp an idle
+/// restart was made under, as one line `off|on stamp spent`.
+fn idle_state(remote: &dyn Remote) -> Option<(bool, String, String)> {
+    let script = format!(
+        r#"v=$(cat {REMOTE_HOME}/{IDLE_RESTART_FILE} 2>/dev/null | tr -cd '0-9a-z')
+[ -n "$v" ] || v=$(printf '%s' "${{ACPMUX_UPDATE_IDLE_RESTART-}}" | tr -cd '0-9a-z')
+[ "$v" = 0 ] && o=off || o=on
+s=$(cat {REMOTE_HOME}/{RESTART_STAMP} 2>/dev/null | tr -cd '0-9')
+d=$(cat {REMOTE_HOME}/{IDLE_RESTARTED_FILE} 2>/dev/null | tr -cd '0-9')
+echo "{IDLE_STATE}$o ${{s:-0}} ${{d:-0}}"
+"#
+    );
+    let out = remote.exec(&script, None).ok()?;
+    let line = out.stdout.lines().find_map(|l| l.strip_prefix(IDLE_STATE))?;
+    let mut words = line.split(' ');
+    let off = words.next()? == "off";
+    Some((off, words.next()?.to_owned(), words.next()?.to_owned()))
+}
+
+/// The restart window held the daemon (`up`, busy `restartWindow`): the
+/// window bounds a FORCED restart, but a daemon that is idle has nothing to
+/// wake, so the update goes in now, at the first run that finds no session
+/// mid-turn or waiting on a permission (`if_idle`: read before the copy and
+/// again right before the restart, and the binary goes back when a turn
+/// started). A run that finds one busy leaves `up` (busy, `restartWindow`):
+/// the window's forced restart applies as before, and a later run that finds
+/// the daemon idle takes this path again. This path always installs the
+/// channel's newest build, so moves that landed while it waited are one
+/// restart. At most one idle restart per window: a restart made this way
+/// writes [`IDLE_RESTARTED_FILE`] with the new stamp, and the next idle
+/// restart waits for a restart that is not one (a forced one after the
+/// window). Off with `0` in [`IDLE_RESTART_FILE`] or `ACPMUX_UPDATE_IDLE_RESTART`.
+fn idle_restart(remote: &dyn Remote, opts: &UpdateOptions, held: PeerUpdate) -> PeerUpdate {
+    let Some((false, stamp, spent)) = idle_state(remote) else {
+        return held;
+    };
+    if stamp == spent {
+        return held;
+    }
+    let early = UpdateOptions {
+        binary_dir: opts.binary_dir.clone(),
+        if_idle: true,
+        keep_newer: opts.keep_newer,
+        allow_downgrade: opts.allow_downgrade,
+        caller: None,
+        now: true,
+    };
+    let up = update_peer(remote, &early);
+    if let Some((_, after, _)) = idle_state(remote)
+        && after != stamp
+    {
+        let file = format!("{REMOTE_HOME}/{IDLE_RESTARTED_FILE}");
+        let _ = remote.exec(
+            &format!("(umask 077 && echo {after} > {file}.$$ && mv -f {file}.$$ {file})"),
+            None,
+        );
+    }
+    match (up.outcome, up.reason.as_deref()) {
+        // Mid-turn: the window's answer stands, as it reads to the person.
+        (Outcome::Busy, Some("busy" | "unknown")) => held,
+        _ => up,
+    }
 }
 
 /// This machine as a [`Remote`]: a script runs under `sh -c` in the home
