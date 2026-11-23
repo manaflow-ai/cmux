@@ -295,7 +295,7 @@ impl Manifest {
     /// A manifest of `entries` already laid out as [`Manifest::build`] lays them, checked as a
     /// decode checks them.
     pub(crate) fn from_entries(entries: Vec<Entry>) -> anyhow::Result<Self> {
-        let manifest = Self { entries };
+        let manifest = Self { entries, kept: BTreeMap::new() };
         manifest.check()?;
         Ok(manifest)
     }
