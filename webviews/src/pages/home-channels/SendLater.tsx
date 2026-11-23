@@ -4,6 +4,7 @@
 // queues the message for then on the local owner (scheduled.ts). The same picker changes the time
 // of a message already scheduled.
 import { useState } from "react";
+import { intl } from "../../ui/intl";
 import { Popover, type UiAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 
@@ -48,7 +49,7 @@ export function sendLaterTime(at: number, now: Date, language: string): string {
             day: "numeric",
             ...(when.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
           };
-  return new Intl.DateTimeFormat(language, options).format(when);
+  return intl.DateTimeFormat(language, options).format(when);
 }
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
