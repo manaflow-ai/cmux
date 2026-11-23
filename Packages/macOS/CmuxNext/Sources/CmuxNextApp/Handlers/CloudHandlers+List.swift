@@ -119,11 +119,9 @@ extension CloudHandlers {
         let machine = session.machine
         var facts: [String: Any] = [
             "machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue, "state": stats.state,
-            "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any,
-            "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any,
-            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop,
-            // The record's size and idle pause, for `cmux vm redo` (the stats' `cpus` is not the record's).
-            "cpu": machine.size?.cpu as Any, "memoryMb": machine.size?.memoryMb as Any, "idlePauseMinutes": machine.idlePauseMinutes as Any,
+            "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any, // `cpu`/`memoryMb`: the record's size (`vm redo`)
+            "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any, "cpu": machine.size?.cpu as Any,
+            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop, "memoryMb": machine.size?.memoryMb as Any, "idlePauseMinutes": machine.idlePauseMinutes as Any,
         ]
         if let cost = CloudCreationRows.cost(machine, limits: nil) {
             facts["cost"] = ["hourlyRateUsd": cost.hourlyRateUsd as Any, "runningSince": cost.runningSince?.timeIntervalSince1970 as Any,
