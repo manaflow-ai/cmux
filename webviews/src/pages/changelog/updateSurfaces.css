@@ -318,20 +318,25 @@
   .wn-card:not(.wn-updated) { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
 }
 
-/* The Updated card as the composer's twin (Leo 2026-11-07: "the border styles, the glass intensity
-   is different. For two, it's like the heights never match up with anything"): the composer's
-   material (ui/glass/composerMaterial.css: its fill at the popover level's share, its one-pixel
-   edge and its top-lit rim), its one-line height (grid.md 5.1, 48) and its corner. The words sit on
-   two lines inside it: "Updated to Nightly · What's New ↗", then the update's top change, each cut
-   at the card's edge (the hover preview has every change in full). Wider side room than the
-   button-row card (Leo: "a little more spacing regarding, like, the things in the side"). */
+/* The Updated card wears the composer's material (Leo 2026-11-07: "the border styles, the glass
+   intensity is different"): ui/glass/composerMaterial.css, its fill at the popover level's share
+   (the art share over a background picture or a see-through window, so the picture shows through
+   it as it does through the composer), its one-pixel edge and its top-lit rim. Its shape is its own
+   (Leo 2026-11-23, ask-33e37575cb: "the fuck is a pill with 2 lines supposed to be for anyways?"):
+   one line, "Updated to Nightly" then What's New at the trailing end (UpdatedCardShape `row`), in
+   the one-line composer's box (grid.md 5.1, 48: Leo 2026-11-07, "the exact same height as the
+   composer") as the composer holds its one line, at the card corner (--grid-card-radius, 16: a
+   third of the box, never a capsule). The composer's 22 is half its round controls plus the inset,
+   and this card has no round controls. Every change of the update is one hover away. Wider side
+   room than the button-row card (Leo: "a little more spacing regarding, like, the things in the
+   side"). */
 .wn-card.wn-updated {
   --wn-side: calc(var(--grid-base, 4px) * 3);
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  border-radius: var(--composer-material-radius);
+  border-radius: var(--grid-card-radius, 16px); /* concentric-allow: the card's own corner, a third of its box; its x derives from it */
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
@@ -344,7 +349,7 @@
 /* The card with the theme's doodle decoration wears the same material: the sidebar draws no glass
    under the card's page (review F3 of #37615). Its own box and padding stay the doodle's. */
 .wn-card[data-decoration="doodle"] {
-  border-radius: var(--composer-material-radius);
+  border-radius: var(--grid-card-radius, 16px); /* concentric-allow: the card's own corner, a third of its box */
   background: var(--composer-material-tint);
   box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
 }
@@ -384,13 +389,14 @@
   height: var(--composer-material-height);
   padding: 0 var(--wn-side);
 }
+/* One line: centred in the box, as the composer's one line. */
 /* The same room on all four sides of the words (Lawrence 2026-11-07, "feels like too much padding on
    top"): centred with their line boxes' leading, the title's capitals sat further from the top than
    the note's baseline from the bottom. Each line is trimmed to its capitals and its baseline, and the
    lines stand the side inset in from the top and the bottom, the space between them taking the rest
    of the composer's box. Lines clip only sideways, so a trimmed line's descenders still show. */
 @supports (text-box: trim-both cap alphabetic) {
-  .wn-updated:not([data-placement="button"]) .wn-card-rest {
+  .wn-updated[data-shape="two-line"]:not([data-placement="button"]) .wn-card-rest {
     justify-content: space-between;
     padding-block: var(--wn-side);
   }
@@ -438,7 +444,11 @@
   transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
 }
 .wn-card-link:hover { color: var(--page-text); }
-.wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
+.wn-updated:is([data-placement="top-right"], [data-shape="row"]) .wn-card-link { margin-left: auto; }
+/* The top change on the title's line (`row-change`): after the title, in the quiet ink, cut at the
+   edge; the title keeps its words. */
+.wn-updated[data-shape="row-change"] .wn-card-title { flex: none; }
+.wn-updated[data-shape="row-change"] .wn-card-head > .wn-card-note { flex: 1; min-width: 0; color: var(--page-text-2); }
 .wn-updated .wn-card-note {
   display: block;
   margin: 0;
