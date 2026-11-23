@@ -36,4 +36,22 @@ struct AccessoryTraceTests {
         for o in [1.0, 0.6, 0.3, 0.0] { still.note(opacity: o, scale: 1) }
         #expect(!still.summary(toOverview: true).ridesZoom)
     }
+
+    @Test func keyboardDroppingMidZoomIsAJump() {
+        // The row's bottom glides with the zoom, then the keyboard (300 pt)
+        // leaves while it is still visible and the row relayouts in one frame.
+        var jumped = AccessoryTrace()
+        let frames: [(Double, Double, Double)] = [(1, 1, 500), (0.8, 0.9, 490), (0.5, 0.8, 780), (0.2, 0.7, 770), (0, 0.6, 760)]
+        for (o, s, b) in frames { jumped.note(opacity: o, scale: s, bottom: b) }
+        let j = jumped.summary(toOverview: true)
+        #expect(!j.ridesZoom && j.maxStep == 290)
+        // The same glide with no relayout rides.
+        var smooth = AccessoryTrace()
+        for (i, (o, s, _)) in frames.enumerated() { smooth.note(opacity: o, scale: s, bottom: 500 - Double(i) * 10) }
+        #expect(smooth.summary(toOverview: true).ridesZoom)
+        // A jump after the row is gone (opacity 0 both sides) is not seen.
+        var late = AccessoryTrace()
+        for (o, s, b) in [(1.0, 1.0, 500.0), (0.5, 0.9, 490), (0, 0.8, 480), (0, 0.7, 780)] { late.note(opacity: o, scale: s, bottom: b) }
+        #expect(late.summary(toOverview: true).ridesZoom)
+    }
 }

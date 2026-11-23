@@ -323,16 +323,28 @@ struct AgentChatsScreen: View {
         }
     }
 
+    /// A dropped or quiet link (``AgentChatsModel/reconnecting``, already past the quiet gate):
+    /// a chip floating over the top of the list, never a row in it (Leo, 2026-11-21: "these
+    /// messages should not be pushing up the text ... a symbol or short thing, not a sentence.
+    /// stop layout shifting").
+    private var linkChip: some View {
+        Group {
+            if model.reconnecting {
+                ConnectionChip((model.stale ? ListStatusRow.State.stale : .reconnecting).chip)
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("agentChats.reconnecting")
+                    .transition(.opacity)
+            }
+        }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: model.reconnecting)
+    }
+
     private var list: some View {
         let rows = model.visible
         return List {
-            // The kept rows show while the Mac's newest page loads; a plain refresh says "Updating…"
-            // in the nav bar subtitle (see body), so no row is inserted above them and nothing
-            // shifts. A dropped or quiet link still says so here, in its own row.
-            if model.reconnecting {
-                ListStatusRow(model.stale ? .stale : .reconnecting)
-                    .accessibilityIdentifier("agentChats.reconnecting")
-            }
+            // The kept rows show while the Mac's newest page loads; "Updating…" is the nav bar
+            // subtitle (see body) and a dropped link is a chip over the list (``linkChip``), so
+            // no row is inserted above them and nothing shifts.
             ForEach(rows) { chat in
                 row(chat)
             }
@@ -355,6 +367,7 @@ struct AgentChatsScreen: View {
             }
         }
         .listStyle(.insetGrouped)
+        .overlay(alignment: .top) { linkChip }
         .overlay {
             if rows.isEmpty, model.nextCursor == nil {
                 emptyState

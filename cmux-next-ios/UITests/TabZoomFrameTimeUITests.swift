@@ -107,6 +107,31 @@ final class TabZoomFrameTimeUITests: XCTestCase {
         XCTAssertTrue(rowFailures.isEmpty, "the composer row rides every zoom:\n" + rowFailures.joined(separator: "\n"))
     }
 
+    /// The composer focused and the keyboard up: the keyboard covers the
+    /// toolbar, so the tabs button can't start a zoom while it is up and the
+    /// keyboard never leaves mid-zoom from that button. Dropping the keyboard
+    /// brings the button back, and the zoom then runs as in the test above.
+    @MainActor
+    func testTabsButtonWithKeyboardUp() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
+        app.launch()
+
+        let field = app.textViews["terminal.composer.field"]
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "the terminal's composer\n\(app.debugDescription)")
+        let tabs = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
+        XCTAssertTrue(tabs.waitForExistence(timeout: 15) && tabs.isHittable, "the tabs button before the keyboard")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard up")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let shown = XCTAttachment(screenshot: app.screenshot())
+        shown.name = "keyboard-up"
+        shown.lifetime = .keepAlways
+        add(shown)
+        XCTAssertFalse(tabs.exists && tabs.isHittable, "the keyboard covers the tabs button\n\(app.debugDescription)")
+    }
+
     /// The app's `Documents/tabs-zoom-frames.jsonl`, found in the booted simulator's data containers.
     static func logFile() -> URL? {
         guard let root = ProcessInfo.processInfo.environment["SIMULATOR_SHARED_RESOURCES_DIRECTORY"] else { return nil }

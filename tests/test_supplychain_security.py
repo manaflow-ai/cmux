@@ -20,7 +20,9 @@ SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
 # The Blacksmith outage failover reads a variable but only ever picks another
 # Blacksmith Linux size (an ephemeral VM, never a persistent runner).
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| "
+    # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py): fork runs only.
+    r"|github\.event\.pull_request\.head\.repo\.full_name != github\.repository && \(vars\.CI_FORK_LINUX_RUNNER \|\| '[^']+'\)")
 
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
