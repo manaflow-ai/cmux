@@ -37,15 +37,15 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     });
     b.tool("Find the reader end of the pipe", { ms: 350 });
     b.subagent("Fix doubled handbook row on hq main", { ms: 2_500, report: "finished" });
-    b.steer("not sure why there are 595 held for you", { after: 300, readAfter: 1_200 });
+    b.steer("not sure why there are 595 held for you", { after: 300, readMs: 1_200 });
     b.tool("Inspect tail and parent processes", { ms: 300 });
     b.think("I'm puzzled why tail -3 seems alive but isn't reading.", { chunks: 2 });
     b.say("Leo's question first: why 595 messages are held for me.", { chunks: 2 });
     for (let call = 0; call < 3; call += 1) b.tool(`Show acpmux inbox step ${call + 1}`, { ms: 250 + call * 150 }, 150);
     b.think("I'm looking for where the held count in the chat UI comes from.", { chunks: 2 });
     b.subagent("Summarize held inbox messages by sender", { ms: 1_800, report: "finished" });
-    b.steer("and the pill keeps popping in and out", { after: 200, readAfter: 800 });
-    b.steer("remove it", { after: 400, readAfter: 600 });
+    b.steer("and the pill keeps popping in and out", { after: 200, readMs: 800 });
+    b.steer("remove it", { after: 400, readMs: 600 });
     b.tool("Show my acpmux session info", { ms: 300 });
     b.think("Both steers ask for the same thing.", { chunks: 2 });
     for (let call = 0; call < 4; call += 1) b.tool(`rg -n held src/part${call}.ts`, { ms: 200 + call * 100 }, 120);
