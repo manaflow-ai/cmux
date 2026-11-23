@@ -701,6 +701,13 @@ impl Hub {
             self.question_reply_pending(session, &prompt_id, asker, subagent, class, reads)
         };
         if steer_now {
+            // A steer names `@computer-use` only while Computer Use is ready: a queued prompt
+            // sent now steers from here (`steer_queued`), whose caller logs the refusal
+            // (`computer_use_gate.rs`). Only the person's words: another agent's message may name the
+            // tool in passing, and the person never asked for it there.
+            if agent.is_none() {
+                self.computer_use_gate.check(&blocks)?;
+            }
             if cloud_turn.is_some() {
                 return Err(RpcError::invalid_params(
                     "a captured cloud turn cannot steer another turn",
@@ -804,6 +811,16 @@ impl Hub {
         let web = control == Control::Web;
         let read = crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await;
         if let Err(e) = read {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
+        // Its words as they are now (a queue edit may have changed them) name `@computer-use`
+        // only while Computer Use is ready: a queued prompt that starts, a Retry, a side question
+        // (`computer_use_gate.rs`). Refused as the other dispatch checks refuse it. Only the person's
+        // words: another agent's message may name the tool in passing.
+        let gate = if run.agent.is_none() { self.computer_use_gate.check(&blocks) } else { Ok(()) };
+        if let Err(e) = gate {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);

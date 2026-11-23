@@ -318,6 +318,8 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize, editor)?)
             }
             "send_now" => {
+                // It stays queued while it names `@computer-use` and Computer Use is not ready.
+                self.queued_computer_use_check(session, prompt_id)?;
                 // One of the agent's own commands (`/compact`) runs only as a turn of its own:
                 // steered in, Claude Code reads it as words and thinks about them instead (Leo,
                 // 2026-11-03: "this should have just started compacting"). Send now on one stops
@@ -334,6 +336,7 @@ impl Hub {
                 json!(sent.is_some())
             }
             "interrupt" => {
+                self.queued_computer_use_check(session, prompt_id)?;
                 let sent = self.interrupt_for_queued(session, prompt_id, editor).await?;
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
@@ -354,6 +357,20 @@ impl Hub {
         };
         reply.set("ok", new_value);
         Ok(reply)
+    }
+
+    /// [`crate::computer_use_gate::Gate::check`] of a waiting prompt's words; `Ok` when it no
+    /// longer waits (the op answers that itself).
+    fn queued_computer_use_check(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Result<(), RpcError> {
+        let run = {
+            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            queue.iter().find(|q| q.prompt_id == prompt_id).map(|q| q.run.clone())
+        };
+        run.map_or(Ok(()), |run| self.computer_use_gate.check(&run.blocks))
     }
 
     /// Whether a waiting prompt holds a secret (`secret_scan`). A peer reads it
@@ -401,6 +418,9 @@ impl Hub {
             // note follows the edited words (`tool_mentions.rs`), so it comes or goes with them.
             crate::prompt_context::strip_marks(&mut blocks);
             crate::tool_mentions::add_note(&mut blocks);
+            // An edit that names `@computer-use` while Computer Use is not ready is refused: the
+            // prompt waits with its old words (`computer_use_gate.rs`).
+            self.computer_use_gate.check(&blocks)?;
             let text = prompt_text(&blocks);
             // Its images keep their names and their original files (`moved_display_parts`),
             // checked again against the blocks they name now.

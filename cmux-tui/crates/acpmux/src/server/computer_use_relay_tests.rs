@@ -112,3 +112,19 @@ fn a_lost_link_is_retryable_and_a_peer_refusal_keeps_its_code() {
     );
     assert_eq!(refused.data.unwrap()["code"], "computer_use_remote_denied");
 }
+
+/// Only the verified local app says this Mac's Computer Use state (`computer_use_gate.rs`).
+#[test]
+fn only_the_local_app_sets_the_computer_use_state() {
+    assert!(app_sets_state(Origin::LocalApp, ConnAuth::LocalApp));
+    for (origin, auth) in [
+        (Origin::Local, ConnAuth::LocalSocket),
+        (Origin::Web, ConnAuth::ListenerToken),
+        (Origin::Web, ConnAuth::LocalApp),
+        (Origin::LocalApp, ConnAuth::ListenerToken),
+        (Origin::Peer, ConnAuth::PeerToken),
+        (Origin::Peer, ConnAuth::Device),
+    ] {
+        assert!(!app_sets_state(origin, auth), "{origin:?} {auth:?}");
+    }
+}

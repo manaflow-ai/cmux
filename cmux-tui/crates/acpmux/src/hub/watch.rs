@@ -492,6 +492,11 @@ impl Hub {
         at: Option<u64>,
         bridged: Option<String>,
     ) -> WatchedTurn {
+        // A bridged prompt's hidden notes (the tools note, the workspace note) ride in the one
+        // text the app was sent; a daemon that restarted before this line came no longer knows
+        // the delivery (`bridge.rs` `delivered_text`), so its full text comes here: the
+        // transcript shows only the words before them (`prompt_context.rs`).
+        let text = crate::prompt_context::without_trailing_context(text);
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
         let client = if bridged.is_some() { "bridge" } else { "watch" };
         let prompt_id = bridged.unwrap_or_else(|| format!("{turn_id}-prompt"));
@@ -750,6 +755,60 @@ mod tests {
             records.iter().any(|e| e.kind == "user_message" && e.msg["text"] == "watched prompt"),
             "the batch read again was stored"
         );
+        hub.shutdown_all().await;
+    }
+
+    /// A Codex desktop line whose delivery a restarted daemon no longer knows still hides the
+    /// prompt's notes: the transcript shows the person's words only.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_watched_prompt_after_a_restart_hides_its_context_notes() {
+        use crate::config::{Config, StoreMode};
+
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub
+            .new_session(crate::hub::NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.agent_session_id = Some("01a1bf30-0000-7000-8000-00000000beef".to_owned());
+            meta.tags.insert(
+                "bridge".into(),
+                crate::store::Tag { value: "codex".into(), expires_at: None },
+            );
+            meta.watching = Some(Watching {
+                family: "codex".to_owned(),
+                file: std::env::temp_dir().join("watched-codex-notes.jsonl"),
+                offset: 0,
+                codex_items: false,
+                open: None,
+            });
+        }
+        let note = crate::tool_mentions::note(&["computer-use"]).unwrap();
+        let sent = format!(
+            "open Notes with @computer-use\n\n<cmux-workspace-context>W</cmux-workspace-context>\n\n{note}"
+        );
+        let line = json!({"type": "response_item", "payload": {"type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": sent}],
+            "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}})
+        .to_string();
+        assert!(hub.show_watched(&session, &[line], 64).await);
+        let records = hub.events(&session.id, 0, 100).unwrap();
+        let user = records.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
+        assert_eq!(user.msg["text"], "open Notes with @computer-use");
+        let started = records.iter().find(|e| e.kind == "turn_started").unwrap();
+        assert_eq!(started.msg["prompt"], "open Notes with @computer-use");
         hub.shutdown_all().await;
     }
 

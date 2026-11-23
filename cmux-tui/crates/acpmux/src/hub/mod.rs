@@ -1392,6 +1392,9 @@ pub struct Hub {
     /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
     /// (`page_replies.rs`).
     pub(crate) page_replies: page_replies::PageReplies,
+    /// This Mac's Computer Use state as the app last said it, which holds a prompt that names
+    /// `@computer-use` (`computer_use_gate.rs`).
+    pub(crate) computer_use_gate: crate::computer_use_gate::Gate,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -1697,6 +1700,7 @@ impl Hub {
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
+            computer_use_gate: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),

@@ -58,7 +58,7 @@ export function toolWords(text: string): { start: number; end: number; href: str
   if (!text.includes("@")) return [];
   const out: { start: number; end: number; href: string }[] = [];
   for (const match of text.matchAll(
-    /(^|[\s\uFFFC(["'])@(computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)\]"']|\.(?:\s|$))/gi,
+    /(^|[\s\uFFFC(["'\u201C\u2018])@(computer-use|browser-use)(?=[\s\uFFFC]|$|[,;:!?)\]"'\u201D\u2019]|\.(?:\s|$))/gi,
   )) {
     const start = match.index! + match[1]!.length;
     out.push({ start, end: start + 1 + match[2]!.length, href: TOOL_HREF_PREFIX + match[2]!.toLowerCase() });
@@ -96,75 +96,99 @@ export function toolMentionsIn(text: string): readonly ToolMentionId[] {
   const found = new Set<string>();
   // Markdown's emphasis around it (`**@computer-use**`) is no part of the word, the badge drew it the
   // same; emphasis then more letters (`@computer-use_notes`) is another word.
-  // A bracket or quote before it (`(@computer-use)`) is punctuation, not part of another word. The same
-  // rule as acpmux's tool_mentions.rs, which writes the agent's note: tool_mention_cases.json holds both.
+  // A bracket or quote before it (`(@computer-use)`, `“@computer-use”`) is punctuation, not part of
+  // another word; a block quote's marker (`>@computer-use`) is blanked by `withoutCode`. The same rule
+  // as acpmux's tool_mentions.rs, which writes the agent's note: tool_mention_cases.json holds both.
   for (const match of prose.matchAll(
-    /(^|[\s\uFFFC(["'])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)\]"']|\.(?:\s|$)))/gi,
+    /(^|[\s\uFFFC(["'\u201C\u2018])[*_~]*[@$](computer-use|browser-use)(?=[*_~]*(?:[\s\uFFFC]|$|[,;:!?)\]"'\u201D\u2019]|\.(?:\s|$)))/gi,
   ))
     found.add(match[2]!.toLowerCase());
   return TOOL_MENTIONS.filter((tool) => found.has(tool.id)).map((tool) => tool.id);
 }
 
-/// `text` with its code blanked (line breaks kept), as CommonMark reads it: fenced blocks (`fenceLines`),
-/// then inline code spans (slashCommands.ts codeSpans, `` ` `` runs too). One pass each, whatever the
-/// draft's size.
+/// `text` as prose: each line's container markers (`>`, a list item's marker and indent) and its fenced
+/// code blanked (`fenceLines`), then the inline code spans of each paragraph (slashCommands.ts codeSpans,
+/// `` ` `` runs too), which a container's markers never end (`> run \`a` then `> b\` now` is one span).
+/// Line breaks are kept and tabs read as spaces; only the mentions in it are read. One pass each,
+/// whatever the draft's size.
 function withoutCode(text: string): string {
   const lines = text.split("\n");
-  const code = fenceLines();
-  for (let index = 0; index < lines.length; index++) {
-    if (code(lines[index]!)) lines[index] = lines[index]!.replace(/[^\n]/g, " ");
-  }
-  const fenced = lines.join("\n");
-  const spans = codeSpans(fenced);
-  if (!spans.length) return fenced;
-  const out: string[] = [];
+  const read = fenceLines();
+  const breaks: number[] = [];
   let at = 0;
+  for (let index = 0; index < lines.length; index++) {
+    const wide = expandTabs(lines[index]!);
+    const line = read(wide);
+    if (index > 0 && !line.continues) breaks.push(at);
+    lines[index] = line.code ? blankOut(wide) : blankOut(wide.slice(0, line.start)) + wide.slice(line.start);
+    at += lines[index]!.length + 1;
+  }
+  const prose = lines.join("\n");
+  const spans = codeSpans(prose, breaks);
+  if (!spans.length) return prose;
+  const out: string[] = [];
+  at = 0;
   for (const span of spans) {
-    out.push(fenced.slice(at, span.start), fenced.slice(span.start, span.end).replace(/[^\n]/g, " "));
+    out.push(prose.slice(at, span.start), blankOut(prose.slice(span.start, span.end)));
     at = span.end;
   }
-  out.push(fenced.slice(at));
+  out.push(prose.slice(at));
   return out.join("");
 }
+
+/// Each character of `text` as a space, line breaks kept.
+function blankOut(text: string): string {
+  return text.replace(/[^\n]/g, " ");
+}
+
+/// One line as `fenceLines` read it: whether it is a fenced block's (its opening, content or closing),
+/// where its content starts after its container markers, and whether it goes on with the paragraph of
+/// the line before (no blank line, block start, new or closed container between them).
+type FenceLine = { code: boolean; start: number; continues: boolean };
 
 /// The fenced code blocks of a text, line by line, as CommonMark reads them inside its containers
 /// (acpmux's tool_mentions.rs `Fences` keeps the same rules). A block quote (`>`) holds a line that
 /// carries its marker; a list item (`-`, `*`, `+`, `1.`, `1)`) holds a blank line and one indented to
 /// its content. A fence opened in a container ends with it: lazy continuation is only for a paragraph,
 /// so `> ~~~` then a line without `>` is prose again. Inside its container, a fence closes at a line of
-/// its mark at least as long, indented at most three spaces. Tabs count to the next multiple of four
-/// columns. The reader it returns says, for each next line, whether it is a fenced block's.
-function fenceLines(): (line: string) => boolean {
+/// its mark at least as long, indented at most three spaces. The reader it returns reads each next line,
+/// its tabs expanded (`expandTabs`).
+function fenceLines(): (wide: string) => FenceLine {
   // The open containers, outermost first: undefined a block quote, a number a list item whose content
   // starts that many columns into its parent's.
   const open: (number | undefined)[] = [];
   let fence: { mark: string; length: number } | undefined;
   // The last line was paragraph text, which a lazy line continues.
   let paragraph = false;
-  return (line) => {
-    const [matched, rest] = matchOpen(open, expandTabs(line));
+  return (wide) => {
+    const [matched, rest] = matchOpen(open, wide);
+    const start = (rest: string) => wide.length - rest.length;
     if (fence) {
       if (matched === open.length) {
         if (closes(rest, fence.mark, fence.length)) fence = undefined;
-        return true;
+        return { code: true, start: start(rest), continues: false };
       }
       // Its container ended, so the fence did too.
       fence = undefined;
       paragraph = false;
     }
-    if (matched < open.length) {
-      if (paragraph && !blank(rest) && !startsBlock(rest)) return false;
+    const closed = matched < open.length;
+    if (closed) {
+      // A lazy line goes on with the paragraph.
+      if (paragraph && !blank(rest) && !startsBlock(rest)) return { code: false, start: start(rest), continues: true };
       open.length = matched;
     }
+    const before = open.length;
     const after = openNew(open, rest);
     const opened = opens(after);
     if (opened) {
       fence = opened;
       paragraph = false;
-      return true;
+      return { code: true, start: start(after), continues: false };
     }
-    paragraph = !blank(after);
-    return false;
+    const continues = paragraph && !closed && open.length === before && !blank(after) && !startsBlock(after);
+    paragraph = !blank(after) && !heading(after);
+    return { code: false, start: start(after), continues };
   };
 }
 
@@ -271,7 +295,12 @@ function startsBlock(rest: string): boolean {
   const n = spaces(rest);
   if (n > 3) return false;
   const after = rest.slice(n);
-  return after.startsWith(">") || listMarker(after) !== undefined || !!opens(rest) || /^#{1,6}(?: |\r?$)/.test(after);
+  return after.startsWith(">") || listMarker(after) !== undefined || !!opens(rest) || heading(rest);
+}
+
+/// Whether `rest` is an ATX heading: at most three spaces, 1 to 6 `#`, then a space or the end.
+function heading(rest: string): boolean {
+  return /^ {0,3}#{1,6}(?: |[ \r]*$)/.test(rest);
 }
 
 const NOTES: Record<ToolMentionId, string> = {

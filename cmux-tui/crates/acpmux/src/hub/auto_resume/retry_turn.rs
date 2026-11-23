@@ -251,6 +251,20 @@ impl Hub {
                 vec![json!({"type": "text", "text": continue_text(&error, reason)})]
             }
         };
+        // Rebuilt words that name `@computer-use` wait for Computer Use to be ready
+        // (`computer_use_gate.rs`): refused as a refused retry is, and the failed turn stays.
+        if let Err(e) = self.computer_use_gate.check(&blocks) {
+            self.clear_fired(session, &cut_turn);
+            if auto.is_none() {
+                self.append_quiet(
+                    session,
+                    "mux",
+                    "auto_resume_settled",
+                    json!({"turnId": cut_turn, "why": "manual_refused"}),
+                );
+            }
+            return Err(e);
+        }
         let held = self.held_by(session, &root, &cut_turn);
         let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
         if auto.is_none() {

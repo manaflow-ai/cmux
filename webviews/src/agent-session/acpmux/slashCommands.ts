@@ -166,12 +166,13 @@ export function codeSpanAt(
   }
 }
 
-/// The inline code spans of `text`, in order.
-export function codeSpans(text: string): CodeSpan[] {
+/// The inline code spans of `text`, in order. `breaks`, the starts of the lines that end a paragraph,
+/// defaults to `blockBreaks`; a caller that reads the text's containers gives its own (toolMentions.ts).
+export function codeSpans(text: string, breaks?: readonly number[]): CodeSpan[] {
   const spans: CodeSpan[] = [];
   if (!text.includes("`")) return spans;
   const unclosed = new Set<number>();
-  const breaks = blockBreaks(text);
+  breaks ??= blockBreaks(text);
   for (let at = 0; at < text.length;) {
     if (text[at] !== "`") {
       at++;

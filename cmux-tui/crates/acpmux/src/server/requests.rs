@@ -1588,6 +1588,11 @@ async fn dispatch_request_with_identity(
         // Computer Use on another of the person's machines (`computer_use_relay.rs`).
         method::MUX_COMPUTER_USE_CALL => super::computer_use_relay::call(hub, conn, &params).await,
         method::MUX_COMPUTER_USE_MACHINES => super::computer_use_relay::machines(hub, conn).await,
+        // With `state`, the app says this Mac's state, which holds `@computer-use` prompts
+        // (`computer_use_gate.rs`); without, a peer reads it.
+        method::MUX_COMPUTER_USE_STATE if params.get("state").is_some() => {
+            super::computer_use_relay::set_state(hub, conn, &params)
+        }
         method::MUX_COMPUTER_USE_STATE => super::computer_use_relay::state(hub, conn).await,
         method::SESSION_NEW => {
             // A peer name in _meta.acpmux.peer creates the session on that daemon.
@@ -1980,6 +1985,31 @@ async fn dispatch_request_with_identity(
             let notice = crate::prompt_provenance::notice_checked(&params)?;
             if notice.is_some() && web {
                 return Err(crate::prompt_provenance::notice_origin_refused());
+            }
+            // Held while this Mac's Computer Use is not ready, from any origin, the app's journal
+            // replay too (`computer_use_gate.rs`). A resend of a prompt the chat already took
+            // answers as it did: it passed the check when it came.
+            // Only the person's words: another agent's message or a tool's notice may name the tool
+            // in passing, and the person never asked for it there.
+            let gate = if given_provenance || notice.is_some() {
+                Ok(())
+            } else {
+                hub.computer_use_gate.check(&blocks)
+            };
+            if let Err(e) = gate {
+                let id = mux_meta(&params)
+                    .and_then(|m| m.get("promptId"))
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned);
+                let Some(id) = id else { return Err(e) };
+                // Reads the log: off the runtime, as `prompt_uploads` reads it.
+                let (hub, s) = (hub.clone(), s.clone());
+                let known =
+                    tokio::task::spawn_blocking(move || hub.knows_prompt(&s, &id, true)).await;
+                if !matches!(known, Ok(true)) {
+                    return Err(e);
+                }
             }
             let notice_sender = notice
                 .as_ref()

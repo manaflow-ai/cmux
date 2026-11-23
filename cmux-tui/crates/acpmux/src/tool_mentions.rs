@@ -6,6 +6,9 @@
 //! a text-only side question, a Sandboxed run and a queue edit, none of which keep a client's
 //! context.
 //!
+//! A prompt that names `@computer-use` while this Mac's Computer Use is not ready is refused
+//! before its agent sees it, on every route (`computer_use_gate.rs`).
+//!
 //! The rules match the web page's parser (webviews/src/agent-session/acpmux/toolMentions.ts
 //! `toolMentionsIn`); `tool_mention_cases.json` is the contract both read. The notes are text for
 //! the agent, copied verbatim from that file's `NOTES`.
@@ -69,14 +72,18 @@ pub fn note(tools: &[&str]) -> Option<String> {
 /// The note for the tools the person's own text blocks (every text block that is not a context
 /// block) name, or `None`.
 pub fn own_note(blocks: &[Value]) -> Option<String> {
-    let text = blocks
+    note(&mentioned(&own_text(blocks)))
+}
+
+/// The person's own text of `blocks`: every text block that is not a context block, one per line.
+pub fn own_text(blocks: &[Value]) -> String {
+    blocks
         .iter()
         .filter(|b| !crate::prompt_context::is_context(b))
         .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
-        .join("\n");
-    note(&mentioned(&text))
+        .join("\n")
 }
 
 /// Whether context block `block` of `blocks` is only the note their words make: it hides nothing
@@ -107,17 +114,23 @@ fn is_space(ch: char) -> bool {
 }
 
 /// Whether a mention may start after `before`: the start, a space, an attachment (U+FFFC) or an
-/// opening mark, then any Markdown emphasis.
+/// opening mark (a bracket, a straight or typographic quote), then any Markdown emphasis. A block
+/// quote's or list item's marker is blanked before this reads it (`without_code`), so
+/// `>@computer-use` starts after a space.
 fn leads(before: &str) -> bool {
     let before = before.trim_end_matches(['*', '_', '~']);
     match before.chars().next_back() {
         None => true,
-        Some(ch) => is_space(ch) || matches!(ch, '\u{FFFC}' | '(' | '[' | '"' | '\''),
+        Some(ch) => {
+            is_space(ch)
+                || matches!(ch, '\u{FFFC}' | '(' | '[' | '"' | '\'' | '\u{201C}' | '\u{2018}')
+        }
     }
 }
 
 /// Whether a mention may end before `after`: any Markdown emphasis, then the end, a space, an
-/// attachment, a closing mark, or a full stop that ends a sentence (`@computer-use.md` is a file).
+/// attachment, a closing mark (a straight or typographic quote too), or a full stop that ends a
+/// sentence (`@computer-use.md` is a file).
 fn trails(after: &str) -> bool {
     let after = after.trim_start_matches(['*', '_', '~']);
     let mut chars = after.chars();
@@ -126,31 +139,61 @@ fn trails(after: &str) -> bool {
         Some('.') => chars.next().is_none_or(is_space),
         Some(ch) => {
             is_space(ch)
-                || matches!(ch, '\u{FFFC}' | ',' | ';' | ':' | '!' | '?' | ')' | ']' | '"' | '\'')
+                || matches!(
+                    ch,
+                    '\u{FFFC}'
+                        | ','
+                        | ';'
+                        | ':'
+                        | '!'
+                        | '?'
+                        | ')'
+                        | ']'
+                        | '"'
+                        | '\''
+                        | '\u{201D}'
+                        | '\u{2019}'
+                )
         }
     }
 }
 
-/// `text` with its code blanked (line breaks kept): fenced blocks, then inline code spans.
+/// `text` as prose: each line's container markers (`>`, a list item's marker and indent) and its
+/// fenced code blanked, then the inline code spans of each paragraph, which a container's markers
+/// never end (`> run \`a` then `> b\` now` is one span). Line breaks are kept and tabs read as
+/// spaces (`expand_tabs`); only the mentions in it are read.
 fn without_code(text: &str) -> String {
-    let mut lines: Vec<String> = Vec::new();
+    let mut prose = String::with_capacity(text.len());
+    let mut breaks = Vec::new();
     let mut scan = Fences::default();
-    for line in text.split('\n') {
-        lines.push(if scan.is_code(line) { blanked(line) } else { line.to_owned() });
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            prose.push('\n');
+        }
+        let wide = expand_tabs(line);
+        let read = scan.read(&wide);
+        if i > 0 && !read.continues {
+            breaks.push(prose.len());
+        }
+        if read.code {
+            prose.push_str(&blanked(&wide));
+        } else {
+            prose.push_str(&blanked(&wide[..read.start]));
+            prose.push_str(&wide[read.start..]);
+        }
     }
-    let fenced = lines.join("\n");
-    let spans = code_spans(&fenced);
+    let spans = code_spans(&prose, &breaks);
     if spans.is_empty() {
-        return fenced;
+        return prose;
     }
-    let mut out = String::with_capacity(fenced.len());
+    let mut out = String::with_capacity(prose.len());
     let mut at = 0;
     for (start, end) in spans {
-        out.push_str(&fenced[at..start]);
-        out.push_str(&blanked(&fenced[start..end]));
+        out.push_str(&prose[at..start]);
+        out.push_str(&blanked(&prose[start..end]));
         at = end;
     }
-    out.push_str(&fenced[at..]);
+    out.push_str(&prose[at..]);
     out
 }
 
@@ -165,7 +208,9 @@ fn blanked(text: &str) -> String {
 /// to its content. A fence opened in a container ends with it: lazy continuation is only for a
 /// paragraph, so `> ~~~` then a line without `>` is prose again. Inside its container, a fence
 /// closes at a line of its mark at least as long, indented at most three spaces. Tabs count to
-/// the next multiple of four columns.
+/// the next multiple of four columns. It also says where each line's content starts after its
+/// container markers, and whether the line goes on with the paragraph before it, which is where
+/// an inline code span may run on.
 #[derive(Default)]
 struct Fences {
     /// The open containers, outermost first: `None` a block quote, `Some(n)` a list item whose
@@ -177,36 +222,55 @@ struct Fences {
     paragraph: bool,
 }
 
+/// One line as [`Fences::read`] read it.
+struct Line {
+    /// The line is a fenced block's (its opening, content or closing).
+    code: bool,
+    /// Where its content starts, after its container markers (bytes into the line it read).
+    start: usize,
+    /// It goes on with the paragraph of the line before (no blank line, block start, new or
+    /// closed container between them).
+    continues: bool,
+}
+
 impl Fences {
-    /// Reads the next line: whether it is a fenced block's (its opening, content or closing).
-    fn is_code(&mut self, line: &str) -> bool {
-        let wide = expand_tabs(line);
-        let (matched, rest) = match_open(&self.open, &wide);
+    /// Reads the next line, its tabs expanded.
+    fn read(&mut self, wide: &str) -> Line {
+        let (matched, rest) = match_open(&self.open, wide);
+        let start = |rest: &str| wide.len() - rest.len();
         if let Some((mark, length)) = self.fence {
             if matched == self.open.len() {
                 if closes(rest, mark, length) {
                     self.fence = None;
                 }
-                return true;
+                return Line { code: true, start: start(rest), continues: false };
             }
             // Its container ended, so the fence did too.
             self.fence = None;
             self.paragraph = false;
         }
-        if matched < self.open.len() {
+        let closed = matched < self.open.len();
+        if closed {
             if self.paragraph && !blank(rest) && !starts_block(rest) {
-                return false;
+                // A lazy line goes on with the paragraph.
+                return Line { code: false, start: start(rest), continues: true };
             }
             self.open.truncate(matched);
         }
+        let before = self.open.len();
         let rest = open_new(&mut self.open, rest);
         if let Some(fence) = opens(rest) {
             self.fence = Some(fence);
             self.paragraph = false;
-            return true;
+            return Line { code: true, start: start(rest), continues: false };
         }
-        self.paragraph = !blank(rest);
-        false
+        let continues = self.paragraph
+            && !closed
+            && self.open.len() == before
+            && !blank(rest)
+            && !starts_block(rest);
+        self.paragraph = !blank(rest) && !heading(rest);
+        Line { code: false, start: start(rest), continues }
     }
 }
 
@@ -345,90 +409,29 @@ fn starts_block(rest: &str) -> bool {
         return false;
     }
     let after = &rest[n..];
+    after.starts_with('>') || list_marker(after).is_some() || opens(rest).is_some() || heading(rest)
+}
+
+/// Whether `rest` is an ATX heading: at most three spaces, 1 to 6 `#`, then a space or the end.
+fn heading(rest: &str) -> bool {
+    let n = spaces(rest);
+    if n > 3 {
+        return false;
+    }
+    let after = &rest[n..];
     let hashes = after.bytes().take_while(|b| *b == b'#').count();
-    after.starts_with('>')
-        || list_marker(after).is_some()
-        || opens(rest).is_some()
-        || ((1..=6).contains(&hashes)
-            && (blank(&after[hashes..]) || after[hashes..].starts_with(' ')))
-}
-
-/// Whether a line starts a block of its own, which no inline code span crosses: a heading, a
-/// quote or a list item (slashCommands.ts `BLOCK_START`).
-fn block_start(line: &str) -> bool {
-    let spaces = line.len() - line.trim_start_matches(' ').len();
-    if spaces > 3 {
-        return false;
-    }
-    let rest = &line[spaces..];
-    let spaced = |s: &str| s.is_empty() || s.starts_with([' ', '\t']);
-    let hashes = rest.len() - rest.trim_start_matches('#').len();
-    if (1..=6).contains(&hashes) && spaced(&rest[hashes..]) {
-        return true;
-    }
-    if rest.starts_with('>') {
-        return true;
-    }
-    if let Some(after) = rest.strip_prefix(['-', '*', '+']) {
-        return after.starts_with([' ', '\t']);
-    }
-    let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-    digits > 0
-        && rest[digits..]
-            .strip_prefix(['.', ')'])
-            .is_some_and(|after| after.starts_with([' ', '\t']))
-}
-
-/// A fenced code block's opening line as slashCommands.ts `fenceOpening` reads it.
-fn fence_opening(line: &str) -> bool {
-    let spaces = line.len() - line.trim_start_matches(' ').len();
-    if spaces > 3 {
-        return false;
-    }
-    let rest = &line[spaces..];
-    let Some(mark) = rest.chars().next().filter(|c| *c == '`' || *c == '~') else {
-        return false;
-    };
-    let length = rest.len() - rest.trim_start_matches(mark).len();
-    length >= 3 && !(mark == '`' && rest[length..].contains('`'))
-}
-
-/// Where each line that ends a paragraph starts (a blank line, a block start, a fence opening),
-/// in order: an inline code span never runs over one (slashCommands.ts `blockBreaks`).
-fn block_breaks(text: &str) -> Vec<usize> {
-    let bytes = text.as_bytes();
-    let mut breaks = Vec::new();
-    let mut at = 0;
-    loop {
-        let mut end = at;
-        while end < bytes.len() && bytes[end] != b'\n' && bytes[end] != b'\r' {
-            end += 1;
-        }
-        let content = &text[at..end];
-        if at > 0 && (content.trim().is_empty() || block_start(content) || fence_opening(content)) {
-            breaks.push(at);
-        }
-        if end >= bytes.len() {
-            break;
-        }
-        at = if bytes[end] == b'\r' && bytes.get(end + 1) == Some(&b'\n') {
-            end + 2
-        } else {
-            end + 1
-        };
-    }
-    breaks
+    (1..=6).contains(&hashes) && (blank(&after[hashes..]) || after[hashes..].starts_with(' '))
 }
 
 /// The inline code spans of `text` (CommonMark: a backtick run, then the next run of exactly as
-/// many before the paragraph ends), as byte ranges (slashCommands.ts `codeSpans`).
-fn code_spans(text: &str) -> Vec<(usize, usize)> {
+/// many before the paragraph ends at one of `breaks`, the starts of the lines that end one), as
+/// byte ranges (slashCommands.ts `codeSpans`).
+fn code_spans(text: &str, breaks: &[usize]) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     if !text.contains('`') {
         return spans;
     }
     let bytes = text.as_bytes();
-    let breaks = block_breaks(text);
     let mut unclosed = std::collections::HashSet::new();
     let mut at = 0;
     while at < bytes.len() {
@@ -436,7 +439,7 @@ fn code_spans(text: &str) -> Vec<(usize, usize)> {
             at += 1;
             continue;
         }
-        match code_span_at(bytes, at, &mut unclosed, &breaks) {
+        match code_span_at(bytes, at, &mut unclosed, breaks) {
             Some(end) => {
                 spans.push((at, end));
                 at = end;

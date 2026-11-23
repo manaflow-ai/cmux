@@ -31,6 +31,12 @@ pub use queue_approve::Approver;
 pub(crate) use queue_approve::approved_prompts_error;
 pub(super) use queue_approve::{approved_error, declined_error, released};
 
+// The Computer Use gate on the queue's routes and the hub's others (`computer_use_gate.rs`); its
+// turns are gated with a named pipe (`libc::mkfifo`), which only Unix has.
+#[cfg(all(test, unix))]
+#[path = "computer_use_gate_tests.rs"]
+mod computer_use_gate_tests;
+
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]
 pub(super) mod supersede;

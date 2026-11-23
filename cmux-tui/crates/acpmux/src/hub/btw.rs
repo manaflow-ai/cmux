@@ -224,6 +224,9 @@ impl Hub {
         if question.is_empty() {
             return Err(RpcError::invalid_params("question is required"));
         }
+        // A question that names `@computer-use` waits for Computer Use to be ready, before any
+        // side session or Claude Code's own side question (`computer_use_gate.rs`).
+        self.computer_use_gate.check_text(question)?;
         // One deadline covers the inline fallback from this entry point through answer and cleanup;
         // it cannot spend separate acceptance and answer windows beyond the app's request budget.
         let inline_deadline = inline.then(|| tokio::time::Instant::now() + INLINE_TIMEOUT);

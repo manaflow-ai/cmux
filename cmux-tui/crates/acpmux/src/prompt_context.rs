@@ -41,6 +41,34 @@ pub fn is_context_text(text: &str) -> bool {
         .is_some_and(|(name, _)| name.ends_with("-context") && !name.contains(char::is_whitespace))
 }
 
+/// `text` without the `<cmux-…-context>` elements it ends with ([`is_context_text`]'s shape, each
+/// with its closing tag), nor the blank lines before them: a prompt's hidden notes, which a harness
+/// log keeps in the one text a bridged chat's app was sent (`hub/watch.rs`). Text with nothing
+/// before the element is kept as it is, and so is one in the middle of the person's words.
+pub fn without_trailing_context(text: &str) -> &str {
+    let mut rest = text;
+    loop {
+        let trimmed = rest.trim_end();
+        let Some(close_at) = trimmed.rfind("</cmux-") else { return rest };
+        let Some(name) =
+            trimmed[close_at..].strip_prefix("</cmux-").and_then(|n| n.strip_suffix('>'))
+        else {
+            return rest;
+        };
+        if !name.ends_with("-context") || name.contains(|c: char| c.is_whitespace() || c == '<') {
+            return rest;
+        }
+        let Some(open_at) = trimmed[..close_at].rfind(&format!("<cmux-{name}>")) else {
+            return rest;
+        };
+        let before = trimmed[..open_at].trim_end();
+        if before.is_empty() {
+            return rest;
+        }
+        rest = before;
+    }
+}
+
 /// Removes every client-made context mark from `blocks`: only [`apply`] marks a block.
 pub fn strip_marks(blocks: &mut [Value]) {
     for block in blocks.iter_mut() {
@@ -78,4 +106,28 @@ pub fn apply(meta: Option<&Value>, web: bool, blocks: &mut Vec<Value>) -> Result
     }
     blocks.push(json!({"type": "text", "text": text, "_meta": {"acpmux": {"context": true}}}));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::without_trailing_context as strip;
+
+    #[test]
+    fn trailing_context_elements_and_their_blank_lines_go() {
+        let note = "<cmux-tools-context>\nnote\n</cmux-tools-context>";
+        assert_eq!(strip(&format!("ask\n\n{note}")), "ask");
+        assert_eq!(
+            strip(&format!(
+                "ask\n\n<cmux-workspace-context>W</cmux-workspace-context>\n\n{note}\n"
+            )),
+            "ask"
+        );
+        // Nothing before it, one in the middle, an unclosed or other element: kept.
+        assert_eq!(strip(note), note);
+        let middle = format!("a\n{note}\nb");
+        assert_eq!(strip(&middle), middle);
+        assert_eq!(strip("a <cmux-tools-context> b"), "a <cmux-tools-context> b");
+        assert_eq!(strip("a\n<cmux-x>y</cmux-x>"), "a\n<cmux-x>y</cmux-x>");
+        assert_eq!(strip("plain words"), "plain words");
+    }
 }

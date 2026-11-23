@@ -276,6 +276,26 @@ pub(super) async fn state(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError
     })
 }
 
+/// `_acpmux/computer_use_state {"state": ...}` (the app only): this Mac's Computer Use state,
+/// which holds a prompt that names `@computer-use` while it is known and not ready
+/// (`computer_use_gate.rs`). Answers `{"state": <state or null>}`.
+pub(super) fn set_state(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    if !app_sets_state(conn.origin, conn.auth) {
+        return Err(refused(
+            "computer_use_state_refused",
+            "only the cmux app on this Mac says its Computer Use state",
+        ));
+    }
+    let state = crate::computer_use_gate::parse(params)?;
+    hub.computer_use_gate.set(state);
+    Ok(json!({"state": state}))
+}
+
+/// Whether a connection may set the state: the verified local app connection only.
+pub(super) fn app_sets_state(origin: Origin, auth: ConnAuth) -> bool {
+    matches!((origin, auth), (Origin::LocalApp, ConnAuth::LocalApp))
+}
+
 /// `_acpmux/computer_use_machines` (local only): the configured peers, with
 /// whether Computer Use is on there.
 pub(super) async fn machines(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, RpcError> {

@@ -415,12 +415,81 @@ async fn the_endpoint_is_never_served_before_this_launchs_token() {
 }
 
 fn unix_status(home: &Path) -> String {
+    unix_call(home, "_acpmux/status", json!({}))
+}
+
+/// One request over the daemon's unix socket, and its answer line.
+fn unix_call(home: &Path, method: &str, params: Value) -> String {
     use std::io::Write;
     let mut s = std::os::unix::net::UnixStream::connect(home.join("s.sock")).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    writeln!(s, "{}", json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status", "params": {}}))
+    writeln!(s, "{}", json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
         .unwrap();
     let mut line = String::new();
     BufReader::new(s).read_line(&mut line).unwrap();
     line
+}
+
+/// CMUX-682: the app says this Mac's Computer Use state, and acpmux holds every prompt that names
+/// `@computer-use` while it is known and not ready (`computer_use_gate.rs`). Only the app's own
+/// connection sets it; a resend of a prompt the chat already took (the app's journal replaying
+/// after a reconnect) answers as it did.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_app_says_the_computer_use_state_and_acpmux_holds_computer_use_prompts() {
+    let d = Daemon::start("computer-use-gate");
+    let token = d.local_token();
+    let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
+    assert_eq!(origin_of(&init), "local", "{init}");
+    let trust =
+        call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
+    let new = call(&mut app, 3, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
+    let id = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
+    let prompt = |text: &str, prompt_id: &str| {
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": text}],
+            "_meta": {"acpmux": {"promptId": prompt_id}}})
+    };
+    let asks = "open Notes with @computer-use";
+
+    // Unknown: nothing is held.
+    let sent = call(&mut app, 4, "session/prompt", prompt(asks, "p-1")).await;
+    assert!(sent.get("error").is_none(), "{sent}");
+
+    let set = |state: Value| json!({"state": state});
+    let said = call(&mut app, 5, "_acpmux/computer_use_state", set(json!("needs_setup"))).await;
+    assert_eq!(said["result"]["state"], "needs_setup", "{said}");
+    let held = call(&mut app, 6, "session/prompt", prompt(asks, "p-2")).await;
+    assert_eq!(
+        held["error"]["data"],
+        json!({"reason": "computer_use.not_ready", "state": "needs_setup"}),
+        "{held}"
+    );
+    assert!(held["error"]["message"].as_str().unwrap().contains("@computer-use"), "{held}");
+    // Another tool, or none, goes; the journal's resend of p-1 answers as before.
+    let other =
+        call(&mut app, 7, "session/prompt", prompt("open it with @browser-use", "p-3")).await;
+    assert!(other.get("error").is_none(), "{other}");
+    let resent = call(&mut app, 8, "session/prompt", prompt(asks, "p-1")).await;
+    assert!(resent.get("error").is_none(), "{resent}");
+    let bad = call(&mut app, 9, "_acpmux/computer_use_state", set(json!("on"))).await;
+    assert!(bad.get("error").is_some(), "{bad}");
+
+    // No other connection sets it.
+    let (mut remote, init) = hello(&d, None, Some(&token)).await;
+    assert_eq!(origin_of(&init), "remote", "{init}");
+    let refused = call(&mut remote, 2, "_acpmux/computer_use_state", set(json!("ready"))).await;
+    assert_eq!(refused["error"]["data"]["code"], "computer_use_state_refused", "{refused}");
+    let line = unix_call(&d.home, "_acpmux/computer_use_state", set(json!("ready")));
+    assert!(line.contains("computer_use_state_refused"), "{line}");
+    let still = call(&mut app, 10, "session/prompt", prompt(asks, "p-4")).await;
+    assert_eq!(still["error"]["data"]["state"], "needs_setup", "{still}");
+
+    // Ready, then unknown again: nothing is held.
+    call(&mut app, 11, "_acpmux/computer_use_state", set(json!("ready"))).await;
+    let ready = call(&mut app, 12, "session/prompt", prompt(asks, "p-5")).await;
+    assert!(ready.get("error").is_none(), "{ready}");
+    call(&mut app, 13, "_acpmux/computer_use_state", set(json!("disabled"))).await;
+    call(&mut app, 14, "_acpmux/computer_use_state", set(Value::Null)).await;
+    let unknown = call(&mut app, 15, "session/prompt", prompt(asks, "p-6")).await;
+    assert!(unknown.get("error").is_none(), "{unknown}");
 }
