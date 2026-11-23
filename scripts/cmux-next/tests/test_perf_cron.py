@@ -4310,6 +4310,37 @@ class LinuxControllerRouteTests(unittest.TestCase):
         self.assertEqual(routes[cron.LINUX_REQUESTS_MAX], "runner", "Blacksmith only after the controller did not answer")
         self.assertEqual(routes[cron.LINUX_REQUESTS_MAX + 1], "request", "the runner is a fallback, not the new route")
 
+    def test_a_waiting_part_holds_back_only_itself(self):
+        cur = self.cur()
+        cron.linux_route(cur, "web-ui-god", T0, True, True)
+        runner, request, waiting = cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], at(0.5), True, True)
+        self.assertEqual((runner, request, waiting), ("", "diff-viewer", ["web-ui-god"]),
+                         "coord-sim's wait held every Linux part back for hours (2026-11-23)")
+        self.assertIn("diff-viewer", cur["linux_requests"], "the part picked is asked")
+        self.assertEqual(cur["linux_requests"]["web-ui-god"]["asked_at"], cron.iso(T0), "the waiting one untouched")
+
+    def test_one_tick_runs_a_fallen_back_part_and_asks_for_another(self):
+        cur = self.cur()
+        cur["linux_requests"] = {"web-ui-god": {"asked_at": cron.iso(T0), "unanswered": cron.LINUX_REQUESTS_MAX - 1}}
+        t = T0 + self.window()
+        runner, request, waiting = cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], t, True, True)
+        self.assertEqual((runner, request, waiting), ("web-ui-god", "diff-viewer", []))
+        self.assertTrue(cur["linux_requests"]["web-ui-god"].get("fell_back_at"))
+
+    def test_every_part_waiting_picks_none_and_changes_nothing(self):
+        cur = self.cur()
+        for part in ("web-ui-god", "diff-viewer"):
+            cron.linux_route(cur, part, T0, True, True)
+        before = json.dumps(cur, sort_keys=True)
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], at(0.5), True, True),
+                         ("", "", ["web-ui-god", "diff-viewer"]))
+        self.assertEqual(json.dumps(cur, sort_keys=True), before, "the plan then yields (linux_wait_yield)")
+
+    def test_without_the_controller_the_first_part_runs(self):
+        cur = self.cur()
+        self.assertEqual(cron.linux_picks(cur, ["web-ui-god", "diff-viewer"], T0, False, True), ("web-ui-god", "", []))
+        self.assertNotIn("linux_requests", cur)
+
     def test_no_controller_or_an_older_commit_runs_on_the_runner(self):
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, False, True), "runner")
         self.assertEqual(cron.linux_route(self.cur(), "web-ui-god", T0, True, False), "runner",
@@ -4439,7 +4470,7 @@ class LinuxControllerRouteTests(unittest.TestCase):
     def test_plan_requests_waits_and_falls_back_to_the_runner(self):
         d = tempfile.mkdtemp()
         state = cron.empty_state(T0)
-        state["current"] = self.cur()
+        state["current"] = cron.new_measurement(self.SHA, "tip", ["web-ui-god"], T0)  # one part: nothing else runs while it waits
         state.pop("dirty", None)
         with open(os.path.join(d, "state.json"), "w") as f:
             json.dump(state, f)

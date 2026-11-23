@@ -39,7 +39,7 @@ Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-p
 replay-results (see each --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
 """
-import argparse, collections, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
+import argparse, collections, copy, datetime, hashlib, importlib.util, io, json, os, random, re, shutil, subprocess, sys, tempfile, time
 import urllib.error, urllib.parse, urllib.request, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -3595,13 +3595,20 @@ def plan(o):
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
     linux_request, route = "", ""
     if d.get("linux_part") and state.get("current"):
-        route = linux_route(state["current"], d["linux_part"], t, bool(getattr(o, "linux_controller", False)),
-                            commit_has(d["sha"], LINUX_SCRIPT))
-        if route != "runner":
-            linux_request = d["linux_part"] if route == "request" else ""
-            print(f"perf-cron: Linux part {d['linux_part']}: "
-                  + ("asked of the build controller" if linux_request else "its request to the build controller waits for an answer"))
-            d["linux_part"] = ""
+        cur = state["current"]
+        order = [d["linux_part"]] + [p for p in part_order(state, cur["parts_todo"], t)
+                                     if is_linux_part(p) and p != d["linux_part"]]
+        runner, linux_request, waiting = linux_picks(cur, order, t, bool(getattr(o, "linux_controller", False)),
+                                                     commit_has(d["sha"], LINUX_SCRIPT))
+        for part in waiting:
+            print(f"perf-cron: Linux part {part}: its request to the build controller waits for an answer")
+        if linux_request:
+            print(f"perf-cron: Linux part {linux_request}: asked of the build controller")
+        if runner != d["linux_part"]:
+            d["reason"] += (f"; Linux: {runner or 'none'} on the runner, {linux_request or 'none'} asked of the "
+                            f"controller, {len(waiting)} waiting for its answer")
+        d["linux_part"] = runner
+        route = "go" if runner or linux_request else "wait"
     cur = state.get("current")
     if cur and route == "wait" and not d.get("part"):
         # Only the controller's answer is awaited: the wait does not count against ABANDON_HOURS (review of
@@ -4623,6 +4630,31 @@ def linux_route(cur, part, t, controller, has_script):
         ask["fell_back_at"] = iso(t)
         return "runner"
     return "request"
+
+
+def linux_picks(cur, order, t, controller, has_script):
+    """This tick's Linux parts (runner part, controller request, parts waiting), taking ORDER's parts in turn: a part
+    whose request is in its answer window (linux_route 'wait') holds back only itself. The linux and linux-request
+    jobs are separate, so one tick may run a part on the runner and ask the controller for another. linux_route
+    keeps state, so it runs on a copy to look and on CUR only for the parts picked. Before 2026-11-23 the first part
+    in order alone was routed: while coord-sim's request waited (about 3 h a window), no Linux part ran, and a
+    superseded measurement (no Mac part) stored 5 Linux parts in 19 h."""
+    look = {"linux_requests": copy.deepcopy(cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {})}
+    runner, request, waiting = "", "", []
+    for part in order:
+        how = linux_route(look, part, t, controller, has_script)
+        if how == "wait":
+            waiting.append(part)
+        elif how == "runner" and not runner:
+            runner = part
+        elif how == "request" and not request:
+            request = part
+        if runner and (request or not controller or not has_script):
+            break
+    for part in (runner, request):
+        if part:
+            linux_route(cur, part, t, controller, has_script)
+    return runner, request, waiting
 
 
 def commit_has(sha, path):
