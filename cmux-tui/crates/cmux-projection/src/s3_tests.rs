@@ -339,7 +339,7 @@ fn store_at(base: &str, keys: Option<Keys>) -> Store {
 }
 
 fn fill(chain: &Chain, oids: &[String]) -> (Vec<String>, crate::peers::Filled, Vec<String>) {
-    let kept = std::sync::Mutex::new(Vec::new());
+    let kept = Mutex::new(Vec::new());
     let (rest, filled) = chain.fill(oids, &|oid, _| {
         kept.lock().unwrap().push(oid.to_owned());
         Ok(())
