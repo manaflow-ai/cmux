@@ -516,6 +516,20 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     private var warmed: Set<String> = []
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
+    // Red graft stubs: the base builds no spare and counts nothing.
+    private(set) var sparesMade = 0
+    private(set) var sparesTaken = 0
+    private(set) var newCellsBeforeSpare = 0
+    private(set) weak var spareGiven: FeedRowCell?
+    var parkedSpare: FeedRowCell? { nil }
+    var parkedHolder: UIView? { nil }
+    static let parkedSpareID = "feed.spare.parked"
+    var warmQueueCount: Int { warmQueue.count }
+    private(set) var warmBatches = 0
+    private(set) var warmItemsDone = 0
+    var warmClock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    var warmItemHook: (() -> Void)?
+    static let warmBudget: CFTimeInterval = 0.004
     private lazy var warmCell: FeedRowCell = {
         let cell = FeedRowCell(style: .default, reuseIdentifier: nil)
         cell.frame = CGRect(x: 0, y: 0, width: max(width, 1), height: 100)
@@ -583,6 +597,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 defer { FeedCellTiming.log("warm", t0) }
                 #endif
                 let layout = self.warmQueue.removeFirst()
+                self.warmItemsDone += 1
                 let cell = self.warmCell
                 cell.frame = CGRect(x: 0, y: 0, width: CGFloat(layout.key.width), height: layout.height)
                 cell.overrideUserInterfaceStyle = self.collectionView?.traitCollection.userInterfaceStyle ?? .unspecified
@@ -590,6 +605,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
                 cell.layoutIfNeeded()
                 let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
                 _ = renderer.image { context in cell.layer.render(in: context.cgContext) }
+                self.warmItemHook?()
                 self.pumpWarmUp()
             }
         }
