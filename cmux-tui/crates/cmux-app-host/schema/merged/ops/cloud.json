@@ -252,6 +252,11 @@
       "risk": "money",
       "digest": "9323ea3bb346efaf"
     },
+    "cloud.machine.setup_desktop": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e8130d729b74d5ac"
+    },
     "cloud.machine.share_chat": {
       "source": "local",
       "class": "mutation",

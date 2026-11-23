@@ -71,6 +71,7 @@
     "cloud.machine.chief_resize",
     "cloud.machine.chief_start",
     "cloud.machine.io",
+    "cloud.machine.setup_desktop",
     "cloud.machine.share_chat",
     "cloud.owner.acpmux_keyed_start",
     "cloud.owner.acpmux_person_holds",
