@@ -67,8 +67,10 @@ done
 # its Unix socket is mounted into bwrap. Missing credentials disables Cloud cleanly.
 cloud_catalog="$root/backend/catalog/cloud-operations.json"
 cloud_relay_catalog="$root/backend/catalog/cloud-relay-operations.json"
-if [ ! -f "$cloud_catalog" ] && [ -f "$root/code-mode/cloud-operations.json" ]; then cloud_catalog="$root/code-mode/cloud-operations.json"; fi
-if [ ! -f "$cloud_relay_catalog" ] && [ -f "$root/code-mode/cloud-relay-operations.json" ]; then cloud_relay_catalog="$root/code-mode/cloud-relay-operations.json"; fi
+# A bundle ships them beside its resource catalog (Resources/code-mode/ in the app).
+bundled_catalogs=$(dirname -- "$catalog")
+if [ ! -f "$cloud_catalog" ] && [ -f "$bundled_catalogs/cloud-operations.json" ]; then cloud_catalog="$bundled_catalogs/cloud-operations.json"; fi
+if [ ! -f "$cloud_relay_catalog" ] && [ -f "$bundled_catalogs/cloud-relay-operations.json" ]; then cloud_relay_catalog="$bundled_catalogs/cloud-relay-operations.json"; fi
 if [ -n "${CMUX_CLOUD_API_URL:-}" ] && [ -n "${CMUX_CLOUD_BEARER_TOKEN:-}" ] && [ -f "$cloud_catalog" ] && [ -f "$cloud_relay_catalog" ]; then
   "$bun" "$sdk/code-mode/cloud-relay-host.mjs" "$cloud_socket" "$cloud_catalog" "$cloud_relay_catalog" >/dev/null 2>&1 &
   cloud_relay_pid=$!
