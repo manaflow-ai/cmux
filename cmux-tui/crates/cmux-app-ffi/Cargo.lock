@@ -222,6 +222,7 @@ name = "cmux-daemon-launch-core"
 version = "0.1.0"
 dependencies = [
  "cmux-local-auth",
+ "libc",
  "serde",
  "serde_json",
 ]
