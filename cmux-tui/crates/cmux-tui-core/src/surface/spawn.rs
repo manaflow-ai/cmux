@@ -41,10 +41,24 @@ fn wait_for_local_output(fd: RawFd, wake: &mut UnixStream) -> std::io::Result<bo
     }
 }
 
+/// A local runtime's output: a reader the reader thread parses from.
+pub(crate) trait LocalReader: Read + Send {
+    /// Blocks until a read takes bytes (or the end) without blocking, for a
+    /// source whose read blocks with no descriptor to poll (the holder's
+    /// stream). The reader thread waits here before it takes its 64 KiB
+    /// read buffer, so an idle terminal holds none (CMUX-571 infinite
+    /// items). A source with nothing to wait for returns at once.
+    fn wait_readable(&mut self) {}
+}
+
+/// A PTY's or a byte backend's reader: its descriptor (or channel) is what the
+/// reader waits on, in its read.
+impl LocalReader for Box<dyn Read + Send> {}
+
 /// What the local runtime of one terminal runs on.
 pub(crate) struct LocalLaunch {
     pub master: Box<dyn MasterPty + Send>,
-    pub reader: Box<dyn Read + Send>,
+    pub reader: Box<dyn LocalReader>,
     pub writer: Box<dyn Write + Send>,
     pub killer: Box<dyn ChildKiller + Send>,
     /// Blocks until the far side ended; runs on the reaper thread. Dropping
@@ -361,6 +375,8 @@ impl Surface {
                         .publisher();
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
+                        // A holder stream blocks here, holding no read buffer and no lock.
+                        reader.wait_readable();
                         #[cfg(unix)]
                         let ready = if let (Some(fd), Some(wake)) = (read_fd, wake_reader.as_mut())
                         {
@@ -524,7 +540,7 @@ impl Surface {
         let command = vec![side.terminal.clone()];
         let launch = LocalLaunch {
             master: Box::new(master),
-            reader,
+            reader: Box::new(reader),
             writer,
             killer: Box::new(BackendKiller(side.clone())),
             wait: Box::new(move || wait_end(&side)),
