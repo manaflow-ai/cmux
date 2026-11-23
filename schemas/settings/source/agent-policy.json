@@ -283,6 +283,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",
@@ -826,6 +827,7 @@
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
+        "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
@@ -1532,6 +1534,13 @@
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this Mac and the person's Cloud machines send cmux which packages agents install: the person's choice only.",
+      "keys": [
+        "diagnostics.shareInstallCounts"
       ]
     },
     {
