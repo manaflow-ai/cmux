@@ -61,7 +61,7 @@ def py_sleeps(path, text):
     return out
 
 
-SH_SLEEP = re.compile(r"(^|[;&|({]\s*|\bthen\s+|\bdo\s+|\belse\s+|&&\s*|\|\|\s*)sleep\s+([0-9.]+[smh]?|\"?\$\{?\w+\}?\"?)")
+SH_SLEEP = re.compile(r"(^\s*|[;&|({]\s*|\bthen\s+|\bdo\s+|\belse\s+|&&\s*|\|\|\s*)sleep\s+([0-9.]+[smh]?|\"?\$\{?\w+\}?\"?)")
 OPEN = re.compile(r"^\s*(while|until|for)\b|;\s*do\s*$|\bdo\s*$")
 
 
