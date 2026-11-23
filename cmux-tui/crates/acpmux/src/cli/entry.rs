@@ -60,10 +60,10 @@ pub unsafe fn process_main() -> Result<()> {
         unsafe { std::env::remove_var(key) };
     }
     crate::heap_profile::start();
-    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // glibc builds: sixteen malloc arenas, not eight per core (malloc_arenas.rs).
     // SAFETY: as above, before any thread exists.
     unsafe {
-        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -128,9 +128,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
+    let daemon = crate::daemon_priority::is_daemon_run(&args);
     let word_rule = runtime_workers(&args);
     let parsed = parse(args, invocation);
-    runtime_with(workers_for(word_rule, parsed.cli.command.as_ref()))?.block_on(async_main(parsed))
+    runtime_with(daemon, workers_for(word_rule, parsed.cli.command.as_ref()))?.block_on(async_main(parsed))
 }
 
 /// The stdio MCP servers acpmux gives each agent session (`agent_tools.rs`).
@@ -162,12 +163,6 @@ const TOOLS_MCP_WORKERS: usize = 1;
 /// that takes no bytes must not keep a stopped daemon from exiting.
 // timeout: a hang breaker on a local log write at exit, not a wait for a slow path; lines not written in time are dropped
 const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
-/// How long a lowered `--take-over` start that moved to a login-session job waits for that job's
-/// daemon to take the home, so the update swap that started it sees the hand-over: the swap's own
-/// wait for a take-over start to ask (`daemon/exe_swap.rs` `HANDOVER_WITHIN`).
-#[cfg(target_os = "macos")]
-// timeout: a stop condition on a wait for launchd's job, not a correctness decision; the job serves the home either way
-const HANDOVER_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
@@ -191,12 +186,18 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
 pub const WORKER_STACK_BYTES: usize = 8 << 20;
 
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
-    runtime_with(runtime_workers(args))
+    runtime_with(crate::daemon_priority::is_daemon_run(args), runtime_workers(args))
 }
 
-fn runtime_with(workers: Option<usize>) -> std::io::Result<tokio::runtime::Runtime> {
+fn runtime_with(daemon: bool, workers: Option<usize>) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.thread_stack_size(WORKER_STACK_BYTES);
+    // The daemon outranks the work it supervises (`daemon_priority.rs`): its nice before any
+    // runtime thread starts (they inherit it), and each runtime thread's QoS on macOS.
+    if daemon {
+        crate::daemon_priority::raise();
+        builder.on_thread_start(crate::daemon_priority::thread_start);
+    }
     if let Some(workers) = workers {
         builder.worker_threads(workers);
     }
@@ -397,31 +398,12 @@ async fn async_main(parsed: Parsed) -> Result<()> {
                     );
                 }
             }
-            // A daemon that starts below its CPU tier (a clamp or nice it inherited, as an update's
-            // `--take-over` successor inherits its lowered predecessor's) starts again as a
-            // login-session job, where launchd runs it at `Interactive`: every pane's connect waits
-            // on this daemon (`daemon/login_session.rs` `leave_lowered_run`). A start that carries a
-            // descriptor (the app's, a command's) was placed by its starter and stays.
-            #[cfg(target_os = "macos")]
-            if ready_fd.is_none() && person_key_fd.is_none() && !memory && !dev {
-                let home = crate::config::home();
-                // timeout: no wait unless a take-over swap waits on this start (HANDOVER_WAIT says why)
-                let wait = if take_over { HANDOVER_WAIT } else { std::time::Duration::ZERO };
-                if crate::daemon::login_session::leave_lowered_run(
-                    &home,
-                    &home.join("daemon.log"),
-                    wait,
-                )
-                .await
-                {
-                    crate::log_sink::flush(LOG_FLUSH_BUDGET);
-                    return Ok(());
-                }
-            }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
             crate::qos::enter_daemon();
+            // Which priority knobs took, for the duress bench (`daemon_priority.rs`).
+            tracing::info!("{}", crate::daemon_priority::report().line());
             // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));
@@ -782,7 +764,7 @@ mod tests {
         ] {
             assert_eq!(workers_of(args), Some(ONE_SHOT_WORKERS), "{args:?}");
         }
-        assert_eq!(runtime_with(Some(ONE_SHOT_WORKERS)).unwrap().metrics().num_workers(), 1);
+        assert_eq!(runtime_with(false, Some(ONE_SHOT_WORKERS)).unwrap().metrics().num_workers(), 1);
         // The daemon, the terminal UI and every other command keep tokio's default.
         for args in [&["daemon", "run"][..], &[], &["--json"], &["attach", "worker"]] {
             assert_eq!(workers_of(args), None, "{args:?}");
