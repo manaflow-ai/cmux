@@ -87,8 +87,8 @@ import {
 import { sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withDraftFolder,
   shownCloudStartPick,
+  withDraftFolder,
   withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -585,11 +585,11 @@ import { holdWebSwap } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
+  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
-  newTabRunModeRows,
 } from "./sandboxRun";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";

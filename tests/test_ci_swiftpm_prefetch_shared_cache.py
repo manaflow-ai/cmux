@@ -17,7 +17,6 @@ import re
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -53,10 +52,21 @@ class SeedsTheSharedCache(unittest.TestCase):
             package.mkdir()
             (package / "Package.swift").write_text("// swift-tools-version:5.9\n")
             downloads = []
+            waiting = []
+            both_waiting = threading.Event()
+            real_say = PREFETCH.say
+
+            def say(message: str) -> None:
+                real_say(message)
+                if message.startswith("waiting for another job's seed"):
+                    waiting.append(message)
+                    if len(waiting) == 2:
+                        both_waiting.set()
 
             def download(url: str, destination: Path) -> None:
                 downloads.append(url)
-                time.sleep(0.3)  # long enough for the other job to arrive mid-download
+                # Held mid-download until the other two jobs wait on the seed lock.
+                self.assertTrue(both_waiting.wait(30), "the other jobs never waited on the seed lock")
                 destination.write_bytes(BODY)
 
             def collect(*_args, **_kwargs):
@@ -65,10 +75,12 @@ class SeedsTheSharedCache(unittest.TestCase):
             missed = []
             jobs = [threading.Thread(target=lambda: missed.append(
                 PREFETCH.seed([package], store, cache, download=download, collect=collect))) for _ in range(3)]
-            for job in jobs:
-                job.start()
-            for job in jobs:
-                job.join()
+            with mock.patch.object(PREFETCH, "say", side_effect=say):
+                for job in jobs:
+                    job.start()
+                for job in jobs:
+                    job.join()
+            self.assertTrue(both_waiting.is_set(), "the other jobs never waited on the seed lock")
             self.assertEqual(missed, [0, 0, 0])
             self.assertEqual(downloads, [URL], "each artifact downloads once for jobs seeding together")
             entry = cache / PREFETCH.swiftpm_cache_key(URL)

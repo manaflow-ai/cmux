@@ -7879,6 +7879,8 @@ jobs:
     permissions:
       contents: read
       actions: write
+      # Retry exhaustion comments on the nightly-next-feed-stale issue (nightly_next_retry_exhausted.py).
+      issues: write
     env:
       GH_TOKEN: ${{ github.token }}
       SHA: ${{ github.sha }}

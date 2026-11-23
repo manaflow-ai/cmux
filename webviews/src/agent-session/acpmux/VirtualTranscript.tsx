@@ -5619,11 +5619,21 @@ function TranscriptView({
       return;
     }
     const was = scrolledTo.current;
+    const upPending = readerUpPending.current;
     if (readerUpPending.current) readerUpPending.current = false;
     const measured = scrollPosition(node, layout.totalHeight);
+    // A fall that still rests at or past the scroller's own end, with no upward input behind it, is
+    // the browser's spring back, not the reader leaving: a trackpad scroll down at the end stretches
+    // the scroller on macOS, WebKit reports the stretch in the offset, and its return is a run of
+    // scroll events falling back to the end inside the reader's input hold. Read as the reader's
+    // scroll up, each stopped following at the very end, and the reply streaming on grew under the
+    // composer behind Jump to latest until the next wheel at the end armed it again (Leo, 2026-11-18:
+    // "did we fix this scroll bounce at the bottom yet?"; agent-pane-bottom-rebound-follow.test.ts).
+    // The layout pass reads the same fall as a clamp (`clamped`). A reader's own step up leaves the end.
+    const sprangBack = !upPending && next >= node.scrollHeight - node.clientHeight - 0.5;
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
-    const movedUp = next < was.top - 0.5;
+    const movedUp = !sprangBack && next < was.top - 0.5;
     const recentUp = !programmatic && movedUp;
     // Only the reader's own downward scroll input brings following back at the end; the input hold
     // alone (`programmatic`) is any input of the last second, a press or a hover after a lost
