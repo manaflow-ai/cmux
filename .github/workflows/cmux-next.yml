@@ -2476,6 +2476,11 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-174
       - name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
@@ -2500,7 +2505,7 @@ jobs:
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-176
       - name: Cache the webviews Bun package cache
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: ${{ steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
