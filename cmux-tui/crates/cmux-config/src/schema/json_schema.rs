@@ -341,6 +341,8 @@ fn kind_schema(row: &Row) -> Value {
         Kind::StringMap => {
             json!({ "type": "object", "additionalProperties": { "type": "string" } })
         }
+        // The row's own shape, as the owner checks it (`shape::matches`).
+        Kind::Json(shape) => shape.clone(),
         Kind::SoundRules => {
             let events: Map<String, Value> = super::accepts::SOUND_RULE_EVENTS
                 .iter()

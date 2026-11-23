@@ -35,7 +35,6 @@ TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
 JOB_INPUTS = (
     ".github/workflows/cmux-next.yml",
     ".github/actions/setup-cmux-tui-rust/",
-    ".github/actions/ghostty-zig-packages/",
     ".gitmodules",
     "scripts/cmux-next/fast-tier.py",
     "scripts/cmux-next/fast-tier.json",
