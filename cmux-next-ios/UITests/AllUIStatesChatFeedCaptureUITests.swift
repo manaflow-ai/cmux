@@ -91,9 +91,11 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
                 return nil
             },
+            // A hold selects in place (Leo, 2026-11-23); a drag while held selects some words.
             Scene(group: g, id: "select-text", args: Self.idleChat, settle: 6) { app in
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
-                return C.tap(app.buttons["Select Text"].firstMatch, "Select Text")
+                let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.45))
+                start.press(forDuration: 1.0, thenDragTo: start.withOffset(CGVector(dx: 140, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.3)
+                return C.wait(app.textViews["chat.inPlaceSelection"], "in-place selection", timeout: 5)
             },
             Scene(group: g, id: "voice-mode", args: ["-cmux-mobile-demo", "voice-chat", "-composer.voiceButton", "sendButton"],
                   env: ["CMUX_MOBILE_VOICE_MODE_DEMO": "1", "CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT": "what changed today"], settle: 6) { app in

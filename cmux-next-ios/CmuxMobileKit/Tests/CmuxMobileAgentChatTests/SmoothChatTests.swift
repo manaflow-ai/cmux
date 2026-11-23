@@ -423,10 +423,31 @@ import UIKit
         #expect(!Self.traits(try Self.cell(.paragraph("Ship it."))).contains { $0.contains(.header) })
     }
 
-    @Test func aBlocksMenuOffersSelectText() throws {
-        let titles = ChatNativeRowCell.messageMenu { "Ship it." }.compactMap { ($0 as? UIAction)?.title }
-        #expect(titles.contains("Select Text"))
-        #expect(titles.contains("Copy"))
+    // Leo, 2026-11-23: "holding shouldnt raise the whole bubble ... just hold and it should highlight
+    // text as normal". An answer's text selects in place: no long-press menu lifts the row, the hold
+    // reaches its labels, and the message's Copy and Share follow in the selection's edit menu.
+    @Test func aBlocksTextSelectsInPlaceWithTheMessageRowsInTheEditMenu() throws {
+        let cell = try Self.cell(.paragraph("Ship it."))
+        #expect(cell.selectsText)
+        #expect(!cell.selectableLabels.isEmpty)
+        let interaction = try #require(cell.contentView.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        #expect(cell.contextMenuInteraction(interaction, configurationForMenuAtLocation: CGPoint(x: 30, y: 10)) == nil)
+        let message = try #require(ChatNativeRowCell.messageMenu { "Ship it." }.first as? UIMenu)
+        let titles = message.children.compactMap { ($0 as? UIAction)?.title }
+        #expect(titles == ["Copy Message", "Share"])
+        #expect(!titles.contains("Select Text"))
+    }
+
+    /// A tool row is a control: it keeps its long-press menu and its text is not selected.
+    @Test func aControlRowKeepsItsMenuAndSelectsNoText() throws {
+        let layout = try #require(ChatNativeLayout.make(.block(messageID: "m", block: MarkdownBlock(id: 0, kind: .paragraph("Ran it"))), id: "m#0",
+                                                        expanded: false, environment: Self.environment))
+        let cell = ChatNativeRowCell(frame: CGRect(x: 0, y: 0, width: 390, height: layout.height))
+        var actions = ChatNativeActions()
+        actions.menu = { _ in UIMenu(children: [UIAction(title: "Copy Path") { _ in }]) }
+        cell.apply(layout, actions: actions)
+        #expect(!cell.selectsText)
+        #expect(cell.selectableLabels.isEmpty)
     }
 
     // Leo, 2026-11-09: "feel like this should have a copy link button". A long-press on a link in an

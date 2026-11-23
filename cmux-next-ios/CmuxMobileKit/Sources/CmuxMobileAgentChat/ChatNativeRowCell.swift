@@ -20,6 +20,10 @@ struct ChatNativeActions {
     var moreMenu: (() -> UIMenu)?
     /// The files the edited-files card shows as viewed (by index).
     var viewed: Set<Int> = []
+    /// The rows a text selection's edit menu adds after Copy, Select All and the rest (the
+    /// prompt's own actions): set, a hold on the row's text selects it in place and the row
+    /// has no long-press menu (Leo, 2026-11-23: "just hold and it should highlight text as normal").
+    var selectionMenu: (() -> [UIMenuElement])?
 }
 
 /// A transcript row drawn by UIKit from a `ChatNativeLayout` laid out off the main thread:
@@ -49,6 +53,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     private let rule = UIView()
     private var codeCard: ChatCodeCardView?
     private var table: ChatTableView?
+    /// A hold on the row's text: an in-place selection with handles (`InPlaceTextSelection`).
+    private var selection: InPlaceTextSelection!
     private let margin: CGFloat = 20
     #if DEBUG
     var costKind = "native"
@@ -64,6 +70,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             cell.updateBorderColors()
         }
         contentView.addInteraction(UIContextMenuInteraction(delegate: self))
+        selection = InPlaceTextSelection(host: contentView) { [weak self] in self?.selectableLabels ?? [] }
+        selection.extraMenu = { [weak self] _ in self?.selectionExtras() ?? [] }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.cancelsTouchesInView = false
         contentView.addGestureRecognizer(tap)
@@ -73,6 +81,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func apply(_ layout: ChatNativeLayout, actions: ChatNativeActions) {
+        selection.end()
         self.layout = layout
         self.actions = actions
         var usedLabels = 0, usedSymbols = 0, usedBars = 0, usedBoxes = 0, usedSeparators = 0, usedScrollers = 0
@@ -269,7 +278,17 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         return view
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        selection.end()
+    }
+
     @objc private func tapped(_ tap: UITapGestureRecognizer) {
+        // A tap beside a live selection clears it, as in Messages; it does not also act.
+        if selection.isSelecting {
+            selection.end()
+            return
+        }
         let location = tap.location(in: contentView)
         if let match = hits.last(where: { $0.frame.contains(location) }) {
             perform(match.hit)
@@ -415,6 +434,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let layout else { return nil }
+        // Text selects in place: a hold on it never lifts the row (`selectsText`).
+        if selectsText || selection.label(at: location) != nil { return nil }
         // A long-press on a link leads with Open Link and Copy Link (Leo, 2026-11-09: "feel like this
         // should have a copy link button"), above the block's or message's own rows.
         let linkRows = link(at: location).map { url in Self.linkMenu(url) { [weak self] in self?.actions.openLink($0) } } ?? []
@@ -443,6 +464,56 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in Self.leading(linkRows, in: UIMenu(children: items)) }
     }
 
+    // MARK: Selection
+
+    /// The row's text a hold selects: an answer's or prompt's runs, a code card's code, a table's cells.
+    var selectsText: Bool {
+        guard let layout else { return false }
+        switch layout.content {
+        case .code, .table: return true
+        case .drawn: return actions.selectionMenu != nil || (actions.menu == nil && actions.message != nil)
+        }
+    }
+
+    /// The labels a hold can select from (none on a row that is a control: a tool, an edit card).
+    var selectableLabels: [UILabel] {
+        guard selectsText, let layout else { return [] }
+        switch layout.content {
+        case .code: return codeCard.map { [$0.codeLabel] } ?? []
+        case .table: return table?.cellLabels ?? []
+        case .drawn: return labels.filter { !$0.isHidden }
+        }
+    }
+
+    /// The selection's edit menu rows after the system's: a pressed link's Open Link and Copy
+    /// Link, then the block's, message's or prompt's own actions (what its long-press menu held).
+    func selectionExtras() -> [UIMenuElement] {
+        guard let layout else { return [] }
+        var rows: [UIMenuElement] = []
+        if let url = link(at: selection.pressPoint) {
+            rows += Self.linkMenu(url) { [weak self] in self?.actions.openLink($0) }
+        }
+        switch layout.content {
+        case .code(let code): rows += Self.codeMenu(code.code, language: code.language)
+        case .table(let table):
+            rows.append(UIAction(title: "Copy Table", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = table.plainText })
+        case .drawn:
+            if let own = actions.selectionMenu { rows += own() } else if let message = actions.message { rows += Self.messageMenu(message) }
+        }
+        return rows
+    }
+
+    /// A code block's rows in its selection's edit menu, under "Code" (the header's button copies too).
+    static func codeMenu(_ code: String, language: String?) -> [UIMenuElement] {
+        [UIMenu(title: "Code", image: UIImage(systemName: "chevron.left.forwardslash.chevron.right"), children: [
+            UIAction(title: "Copy Code", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = code },
+            UIAction(title: "Copy as Markdown", image: UIImage(systemName: "text.document")) { _ in
+                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
+            },
+            UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(code) },
+        ])]
+    }
+
     /// `menu` with `linkRows` as its first group: the menu's own rows stay at its top level, never
     /// folded into a submenu. `menu` itself when there are no link rows.
     static func leading(_ linkRows: [UIMenuElement], in menu: UIMenu?) -> UIMenu {
@@ -467,14 +538,13 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         pasteboard.items = [[UTType.url.identifier: url, UTType.plainText.identifier: url.absoluteString]]
     }
 
-    /// An answer block's long-press menu: the whole message, copied, selected from or shared
-    /// (the SwiftUI blocks' text selection becomes Select Text, as on a prompt).
+    /// An answer block's rows in its selection's edit menu, under "Message": the whole message,
+    /// copied or shared (the selection itself is copied by the menu's own Copy).
     static func messageMenu(_ message: @escaping () -> String) -> [UIMenuElement] {
-        [
-            UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = message() },
-            UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(message()) },
+        [UIMenu(title: "Message", image: UIImage(systemName: "text.bubble"), children: [
+            UIAction(title: "Copy Message", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = message() },
             UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(message()) },
-        ]
+        ])]
     }
 }
 
@@ -488,6 +558,8 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     private let copy = UIButton(type: .system)
     private let scroll = UIScrollView()
     private let body = UILabel()
+    /// The code's label, which a hold selects from in place.
+    var codeLabel: UILabel { body }
     private let fade = CAGradientLayer()
     private let capFade = CAGradientLayer()
     private let capView = UIView()
@@ -622,6 +694,8 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
 @MainActor
 final class ChatTableView: UIScrollView, UIScrollViewDelegate {
     private var labels: [UILabel] = []
+    /// The cells' labels shown, which a hold selects from in place.
+    var cellLabels: [UILabel] { labels.filter { !$0.isHidden } }
     private var rules: [UIView] = []
     private let fade = CAGradientLayer()
 

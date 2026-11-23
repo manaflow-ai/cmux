@@ -38,6 +38,8 @@ public final class InPlaceTextSelection: NSObject {
     private var anchor: UITextRange?
     private var loupe: UITextLoupeSession?
     private var pressing = false
+    /// Where the hold that started the selection was, in `host` (a menu row can read what was under it).
+    public private(set) var pressPoint: CGPoint = CGPoint(x: -1, y: -1)
     private lazy var menu = UIEditMenuInteraction(delegate: self)
 
     public init(host: UIView, labels: @escaping () -> [UILabel]) {
@@ -98,6 +100,7 @@ public final class InPlaceTextSelection: NSObject {
         guard let host, let label = label(at: press.location(in: host)), let parent = label.superview else { return }
         if Self.current !== self { Self.current?.end() }
         end()
+        pressPoint = press.location(in: host)
         let view = StandInTextView(standingInFor: label)
         view.delegate = self
         view.addInteraction(menu)
@@ -159,6 +162,13 @@ public final class InPlaceTextSelection: NSObject {
 }
 
 extension InPlaceTextSelection: UIGestureRecognizerDelegate {
+    /// Beside a row's own long-press menu and taps (which stand down for text); never beside a
+    /// scroll pan: once the hold has begun, a drag extends the selection, it does not scroll.
+    public func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                                  shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        !(other is UIPanGestureRecognizer)
+    }
+
     public func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
         guard recognizer === press, let host else { return true }
         // A hold inside the live selection is the text view's own (it moves a handle or the range).

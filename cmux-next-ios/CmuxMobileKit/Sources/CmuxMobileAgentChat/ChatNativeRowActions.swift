@@ -15,20 +15,16 @@ enum ChatNativeRowActions {
         switch row.kind {
         case .prompt(let text, _, let at, let isLast):
             let turnID = row.turnID
-            actions.menu = { _ in
-                var items: [UIMenuElement] = [
-                    UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
-                    UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
-                ]
-                if isLast {
-                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
-                } else if context.canEditEarlier(turnID: turnID) {
+            // A hold selects the prompt's text in place (no lifted bubble); its own actions follow
+            // Copy and Select All in the selection's edit menu: Edit and Resend, then the rest under
+            // "Message", headed by when it was sent (`promptSelectionMenu`).
+            actions.selectionMenu = {
+                promptSelectionMenu(text: text, at: at, store: store, turnID: turnID, edit: {
+                    if isLast { return { context.editAndResend(turnID: turnID) } }
                     // An earlier prompt: edited in its own sheet, sent in a copy of the chat forked before it.
-                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editEarlier(turnID: turnID) })
-                }
-                items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
-                items += ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store)
-                return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
+                    if context.canEditEarlier(turnID: turnID) { return { context.editEarlier(turnID: turnID) } }
+                    return nil
+                }())
             }
         case .tool(let call):
             let openFile = context.openFile
@@ -119,6 +115,25 @@ enum ChatNativeRowActions {
         actions.hit = { hit in
             if case .toggle(let key) = hit { toggleDisclosure(context.foldHold, key: key, in: disclosures) { disclosures.set(key, true) } }
         }
+    }
+
+    /// A prompt's rows in its selection's edit menu: Edit and Resend (when the chat offers it),
+    /// then "Message": Copy Message, Share, Bookmark and Read Aloud under the time it was sent.
+    static func promptSelectionMenu(text: String, at: Date, store: AgentChatStore, turnID: String,
+                                    edit: (() -> Void)?) -> [UIMenuElement] {
+        var rows: [UIMenuElement] = []
+        if let edit {
+            rows.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in edit() })
+        }
+        var items: [UIMenuElement] = [
+            UIAction(title: "Copy Message", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
+            UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) },
+        ]
+        items += ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store)
+        rows.append(UIMenu(title: "Message", image: UIImage(systemName: "text.bubble"), children: [
+            UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items),
+        ]))
+        return rows
     }
 
     /// The card's files that are marked viewed, by index.
