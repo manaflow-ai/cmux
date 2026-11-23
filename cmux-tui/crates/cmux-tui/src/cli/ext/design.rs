@@ -119,7 +119,7 @@ pub(super) fn check_in(batches: &[&Value], surface: Surface, system: &System) ->
     // Depth first with what each node sits on, as the outline walks it: cmux's two surfaces
     // until a hex background covers them (a translucent one is blended over what is behind).
     let surfaces: Behind =
-        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} surface"), *rgb)).collect();
+        SURFACES.iter().map(|(name, rgb)| (format!("cmux's {name} background"), *rgb)).collect();
     let mut stack: Vec<(String, Behind)> = vec![(root, surfaces)];
     while let Some((id, behind)) = stack.pop() {
         let Some(node) = nodes.get(&id) else { continue };
