@@ -323,12 +323,12 @@ fn by_build(left: &&Value, right: &&Value) -> std::cmp::Ordering {
 }
 
 /// Numeric build order (CFBundleVersion is a monotonic number).
-fn order(left: &str, right: &str) -> std::cmp::Ordering {
+pub(super) fn order(left: &str, right: &str) -> std::cmp::Ordering {
     let (left, right) = (left.trim_start_matches('0'), right.trim_start_matches('0'));
     left.len().cmp(&right.len()).then_with(|| left.cmp(right))
 }
 
-fn older(build: &str, than: &str) -> bool {
+pub(super) fn older(build: &str, than: &str) -> bool {
     order(build, than) == std::cmp::Ordering::Less
 }
 

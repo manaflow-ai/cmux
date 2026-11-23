@@ -68,6 +68,7 @@ run_lane() { # repo lane wt range pathspecs...
       > "$OUT_DIR/$repo-$lane.jsonl" 2> "$OUT_DIR/$repo-$lane.err" ) &
   local worker=$!
   # sr runs codex as a child; stop the children too, or codex keeps running orphaned.
+  # sleep-ok: the watchdog's lane timeout itself (killed when the worker ends first).
   ( sleep "$LANE_TIMEOUT"; pkill -TERM -P "$worker" 2>/dev/null; kill -TERM "$worker" 2>/dev/null ) &
   local watchdog=$!
   wait "$worker"; local rc=$?
