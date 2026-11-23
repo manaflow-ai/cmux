@@ -16,7 +16,6 @@ import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import type { Strings } from "../shared/i18n";
 import { fixtureRank, type PaletteRankEntry, type PaletteRankReply, type PaletteRankRequest } from "./paletteRank";
-import { keycapLegend } from "../../ui/keycapLegend";
 import { KeyHint } from "../../ui/KeyHint";
 
 export type PaletteGroup = "conversations" | "threads" | "actions";

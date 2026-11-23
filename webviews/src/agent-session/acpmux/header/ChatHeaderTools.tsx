@@ -7,7 +7,6 @@
 // Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
 // checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
 // renders from the first frame at its final size; data fills in place.
-import { keycapLegend } from "../../../ui/keycapLegend";
 import { KeyHint } from "../../../ui/KeyHint";
 import { memo, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";

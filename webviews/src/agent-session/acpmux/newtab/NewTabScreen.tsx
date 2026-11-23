@@ -159,7 +159,6 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
-import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 import { KeyHint } from "../../../ui/KeyHint";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).

@@ -3,7 +3,6 @@
 // fixed host with no pointer events on the document's root, so the page under it neither reflows nor
 // loses a hover. The outline and the label move together; the first show of either is instant (no
 // fly-in from the corner), later moves follow the motion settings through the stylesheet.
-import { keycapLegend } from "../../../ui/keycapLegend";
 import { keyHintElement } from "../../../ui/keyHintModel";
 import { translate } from "../i18n";
 import { hintEdge, labelFacts, placeLabel, type Box, type LabelDensity, type LabelPlacement } from "./labelModel";
