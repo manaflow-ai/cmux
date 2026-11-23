@@ -367,6 +367,14 @@ public final class DesignSettings {
     public var cornerFlush: CornerFlush? {
         didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
+    /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
+    /// without writing either setting. A change repaints, as the corner does.
+    public var gooeyTabs: GooeyTabs = .off {
+        didSet { if gooeyTabs != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// The title area's tone in effect: Subtle Tone under gooey tabs (subtle or full), else `titleAreaTone`.
+    public var effectiveTitleAreaTone: TitleAreaTone { gooeyTabs.isOn ? .subtleTone : titleAreaTone }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
