@@ -18,6 +18,43 @@
 	<array>
 		<dict>
 			<key>pfm_default</key>
+			<string>system</string>
+			<key>pfm_description</key>
+			<string>The language of cmux's menus, pages and messages.</string>
+			<key>pfm_name</key>
+			<string>app.language</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>system</string>
+				<string>en</string>
+				<string>ar</string>
+				<string>bs</string>
+				<string>da</string>
+				<string>de</string>
+				<string>es</string>
+				<string>fr</string>
+				<string>it</string>
+				<string>nb</string>
+				<string>pl</string>
+				<string>pt-BR</string>
+				<string>tr</string>
+				<string>vi</string>
+				<string>ru</string>
+				<string>uk</string>
+				<string>th</string>
+				<string>km</string>
+				<string>ja</string>
+				<string>ko</string>
+				<string>zh-Hans</string>
+				<string>zh-Hant</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Language</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Lists finished shell commands in History. Command lines can contain secrets.</string>
@@ -401,6 +438,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Tab Overflow</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>default</string>
+			<key>pfm_description</key>
+			<string>Machines shows each shell tab with the icon of the machine it runs on.</string>
+			<key>pfm_name</key>
+			<string>tabs.shellIconTheme</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>default</string>
+				<string>machine</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Shell Tab Icons</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -2234,6 +2288,26 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>never</string>
+			<key>pfm_description</key>
+			<string>Archives chats after a period of no activity. Chats that are running or have background work never are.</string>
+			<key>pfm_name</key>
+			<string>agents.chats.archiveInactive</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>never</string>
+				<string>1d</string>
+				<string>3d</string>
+				<string>7d</string>
+				<string>30d</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Archive Inactive Chats</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string></string>
 			<key>pfm_description</key>
 			<string>Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name.</string>
@@ -2564,6 +2638,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Accent</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>accent</string>
+			<key>pfm_description</key>
+			<string>Accent tints the selected row and tab with the accent. Neutral keeps them gray.</string>
+			<key>pfm_name</key>
+			<string>appearance.selection</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>accent</string>
+				<string>neutral</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Selection</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -3887,6 +3978,50 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.</string>
+			<key>pfm_name</key>
+			<string>appearance.twoTone</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>auto</string>
+				<string>inkSakura</string>
+				<string>charcoalRose</string>
+				<string>inkMagenta</string>
+				<string>creamForest</string>
+				<string>navySand</string>
+				<string>boneOxblood</string>
+				<string>slateMatcha</string>
+				<string>plumAmber</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Two-Tone</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>flush</string>
+			<key>pfm_description</key>
+			<string>How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.</string>
+			<key>pfm_name</key>
+			<string>appearance.cornerFlush</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>flush</string>
+				<string>flush-tight</string>
+				<string>flush-goo</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Selected Tab Shape</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Splits, closes, moves, zooms and column scrolls slide into place.</string>
@@ -4955,17 +5090,19 @@
 			<key>pfm_default</key>
 			<integer>800</integer>
 			<key>pfm_description</key>
-			<string>The widest the chat's column gets. On a wider pane the chat stays centered.</string>
+			<string>The widest the chat's column gets. On a wider pane the chat stays centered. Also accepts a number from 480 to 4000 in a raw profile.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.width</string>
-			<key>pfm_range_max</key>
-			<real>4000</real>
-			<key>pfm_range_min</key>
-			<real>480</real>
+			<key>pfm_range_list</key>
+			<array>
+				<string>narrow</string>
+				<string>medium</string>
+				<string>wide</string>
+			</array>
 			<key>pfm_title</key>
 			<string>Chat Text Width</string>
 			<key>pfm_type</key>
-			<string>real</string>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -5468,6 +5605,42 @@
 			<string>Prompt Rail Side</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>prompts</string>
+			<key>pfm_description</key>
+			<string>Right-click the rail to change it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.rail.show</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>prompts</string>
+				<string>mine</string>
+				<string>received</string>
+				<string>replies</string>
+				<string>everything</string>
+				<string>errors</string>
+				<string>edits</string>
+				<string>tools</string>
+				<string>subagents</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Prompt Rail Shows</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Shows what the rail lists above it while you point at it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.rail.control</string>
+			<key>pfm_title</key>
+			<string>Prompt Rail Button</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -6313,6 +6486,27 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Rows at the top of the sidebar that run cmux actions, by action id, optionally "id | Title | symbol". Empty shows none.</string>
+			<key>pfm_name</key>
+			<string>sidebar.nav</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Sidebar Nav Rows</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Spaces show once you have more than one. New Space is in the command palette.</string>
@@ -6546,6 +6740,18 @@
 			<string>sidebar.settleFinished</string>
 			<key>pfm_title</key>
 			<string>Settle Finished Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showAutomaticSessions</string>
+			<key>pfm_title</key>
+			<string>Show Automatic Sessions</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -8441,7 +8647,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>8</integer>
+			<integer>6</integer>
 			<key>pfm_name</key>
 			<string>browser.omnibar.maxRows</string>
 			<key>pfm_range_max</key>
@@ -9930,6 +10136,53 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>banner</string>
+			<key>pfm_name</key>
+			<string>notifications.delivery.permissionRequest</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>badge</string>
+				<string>banner</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Permission Request</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>banner</string>
+			<key>pfm_name</key>
+			<string>notifications.delivery.question</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>badge</string>
+				<string>banner</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Question</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>banner</string>
+			<key>pfm_name</key>
+			<string>notifications.delivery.taskComplete</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>banner</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Task Complete</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.</string>
@@ -10004,6 +10257,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Pause a new agent machine after 15 idle minutes; it resumes when work arrives.</string>
+			<key>pfm_name</key>
+			<string>labs.pauseAgentMachines</string>
+			<key>pfm_title</key>
+			<string>Pause Agent Machines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.</string>
 			<key>pfm_name</key>
 			<string>customize.fromTheApp</string>
@@ -10052,6 +10317,54 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.</string>
+			<key>pfm_name</key>
+			<string>experiments.agentBadges</string>
+			<key>pfm_title</key>
+			<string>Agent Badges</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.</string>
+			<key>pfm_name</key>
+			<string>experiments.agentBadgesBeam</string>
+			<key>pfm_title</key>
+			<string>Agent Badges: Running Beam</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.</string>
+			<key>pfm_name</key>
+			<string>experiments.toastsV2</string>
+			<key>pfm_title</key>
+			<string>Toasts v2</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Installed extensions can show a card under a finished tool call in agent chat.</string>
+			<key>pfm_name</key>
+			<string>experiments.chatWidgets</string>
+			<key>pfm_title</key>
+			<string>Extension Chat Widgets</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Inbox shows your GitHub notifications</string>
 			<key>pfm_name</key>
 			<string>feed.github.enabled</string>
@@ -10093,6 +10406,18 @@
 			<string>Files Outside the Project</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Open local chat links that name a line in your chosen text editor.</string>
+			<key>pfm_name</key>
+			<string>agentPane.links.openCitationsInEditor</string>
+			<key>pfm_title</key>
+			<string>Open File Citations in Text Editor</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -10317,6 +10642,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>off</string>
+			<key>pfm_description</key>
+			<string>Choose where to keep worktrees for local chats and forks.</string>
+			<key>pfm_name</key>
+			<string>agentPane.sessionWorktrees</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>shared</string>
+				<string>project</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Session Worktrees</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_description</key>
 			<string>The display size for agent chat. Cmd-0 resets it.</string>
@@ -10389,7 +10732,7 @@
 			<key>pfm_default</key>
 			<string>ask</string>
 			<key>pfm_description</key>
-			<string>Claude Code and Codex you start in cmux, in its terminals and agent chats, can use cmux’s tools, Computer Use included. Off until you turn it on. cmux never changes your agents’ own settings.</string>
+			<string>Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.</string>
 			<key>pfm_name</key>
 			<string>agents.cmuxMcp</string>
 			<key>pfm_range_list</key>
@@ -10399,33 +10742,9 @@
 				<string>off</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Give Agents cmux’s Tools</string>
+			<string>cmux Tools for Agents in cmux</string>
 			<key>pfm_type</key>
 			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on.</string>
-			<key>pfm_name</key>
-			<string>agents.cmuxMcpClaude</string>
-			<key>pfm_title</key>
-			<string>Use in Claude Code</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>Off: Codex you start in cmux never gets cmux’s tools, even when they are on.</string>
-			<key>pfm_name</key>
-			<string>agents.cmuxMcpCodex</string>
-			<key>pfm_title</key>
-			<string>Use in Codex</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -10538,6 +10857,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Ultra Connection Mode</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>balanced</string>
+			<key>pfm_description</key>
+			<string>Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.</string>
+			<key>pfm_name</key>
+			<string>remote.screenSharingProfile</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>balanced</string>
+				<string>ultra</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Screen Sharing Profile</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
