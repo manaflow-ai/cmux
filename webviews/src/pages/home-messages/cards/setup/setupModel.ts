@@ -4,6 +4,7 @@
 // row's state (acpmux's harness health, the account, `CLIInstallReport`, the classic migration's
 // plan) and runs each action; this file decides nothing the host can answer (goal next-first-run-setup,
 // cmuxterm-hq goals/next-first-run-setup.md).
+import { intl } from "../../../../ui/intl";
 import type { Strings } from "../strings";
 
 /** One agent CLI's row inside the agents step. */
@@ -111,9 +112,7 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
   const steps: SetupStep[] = [];
   if (state.classic) {
     const { workspaces, app, savedAt, running, resumes, answered } = state.classic;
-    const saved = new Intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }).format(
-      savedAt,
-    );
+    const saved = intl.DateTimeFormat(strings.language, { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
     steps.push({
       id: "classic",
       // Imported only once the import brought them: it reads Importing while it runs.
@@ -133,7 +132,7 @@ export function setupSteps(state: SetupState, strings: Strings): SetupStep[] {
                   ? format("home.setup.classic.open", app, saved)
                   : format(
                       "home.setup.classic.detail",
-                      new Intl.NumberFormat(strings.language).format(workspaces),
+                      intl.NumberFormat(strings.language).format(workspaces),
                       app,
                       saved,
                     ),

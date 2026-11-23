@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { intl } from "../../../../ui/intl";
 import { cardStrings } from "../strings";
 import { nextStep, setupProgress, setupSteps, type SetupState, setupTitle } from "./setupModel";
 
@@ -42,7 +43,7 @@ describe("setupSteps", () => {
 
   // 2026-11-05 22:26 local: the save time the row names, in the page's own language.
   const savedAt = new Date(2026, 10, 5, 22, 26).getTime();
-  const saved = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
+  const saved = intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(savedAt);
 
   test("classic's session leads, naming the app and its save, with Import and Skip, until answered", () => {
     const state: SetupState = { ...fresh, classic: { workspaces: 27, app: "cmux NIGHTLY", savedAt } };
