@@ -653,6 +653,8 @@ impl Inner {
     /// record, except the save that makes the chat's folder: a new chat is shown only once
     /// durable ([`super::new_folders`]).
     pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
+        // A full disk: refused before anything is written (`super::space`).
+        self.space.refuse()?;
         let dir = self.local.dir(&meta.id);
         // The large fields go to the parts file, only when they changed (`store/meta_parts.rs`),
         // before the record: the record's image is the rest. A new chat's folder is made below,

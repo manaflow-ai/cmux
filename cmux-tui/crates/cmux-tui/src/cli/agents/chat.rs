@@ -42,7 +42,7 @@ const MAX_READ_TEXT_BYTES: usize = 160 * 1024;
 /// acpmux events one read takes per request, and requests per read.
 const EVENT_PAGE: u64 = 500;
 const MAX_EVENT_PAGES: usize = 20;
-/// The most event pages [`turn_items`] reads for one turn.
+/// The most event pages [`turn_items_of`] reads for one turn.
 const MAX_TURN_PAGES: usize = 100;
 
 /// One `cmux agents chat` verb.
@@ -325,6 +325,50 @@ fn own_chat() -> Option<String> {
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
 }
 
+/// The name the caller's own chat goes by, sent as its message's sender name. The daemon knows
+/// a chat's sender only by its launch credential, which a chat the app's acpmux starts lacks
+/// (that acpmux has no `CMUX_TUI_SOCKET` to mint one), so without a name the receiving chat
+/// showed every chat's message, a Chief's too, as `cli`, the person's shell
+/// (manaflow-ai/cmux#51004). A name claims what `--from` claims and proves nothing more: the
+/// daemon still treats the send as unverified. None from a shell, which has no chat.
+fn own_sender_name() -> Option<String> {
+    let own = own_chat()?;
+    let (_, info) = acp::lookup(&own, None).ok()?;
+    sender_name_of(&info)
+}
+
+/// The longest sender name the daemon stores (cmux-tui-core `MAX_SENDER_NAME_CHARS`) and acpmux
+/// shows (`prompt_provenance` `MAX_NAME_CHARS`).
+const MAX_SENDER_NAME_CHARS: usize = 64;
+
+/// A chat's shown name from its `_acpmux/info`: its `mux.label` (a Chief turn's: the Chief's own
+/// name, optchat-chief `acpmux::turn_tags`), else its name; one line, spaces collapsed, at most
+/// [`MAX_SENDER_NAME_CHARS`] characters. A Chief turn's session name (`optchat-<home>-<n>`) is
+/// never shown.
+fn sender_name_of(info: &Value) -> Option<String> {
+    let shown = |value: &Value| {
+        let words: Vec<&str> = value
+            .as_str()?
+            .split(|c: char| c.is_whitespace() || c.is_control())
+            .filter(|word| !word.is_empty())
+            .collect();
+        let line = words.join(" ");
+        let line: String =
+            line.chars().filter(|c| !format_mark(*c)).take(MAX_SENDER_NAME_CHARS).collect();
+        let line = line.trim().to_owned();
+        (!line.is_empty()).then_some(line)
+    };
+    info.pointer("/tags/mux.label").and_then(shown).or_else(|| shown(&info["name"]))
+}
+
+/// A bidi or zero-width format mark, which acpmux refuses in a provenance name.
+fn format_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+    )
+}
+
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
 /// interrupts itself.
 pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
@@ -361,7 +405,7 @@ fn send(
     let plan = MessagePlan {
         target: Some(recipient.clone()),
         body: Body::Text(text.to_owned()),
-        from: None,
+        from: own_sender_name(),
         thread: None,
         reply_to: None,
         idempotency_key: Some(key.clone()),
@@ -466,18 +510,9 @@ pub(in crate::cli) fn page_of_events(
     page
 }
 
-/// The transcript items of `target` after `after`, each whole (no per-item cut) and masked as a
-/// read masks them: the turn `cmux chat --wait` waited on (turn.rs), read from its prompt on.
-pub(in crate::cli) fn turn_items(
-    global: &GlobalArgs,
-    target: &str,
-    after: u64,
-) -> Result<Vec<Value>, CallFailure> {
-    turn_items_of(&scoped_chat(global, target)?, after)
-}
-
-/// [`turn_items`] of a chat already found (and scope-checked) with [`scoped_chat`]: `cmux chat
-/// --wait` finds its chat once and reads it with no second lookup (turn.rs).
+/// The transcript items of a chat already found (and scope-checked) with [`scoped_chat`] after
+/// `after`, each whole (no per-item cut) and masked as a read masks them: the turn `cmux chat
+/// --wait` waited on, read from its prompt on. `cmux chat --wait` finds its chat once and reads it with no second lookup (turn.rs).
 pub(in crate::cli) fn turn_items_of(found: &Chat, after: u64) -> Result<Vec<Value>, CallFailure> {
     let chat = &found.id;
     // Every event from the turn's prompt on, not a read's page: the turn's end must be in it,

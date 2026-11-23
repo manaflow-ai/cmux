@@ -237,6 +237,34 @@ fn target_admits_only_with_its_owners_signed_in_machines_consent() {
     assert!(!granted.covers(&Asker { device: ASKER, account: "" }));
 }
 
+/// The iPhone's tap (hq#18912 cut 1): the approval the phone builds with the shared asker half
+/// (`ShareApproval::asked`, cmux-mobile-link-ffi `share_approval`), signed by its device key and
+/// read back from the wire, is admitted by this Mac. Unsigned (no tap), it never is. The grant
+/// here is the one on base today; with #50721 (cut 3) it becomes `OwnerPairedDevice`, so no
+/// consent on this Mac is needed.
+#[test]
+fn target_admits_the_iphones_tapped_approval() {
+    let phone = DeviceKey::new();
+    let keys = Keys(vec![(ASKER, phone.public())]);
+    let consent = serde_json::json!({"consent": {"signedInMachines": "granted", "signedInMachinesUser": ACCOUNT}});
+    let owner = SignedInMachinesConsent::from_status(&consent, Some(ACCOUNT));
+    let asked = ShareApproval::asked(
+        Device { id: TARGET, name: "Studio" },
+        Device { id: ASKER, name: "iPhone" },
+        ACCOUNT,
+        NOW - 2,
+        "tap-nonce-1",
+    )
+    .unwrap();
+    let untapped: ShareApproval = serde_json::from_value(asked.wire()).unwrap();
+    assert_eq!(
+        admit(&untapped, &target(), &owner, &keys, &mut HashSet::new()).unwrap_err().code,
+        "share.bad_signature"
+    );
+    let tapped: ShareApproval = serde_json::from_value(phone.sign(asked).wire()).unwrap();
+    assert_eq!(admit(&tapped, &target(), &owner, &keys, &mut HashSet::new()), Ok(()));
+}
+
 /// Zero-touch sharing (hq#18912 cut 3): the owner's own tap on a device paired to this Mac's
 /// account is the yes, with no consent given on this Mac first.
 #[test]
