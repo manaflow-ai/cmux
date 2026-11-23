@@ -148,7 +148,7 @@ public final class AgentPaneView: NSView {
         state["calls"] = transportPacer?.calls ?? -1
         state["usesPageHost"] = pageEvents != nil
         if let pageEvents { state["provider"] = pageEvents.debugState }
-        state["blank_recovery"] = reloadCover.report // ``AgentPaneReloadCover``'s detector
+        state["blank_recovery"] = documentCover.report // ``AgentPaneDocumentCover``'s detector
         return state
     }
     struct QuestionKeyBinding: Equatable {
@@ -180,8 +180,8 @@ public final class AgentPaneView: NSView {
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
-    /// The page's last frame over each later document until it paints (`AgentPaneView+ReloadCover`).
-    public let reloadCover = AgentPaneReloadCover()
+    /// The page's last frame over each later document until it paints (`AgentPaneView+DocumentCover`).
+    public let documentCover = AgentPaneDocumentCover()
     /// The chat's own ground under its page, from the turn the pane is made (``AgentPaneGround``).
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
@@ -190,6 +190,8 @@ public final class AgentPaneView: NSView {
     var holdsPageAway = false {
         didSet { page?.drawsWhileAway = holdsPageAway }
     }
+    /// The picture of the chat held over its page while the page reloads in place (`AgentPaneView+ReloadCover`).
+    var reloadCover: AgentPaneReloadCover?
     /// A paint hold has the page drawn outside the window until the hold ends (``drawUnseenForPaintHold()``).
     var drawsUnseenForHold = false
     /// A Chromium page moved here waits for its first layout in a window (`AgentPaneView+MoveCover`).
@@ -308,6 +310,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        WebBundleServedViews.shared.coverReloads(of: webView, with: self) // a web update swaps in under a picture
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         pageEvents?.onDesignSelectionReleased = { [weak self] ids in self?.designSelectionReleased?(ids) }
         pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
@@ -360,7 +363,7 @@ public final class AgentPaneView: NSView {
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
-        model.onPaintReport = { [weak self] in self?.reloadCoverPaintReported() }
+        model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -501,7 +504,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         ground.place(in: frame, of: self)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
-        layOutReloadCover(frame)
+        layOutDocumentCover(frame)
         layoutSessionInfo()
         layoutHostGlass()
         // A pane resized or moved under shown toasts: they stay clear of its composer.

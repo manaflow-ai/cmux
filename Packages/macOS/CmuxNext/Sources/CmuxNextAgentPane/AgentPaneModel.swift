@@ -34,6 +34,9 @@ public final class AgentPaneModel {
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// Told each paint report of a page reloading under its picture (``AgentPaneView/reloadUnderCover(_:)``),
+    /// with whether that frame drew the chat as it stands (a kept tail or the settled view).
+    @ObservationIgnored var reloadPaintWaiters: [(_ settled: Bool) -> Void] = []
     /// The chat whose settled paint this pane last published (``RemoteChatEvents``): a repaint publishes nothing.
     @ObservationIgnored var livePaintedSession: String?
     /// The waits for another process this open ran before its first paint, as the host sees them.
@@ -76,7 +79,7 @@ public final class AgentPaneModel {
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
     /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
-    /// (a reload, a crash retry) reports its first frame here (``AgentPaneReloadCover``).
+    /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
     @ObservationIgnored var onPaintReport: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
@@ -644,6 +647,8 @@ public final class AgentPaneModel {
             }
             markPainted()
             onPaintReport?()
+            let reloadWaiters = reloadPaintWaiters
+            for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
             // acpmux's settled view is on screen: a remote chat's `agent.chat.live_paint`, once per chat.
             if settled, let events = machineLink?.events { livePaintedSession = events.livePainted(session: sessionId, last: livePaintedSession) }
             return AgentPaneReply.success()

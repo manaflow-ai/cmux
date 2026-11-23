@@ -50,7 +50,7 @@ extension AgentPaneView {
     private func showCrashNotice() {
         guard crashNotice == nil else { return }
         // It kept ending: the notice says so, over the page, not over a picture of a chat that works.
-        endReloadCover(painted: false, reason: "crash notice")
+        endDocumentCover(painted: false, reason: "crash notice")
         let message = ChromeLabel(wrappingLabelWithString: Self.crashedMessage)
         message.alignment = .center
         let reload = ThemedBezelButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
