@@ -947,6 +947,7 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
         rows(vec![row("s1", false, "reconnecting")]),
         rows(vec![row("s1", false, "connected")]),
     ];
+    ];
     let socket_dir = tempfile::tempdir().unwrap();
     let socket = socket_dir.path().join("daemon.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
