@@ -17,9 +17,12 @@ const LAZY: Record<string, string> = {
   "src/agent-session/acpmux/conversation/artifactJsx.ts": "the artifact runtime: only for a JSX artifact",
 };
 
+// The classic JSX runtime: scanImports only reads imports, and the automatic runtime throws on a
+// `key` after a {...spread} ("deprecated in JSX") in some pane modules, which ends the walk.
+const classicJsx = { compilerOptions: { jsx: "react" as const } };
 const transpilers = {
-  ts: new Bun.Transpiler({ loader: "ts" }),
-  tsx: new Bun.Transpiler({ loader: "tsx" }),
+  ts: new Bun.Transpiler({ loader: "ts", tsconfig: classicJsx }),
+  tsx: new Bun.Transpiler({ loader: "tsx", tsconfig: classicJsx }),
 };
 
 /** Every first-party module `entry` reaches through static imports (type-only imports are erased). */
