@@ -45,6 +45,14 @@ final class TopBackOneTapUITests: XCTestCase {
                 row.tap()
                 let page = app.descendants(matching: .any)["workspace.\(workspace)"]
                 XCTAssertTrue(page.waitForExistence(timeout: 15), "\(step): workspace not shown")
+                // Keyboard down first: Back already sits at the top of the screen.
+                let restingBack = app.buttons["Back"].firstMatch
+                let restingTop = restingBack.waitForExistence(timeout: 5) && restingBack.isHittable
+                    && restingBack.frame.midY < app.frame.height * 0.25
+                print("CMUX_TOP_BACK \(step) keyboard-down back=\(restingBack.exists ? "\(restingBack.frame)" : "none") " +
+                      "screen=\(app.frame.size): \(restingTop ? "top" : "NOT-AT-TOP")")
+                XCTAssertTrue(restingTop, "\(step): keyboard down, Back is not at the top (\(restingBack.frame) on \(app.frame.size))")
+                attach(app, "\(step)-keyboard-down")
                 let field = app.textViews.firstMatch.exists ? app.textViews.firstMatch : app.textFields.firstMatch
                 guard field.waitForExistence(timeout: 10), field.isHittable else {
                     print("CMUX_TOP_BACK \(step): SKIPPED (no composer field)")
