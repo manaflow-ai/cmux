@@ -116,6 +116,7 @@
     "CmuxNextDesign/Toast/CmuxToastView.swift": "native-overlay",
     "CmuxNextDesign/Tooltip/TooltipPanel.swift": "material-source",
     "CmuxNextDesign/WindowMaterialView.swift": "window-chrome",
+    "CmuxNextDiff/TerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetBubble.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetRail.swift": "native-overlay",
     "CmuxNextFloating/ChiefPet/ChiefPetReplyPanel.swift": "native-overlay",

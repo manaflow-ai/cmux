@@ -1,24 +1,23 @@
-import AppKit
+public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextDiff
 import Observation
 import SwiftUI
 
 /// A terminal's comment threads (comment-threads-v1): a popup card at the terminal's top trailing
 /// corner listing each thread's quote, comment, "Sent" and then the agent's reply, with Resolve.
-/// It opens after Comment… sends, and again by itself when a reply comes while it is closed.
+/// It opens after Comment… sends, and again by itself when a reply comes while it is closed
+/// (``TerminalCommentThreads``).
 @MainActor
 final class TerminalCommentsPopup {
-    static let shared = TerminalCommentsPopup() // lint:allow singleton: the app shows one terminal comments card at a time.
-
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.terminal.comments"))
     private let state = TerminalCommentsPopupState()
     private var content: FirstMouseHostingView<TerminalCommentsPopupView>?
     private weak var anchor: NSView?
-    /// Bumped by every show and close: an observation of an earlier show stops.
-    private var generation = 0
+    /// Resizes the card while it shows and a thread changes (the reply came, one resolved).
+    private var following: Task<Void, Never>?
 
-    private init() {
+    init() {
         popup.onDismiss = { [weak self] in self?.closed() }
     }
 
@@ -27,15 +26,14 @@ final class TerminalCommentsPopup {
     /// Shows the threads of `model` on terminal `terminalID` over the terminal view `anchor`.
     func show(_ model: CommentThreadsModel, terminalID: String, anchor: NSView, makeKey: Bool) {
         guard let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return }
-        generation += 1
         self.anchor = anchor
         state.model = model
         state.terminalID = terminalID
-        state.colors = anchor.performWithTheme { BrowserDownloadsPopupColors.resolve() }
+        state.colors = anchor.performWithTheme { PopupCardColors.resolve() }
         state.onResolve = { [weak self, weak model] id in
             guard let model else { return }
             // task-owner: one resolve (a delete on the session host); ends when it does.
-            Task { @MainActor in
+            Task { [weak self] in
                 await model.resolve(id)
                 if model.threads(onTerminal: terminalID).isEmpty { self?.close() }
             }
@@ -43,7 +41,7 @@ final class TerminalCommentsPopup {
         let content = content ?? makeContent()
         popup.panel.adoptThemeScope(of: anchor)
         place(content, anchor: anchor, window: window, makeKey: makeKey)
-        follow()
+        follow(model, terminalID: terminalID)
     }
 
     func close() {
@@ -63,22 +61,18 @@ final class TerminalCommentsPopup {
     }
 
     private func makeContent() -> FirstMouseHostingView<TerminalCommentsPopupView> {
-        let content = FirstMouseHostingView(rootView: TerminalCommentsPopupView(state: state))
+        let content = FirstMouseHostingView<TerminalCommentsPopupView>(rootView: TerminalCommentsPopupView(state: state))
         let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
         return content
     }
 
-    /// While the card shows, a thread's change (the reply came, one resolved) resizes it.
-    private func follow() {
-        guard popup.isShown, let model = state.model else { return }
-        let current = generation, terminalID = state.terminalID
-        _ = withObservationTracking { model.threads(onTerminal: terminalID) } onChange: { [weak self] in
-            Task { @MainActor in
-                guard let self, self.generation == current else { return }
-                self.resize()
-            }
+    private func follow(_ model: CommentThreadsModel, terminalID: String) {
+        following?.cancel()
+        // task-owner: the card's resize on a thread change; cancelled when the card closes.
+        following = Task { [weak self] in
+            for await _ in ObservationStream({ model.threads(onTerminal: terminalID) }) { self?.resize() }
         }
     }
 
@@ -86,11 +80,11 @@ final class TerminalCommentsPopup {
         guard popup.isShown, let content else { return }
         guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
         place(content, anchor: anchor, window: window, makeKey: popup.panel.isKeyWindow)
-        follow()
     }
 
     private func closed() {
-        generation += 1
+        following?.cancel()
+        following = nil
         anchor = nil
     }
 }
@@ -101,7 +95,7 @@ final class TerminalCommentsPopup {
 final class TerminalCommentsPopupState {
     var model: CommentThreadsModel?
     var terminalID = ""
-    var colors = BrowserDownloadsPopupColors()
+    var colors = PopupCardColors()
     @ObservationIgnored var onResolve: (String) -> Void = { _ in }
 
     var threads: [CommentThread] { model?.threads(onTerminal: terminalID) ?? [] }
@@ -132,7 +126,7 @@ struct TerminalCommentsPopupView: View {
 /// One thread: the quote, the comment, "Sent", then the reply (or that it is awaited or failed).
 private struct TerminalCommentThreadRow: View {
     let thread: CommentThread
-    let colors: BrowserDownloadsPopupColors
+    let colors: PopupCardColors
     let resolve: () -> Void
 
     var body: some View {

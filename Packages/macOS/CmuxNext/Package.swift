@@ -2233,6 +2233,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentPane",
                 "CmuxNextCompat",
                 "CmuxNextDaemonService",
+                // The terminal comment threads' card (NativePopupHost, Glass, Typography).
+                "CmuxNextDesign",
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
