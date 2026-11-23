@@ -524,7 +524,7 @@ final class AppServices {
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Reads the plan again a few times after a return from the payment page (`paidPlanReturned`).
-    var paidPlanReread: Task<Void, Never>?
+    let paidPlanReread = DemandTimer(owner: "AppServices.paidPlanReread")
     /// One marked-tab list for the palette and every agent page.
     let attentionTabs = AgentPaneAttentionTabs()
     /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
@@ -968,14 +968,16 @@ extension AppServices {
     func paidPlanReturned() async {
         guard PaidPlanOnboarding(defaults: .standard).hasPending else { return }
         await cloud.refresh()
-        paidPlanReread?.cancel()
-        // task-owner: one bounded run of plan reads per return to the app; a newer return replaces it
-        paidPlanReread = Task { [weak self] in
-            for wait in PaidPlanOnboarding.rereadAfter {
-                try? await Task.sleep(for: wait)
-                guard !Task.isCancelled, let self, PaidPlanOnboarding(defaults: .standard).hasPending else { return }
-                await self.cloud.refresh()
-            }
+        paidPlanRereadNext(PaidPlanOnboarding.rereadAfter[...])
+    }
+
+    /// One plan read per wait left, each on the timer (a newer return to the app replaces the run).
+    private func paidPlanRereadNext(_ waits: ArraySlice<Duration>) {
+        guard let wait = waits.first else { return paidPlanReread.cancel() }
+        paidPlanReread.schedule(after: wait) { @MainActor [weak self] in
+            guard let self, PaidPlanOnboarding(defaults: .standard).hasPending else { return }
+            await self.cloud.refresh()
+            self.paidPlanRereadNext(waits.dropFirst())
         }
     }
 }
