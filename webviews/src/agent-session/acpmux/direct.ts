@@ -246,7 +246,7 @@ import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { liveModes, permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
-import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
+import { handoffPromptId, namesHandoffTurn, TURN_WAIT_MS } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
 import { bridgedWatch } from "./watchBannerModel";
@@ -412,6 +412,7 @@ export function newSessionParams(
   noProject = false,
   model?: string,
   additionalDirectories?: readonly string[],
+  restricted = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -433,6 +434,8 @@ export function newSessionParams(
         // Do not work in a project: the host starts the chat in its agent-home folder, not the
         // workspace's (AcpmuxPathPolicy), and strips this before acpmux sees it.
         ...(noProject ? { noProject: true } : {}),
+        // Read-only in a folder the person declined (acpmux hub/restricted.rs).
+        ...(restricted ? { restricted: true } : {}),
       },
     },
   };
@@ -569,6 +572,9 @@ type PromptIndexRead = {
 };
 /// How long a prompt index read may take before it counts as failed and may be read again: a peer's
 /// own read deadline is 30 s (acpmux `server/peer_forward.rs`).
+/// How long a hand-off turn asked as a send started its chat stays that send's (`handoffAhead`): the
+/// send follows its start at once, so an ask older than this is one whose send never came.
+const HANDOFF_AHEAD_KEEP_MS = 10_000;
 const PROMPT_INDEX_DEADLINE_MS = 35_000;
 /// The back-off after a failed prompt index read, times the reads so far.
 const PROMPT_INDEX_RETRY_MS = 2_000;
@@ -8958,7 +8964,11 @@ export class AcpmuxDirectClient {
     // A record that opened the turn arms the watch; one that ended it stops it (`followQuietWatch`).
     this.followQuietWatch();
     this.noticeRefusal(event);
-    this.emitInFrame(event.kind, this.streamGrew);
+    // A tool's progress (`tool_call_update`: its output, its status) waits for a hidden page to show
+    // as the text stream does: a busy agent's tools drew a hidden tab up to 20 times a second (Leo,
+    // 2026-11-18, "Why should non visible thing even affect the renderer thread anyways?"). A new
+    // tool call still draws within 50 ms: a subagent's start opens its own pane.
+    this.emitInFrame(event.kind, this.streamGrew || event.kind === "tool_call_update");
     if (!pageShown() && event.dir === "mux" && event.kind === "turn_result") {
       const turnId = event.msg?.turnId;
       const result = this.rows.get(`summary-${typeof turnId === "string" && turnId ? turnId : event.seq}`);
@@ -13004,6 +13014,20 @@ export class AcpmuxDirectClient {
   private boundSendTickets = new Map<string, { sessionId: string; ticket: Promise<string | undefined> }>();
   /// The hand-off turn each chat asks the app for now (sendNow), with the selection it was asked in.
   private handoffAsks = new Map<string, { generation: number; ask: Promise<number | undefined> }>();
+  /// The hand-off turn of the chat a send just started on a Cloud machine, asked as soon as its
+  /// session was known (create, for ensureSession only), beside the page's attach to it: the send
+  /// that started the chat takes this ask instead of making its own after the attach (the ask took
+  /// 1.5 to 1.9 s and the attach 0.7 to 1.6 s of a start, one after the other, 2026-11-21). Only for
+  /// that chat while it stays the one shown, and only for `HANDOFF_AHEAD_KEEP_MS`: another selection
+  /// since, or a send that comes later than that, asks again, as an ask from before does. One that
+  /// named no turn (the app may not show the new chat on its tab yet) is asked again by the send,
+  /// unless it ran out its wait (`took`, ms): an app that did not answer is not waited on twice.
+  private handoffAhead?: {
+    sessionId: string;
+    generation: number;
+    asked: number;
+    ask: Promise<{ turn: number | undefined; took: number }>;
+  };
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
   /// (the machine's reports go on their own time), and another prompt never names it.
   private handoffTurnsSent = new Map<string, number>();
@@ -13034,7 +13058,15 @@ export class AcpmuxDirectClient {
       // A rejected seeded peer start stays sessionless. The next Send retries that peer,
       // with its own folder, instead of silently falling back to a local session.
       const sessionId = await (this.creating ??
-        this.create(this.host.harness, this.host.peer ? this.host.cwd : undefined, this.host.peer));
+        this.create(
+          this.host.harness,
+          this.host.peer ? this.host.cwd : undefined,
+          this.host.peer,
+          false,
+          undefined,
+          false,
+          true,
+        ));
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       // `superseded`: another chat was selected (or the page closed) while the start was out, so it
@@ -13267,13 +13299,28 @@ export class AcpmuxDirectClient {
     /// The turn this prompt claimed (`handoffTurnsSent`) and the claim before it.
     let claim: { turn: number; before: number | undefined } | undefined;
     const steersIn = steer && shown === sessionId && this.turnOpen;
+    // The ask made as this chat started (`handoffAhead`) is the next send's, once: a send that asks
+    // nothing leaves its turn to the next prompt that starts one, as an ask that ran out does.
+    const ahead = this.handoffAhead;
+    this.handoffAhead = undefined;
     if (this.handoffTurn && !steersIn && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
       const generation = this.selectionGeneration;
       let named: number | undefined;
       const asking = this.handoffAsks.get(sessionId);
       if (asking?.generation === generation) await asking.ask;
       else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
-        const entry = { generation, ask: this.handoffTurn(sessionId) };
+        const early =
+          ahead?.sessionId === sessionId &&
+          ahead.generation === generation &&
+          Date.now() - ahead.asked <= HANDOFF_AHEAD_KEEP_MS
+            ? ahead.ask
+            : undefined;
+        const ask = () => this.handoffTurn?.(sessionId) ?? Promise.resolve(undefined);
+        const again = (took: number) => took < TURN_WAIT_MS && generation === this.selectionGeneration;
+        const entry = {
+          generation,
+          ask: early ? early.then(({ turn, took }) => turn ?? (again(took) ? ask() : undefined)) : ask(),
+        };
         this.handoffAsks.set(sessionId, entry);
         let turn: number | undefined;
         try {
@@ -15265,6 +15312,7 @@ export class AcpmuxDirectClient {
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
   /// `waitForTrust`: New Tab still owns the first prompt; keep this start pending through its Trust answer
   /// only when this connection can record one. Other origins reject so the retained draft can retry later.
+  /// `forSend`: a send starts this chat (ensureSession), so its hand-off turn is asked ahead (`handoffAhead`).
   create(
     harness: string | undefined = this.host.harness,
     cwd?: string,
@@ -15272,6 +15320,7 @@ export class AcpmuxDirectClient {
     noProject = false,
     model: string | undefined = this.host.model,
     waitForTrust = false,
+    forSend = false,
   ): Promise<string | undefined> {
     this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
@@ -15343,7 +15392,23 @@ export class AcpmuxDirectClient {
         return undefined;
       }
       if (sessionId) this.startedChat = { sessionId, visit: generation };
-      return sessionId ? this.select(sessionId) : undefined;
+      if (!sessionId) return undefined;
+      // A send started this chat on a Cloud machine (`forSend`, `startsOnSend`), so a prompt that
+      // starts a turn comes next: its hand-off turn is asked now, beside the attach (`handoffAhead`).
+      // Any other start (New Tab, a continued chat) asks nothing: no prompt has to follow it.
+      this.handoffAhead = undefined;
+      const asked = Date.now();
+      const ahead =
+        forSend && this.handoffTurn && this.startsOnSend
+          ? this.handoffTurn(sessionId).then(
+              (turn) => ({ turn, took: Date.now() - asked }),
+              () => ({ turn: undefined, took: 0 }),
+            )
+          : undefined;
+      const selected = await this.select(sessionId);
+      if (ahead && selected === sessionId && this.selectedSessionId === sessionId && !this.closed)
+        this.handoffAhead = { sessionId, generation: this.selectionGeneration, asked, ask: ahead };
+      return selected;
     })();
     const tracked = started.finally(() => {
       if (this.creating === tracked) this.creating = undefined;
@@ -15371,6 +15436,7 @@ export class AcpmuxDirectClient {
     noProject = false,
     model?: string,
     declined?: () => void,
+    restricted = false,
   ): Promise<string | undefined> {
     const startHost = newSessionHost(this.host, cwd, peer, noProject);
     const folders = this.newChatFolders;
@@ -15381,7 +15447,7 @@ export class AcpmuxDirectClient {
     this.waitingTrust = undefined;
     this.emit();
     const result = await this.newSession(
-      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd)),
+      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd), restricted),
       again,
       () => this.pendingPeerTrust === pending && (!pending.peer || !this.selectedSessionId),
       (error) => {
