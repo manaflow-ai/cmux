@@ -939,12 +939,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             settleProbe = (probe.link, CACurrentMediaTime())
             return
         }
-        let link = CADisplayLink(target: self, selector: #selector(settleProbeTick(_:)))
+        // Through the weak proxy: a display link retains its target, so
+        // targeting self would keep the controller alive for good.
+        let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
+            guard let self, let link = self.settleProbe?.link else { return }
+            self.settleProbeTick(link)
+        }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
         settleProbe = (link, CACurrentMediaTime())
     }
 
-    @objc private func settleProbeTick(_ link: CADisplayLink) {
+    private func settleProbeTick(_ link: CADisplayLink) {
         guard let probe = settleProbe, probe.link === link, view.window != nil || probe.start != nil else { return }
         let pending = freezeView != nil || replayGate.isReplaying || !output.isEmpty || feedInFlight
         let final = model.demoFinalColumns?()
