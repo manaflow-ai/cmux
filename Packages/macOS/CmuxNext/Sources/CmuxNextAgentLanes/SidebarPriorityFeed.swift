@@ -37,15 +37,19 @@ public final class SidebarPriorityFeed {
         public var toggleShown: @MainActor () -> Void
         /// Session ids in actual open tabs, read inside the panel observation.
         public var openedSessions: @MainActor () -> Set<String>
+        /// Opens a chat by its session id, for an archived chat no lane lists (a closed one).
+        public var openSession: @MainActor (String) -> Void
 
         public init(shortcut: @escaping @MainActor () -> String?, open: @escaping @MainActor (AgentActivityLane) -> Void,
                     rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void,
-                    openedSessions: @escaping @MainActor () -> Set<String> = { [] }) {
+                    openedSessions: @escaping @MainActor () -> Set<String> = { [] },
+                    openSession: @escaping @MainActor (String) -> Void = { _ in }) {
             self.shortcut = shortcut
             self.open = open
             self.rowAction = rowAction
             self.toggleShown = toggleShown
             self.openedSessions = openedSessions
+            self.openSession = openSession
         }
     }
 
@@ -56,6 +60,8 @@ public final class SidebarPriorityFeed {
     private let ranking = AgentPriorityRanking()
     /// Bumped when a snooze ends or an idle chat ages out, so the rows redraw with no other change.
     private let clock = PriorityClock()
+    /// How many archived rows the open Archived fold shows (Show More adds a page).
+    private let archivedPage = ArchivedPage()
     private let nextChange = DemandTimer(owner: "sidebar-priority-next-change")
 
     public init(settings: Settings, hooks: Hooks, chats: AgentPriorityChats) {
@@ -120,7 +126,16 @@ public final class SidebarPriorityFeed {
             return entry
         }
         return SidebarPriorityPanel(entries: shown ? entries : entries.filter(\.needsAttention), shown: shown,
-                                    collapsed: state.collapsed, shortcut: hooks.shortcut())
+                                    collapsed: state.collapsed, shortcut: hooks.shortcut(),
+                                    archived: shown ? archived(open: state.archivedOpen) : SidebarArchivedChats())
+    }
+
+    /// The Archived fold: only its count while folded (no row is built or sorted), else the newest
+    /// archives up to the page.
+    private func archived(open: Bool) -> SidebarArchivedChats {
+        let count = chats.archivedChats.count
+        guard open, count > 0 else { return SidebarArchivedChats(count: count) }
+        return SidebarArchivedChats(count: count, rows: chats.archivedEntries(limit: archivedPage.limit), folded: false)
     }
 
     /// A row's buttons run their registered actions (`Hooks.rowAction`); the fold, the bell and a
@@ -133,6 +148,13 @@ public final class SidebarPriorityFeed {
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
         case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()
+        case .restore: hooks.rowAction(action)
+        case .openArchived(let id):
+            if let lane = chats.lane(id) { hooks.open(lane) } else { hooks.openSession(id) }
+        case .setArchivedFolded(let folded):
+            if folded { archivedPage.limit = SidebarArchivedChats.pageSize }
+            marks.setArchivedOpen(!folded)
+        case .showMoreArchived: archivedPage.limit += SidebarArchivedChats.pageSize
         }
     }
 
@@ -151,6 +173,12 @@ public final class SidebarPriorityFeed {
             scheduleNextChange(chats.snapshot())
         }
     }
+}
+
+/// The open Archived fold's page; observed, so Show More redraws.
+@Observable @MainActor
+final class ArchivedPage {
+    var limit = SidebarArchivedChats.pageSize
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.

@@ -1,0 +1,144 @@
+{
+  "title": "Workspace row colors: picked colors at rest and selected, default style",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Workspace Purple",
+      "cmux": [
+        "workspace",
+        "create",
+        "--name",
+        "Purple"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Yellow",
+      "cmux": [
+        "workspace",
+        "create",
+        "--name",
+        "Yellow"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Red",
+      "cmux": [
+        "workspace",
+        "create",
+        "--name",
+        "Red"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Green",
+      "cmux": [
+        "workspace",
+        "create",
+        "--name",
+        "Green"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace workspace-1005",
+      "cmux": [
+        "workspace",
+        "create",
+        "--name",
+        "workspace-1005"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Purple is purple",
+      "cmux": [
+        "workspace",
+        "name:Purple",
+        "update",
+        "--color",
+        "purple"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Yellow is yellow",
+      "cmux": [
+        "workspace",
+        "name:Yellow",
+        "update",
+        "--color",
+        "yellow"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Red is red",
+      "cmux": [
+        "workspace",
+        "name:Red",
+        "update",
+        "--color",
+        "red"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Green is green",
+      "cmux": [
+        "workspace",
+        "name:Green",
+        "update",
+        "--color",
+        "green"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "workspace-1005 is blue",
+      "cmux": [
+        "workspace",
+        "name:workspace-1005",
+        "update",
+        "--color",
+        "blue"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Select Purple: a selected colored row beside colored rows at rest",
+      "cmux": [
+        "workspace",
+        "name:Purple",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 2
+    },
+    {
+      "title": "The rows as drawn",
+      "rpc": {
+        "method": "debug.sidebar_rows",
+        "params": {}
+      },
+      "record": "file",
+      "wait": 4
+    }
+  ]
+}
