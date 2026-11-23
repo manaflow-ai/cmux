@@ -3,12 +3,16 @@
 // scroller's thumb whenever its text overflows (scrollers.ts MINIMAL_SCROLLER_CSS), and while it
 // grows to a new line (composer/fieldGrowth.ts) the text is already a line taller than the moving
 // box, so the thumb drew for the length of the motion although nothing is left to scroll once it
-// lands. Read from the pixels of the scroller's lane in headless Chromium, with its scrollbars
+// lands. Since Leo 2026-11-22 ("the thumb only appears when it's relevant INSTEAD OF ALWAYS
+// SHOWING UP LIKE ...") the thumb shows only while the draft scrolls (the transcript's
+// shown scroller, scrollers.ts), and a growth that scrolls the field must still draw none.
+// Read from the pixels of the scroller's lane in headless Chromium, with its scrollbars
 // drawn (no --hide-scrollbars) and the page's animations slowed so the motion spans many reads:
 //
 // - Shift-Return in a one-line draft: some read mid-motion has the text overflowing the field
 //   (scrollHeight > clientHeight), and no read, during or after, shows ink in the lane.
-// - A draft past the field's cap: the thumb shows (the fix hides only a move the text fits).
+// - A draft past the field's cap: no thumb at rest; a wheel over it shows the thumb (the fix hides
+//   only a move the text fits).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -122,12 +126,12 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
     await page.keyboard.press("Control+End");
     await page.mouse.move(0, 0);
     await rest(page);
-    return page;
+    return { page, cdp };
   };
 
   for (const theme of ["Apple System Colors", "Apple System Colors Light"])
     test(`${theme}: a field that grows by a line it fits draws no thumb; one past its cap does`, async () => {
-      const page = await open(theme);
+      const { page, cdp } = await open(theme);
       try {
         // A second line first: Codex's look (the default since #42247) holds two lines' room at rest
         // (composerLook.css --acpmux-codex-editor-min), so only the third line grows the field.
@@ -160,7 +164,11 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
         for (const read of reads) expect(read.ink, JSON.stringify(read)).toBeLessThan(24);
         expect(await laneInk(page)).toBeLessThan(24);
 
-        // Past the cap, the thumb shows once the field rests, and scrolling still works.
+        // Full speed again: the thumb's fade runs on the frames' clock, which the slowdown
+        // stretches tenfold past the fixed wait below.
+        await cdp.send("Animation.setPlaybackRate", { playbackRate: 1 });
+        // Past the cap, no thumb once the field rests (past the 800 ms scroll mark and its fade);
+        // a wheel over the draft shows it, and scrolling still works.
         for (let line = 0; line < 24; line++) {
           await page.keyboard.press("Shift+Enter");
           await page.keyboard.type(`line ${line}`);
@@ -168,6 +176,33 @@ await requireBrowserLane("composer-grow-no-thumb.test.ts", async () => {
         await rest(page);
         const capped = await fit(page);
         expect(capped.scroll).toBeGreaterThan(capped.client + 1);
+        // fixed-wait: the thumb's rest state is what the scroller shows after its scroll mark expires.
+        await page.waitForTimeout(1500);
+        expect(await laneInk(page)).toBeLessThan(24);
+        const field = (await page.locator(FIELD).boundingBox())!;
+        await page.mouse.move(field.x + field.width / 3, field.y + field.height / 2);
+        await page.mouse.wheel(0, -120);
+        await page.evaluate(async () => {
+          for (let left = 12; left > 0; left--) await new Promise((resolve) => requestAnimationFrame(resolve));
+        });
+        console.log(
+          "DBG_WHEEL",
+          JSON.stringify(
+            await page.evaluate((selector) => {
+              const f = document.querySelector<HTMLElement>(selector)!;
+              return {
+                attrs: [...f.attributes].map((a) => a.name),
+                style: f.getAttribute("style"),
+                top: f.scrollTop,
+                sh: f.scrollHeight,
+                ch: f.clientHeight,
+                ink: getComputedStyle(f).getPropertyValue("--cmux-shown-scroller-ink"),
+                fadeIn: getComputedStyle(f).getPropertyValue("--cmux-scroller-fade-in"),
+                root: document.documentElement.hasAttribute("data-cmux-scroller-fade"),
+              };
+            }, FIELD),
+          ),
+        );
         expect(await laneInk(page)).toBeGreaterThanOrEqual(24);
         const scrolled = await page.evaluate((selector) => {
           const field = document.querySelector<HTMLElement>(selector)!;
