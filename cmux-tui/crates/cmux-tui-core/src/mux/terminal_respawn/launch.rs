@@ -141,6 +141,7 @@ impl Mux {
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
+        self.hand_shell_state_to_respawn(&plan.public_id, !plan.kept.is_empty());
         // What it ran: an agent's resume command, else the command line,
         // else a freed shell's last command.
         let ran = self.respawn_ran(&plan.terminal_id, record).or_else(|| {
