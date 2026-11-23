@@ -185,12 +185,235 @@
           "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
         }
       ]
+    },
+    {
+      "id": "chat.sendTransition",
+      "title": "Send transition",
+      "docs": "A sent prompt's arrival in the transcript: the bubble around the prompt's words, which the send motion brings in (conversation.css SEND-ENTRANCE on `.acpmux-row--message-enter`, `--cmux-motion-send`). Drawn by webviews/src/agent-session/acpmux/conversation/UserBubble.tsx; the row, its attachments, version switcher and footer are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The prompt's words (PromptText or InlinePromptContent), drawn inside the bubble."
+        }
+      },
+      "box": {
+        "block": "The prompt's bubble (`.cv-user__bubble`) at the height its words give it: a variant never adds height or padding.",
+        "inline": "The bubble's width, right-aligned in the row as the default's; a variant moves it only by transform or opacity while it enters."
+      },
+      "motion": {
+        "durations": {
+          "send": "--cmux-motion-send"
+        },
+        "easings": {
+          "send": "--cmux-ease-send"
+        },
+        "reducedMotion": "The prompt is in place at once with no rise or slide; a fade may stay on the app's fade setting (`--agent-motion-send-fade`). Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "The entrance plays once, while the row carries `.acpmux-row--message-enter`, and ends with it; nothing loops."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Bubble",
+          "docs": "What the prompt drew before slots, unchanged: the glass bubble (`ui-glass cv-user__bubble selectable`), entering on the scale's send step (0 today: the prompt lands at once).",
+          "source": "webviews/src/slots/sendTransition/DefaultSendBubble.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "chat.receiveTransition",
+      "title": "Receive transition",
+      "docs": "A reply's arrival in the transcript: the box an agent's reply draws its words in, under the live line while it streams. Drawn by webviews/src/agent-session/acpmux/rows/MessageRow.tsx around RevealedMarkdown; the words' own reveal, the Markdown and the reply's action row are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The reply's words (RevealedMarkdown `.cv-reply`)."
+        },
+        "streaming": {
+          "type": "boolean",
+          "docs": "The reply is still streaming: its first words have arrived and more are coming. A variant may move only while this holds."
+        }
+      },
+      "box": {
+        "block": "The reply's height as its words lay out: a variant never adds height or padding.",
+        "inline": "The transcript column's width, as the default's."
+      },
+      "motion": {
+        "durations": {
+          "arrive": "--cmux-motion-standard"
+        },
+        "easings": {
+          "arrive": "--cmux-ease-out"
+        },
+        "reducedMotion": "The reply's words appear where they land, with no rise or fade of the slot's own. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "An arrival plays once as the reply mounts, or while `streaming` holds; it ends when the reply finishes. The transcript unmounts rows outside its window."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Plain",
+          "docs": "What a reply drew before slots, unchanged: its words as they are, or in the prompt glass under the Messages presentation (PresentationContext.tsx AssistantPresentation).",
+          "source": "webviews/src/slots/receiveTransition/DefaultReplyArrival.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "chat.side",
+      "title": "Side question",
+      "docs": "The /side interaction: the note a side question opens beside the thread, holding the question and its answer until dismissed. Drawn by webviews/src/agent-session/acpmux/aside/BtwAside.tsx; the head, Dismiss, the question and the answer inside it are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The note's head, question and answer (BtwAside.tsx)."
+        },
+        "label": {
+          "type": "string",
+          "docs": "The note's accessible name (\"Side question\"), already translated; a variant keeps it on its landmark."
+        },
+        "pending": {
+          "type": "boolean",
+          "docs": "The answer has not come back yet; a variant keeps `aria-busy` on it."
+        }
+      },
+      "box": {
+        "block": "The note's height as its content lays out (btw.css `.acpmux-btw-note`): a variant never adds height or padding.",
+        "inline": "The note's width in the thread, as the default's."
+      },
+      "motion": {
+        "durations": {
+          "open": "--cmux-motion-standard"
+        },
+        "easings": {
+          "open": "--cmux-ease-spring"
+        },
+        "reducedMotion": "The note is in place at once when it opens and gone at once when dismissed. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "An opening plays once as the note mounts; a pending loop stops when the answer or an error comes back, and dismissing unmounts it. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Note",
+          "docs": "What a side question drew before slots, unchanged: the note (btw.css `.acpmux-btw-note`), in place at once.",
+          "source": "webviews/src/slots/side/DefaultSideNote.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "row.hover",
+      "title": "Row hover",
+      "docs": "A transcript row's hover: the action row a finished reply reveals on hover or keyboard focus (Copy, Pin, Read aloud, Reply, More and its time). Drawn by webviews/src/agent-session/acpmux/conversation/MessageActions.tsx ReplyActions; the buttons and their reveal rules (conversation.css `.acpmux-assistant:hover .cv-reply-actions`) are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The row's buttons and time."
+        }
+      },
+      "box": {
+        "block": "The row's reserved line (`.cv-turn-actions`): it is laid out before the hover, so a reveal never moves the transcript.",
+        "inline": "The reply's width; the buttons keep their places."
+      },
+      "motion": {
+        "durations": {
+          "reveal": "--cmux-motion-quick"
+        },
+        "easings": {
+          "reveal": "--cmux-ease-out"
+        },
+        "reducedMotion": "The row shows and hides at once. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "A reveal plays on hover or focus and reverses on leave; nothing loops."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Fade in",
+          "docs": "What the row drew before slots, unchanged: the reserved action line that fades in on hover or focus (conversation.css `--cv-actions-in`).",
+          "source": "webviews/src/slots/rowHover/DefaultReplyActionsRow.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "composer.caret",
+      "title": "Composer caret",
+      "docs": "The composer's caret: a mark a variant may draw over the prompt field, beside the field's own caret (styles.css `.acpmux-composer-field`, `caret-color: var(--cmux-caret, ...)`). Drawn by webviews/src/agent-session/acpmux/ComposerBox.tsx after the field; the field, its text and its own caret are not the slot's.",
+      "props": {
+        "empty": {
+          "type": "boolean",
+          "docs": "The prompt holds no text (only spaces, or nothing)."
+        }
+      },
+      "box": {
+        "block": "Inside the prompt field's box: a variant draws over it, takes no pointer or focus, and never grows it.",
+        "inline": "Inside the prompt field's box, as the block."
+      },
+      "motion": {
+        "durations": {
+          "step": "--cmux-spinner-period"
+        },
+        "easings": {
+          "step": "steps"
+        },
+        "reducedMotion": "Any mark is still, at full strength. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "A loop runs only while the field is focused and empty; typing or leaving the field stops it. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Field caret",
+          "docs": "What the composer drew before slots, unchanged: no mark of its own, the field's caret in `--cmux-caret`.",
+          "source": "webviews/src/slots/composerCaret/DefaultCaret.tsx",
+          "styles": []
+        }
+      ]
+    },
+    {
+      "id": "toast.enter",
+      "title": "Toast enter",
+      "docs": "A toast's arrival in the stack: what is drawn around the toast's card as it enters. Drawn by webviews/src/ui/NoticeStack.tsx around each Notice; the queue, the timer, the card and the deck's places and fly-in (NoticeDeck.tsx `.ui-notice-deck-card[data-phase]`) are not the slot's.",
+      "props": {
+        "children": {
+          "type": "ReactNode",
+          "docs": "The toast's card (Notice.tsx `.ui-notice`)."
+        },
+        "kind": {
+          "type": "string",
+          "docs": "The notice's kind (\"toast\", \"error\", ...)."
+        }
+      },
+      "box": {
+        "block": "The card's height: a variant never adds height or padding.",
+        "inline": "The card's width in the stack."
+      },
+      "motion": {
+        "durations": {
+          "enter": "--cmux-motion-standard"
+        },
+        "easings": {
+          "enter": "--cmux-ease-spring"
+        },
+        "reducedMotion": "The card is in place at once. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "An entrance plays once as the toast mounts; nothing loops. A hidden page pauses it (`data-cmux-page-hidden`)."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Deck",
+          "docs": "What a toast drew before slots, unchanged: the card alone, arriving by the deck's own motion.",
+          "source": "webviews/src/slots/toastEnter/DefaultToastEnter.tsx",
+          "styles": []
+        }
+      ]
     }
   ],
   "next": [
-    { "id": "chat.sendTransition", "docs": "A sent prompt's arrival in the transcript (today `--cmux-motion-send`)." },
-    { "id": "chat.receiveTransition", "docs": "A reply's first words arriving under the live line." },
-    { "id": "chat.sideInteraction", "docs": "The /side interaction: how a side question opens beside the thread and folds back." },
-    { "id": "chat.rowHover", "docs": "A transcript row's hover: its fill and the actions it reveals." }
+    { "id": "tab.close", "docs": "A tab's close button. Pane tabs are drawn natively (Packages/macOS/CmuxNext/Sources/CmuxNextTabs), not by a web view, so this slot needs a native host that reads the theme's slot map before it can ship." }
   ]
 }

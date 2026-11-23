@@ -62,6 +62,10 @@ kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
   kept_path=1
+elif [[ -n "${CMUX_DERIVED_DATA_SLOT:-}" ]]; then
+  # The runner's per-stream DerivedData slot (glaeda disk registry): kept, never removed.
+  derived_data="$CMUX_DERIVED_DATA_SLOT"
+  kept_path=1
 else
   derived_data="$(mktemp -d "${TMPDIR:-/tmp}/cmux-scheme-compile.XXXXXX")"
 fi
@@ -124,7 +128,7 @@ build() {
   result_bundle=""
   [[ -z "$timeline_dir" ]] || result_bundle="$timeline_dir/attempt-${build_attempt}.xcresult"
   xcode_args=(
-    -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
+    -project cmux.xcodeproj -scheme cmux -configuration "$configuration" -skipPackagePluginValidation
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
     # Each build its own SwiftPM download cache: the default ~/Library/Caches/org.swift.swiftpm is shared by
