@@ -34,6 +34,16 @@ import Testing
         #expect(up.frame == CGRect(x: 240, y: 240, width: 180, height: 440))
     }
 
+    @Test func confinesNativeTrackingToTheFittingSideOrTheWholeWindow() {
+        func confinement(at y: CGFloat, height: CGFloat) -> CGRect {
+            PopupPlacement.pointerConfinement(at: CGPoint(x: 240, y: y), size: CGSize(width: 180, height: height),
+                                              viewport: viewport)
+        }
+        #expect(confinement(at: 400, height: 240) == CGRect(x: 100, y: 80, width: 800, height: 320))
+        #expect(confinement(at: 100, height: 240) == CGRect(x: 100, y: 100, width: 800, height: 580))
+        #expect(confinement(at: 360, height: 440) == viewport)
+    }
+
     @Test func onlyAMenuTallerThanTheWindowLosesHeight() {
         for height: CGFloat in [viewport.height, viewport.height + 100] {
             let placed = place(y: viewport.midY, height: height)
