@@ -912,7 +912,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     @objc private func dockPanned(_ pan: UIPanGestureRecognizer) {
         guard pan.state == .changed else { return }
         let t = pan.translation(in: view)
-        if t.y > 14, t.y > abs(t.x) * 1.5 {
+        // A drag through a long draft scrolls the draft, never the keyboard down.
+        if t.y > 14, t.y > abs(t.x) * 1.5, !ComposerTextDragHold.isHeld {
             surface.composerFocused = false
             view.endEditing(true)
             pan.isEnabled = false

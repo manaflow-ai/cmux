@@ -925,10 +925,13 @@ public struct AgentChatBottomStack: View {
             .overlay(alignment: .topLeading) { AgentChatConnectionLine(store: store) }
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
-            // drags that start above it).
+            // drags that start above it). A drag through a long draft scrolls
+            // the draft instead (`ComposerTextDragClaim`).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { composerFocused = false }
+                if composerFocused, t.height > 14, t.height > abs(t.width) * 1.5, !ComposerTextDragHold.isHeld {
+                    composerFocused = false
+                }
             })
         }
         .padding(.bottom, bottomPadding)
