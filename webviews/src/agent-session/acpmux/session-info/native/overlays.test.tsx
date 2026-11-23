@@ -99,7 +99,7 @@ async function frames() {
     });
 }
 
-const CARD = { left: 40, top: 300, right: 240, bottom: 420, radius: 0 };
+const CARD = { left: 40, top: 300, right: 240, bottom: 420, radius: 0, zoom: 1 };
 
 test("an open composer popover reports its rect, and an empty list once it closes", async () => {
   const container = installDom();
@@ -159,5 +159,5 @@ test("under a trackpad pinch a popup's rect is where it shows, so the panel's cu
   const record = recorder();
   stop = reportOverlays(document, record.post);
   await record.until((last) => last !== undefined);
-  expect(record.reports.at(-1)).toEqual([{ left: 60, top: 400, right: 460, bottom: 640, radius: 0 }]);
+  expect(record.reports.at(-1)).toEqual([{ left: 60, top: 400, right: 460, bottom: 640, radius: 0, zoom: 1 }]);
 });
