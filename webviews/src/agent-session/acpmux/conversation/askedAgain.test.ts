@@ -76,6 +76,21 @@ test("Dismiss on the one card clears every asking", () => {
   expect(drawn(rows, dismissed)).toEqual([]);
 });
 
+test("putting the hat's copy away clears every asking", () => {
+  const rows = askedAgain(5);
+  const [question] = hat(rows);
+  expect(question?.answerKey).toBeDefined();
+  expect(drawn(rows, dismissAsk("chat", question!.answerKey!))).toEqual([]);
+});
+
+test("an asking that differs only in case or spacing is the same question", () => {
+  const rows = askedAgain(3);
+  const louder = ASK.replace(QUESTION, `  ${QUESTION.toUpperCase().replace(/ /g, "  ")}`);
+  const mixed = [...rows, peer("m4", "Pushed 4."), line("a4", "assistant", { text: louder })];
+  mixed.push(line("s4", "turnSummary", { status: "completed" }));
+  expect(drawn(mixed)).toHaveLength(1);
+});
+
 test("answering the newest asking clears the older askings too", () => {
   const rows = [...askedAgain(4), line("p2", "user", { text: "Launched it" })];
   expect(pinned(rows)).toEqual([]);
