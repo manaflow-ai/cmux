@@ -108,12 +108,14 @@ export async function compoundMotionSuite(file: string, pick: (scenario: Scenari
         // A fold the reader opens keeps the line they clicked where it is (the anchor holds: 0 is the
         // goal), so its proof the event ran is the line reading open.
         else if (scenario === "fold-stream") expect(summary.opened).toBe(true);
+        // The turn's end fold is #49624's and opt-in there (its arms): on the default it draws in place,
+        // still, so the map only measures it.
+        else if (scenario === "recap-end") expect(summary.travel).toBeGreaterThanOrEqual(0);
         // Everything else moves: a case that reads still is not in view, or its event never ran.
         else expect(summary.travel).toBeGreaterThan(0.5);
         // The send's composer collapse and its rows: one motion with the transaction, never two.
-        // send-5-one-commit still takes a 31 px frame before its glide: #50851.
-        if (arm === "transaction" && scenario.startsWith("send-") && scenario !== "send-5-one-commit")
-          expect(summary.phases).toBeLessThanOrEqual(1);
+        // A send whose prompt lands in its own commit (a loaded host) included (#50851).
+        if (arm === "transaction" && scenario.startsWith("send-")) expect(summary.phases).toBeLessThanOrEqual(1);
       });
 
   afterAll(() => {
