@@ -9,15 +9,19 @@
 //!    Chief (`cloud.plan.get`'s `chief_size`, [`chief_size_for`]: the included 2 vCPU / 4 GiB /
 //!    32 GiB unless the plan names a bigger one; a plan read that fails is the included size) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
 //!    a second machine), started again when it is paused, then waited on until it runs with a host;
-//! 2. no idle pause: `cloud.machine.idle_policy.set {idle_seconds: 0}` (no early pause; the
-//!    platform's 24 h backstop pauses a machine only after a day with no activity reports, and a
-//!    Chief host that answers its conversation reports activity) and `cloud.machine.keep` (never
-//!    deleted by the plan's retention);
+//! 2. it pauses when idle (cmuxterm-hq RFD 0037, wake on message): `cloud.machine.idle_policy.set
+//!    {idle_seconds: CHIEF_IDLE_SECONDS}`, so after the Chief acts the machine pauses on the Cloud's
+//!    short idle window, and the next message resumes it (cmux-api `mux-machine-wake.ts`). With
+//!    `keep_awake: true` it never pauses early instead (`idle_seconds: 0`; the platform's 24 h
+//!    backstop pauses it only after a day with no activity reports). And `cloud.machine.keep`
+//!    (never deleted by the plan's retention). Both are set last, once the host runs (step 4), so
+//!    a start that fails before then leaves no kept machine that never pauses;
 //! 3. the pairing, with no session token ever on the machine: the machine's own
 //!    `optchat-chief cloud pair` (in the background, as the work user) prints a code; this call
 //!    approves it as the signed-in person (`server.pair.approve`, the same op the app's Add
 //!    Server sends) and creates the new Chief placed on that install (`chief.create` with
-//!    `brain_place {host, install}`, not the default, so the person's other Chiefs stay where
+//!    `brain_place {host, install, machine, team}`, the machine and team so cmux-api can resume a
+//!    paused machine when a message comes, not the default, so the person's other Chiefs stay where
 //!    they are). The pairing then finds the placed Chief and writes it to the install file.
 //!    Approving a code read from the machine this call made is the person's own approval: the
 //!    code comes over the person's own exec route, from a machine of theirs;
@@ -123,6 +127,11 @@ const MACHINE_WAIT: Duration = Duration::from_secs(420);
 const PAIR_WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
 const EXEC_MS: u64 = 25_000;
+/// A Chief machine's idle policy unless `keep_awake`: about three minutes after its last activity
+/// (RFD 0037: the Chief stays awake about 3 minutes after it acts, then pauses). Where the machine's
+/// daemon reports turns, the Cloud's own short window (`CLOUD_IDLE_PAUSE_SECONDS`, or the machine's
+/// reported `idle_window_seconds`) decides instead; any value above 0 lets the machine pause.
+pub const CHIEF_IDLE_SECONDS: i64 = 180;
 
 /// The Cloud calls the start makes; [`Session`] is the person's, tests have their own.
 pub trait Cloud {
@@ -154,10 +163,12 @@ pub struct Start {
     pub team: Option<String>,
     pub api: String,
     pub until_machine: bool,
+    /// `keep_awake: true`: the machine never pauses early (`idle_seconds: 0`). Default off.
+    pub keep_awake: bool,
 }
 
 /// The call's args: `key` (1 to 48 of `a-z0-9-`), optional `name` (the Chief's), `machine_name`
-/// (default `chief-<key>`) and `until` (`"machine"`).
+/// (default `chief-<key>`), `until` (`"machine"`) and `keep_awake` (default false).
 pub fn parse(request: &Request) -> Result<Start, Failure> {
     let args = &request.args;
     let key = text(args, "key")?.to_owned();
@@ -187,6 +198,11 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
             return Err(Failure::Transport(format!("until {other:?}: only \"machine\"")));
         }
     };
+    let keep_awake = match args.get("keep_awake") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(Failure::Transport("keep_awake: true or false".into())),
+    };
     Ok(Start {
         key,
         chief_name,
@@ -194,6 +210,7 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
         team: request.team.clone().filter(|t| !t.is_empty()),
         api: request.api.trim_end_matches('/').to_owned(),
         until_machine,
+        keep_awake,
     })
 }
 
@@ -465,6 +482,7 @@ async fn placed_chief<C: Cloud>(
     start: &Start,
     host: &str,
     install: &str,
+    machine: &str,
 ) -> Result<Value, Failure> {
     let list = cloud.read("chief.list", json!({})).await?;
     let found = list.get("chiefs").and_then(Value::as_array).and_then(|all| {
@@ -476,10 +494,11 @@ async fn placed_chief<C: Cloud>(
     if let Some(chief) = found {
         return Ok(chief);
     }
+    let team = team(cloud, start).await?;
     let params = json!({
         "display_name": start.chief_name,
         "is_default": false,
-        "brain_place": { "host": host, "install": install },
+        "brain_place": { "host": host, "install": install, "machine": machine, "team": team },
     });
     let chief =
         cloud.op("chief.create", params, &format!("chief-machine-{}-chief", start.key)).await?;
@@ -493,18 +512,16 @@ async fn placed_chief<C: Cloud>(
     Ok(chief)
 }
 
-/// The whole start; see the module docs.
-pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    let size = plan_size(cloud).await;
-    let row = machine(cloud, start, size).await?;
-    let id = id_of(&row, "/id").unwrap_or_default();
+/// Step 2's idle policy and keep, once the host runs (each found done or done now).
+async fn settle<C: Cloud>(cloud: &C, start: &Start, row: &Value, id: &str) -> Result<(), Failure> {
     let idle = row.pointer("/idle_policy/idle_seconds").and_then(Value::as_i64);
-    if idle != Some(0) {
+    let want = if start.keep_awake { 0 } else { CHIEF_IDLE_SECONDS };
+    if idle != Some(want) {
         cloud
             .op(
                 "cloud.machine.idle_policy.set",
-                json!({ "machine": id, "idle_seconds": 0 }),
-                &format!("chief-machine-{}-idle", start.key),
+                json!({ "machine": id, "idle_seconds": want }),
+                &format!("chief-machine-{}-idle-{want}", start.key),
             )
             .await?;
     }
@@ -517,6 +534,14 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
             )
             .await?;
     }
+    Ok(())
+}
+
+/// The whole start; see the module docs.
+pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
+    let size = plan_size(cloud).await;
+    let row = machine(cloud, start, size).await?;
+    let id = id_of(&row, "/id").unwrap_or_default();
     if start.until_machine {
         return Ok(
             json!({ "machine": id, "machine_name": start.machine_name, "stage": "machine" }),
@@ -535,7 +560,7 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
     while probe.chief.is_none() || probe.conversation.is_none() {
         match (&probe.install, &probe.host) {
             (Some(install), Some(host)) if placed.is_none() => {
-                placed = Some(placed_chief(cloud, start, host, install).await?);
+                placed = Some(placed_chief(cloud, start, host, install, &id).await?);
             }
             (Some(_), _) => {}
             (None, _) => {
@@ -572,6 +597,10 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         exec_ok(cloud, &id, &command).await?;
         how
     };
+    // Only a machine whose host runs is kept and given its idle policy: a start that failed
+    // above (no host, pairing refused, timed out) leaves a plain machine the plan's retention
+    // removes, not a kept one that never pauses.
+    settle(cloud, start, &row, &id).await?;
     let chief = probe.chief.clone().unwrap_or_default();
     Ok(json!({
         "machine": id,
