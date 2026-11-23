@@ -655,6 +655,9 @@ impl Session {
             found
         };
         let (mut turn, reflexive) = tokio::join!(turn, reflexive);
+        // The roam waiting on the first answer (reflexive mode) holds the roam
+        // lock: release it before taking that lock below.
+        drop(first.take());
         // A roam that returned early applies its gather only while no later
         // roam started (that one gathers on its own socket).
         let _one_at_a_time = match background {
