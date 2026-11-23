@@ -15,7 +15,8 @@ struct AgentChatRefusalReasonTests {
         "agentPane.toggleDisplaySettings", "agentPane.replayConversation", "agentPane.editInstructions",
         "agentPane.addProjectFiles", "agentPane.markUnread", "agentPane.moveToFloatingChat",
         "agentPane.continueAfterError", "agentPane.toggleMinimap", "agentPane.revealCwdInFinder",
-        "agentPane.openCwdInTerminal", "agentPane.createCheckpoint", "agentPane.setModel",
+        "agentPane.openCwdInTerminal", "agentPane.openCwdInEditor", "agentPane.openCwdInApp", "agentPane.copyCwdPath",
+        "agentPane.createCheckpoint", "agentPane.setModel",
     ]
 
     static func services() -> AppServices {
