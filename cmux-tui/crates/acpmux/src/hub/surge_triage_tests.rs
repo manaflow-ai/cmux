@@ -554,6 +554,7 @@ async fn a_question_and_an_expired_report_are_never_repeats() {
             from: "lane-b".into(),
             class: "question".into(),
             text: "which base?".into(),
+            program: false,
         }],
     )
     .remove(0);

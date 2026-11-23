@@ -208,7 +208,7 @@ impl Hub {
     /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
     /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
     /// applies to the next one. Off, every message takes the path it took before the surge inbox.
-    pub(super) fn surge_inbox_on(&self) -> bool {
+    pub(in crate::hub) fn surge_inbox_on(&self) -> bool {
         if let Some(on) = *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) {
             return on;
         }
