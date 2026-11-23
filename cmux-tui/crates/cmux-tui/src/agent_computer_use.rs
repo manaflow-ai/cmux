@@ -41,9 +41,9 @@
 //!   passes no server and the person's keeps the name. An agent chat's Codex follows the same
 //!   rule (acpmux agent_tools.rs `acp_servers_for`).
 //!
-//! In a cmux terminal, with the person's yes to cmux's tools in agents
-//! started in cmux (`agents.cmuxMcp` on), this build's server takes the name
-//! `cmux` for the launch; outside cmux terminals, and with the answer off,
+//! In a cmux terminal, with cmux's tools on for agents started in cmux
+//! (`agents.cmuxMcp`, on unless `off`), this build's server takes the name
+//! `cmux` for the launch; outside cmux terminals, and with the setting off,
 //! the person's configs are untouched. cmux never writes them on its own:
 //! only `cmux acp desktop link` and `cmux acp bridge connect` do, when the
 //! person runs them, and Settings' Remove takes out a `cmux` entry that runs
