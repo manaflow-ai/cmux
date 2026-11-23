@@ -430,7 +430,8 @@ pub mod method {
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
     /// The live perf commentator (`perf_watch.rs`): `{op: on|off|status|read|snapshot|report|
-    /// budgets}`; local app and unix socket only.
+    /// budgets}`, and the always-on frame tally (`frame_tally.rs`): `{op: frames|tally}`; local app
+    /// and unix socket only.
     pub const MUX_PERF: &str = "_acpmux/perf";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
@@ -1003,6 +1004,9 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
+    // From the owner's peer daemon only: a phone it vouched for (`_meta.acpmux.ownerPhone`) had
+    // its Full-access setting turned off or was removed (`server/remote_guard.rs`).
+    pub const MUX_OWNER_PHONE_CHANGED: &str = "_acpmux/owner_phone_changed";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // The person's vault on this machine (`crate::vault`, `server/vault.rs`).
     pub const MUX_VAULT_PULL: &str = "_acpmux/vault_pull";
