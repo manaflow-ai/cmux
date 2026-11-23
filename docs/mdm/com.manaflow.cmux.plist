@@ -1115,7 +1115,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>adaptive</string>
+			<string>openai</string>
 			<key>pfm_description</key>
 			<string>What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.</string>
 			<key>pfm_name</key>

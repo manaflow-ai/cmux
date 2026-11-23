@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod activation;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -147,6 +149,8 @@ mod terminal_links;
 mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
+#[cfg(unix)]
+mod toolbar;
 #[cfg(unix)]
 mod widgets;
 
