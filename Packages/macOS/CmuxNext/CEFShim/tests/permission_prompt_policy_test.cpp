@@ -51,6 +51,30 @@ int main() {
     std::cerr << "FAIL: " << c.what << " (bits " << c.requested << ", got "
               << static_cast<int>(cmux_shim::RoutePermissionPrompt(c.requested)) << ")\n";
   }
+  // getDisplayMedia(): every desktop request goes to the host; a device-only request does not.
+  struct MediaCase {
+    const char* what;
+    uint32_t requested;
+    bool display;
+    uint32_t grant;
+  };
+  const uint32_t video = cmux_shim::kMediaDesktopVideoCapture;
+  const uint32_t audio = cmux_shim::kMediaDesktopAudioCapture;
+  const uint32_t deviceVideo = 1u << 1;  // CEF_MEDIA_PERMISSION_DEVICE_VIDEO_CAPTURE
+  const MediaCase media[] = {
+      {"screen video is a display capture", video, true, video},
+      {"screen video with audio grants both", video | audio, true, video | audio},
+      {"a camera-only request is not a display capture", deviceVideo, false, 0},
+      {"a display request never grants the camera", video | deviceVideo, true, video},
+      {"no bits is not a display capture", 0, false, 0},
+  };
+  for (const MediaCase& c : media) {
+    if (cmux_shim::IsDisplayCaptureRequest(c.requested) == c.display &&
+        cmux_shim::DisplayCaptureGrant(c.requested) == c.grant)
+      continue;
+    ++failures;
+    std::cerr << "FAIL: " << c.what << " (bits " << c.requested << ")\n";
+  }
   if (failures != 0) return 1;
   std::cout << "permission prompt policy: " << (sizeof(cases) / sizeof(cases[0])) << " cases pass\n";
   return 0;

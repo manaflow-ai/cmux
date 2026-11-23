@@ -22,6 +22,7 @@ mod publish;
 mod publish_tests;
 mod scaffold;
 mod scene;
+mod scene_type;
 mod share;
 mod shot;
 mod source;

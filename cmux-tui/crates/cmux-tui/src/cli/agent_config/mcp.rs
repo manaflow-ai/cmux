@@ -28,6 +28,9 @@ Usage:
                             [--header KEY=VALUE]...
   cmux agent-config mcp remove|enable|disable NAME --agent claude|codex [--scope ...] [--project DIR]
   cmux agent-config hooks list|enable|disable|add|remove ...   (cmux agent-config hooks --help)
+  cmux agent-config subagents [list] [--cwd DIR] [--json]       (cmux agent-config subagents --help)
+  cmux agent-config commands add NAME --prompt TEXT [--agent claude|codex|cmux]
+  cmux agent-config commands list|remove ...   (cmux agent-config commands --help)
 
 Scopes: user (every folder: ~/.claude.json, ~/.codex/config.toml), local (Claude only: this folder,
 private to you), project (this folder's .mcp.json or .codex/config.toml), plugin (Codex only: from an
@@ -35,7 +38,8 @@ installed plugin; can be turned on and off, not removed). --project defaults to 
 Claude Code turns user and local servers on and off per folder. Env and header values are written to
 the agent's file and never printed. Every write keeps the file before it as <file>.cmux-backup.
 
-Skills and slash commands: `cmux agent-config skills --help`. Settings (model, permission or approval
+Skills and slash commands: `cmux agent-config skills --help`; custom slash commands (saved
+prompts) made from cmux: `cmux agent-config commands --help`. Settings (model, permission or approval
 mode, sandbox, env): `cmux agent-config settings --help`.
 ";
 
@@ -113,9 +117,13 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
     match words.next().map(String::as_str) {
         Some("mcp") => {}
         Some(other) => {
-            return Err(format!("unknown part {other:?}: `skills`, `hooks`, `settings` or `mcp`"));
+            return Err(format!(
+                "unknown part {other:?}: `skills`, `subagents`, `commands`, `hooks`, `settings` or `mcp`"
+            ));
         }
-        None => return Err("name a part: skills, hooks, settings or mcp".into()),
+        None => {
+            return Err("name a part: skills, subagents, commands, hooks, settings or mcp".into());
+        }
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,
