@@ -194,6 +194,8 @@ import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
 import type { ComposerEditCommand } from "./composerEditCommand";
+import { VIM_START, vimKey, type VimMode, type VimState } from "./composer/composerVim";
+import { VimModeTag } from "./composer/VimModeTag";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -803,8 +805,18 @@ function ComposerFrame({
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const [locationSlot, setLocationSlot] = useState<StripSlot>({});
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
+  const { showContextUsage, composerRing, spellChecking, vimMode, scrollToBottomOnSend, plainFooter, attachmentView } =
     useComposerSettings();
+  // Vim editing (agentPane.vimMode, as Claude Code's /vim; composer/composerVim.ts): the key state is
+  // a ref the prompt's keys step, and the mode a state only for the NORMAL or INSERT tag. Turned off,
+  // it starts again in Insert.
+  const vim = useRef<VimState>(VIM_START);
+  const [vimShown, setVimShown] = useState<VimMode>("insert");
+  useEffect(() => {
+    if (vimMode) return;
+    vim.current = VIM_START;
+    setVimShown("insert");
+  }, [vimMode]);
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
@@ -2746,6 +2758,35 @@ function ComposerFrame({
     };
     promptCaret.current = promptRef.current.setCaret;
     promptKeyDown.current = (event) => {
+      // Vim mode steps the key first. In Insert mode with a list open, Esc stays the list's.
+      const handle = field.current;
+      if (
+        vimMode &&
+        handle &&
+        !composing.current &&
+        !event.isComposing &&
+        !(listShown && vim.current.mode === "insert")
+      ) {
+        const plain = handle.text();
+        const step = vimKey(
+          vim.current,
+          { key: event.key, ctrl: event.ctrlKey, meta: event.metaKey, alt: event.altKey },
+          { value: plain.value, caret: plain.selectionStart },
+        );
+        vim.current = step.state;
+        if (step.state.mode !== vimShown) setVimShown(step.state.mode);
+        if (step.handled) {
+          event.preventDefault();
+          if (step.undo) {
+            typedAt.current = performance.now();
+            handle.undo();
+          } else if (step.text) {
+            if (step.text.value !== plain.value) typedAt.current = performance.now();
+            handle.writeText(step.text.value, step.text.caret, step.text.caret);
+          }
+          return;
+        }
+      }
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const edits = event.metaKey
         ? CMD_EDIT_KEYS.has(key)
@@ -3255,6 +3296,12 @@ function ComposerFrame({
         }
         actionsLead={
           <>
+            {vimMode && !shell && (
+              <VimModeTag
+                mode={vimShown}
+                label={t(vimShown === "normal" ? "composer.vimNormal" : "composer.vimInsert")}
+              />
+            )}
             {dictation && <DictationStrip dictation={dictation} shown={!!listening} />}
             {quietActions && sendControl}
           </>

@@ -11,6 +11,8 @@
 // attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
 // "inline". It is only a look: a draft's text, its attachment marks and their order are the same
 // in every view, so switching never changes what is sent. Anything else reads as "inline".
+// `vimMode` is `agentPane.vimMode` (off by default): vim editing in the chat's composer, as Claude
+// Code's `/vim` (composer/composerVim.ts): Esc enters Normal mode, i a I A o return to Insert.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
 // behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
 // the bottom continues following streaming output.
@@ -70,6 +72,7 @@ export type ComposerSettings = {
   dictationSource: DictationSource;
   dictationShortcut: string;
   spellChecking: boolean;
+  vimMode: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
   reasoningSlider: boolean;
@@ -91,6 +94,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   dictationSource: "cmux",
   dictationShortcut: "",
   spellChecking: false,
+  vimMode: false,
   attachmentView: "inline",
   scrollToBottomOnSend: true,
   reasoningSlider: false,
@@ -110,6 +114,7 @@ type ComposerFlag =
   | "showContextUsage"
   | "showDictation"
   | "spellChecking"
+  | "vimMode"
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
@@ -132,6 +137,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
+    vimMode: flag("vimMode"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
     reasoningSlider: flag("reasoningSlider"),

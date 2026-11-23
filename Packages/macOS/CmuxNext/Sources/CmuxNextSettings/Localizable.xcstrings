@@ -95565,6 +95565,268 @@
         }
       }
     },
+    "settings.agentPane.vimMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وضع Vim في مربع الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim način u polju za poruku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-tilstand i beskedfeltet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-Modus im Nachrichtenfeld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Mode in Message Box"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo Vim en el cuadro de mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mode Vim dans la zone de message"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità Vim nella casella del messaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メッセージ欄の Vim モード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀប Vim ក្នុងប្រអប់សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 상자의 Vim 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-modus i meldingsfeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tryb Vim w polu wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo Vim na caixa de mensagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Режим Vim в поле сообщения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมด Vim ในช่องข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesaj kutusunda Vim modu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Режим Vim у полі повідомлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ Vim trong ô tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "消息框中的 Vim 模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "訊息框中的 Vim 模式"
+          }
+        }
+      }
+    },
+    "settings.agentPane.vimMode.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يدخل Esc الوضع العادي لحركات وتعديلات vim، ويعيدك i إلى الكتابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc ulazi u Normal način za vim pokrete i izmjene; i vraća na kucanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc skifter til Normal-tilstand for vim-bevægelser og -redigering; i vender tilbage til skrivning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc wechselt in den Normal-Modus für Vim-Bewegungen und -Bearbeitungen; i kehrt zum Tippen zurück."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc enters Normal mode for vim motions and edits; i returns to typing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc entra en el modo Normal para movimientos y ediciones de vim; i vuelve a la escritura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Échap passe en mode Normal pour les mouvements et modifications vim ; i revient à la saisie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc entra nella modalità Normal per movimenti e modifiche vim; i torna alla digitazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc でノーマルモードに入り vim の移動と編集を使えます。i で入力に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc ចូលរបៀប Normal សម្រាប់ចលនា និងការកែសម្រួល vim; i ត្រឡប់ទៅការវាយវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc를 누르면 vim 이동과 편집을 위한 Normal 모드로 들어가고, i를 누르면 입력으로 돌아갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc går til Normal-modus for vim-bevegelser og -redigering; i går tilbake til skriving."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc włącza tryb Normal dla ruchów i edycji vim; i wraca do pisania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc entra no modo Normal para movimentos e edições do vim; i volta à digitação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc включает режим Normal для перемещений и правок vim; i возвращает к вводу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc เข้าสู่โหมด Normal สำหรับการเลื่อนและแก้ไขแบบ vim ส่วน i กลับไปพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc, vim hareketleri ve düzenlemeleri için Normal moda geçer; i yazmaya döner."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc вмикає режим Normal для переміщень і редагувань vim; i повертає до введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esc vào chế độ Normal để di chuyển và chỉnh sửa kiểu vim; i quay lại gõ chữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按 Esc 进入 Normal 模式使用 vim 移动和编辑；按 i 返回输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按 Esc 進入 Normal 模式使用 vim 移動與編輯；按 i 返回輸入。"
+          }
+        }
+      }
+    },
     "settings.agentPane.scrollToBottomOnSend": {
       "extractionState": "manual",
       "localizations": {
