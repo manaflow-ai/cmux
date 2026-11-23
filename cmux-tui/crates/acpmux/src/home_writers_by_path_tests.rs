@@ -64,15 +64,24 @@ use syn::visit::Visit;
 
 /// The writes by path left as they are, each with why: (file, function, write, reason). `*`
 /// matches any file or function; a write ending in `*` any write it starts.
-const ALLOWED: &[(&str, &str, &str, &str)] = &[(
-    "*",
-    "*",
-    "owner_only::*",
-    "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
+const ALLOWED: &[(&str, &str, &str, &str)] = &[
+    (
+        "*",
+        "*",
+        "owner_only::*",
+        "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
      has no *at calls. Each runs right after its own home check (`config::private_state_*`, \
      `store::open_private_append`), and a temporary file it makes is renamed through `home_fs`, \
      which checks the home's file id again (#41372).",
-)];
+    ),
+    (
+        "src/ssh_forward_owners.rs",
+        "reap_recorded",
+        "fs::remove_dir_all",
+        "A dead forward's own socket folder under the temp dir (`/tmp/acpmux-fwd-...`, checked by \
+     name right before), not the home; `home_fs` has no recursive remove.",
+    ),
+];
 
 /// Whether `pattern` (an `ALLOWED` field) matches `value`.
 fn matches(pattern: &str, value: &str) -> bool {

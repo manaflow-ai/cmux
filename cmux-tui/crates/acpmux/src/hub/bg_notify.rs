@@ -53,7 +53,11 @@ impl Hub {
         // Weak: a watch never keeps a dropped hub alive, and a dropped hub sends nothing.
         let hub = Arc::downgrade(self);
         let owner = Arc::as_ptr(self) as usize;
-        watcher().watch(lock, owner, record.session_id.clone(), move || {
+        let live = {
+            let hub = hub.clone();
+            move || hub.strong_count() > 0
+        };
+        watcher().watch(lock, owner, record.session_id.clone(), live, move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
                     hub.bg_notify(&dir, &session, &id).await;
@@ -347,6 +351,7 @@ const TICK: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// The process's one watcher of background tasks' locks (module docs).
 fn watcher() -> &'static Watcher {
+    // test-hook-allow: holds no hook; each watch fires its own task's end, and no test sets or clears it
     static WATCHER: std::sync::OnceLock<Watcher> = std::sync::OnceLock::new();
     WATCHER.get_or_init(Watcher::default)
 }
@@ -373,6 +378,9 @@ struct Watch {
     /// The hub (its address) and the chat the task is of.
     owner: usize,
     session: String,
+    /// Whether the hub that asked still runs: a dropped hub's watch gives way to the next
+    /// hub's watch of the same task (a daemon restarted in the process, as a test does).
+    live: Box<dyn Fn() -> bool + Send>,
     end: Box<dyn FnOnce() + Send>,
 }
 
@@ -383,13 +391,26 @@ impl Watcher {
         path: std::path::PathBuf,
         owner: usize,
         session: String,
+        live: impl Fn() -> bool + Send + 'static,
         end: impl FnOnce() + Send + 'static,
     ) {
         let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(&path) else {
             return end();
         };
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        state.watches.entry(path).or_insert(Watch { file, owner, session, end: Box::new(end) });
+        let watch = Watch { file, owner, session, live: Box::new(live), end: Box::new(end) };
+        // A second watch of a task its hub still watches ends once; one a dropped hub left (it
+        // would send to nobody) is replaced, or a restarted daemon's end of it is never sent.
+        match state.watches.entry(path) {
+            std::collections::hash_map::Entry::Occupied(mut kept) => {
+                if !(kept.get().live)() {
+                    kept.insert(watch);
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert(watch);
+            }
+        }
         if !state.running {
             let spawned = std::thread::Builder::new()
                 .name("acpmux-bg-watch".into())
@@ -413,6 +434,8 @@ impl Watcher {
         loop {
             let ended: Vec<Watch> = {
                 let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                // A dropped hub's watches send nothing: they go rather than wait on their locks.
+                state.watches.retain(|_, w| (w.live)());
                 while state.watches.is_empty() {
                     state = self.added.wait(state).unwrap_or_else(|e| e.into_inner());
                 }
@@ -514,10 +537,16 @@ mod tests {
             let (path, file) = held_lock(dir.path(), &format!("t{i}"));
             let session = if i == 0 { "live" } else { "purged" };
             let (fired, tx) = (fired.clone(), tx.clone());
-            watcher().watch(path, owner, session.into(), move || {
-                fired.fetch_add(1, Ordering::SeqCst);
-                let _ = tx.send(i);
-            });
+            watcher().watch(
+                path,
+                owner,
+                session.into(),
+                || true,
+                move || {
+                    fired.fetch_add(1, Ordering::SeqCst);
+                    let _ = tx.send(i);
+                },
+            );
             held.push(file);
         }
         #[cfg(target_os = "linux")]
@@ -545,9 +574,49 @@ mod tests {
         let dir = cmux_unix_socket::short_test_dir("bg-watch-missing");
         let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let f = fired.clone();
-        watcher().watch(dir.path().join("gone.lock"), 0xb9_0002, "s".into(), move || {
-            f.store(true, Ordering::SeqCst);
-        });
+        watcher().watch(
+            dir.path().join("gone.lock"),
+            0xb9_0002,
+            "s".into(),
+            || true,
+            move || {
+                f.store(true, Ordering::SeqCst);
+            },
+        );
         assert!(fired.load(Ordering::SeqCst));
+    }
+
+    /// A task watched by a hub that was dropped, then by the next hub (a daemon restarted while
+    /// the task ran): the next hub's end fires when the lock goes, the dropped one's never.
+    #[test]
+    fn bg_watch_of_a_dropped_hub_gives_way_to_the_next() {
+        let dir = cmux_unix_socket::short_test_dir("bg-watch-restart");
+        let (path, held) = held_lock(dir.path(), "t");
+        let first_live = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (live, first) = (first_live.clone(), tx.clone());
+        watcher().watch(
+            path.clone(),
+            0xb9_0003,
+            "s".into(),
+            move || live.load(Ordering::SeqCst),
+            move || {
+                let _ = first.send("first");
+            },
+        );
+        // The first hub is dropped; the next one watches the same task.
+        first_live.store(false, Ordering::SeqCst);
+        watcher().watch(
+            path,
+            0xb9_0004,
+            "s".into(),
+            || true,
+            move || {
+                let _ = tx.send("next");
+            },
+        );
+        drop(held);
+        assert_eq!(rx.recv_timeout(TICK * 3).unwrap(), "next");
+        assert!(rx.recv_timeout(TICK * 2).is_err(), "the dropped hub's end fired too");
     }
 }
