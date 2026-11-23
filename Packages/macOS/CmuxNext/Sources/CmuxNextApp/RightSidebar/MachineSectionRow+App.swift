@@ -23,16 +23,22 @@ extension MachineSectionRow {
         let all = (joined?.machines ?? []).filter { $0.state != .revoked }
         let byPeer = Dictionary(all.compactMap { machine in machine.meshPeerId.map { ($0, machine) } }, uniquingKeysWith: { first, _ in first })
         let byID = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let live = machines.daemons.filter { !isAgentInfrastructure($0.machineID, in: machines) && signedIn[$0.machineID].map { byID[$0] != nil } ?? true }.map { daemon in
+        let live = machines.daemons.filter { machines.session($0.machineID)?.machine.isAgentInfrastructure != true && signedIn[$0.machineID].map { byID[$0] != nil } ?? true }.map { daemon in
             let state = daemon.store.connectionState
-            let connected = if case .connected = state { true } else { false }
+            // The store can report its socket as connected before the app has a usable daemon
+            // transport (for example an enrolled host with acpmux but no cmux-tui). Such a row
+            // must take the connect/recovery path instead of dispatching a doomed workspace action.
+            let connected = if case .connected = state { daemon.connection != nil } else { false }
             let connecting = state == .connecting
             let name = daemon.isLocal ? RightSidebarStrings.thisMac : machines.machineName(daemon.machineID) ?? daemon.machineID
             let report = health.reports[daemon.machineID]
             let cloud = daemon.isLocal ? nil : machines.session(daemon.machineID)
+            let ssh = machines.sshSession(daemon.machineID)
+            let failed = ssh.map { $0.linkStatus.needsRecovery || $0.daemonFailure != nil } ?? false
+            let failure = ssh.flatMap { failed ? RemoteStrings.sshError($0) : nil }
             return MachineSectionRow(id: daemon.machineID, name: name, isConnected: connected, isLocal: daemon.isLocal,
-                                     kind: signedIn[daemon.machineID] != nil ? .joined : kind(daemon.machineID, isLocal: daemon.isLocal, in: machines),
-                                     isConnecting: connecting,
+                                     kind: signedIn[daemon.machineID] != nil ? .joined : .linked(isLocal: daemon.isLocal, hasCloud: cloud != nil, hasSSH: ssh != nil),
+                                     isConnecting: connecting, failed: failed, failure: failure,
                                      serverState: cloud.flatMap { .cloud($0.machine.status, stagePaused: $0.stage.isPaused, stageFailed: $0.stage.failure != nil) },
                                      health: report?.health, healthStep: report?.worstStep?.step,
                                      joined: daemon.isLocal ? nil : byPeer[daemon.machineID] ?? signedIn[daemon.machineID].flatMap { byID[$0] },
@@ -43,18 +49,5 @@ extension MachineSectionRow {
         let mesh = all.filter { ($0.meshPeerId.map { !known.contains($0) } ?? true) && !opened.contains($0.id) }
             .map { MachineSectionRow.joined($0, health: health.reports[JoinedMachine.healthID($0.id)]) }
         return (ServerTunables.machinesFixture.value ? live + fixtures : live) + mesh
-    }
-
-    /// Whether `machineID` is a Cloud machine that is agent infrastructure (``CloudMachine/isAgentInfrastructure``).
-    static func isAgentInfrastructure(_ machineID: String, in machines: MachineRegistry) -> Bool {
-        machines.session(machineID)?.machine.isAgentInfrastructure ?? false
-    }
-
-    /// What `machineID` is in `machines`: this Mac, a Cloud machine, an SSH machine, else a paired server.
-    static func kind(_ machineID: String, isLocal: Bool, in machines: MachineRegistry) -> MachineKind {
-        if isLocal { return .local }
-        if machines.session(machineID) != nil { return .cloud }
-        if machines.sshSession(machineID) != nil { return .ssh }
-        return .server
     }
 }
