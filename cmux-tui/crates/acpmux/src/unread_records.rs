@@ -48,16 +48,18 @@ pub(crate) fn replayed_tool_end(msg: &Value) -> Option<(String, Value)> {
         return None;
     }
     let id = update.get("toolCallId").and_then(Value::as_str)?;
-    let mut params = serde_json::json!({
-        "update": {"sessionUpdate": kind, "toolCallId": id, "status": status}
-    });
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "update".into(),
+        serde_json::json!({"sessionUpdate": kind, "toolCallId": id, "status": status}),
+    );
     for field in ["sessionId", "_meta"] {
         if let Some(value) = msg.pointer(&format!("/params/{field}")) {
-            params[field] = value.clone();
+            params.insert(field.into(), value.clone());
         }
     }
     let mut kept = msg.clone();
-    kept["params"] = params;
+    kept.as_object_mut()?.insert("params".into(), Value::Object(params));
     Some((id.to_owned(), kept))
 }
 
