@@ -52,8 +52,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
-    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`).
-    private(set) lazy var zoomIndicator = PaneZoomIndicatorView(model: stripView.model)
+    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`), made at its first zoom.
+    var zoomIndicator: PaneZoomIndicatorView?
     private var agentTagObservation: Task<Void, Never>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {
@@ -333,8 +333,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     func show(_ view: NSView?) -> NSView? {
         let previous = content
         guard previous !== view || (view != nil && !hostsContent && !(view?.staysParked(awayFrom: self) ?? false)) else { return previous }
-        tabSwitchMark("show")
-        defer { tabSwitchMark("shown") }
+        Self.tabSwitchMark("show")
+        defer { Self.tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
@@ -472,9 +472,9 @@ extension PaneContentView: TitlebarPressDeciding {
 /// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
 /// them up with the page's own clock. Debug level: nothing is written unless
 /// a `log stream --level debug` reads category "tab-switch".
-private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
+private extension PaneContentView {
+    static let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
+    static func tabSwitchMark(_ name: String) { tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)") }
 }
 
 extension PaneSwapDrag {

@@ -218,7 +218,9 @@ for (const family of ["codex", "claude"]) {
     const replyOnly = [...chat().slice(0, 5), row("assistant", { id: "ack", text: "Noted." }), summary("summary-1", 0)];
     const live = secondTurn(drawn(replyOnly.slice(0, -1), family, new Set(), true));
     const ended = secondTurn(drawn(replyOnly, family));
-    expect(live[0]!.id).toBe(`working-notice`);
+    // The same row from the turn's first frame to its end, running then ended (turns.ts `turnHeaderId`).
+    expect(live[0]).toMatchObject({ id: `${WORKED}-notice`, kind: WORKED, turnPhase: "running" });
+    expect(ended[0]!.id).toBe(live[0]!.id);
     expect(ended[0]!.kind).toBe(WORKED);
     expect(ended[0]!.foldOpen).toBe(true);
     expect(ended.slice(1).flatMap(holds).slice(0, 1)).toEqual(["notice"]);
