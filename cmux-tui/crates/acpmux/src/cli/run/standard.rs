@@ -1692,6 +1692,10 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
     prompt.from_agent =
         args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    // A named first prompt proves its sender as `send --from` does (`sender_token.rs`).
+    if prompt.from_agent.is_some() {
+        prompt.sender_token = crate::sender_token::of_this_send(None).ok().flatten();
+    }
     prompt
 }
 
