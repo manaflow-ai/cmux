@@ -60,8 +60,13 @@ public final class MacScreenSession {
     /// The secure link to the host came up in this session (`cmux rd connect` said `connected`).
     public private(set) var linkConnected = false
     public private(set) var stats = LiveStats()
-    /// The streamed display's size in pixels (zero until the first frame).
+    /// The decoded picture's size in pixels (zero until the first frame). Under `video.scaled`
+    /// it may be smaller than `streamSize` (the host's resolution ladder).
     public private(set) var frameSize: CGSize = .zero
+    /// The stream's size in pixels from the host's welcome (`width`/`height`): pointer input and
+    /// the cursor are in these pixels (the pane's `RemoteViewGeometry(streamPixels:...)` falls
+    /// back to `frameSize` while it is zero). Zero until the welcome.
+    public private(set) var streamSize: CGSize = .zero
     /// `Direct`, `Tailnet` or `Relayed`, from the link's measured path.
     public private(set) var streamPath = "-"
     /// The carrier the rd/1 stream rides, for `debug.mac_screen`'s benchmark attestation:
@@ -152,6 +157,7 @@ public final class MacScreenSession {
         RemoteDecoderPrewarm.start()
         isStalled = false
         frameSize = .zero
+        streamSize = .zero
         stats = LiveStats()
         timings.connectStarted(at: Date(), .now)
         frameCounter = nil
@@ -309,13 +315,7 @@ public final class MacScreenSession {
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
-                switch Self.failureCause(ofEnded: reason) {
-                case let .host(why)?: hostFailed(why)
-                case let cause?:
-                    end(reason)
-                    if case .failed = phase { failureCause = cause }
-                case nil: end(reason)
-                }
+                linkEnded(reason)
                 return
             }
         }
@@ -355,8 +355,10 @@ public final class MacScreenSession {
         let carrier = RemoteRdStreamCarrier(open: { try await MacScreenUnixStream.open(path: socketPath) })
         // The hub's identity is the viewer; the host does not read these claims.
         // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
+        // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
+        // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
-                                  caps: [RemoteRdHello.cursorCap])
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
                                                       control: true) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
@@ -371,6 +373,7 @@ public final class MacScreenSession {
             for await status in statuses {
                 // A stopped transport's end belongs to the session it served, not to a newer one.
                 guard let self, self.transport === transport, !Task.isCancelled else { return }
+                if let size = status.streamSize, size.width >= 1, size.height >= 1, size != streamSize { streamSize = size }
                 switch status.state {
                 case .streaming:
                     if !askedKeyframe {
@@ -420,6 +423,19 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// `cmux rd connect`'s `ended` line: the session ends, a failure naming who failed
+    /// (``failureCause(ofEnded:)``), so the failed card says why ("link failed: the secure
+    /// handshake timed out" reads "The connection to <name> failed: the secure handshake timed out").
+    func linkEnded(_ reason: String) {
+        switch Self.failureCause(ofEnded: reason) {
+        case let .host(why)?: hostFailed(why)
+        case let cause?:
+            end(reason)
+            if case .failed = phase { failureCause = cause }
+        case nil: end(reason)
+        }
     }
 
     /// The host said it could not serve the session: a failure even after the picture started
