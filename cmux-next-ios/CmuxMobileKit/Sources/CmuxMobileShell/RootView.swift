@@ -706,6 +706,10 @@ struct ShellView: View {
         }
         .onAppear {
             LaunchMarks.shared.markNextFrame("shell_frame")
+            #if DEBUG
+            // For the capture suites (the board is on only for UI tests): the first state, once still.
+            if LaunchMarksBoard.shared != nil { LaunchMarks.shared.markWhenStill("shell_still") }
+            #endif
             // The terminal engine starts when the main thread first idles, not in the first terminal tap.
             TerminalEngineWarmup.shared.schedule()
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
@@ -724,7 +728,11 @@ struct ShellView: View {
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
-            if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            if let demo = options.demo {
+                await DemoDriver(shell: shell).run(demo)
+                // The demo's last step is on screen and still: capture suites wait on this, not a fixed pause.
+                LaunchMarks.shared.markWhenStill("demo_done")
+            }
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
