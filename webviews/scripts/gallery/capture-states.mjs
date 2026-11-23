@@ -17,6 +17,15 @@
 // row on the old arm and an After row on the shipped one.
 // Writes OUT_DIR/<shot>/<arm>-<scheme>-<background>.png and OUT_DIR/<shot>.png (the sheet), and prints
 // one JSON line per capture.
+//
+// A picture not bundled in the repo: an env's background that is not one of env.ts BACKGROUNDS
+// (["dark","wallpaper"]) names an outside picture, a JPEG or PNG file given at capture time by
+// CMUX_GALLERY_PICTURE_<NAME> (here CMUX_GALLERY_PICTURE_WALLPAPER=/abs/path.jpg), else by the spec's
+// "pictures": { "<name>": "<path from the repo root>" } (a file the repo already has). The stage loads
+// over the bundled `busy` background (so the page is see-through, as over any picture) and
+// frame/background.ts draws this picture in its place, the same way: aspect-filled, then the window
+// tint. An env whose picture is not given is left out of the run, with a line saying so. The file
+// never goes into the repo: keep a person's own picture on the machine that captures.
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -42,12 +51,47 @@ const server = await preview({
 const address = server.httpServer.address();
 if (!address || typeof address === "string") throw new Error("gallery preview did not bind a TCP port");
 const baseUrl = `http://127.0.0.1:${address.port}`;
-const envs = spec.envs ?? [
+const allEnvs = spec.envs ?? [
   ["light", "none"],
   ["dark", "none"],
   ["dark", "busy"],
   ["light", "busy"],
 ];
+// The bundled backgrounds (env.ts BACKGROUNDS); any other name is an outside picture (above).
+const BUNDLED = new Set(["none", "light", "dark", "busy"]);
+/** The pixel size of a JPEG (its SOF segment) or PNG (IHDR), for the aspect fill. */
+function pictureSize(bytes) {
+  if (bytes.readUInt32BE(0) === 0x89504e47) return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new Error("an outside picture must be a JPEG or a PNG");
+  for (let at = 2; at + 9 < bytes.length;) {
+    if (bytes[at] !== 0xff) throw new Error("unreadable JPEG");
+    const marker = bytes[at + 1];
+    const length = bytes.readUInt16BE(at + 2);
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker))
+      return { width: bytes.readUInt16BE(at + 7), height: bytes.readUInt16BE(at + 5) };
+    at += 2 + length;
+  }
+  throw new Error("a JPEG with no frame size");
+}
+const pictures = new Map();
+for (const [, background] of allEnvs) {
+  if (BUNDLED.has(background) || pictures.has(background)) continue;
+  const variable = `CMUX_GALLERY_PICTURE_${background.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+  const given = process.env[variable];
+  const file = given
+    ? path.resolve(given)
+    : spec.pictures?.[background] && path.resolve(root, "..", spec.pictures[background]);
+  if (!file || !fs.existsSync(file)) {
+    console.log(JSON.stringify({ background, skipped: `no picture: set ${variable}=/path/to/picture.jpg` }));
+    pictures.set(background, null);
+    continue;
+  }
+  const bytes = fs.readFileSync(file);
+  const mime = bytes[0] === 0x89 ? "image/png" : "image/jpeg";
+  const image = `data:${mime};base64,${bytes.toString("base64")}`;
+  pictures.set(background, { name: background, image, ...pictureSize(bytes) });
+}
+const envs = allEnvs.filter(([, background]) => pictures.get(background) !== null);
 
 const settle = (page) =>
   page.evaluate(
@@ -80,9 +124,11 @@ try {
         if (shot.variant) query.set("variant", shot.variant);
         if (shot.opts) query.set("opts", shot.opts);
         for (const [key, value] of Object.entries(shot.armQuery?.[arm] ?? {})) query.set(key, String(value));
-        if (background !== "none") query.set("background", background);
+        const picture = pictures.get(background);
+        if (background !== "none") query.set("background", picture ? "busy" : background);
         const file = path.join(dir, `${arm}-${scheme}-${background}.png`);
         try {
+          if (picture) await page.addInitScript((value) => (window.cmuxGalleryPicture = value), picture);
           await page.goto(`${baseUrl}/frame.html?${query}`, { waitUntil: "domcontentloaded" });
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
             timeout: 90_000,
@@ -123,9 +169,15 @@ try {
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
     const page = await context.newPage();
     const cells = grid.map(([arm, row]) => [arm, row.map((f) => (f ? fs.readFileSync(f).toString("base64") : null))]);
-    const labels = envs.map(([s, b]) => (b === "none" ? s : `${s} over picture`));
+    // A spec's "sheet": { "scale": 0.5, "caption": "…", "envLabels": { "dark wallpaper": "…" } } (optional):
+    // cells drawn at that scale (a 2x capture at 0.5 is one CSS px per sheet px), a caption under the title.
+    const sheet = spec.sheet ?? {};
+    const labels = envs.map(
+      ([s, b]) =>
+        sheet.envLabels?.[`${s} ${b}`] ?? (b === "none" ? s : BUNDLED.has(b) ? `${s} over picture` : `${s} over ${b}`),
+    );
     const png = await page.evaluate(
-      async ([cells, labels, title]) => {
+      async ([cells, labels, title, scale, caption]) => {
         const load = (src) =>
           src
             ? new Promise((resolve, reject) => {
@@ -136,11 +188,13 @@ try {
               })
             : Promise.resolve(null);
         const images = await Promise.all(cells.map(async ([arm, row]) => [arm, await Promise.all(row.map(load))]));
-        const cw = Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.width ?? 0)));
-        const ch = Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.height ?? 0)));
+        const cw = Math.round(scale * Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.width ?? 0))));
+        const ch = Math.round(scale * Math.max(1, ...images.flatMap(([, r]) => r.map((i) => i?.height ?? 0))));
         const gap = 16;
-        const left = 120;
-        const top = 64;
+        const probe = document.createElement("canvas").getContext("2d");
+        probe.font = "600 26px sans-serif";
+        const left = 32 + Math.max(88, ...images.map(([arm]) => probe.measureText(arm).width));
+        const top = caption ? 104 : 64;
         const canvas = document.createElement("canvas");
         canvas.width = left + labels.length * (cw + gap);
         canvas.height = top + images.length * (ch + gap);
@@ -151,15 +205,16 @@ try {
         g.font = "600 26px sans-serif";
         g.fillText(title, 16, 34);
         g.font = "22px sans-serif";
+        if (caption) g.fillText(caption, 16, 70);
         labels.forEach((label, c) => g.fillText(label, left + c * (cw + gap), top - 8));
         images.forEach(([arm, row], r) => {
           g.font = "600 26px sans-serif";
           g.fillText(arm, 16, top + r * (ch + gap) + 34);
-          row.forEach((image, c) => image && g.drawImage(image, left + c * (cw + gap), top + r * (ch + gap)));
+          row.forEach((image, c) => image && g.drawImage(image, left + c * (cw + gap), top + r * (ch + gap), cw, ch));
         });
         return canvas.toDataURL("image/png").split(",")[1];
       },
-      [cells, labels, shot.name],
+      [cells, labels, shot.name, sheet.scale ?? 1, sheet.caption ?? ""],
     );
     fs.writeFileSync(path.join(out, `${shot.name}.png`), Buffer.from(png, "base64"));
     await context.close();
