@@ -1,6 +1,7 @@
 //! The seam to the hosted store's team spaces.
 
 use crate::model::{FeedPage, NewPost};
+use crate::record::PersonRecord;
 use std::fmt;
 
 /// Why the store refused or failed a call.
@@ -45,4 +46,13 @@ pub trait TeamSpaceStore {
     /// The space's events after `after`, oldest first, at most `limit` of them (the store may
     /// return fewer).
     fn feed(&self, space: &str, after: u64, limit: usize) -> Result<FeedPage, StoreError>;
+
+    /// Append to a person's digest log: a digest shown to them, or what they did with one of its
+    /// items. Only the person, or an agent acting on their behalf, writes their log, and only for
+    /// a space the caller was admitted to.
+    fn append_record(&self, record: &PersonRecord) -> Result<(), StoreError>;
+
+    /// A person's digest log from `since` (ms since the epoch, inclusive), oldest first. Only the
+    /// person, or an agent acting on their behalf, reads it.
+    fn records(&self, person: &str, since: u64) -> Result<Vec<PersonRecord>, StoreError>;
 }

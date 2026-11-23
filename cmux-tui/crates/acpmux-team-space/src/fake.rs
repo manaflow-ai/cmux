@@ -3,6 +3,7 @@
 //! feed is ordered by one seq per space, and a repeated idempotency key is the first post.
 
 use crate::model::{Author, AuthorKind, Event, FeedPage, NewPost};
+use crate::record::PersonRecord;
 use crate::store::{Posted, StoreError, TeamSpaceStore};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -11,6 +12,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 struct Space {
     members: BTreeSet<String>,
     events: Vec<Event>,
+    /// The last seq given out. Compaction drops events but never lowers it.
+    head: u64,
     seen: BTreeMap<String, Posted>,
 }
 
@@ -20,6 +23,7 @@ struct State {
     next_post: u64,
     feed_calls: usize,
     unavailable: bool,
+    records: Vec<PersonRecord>,
 }
 
 /// The fake store. Clone it to share one state between clients.
@@ -47,6 +51,15 @@ impl FakeStore {
     /// The store answers every call with [`StoreError::Unavailable`] while set.
     pub fn set_unavailable(&self, unavailable: bool) {
         self.lock().unavailable = unavailable;
+    }
+
+    /// The store compacts `space`'s log: events at or below `through` are gone from the feed.
+    /// Seqs are not reused, so a reader whose cursor is behind sees a gap.
+    pub fn compact(&self, space: &str, through: u64) {
+        let mut state = self.lock();
+        if let Some(found) = state.spaces.get_mut(space) {
+            found.events.retain(|e| e.seq > through);
+        }
     }
 
     /// How many feed reads the store has answered (to bound a reader's calls in tests).
@@ -104,7 +117,8 @@ impl TeamSpaceStore for FakeClient {
             return Ok(first.clone());
         }
         let post_id = format!("p{next_post}");
-        let seq = space.events.len() as u64 + 1;
+        let seq = space.head + 1;
+        space.head = seq;
         let mut author = self.author.clone();
         // Session and host are the caller's report, kept as reported.
         author.session = post.reported_session.clone().or(author.session);
@@ -118,6 +132,8 @@ impl TeamSpaceStore for FakeClient {
             author,
             text: post.text.clone(),
             to: post.to.clone(),
+            dedupe: post.dedupe.clone(),
+            areas: post.areas.clone(),
         });
         let posted = Posted { post_id, seq };
         space.seen.insert(post.idempotency_key.clone(), posted.clone());
@@ -140,6 +156,46 @@ impl TeamSpaceStore for FakeClient {
         }
         let events: Vec<Event> =
             found.events.iter().filter(|e| e.seq > after).take(limit).cloned().collect();
-        Ok(FeedPage { events, head: found.events.len() as u64 })
+        Ok(FeedPage { events, head: found.head })
+    }
+
+    fn append_record(&self, record: &PersonRecord) -> Result<(), StoreError> {
+        let mut state = self.store.lock();
+        if state.unavailable {
+            return Err(StoreError::Unavailable("fake store is down".to_owned()));
+        }
+        let space = record.space();
+        let found = state
+            .spaces
+            .get(space)
+            .ok_or_else(|| StoreError::NotFound { space: space.to_owned() })?;
+        if !found.members.contains(&self.author.id) || !self.speaks_for(record.person()) {
+            return Err(StoreError::Forbidden { space: space.to_owned() });
+        }
+        state.records.push(record.clone());
+        Ok(())
+    }
+
+    fn records(&self, person: &str, since: u64) -> Result<Vec<PersonRecord>, StoreError> {
+        let state = self.store.lock();
+        if state.unavailable {
+            return Err(StoreError::Unavailable("fake store is down".to_owned()));
+        }
+        if !self.speaks_for(person) {
+            return Err(StoreError::Forbidden { space: format!("records of {person}") });
+        }
+        Ok(state
+            .records
+            .iter()
+            .filter(|r| r.person() == person && r.at() >= since)
+            .cloned()
+            .collect())
+    }
+}
+
+impl FakeClient {
+    /// The caller is `person`, or an agent acting on their behalf.
+    fn speaks_for(&self, person: &str) -> bool {
+        self.author.id == person || self.author.on_behalf_of.as_deref() == Some(person)
     }
 }

@@ -17,16 +17,26 @@
 //!   a model. Whether team-space questions should wake by default is Leo's open question (the
 //!   RFD lists it), so wake stays opt-in only, set by the agent's owner.
 //!
+//! - [`digest`] builds a person's digest of a team space (RFD 0064's team feed): what needs
+//!   them, what touches their area, everything else counted, duplicates folded, each item with
+//!   its source link; plain text under a budget, or JSON. [`record`] keeps what the person did
+//!   with each item (opened, answered, dismissed) in the store, and [`record::stats`] counts it.
+//!
 //! Joining a space is a person's act, so this client has no join call. A space the agent was
 //! never admitted to answers [`store::StoreError::Forbidden`].
 
 pub mod delivery;
+pub mod digest;
 pub mod fake;
+pub mod glob;
 pub mod model;
+pub mod record;
 pub mod store;
 pub mod thread;
 
 pub use delivery::{Delivery, DigestItem, WakePolicy};
+pub use digest::{Digest, DigestEntry, DigestOptions, Person, Rendered};
 pub use model::{AgentIdentity, Author, AuthorKind, Event, FeedPage, NewPost, PostKind};
+pub use record::{Action, ActionRecord, DigestReceipt, PersonRecord, Stats, stats};
 pub use store::{StoreError, TeamSpaceStore};
 pub use thread::{TeamSpaceReader, WorkThread};

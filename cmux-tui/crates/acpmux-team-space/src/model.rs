@@ -49,16 +49,40 @@ impl AgentIdentity {
 }
 
 /// A post's type. A kind this build does not know reads as [`PostKind::Other`], which is never
-/// delivered as a question.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// delivered as a question. `Win`, `Breakage`, `Change`, `Fyi` and `Blocker` are the team feed's
+/// typed items (RFD 0064); only `Question` changes what [`crate::delivery::classify`] does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PostKind {
     Question,
     Answer,
     Finding,
     Status,
+    Win,
+    Breakage,
+    Change,
+    Fyi,
+    Blocker,
     #[serde(other)]
     Other,
+}
+
+impl PostKind {
+    /// The kind's wire name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Question => "question",
+            Self::Answer => "answer",
+            Self::Finding => "finding",
+            Self::Status => "status",
+            Self::Win => "win",
+            Self::Breakage => "breakage",
+            Self::Change => "change",
+            Self::Fyi => "fyi",
+            Self::Blocker => "blocker",
+            Self::Other => "other",
+        }
+    }
 }
 
 /// What a work thread posts.
@@ -75,6 +99,13 @@ pub struct NewPost {
     pub to: Vec<String>,
     /// The same post sent again is the same post.
     pub idempotency_key: String,
+    /// What the post is about, shared across senders: two agents reporting the same breakage
+    /// give it the same key, and a digest folds them into one item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedupe: Option<String>,
+    /// Paths or labels the post touches (`cmux-tui/crates/acpmux/**`, `label:forum`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub areas: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reported_session: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,6 +125,10 @@ pub struct Event {
     pub text: String,
     #[serde(default)]
     pub to: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dedupe: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub areas: Vec<String>,
 }
 
 /// A page of a space's feed: events after the cursor the reader gave, oldest first, and the

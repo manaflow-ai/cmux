@@ -92,7 +92,7 @@ pub fn classify(event: &Event, me: &AgentIdentity, policy: WakePolicy) -> Delive
     }
 }
 
-fn cut(text: &str, chars: usize) -> String {
+pub(crate) fn cut(text: &str, chars: usize) -> String {
     let total = text.chars().count();
     if total <= chars {
         return text.to_owned();
