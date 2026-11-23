@@ -103,6 +103,12 @@ if ! python3 scripts/lint_swift_namespaces.py \
   fail=1
 fi
 
+echo "== theme tokens (no literal colors or font sizes in view code) =="
+# docs/ios-theme-tokens.md; baseline in scripts/lint-ios-theme-tokens-baseline.txt.
+if [ -f scripts/lint_ios_theme_tokens.py ] && ! python3 scripts/lint_ios_theme_tokens.py; then
+  fail=1
+fi
+
 echo
 if [ "$fail" = 1 ]; then
   echo "FAIL: convention violations found (ERROR lines above)."
