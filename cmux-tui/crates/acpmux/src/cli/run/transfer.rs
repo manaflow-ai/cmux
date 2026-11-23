@@ -226,7 +226,8 @@ pub(super) async fn finish_move(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value> {
-    let journal = (&journal_dir(), to_meta);
+    let dir = journal_dir();
+    let journal = (dir.as_path(), to_meta);
     finish_journaled(src, dst, dst_init, id, begun, cwd, name, journal).await
 }
 
