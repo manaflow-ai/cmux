@@ -802,6 +802,12 @@ impl Engine {
         }
         match tool.name {
             "status" => Ok((self.status(&config), None)),
+            "list_displays" => {
+                self.authorize(&config, ctx, Access::Discover, None, false)?;
+                let body = crate::displays::list(self.desktop.as_ref())
+                    .map_err(|e| ToolOutput::desktop(&e))?;
+                Ok((ToolOutput::ok(body), None))
+            }
             "list_machines" => Ok((
                 ToolOutput::ok(
                     json!({"machines": [], "note": "Only this machine is reachable from here."}),
@@ -1111,6 +1117,12 @@ impl Engine {
             "menus": config.menus.as_str(),
             "screen_locked": self.desktop.screen_locked(),
             "while_locked": config.while_locked,
+            // Which binary answers, so `cmux computer-use doctor` can say
+            // whether the staged, verified helper is the one running.
+            "worker": {
+                "executable": std::env::current_exe().ok(),
+                "pid": std::process::id(),
+            },
         }))
     }
 
