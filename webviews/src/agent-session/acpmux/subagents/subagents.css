@@ -483,25 +483,6 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A subagent's own pane: under its composer, a line names the chat that passes the message on
-   (SubagentComposer.tsx). It is a row of its own in the composer's flow, never drawn over the box:
-   placed over the box's bottom, it stood on the prompt's line and over its placeholder (#45911). */
-.cv-subagent-composer-via {
-  flex: none;
-  margin: 0;
-  padding: 4px 16px 0;
-  overflow: hidden;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
-  line-height: 20px;
-  color: var(--cv-text-muted);
-  letter-spacing: var(--text-detail--letter-spacing);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-  user-select: none;
-}
-
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
 /* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
    strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
@@ -651,6 +632,20 @@ button.cv-subagent > :last-child {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  /* What does not fit drops whole: each kind with its separator wraps onto a second line the
+     header's height hides, so the header never ends on half a word ("53 subagents running · 5 wa";
+     Leo, 2026-11-22: "this should not be cutting off so harshly like this"). */
+  flex-wrap: wrap;
+  align-content: flex-start;
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kinds > * {
+  height: var(--acpmux-tray-head-height, var(--ui-row-height, 28px));
+}
+.acpmux-running-tray__kind-unit {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
 }
 .acpmux-running-tray__kind {
   flex: none;
