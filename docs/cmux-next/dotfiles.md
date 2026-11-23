@@ -91,8 +91,8 @@ Run `python3 scripts/cmux-next/gen-settings-sources.py` after you edit the file.
 It checks the entry and writes the app's copy.
 
 To rename a choice value, give the row `"aliases": {"old": "new"}` in
-`schemas/settings/source`. The same script writes it for the app and for the
-daemon (`schemas/settings/choice-aliases.generated.json`).
+`schemas/settings/source`. The script writes it for the app; the daemon
+compiles the source in (cmux-config `schema/aliases.rs`).
 
 ## Editor completion
 

@@ -9,8 +9,8 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   (Swift: SettingsSchema+RetiredKeys.generated.swift, `SettingsSchema.retiredKeys`).
 - schemas/settings/source/<section>.json: the rows of one settings section. Swift gets the
   descriptors AND the parser constants (paths, defaults, ranges, choice values and enums, legacy
-  aliases), so a value has one definition. The aliases also go to the daemon as
-  schemas/settings/choice-aliases.generated.json (cmux-config embeds it).
+  aliases), so a value has one definition. The daemon compiles the sources with aliases in
+  (cmux-config schema/aliases.rs).
   schemas/settings/generator/<section>.json maps the file to
   its Swift schema type and each list's static var and owner type (one file per section).
   schemas/settings/settings-schema.json is still exported from Swift (SettingsSchemaExportTests);
@@ -603,26 +603,6 @@ def doc(text, indent):
 def generated_enum(row):
     enum = row.get("swift_enum")
     return enum["name"] if enum and enum.get("generated", True) else None
-
-
-ALIASES_JSON = "schemas/settings/choice-aliases.generated.json"
-
-
-def choice_aliases_json(loaded):
-    """Every row's `aliases` ({old value: choice value}) by key, for the daemon: cmux-config
-    embeds it, reads an old value as its replacement and rewrites it in a setup, a profile or a
-    theme file (cmux-config `migrations`), as the generated enums' legacyValues do in Swift."""
-    aliases = {}
-    for _, data in loaded:
-        for entry in data["lists"]:
-            for row in entry["rows"]:
-                if row.get("aliases"):
-                    aliases[row["key"]] = dict(sorted(row["aliases"].items()))
-    document = {
-        "$comment": HEADER.format(c="", src="schemas/settings/source/*.json (each row's aliases)").replace("\n ", " "),
-        "aliases": dict(sorted(aliases.items())),
-    }
-    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
 
 
 def choices_swift(section, data):
@@ -1558,7 +1538,6 @@ def main(argv=None):
     outputs[PAGE_SWIFT] = page_layout_swift(page, sections)
     outputs[PAGE_CATEGORIES_SWIFT] = page_categories_swift(page)
     outputs.update(row_fact_outputs())
-    outputs[ALIASES_JSON] = choice_aliases_json(loaded)
     drifted = []
     for path, text in outputs.items() if swift_out is not None else ():
         full = target(path)

@@ -127,7 +127,6 @@ docs/mdm/cmux-example.mobileconfig merge=cmux-export-v1
 plans/cmux-next/actions.md merge=cmux-export-v1
 plans/cmux-next/links.json merge=cmux-export-v1
 schemas/settings/settings-schema.json merge=cmux-export-v1
-schemas/settings/choice-aliases.generated.json merge=cmux-generated-v1
 docs/mdm/com.manaflow.cmux.json merge=cmux-export-v1
 docs/mdm/com.manaflow.cmux.plist merge=cmux-export-v1
 docs/mdm/com.manaflow.cmux.intune.plist merge=cmux-export-v1

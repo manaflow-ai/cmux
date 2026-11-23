@@ -126,9 +126,9 @@ fn the_window_ends_after_its_date_or_at_its_version() {
     assert!(!Notice { until: None, ..notice("x") }.window_ended("2099-01-01", "9.0.0"));
 }
 
-/// A row's `aliases` (schemas/settings/source, generated for the daemon as
-/// choice-aliases.generated.json): each names a live row, maps to a value the
-/// row accepts, and an old value is one the row no longer takes.
+/// A row's `aliases` (schemas/settings/source, compiled in by
+/// `schema::aliases`): each names a live row, maps to a value the row
+/// accepts, and an old value is one the row no longer takes.
 #[test]
 fn every_choice_alias_maps_to_a_value_its_row_accepts() {
     let schema = Schema::embedded();
@@ -168,4 +168,22 @@ fn the_daemon_reads_an_old_choice_value_as_its_replacement() {
     let root = json!({ "updates": { "notify": "card" } });
     let read = crate::schema::effective_value(row, &root, &Default::default());
     assert_eq!(read, Some(json!("badge")));
+}
+
+/// Every section source's aliases are compiled in: a section that gains one
+/// adds its file to `schema::aliases::SOURCES`.
+#[test]
+fn every_source_alias_is_compiled_in() {
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schemas/settings/source");
+    let mut texts = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("schemas/settings/source") {
+        let path = entry.expect("an entry").path();
+        if path.extension().is_some_and(|ext| ext == "json") {
+            texts.push(std::fs::read_to_string(&path).expect("readable"));
+        }
+    }
+    let on_disk = crate::schema::aliases::aliases_in(texts.iter().map(String::as_str));
+    assert!(!on_disk.is_empty(), "updates.notify has card -> badge");
+    assert_eq!(&on_disk, choice_aliases(), "add the section source to schema::aliases::SOURCES");
 }

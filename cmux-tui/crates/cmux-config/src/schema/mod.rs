@@ -3,7 +3,7 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
-mod aliases;
+pub(crate) mod aliases;
 mod app_id;
 mod backdrop;
 mod build_defaults;

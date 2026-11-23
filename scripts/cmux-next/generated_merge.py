@@ -195,7 +195,6 @@ REGENERATE: dict[str, Regen] = {
 # generator's outputs.
 CONVENTION_FAMILIES: dict[str, str] = {
     "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Tree/ProtectedFolderEntry.generated.swift": "protected-folders",
-    "schemas/settings/choice-aliases.generated.json": "settings-sources",
 }
 
 
