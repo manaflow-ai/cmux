@@ -76,9 +76,8 @@ class GeneratedPaths(unittest.TestCase):
             "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
-            # Every other generated family (scripts/cmux-next/generated_merge.py), the protocol codegen included.
-            "webviews/src/protocol/generated/types.ts",
-            "webviews/src/agent-session/acpmux/protocol/generated/types.ts",
+            # Every other generated family (scripts/cmux-next/generated_merge.py), the page router included.
+            "webviews/src/pages/shared/generated/pageRouter.ts",
         ):
             self.assertTrue(self.catch_up.is_generated(path, self.patterns), path)
 
