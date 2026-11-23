@@ -181,9 +181,10 @@ impl ScaleUp {
         })
     }
 
-    /// Starts `plan` detached unless a run is under way or within the cooldown.
-    /// Never waits for the run. Call inside a Tokio runtime.
-    pub(crate) fn trigger(&self, plan: Plan, now: Instant) -> Trigger {
+    /// Starts `plan` on `owner` (the Hub's scope: its close ends the run)
+    /// unless a run is under way or within the cooldown. Never waits for the
+    /// run. Call inside a Tokio runtime.
+    pub(crate) fn trigger(&self, owner: &cmux_scope::Scope, plan: Plan, now: Instant) -> Trigger {
         {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             if state.running {
@@ -196,7 +197,7 @@ impl ScaleUp {
             state.last = Some(now);
         }
         let (state, runner) = (self.state.clone(), self.runner.clone());
-        tokio::spawn(async move {
+        owner.spawn_named("admission scale-up", async move {
             let host = run_plan(&runner, plan).await;
             match host {
                 Some(host) => tracing::info!(host, "scale-up: the fleet added a machine for lanes"),
@@ -251,29 +252,47 @@ pub(crate) fn parse_answer(ok: bool, stdout: &str) -> Answer {
     }
 }
 
-/// Runs a real provider in its own process group (no signal to the daemon's
-/// group reaches it), killed past `bound`.
+/// Runs a real provider off the runtime's threads (`run_provider_blocking`).
 async fn run_provider(provider: Provider, bound: Duration) -> Answer {
+    tokio::task::spawn_blocking(move || run_provider_blocking(&provider, bound))
+        .await
+        .unwrap_or_else(|e| Answer::Failed { why: e.to_string(), terminal: false })
+}
+
+/// Runs a real provider as the leader of its own process group (no signal to
+/// the daemon's group reaches it), owned by its `cmux_process::Child`: past
+/// `bound` the child is dropped, which ends its group. A provider answers in
+/// one short stdout line (its log goes to stderr, dropped here), so the pipe
+/// never fills before it exits.
+fn run_provider_blocking(provider: &Provider, bound: Duration) -> Answer {
+    use std::io::Read as _;
+    let failed = |why: String| Answer::Failed { why, terminal: false };
     let Some((program, args)) = provider.argv.split_first() else {
-        return Answer::Failed { why: "no argv".into(), terminal: false };
+        return failed("no argv".into());
     };
-    let mut cmd = tokio::process::Command::new(program);
-    cmd.args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
-    #[cfg(unix)]
-    cmd.process_group(0);
-    let child = match cmd.spawn() {
+    let mut child = match cmux_process::Command::new(program)
+        .args(args)
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
+        .process_group(0)
+        .spawn()
+    {
         Ok(child) => child,
-        Err(e) => return Answer::Failed { why: e.to_string(), terminal: false },
+        Err(e) => return failed(e.to_string()),
     };
-    match tokio::time::timeout(bound, child.wait_with_output()).await {
-        Ok(Ok(out)) => parse_answer(out.status.success(), &String::from_utf8_lossy(&out.stdout)),
-        Ok(Err(e)) => Answer::Failed { why: e.to_string(), terminal: false },
-        Err(_) => Answer::Failed { why: "timed out".into(), terminal: false },
+    let status = match child.wait_timeout(bound) {
+        Ok(Some(status)) => status,
+        Ok(None) => return failed("timed out".into()),
+        Err(e) => return failed(e.to_string()),
+    };
+    let mut stdout = String::new();
+    if let Some(mut pipe) = child.stdout.take()
+        && let Err(e) = pipe.read_to_string(&mut stdout)
+    {
+        return failed(e.to_string());
     }
+    parse_answer(status.success(), &stdout)
 }
 
 #[cfg(test)]
@@ -316,11 +335,12 @@ mod tests {
         let (calls, release) =
             (Arc::new(AtomicUsize::new(0)), Arc::new(tokio::sync::Notify::new()));
         let scale = Arc::new(ScaleUp::new(held_runner(calls.clone(), release.clone()), COOLDOWN));
+        let owner = Arc::new(cmux_scope::Scope::new("test"));
         let now = Instant::now();
         let creates: Vec<_> = (0..16)
             .map(|_| {
-                let scale = scale.clone();
-                tokio::spawn(async move { scale.trigger(one_plan(), now) })
+                let (scale, owner) = (scale.clone(), owner.clone());
+                tokio::spawn(async move { scale.trigger(&owner, one_plan(), now) })
             })
             .collect();
         let mut seen = Vec::new();
@@ -335,6 +355,7 @@ mod tests {
         release.notify_one();
         settle(&scale).await;
         assert_eq!(calls.load(Ordering::SeqCst), 1, "one provider run for 16 creates");
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
     }
 
     #[tokio::test]
@@ -342,17 +363,19 @@ mod tests {
         let (calls, release) =
             (Arc::new(AtomicUsize::new(0)), Arc::new(tokio::sync::Notify::new()));
         let scale = ScaleUp::new(held_runner(calls.clone(), release.clone()), COOLDOWN);
+        let owner = cmux_scope::Scope::new("test");
         let start = Instant::now();
-        assert_eq!(scale.trigger(one_plan(), start), Trigger::Started);
+        assert_eq!(scale.trigger(&owner, one_plan(), start), Trigger::Started);
         release.notify_one();
         settle(&scale).await;
         let soon = start + COOLDOWN - Duration::from_secs(1);
-        assert_eq!(scale.trigger(one_plan(), soon), Trigger::Cooling);
+        assert_eq!(scale.trigger(&owner, one_plan(), soon), Trigger::Cooling);
         assert!(!Trigger::Cooling.scaling());
-        assert_eq!(scale.trigger(one_plan(), start + COOLDOWN), Trigger::Started);
+        assert_eq!(scale.trigger(&owner, one_plan(), start + COOLDOWN), Trigger::Started);
         release.notify_one();
         settle(&scale).await;
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(owner.close(Duration::from_secs(1)).await.joined());
     }
 
     #[tokio::test]

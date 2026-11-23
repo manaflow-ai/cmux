@@ -478,7 +478,7 @@ impl Hub {
         use super::admission_scale_up::{ScaleUp, plan, workspace_of};
         let workspace = workspace_of(&over.source);
         let plan = plan(registry?, &over.source, &over.machine, workspace.as_deref())?;
-        Some(ScaleUp::daemon().trigger(plan, std::time::Instant::now()))
+        Some(ScaleUp::daemon().trigger(&self.scope, plan, std::time::Instant::now()))
     }
 }
 
