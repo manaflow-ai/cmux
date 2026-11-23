@@ -96,7 +96,7 @@ nonisolated enum Strings {
     }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
-        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .localizedModule)
+        String(localized: "browser.omnibar.placeholder", defaultValue: "Search or enter address", bundle: .localizedModule)
     }
     /// Chromium `IDS_CONTEXT_MENU_SHOW_FULL_URLS`.
     static var alwaysShowFullURLs: String {
@@ -135,6 +135,15 @@ nonisolated enum Strings {
     }
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .localizedModule)
+    }
+    static func permissionScreenShare(_ origin: String) -> String {
+        String(localized: "browser.permission.screenShare", defaultValue: "\(origin) wants to share your screen.", bundle: .localizedModule)
+    }
+    static var screenShareAllow: String {
+        String(localized: "browser.permission.screenShare.allow", defaultValue: "Share Screen", bundle: .localizedModule)
+    }
+    static var screenShareDontAllow: String {
+        String(localized: "browser.permission.screenShare.dontAllow", defaultValue: "Don't Allow", bundle: .localizedModule)
     }
     static func permissionLocation(_ origin: String) -> String {
         String(localized: "browser.permission.location", defaultValue: "\(origin) wants to know your location.", bundle: .localizedModule)

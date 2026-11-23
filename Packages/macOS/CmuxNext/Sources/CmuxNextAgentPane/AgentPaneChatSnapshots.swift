@@ -1,3 +1,4 @@
+import struct CmuxNextControl.LaunchMarkSink
 import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
@@ -26,6 +27,20 @@ public final class AgentPaneChatSnapshots {
     nonisolated static let global = "__cmuxChatSnapshot"
     /// The page's global for the theme key it gets now (chatSnapshot/shared.ts `SNAPSHOT_THEME_GLOBAL`).
     nonisolated static let themeGlobal = "__cmuxChatSnapshotTheme"
+    /// The page's global for the prompt its composer showed when the copy (or the miss) was written
+    /// (chatSnapshot/restoredDraft.ts `RESTORED_DRAFT`): the next document's composer holds it from
+    /// its first frame, whether or not a copy draws (Leo, 2026-11-22: "composer dips down then goes
+    /// back up").
+    nonisolated static let draftGlobal = "__cmuxRestoredDraft"
+    /// Most UTF-16 units of a prompt kept (chatSnapshot/restoredDraft.ts `SNAPSHOT_DRAFT_MAX_CHARS`);
+    /// a longer one is not kept, never cut.
+    nonisolated static let draftMaxUnits = 64 * 1024
+
+    /// The prompt `fields` carries, when it is one this keeps and serves.
+    nonisolated static func draft(_ fields: JSONValue?) -> String? {
+        guard let draft = fields?["draft"]?.stringValue, !draft.isEmpty, draft.utf16.count <= draftMaxUnits else { return nil }
+        return draft
+    }
     /// The dynamic prefix the document loads it from.
     nonisolated static let prefix = "__snapshot"
 
@@ -124,7 +139,8 @@ public final class AgentPaneChatSnapshots {
         let kept: JSONValue? = if case .string? = body["html"] {
             .object(body)
         } else if case .string(let miss)? = body["miss"], !miss.isEmpty {
-            .object(["miss": .string(String(miss.prefix(200)))])
+            // The composer's prompt stays with the reason: the next document holds it with no copy too.
+            .object(["miss": .string(String(miss.prefix(200)))].merging(Self.draft(.object(body)).map { ["draft": .string($0)] } ?? [:]) { a, _ in a })
         } else {
             .none
         }
@@ -177,6 +193,13 @@ public final class AgentPaneChatSnapshots {
         text += ";self.__cmuxRestoredChat="
         if allowed, let sessionId, !sessionId.isEmpty { JSONValue.string(sessionId).appendCompactText(to: &text) }
         else { text += "null" }
+        // The prompt the chat's composer showed, set only when there is one (with or without a copy).
+        if allowed, sessionId?.isEmpty == false, let draft = Self.draft(kept) {
+            text += ";self.\(Self.draftGlobal)="
+            JSONValue.string(draft).appendCompactText(to: &text)
+        }
+        // A launch harness reads the launch marks: the page's settle watch (launchSettle.ts) runs only then.
+        if LaunchMarkSink.shared.isActive { text += ";self.__cmuxLaunchMeasured=true" }
         text += ";self.dispatchEvent(new Event('cmux-restored-chat'));self.\(Self.global)Boot?.();"
         return Data(text.utf8)
     }
