@@ -36,23 +36,19 @@ export function attachmentOnlyPrompt(row: Pick<AcpmuxRow, "text" | "inlineParts"
 
 /// The parts a recorded prompt's bubble draws in their order (`bubbleLayout`), or undefined when it
 /// keeps the legacy bands above a bubble of its recorded text: its parts without its videos' frames
-/// and notes (which went to the agent only), its images' retained originals and its attachments,
-/// which draw in the block above it. UserBubble.tsx draws these; Find searches their text, so it
-/// never reads a part the bubble does not draw, nor misses words the block's leaving joined.
+/// and notes (which went to the agent only) and its images' retained originals. UserBubble.tsx draws
+/// these; Find searches their text, so it never reads a part the bubble does not draw or misses
+/// words omitted from the bubble.
 export function bubbleParts(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
 ): PromptContentPart[] | undefined {
   return bubbleLayout(row)?.parts;
 }
 
-/// A prompt drawn in its parts' order as UserBubble.tsx lays it out: `band`, every attachment it
-/// sent, in one block above the bubble at the sent tile's size, and `parts`, the bubble's text
-/// (typed words, pastes, a text file's body behind its chip) as plain flow below it. A sent message
-/// draws so in every attachment view (Leo, 2026-11-17: "Attachments render inline in the middle of
-/// the text line, at odd sizes. Put them in a block above the text."); the view
-/// (composerSettings.ts `attachmentView`) places attachments in the composer only. Undefined for a
-/// prompt that keeps the legacy bands. The row's estimate (model.ts) measures both, so the row does
-/// not shift when it mounts.
+/// A prompt drawn in its parts' order as UserBubble.tsx lays it out: interleaved text and
+/// attachments stay in `parts`, while attachment-only prompts put their media in `band` above the
+/// bubble. Undefined for a prompt that keeps the legacy bands. The row's estimate (model.ts)
+/// measures the same parts and band, so the row does not shift when it mounts.
 export function bubbleLayout(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
 ): { parts: PromptContentPart[]; band: Exclude<PromptContentPart, { kind: "text" }>[] } | undefined {
@@ -61,5 +57,8 @@ export function bubbleLayout(
   const originals = imageOriginals(row);
   const parts = recorded.filter((part) => !isImageOriginal(part, originals));
   if (!inlineBubbleParts(parts)) return undefined;
-  return { parts: parts.filter((part) => !isStripMedia(part)), band: parts.filter(isStripMedia) };
+  if (attachmentOnly(parts, row.text)) {
+    return { parts: parts.filter((part) => !isStripMedia(part)), band: parts.filter(isStripMedia) };
+  }
+  return { parts, band: [] };
 }

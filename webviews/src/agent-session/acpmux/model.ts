@@ -3308,8 +3308,8 @@ function measuredRowHeight(
   }
   // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
   // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
-  // a placed prompt join as the draft had them. Its attachments draw in one block above the bubble
-  // (UserBubble.tsx, bubbleParts.ts `bubbleLayout`), in every attachment view.
+  // a placed prompt join as the draft had them. Interleaved attachments stay in those parts, while
+  // attachment-only prompts use the measured band (UserBubble.tsx, bubbleParts.ts `bubbleLayout`).
   const layout =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
       ? bubbleLayout(row)
