@@ -101,11 +101,16 @@ impl Brain {
                         || key.starts_with("turn:optchat:")
                     {
                         self.outcome_posted(&op);
+                        // The guard took the Chief's own words (budget_hold.rs).
+                        self.note_budget_open(&conversation);
                     }
                     if is_message {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        if self.state.conversation.as_deref() == Some(conversation.as_str()) {
+                            self.guard_row(&message);
+                        }
                         self.home_approval_posted(&conversation, &key, &op, &message);
                         self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);
@@ -140,7 +145,7 @@ impl Brain {
                     (self.log)(&format!(
                         "error: the owner refused op {key} as a reused key with different content ({reason}); the message was not posted"
                     ));
-                    self.note_refused(&key, &op, &reason);
+                    self.note_refused(&conversation, &key, &op, &reason);
                 }
                 Err(OpError::Rejected(reason))
                     if self.state.outbox[at].plain_text.is_some() && has_cards(&op) =>
@@ -216,7 +221,7 @@ impl Brain {
                 }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"));
-                    self.note_refused(&key, &op, &reason);
+                    self.note_refused(&conversation, &key, &op, &reason);
                 }
                 Err(OpError::Transport(e)) => {
                     // Kept: retried on the next connect (the owner dedupes by key).
@@ -249,10 +254,12 @@ const REFUSED_KEPT: usize = 20;
 impl Brain {
     /// Keeps a dropped message's refusal for the Chief (a message send only:
     /// a refused cursor or reaction is the host's own business).
-    fn note_refused(&mut self, key: &str, op: &Op, reason: &str) {
+    fn note_refused(&mut self, conversation: &str, key: &str, op: &Op, reason: &str) {
         let Op::MessageSend { parts, .. } = op else {
             return;
         };
+        // The loop guard: the nags to tell wait for the person (budget_hold.rs).
+        self.note_budget_refusal(conversation, reason);
         let text = parts
             .iter()
             .filter_map(|p| match p {

@@ -26,6 +26,23 @@ public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomS
     public var approvalRequest: String? { details?["request"]?.stringValue }
 
     public var description: String { message.isEmpty ? code : message }
+
+    /// The failure for the log: its code, its message and its details, so a daemon refusal such as
+    /// `apps.unknown` names itself and what the daemon's catalog held (``description`` is the person's text).
+    public var logDescription: String {
+        var text = code.isEmpty ? message : "\(code): \(message)"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        if let details, let data = try? encoder.encode(details), let json = String(data: data, encoding: .utf8) {
+            text += " details=\(json)"
+        }
+        return text
+    }
+
+    /// ``logDescription`` of a ``CloudAppOpFailure``, else the error as it describes itself.
+    public static func logText(_ error: any Error) -> String {
+        (error as? CloudAppOpFailure)?.logDescription ?? String(describing: error)
+    }
 }
 
 public extension JSONValue {

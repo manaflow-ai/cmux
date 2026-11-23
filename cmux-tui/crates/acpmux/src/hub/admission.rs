@@ -428,7 +428,9 @@ impl Hub {
             let peers: Vec<Candidate> = self
                 .peers()
                 .into_iter()
-                .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
+                // The hosts `_acpmux/place` weighs (`placement::peer_down`): never a machine
+                // only the hub reaches, where the suggested start would fail with `no peer`.
+                .filter(|p| crate::placement::peer_down(p).is_none())
                 .filter_map(|p| Candidate::peer(&p))
                 .collect();
             let verdict = crate::placement::place(&peers, registry, Work::Agent);

@@ -11,12 +11,21 @@
 //! listing and writes no files.
 
 pub mod git;
+#[cfg(unix)]
+pub mod git_swap;
+pub mod layer;
 pub mod link;
 pub mod manifest;
 #[cfg(target_os = "linux")]
 pub mod overlay;
+pub mod peers;
+#[cfg(unix)]
+pub mod reap;
+#[cfg(unix)]
+pub mod state;
 #[cfg(target_os = "linux")]
 pub mod upper;
+pub mod way_back;
 pub mod wire;
 
 #[cfg(target_os = "linux")]

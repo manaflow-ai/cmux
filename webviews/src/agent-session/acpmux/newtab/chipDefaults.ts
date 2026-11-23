@@ -11,7 +11,8 @@ import { defaultHarness, type ScreenAgent } from "./screenModel";
 
 /// The New Tab page's agent and model before a pick: the chip's pick (drawn into the summary), else
 /// the harness and model picked last in `folder` or anywhere (lastPick.ts, Leo 2026-10-11), else
-/// the remembered agent or the first installed with its default model.
+/// the remembered agent or the first installed with its default model; none while acpmux names no
+/// default (listedNoDefault).
 export function newTabStart(
   snapshot: AcpmuxSnapshot,
   agents: readonly ScreenAgent[],
@@ -37,7 +38,9 @@ export function newTabStart(
   const harness =
     picked && ((runs && agents.some((agent) => agent.id === picked)) || kept)
       ? picked
-      : defaultHarness(agents, lastAgent);
+      : listedNoDefault(snapshot.catalog) && !agents.some((agent) => agent.id === lastAgent)
+        ? undefined
+        : defaultHarness(agents, lastAgent);
   if (!harness) return { harness, snapshot };
   return {
     harness,
@@ -58,6 +61,14 @@ export function newTabStart(
       },
     },
   };
+}
+
+/// acpmux listed its harnesses and named none the default: a Mac with only the built-in Chief and
+/// UniiChat (default_harness.rs). New Tab then starts on no agent, so its Add harness setup shows
+/// instead of a first tab signed out of UniiChat (onboarding probe 2026-11-22).
+export function listedNoDefault(catalog: AcpmuxSnapshot["catalog"]): boolean {
+  const listed = catalog.filter((entry) => !entry.folder);
+  return listed.length > 0 && listed.every((entry) => entry.noDefault === true);
 }
 
 /// `snapshot` with the catalog's default model for its agent when it names none (or only the

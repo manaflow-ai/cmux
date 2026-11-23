@@ -2,13 +2,14 @@ import AppKit
 import CmuxNextDesign
 
 extension NSView {
-    /// The window's traffic lights, with the titlebar accessory after them (the incognito badge
+    /// The window's traffic lights where they rest on their line (`TrafficLightsLine.restingFrame`: never the buttons'
+    /// frames of a moment when AppKit has re-tiled some of them), with the titlebar accessory after them (the incognito badge
     /// while the window's sidebar is closed), in this view's coordinates, when they lie over its
     /// top `band` points: nil when they show elsewhere (the window's sidebar open beside this
     /// view), in full screen, or out of a window. As the tab strip's `windowControlsInset`, so
     /// the Home list and chat avoid exactly what a strip under the top row avoids.
     func homeWindowControls(band: CGFloat) -> CGRect? {
-        guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
+        guard let window, let lights = TrafficLightsLine.restingFrame(in: window) else { return nil }
         let local = convert(Self.homeControls(lights: lights, in: window), from: nil)
         let top = isFlipped ? CGRect(x: 0, y: 0, width: bounds.width, height: band)
             : CGRect(x: 0, y: bounds.height - band, width: bounds.width, height: band)
@@ -28,7 +29,7 @@ extension NSView {
     /// For what lies over the view now, use `homeWindowControls`. Nil only with no lights near the
     /// view's top: full screen, out of a window, or a view lower in its window.
     func homeLightsRow(band: CGFloat) -> CGRect? {
-        guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return nil }
+        guard let window, let lights = TrafficLightsLine.restingFrame(in: window) else { return nil }
         let line = convert(lights, from: nil).integral
         let top = isFlipped ? CGRect(x: 0, y: 0, width: bounds.width, height: band)
             : CGRect(x: 0, y: bounds.height - band, width: bounds.width, height: band)

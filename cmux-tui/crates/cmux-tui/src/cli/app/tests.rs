@@ -359,6 +359,22 @@ fn mac_screens_reads_the_release_mac_screen_state() {
     assert!(parse(&args(&["app", "mac-screens", "--input", "x"])).is_err());
 }
 
+/// `cmux app clicks` reads the app's release click trace, all of it or the
+/// newest `--limit`; it takes no other word and no zero or negative limit.
+#[test]
+fn clicks_reads_the_release_click_trace() {
+    let (method, params) = call(parse(&args(&["app", "clicks"])).unwrap().unwrap());
+    assert_eq!(method, "input.clicks");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "clicks", "--limit", "20"])).unwrap().unwrap());
+    assert_eq!(method, CLICKS_METHOD);
+    assert_eq!(params, json!({ "limit": 20 }));
+    assert!(parse(&args(&["app", "clicks", "clear"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["app", "clicks", "--limit", "x"])).is_err());
+}
+
 /// `cmux app machines` and `cmux app join-line` call the app's every-build
 /// `machine.list` and `device.join_line`, never `app call` (debug builds only)
 /// and never an `action.run`.
@@ -453,7 +469,7 @@ fn every_app_action_that_waits_for_a_person_gets_the_person_timeout() {
 /// a late Make Link still reaches the caller instead of a link nobody receives.
 ///
 /// `share` is not an app scope ([`parse`] answers None for it): the CLI reaches the action through
-/// `run_app_action_fallback` in `cli.rs`, which leaves `share chat` to the generic path (only
+/// `run_app_action_fallback` in `cli/app_commands.rs`, which leaves `share chat` to the generic path (only
 /// `share revoke|kick` are rewritten, `share_cli::action`) and runs [`run_action`] with the words
 /// before the first flag as the CLI name. This test takes that same path.
 #[test]
@@ -1209,12 +1225,16 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
         | AppCommand::Renderers { .. }
+        | AppCommand::RendererProfile { .. }
         | AppCommand::ChatPerf { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Live(_)
         | AppCommand::Try(_)
+        | AppCommand::Share(_)
+        | AppCommand::Published(_)
         | AppCommand::LaunchTimes(_)
+        | AppCommand::WebPieces(_)
         | AppCommand::Version => {
             panic!("expected a call")
         }
@@ -2329,6 +2349,52 @@ fn the_ping_gets_only_what_is_left_of_the_deadline() {
     let windows = windows.into_inner();
     assert_eq!(windows.len(), 1, "{windows:?}");
     assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
+}
+
+#[test]
+fn app_publish_versions_rollback_and_ls_run_here_not_on_the_app_socket() {
+    let parsed = |words: &[&str]| match parse(&args(words)) {
+        Ok(Some(AppCommand::Published(parsed))) => parsed.command,
+        other => panic!("{words:?} parsed to {other:?}"),
+    };
+    assert_eq!(
+        parsed(&["app", "publish", "web", "--port", "3000"]),
+        cmux_apps::cli::Command::Publish {
+            name: Some("web".into()),
+            port: Some(3000),
+            cmd: None,
+            dir: None,
+            git_ref: None,
+            include_dirty: false,
+            share_team: false,
+        }
+    );
+    assert_eq!(
+        parsed(&["app", "versions", "web"]),
+        cmux_apps::cli::Command::Versions { name: "web".into() }
+    );
+    assert_eq!(
+        parsed(&["app", "rollback", "web", "--to", "v1"]),
+        cmux_apps::cli::Command::Rollback { name: "web".into(), to: Some(1) }
+    );
+    assert_eq!(parsed(&["app", "ls"]), cmux_apps::cli::Command::Ls);
+    assert!(parse(&args(&["app", "publish", "--port", "x"])).is_err());
+}
+
+#[test]
+fn app_publish_include_dirty_leaves_a_following_json_to_the_output_mode() {
+    let (global, command) = super::super::parse_globals(&args(&[
+        "app",
+        "publish",
+        "web",
+        "--cmd",
+        "npm start",
+        "--include-dirty",
+        "--json",
+    ]))
+    .unwrap();
+    assert_eq!(global.output, OutputMode::Json);
+    assert_eq!(command, args(&["app", "publish", "web", "--cmd", "npm start", "--include-dirty"]));
 }
 
 /// An agent's `cmux window screenshot` of Home came back grey and was read as a blank pane: the

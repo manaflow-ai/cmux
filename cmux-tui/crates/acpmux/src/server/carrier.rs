@@ -665,6 +665,7 @@ pub async fn serve_attested_link(
         Some(who),
         None,
         link,
+        None,
     )
     .await
 }
