@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextServer
 import CmuxNextSettings
 @testable import CmuxNextActions
 @testable import CmuxNextMacScreen
@@ -44,6 +45,7 @@ struct CmuxRemoteSharingSetupTests {
             setup.requestControl = { [weak self] in self?.controlRequests += 1 }
             setup.enable = { [weak self] in self?.enables += 1 }
             setup.consented = { [weak self] in self?.consent ?? false }
+            setup.consentedNow = { [weak self] in self?.consent ?? false }
             setup.rememberConsent = { [weak self] in
                 self?.remembers += 1
                 self?.consent = true
@@ -558,6 +560,137 @@ struct CmuxRemoteSharingSetupTests {
         #expect(defaults.object(forKey: CmuxRemoteShareConsent.recordKey) == nil)
         #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: nil,
                                                recorded: defaults.object(forKey: CmuxRemoteShareConsent.recordKey) is Date))
+    }
+
+    // MARK: Joining is the whole consent (remote-screen-share-zero-touch Z4)
+
+    static let person = "user_me"
+    static let personalTeam = "team_e7f3b823d6dd717529f8"
+
+    /// What acpmux's `host join --status --json` says for each case, as `JoinStatus` reads it.
+    static func join(_ json: String) throws -> JoinStatus {
+        try #require(JoinStatus.parse(Data(json.utf8)))
+    }
+
+    static let ownJoin = #"{"credentialPresent":true,"revoked":false,"hubReachable":true,"userId":"user_me","teamId":"team_e7f3b823d6dd717529f8"}"#
+
+    /// An owner request (`cmux remote-host share on`) on a Mac whose consent is `join` as read now, with the
+    /// setting `settingOn` and the records in `defaults`: whether it shared with no sheet.
+    func ownerRequestShares(join: JoinStatus?, settingOn: Bool = false, managed: ManagedSource? = nil,
+                            defaults: UserDefaults) async throws -> (shared: Bool, fixture: Fixture) {
+        let owns = join?.isOwn(person: Self.person, personalTeam: Self.personalTeam) ?? false
+        let consent = CmuxRemoteShareConsent.reading({ (settingOn, managed) },
+                                                     ownJoin: CmuxRemoteOwnJoin(last: { false }, now: { owns }),
+                                                     defaults: defaults, write: { false })
+        let fixture = Fixture(permissions: (true, false), answers: [])
+        var setup = fixture.setup()
+        setup.consented = consent.given
+        setup.consentedNow = consent.givenNow
+        // No window: a request that needs the sheet can't share, so `shared` false means "the sheet".
+        let shared = try await setup.ownerRequest(in: nil, by: .agent)
+        return (shared, fixture)
+    }
+
+    func withDefaults(_ body: (UserDefaults) async throws -> Void) async throws {
+        let suite = "ss-share-join-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try await body(defaults)
+    }
+
+    /// The personal team is the API's `personalTeamIdFor` ("team_" and the first 20 hex of sha256("personal:" + user)).
+    @Test func thePersonalTeamIsTheAPIs() {
+        #expect(JoinStatus.personalTeam(user: Self.person) == Self.personalTeam)
+    }
+
+    /// Leo: "who's gonna walk over and click allow on a headless mac mini, or a remote macbook??? stop
+    /// having that shit." A Mac joined to the signed-in person's own account shares with no sheet.
+    @Test func aMacJoinedToTheSameAccountSharesWithNoSheet() async throws {
+        try await withDefaults { defaults in
+            let result = try await ownerRequestShares(join: try Self.join(Self.ownJoin), defaults: defaults)
+            #expect(result.shared)
+            #expect(result.fixture.enables == 1)
+            #expect(result.fixture.presented.isEmpty)
+            #expect(result.fixture.announced == [.agent])
+        }
+    }
+
+    /// Not joined, revoked, the hub not answering for the credential, another person's or a team's join:
+    /// each still needs the sheet.
+    @Test(arguments: [
+        #"{"credentialPresent":false}"#,
+        #"{"credentialPresent":false,"revoked":false,"hubReachable":true,"userId":"user_me","teamId":"team_e7f3b823d6dd717529f8"}"#,
+        #"{"credentialPresent":true,"revoked":true,"hubReachable":true,"userId":"user_me","teamId":"team_e7f3b823d6dd717529f8"}"#,
+        #"{"credentialPresent":true,"revoked":false,"hubReachable":false,"userId":"user_me","teamId":"team_e7f3b823d6dd717529f8"}"#,
+        #"{"credentialPresent":true,"revoked":false,"hubReachable":true,"userId":"user_other","teamId":"team_e7f3b823d6dd717529f8"}"#,
+        #"{"credentialPresent":true,"revoked":false,"hubReachable":true,"userId":"user_me","teamId":"team_shared"}"#,
+        #"{"credentialPresent":true,"revoked":false,"hubReachable":true,"teamId":"team_e7f3b823d6dd717529f8"}"#,
+    ])
+    func aMacNotJoinedToTheSameAccountStillAsks(json: String) async throws {
+        try await withDefaults { defaults in
+            let result = try await ownerRequestShares(join: try Self.join(json), defaults: defaults)
+            #expect(!result.shared)
+            #expect(result.fixture.enables == 0)
+        }
+        try await withDefaults { defaults in
+            let shared = try await ownerRequestShares(join: nil, defaults: defaults).shared
+            #expect(!shared)
+        }
+    }
+
+    /// The person's own off wins over the join default: Share This Mac Without Asking turned off after their
+    /// yes, or Allow Mac Screen turned off by their click. Never having set it is not an off.
+    @Test func aJoinedMacThePersonTurnedOffStillAsks() async throws {
+        let join = try Self.join(Self.ownJoin)
+        // The setting turned off after the recorded yes.
+        try await withDefaults { defaults in
+            defaults.set(Date(), forKey: CmuxRemoteShareConsent.recordKey)
+            CmuxRemoteShareConsent.forgetUnlessOn(settingOn: false, defaults: defaults)
+            #expect(defaults.object(forKey: CmuxRemoteShareConsent.declinedKey) is Date)
+            let shared = try await ownerRequestShares(join: join, defaults: defaults).shared
+            #expect(!shared)
+        }
+        // Allow Mac Screen turned off by the person.
+        try await withDefaults { defaults in
+            CmuxRemoteShareConsent.recordDecline(defaults: defaults)
+            let shared = try await ownerRequestShares(join: join, defaults: defaults).shared
+            #expect(!shared)
+        }
+        // Off by default, never set: no decline, the join shares.
+        try await withDefaults { defaults in
+            CmuxRemoteShareConsent.forgetUnlessOn(settingOn: false, defaults: defaults)
+            #expect(defaults.object(forKey: CmuxRemoteShareConsent.declinedKey) == nil)
+            let shared = try await ownerRequestShares(join: join, defaults: defaults).shared
+            #expect(shared)
+        }
+        // An administrator forcing the setting off wins too.
+        try await withDefaults { defaults in
+            let shared = try await ownerRequestShares(join: join, managed: .device, defaults: defaults).shared
+            #expect(!shared)
+        }
+    }
+
+    /// The person turning sharing on themselves (the guide, or a native click) lifts their earlier off.
+    @Test func thePersonsOwnShareLiftsTheirOff() async throws {
+        try await withDefaults { defaults in
+            CmuxRemoteShareConsent.recordDecline(defaults: defaults)
+            let consent = CmuxRemoteShareConsent.reading({ (false, nil) }, ownJoin: .none, defaults: defaults, write: { false })
+            let fixture = Fixture(permissions: (true, true), answers: [])
+            var setup = fixture.setup()
+            setup.forgetDecline = consent.forgetDecline
+            #expect(try await setup.proceed(after: "continue", remembersYes: false, present: fixture.present))
+            #expect(defaults.object(forKey: CmuxRemoteShareConsent.declinedKey) == nil)
+        }
+    }
+
+    /// The join default beside the standing yes, as `holds` decides it; the file-only `true` still counts
+    /// for nothing without a join (review of #47312, P1).
+    @Test func theJoinDefaultBesideTheStandingYes() {
+        #expect(CmuxRemoteShareConsent.holds(settingOn: false, managed: nil, recorded: false, ownJoin: true))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: false, managed: nil, recorded: false, ownJoin: true, declined: true))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: true, managed: nil, recorded: false, ownJoin: false))
+        #expect(!CmuxRemoteShareConsent.holds(settingOn: false, managed: .team("t"), recorded: false, ownJoin: true))
+        #expect(CmuxRemoteShareConsent.holds(settingOn: true, managed: nil, recorded: true, ownJoin: false, declined: true))
     }
 
     @Test func eachGuideStepHasAStableIdentifierAndCancel() {
