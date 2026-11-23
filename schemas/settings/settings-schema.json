@@ -414,7 +414,8 @@
               "appearance.accent",
               "appearance.selection",
               "appearance.themeFile",
-              "appearance.highlightColor"
+              "appearance.highlightColor",
+              "customize.doctorNotice"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -28306,6 +28307,144 @@
       "title" : {
         "key" : "settings.appearance.highlightColor",
         "text" : "Highlight Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "customize.doctorNotice",
+      "keywords" : [
+        "customize",
+        "customization",
+        "doctor",
+        "notice",
+        "toast",
+        "theme",
+        "layer",
+        "broken",
+        "file"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "customize",
+        "doctorNotice"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.customize.doctorNotice.summary",
+        "text" : "Tell me when a file or layer changes my setup"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:customize.doctorNotice"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.customize.doctorNotice",
+        "text" : "Customization notices"
       },
       "validation" : "portable"
     },
