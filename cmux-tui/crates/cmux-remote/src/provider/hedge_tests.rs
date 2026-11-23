@@ -178,3 +178,22 @@ async fn no_targets_is_an_error_without_an_attempt() {
     assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
     assert!(starts.is_empty());
 }
+
+#[test]
+fn v6_first_puts_ipv6_first_even_when_the_resolver_put_ipv4_first() {
+    use std::net::SocketAddr;
+    let a = |s: &str| s.parse::<SocketAddr>().unwrap();
+    // musl's order on a ULA-only host: every A record before every AAAA.
+    let resolved =
+        [a("192.0.2.1:443"), a("192.0.2.2:443"), a("[2001:db8::1]:443"), a("[2001:db8::2]:443")];
+    assert_eq!(
+        super::v6_first(&resolved),
+        vec![
+            a("[2001:db8::1]:443"),
+            a("192.0.2.1:443"),
+            a("[2001:db8::2]:443"),
+            a("192.0.2.2:443")
+        ]
+    );
+    assert_eq!(super::v6_first(&[a("192.0.2.1:443")]), vec![a("192.0.2.1:443")]);
+}
