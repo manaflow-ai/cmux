@@ -67,16 +67,19 @@ extension CloudHandlers {
         // The page runs them on the chat's tab (`action.run`); an agent never moves a chat this way. Auto starts with them.
         let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: services)
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
-        for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel] {
-            bind(id, registry, reason: id == AppServices.placeCancel ? { nil } : reason) { invocation in
-                guard id == AppServices.placeCancel || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
+        for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
+            let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
+            bind(id, registry, reason: cancels ? { nil } : reason) { invocation in
+                guard cancels || !CloudMoveAsks.isAgent(invocation) else { throw ActionFailure(message: CloudMoveAskStrings.bringBackIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
-                    if let tab { place.setMode(mode, tab: tab) }
-                case AppServices.placeRetry: if let tab { place.retry(tab: tab) }
+                    if let tab { place.setMode(mode, tab: tab, claims: CloudPlaceClaims(invocation)) }
+                case AppServices.placeRetry: if let tab { place.retry(tab: tab, claims: CloudPlaceClaims(invocation)) }
                 case AppServices.placeCancel: place.cancel(tab: tab, session: invocation["session"]?.stringValue)
+                case AppServices.placeEvacuateCancel: place.cancelEvacuation()
+                case AppServices.placeBringBackAll: place.bringBackAll(sessions: invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) })
                 default: place.evacuate(sessions: invocation["sessions"]?.stringValue.map { $0.split(separator: ",").map(String.init) })
                 }
             }
@@ -168,10 +171,19 @@ extension CloudHandlers {
     }
 }
 
-/// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`.
-/// Not read (no Swift source for them, so left out): the queued prompts and the dirty file count.
+extension CloudPlaceClaims {
+    /// The cargo the page sent with its action (strings, as every page argument is); none when it sent none.
+    init(_ invocation: ActionInvocation) {
+        self.init(queued: invocation["queued"].flatMap { $0.intValue ?? $0.stringValue.flatMap(Int.init) },
+                  hasDraft: invocation["hasDraft"].flatMap { $0.boolValue ?? $0.stringValue.map { $0 == "true" } })
+    }
+}
+
+/// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`. A person's move from the page
+/// takes its `queued` and `hasDraft` from the page's claims (``CloudPlaceClaims``) when it sent them; no Swift source reads the
+/// queued prompts, so Auto and Evacuate leave it out.
 extension CloudPlaceFlows.Cargo {
-    @MainActor static func read(tab: TabModel, session: String, services: AppServices) -> CloudPlaceFlows.Cargo {
+    @MainActor static func read(tab: TabModel, session: String, services: AppServices, invocation: ActionInvocation? = nil) -> CloudPlaceFlows.Cargo {
         var cargo = Self()
         if let ref = tab.agentSession { cargo.turnRunning = AgentTurnStateStore.shared.state(for: ref) == .working }
         // Both moves run the agent move with a FrozenSync, which carries a running turn to where it lands; no turn, no carry.
@@ -179,6 +191,11 @@ extension CloudPlaceFlows.Cargo {
         cargo.branch = tab.gitBranch
         let tabs = services.agentTabs
         cargo.hasDraft = tabs.unsentDrafts.hasDraft(tabs.resolve(tab.id), machine: tabs.daemonListing(tab)?.machineID)
+        if let invocation {
+            let claims = CloudPlaceClaims(invocation)
+            cargo.queued = claims.queued ?? cargo.queued
+            cargo.hasDraft = claims.hasDraft ?? cargo.hasDraft
+        }
         return cargo
     }
 }
@@ -189,6 +206,8 @@ extension AppServices: CloudPlaceHost {
     static let placeCancel: ActionID = "chatMove.cancel"
     static let placeRetry: ActionID = "chatMove.retry"
     static let placeEvacuate: ActionID = "cloudEvacuate"
+    static let placeEvacuateCancel: ActionID = "cloudEvacuate.cancel"
+    static let placeBringBackAll: ActionID = "cloudBringBackAll"
 
     func placeChats() -> [CloudPlaceChat] {
         var found: [CloudPlaceChat] = [], seen = Set<String>()
@@ -200,7 +219,7 @@ extension AppServices: CloudPlaceHost {
                     let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
                     guard daemon.isLocal && !onCloud && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
                         || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil else { continue }
-                    found.append(CloudPlaceChat(id: tab.id, session: session, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
+                    found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
                                                 moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id)))
                 }
@@ -209,8 +228,10 @@ extension AppServices: CloudPlaceHost {
         return found
     }
 
-    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger) async {
+    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) async {
         var arguments: [String: ActionValue] = ["trigger": .string(trigger.argument)]
+        if let queued = claims.queued { arguments["queued"] = .int(queued) }
+        if let hasDraft = claims.hasDraft { arguments["hasDraft"] = .bool(hasDraft) }
         switch machine {
         case .reuse(let id): arguments["machine"] = .string(id)
         case .create: arguments["newMachine"] = .bool(true)
@@ -221,6 +242,8 @@ extension AppServices: CloudPlaceHost {
         let action = toCloud ? CloudMove.action : CloudBringBack.action
         for work in registry.capturingWork({ _ = registry.perform(action, invocation: invocation) }) { _ = await work.value }
     }
+
+    func placeCloudSessions() -> [String] { cloud.movedChats.all().filter { $0.broughtBack == nil }.map(\.session) }
 
     func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) {
         let ledger = cloud.movedChats.all()

@@ -656,12 +656,17 @@ extension AgentPaneRequest {
             let handoff = params?["handoff"].map { $0 as? String }
             // A `mode` is Chat Place's only (`chatPlace.set`): where the chat runs (local, cloud or auto); any other is refused.
             let mode = params?["mode"].map { $0 as? String }
+            // `queued` and `hasDraft` are what the page knows of the chat's cargo (Chat Place's set and retry only); any other is refused.
+            let queued = params?["queued"].map { $0 as? Int }
+            let hasDraft = params?["hasDraft"].map { $0 as? Bool }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
                handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
-               mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, mode: mode ?? nil)
+               mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true,
+               queued.map({ $0.map { ["chatPlace.set", "chatMove.retry"].contains(id) && (0...100_000).contains($0) } ?? false }) ?? true,
+               hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil)
             } else {
                 self = .unsupported(method)
             }

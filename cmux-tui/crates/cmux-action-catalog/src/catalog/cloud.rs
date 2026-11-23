@@ -229,6 +229,36 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "cloudEvacuate.cancel",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudEvacuate.cancel", "Cancel Evacuation"),
+        description: Some("Stops an Evacuate or Bring Back All that is running: each running move that can still be cancelled is cancelled (the chat stays where it was), and the chats still waiting never start."),
+        keywords: &["vm", "cloud", "move", "evacuate", "cancel", "stop", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud.slash",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[],
+        targets: &[],
+        cli_name: "cloud evacuate-cancel",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloudBringBackAll",
+        group: GROUP,
+        title: t("ActionCatalog", "action.cloudBringBackAll", "Bring Back All Chats"),
+        description: Some("Brings the chats that Evacuate or Auto put on Cloud machines (or the named sessions, comma separated) back to this Mac, a few at a time, as Bring Back Local does each. Only a person runs it: an agent's run is refused."),
+        keywords: &["vm", "cloud", "move", "back", "local", "all", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud.and.arrow.down",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "sessions", title: t("Localizable", "argument.cloudBringBackAllSessions", "Sessions"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &[],
+        cli_name: "cloud bring-back-all",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "chatPlace.set",
         group: GROUP,
         title: t("ActionCatalog", "action.chatPlace.set", "Set Chat Place"),
@@ -236,7 +266,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "icloud",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
-        arguments: &[Argument { name: "mode", title: t("Localizable", "argument.chatPlaceMode", "Place"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        arguments: &[Argument { name: "mode", title: t("Localizable", "argument.chatPlaceMode", "Place"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "queued", title: t("Localizable", "argument.chatPlaceQueued", "Queued Prompts"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "hasDraft", title: t("Localizable", "argument.chatPlaceHasDraft", "Has an Unsent Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
         targets: &["tab"],
         cli_name: "action chat-place-set",
         ..Action::DEFAULT
@@ -262,7 +292,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "icloud",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
-        arguments: &[],
+        arguments: &[Argument { name: "queued", title: t("Localizable", "argument.chatPlaceQueued", "Queued Prompts"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }, Argument { name: "hasDraft", title: t("Localizable", "argument.chatPlaceHasDraft", "Has an Unsent Draft"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
         targets: &["tab"],
         cli_name: "action chat-move-retry",
         ..Action::DEFAULT

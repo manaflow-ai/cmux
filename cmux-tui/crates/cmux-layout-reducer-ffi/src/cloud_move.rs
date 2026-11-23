@@ -530,9 +530,20 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 chats: Vec<place::EvacuateChat>,
                 #[serde(default)]
                 selected: Option<Vec<String>>,
+                /// `toCloud` (Evacuate, the default) or `toLocal` (Bring Back All).
+                #[serde(default)]
+                direction: Option<place::Direction>,
             }
             let request: Request = read(request)?;
-            to_value(place::evacuate(&request.chats, request.selected.as_deref()))?
+            to_value(place::evacuate_toward(
+                &request.chats,
+                request.selected.as_deref(),
+                request.direction.unwrap_or(place::Direction::ToCloud),
+            ))?
+        }
+        b"cloud_move_place_vm_failure" => {
+            let error: place::VmError = read(request)?;
+            to_value(serde_json::json!({ "cause": place::vm_failure_cause(&error) }))?
         }
         b"cloud_move_place_own_machine" => {
             #[derive(Deserialize)]
