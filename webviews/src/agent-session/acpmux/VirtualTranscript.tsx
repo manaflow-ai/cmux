@@ -1980,8 +1980,9 @@ function TranscriptView({
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows never
     // take a live row's entrance. They draw in place, as if they had always been there, unless the
-    // page came late: the reader already reached the top of the loaded rows, and only then do they
-    // fade in as they are first seen (Leo 2026-10-31: no fade unless it's the worst case).
+    // page came late: the reader already reached the top of the loaded rows and stopped there, and
+    // only then do they fade in as they are first seen (Leo 2026-10-31: no fade unless it's the
+    // worst case). A page landing under a scroll draws in full ink.
     const oldFirst = rows.findIndex((row) => knownRows.current!.has(rowFrameKey(row)));
     const arrived: AcpmuxRow[] = [];
     let olderLate: boolean | undefined;
@@ -2007,7 +2008,10 @@ function TranscriptView({
       // transcript cleared and refilled), draws in place: it is not news and does not fade again.
       if (redrawn) continue;
       if (index < oldFirst) {
-        olderLate = olderLate ?? readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
+        // A page that lands while the reader scrolls is part of that motion: it draws in full ink,
+        // with no 0.35 start (transcript motion model step 3: "no 0.35 fade for rows mounted while
+        // scrolling"). Only a page that lands with the reader at rest at the top fades in.
+        olderLate = olderLate ?? (!readerIsMoving && readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0));
         if (olderLate) olderRows.add(row.id);
         else if (loadArrival) loadFade.arrive(row.id);
       } else if (loadArrival) loadFade.arrive(row.id);
@@ -6681,6 +6685,7 @@ function TranscriptView({
     earlier,
     canLoadNewer,
     canLoadOlder,
+    loading,
     later,
     promptCount,
     loadThrough,
