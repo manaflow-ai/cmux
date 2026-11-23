@@ -572,6 +572,7 @@ Ops no app may call:
 - `cloud.fs.remove`
 - `cloud.machine.archive_delete`
 - `cloud.machine.chat_access`
+- `cloud.machine.chief_start`
 - `cloud.machine.create`
 - `cloud.machine.delete`
 - `cloud.machine.io`
