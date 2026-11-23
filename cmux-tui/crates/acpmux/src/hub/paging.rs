@@ -331,10 +331,14 @@ fn transcript_may_match(dir: &[u8], kind: &[u8]) -> bool {
     match dir {
         b"mux" => TRANSCRIPT_MUX_KINDS.iter().any(|k| k.as_bytes() == kind),
         // A live agent update's kind is its `sessionUpdate` (hub/tap.rs); a raw
-        // harness line keeps its `claude.` method and a reply is `response`.
+        // harness line keeps its `claude.` or `codex.` method (`codex_app_server::tap_kind`)
+        // and a reply is `response`. A Codex chat's raw app-server lines (a resumed thread's
+        // `codex.response` is its whole history) were parsed whole and dropped: the newest
+        // page of a long Codex chat parsed 84 to 148 MB of them for 200 records.
         b"in" => {
             !kind.ends_with(b".replay")
                 && !kind.starts_with(b"claude.")
+                && !kind.starts_with(b"codex.")
                 && kind != b"response"
                 && !NON_TRANSCRIPT_UPDATES.iter().any(|k| k.as_bytes() == kind)
         }

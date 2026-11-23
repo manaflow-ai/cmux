@@ -25,6 +25,20 @@ pub(super) fn resume_moves_off(info: &Value, interactive: bool) -> bool {
         && matches!(info["status"].as_str(), Some("closed" | "idle" | "disconnected"))
 }
 
+/// `session pause` and `session wake` need a daemon that serves them (`hub/pause.rs`).
+fn unsupported_pause(client: &Client) -> Result<()> {
+    if client.daemon_lists(crate::hub::pause::FEATURE) {
+        return Ok(());
+    }
+    Err(crate::cli::errors::AppError::new(
+        crate::cli::errors::Code::Runtime,
+        "session_pause_unsupported",
+        "the running daemon predates `session pause` and `session wake`: restart it on the \
+         installed acpmux, then retry",
+    )
+    .into())
+}
+
 /// Runs the queue a failed turn held in chat `id` (`info` is its `MUX_INFO`), through `client`:
 /// `_acpmux/queue_edit` `resume` names the queue by any of its prompts, a held one. False when
 /// nothing is held.
@@ -143,6 +157,55 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             } else {
                 println!("{}", if purge { "purged" } else { "closed" })
             }
+            Ok(())
+        }
+        Command::PauseAgent { session } => {
+            let client = connect(true).await?;
+            unsupported_pause(&client)?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_PAUSE, json!({"sessionId": id})).await?;
+            if json_out {
+                print_json(&v);
+            } else if v["paused"] == true {
+                println!(
+                    "paused: its agent exited in {} ms; its next prompt or `acpmux session wake {session}` resumes the same conversation",
+                    v["exitMs"]
+                );
+            } else if v["reason"] == "paused" {
+                println!("already paused");
+            } else {
+                println!("not running: it is stopped, and its next prompt resumes it");
+            }
+            Ok(())
+        }
+        Command::WakeAgent { session } => {
+            let client = connect(true).await?;
+            unsupported_pause(&client)?;
+            let id = resolve_id(&client, &session).await?;
+            let v = client.request(method::MUX_WAKE, json!({"sessionId": id})).await?;
+            if json_out {
+                print_json(&v);
+            } else if v["woke"] == true {
+                println!("resumed its conversation in {} ms", v["tookMs"]);
+            } else if v["reason"] == "running" {
+                println!("not paused: its agent is running");
+            } else {
+                println!("not paused: it is stopped, and its next prompt resumes it");
+            }
+            Ok(())
+        }
+        Command::RouteDeath { facts } => {
+            let text = if facts.as_os_str() == "-" {
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+                buf
+            } else {
+                std::fs::read_to_string(&facts)
+                    .with_context(|| format!("reading {}", facts.display()))?
+            };
+            let f: crate::death_route::Facts =
+                serde_json::from_str(&text).context("facts are not the death-route JSON")?;
+            print_json(&serde_json::to_value(crate::death_route::route(&f))?);
             Ok(())
         }
         Command::RestartAgent { session } => {
@@ -286,7 +349,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             Ok(())
         }
         Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
-        Command::Register { name, code } => {
+        Command::Register { renew: true, .. } => {
+            // A hook's step: bounded, silent, and never a failure the session sees.
+            let v = crate::cli::reply_address::renew().await;
+            if json_out {
+                print_json(&v);
+            }
+            Ok(())
+        }
+        Command::Register { name, code, renew: false } => {
+            let name = name.unwrap_or_default();
             let client = connect(true).await?;
             let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
             // Claude Code exports both to its Bash commands and hooks (its documented inbox).
@@ -512,11 +584,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             all_idle,
             interrupt,
             after_turn,
+            timeout,
             leave_dirty,
             carry_changes,
             cwd,
             dry_run,
             from,
+            from_snapshot,
         }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -524,12 +598,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 all_idle,
                 interrupt,
                 after_turn,
+                turn_timeout: std::time::Duration::from_secs(timeout),
                 leave_dirty,
                 carry_changes,
                 cwd,
                 dry_run,
                 resume_there: false,
                 from,
+                from_snapshot,
             };
             super::session_move::run(args, json_out).await
         }
@@ -727,6 +803,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        #[cfg(unix)]
+        Command::DaemonPrune { apply } => crate::daemon::prune::run_command(apply, json_out).await,
+        #[cfg(not(unix))]
+        Command::DaemonPrune { .. } => Err(anyhow!("daemon prune runs on macOS and Linux only")),
         Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
         Command::Config { show_token, set } => {
             let path = Config::path();
@@ -855,11 +935,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             // A process-wide file lock protects the check, redeem and commit as one
             // transaction. A second installer never redeems behind the first one.
-            let _lock = crate::cli::cloud_join::join_lock().map_err(|_| {
+            let _lock = crate::cli::cloud_join::join_lock().map_err(|e| {
                 crate::cli::errors::AppError::new(
                     crate::cli::errors::Code::Runtime,
                     "join.store",
-                    "local machine store is busy or unavailable",
+                    format!("local machine store is busy or unavailable: {e:#}"),
                 )
                 .with_exit(5)
             })?;
