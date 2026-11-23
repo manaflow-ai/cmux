@@ -604,7 +604,7 @@ async fn ask_once(
     };
     let message = OutMessage {
         to: recipient(host, key),
-        from: Sender { host: Some(crate::pairing::machine_name()), ..Sender::default() },
+        from: Sender { host: Some(crate::pairing::mesh_host()), ..Sender::default() },
         kind: Kind::Control,
         op: Some("read".into()),
         body,

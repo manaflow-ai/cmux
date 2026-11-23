@@ -100,7 +100,7 @@ public final class BackdropLiveView: NSView {
 
     /// Shows `wallpaper` (nil: none). The same wallpaper keeps its program, time and frame.
     public func show(_ wallpaper: LiveWallpaper?) {
-        guard wallpaper != self.wallpaper else { return update() }
+        guard wallpaper != self.wallpaper else { update(); return }
         stopLink()
         pipelineLoad?.cancel()
         pipelineLoad = nil
