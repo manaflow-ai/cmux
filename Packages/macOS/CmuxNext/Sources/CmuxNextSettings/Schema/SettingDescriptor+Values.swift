@@ -33,6 +33,8 @@ extension SettingDescriptor {
         if path == BackdropSelectionSetting.schedulePath { return BackdropSelectionSetting.acceptsSchedule(value) }
         if path == BackdropSelectionSetting.locationPath { return BackdropSelectionSetting.acceptsLocation(value) }
         if path == BackdropSelectionSetting.memoryPath { return BackdropSelectionSetting.acceptsMemory(value) }
+        if path == BackdropPlacementSetting.placementPath { return BackdropPlacementSetting.accepts(value) }
+        if path == BackdropSelectionSetting.recentsPath { return BackdropSelectionSetting.acceptsRecents(value) }
         if path == NewTabAppSetting.configPath { return value.stringValue.map(NewTabAppSetting.isValidID) ?? false }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
