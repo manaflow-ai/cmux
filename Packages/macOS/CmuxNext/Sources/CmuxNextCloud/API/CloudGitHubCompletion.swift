@@ -132,7 +132,7 @@ extension CloudOwnerAPIClient {
         let args: [String: any Sendable] = ["params": completion.params, "idempotencyKey": completion.idempotencyKey]
         guard let data = try? await daemon("owner.github_complete", args, timeout: Self.bound(Self.personWait)),
               let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let status = reply["status"] as? Int else { return (.noAnswer, nil) }
-        let body = reply["body"].flatMap { $0 is NSNull ? nil : try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) } ?? Data()
+        let body = reply["body"].flatMap { $0 is NSNull ? nil : (try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed)) } ?? Data()
         let result = Self.completion(status: status, body: body)
         return (result, result == .refused ? Self.refusalReason(body: body) : nil)
     }

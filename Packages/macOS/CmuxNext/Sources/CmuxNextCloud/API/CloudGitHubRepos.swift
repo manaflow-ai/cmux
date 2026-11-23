@@ -159,7 +159,7 @@ extension CloudOwnerAPIClient {
         guard CloudGitHubApp.path(team: team) != nil,
               let data = try? await daemon("owner.github_app", ["team": team, "raw": true], timeout: Self.bound(Self.personWait)),
               let reply = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let status = reply["status"] as? Int else { return nil }
-        let body = reply["body"].flatMap { $0 is NSNull ? nil : try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed) }
+        let body = reply["body"].flatMap { $0 is NSNull ? nil : (try? JSONSerialization.data(withJSONObject: $0, options: .fragmentsAllowed)) }
         return (status, body ?? Data())
     }
 
