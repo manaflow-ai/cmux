@@ -18,6 +18,11 @@ mkdir -p "$OUT"
 ulimit -n 1048576 2>/dev/null || ulimit -n 65536 2>/dev/null || true
 ulimit -u unlimited 2>/dev/null || true
 echo "runner: $(nproc) cpus, $(free -g | awk '/Mem:/{print $2}') GB, nofile $(ulimit -n), nproc $(ulimit -u)"
+# A private target dir: a runner's shared one is written by other jobs at the same time, and cargo
+# there linked another commit's cmux-tui-platform into this head's acpmux (cmux#49864 run32:
+# "cannot find value ACPMUX_ARENAS", a constant this commit defines). It builds cold, which a
+# 2-hour timeout covers.
+export CARGO_TARGET_DIR=$ROOT/target-fanin
 if [ "$PROFILE" = perf ]; then export RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes"; fi
 (cd cmux-tui && cargo build --release -p acpmux --bin acpmux) || { echo "FANIN: acpmux build failed"; exit 1; }
 BIN=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/target}/release/acpmux
@@ -90,7 +95,7 @@ for d in "$RUN"/n*; do
   cp "$d"/*.json "$OUT/$n/" 2>/dev/null || true
   gzip -c "$d/events.ndjson" > "$OUT/$n/events.ndjson.gz" 2>/dev/null || true
   cp "$d/ops.ndjson" "$d/proc.ndjson" "$OUT/$n/" 2>/dev/null || true
-  for h in "$d"/controller "$d"/h00; do
+  for h in "$d"/controller "$d"/h[0-9]*; do
     [ -f "$h/daemon.stderr" ] && tail -c 20000 "$h/daemon.stderr" > "$OUT/$n/$(basename "$h").stderr.tail"
   done
 done
