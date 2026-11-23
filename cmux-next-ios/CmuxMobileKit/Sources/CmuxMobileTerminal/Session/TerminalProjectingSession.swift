@@ -158,8 +158,22 @@ public final class TerminalProjectingSession: TerminalSession {
     /// them (nothing is sent); past them, for an app that asked for the
     /// mouse, or with nothing held, the wheel goes to the Mac as before.
     public func panHeldRows(_ rows: Double) -> Double {
+        #if DEBUG
+        guard holdsRows else { return rows }
+        let gestureMs = TerminalPaintReport.nowMs
+        #endif
         let step = projection.altPan(rows: rows)
-        if !step.paint.isEmpty { handler?(.output(step.paint)) }
+        if !step.paint.isEmpty {
+            handler?(.output(step.paint))
+            #if DEBUG
+            heldPaints += 1
+            if stampsPans {
+                // Gesture to paint: the present that shows these bytes.
+                panSeq += 1
+                handler?(.paintMark(seq: -panSeq, receivedMs: gestureMs))
+            }
+            #endif
+        }
         return step.forwardRows
     }
 
@@ -176,6 +190,25 @@ public final class TerminalProjectingSession: TerminalSession {
 
     /// How many held rows back the screen shows the app (0: live).
     public var heldRowsBack: Int { Int(projection.altRowsBack()) }
+
+    #if DEBUG
+    /// DEBUG bench (`tuiheld`): false sends every pan to the app, as before held rows.
+    public var holdsRows = true
+    /// DEBUG bench: pans painted from held rows.
+    public private(set) var heldPaints = 0
+    /// DEBUG bench: stamps each held-row paint with its gesture's time
+    /// (`.paintMark`, negative seq), for gesture-to-paint.
+    public var stampsPans = false
+    private var panSeq = 0
+    /// DEBUG bench: what the screen reported painted.
+    public var onPaintReport: (@MainActor ([TerminalPaintTally.Sample]) -> Void)?
+    #endif
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        #if DEBUG
+        onPaintReport?(samples)
+        #endif
+    }
 
     private var lastOlderLoad: CFAbsoluteTime?
     /// A ``loadOlderHistory()`` re-wrap is promised and not sent yet.
