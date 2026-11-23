@@ -24,6 +24,8 @@ public struct CEFChatRendererRecycle {
     public static let freshBytes = 192 << 20
     /// The least time between two recycles.
     public static let cooldown: Duration = .seconds(600)
+    /// The least time before another try once a page stopped one after its captures began (each try thaws every chat).
+    public static let retryAfterAbort: Duration = .seconds(120)
     /// The input-free time after which the person counts as away while the app is active.
     public static let idleInput: TimeInterval = 30
     /// How long the old renderer gets to exit once its last page closed; the chats are built again after it either way.
@@ -54,6 +56,7 @@ public struct CEFChatRendererRecycle {
     /// Each renderer's resident size when first seen (at most ``freshBytes``) or right after the last recycle.
     private var baselines: [Int32: Int] = [:]
     private var lastRecycle: ContinuousClock.Instant?
+    private var lastAbort: ContinuousClock.Instant?
 
     public init() {}
 
@@ -69,6 +72,15 @@ public struct CEFChatRendererRecycle {
     /// The person is away: no input for ``idleInput``, or the app is not active.
     public static func personIdle(secondsSinceInput: TimeInterval, appActive: Bool) -> Bool {
         !appActive || secondsSinceInput >= idleInput
+    }
+
+    /// One agent tab's page (the App reads the rest): a New Tab page goes only as the untouched reserved one (the
+    /// next Cmd-N's, which comes back in the fresh renderer); a chat goes unless the hidden-page policy keeps it
+    /// (`exemption`).
+    public static func tabPage(key: String, newTab: Bool, reservedUntouched: Bool, exemption: String?, shown: Bool) -> Page {
+        if newTab { return reservedUntouched ? .spare : .keeps("a New Tab page") }
+        if let exemption { return .keeps(exemption) }
+        return .idleChat(key: key, shown: shown)
     }
 
     /// Whether the renderer's pages let it be recycled now: every page is a spare or an idle chat, the person
@@ -97,8 +109,12 @@ public struct CEFChatRendererRecycle {
         let baseline = baselines[renderer] ?? min(resident, Self.freshBytes)
         baselines[renderer] = baseline
         if let lastRecycle, lastRecycle.duration(to: now) < Self.cooldown { return false }
+        if let lastAbort, lastAbort.duration(to: now) < Self.retryAfterAbort { return false }
         return resident >= Self.bound(baseline: baseline)
     }
+
+    /// A page stopped a recycle at `now` after its captures began.
+    public mutating func aborted(at now: ContinuousClock.Instant) { lastAbort = now }
 
     /// A recycle ran at `now`.
     public mutating func recycled(at now: ContinuousClock.Instant) { lastRecycle = now }
