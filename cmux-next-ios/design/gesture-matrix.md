@@ -24,7 +24,7 @@ feed, home and workspaces, sidebar, tab overview and toolbar, sheets, settings. 
 swipe, edge or content back swipe, long press, pinch, interactive keyboard dismissal, sheet drag, pull to refresh,
 bar and card swipes. Only the pairs where two recognizers can both take a touch are cells; the rest have one owner.
 
-Status: OK (right today), FIXED (wrong before, fixed in #52373), OPEN (wrong, its PR or issue named).
+Status: OK (right today), FIXED (wrong before, fixed in #52373, or in its cluster PR), OPEN (wrong, its PR or issue named).
 Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 
 | # | Surface | Region x gesture | Should | Status | Test or PR |
@@ -40,11 +40,11 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 9 | Browser (native) | page x horizontal swipe | page history, no workspace back | FIXED | web-view rule; UI test to add |
 | 10 | Artifacts | code x horizontal scroll | code scrolls, no back | FIXED | wide-scroller rule |
 | 11 | Artifacts (multi-file) | code x horizontal scroll vs file pager | code scrolls; pager from outside the code | OPEN | cluster C |
-| 12 | Browser (streamed) | page x horizontal pan | page pans, no back | OPEN | cluster A |
-| 13 | Browser (streamed) | page x pinch | page zooms or tab zoom, one owner | OPEN | cluster A |
-| 14 | Tabs | whole screen x pinch | starts only on page or grid content | OPEN | cluster A |
-| 15 | Tabs | toolbar x bar swipe | switches tabs, no back | OPEN | cluster A |
-| 16 | Tabs | overview card x close swipe | card closes, no back | OPEN | cluster A |
+| 12 | Browser (streamed) | page x horizontal pan | page pans, no back | FIXED | `NavigationPopOwnsDrag` (stream and simulator views); UI test needs an offline stream demo |
+| 13 | Browser (streamed) | page x pinch | page zooms or tab zoom, one owner | FIXED | page pinch off while `isZoomGestureActive`, as a web view's |
+| 14 | Tabs | whole screen x pinch | starts only on page or grid content | FIXED | `testTabs_Toolbar_Pinch_KeepsPage`, `GestureRegionsTests` |
+| 15 | Tabs | toolbar x bar swipe | switches tabs, no back | FIXED | `testTabs_Toolbar_SwipeRight_StaysInWorkspace`, `GestureRegionsTests` |
+| 16 | Tabs | overview card x close swipe | card swipes (left closes, right rubber-bands), no back | FIXED | `testTabs_OverviewCard_SwipeRight_StaysInWorkspace`, `GestureRegionsTests` |
 | 17 | Tabs | overview x vertical scroll vs card swipe | grid scrolls | OK | TabsKit CardSwipe tests |
 | 18 | Tabs | card x long press vs swipe | menu, or swipe after slop | OK | |
 | 19 | Tabs | card x reorder drag vs scroll | scroll before lift | OK | `TabReorderUITests` |
@@ -85,14 +85,15 @@ Test: the `GestureConflictUITests` method that guards it, or the unit suite.
 | 54 | Shell tabs | content x tab switch | tab bar only | OK | |
 | 55 | Workspace | leading edge x back | back | OK | |
 
-Totals: 55 cells; 26 wrong before (1, 2, 5-16, 28, 35-38, 41, 44-47, 49, 50); 9 fixed here; 17 open, each in a cluster
+Totals: 55 cells; 26 wrong before (1, 2, 5-16, 28, 35-38, 41, 44-47, 49, 50); 9 fixed in #52373 and 5 (12-16) in cluster A; 12 open, each in a cluster
 below.
 
 ## Open clusters
 
-- A, tabs and streamed browser (12-16): the content pop and `ZoomPinchGesture` take touches on the toolbar, cards and
-  the streamed page. Register the toolbar capsule and overview cards with `NavigationPopExclusion` (TabsKit takes a
-  region hook), give the stream view the web-view rule, and let the pinch start only on page or grid content.
+- A, tabs and streamed browser (12-16), fixed in its cluster PR (lane/ios-gesture-tabs): TabsKit reports where its
+  bar swipe and card swipes start (`TabsKitGestureClaims`, asked by the workspace's content pop), the streamed
+  browser and simulator views own every drag (`NavigationPopOwnsDrag`), the streamed page's pinch stands down while
+  the tab zoom's drives, and the tab zoom's pinch never starts on the toolbar (`TabsGestureRegions`).
 - B, feed and sidebar (35-38, 44-47): parent recognizers that never look at the touched view.
 - C, sheets, lists and Chief settings (11, 28, 41, 49, 50).
 

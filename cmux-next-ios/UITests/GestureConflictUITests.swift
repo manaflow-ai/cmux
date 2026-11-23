@@ -94,6 +94,71 @@ final class GestureConflictUITests: XCTestCase {
         XCTAssertTrue(field.exists && field.isHittable, "still in the workspace with the composer open", file: file, line: line)
     }
 
+    // MARK: Tabs: the toolbar and the overview keep their own drags and pinches (cluster A)
+
+    /// Cell 15: a rightward drag along the toolbar's capsule is the bar swipe between tabs; the
+    /// workspace's full-width back swipe must not take it and leave the workspace.
+    @MainActor
+    func testTabs_Toolbar_SwipeRight_StaysInWorkspace() {
+        let app = launch(demo: "ws-terminal-idle")
+        let workspace = app.descendants(matching: .any)["workspace.ws-cmux"]
+        XCTAssertTrue(workspace.waitForExistence(timeout: 30), "the workspace\n\(app.debugDescription)")
+        let tabs = tabsButton(app)
+        XCTAssertTrue(tabs.waitForExistence(timeout: 15), "the toolbar's Tabs button\n\(app.debugDescription)")
+        // The capsule's middle: the screen's centre at the Tabs button's height.
+        let window = app.windows.firstMatch
+        let from = window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: window.frame.width * 0.3, dy: tabs.frame.midY))
+        attach(app, "1-before-bar-swipe")
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 200, dy: 0)), withVelocity: .fast,
+                   thenHoldForDuration: 0.05)
+        Thread.sleep(forTimeInterval: 1.0)
+        attach(app, "2-after-bar-swipe")
+        XCTAssertTrue(workspace.exists, "still in the workspace: the drag was the bar swipe")
+        XCTAssertTrue(tabs.isHittable, "the toolbar is still there")
+    }
+
+    /// Cell 16: a rightward drag on an overview card is the card's swipe (rubber band, springs
+    /// back); the back swipe must not leave the workspace, and the card stays.
+    @MainActor
+    func testTabs_OverviewCard_SwipeRight_StaysInWorkspace() {
+        let app = launch(demo: "ws-terminal-idle")
+        let tabs = tabsButton(app)
+        XCTAssertTrue(tabs.waitForExistence(timeout: 30), "the toolbar's Tabs button\n\(app.debugDescription)")
+        tabs.tap()
+        let cards = app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'"))
+        XCTAssertTrue(cards.firstMatch.waitForExistence(timeout: 15), "grid cards\n\(app.debugDescription)")
+        let count = cards.count
+        let card = cards.firstMatch
+        let from = card.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        attach(app, "1-grid")
+        from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 160, dy: 0)), withVelocity: .fast,
+                   thenHoldForDuration: 0.05)
+        Thread.sleep(forTimeInterval: 1.0)
+        attach(app, "2-after-card-swipe")
+        XCTAssertTrue(app.descendants(matching: .any)["workspace.ws-cmux"].exists, "still in the workspace")
+        XCTAssertEqual(cards.count, count, "a rightward card swipe closes nothing")
+    }
+
+    /// Cell 14: a pinch on the toolbar is no page's, so it never zooms the page out to the grid.
+    @MainActor
+    func testTabs_Toolbar_Pinch_KeepsPage() {
+        let app = launch(demo: "ws-terminal-idle")
+        let tabs = tabsButton(app)
+        XCTAssertTrue(tabs.waitForExistence(timeout: 30), "the toolbar's Tabs button\n\(app.debugDescription)")
+        tabs.pinch(withScale: 0.4, velocity: -2)
+        Thread.sleep(forTimeInterval: 1.0)
+        attach(app, "after-toolbar-pinch")
+        let cards = app.buttons.matching(NSPredicate(format: "label ENDSWITH ', tab'"))
+        XCTAssertFalse(cards.firstMatch.exists, "the grid did not open from a pinch on the toolbar")
+        XCTAssertTrue(tabs.isHittable, "the page and its toolbar stay")
+    }
+
+    @MainActor
+    private func tabsButton(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs' OR label BEGINSWITH[c] 'Show All Tabs' OR label BEGINSWITH[c] 'Tab overview'")).firstMatch
+    }
+
     // MARK: Helpers
 
     /// About ten wrapped lines at the 17 pt body on a phone: taller than the field's six.

@@ -2399,7 +2399,8 @@ struct WorkspaceTabPage: View {
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
             } else if let model = source.browser(tab) as? StreamedBrowserModel {
-                StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
+                StreamedBrowserPage(model: model, insets: insets, isZoomGestureActive: context.isZoomGestureActive,
+                                    reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })

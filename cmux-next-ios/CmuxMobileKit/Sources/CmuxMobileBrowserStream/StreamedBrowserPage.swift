@@ -10,6 +10,9 @@ import UIKit
 public struct StreamedBrowserPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
+    /// TabsKit's pinch drives the tab zoom: the page's own pinch stands down, so
+    /// one pinch has one owner (gesture matrix cell 13), as a web view's does.
+    var isZoomGestureActive: Bool
     var reportScroll: @MainActor (CGFloat) -> Void
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
@@ -21,15 +24,17 @@ public struct StreamedBrowserPage: View {
     /// What the page says when the Mac cannot stream browser tabs.
     public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
 
-    public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+    public init(model: StreamedBrowserModel, insets: EdgeInsets, isZoomGestureActive: Bool = false,
+                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
         self.insets = insets
+        self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
     }
 
     public var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            StreamSurface(model: model, keyboard: $keyboard, reportScroll: reportScroll)
+            StreamSurface(model: model, keyboard: $keyboard, isZoomGestureActive: isZoomGestureActive, reportScroll: reportScroll)
                 .accessibilityIdentifier("browser.stream")
             if model.phase == .unavailable {
                 unavailable
@@ -281,6 +286,7 @@ public struct StreamedBrowserCard: View {
 struct StreamSurface: UIViewRepresentable {
     let model: StreamedBrowserModel
     @Binding var keyboard: Bool
+    var isZoomGestureActive: Bool
     var reportScroll: @MainActor (CGFloat) -> Void
 
     func makeUIView(context: Context) -> StreamView {
@@ -293,6 +299,8 @@ struct StreamSurface: UIViewRepresentable {
 
     func updateUIView(_ view: StreamView, context: Context) {
         view.reportScroll = reportScroll
+        // Turning it off ends a pinch already sent to the page as cancelled.
+        view.pagePinch.isEnabled = !isZoomGestureActive
         view.fieldChanged()
         if keyboard, !view.isFirstResponder {
             // Not in a window yet, or focus held elsewhere: the button comes back.
@@ -313,6 +321,8 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate, Na
     var reportScroll: (@MainActor (CGFloat) -> Void)?
     var keyboardChanged: ((Bool) -> Void)?
     private let video: AVSampleBufferDisplayLayer
+    /// The page's pinch (off while TabsKit's pinch drives the tab zoom).
+    private(set) var pagePinch: UIPinchGestureRecognizer!
     private var lastPan: CGPoint = .zero
     private var momentum: CADisplayLink?
     private var velocity: CGPoint = .zero
@@ -339,6 +349,7 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate, Na
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:)))
+        pagePinch = pinch
         addGestureRecognizer(tap)
         addGestureRecognizer(pan)
         addGestureRecognizer(pinch)

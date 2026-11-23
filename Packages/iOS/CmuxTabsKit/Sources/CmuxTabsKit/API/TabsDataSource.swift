@@ -193,6 +193,29 @@ extension EnvironmentValues {
     /// Columns of the tab overview grid: two on a phone, more on an unfolded foldable's wider
     /// page (the host asks its shared layout rule, cmux-mobile-link-ffi `overview_columns`).
     @Entry public var tabsKitOverviewColumns: Int = 2
+    /// Set by a host whose own recognizers (a navigation back swipe) can take
+    /// touches on the tabs screen: the kit reports where its drags start.
+    @Entry public var tabsKitGestureClaims: TabsKitGestureClaims? = nil
+}
+
+/// Where the tabs screen's own sideways drags start, for a host recognizer
+/// that must leave them alone (cmux-next-ios design/gesture-matrix.md cells
+/// 15 and 16): the bar swipe between tabs on the toolbar, an overview card's
+/// close swipe. Ask from the host recognizer's `gestureRecognizerShouldBegin`.
+@MainActor
+public final class TabsKitGestureClaims {
+    public init() {}
+
+    /// Whether a sideways drag that started at `point` (window coordinates)
+    /// is the kit's: the host's recognizer should not begin.
+    public func ownsSidewaysDrag(at point: CGPoint) -> Bool {
+        test?(CGPoint(x: point.x - screenOrigin.x, y: point.y - screenOrigin.y)) ?? false
+    }
+
+    /// The tabs screen's origin in its window.
+    var screenOrigin: CGPoint = .zero
+    /// The test in the tabs screen's coordinates.
+    var test: (@MainActor (CGPoint) -> Bool)?
 }
 
 /// Where and how a tab's live page is shown.

@@ -73,6 +73,9 @@ public struct WorkspaceScreen: View {
     private let screenSharing: ScreenSharingService?
 
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
+    /// Where TabsKit's own sideways drags start (the bar swipe, a card's close
+    /// swipe): the content back swipe leaves them alone (gesture matrix 15, 16).
+    @State private var gestureClaims = TabsKitGestureClaims()
 
     public var body: some View {
         TabsView(source: source, isShowingOverview: $showsGrid)
@@ -80,6 +83,7 @@ public struct WorkspaceScreen: View {
             // The overview shows as many columns as the page's width fits (Rust's
             // `overview_columns`): two on a phone, more on an unfolded screen.
             .environment(\.tabsKitOverviewColumns, overviewColumnCount)
+            .environment(\.tabsKitGestureClaims, gestureClaims)
             .onGeometryChange(for: Int.self) { proxy in
                 Int(overviewColumns(width: Double(proxy.size.width)))
             } action: { columns in
@@ -104,7 +108,7 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .background(InteractivePopEnabler())
+            .background(InteractivePopEnabler(tabsClaims: gestureClaims))
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
             .onAppear {
@@ -317,10 +321,17 @@ final class SourceHolder {
 /// and layout), with a delegate that allows them only when there is
 /// something to pop.
 private struct InteractivePopEnabler: UIViewControllerRepresentable {
+    let tabsClaims: TabsKitGestureClaims
+
     func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.enable() }
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.tabsClaims = tabsClaims
+        controller.enable()
+    }
 
     final class Controller: UIViewController, UIGestureRecognizerDelegate {
+        var tabsClaims: TabsKitGestureClaims?
+
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             enable()
@@ -354,7 +365,8 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
             // also keeps it off views with their own sideways drag: the composer's text
             // (a caret drag, a long draft), a wide terminal or code view, a web page.
             if #available(iOS 26.0, *), recognizer === navigationController?.interactiveContentPopGestureRecognizer,
-               NavigationPopExclusion.startsOnOwnDrag(start, in: window) {
+               NavigationPopExclusion.startsOnOwnDrag(start, in: window)
+                || tabsClaims?.ownsSidewaysDrag(at: start) == true {
                 return false
             }
             return true

@@ -119,6 +119,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @State private var menuGroups: [[TabsKitMenuItem]] = []
     @Environment(\.tabsKitTheme) private var theme
     @Environment(\.tabsKitOverviewColumns) private var overviewColumns
+    @Environment(\.tabsKitGestureClaims) private var gestureClaims
 
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
     private var tabs: [TabsKitTab] { source.tabs }
@@ -254,6 +255,11 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
+        // Where the bar swipe and the cards' close swipe start, for the host's back swipe.
+        .onChange(of: ClaimInputs(capsule: layout.capsule, barSwipes: chrome.bar == .expanded && !chrome.editing,
+                                  grid: overviewLayout),
+                  initial: true) { _, inputs in publishClaims(inputs) }
+        .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { gestureClaims?.screenOrigin = $0 }
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onChange(of: GridShape(width: size.width, columns: overviewColumns)) { old, _ in keepGridPlace(from: old) }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
@@ -734,6 +740,13 @@ struct TabsScreen<Source: TabsDataSource>: View {
     private func decide(_ sample: PinchSample) {
         let session = pinchSession
         guard let start = session.start else { return }
+        // A pinch on the toolbar is no page's: it never starts the tab zoom (cell 14).
+        let toolbar = toolbarLayout
+        guard TabsGestureRegions.pinchStartsOnContent(start.centroid, phase: zoomState.phase,
+                                                      toolbar: [toolbar.back, toolbar.capsule, toolbar.right]) else {
+            session.decision = .rejected
+            return
+        }
         if session.movementStart == nil, abs(sample.scale - 1) > 0.005 { session.movementStart = sample.time }
         let moving = session.movementStart.map { sample.time - $0 } ?? 0
         switch zoomState.phase {
@@ -804,6 +817,29 @@ struct TabsScreen<Source: TabsDataSource>: View {
             return tab.id
         }
         return nil
+    }
+
+    // MARK: Host gesture claims
+
+    struct ClaimInputs: Equatable {
+        var capsule: CGRect
+        var barSwipes: Bool
+        var grid: OverviewLayout
+    }
+
+    /// The host's back swipe asks this (window point, made screen-relative by
+    /// `TabsKitGestureClaims`); the phase and the grid's scroll are read live.
+    private func publishClaims(_ inputs: ClaimInputs) {
+        guard let gestureClaims else { return }
+        let driver = zoomDriver, scroll = gridScroll, source = source
+        gestureClaims.test = { point in
+            TabsGestureRegions.ownsSidewaysDrag(at: point, phase: driver.state.phase, barSwipes: inputs.barSwipes,
+                                                capsule: inputs.capsule) { p in
+                source.tabs.indices.contains { i in
+                    inputs.grid.zoomEndpoint(i, contentOrigin: scroll.contentOrigin, fallbackOffset: scroll.offset).contains(p)
+                }
+            }
+        }
     }
 
     // MARK: Toolbar swipe
