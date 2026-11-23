@@ -484,7 +484,10 @@ public struct AgentChatScreen: View {
         switch store.summary.status {
         case .running: .cmuxMobileWarning
         case .waiting: .cmuxMobileWarning
-        case .disconnected, .closed: Color(uiColor: .tertiaryLabel)
+        // A dropped link dims the dot only once the outage outlasted the quiet bound
+        // (``AgentChatStore/quietStatus``); a reconnect inside it shows nothing.
+        case .disconnected: store.quietStatus.isShown ? Color(uiColor: .tertiaryLabel) : .cmuxMobileSuccess
+        case .closed: Color(uiColor: .tertiaryLabel)
         default: .cmuxMobileSuccess
         }
     }
