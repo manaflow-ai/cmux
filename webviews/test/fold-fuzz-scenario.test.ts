@@ -2,6 +2,7 @@
 // the same one every time, so a seed the fuzzer flags replays exactly; and the seeds cover what Leo named
 // (2026-11-22: "steers coming in at various times and tool calls at various times and turn ends at various").
 import { describe, expect, test } from "bun:test";
+import { MOTION_MS, MOTION_SETTLE } from "../src/motion/scale.generated";
 import { fuzzScenario, fuzzSpec, rng, SPLITS, strayScenario } from "./browser/fold-fuzz.scenario";
 import { analyze, driftThreshold, type FuzzRun } from "../scripts/fold-fuzz";
 import {
@@ -152,8 +153,8 @@ describe("the transcript motion detector", () => {
         {
           target: "row:c",
           properties: ["translate"],
-          duration: 180,
-          easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+          duration: MOTION_MS.standard,
+          easing: MOTION_SETTLE,
           frame: 1,
         },
         { target: "div.acpmux-thread", properties: ["height"], duration: 400, easing: "linear", frame: 1 },
@@ -162,8 +163,8 @@ describe("the transcript motion detector", () => {
     };
     const flags = transcriptMoves(record);
     expect(flags.map((f) => [f.kind, f.key])).toEqual([["off-curve", "div.acpmux-thread"]]);
-    expect(onHouseCurve({ easing: "ease-out", duration: 120 })).toBe(true);
-    expect(onHouseCurve({ easing: "cubic-bezier(0.16,1,0.3,1)", duration: 480 })).toBe(false);
+    expect(onHouseCurve({ easing: "ease-out", duration: MOTION_MS.micro })).toBe(true);
+    expect(onHouseCurve({ easing: MOTION_SETTLE, duration: 480 })).toBe(false);
   });
 
   test("a script translate run (the follow chase) moves its rows on a curve; turning back is a bounce", () => {

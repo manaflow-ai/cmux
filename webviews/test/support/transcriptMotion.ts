@@ -38,6 +38,7 @@
 // The layout-motion contract (handbook undeclared-layout-move; cmux#48683) is the same idea for every
 // surface, with declared moves; its judge is unmerged. This detector needs no declaration: in a transcript
 // every move must either be the touched element's own, or ride an animation on the house curve.
+import { MAIN_DOCK } from "../../src/agent-session/acpmux/composerSelectors";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SETTLE, MOTION_SPRING } from "../../src/motion/scale.generated";
 import { ARRIVAL_EASE } from "../../src/agent-session/acpmux/conversation/followChase";
 
@@ -127,7 +128,7 @@ export const TRANSCRIPT_MOTION: TranscriptMotionOptions = {
   tracked: [
     { selector: ".acpmux-thread > .acpmux-row", kind: "row" },
     { selector: ".acpmux-thread > .acpmux-fold-card", kind: "fold-card", key: "fold-card" },
-    { selector: ".acpmux-main > .acpmux-dock", kind: "dock", key: "dock" },
+    { selector: MAIN_DOCK, kind: "dock", key: "dock" },
     { selector: ".acpmux-composer-box", kind: "composer", key: "composer" },
   ],
 };
@@ -459,7 +460,7 @@ export type MotionFlag = {
 const normalize = (easing: string) =>
   easing
     .replace(/\s+/g, "")
-    .replace(/^ease-out$/, "cubic-bezier(0,0,0.58,1)")
+    .replace(/^ease-out$/, MOTION_EASE_OUT.replace(/\s+/g, ""))
     .replace(/(\d*\.\d+|\d+)/g, (n) => String(Number(n)));
 const HOUSE = new Set(HOUSE_EASINGS.map(normalize));
 
