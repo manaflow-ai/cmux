@@ -17,7 +17,11 @@
 //! interval: pacing a keyframe at only 2.5 times a target that loss has cut held
 //! recovery keyframes and their repairs past the viewer's deadline. On the
 //! Wi-Fi-away netem profile that meant 31 recovery keyframes instead of 2, and a
-//! key-to-decoded p95 of 272 ms instead of 132 ms.
+//! key-to-decoded p95 of 272 ms instead of 132 ms. That deadline ran from a frame's
+//! first shard; it now runs from its newest. Raised without a bound, a 1080p motion
+//! keyframe (0.5 MB) left in 8 ms, about 550 Mbit/s, and a bottleneck of under
+//! 20 Mbit/s dropped its tail every time (hq#19915), so the raise stops at
+//! [`LARGE_FRAME_FACTOR`] times the target.
 //!
 //! An ultra sender can opt into [`PacerPolicy::Strict`], which uses one integer
 //! token bucket for every media, FEC, repair, and bandwidth-probe datagram. The
@@ -41,6 +45,18 @@ pub const SPREAD_SHARE: f64 = 0.5;
 /// and an at-budget frame took 11.4 ms to leave (goal screen-share-rate-control,
 /// "Send stage p50 at most 8 ms at any rate").
 pub const MAX_SPREAD_US: f64 = 8_000.0;
+/// A large frame (a keyframe) raises the rate to leave within [`MAX_SPREAD_US`], but to
+/// at most this multiple of the target bitrate ...
+///
+/// Uncapped, a 1080p motion keyframe (0.5 MB) left in 8 ms, about 550 Mbit/s, on a path
+/// of under 20 Mbit/s: the bottleneck dropped its tail, every keyframe lost datagrams,
+/// each loss asked for another keyframe, and a Linux host to Mac viewer showed 3 fps with
+/// 20 % loss (hq#19915). An at-budget frame (a P-frame at the target's per-frame size)
+/// needs under 4.2 times the target at 30 fps, so it still leaves within 8 ms.
+pub const LARGE_FRAME_FACTOR: f64 = 6.0;
+/// ... unless that would take longer than this: a frame still leaves well inside the
+/// viewer's reassembly deadline (200 ms from its newest shard).
+pub const MAX_LARGE_SPREAD_US: f64 = 150_000.0;
 /// Burst allowance: what one wakeup may send at once, in microseconds of the rate.
 pub const BURST_US: u64 = 2_000;
 /// Balanced mode always sends at least this many datagrams per wakeup.
@@ -403,12 +419,17 @@ impl Pacer {
     }
 
     /// `PACING_FACTOR` times the target, or faster when that would hold what is
-    /// queued longer than `SPREAD_SHARE` of a frame interval or `MAX_SPREAD_US`.
+    /// queued longer than `SPREAD_SHARE` of a frame interval or `MAX_SPREAD_US`, but
+    /// no faster than `LARGE_FRAME_FACTOR` times the target unless what is queued
+    /// would then take longer than `MAX_LARGE_SPREAD_US`.
     fn set_rate(&mut self, target_bps: u64) {
         let interval_us = if self.frame_interval_us == 0 { 16_667 } else { self.frame_interval_us };
         let window_us = (interval_us as f64 * SPREAD_SHARE).clamp(1_000.0, MAX_SPREAD_US);
         let floor = target_bps as f64 * PACING_FACTOR / 8.0 / 1e6;
-        let fit = self.queued_bytes as f64 / window_us;
+        let queued = self.queued_bytes as f64;
+        let ceiling = (target_bps as f64 * LARGE_FRAME_FACTOR / 8.0 / 1e6)
+            .max(queued / MAX_LARGE_SPREAD_US);
+        let fit = (queued / window_us).min(ceiling);
         self.rate_bytes_per_us = floor.max(fit);
         if self.budget_bytes <= 0.0 {
             self.budget_bytes = self.burst_bytes();
@@ -811,16 +832,17 @@ mod tests {
     }
 
     #[test]
-    fn a_keyframe_leaves_within_half_a_frame_interval_in_order() {
+    fn a_keyframe_leaves_at_most_the_large_frame_factor_in_order() {
         let mut p = Pacer::new();
-        // 300 datagrams (345 KB) at 30 Mbps and 60 fps.
+        // 300 datagrams (345 KB) at 30 Mbps and 60 fps: 8 ms would be 345 Mbit/s, so it
+        // goes at 6 times the target (180 Mbit/s, 22.5 bytes/us), in about 15 ms.
         p.push_frame(frame(300), 30_000_000, 16_667, 1_000);
         let sent = drain(&mut p, 1_000);
         assert_eq!(sent.len(), 300);
         let last = sent.last().unwrap().0;
-        assert!(last - 1_000 <= 8_400, "keyframe took {} us", last - 1_000);
+        assert!(last - 1_000 <= 15_600, "keyframe took {} us", last - 1_000);
         // Less the first burst allowance, which goes at once.
-        assert!(last - 1_000 >= 5_500, "keyframe was not spread: {} us", last - 1_000);
+        assert!(last - 1_000 >= 12_000, "keyframe was not spread: {} us", last - 1_000);
         for (i, (_, d)) in sent.iter().enumerate() {
             assert_eq!(d[0], i as u8, "order");
         }
@@ -829,7 +851,7 @@ mod tests {
         for (t, _) in &sent {
             *per_time.entry(*t).or_insert(0usize) += 1;
         }
-        let rate = 345_600.0 / 8_333.0_f64.min(MAX_SPREAD_US); // bytes per us
+        let rate = 30_000_000.0 * LARGE_FRAME_FACTOR / 8.0 / 1e6; // bytes per us
         let burst = (rate * BURST_US as f64 / 1152.0).ceil() as usize + 1;
         assert!(per_time.values().all(|&n| n <= burst), "{per_time:?}");
     }

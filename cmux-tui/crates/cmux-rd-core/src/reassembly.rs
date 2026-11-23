@@ -99,7 +99,7 @@ pub const RECOVERY_WINDOW: usize = 64;
 /// its first shard. Counted from the first shard it expired mid-arrival every time, the
 /// viewer asked for another keyframe, and no frame was shown (hq#19915, Linux host to Mac
 /// viewer at 6 Mbit/s: none released in 15 s).
-pub const MAX_FRAME_WAIT_US: u64 = 1_000_000;
+pub const MAX_FRAME_WAIT_US: u64 = 1_500_000;
 
 impl Reassembler {
     /// `deadline_us`: how long a frame may wait for missing shards after its newest shard.
