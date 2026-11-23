@@ -201,6 +201,32 @@ struct AgentPaneReloadCoverTests {
         #expect(recovery.cause == .newDocument && !recovery.picture)
     }
 
+    /// A web update's reload holds its own fresh picture (`AgentPaneView+WebSwapCover`, #50512): this cover goes up
+    /// under that picture at the new document's commit, and keeps the chat on screen when that picture's bound ends
+    /// before the new document paints. Under this cover, a web update reloads bare (its snapshot would be of the
+    /// hidden or ended page).
+    @Test(.timeLimit(.minutes(1)))
+    func aWebUpdatesPictureStaysOnTopAndThisCoverHoldsPastItsBound() async throws {
+        let (view, window) = try await Self.paintedWithPicture()
+        let page = try #require(view.page)
+        defer { page.close(); window.close() }
+        #expect(view.coversNextReload)
+        let swap = AgentPaneWebSwapCover(image: Self.picture(of: view), frame: view.pageContent.frame, scale: 2)
+        view.addSubview(swap, positioned: .above, relativeTo: view.pageContent)
+        view.webSwapCover = swap
+        page.documentCommitted()
+        #expect(view.reloadCover.isShown, "the new document under the web update's picture had no cover of its own")
+        let below = try #require(view.subviews.firstIndex { $0 === view.reloadCover.view })
+        let above = try #require(view.subviews.firstIndex { $0 === swap })
+        #expect(below < above, "this cover drew over the web update's fresher picture")
+        view.dropWebSwapCover()
+        #expect(Self.shown(view) == .picture, "the web update's bound revealed the unpainted document")
+        #expect(!view.coversNextReload, "a web update would snapshot the page under this cover")
+        await Self.paintReport(view)
+        #expect(Self.shown(view) == .page)
+        #expect(view.coversNextReload)
+    }
+
     /// Clicks over the picture go to the page under it: the composer takes them before the new document painted.
     @Test(.timeLimit(.minutes(1)))
     func theCoverPassesClicksToThePage() async throws {
