@@ -30,6 +30,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon stats",
+        &[
+            ("The busiest callers over the last minute", "acpmux daemon stats"),
+            (
+                "The busiest methods over the last 10 minutes",
+                "acpmux daemon stats --by method --since 10m",
+            ),
+            ("Every caller's counts as JSON", "acpmux --json daemon stats --top 100"),
+        ],
+    ),
+    (
         "daemon start",
         &[
             ("Start the daemon and wait until it accepts clients", "acpmux daemon start"),
