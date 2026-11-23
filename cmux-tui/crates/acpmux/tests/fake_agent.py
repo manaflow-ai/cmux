@@ -109,6 +109,9 @@ agent reads (a response has "method": null), so a test counts what reached the a
 A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
 FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
 no reset, as a model endpoint that refuses every request on a spent account limit.
+FAKE_QUIT_429_FILE=<path>: while <path> exists, an agent started on a chat's conversation
+(session/load) answers the load, then, idle, prints <path>'s line on stderr and exits 0 on its own,
+as a CLI does that quits on its account's 429 between turns (`quit-after:` once, this at every start).
 """
 import base64
 import hashlib
@@ -124,6 +127,7 @@ failed_once = set()
 # "goal:" and "/goal": each session's goal as Codex reports it (session_info_update _meta.goal).
 goals = {}
 cap_failures = {}
+capacity_inner_loops = set()
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -706,6 +710,33 @@ def handle_prompt(rid, params):
     if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
         cap_failures[sid] = cap_failures.get(sid, 0) + 1
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
+        return
+    # Separate requests in a healthy turn can each briefly meet capacity.
+    if text == "capacity-retry-progress":
+        for _ in range(2):
+            for attempt in range(1, 3):
+                update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                    "message": f"Reconnecting... {attempt}", "willRetry": True,
+                    "additionalDetails": "Selected model is at capacity."
+                }}}})
+            update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "working"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # Older Codex keeps retrying in the turn, with no maximum in its notice.
+    # It acknowledges cancel, but never ends the capacity failure on its own.
+    if text == "capacity-inner-loop":
+        capacity_inner_loops.add(sid)
+    if sid in capacity_inner_loops:
+        cancelled.discard(sid)
+        for attempt in range(1, 251):
+            if sid in cancelled:
+                break
+            update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {
+                "message": f"Reconnecting... {attempt}", "willRetry": True,
+                "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}
+            }}}})
+            time.sleep(0.02)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
@@ -2301,7 +2332,9 @@ def main():
         elif m == "session/load":
             # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
             # another Codex holds the thread: "Internal error", the reason in data.details.
-            if os.environ.get("FAKE_LOAD_ERROR"):
+            if os.environ.get("FAKE_LOAD_ERROR") and not (
+                os.environ.get("FAKE_LOAD_RECOVERED") and os.path.exists(os.environ["FAKE_LOAD_RECOVERED"])
+            ):
                 error = {"code": -32603, "message": "Internal error", "data": {"details": os.environ["FAKE_LOAD_ERROR"]}}
                 send({"jsonrpc": "2.0", "id": rid, "error": error})
                 continue
@@ -2345,6 +2378,20 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "result": {"modes": {"currentModeId": load_mode, "availableModes": offered}}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})
+            quit_file = os.environ.get("FAKE_QUIT_429_FILE")
+            if quit_file and os.path.exists(quit_file):
+                with open(quit_file) as f:
+                    said = f.read().strip()
+
+                def quit_429(said=said):
+                    import time as clock  # main() imports `time` locally
+                    clock.sleep(0.3)
+                    sys.stderr.write(said + "\n")
+                    sys.stderr.flush()
+                    clock.sleep(0.2)
+                    os._exit(0)
+
+                threading.Thread(target=quit_429, daemon=True).start()
         elif m == "session/fork":
             # FAKE_NO_FORK=1: an agent without session/fork (Kimi, DeepSeek): a bare internal error.
             if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":
