@@ -34,6 +34,10 @@
         docs: "A pane was split, closed, resized or focused.",
         reads: "pane.list"
       },
+      "system_calendar.changed": {
+        docs: "An event in a calendar on this Mac was added, changed or removed, or calendar access changed (EventKit's EKEventStoreChanged, sent by the cmux Mac app). Read system_calendar.events again.",
+        reads: "system_calendar.events"
+      },
       "tab.changed": {
         docs: "A tab was opened, closed, moved or selected.",
         reads: "tab.list"
@@ -493,6 +497,10 @@
         scope: "cloud:write",
         class: "mutation"
       },
+      "cloud.machine.pause_all": {
+        scope: "cloud:write",
+        class: "mutation"
+      },
       "cloud.machine.rename": {
         scope: "cloud:write",
         class: "mutation"
@@ -542,6 +550,10 @@
         class: "mutation"
       },
       "cloud.snapshot.list": {
+        scope: "cloud:read",
+        class: "read"
+      },
+      "cloud.surge.preview": {
         scope: "cloud:read",
         class: "read"
       },
@@ -900,6 +912,18 @@
       "group.list": {
         scope: "group:read",
         class: "read"
+      },
+      "group.members.list": {
+        scope: "group:read",
+        class: "read"
+      },
+      "group.members.remove": {
+        scope: "group:write",
+        class: "mutation"
+      },
+      "group.members.set": {
+        scope: "group:write",
+        class: "mutation"
       },
       "group.rename": {
         scope: "group:write",
@@ -1677,6 +1701,18 @@
         scope: "sidebar:write",
         class: "mutation"
       },
+      "signal.publish": {
+        scope: "none",
+        class: "mutation"
+      },
+      "signal.read": {
+        scope: "none",
+        class: "read"
+      },
+      "signal.sources.list": {
+        scope: "none",
+        class: "read"
+      },
       "skills_app.cycle_variant": {
         scope: "skills_app:write",
         class: "mutation"
@@ -1711,6 +1747,14 @@
       },
       "stash.restore": {
         scope: "stash:write",
+        class: "mutation"
+      },
+      "system_calendar.events": {
+        scope: "system_calendar:read",
+        class: "read"
+      },
+      "system_calendar.request_access": {
+        scope: "system_calendar:read",
         class: "mutation"
       },
       "tab_group.add_tabs": {
@@ -1828,6 +1872,38 @@
       "team.ai_limit.get": {
         scope: "team:read",
         class: "read"
+      },
+      "team.cloud.session.archive": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.follow": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.get": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.list": {
+        scope: "team:read",
+        class: "read"
+      },
+      "team.cloud.session.publish": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.reassign": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.remove": {
+        scope: "team:write",
+        class: "mutation"
+      },
+      "team.cloud.session.viewing": {
+        scope: "team:write",
+        class: "mutation"
       },
       "team.device.compliance": {
         scope: "team:read",
@@ -2133,6 +2209,9 @@
       "agent.message.send",
       "agent.message.unsend",
       "automation.delete",
+      "automation.secret.list",
+      "automation.secret.remove",
+      "automation.secret.set",
       "automation.settings.set",
       "automation.webhook.get",
       "browser.attach",
@@ -2158,6 +2237,7 @@
       "cloud.fs.remove",
       "cloud.machine.archive_delete",
       "cloud.machine.chat_access",
+      "cloud.machine.chief_start",
       "cloud.machine.create",
       "cloud.machine.delete",
       "cloud.machine.io",
@@ -2168,6 +2248,8 @@
       "cloud.owner.acpmux_person_holds",
       "cloud.owner.fork_run",
       "cloud.owner.github_app",
+      "cloud.owner.github_connect",
+      "cloud.owner.github_repos",
       "cloud.owner.handoff_begin_turn",
       "cloud.owner.handoff_open",
       "cloud.owner.handoff_wait",
@@ -2188,6 +2270,7 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.restore",
+      "cloud.surge.create",
       "cloud.vm.domains",
       "cloud.vm.firewall_create",
       "cloud.vm.firewall_delete",
@@ -2257,6 +2340,7 @@
       "keybindings.remove",
       "keybindings.reset",
       "keybindings.set",
+      "language_packs.ensure",
       "layout.bulk",
       "network.list",
       "origin.confirmation.issue",
@@ -2292,6 +2376,9 @@
       "stream.cancel",
       "tab.close",
       "tab_group.close",
+      "team.agent_key.remove",
+      "team.agent_key.set",
+      "team.agent_key.status",
       "team.ai_limit.member.set",
       "team.ai_limit.set",
       "team.audit.list",
@@ -2300,6 +2387,8 @@
       "team.enrollment_token.revoke",
       "team.integration.release_lock",
       "team.members.remove",
+      "team.models_policy.get",
+      "team.models_policy.set",
       "team_vm.rebuild",
       "team_vm.retired.delete",
       "team_vm.retired.export",
@@ -2328,6 +2417,23 @@
       "workspace.close",
       "workspace.open_url"
     ]
+  };
+  var TYPE_ROLES = {
+    numeral: { size: 34, weight: "semibold" },
+    heading: { size: 20, weight: "semibold" },
+    title: { size: 15, weight: "semibold" },
+    label: { size: 13, weight: "semibold" },
+    body: { size: 13, weight: "regular" },
+    caption: { size: 12, weight: "regular" },
+    footnote: { size: 11, weight: "regular" }
+  };
+  var WIDGET_TYPE = {
+    bigNumber: TYPE_ROLES.numeral.size,
+    title: TYPE_ROLES.title.size,
+    label: TYPE_ROLES.label.size,
+    body: TYPE_ROLES.body.size,
+    caption: TYPE_ROLES.caption.size,
+    footnote: TYPE_ROLES.footnote.size
   };
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
@@ -2360,8 +2466,11 @@
     Circle,
     Capsule,
     Rectangle,
-    RoundedRectangle
+    RoundedRectangle,
+    Line
   } = g;
+  var linearGradient = g.linearGradient ?? ((colors, angle) => ({ linear: angle === undefined ? { colors: [...colors] } : { colors: [...colors], angle } }));
+  var radialGradient = g.radialGradient ?? ((colors) => ({ radial: { colors: [...colors] } }));
   var EVENT_STREAMS = Object.keys(events_default.events);
   var en_default = {
     clear: "Clear",
