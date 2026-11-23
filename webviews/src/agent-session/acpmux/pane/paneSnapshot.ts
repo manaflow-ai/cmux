@@ -137,6 +137,7 @@ import {
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
+  troubleSinceAfterLoss,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import type { Subagent } from "../subagents/subagentFold";
@@ -354,6 +355,9 @@ export type PaneSnapshotArgs = {
   restartGate: AcpmuxRestartGate;
   setWaitingSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   setRestartUnavailable: React.Dispatch<React.SetStateAction<boolean>>;
+  /// When the pane's trouble began (`troubleSince` below): bounds how long a self-retrying failure
+  /// stays quiet (hostRetry.ts SELF_RETRY_SAID_MS).
+  setHostTroubleSince: React.Dispatch<React.SetStateAction<number | undefined>>;
   runPendingAdoption: React.RefObject<() => void>;
   freshRef: React.RefObject<boolean>;
   inheritedFolderRef: React.MutableRefObject<string | undefined>;
@@ -491,6 +495,7 @@ export function paneSnapshotEffect({
   restartGate,
   setWaitingSince,
   setRestartUnavailable,
+  setHostTroubleSince,
   runPendingAdoption,
   freshRef,
   inheritedFolderRef,
@@ -830,6 +835,10 @@ export function paneSnapshotEffect({
   /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
   /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
   let failingSince: number | undefined;
+  /// When the pane's trouble began: unlike `failingSince`, a connect that is lost again within
+  /// CONNECTION_STABLE_MS does not end it (hostRetry.ts `troubleSinceAfterLoss`), so a chat that
+  /// never stays open stops being a bare "Reconnecting…" past SELF_RETRY_SAID_MS.
+  let troubleSince: number | undefined;
   let connecting = false;
   /// The user asked to retry while an attempt was in flight; run a full one when it ends.
   let retryPending = false;
@@ -1209,6 +1218,8 @@ export function paneSnapshotEffect({
           // reconnecting to the Mac in a toast, i want it to just connect"): the transcript stays,
           // and a send waits and goes once it is back (sendWhenReady.ts).
           failingSince = Date.now();
+          troubleSince = troubleSinceAfterLoss(troubleSince, failingSince - connectedAt, failingSince);
+          setHostTroubleSince(troubleSince);
           // A client lost soon after it connected keeps the backoff growing: a daemon that drops
           // the pane right after every connect is not asked again every 250 ms. Jittered so the
           // tabs that lost one daemon together do not ask it again in lockstep.
@@ -2700,6 +2711,8 @@ export function paneSnapshotEffect({
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
         failingSince ??= Date.now();
+        troubleSince ??= failingSince;
+        setHostTroubleSince(troubleSince);
         const recovering = hostIsReconnecting(error);
         // A sleeping Cloud machine is never "Can't reach"; an SSH peer of the same name still is.
         const asleep = (peer: string | undefined) =>
