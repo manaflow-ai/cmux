@@ -224,6 +224,26 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
 }
 
+/// RFD 0007: the agent is told once that the Mac is away, naming the reads that failed: one
+/// report for many failed reads, with the files the agent read (not the ones read ahead).
+#[test]
+fn reads_while_the_mac_is_away_make_one_report_naming_them() {
+    let (state, manifest, fake) = setup(true);
+    let (sender, reports) = std::sync::mpsc::channel();
+    let sender = Mutex::new(sender);
+    let away = crate::away::Away::with_gather(Duration::from_millis(100), move |report| {
+        let _ = sender.lock().unwrap().send(report);
+    });
+    let overlay = open(state.path(), &manifest, &fake).with_away(away);
+    for path in ["README.md", "src/a.rs", "big.bin", "src/a.rs", "README.md"] {
+        assert_eq!(overlay.read(path_ino(&overlay, path), 0, 10), Err(112));
+    }
+    let report = reports.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(report.paths, ["README.md", "big.bin", "src/a.rs"]);
+    assert_eq!(report.failed, 3);
+    assert!(reports.recv_timeout(Duration::from_millis(400)).is_err());
+}
+
 #[test]
 fn a_file_made_read_only_is_still_written_through_its_create() {
     // git makes each loose object 0444 and writes it through the descriptor create returned.

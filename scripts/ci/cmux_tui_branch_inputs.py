@@ -22,6 +22,11 @@ Git reads, no REST: the commits since --since (default 21 days) of the head and 
 (--filter=tree:0), then the merge base's trees (--filter=blob:none --depth=1) and the one blob the key
 reads (the inputs list). The checkout must be a blob:none partial clone of the repository (origin).
 
+Both fetches pass --no-recurse-submodules. A checkout holds .gitmodules, so fetch's on-demand submodule
+check read .gitmodules at each fetched commit, one lazy blob fetch at a time: every push-gate sampled on
+2026-11-23 (3 of 3) hit the 60 s git timeout or died in pack-objects (BUG: should_include_obj), so the
+gate answered "changed" every time. The history fetch took 2-3 s without it.
+
 Usage: cmux_tui_branch_inputs.py --ref REF --sha SHA [--base feat-cmux-next] [--since 21.days]
 Writes unchanged=true|false to $GITHUB_OUTPUT.
 """
@@ -75,7 +80,7 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if "".join(trailer.split()).lower() == "run":
         return False, f"{sha[:12]} carries Cmux-Daemon-Tests: run"
     base_ref = f"refs/remotes/origin/{base}"
-    git("fetch", "--no-tags", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
+    git("fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
         f"+refs/heads/{base}:{base_ref}", sha, lazy=True, deadline=deadline)
     try:
         merge_base = git("merge-base", sha, base_ref, deadline=deadline)
@@ -85,7 +90,7 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
         raise Unknown(f"unexpected merge base {merge_base!r}")
     if merge_base != sha:
         # No haves: the server sends the merge base's whole tree, not just what a shallow have implies.
-        git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--quiet", "--filter=blob:none",
+        git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=blob:none",
             "--depth=1", "origin", merge_base, lazy=True, deadline=deadline)
     for revision in {sha, merge_base}:
         # tree_key reads the inputs list blob with lazy fetches off; bring that one blob in.
