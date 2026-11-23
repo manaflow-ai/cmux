@@ -137,7 +137,7 @@ def pick_dev_golden(sha: str) -> dict:
     for attempt in range(5):  # a feed that did not answer once (a slow CDN edge) answers the next try
         notes: list[str] = []
         builds = [b for b in hv.golden_candidates(ROOT, anchor, None, notes) if b["kind"] in DEV_KINDS]
-        if builds:
+        if builds or not notes:  # notes say which feed did not answer; none means it answered with no build here
             break
         time.sleep(20 * (attempt + 1))
     if not builds:  # the feed moved past the ref: a DEV app already downloaded here at or behind it still serves
@@ -361,6 +361,22 @@ class Copy:
 # ---- the ref's code into the copy -----------------------------------------------------------------------------
 
 
+WATCH_FILE = "webviews/src/agent-session/acpmux/relaunchWatch.ts"
+
+
+def add_watch(tree: Path) -> str:
+    """The page's relaunch record (this harness's webviews change, as this checkout has it) applied onto TREE."""
+    mine = git("log", "-1", "--format=%H", "--", WATCH_FILE)
+    if not mine:
+        raise SystemExit(f"this checkout has no {WATCH_FILE} to add to the ref")
+    patch = subprocess.run(["git", "-C", str(ROOT), "diff", f"{mine}~1", mine, "--", "webviews/"],
+                           capture_output=True, text=True, check=True).stdout
+    done = subprocess.run(["git", "-C", str(tree), "apply", "--3way"], input=patch, capture_output=True, text=True)
+    if done.returncode != 0:
+        raise SystemExit(f"the relaunch record does not apply onto the ref: {(done.stderr or done.stdout).strip()[-300:]}")
+    return f"relaunch record from {mine[:12]}"
+
+
 def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scratch: Path) -> dict:
     applied: dict = {}
     env = {**os.environ, **copy.side.env()}
@@ -370,7 +386,9 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
                           capture_output=True, text=True, timeout=900)
     applied["rust"] = ("ref's published daemon" if rust.returncode == 0 else
                        f"build's own daemon (hot-apply exit {rust.returncode}: {(rust.stderr or rust.stdout).strip()[-200:]})")
-    key = None if web_tree else hv.published_web_key(ROOT, {"head": sha, "pr": pr})
+    # A ref without the page's relaunch record (relaunchWatch.ts: a fix measured before this landed) gets it here.
+    watched = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{sha}:{WATCH_FILE}"]).returncode == 0
+    key = None if web_tree or not watched else hv.published_web_key(ROOT, {"head": sha, "pr": pr})
     bundles = scratch / "web-bundles"
     if key:
         done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
@@ -380,7 +398,9 @@ def apply_ref(copy: Copy, sha: str, pr: int | None, web_tree: Path | None, scrat
         applied["web"] = f"published bundles {key[:12]}"
     else:
         tree = web_tree or hv.web_checkout(ROOT, sha, scratch)
-        say(f"building the web bundles of {tree} (none published for {sha[:12]})")
+        if not watched and not web_tree:
+            applied["watch"] = add_watch(tree)
+        say(f"building the web bundles of {tree} (none published for {sha[:12]}{'' if watched else ', with the relaunch record'})")
         done = subprocess.run([str(tree / "scripts/cmux-next/build-web-bundles.sh"), "--force", "--out-root",
                                str(bundles)], cwd=tree, capture_output=True, text=True, timeout=3600)
         if done.returncode != 0:
@@ -548,6 +568,7 @@ def round_(copy: Copy, n: int, out: Path, seconds: float, before: dict, session:
     film.mkdir(parents=True, exist_ok=True)
     if not copy.quit_for_update():
         raise SystemExit(f"round {n}: the copy did not quit within 60 s")
+    say(f"round {n}: quit through the updater; relaunching, filmed for {seconds:g} s")
     began = copy.launch(film, seconds)
     if not copy.answers():
         raise SystemExit(f"round {n}: the relaunched copy never answered")
@@ -631,8 +652,16 @@ def main() -> int:
         copy.answers()
         if not show_chat(copy, report["seed"]["session"]):
             raise SystemExit("the seeded chat has no tab")
-        hv.until("the chat page", 60, lambda: "first_content_ms" in (
-            rpc(copy.socket, "debug.agent_pane", {"action": "layout_watch", "ms": 300}) or {}))
+        say("relaunched onto the ref; the seeded chat is shown")
+        asked: list = []
+
+        def page_answers() -> bool:  # a page that is not shown yet answers with an error (or not in 20 s): ask again
+            asked.append(rpc(copy.socket, "debug.agent_pane", {"action": "layout_watch", "ms": 300}, timeout=20))
+            return isinstance(asked[-1], dict) and "frames" in asked[-1]
+        try:
+            hv.until("the chat page", 120, page_answers)
+        except hv.LookError:
+            raise SystemExit(f"the chat page never answered layout_watch: {json.dumps(asked[-1:], default=str)[:400]}")
         # The person read it: at the bottom, settled.
         time.sleep(10)
         before = page_state(copy)
