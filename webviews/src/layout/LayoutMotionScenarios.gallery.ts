@@ -110,16 +110,90 @@ const trace = (ctx: PlayContext, label: string, frames = 24) => {
   };
   tick();
 };
+/** Waits off the harness's measured steps: every `ctx.waitFor` and `ctx.scroll` is a step the stage
+ *  judges, so a scenario's *setup* is judged as if it were the scenario. Opening a seeded chat in an
+ *  empty pane moves the composer and the rows once as it arrives (the contract's `load`, which no web
+ *  surface declares; the same 10 boxes move on `workspace-switch`, whose scenario that arrival is). What
+ *  these scenarios are about is a turn's end, so the setup waits here and the end is the measured step. */
+const quietly = (ctx: PlayContext, condition: () => boolean, capMs = 30_000): Promise<void> => {
+  const view = ctx.document.defaultView!;
+  return new Promise((resolve, reject) => {
+    const until = view.performance.now() + capMs;
+    const tick = () => {
+      if (condition()) resolve();
+      else if (view.performance.now() > until) reject(new Error("the scenario's setup never arrived"));
+      else view.requestAnimationFrame(tick);
+    };
+    tick();
+  });
+};
+
+/** `frames` painted frames, off the measured steps (`quietly`): the page settling after a setup act. */
+const quietFrames = (ctx: PlayContext, frames: number): Promise<void> => {
+  const view = ctx.document.defaultView!;
+  let painted = 0;
+  const tick = () => {
+    painted += 1;
+    if (painted < frames) view.requestAnimationFrame(tick);
+  };
+  view.requestAnimationFrame(tick);
+  return quietly(ctx, () => painted >= frames, 1_000 + frames * 250);
+};
+
+/** The view to the latest row, off the measured steps (the stage's own `ctx.scroll` is one). */
+const toLatest = (ctx: PlayContext): void => {
+  const scroller = ctx.document.querySelector<HTMLElement>(SCROLLER.selector);
+  if (!scroller) return;
+  scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  scroller.dispatchEvent(new Event("scroll", { bubbles: false }));
+};
+
 /** Opens one seeded mock chat and lets every box rest, so what moves after is judged. A box that has
- *  not drawn twice in the same place is still mounting (the contract's `load`), so the rest comes first. */
+ *  not drawn twice in the same place is still mounting (the contract's `load`), so the rest comes first.
+ *  All of it is setup, so none of it is a measured step (`quietly`). */
 const seededChat = async (ctx: PlayContext, turns = 40): Promise<Debug> => {
   const debug = await debugOf(ctx);
   let session: string | undefined;
   void debug.loadSeed(turns, { light: true }).then((answer) => (session = answer.session));
-  await ctx.waitFor(() => session !== undefined, { capMs: 30_000 });
-  await ctx.scroll(SCROLLER, "bottom");
-  await settleFrames(ctx, 24);
+  await quietly(ctx, () => session !== undefined);
+  await quietFrames(ctx, 8);
+  toLatest(ctx);
+  await quietFrames(ctx, 24);
+  // The last rows settle to their measured heights as they draw, which moves the pinned bottom: take
+  // the view to the latest row once more, and only then is the chat at the rest the end is judged from.
+  toLatest(ctx);
+  await quietFrames(ctx, 12);
   return debug;
+};
+
+/** Runs `act` on the next painted frame. A mock emit on the calling tick lands before the step that
+ *  is meant to measure it has started sampling, and the change it makes goes unjudged. */
+const onNextFrame = (ctx: PlayContext, act: () => void): void => {
+  ctx.document.defaultView!.requestAnimationFrame(() => act());
+};
+
+/** The turn runs: its prompt and its calls arrive at the transcript's end and the view follows them
+ *  down (`stream-append`, which the pane declares itself while it works: devMotionAudit.ts). Left
+ *  open, so the *end* is the act the next step measures, and settled, so the end is judged from rest. */
+const runningTurn = async (ctx: PlayContext, debug: Debug, options: LoadToolsOptions): Promise<void> => {
+  await debug.loadTools({ ...options, keep_open: true });
+  await quietFrames(ctx, 24);
+};
+
+/** The turn ends, as one measured step. The swap is started and *not* awaited, so it lands while the
+ *  stage's tracker is sampling: the fold declares its own motion (turnEndFold.ts `declareMove`, event
+ *  `turn-end`, strict) and every other box that moves is undeclared. Awaiting it instead -- what the
+ *  scenarios did first -- ran the whole end between two steps, where nothing judges it, and the zero
+ *  that read like a pass meant only that nothing was watching. */
+const endingTurn = async (ctx: PlayContext, debug: Debug): Promise<void> => {
+  const thread = () => ctx.document.querySelector(".acpmux-thread")?.innerHTML ?? "";
+  const live = thread();
+  onNextFrame(ctx, () => void debug.loadTools({ count: 0, keep_open: false }));
+  await settleFrames(ctx, 40);
+  // A step that drew the same thread it started with never saw the end, and its zero would say only
+  // that nothing was watching -- the shape three of these scenarios had before. The end always changes
+  // the live turn's rows (its spinner, its fold); whether anything *moves* is what the judge decides.
+  if (thread() === live) throw new Error("the turn's end did not land inside the measured step");
 };
 
 /** The page leaves view and comes back, as a tab dragged to another pane does. */
@@ -237,9 +311,9 @@ export default agentPaneEntry({
       snapshot: chat([]),
       play: async (ctx) => {
         const debug = await seededChat(ctx);
+        await runningTurn(ctx, debug, { count: 0 });
         trace(ctx, "turn-end", 40);
-        await debug.loadTools({ count: 0, keep_open: false });
-        await settleFrames(ctx, 40);
+        await endingTurn(ctx, debug);
       },
     },
     "turn-end-tools": {
@@ -248,9 +322,9 @@ export default agentPaneEntry({
       snapshot: chat([]),
       play: async (ctx) => {
         const debug = await seededChat(ctx);
-        trace(ctx, "turn-end-tools", 60);
-        await debug.loadTools({ count: 3, gap_ms: 60, keep_open: false });
-        await settleFrames(ctx, 40);
+        await runningTurn(ctx, debug, { count: 3, gap_ms: 60 });
+        trace(ctx, "turn-end-tools", 40);
+        await endingTurn(ctx, debug);
       },
     },
     // The shape the fix is about: the turn ends on an answer that carries a tagged ask, so the card
@@ -263,11 +337,9 @@ export default agentPaneEntry({
       snapshot: chat([]),
       play: async (ctx) => {
         const debug = await seededChat(ctx);
-        trace(ctx, "turn-end-ask", 60);
-        await debug.loadTools({
+        await runningTurn(ctx, debug, {
           count: 3,
           gap_ms: 60,
-          keep_open: false,
           reply: [
             "Landed the fix and the gate is green.",
             "",
@@ -276,7 +348,8 @@ export default agentPaneEntry({
             "  - Use the new one",
           ].join("\n"),
         });
-        await settleFrames(ctx, 40);
+        trace(ctx, "turn-end-ask", 40);
+        await endingTurn(ctx, debug);
       },
     },
     "turn-end-scrolled-away": {
@@ -286,15 +359,18 @@ export default agentPaneEntry({
       play: async (ctx) => {
         const debug = await seededChat(ctx);
         const scroller = ctx.document.querySelector<HTMLElement>(SCROLLER.selector)!;
-        const endScroll = ctx.declare("user-scroll");
         // Up into the finished turns, far enough that the turn's end is off screen but rows stay in view
-        // above and below: the reader is reading, not following the end.
-        await ctx.scroll(SCROLLER, Math.max(0, scroller.scrollHeight - scroller.clientHeight - 1200));
-        await settleFrames(ctx, 24);
-        endScroll();
+        // above and below: the reader is reading, not following the end. A setup act, so it is no
+        // measured step of its own (`quietly`) and needs no `user-scroll` declaration.
+        scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight - 1200);
+        scroller.dispatchEvent(new Event("scroll", { bubbles: false }));
+        await quietFrames(ctx, 24);
+        // Away from the end the pane declares nothing (`stream-append` is open only while the view
+        // follows it: devMotionAudit.ts), so the calls arriving below the view are judged too.
         trace(ctx, "turn-end-away", 60);
-        await debug.loadTools({ count: 3, gap_ms: 60, keep_open: false });
+        onNextFrame(ctx, () => void debug.loadTools({ count: 3, gap_ms: 60, keep_open: true }));
         await settleFrames(ctx, 40);
+        await endingTurn(ctx, debug);
       },
     },
   },
