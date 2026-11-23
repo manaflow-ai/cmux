@@ -58,6 +58,7 @@ members = [
     "crates/cmux-json",
     "crates/cmux-local-url",
     "crates/cmux-journal",
+    "crates/cmux-session-pack",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
