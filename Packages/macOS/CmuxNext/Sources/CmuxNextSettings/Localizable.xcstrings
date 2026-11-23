@@ -234415,6 +234415,268 @@
         }
       }
     },
+    "settings.updates.keepWindowsDuringRestart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Windows on Screen While Restarting"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء النوافذ على الشاشة أثناء إعادة التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadrži prozore na ekranu tokom ponovnog pokretanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behold vinduer på skærmen under genstart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenster beim Neustart auf dem Bildschirm behalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener las ventanas en pantalla al reiniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les fenêtres à l'écran pendant le redémarrage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni le finestre sullo schermo durante il riavvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動中もウインドウを画面に残す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាវិនដូនៅលើអេក្រង់ពេលចាប់ផ្ដើមឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작 중 윈도우를 화면에 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behold vinduer på skjermen under omstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowaj okna na ekranie podczas ponownego uruchamiania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter as janelas na tela ao reiniciar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставлять окна на экране при перезапуске"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คงหน้าต่างไว้บนจอระหว่างเริ่มใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden Başlatırken Pencereleri Ekranda Tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Залишати вікна на екрані під час перезапуску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ cửa sổ trên màn hình khi khởi động lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新启动时让窗口留在屏幕上"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動時讓視窗留在螢幕上"
+          }
+        }
+      }
+    },
+    "settings.updates.keepWindowsDuringRestart.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a picture of each window until the updated cmux has drawn. Off: windows close, then reopen."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض صورة لكل نافذة إلى أن يرسم cmux المحدَّث نوافذه. عند الإيقاف: تُغلق النوافذ ثم تُفتح من جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje sliku svakog prozora dok ažurirani cmux ne iscrta svoje. Isključeno: prozori se zatvore, pa ponovo otvore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et billede af hvert vindue, indtil den opdaterede cmux har tegnet sine. Fra: vinduerne lukkes og åbnes igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt ein Bild jedes Fensters, bis das aktualisierte cmux gezeichnet hat. Aus: Fenster schließen sich und öffnen sich wieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra una imagen de cada ventana hasta que el cmux actualizado haya dibujado las suyas. Desactivado: las ventanas se cierran y vuelven a abrirse."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche une image de chaque fenêtre jusqu'à ce que cmux mis à jour ait dessiné les siennes. Désactivé : les fenêtres se ferment, puis se rouvrent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un'immagine di ogni finestra finché cmux aggiornato non ha disegnato le sue. Disattivato: le finestre si chiudono e poi si riaprono."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート後の cmux が描画を終えるまで、各ウインドウの画像を表示します。オフ: ウインドウは閉じてから開き直します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញរូបភាពនៃវិនដូនីមួយៗ រហូតដល់ cmux ដែលបានធ្វើបច្ចុប្បន្នភាពគូររួច។ បិទ៖ វិនដូបិទ រួចបើកឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트된 cmux가 화면을 그릴 때까지 각 윈도우의 이미지를 표시합니다. 끔: 윈도우가 닫혔다가 다시 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser et bilde av hvert vindu til den oppdaterte cmux har tegnet sine. Av: vinduene lukkes og åpnes igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje obraz każdego okna, dopóki zaktualizowany cmux nie narysuje swoich. Wyłączone: okna zamykają się i otwierają ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra uma imagem de cada janela até que o cmux atualizado tenha desenhado as suas. Desativado: as janelas fecham e depois reabrem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает изображение каждого окна, пока обновлённый cmux не отрисует свои. Выкл.: окна закрываются и открываются снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงภาพของแต่ละหน้าต่างจนกว่า cmux ที่อัปเดตแล้วจะวาดเสร็จ ปิด: หน้าต่างจะปิดแล้วเปิดขึ้นใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellenen cmux çizimini bitirene kadar her pencerenin bir resmini gösterir. Kapalı: pencereler kapanır, sonra yeniden açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує зображення кожного вікна, доки оновлений cmux не намалює свої. Вимк.: вікна закриваються й відкриваються знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện ảnh của từng cửa sổ cho đến khi cmux đã cập nhật vẽ xong. Tắt: các cửa sổ đóng rồi mở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示每个窗口的图像，直到更新后的 cmux 完成绘制。关闭：窗口先关闭，再重新打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示每個視窗的影像，直到更新後的 cmux 完成繪製。關閉：視窗會先關閉，再重新打開。"
+          }
+        }
+      }
+    },
     "settings.labs.liveTree": {
       "extractionState": "manual",
       "localizations": {
@@ -256410,30 +256672,6 @@
         "vi": { "stringUnit": { "state": "needs_review", "value": "Bố cục hàng cho từng loại không gian làm việc: terminal, tác tử, trình duyệt hoặc hỗn hợp. Được ưu tiên hơn bố cục hàng." } },
         "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "为每种工作区（终端、代理、浏览器或混合）设置的行布局。优先于行布局。" } },
         "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "為每種工作區（終端機、代理、瀏覽器或混合）設定的列版面配置。優先於列版面配置。" } }
-      }
-    },
-    "settings.cloud.agentMemory.follow": {
-      "comment": "Settings > Machines: toggle that carries the person's agent memory files to their Cloud machines.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carry Your Agent Memory to Cloud Machines"
-          }
-        }
-      }
-    },
-    "settings.cloud.agentMemory.follow.help": {
-      "comment": "Help for the agent memory toggle: names what travels and who controls it.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
-          }
-        }
       }
     },
     "settings.agentPane.display.layout.messages": {

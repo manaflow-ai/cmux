@@ -611,6 +611,13 @@
     },
     {
       "agent": "settable",
+      "why": "How a restart looks (window pictures or a close and reopen): a display the person can turn on or off again.",
+      "keys": [
+        "updates.keepWindowsDuringRestart"
+      ]
+    },
+    {
+      "agent": "settable",
       "keys": [
         "announcements.enabled"
       ]

@@ -22,6 +22,9 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var installWhenIdle = UpdatesSettings.installWhenIdleDefault
     /// Minutes cmux must be idle before `installWhenIdle` installs.
     public var installWhenIdleMinutes = UpdatesSettings.installWhenIdleMinutesDefault
+    /// A relaunch keeps a picture of each window on screen until the new process drew (the relaunch
+    /// afterimage). Off: the windows leave, and the relaunched app opens them again.
+    public var keepWindowsDuringRestart = UpdatesSettings.keepWindowsDuringRestartDefault
     public var notify = UpdatesSettings.notifyDefault
     /// Previous builds kept for rollback (`cmux update rollback`).
     public var keepPreviousVersions = Int(UpdatesSettings.keepPreviousVersionsDefault)
@@ -55,6 +58,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.number("installWhenIdleMinutes", range: installWhenIdleMinutesRange) {
             settings.installWhenIdleMinutes = value
         }
+        if let value = reader.bool("keepWindowsDuringRestart") { settings.keepWindowsDuringRestart = value }
         if let legacy = root.value(at: notifyPath)?.stringValue.flatMap({ UpdatesNotifySetting.legacyValues[$0] }) {
             settings.notify = legacy
         } else if let value = reader.choice("notify", UpdatesNotifySetting.self) {

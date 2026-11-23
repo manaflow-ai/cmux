@@ -42,9 +42,16 @@ public final class UpdateWindowHandoff {
     /// The windows' pictures, when they stay on screen across the relaunch: the windows leave only once the
     /// pictures are up over them, so no frame shows neither.
     private let afterimage: RelaunchAfterimage?
+    /// `updates.keepWindowsDuringRestart`, read as each relaunch is decided. Off (the default; Leo, 2026-11-23:
+    /// "just do the normal close to update again ... the layout shift and the jarringness is a bit too much"):
+    /// no pictures, the windows leave at once and the relaunched app opens them again.
+    private let keepsWindows: @MainActor () -> Bool
+    /// Starts the pictures (the afterimage's ``RelaunchAfterimage/begin(activates:)``; replaced by tests).
+    var startsPictures: (@MainActor () -> Void)?
 
-    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil) {
+    public init(unsaved: QuitUnsavedRegistry, stateDirectory: URL? = nil, keepsWindows: @escaping @MainActor () -> Bool = { false }) {
         self.unsaved = unsaved
+        self.keepsWindows = keepsWindows
         afterimage = stateDirectory.map { RelaunchAfterimage(stateDirectory: $0) }
     }
 
@@ -57,11 +64,12 @@ public final class UpdateWindowHandoff {
         updater.afterimage = afterimage
     }
 
-    /// A relaunch is decided (every path: ``UpdaterService/willRelaunch``): the windows are pictured for the afterimage,
-    /// unless the quit will ask about unsaved documents (that sheet stays in view).
+    /// A relaunch is decided (every path: ``UpdaterService/willRelaunch``): with `updates.keepWindowsDuringRestart`
+    /// on, the windows are pictured for the afterimage, unless the quit will ask about unsaved documents (that sheet
+    /// stays in view). With it off nothing starts here, and ``hide()`` takes the windows off screen at once.
     public func relaunchDecided() {
-        guard unsaved.unsaved().isEmpty else { return }
-        afterimage?.begin(activates: NSApp.isActive)
+        guard keepsWindows(), unsaved.unsaved().isEmpty else { return }
+        if let startsPictures { startsPictures() } else { afterimage?.begin(activates: NSApp.isActive) }
     }
 
     /// Hides every visible window; false when it did not (unsaved documents).
