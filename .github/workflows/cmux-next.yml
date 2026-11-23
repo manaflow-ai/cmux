@@ -3777,10 +3777,6 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
-          # The workspace's own crates at opt-level 0: they recompile every run and the entries run one
-          # short test each; dependencies keep profile.dev.package."*" (3), so the R2 build still matches.
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-210c
-          CARGO_PROFILE_DEV_OPT_LEVEL: "0"
           # Why: docs/ci/cmux-next-workflow-notes.md#note-513
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"

@@ -5,7 +5,7 @@ Entries live in scripts/cmux-next/fast-tier.json. Each has a name, an owner
 lane, an optional bead and one of three kinds:
   swift   {package, filter}: `swift test --skip-build --filter` after one
           `swift build --build-tests` and one `swift test --list-tests` per package
-  cargo   {path, package[, filter, lib]}: `cargo test --locked -p` in path; lib: true
+  cargo   {path, package[, filter, lib, opt_level]}: `cargo test --locked -p` in path; lib: true
           builds and runs only the package's library unit tests (`--lib`)
   script  {path[, args]}: python3 -I for a .py path, bash otherwise
 An entry must be deterministic, need no window server or gui token, and finish
@@ -89,7 +89,13 @@ def cargo_targets(entry):
     """`--lib` for an entry whose tests are the library's own: without it `cargo test -p`
     builds every integration-test binary and doctest of the package, which the entry never runs
     (cmux-tui-core: 32 test binaries, 6.5 of the job's 9 min prebuild, job 137303235769)."""
-    return ["--lib"] if entry.get("lib") else []
+    args = ["--lib"] if entry.get("lib") else []
+    # opt_level: the package's own opt-level for this tier, on the build and the run alike so
+    # the run reuses the build. cmux-tui-core's test library took 3m56s of the prebuild at its
+    # dev opt-level 1 (job 137395218484); a whole-workspace 0 made the reducer's test outrun its cap.
+    if "opt_level" in entry:
+        args += ["--config", f'profile.dev.package.{entry["package"]}.opt-level={int(entry["opt_level"])}']
+    return args
 
 
 def describe(argv, cwd):

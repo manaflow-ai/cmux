@@ -2164,8 +2164,8 @@ both continue-on-error, so a slow store costs the build at most that and never f
 ## note-210c
 
 Above `Key the cargo build in R2`, `Restore the libghostty-vt zig cache from R2`, `Save the libghostty-vt zig
-cache to R2` and the `CARGO_PROFILE_DEV_OPT_LEVEL` line of `Run the fast tier` in fast-tier-cargo
-(`.github/workflows/cmux-next.yml`).
+cache to R2` in fast-tier-cargo
+(`.github/workflows/cmux-next.yml`), and the `opt_level` of `matrix core` in scripts/cmux-next/fast-tier.json.
 
 After note-210b and #50826 (`--lib`) the R2 restore hits, yet the cmux-tui-core prebuild still took 8m11s
 (job 137395218484, 2026-11-22): the strip drops the workspace's own crates, so every run recompiles them.
@@ -2179,11 +2179,12 @@ restored cache can never hand back a stale object. The job points `ZIG_LOCAL_CAC
 ghostty-next gitlink. A pull request restores the exact key or the newest under the prefix; a feat-cmux-next
 push restores only the exact key, so a gitlink bump builds once and saves that commit's objects alone.
 
-The workspace crates build at opt-level 0 here (`CARGO_PROFILE_DEV_OPT_LEVEL=0`, which the test profile
-inherits). The entries run one test each (matrix core 4.8 s, sidebar layout reducer 17.2 s at opt-level 1),
-so compile time is the job: the Cargo.toml note measured an acpmux test-library rebuild at 24.5 s at 1 against
-4.4 s at 0. Dependencies keep `profile.dev.package."*"` (opt-level 3, no debug info), so their fingerprints
-and the R2 build do not change. The dev loop's opt-level 1 for cmux-tui-core stays in Cargo.toml.
+cmux-tui-core's own crate builds at opt-level 0 here (`"opt_level": 0` on its entry in
+scripts/cmux-next/fast-tier.json, a `--config profile.dev.package.cmux-tui-core.opt-level=0` on its build
+and run). Its entry runs one 5 s test, so compiling the test library is the cost. Setting the whole
+workspace to 0 (`CARGO_PROFILE_DEV_OPT_LEVEL=0`, the first head of #51206) cut the core build from 8m11s to
+6m13s, but the sidebar layout reducer's test went from 17.2 s to past its 60 s cap. Dependencies and every
+other crate keep their profiles, and the dev loop's opt-level 1 stays in Cargo.toml.
 
 ## note-211
 
