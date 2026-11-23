@@ -80,6 +80,56 @@
       "surface": "menu",
       "name": "agentPaneMessage",
       "reason": "keep: rows act on the message, image, code/path/link part or selection under the pointer (or that message's More button), which the palette cannot name; Point at Element is agentPane.togglePointerInspector and empty space shows the registry's agentChat rows"
+    },
+    {
+      "surface": "menu",
+      "name": "browserBackForward",
+      "reason": "keep: a row per back or forward history entry; the palette's browser.goToHistoryEntry lists the same entries"
+    },
+    {
+      "surface": "menu",
+      "name": "browserDevToolsDivider",
+      "reason": "keep: every row runs a palette-offered action: devtools.openDockedLeft, devtools.openDocked, devtools.openDockedRight, devtools.openInWindow, devtools.close"
+    },
+    {
+      "surface": "menu",
+      "name": "browserDownloads",
+      "reason": "keep: every row runs a palette-offered action on the picked download: browser.download.open, browser.download.reveal, browser.download.togglePause, browser.download.retry, browser.download.cancel, browser.download.copyLink"
+    },
+    {
+      "surface": "menu",
+      "name": "browserExtensions",
+      "reason": "keep: every row runs a palette-offered action: browser.extension.run, pin, unpin, options, enable, disable, reload, remove, siteAccess, homePage, details, webPermissions, and browser.extensions.loadUnpacked, webStore, manage"
+    },
+    {
+      "surface": "menu",
+      "name": "browserToolbar",
+      "reason": "keep: the More menu is built from registry rows (makeContextMenu entries), and its Show in Toolbar rows are the palette's browser.toolbar.togglePin, which picks the same button"
+    },
+    {
+      "surface": "menu",
+      "name": "paneTabBarRows",
+      "reason": "keep: the tab bar More menu is built from registry rows (makePaneMoreMenu and makeContextMenu), and its Show in Tab Bar rows are the palette's tabs.toolbar.togglePin, which picks the same button, and its Switch to Chat / Switch to Terminal row is the palette's palette.toggleTerminalChat"
+    },
+    {
+      "surface": "menu",
+      "name": "remoteHoverToolbar",
+      "reason": "keep: the Quality menu's rows are the palette's remote.setQuality presets; the Display menu has only the current display and a disabled placeholder row"
+    },
+    {
+      "surface": "menu",
+      "name": "sidebarUpdateCard",
+      "reason": "keep: its rows (Hide Until a Newer Version, Remind Me in 1 Day, 3 Days, 1 Week) are the palette's updates.snooze choices"
+    },
+    {
+      "surface": "menu",
+      "name": "sidebarNoticeCard",
+      "reason": "keep: the right-click menu repeats the card's own first two buttons and its x; the update notice's rows are updates.cancelDownload, updates.showDetails and updates.releaseNotes, the tip's x menu is tips.muteDay and tips.muteWeek, and the rest answer the one ask on that card (yes or no, archive, create), which the palette cannot name"
+    },
+    {
+      "surface": "menu",
+      "name": "browserEnginePage",
+      "reason": "keep: the engine's rows act on the link, image, selection or frame under the pointer, which the palette cannot name; its page rows are palette-offered: browser.savePageAs, browser.cast, browser.createQRCode, browser.translate"
     }
   ],
   "cli_source": "cmux-tui 70e5c08f8b72156ad732bf96c593a067fc010b39",

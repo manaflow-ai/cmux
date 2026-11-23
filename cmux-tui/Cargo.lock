@@ -2468,7 +2468,9 @@ dependencies = [
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
+ "cmux-file-lock",
  "cmux-process",
+ "libc",
  "sha2 0.10.9",
  "tempfile",
 ]
@@ -2597,6 +2599,15 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-terminal-projection"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "unicode-segmentation",
+ "unicode-width",
+]
 
 [[package]]
 name = "cmux-terminal-sizing"
