@@ -120,7 +120,7 @@ pub(super) struct Names {
 }
 
 impl Names {
-    pub(super) fn read(mux: &Mux) -> Self {
+    pub(super) fn read(mux: &Arc<Mux>) -> Self {
         let value = |key: &str| {
             let target = cmux_config::Target::Key(key.to_string());
             mux.with_settings(|state| state.get(&target).row.and_then(|row| row.value))
