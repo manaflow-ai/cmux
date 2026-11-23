@@ -38,6 +38,16 @@ export default componentEntry<IndicatorDemoProps>({
       props: { look: "pill", travel: "ease" },
       play: switchTabs,
     },
+    "pill-stretch": {
+      note: `Stretch then settle: the leading edge reaches the new tab first, the trailing edge follows (${MOTION_MS.large} ms, no overshoot).`,
+      props: { look: "pill", travel: "stretch" },
+      play: switchTabs,
+    },
+    "pill-fade": {
+      note: `Crossfade in place: out where it was, in on the new tab, no travel (${MOTION_MS.standard} ms).`,
+      props: { look: "pill", travel: "fade" },
+      play: switchTabs,
+    },
     "plate-spring": { note: "The toolbar's quiet plate, travelling.", props: { look: "plate" }, play: switchTabs },
     "underline-spring": { note: "A 2 px underline.", props: { look: "underline" }, play: switchTabs },
     today: { note: "Before: each item fills itself at once.", props: { look: "today" }, play: switchTabs },

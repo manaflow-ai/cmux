@@ -29,6 +29,10 @@ import "./UsageSection.css";
 import { USAGE_SHOWN } from "./usageSectionModel";
 import { cacheUsageRows } from "../usageStats";
 import { WindowedRows } from "./WindowedRows";
+import { experimentArm } from "../../../experiments/experiment";
+import { SlidingIndicator } from "../../../ui/motion/SlidingIndicator";
+import { ViewSwap } from "../../../ui/motion/ViewSwap";
+import { hoverFade, panelSwapLook, selectionPillTravel } from "./selectionMotion.experiment";
 
 const ROW_ICON = rowIconSize(12);
 /// Gallery arms for the own-metrics leading column. The shared slot is the shipped treatment:
@@ -160,6 +164,61 @@ export const UsageSection = memo(function UsageSection({
   const folds = ranked.length > USAGE_SHOWN;
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const planRows = planLimitRows(planLimits, t, now?.(), locale);
+  // Motion experiments (selectionMotion.experiment.ts); Off everywhere is today's look.
+  const pill = experimentArm(selectionPillTravel);
+  const swap = experimentArm(panelSwapLook);
+  const hover = experimentArm(hoverFade);
+  const list = (
+    <ul className="acpmux-session-info-list" data-sort={sort}>
+      <WindowedRows
+        items={shown}
+        render={(entry) => {
+          const stats = entry.usageStats!;
+          const place = entry.peer ?? entry.host;
+          // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
+          // after the title, so the title drops it.
+          const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
+          const title = entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
+          const mark = (
+            <span className="acpmux-lineage__icon">
+              <SenderIcon
+                harness={entry.harness}
+                tone={agentTone(entry.sessionId)}
+                size={ROW_ICON}
+                fallback="agent.chat"
+              />
+            </span>
+          );
+          const body = (
+            <>
+              {mark}
+              <span className="acpmux-session-info-row__name">{title}</span>
+              {place && <span className="acpmux-session-info-row__detail">{place}</span>}
+              <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
+                {sortValue(stats, sort, locale)}
+              </span>
+            </>
+          );
+          const current = entry.sessionId === chatId || undefined;
+          return (
+            <li key={entry.sessionId} data-current={current}>
+              {onOpen && !current ? (
+                <button
+                  type="button"
+                  className="acpmux-session-info-row acpmux-session-info-row--button"
+                  onClick={() => onOpen(entry.sessionId)}
+                >
+                  {body}
+                </button>
+              ) : (
+                <div className="acpmux-session-info-row">{body}</div>
+              )}
+            </li>
+          );
+        }}
+      />
+    </ul>
+  );
   return (
     <div className="acpmux-session-info-usage" data-section="usage" data-own-row-layout={ownRowLayout}>
       {own && (
@@ -217,12 +276,23 @@ export const UsageSection = memo(function UsageSection({
         <>
           <div className="acpmux-session-info-usage__head">
             <span className="acpmux-session-info-usage__title">{t("sessionInfo.usage.allSessions")}</span>
-            <fieldset className="acpmux-session-info-usage__sort" aria-label={t("sessionInfo.usage.sortBy")}>
+            <fieldset
+              className={
+                pill === "off" ? "acpmux-session-info-usage__sort" : "acpmux-session-info-usage__sort ui-slide-host"
+              }
+              data-hover-fade={hover === "off" ? undefined : hover}
+              aria-label={t("sessionInfo.usage.sortBy")}
+            >
+              {pill !== "off" && <SlidingIndicator selected={sort} look="plate" travel={pill} />}
               {(["cost", "context"] as const).map((option) => (
                 <button
                   key={option}
                   type="button"
-                  className="acpmux-session-info-usage__sort-option"
+                  className={
+                    pill === "off"
+                      ? "acpmux-session-info-usage__sort-option"
+                      : "acpmux-session-info-usage__sort-option ui-slide-item"
+                  }
                   aria-pressed={sort === option}
                   // The pressed option is the order shown: a click on it would do nothing.
                   disabled={sort === option}
@@ -233,56 +303,13 @@ export const UsageSection = memo(function UsageSection({
               ))}
             </fieldset>
           </div>
-          <ul className="acpmux-session-info-list" data-sort={sort}>
-            <WindowedRows
-              items={shown}
-              render={(entry) => {
-                const stats = entry.usageStats!;
-                const place = entry.peer ?? entry.host;
-                // A peer's chat is named `<peer>/<name>` (acpmux hub/peers.rs); the row names the peer
-                // after the title, so the title drops it.
-                const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
-                const title =
-                  entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
-                const mark = (
-                  <span className="acpmux-lineage__icon">
-                    <SenderIcon
-                      harness={entry.harness}
-                      tone={agentTone(entry.sessionId)}
-                      size={ROW_ICON}
-                      fallback="agent.chat"
-                    />
-                  </span>
-                );
-                const body = (
-                  <>
-                    {mark}
-                    <span className="acpmux-session-info-row__name">{title}</span>
-                    {place && <span className="acpmux-session-info-row__detail">{place}</span>}
-                    <span className="acpmux-session-info-row__end acpmux-session-info-usage__value">
-                      {sortValue(stats, sort, locale)}
-                    </span>
-                  </>
-                );
-                const current = entry.sessionId === chatId || undefined;
-                return (
-                  <li key={entry.sessionId} data-current={current}>
-                    {onOpen && !current ? (
-                      <button
-                        type="button"
-                        className="acpmux-session-info-row acpmux-session-info-row--button"
-                        onClick={() => onOpen(entry.sessionId)}
-                      >
-                        {body}
-                      </button>
-                    ) : (
-                      <div className="acpmux-session-info-row">{body}</div>
-                    )}
-                  </li>
-                );
-              }}
-            />
-          </ul>
+          {swap === "off" ? (
+            list
+          ) : (
+            <ViewSwap swapKey={sort} order={sort === "cost" ? 0 : 1} look={swap}>
+              {list}
+            </ViewSwap>
+          )}
           {folds && (
             <button
               type="button"

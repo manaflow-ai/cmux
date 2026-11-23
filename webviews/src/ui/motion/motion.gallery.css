@@ -124,6 +124,23 @@
 [data-hover-timing="blink"] :is(.ui-hover-fill, .ui-reveal) {
   transition: none;
 }
+/* trail: in at once (it follows the pointer), out over micro. ease: in over quick, out over standard. */
+[data-hover-timing="trail"] .ui-hover-fill {
+  --ui-fill-transition:
+    background-color var(--cmux-motion-micro) var(--cmux-ease-out), color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+[data-hover-timing="trail"] .ui-hover-fill:hover {
+  --ui-fill-transition: background-color 0s, color 0s;
+}
+[data-hover-timing="ease"] .ui-hover-fill {
+  --ui-fill-transition:
+    background-color var(--cmux-motion-standard) var(--cmux-ease-out),
+    color var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+[data-hover-timing="ease"] .ui-hover-fill:hover {
+  --ui-fill-transition:
+    background-color var(--cmux-motion-quick) var(--cmux-ease-out), color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
 [data-hover-timing="slow"] :is(.ui-hover-fill, .ui-reveal) {
   transition-duration: var(--cmux-motion-standard, 180ms);
 }

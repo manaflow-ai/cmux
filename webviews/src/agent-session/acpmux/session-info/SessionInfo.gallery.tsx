@@ -33,6 +33,7 @@ import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";
 import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
+import { selectionPillTravel } from "./selectionMotion.experiment";
 
 type Props = ComponentProps<typeof SessionInfo> & {
   placement?: SessionInfoPlacement;
@@ -2085,5 +2086,18 @@ export default componentEntry<Props>({
       note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; no section is a box, only a hairline between its three blocks. Under Reduce Transparency the panel is the opaque theme surface.",
       props: { ...full, transcript: true },
     },
+  },
+  // The selection motion experiments (selectionMotion.experiment.ts) on the Usage variant: the sort
+  // pill travels and the list under it swaps. The arms of all three share the script; Compare arms
+  // switches one experiment at a time.
+  experiment: {
+    definition: selectionPillTravel,
+    setup: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info-usage__sort") !== null);
+    },
+    script: [
+      { name: "Sort by context", run: (ctx) => ctx.click({ role: "button", name: "Context" }) },
+      { name: "Back to cost, at once", run: (ctx) => ctx.click({ role: "button", name: "24h cost" }) },
+    ],
   },
 });

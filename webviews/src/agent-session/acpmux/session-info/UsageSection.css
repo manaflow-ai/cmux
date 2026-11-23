@@ -84,3 +84,27 @@
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
+
+/* Motion experiments (selectionMotion.experiment.ts). The pill: one plate travels under the options
+   (ui/motion SlidingIndicator) in the selection fill the option drew itself. */
+.acpmux-session-info-usage__sort.ui-slide-host {
+  --ui-slide-fill: var(--ds-color-selection);
+  --ui-slide-radius: 5px;
+}
+
+/* Hover fade: only the ink fades; a press changes nothing (design/pressed-state.md). */
+.acpmux-session-info-usage__sort[data-hover-fade="fade"] > .acpmux-session-info-usage__sort-option {
+  transition: color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.acpmux-session-info-usage__sort[data-hover-fade="trail"] > .acpmux-session-info-usage__sort-option {
+  transition: color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.acpmux-session-info-usage__sort[data-hover-fade="trail"] > .acpmux-session-info-usage__sort-option:hover {
+  transition-duration: 0s;
+}
+.acpmux-session-info-usage__sort[data-hover-fade="ease"] > .acpmux-session-info-usage__sort-option {
+  transition: color var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+.acpmux-session-info-usage__sort[data-hover-fade="ease"] > .acpmux-session-info-usage__sort-option:hover {
+  transition-duration: var(--cmux-motion-quick);
+}
