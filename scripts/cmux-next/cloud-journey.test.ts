@@ -7,7 +7,7 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, agentReady, milestoneLines, spareTaken, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -380,6 +380,28 @@ describe("cloud journey", () => {
     expect(readyMs(steps.map((s) => (s.step === "pass Claude login" ? { ...s, status: "skip" as const } : s)))).toBeNull();
     expect(readyMs(steps.filter((s) => s.step !== "first exec"))).toBeNull();
     expect(probeRow("p", [st("create machine", 5, "fail")], undefined, at)).not.toHaveProperty("ready_ms");
+  });
+  test("agent_ready_ms is labeled warm or cold and the summary reports M17, G1 warm and M3 without failing the run", () => {
+    const at = new Date("2026-11-04T11:00:00Z");
+    const st = (step: string, ms: number, status: "pass" | "fail" | "skip" = "pass") => ({ step, status, ms, detail: "" });
+    // Production run 45100377818: create 4037 + login 1503 + start agent 1980, send 4118 + reply 959.
+    const steps = [st("create machine", 4037), st("running (status)", 0), st("first exec", 0), st("pass Claude login", 1503), st("start agent (claude)", 1980), st("send chat", 4118), st("reply", 959)];
+    expect(spareTaken({ spare_fallback: "none_ready" })).toBe(false);
+    expect(spareTaken({ spare_fallback: null, claimed_behind: false })).toBe(true);
+    expect(spareTaken({ claimed_spare: null })).toBeNull();
+    expect(agentReady(steps, true)).toEqual({ agent_ready_ms: 7520, agent_ready_path: "warm", first_reply_ms: 5077 });
+    expect(milestoneLines(steps, true)).toEqual([
+      "agent_ready_ms: 7520 (warm); first_reply_ms: 5077",
+      "- M17 click to agent ready, warm: fail (7520 ms, <= 1000 ms)",
+      "- G1 first reply, warm: fail (5077 ms, < 3000 ms)",
+      "- M3 agent started step: pass (1980 ms, <= 4000 ms)",
+    ]);
+    expect(milestoneLines(steps, false)[1]).toBe("- M17 click to agent ready, warm: not judged: a cold start");
+    expect(milestoneLines(steps, null)[2]).toBe("- G1 first reply, warm: not judged: a warm-or-cold unknown start");
+    const md = summaryMarkdown(resolveBackend("staging"), steps, {}, true);
+    expect(md.split("\n")[0]).toMatch(/^PASS: /);
+    expect(md).toContain("- M3 agent started step: pass (1980 ms, <= 4000 ms)");
+    expect(probeRow("p", steps, undefined, at, undefined, { spare_fallback: null, claimed_behind: false })).toMatchObject({ outcome: "ok", agent_ready_ms: 7520, agent_ready_path: "warm" });
   });
   test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");

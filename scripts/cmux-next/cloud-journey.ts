@@ -241,17 +241,54 @@ export function readyMs(steps: Step[]): number | null {
   return total;
 }
 
+/**
+ * Whether create took a warm spare, from what the run read: the claim answer's spare_fallback (a create: cold), its
+ * claim object (claimed_behind is set only with one: warm), else the guest timeline's claimed_spare. Null: not known.
+ */
+export function spareTaken(extra: Pick<ProbeExtra, "spare_fallback" | "claimed_behind" | "claimed_spare">): boolean | null {
+  if (extra.spare_fallback) return false;
+  if (extra.claimed_behind != null) return true;
+  return extra.claimed_spare ?? null;
+}
+
+/**
+ * The plan's start numbers (cmuxterm-hq plans/cloud/ARCHITECTURE-2026-11.md), reported and never enforced:
+ * agent_ready_ms is the create call to agent started (readyMs), labeled warm or cold by the spare the claim took;
+ * first_reply_ms is send chat plus reply (the probe row's ms).
+ */
+export function agentReady(steps: Step[], warm: boolean | null): { agent_ready_ms: number | null; agent_ready_path: "warm" | "cold" | null; first_reply_ms: number | null } {
+  const send = steps.find((s) => s.step === "send chat");
+  const reply = steps.find((s) => s.step === "reply");
+  return { agent_ready_ms: readyMs(steps), agent_ready_path: warm === null ? null : warm ? "warm" : "cold", first_reply_ms: send?.status === "pass" && reply?.status === "pass" ? send.ms + reply.ms : null };
+}
+
+/** The M17, G1 warm and M3 lines for the summary: pass, fail, or not judged and why. */
+export function milestoneLines(steps: Step[], warm: boolean | null): string[] {
+  const { agent_ready_ms: ready, agent_ready_path: path, first_reply_ms: reply } = agentReady(steps, warm);
+  const start = steps.find((s) => s.step.startsWith("start agent ("));
+  const judge = (name: string, ms: number | null, limit: number, strict: boolean, why: string | null) =>
+    `- ${name}: ${why ?? (ms === null ? "not judged: not measured" : `${(strict ? ms < limit : ms <= limit) ? "pass" : "fail"} (${ms} ms, ${strict ? "<" : "<="} ${limit} ms)`)}`;
+  const warmOnly = path === "warm" ? null : `not judged: a ${path ?? "warm-or-cold unknown"} start`;
+  return [
+    `agent_ready_ms: ${ready ?? "-"} (${path ?? "warm or cold unknown"}); first_reply_ms: ${reply ?? "-"}`,
+    judge("M17 click to agent ready, warm", ready, 1000, false, warmOnly),
+    judge("G1 first reply, warm", reply, 3000, true, warmOnly),
+    judge("M3 agent started step", start?.status === "pass" ? start.ms : null, 4000, false, null),
+  ];
+}
+
 /** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
 const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
 
-export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
+export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}, warm: boolean | null = null): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
   const ready = readyMs(steps);
   const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s${ready === null ? "" : `; create machine to agent running ${(ready / 1000).toFixed(1)} s`}`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
   const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
-  return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
+  const milestones = steps.some((s) => s.step === "create machine") ? ["", ...milestoneLines(steps, warm)] : [];
+  return [head, extra ? `\n${extra}` : "", ...milestones, "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
 /** Preclaim artifacts are public: retain only the step outcome, never an API response or identifier. */
@@ -272,6 +309,8 @@ export class Journey {
   preclaimRows: PreclaimClaimRecord[] | null = null;
   preclaimBurst: PreclaimBurstFacts | null = null;
   preclaimFailures: PreclaimFailureRecord[] = [];
+  /** Whether create took a warm spare (spareTaken), for the summary's warm/cold label; null until known. */
+  warm: () => boolean | null = () => null;
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -304,7 +343,7 @@ export class Journey {
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
     writeFileSync(path.join(this.outDir, "guest-updater.json"), `${JSON.stringify({ schema: 1, observations: this.guestDiagnostics }, null, 2)}\n`);
     const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
-    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
+    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta, this.publicSafe ? null : this.warm()) + preclaim);
   }
 }
 
@@ -2506,7 +2545,8 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const ready = readyMs(steps);
   const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
+  const warm = spareTaken(extra);
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready, agent_ready_ms: ready, agent_ready_path: warm === null ? null : warm ? "warm" : "cold" }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
 }
@@ -4057,6 +4097,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let runJourneyOnly: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
+  J.warm = () => spareTaken(probeExtra);
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;
