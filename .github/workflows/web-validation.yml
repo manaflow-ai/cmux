@@ -159,7 +159,13 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - run: bun install --frozen-lockfile
-      - run: bun run typecheck
+      # The type check reports its red and keeps going, so the tests and builds after it still run on a
+      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
+      # necessarily have to fail and like give up").
+      - name: Typecheck
+        id: typecheck
+        continue-on-error: true
+        run: bun run typecheck
       - run: bun run test
       - name: Cache Playwright's apt packages
         uses: ./.github/actions/playwright-apt-cache
@@ -169,6 +175,11 @@ jobs:
       - run: bun run test:instant
         env:
           CMUX_INSTANT_SKIP_TYPECHECK: "1"
+      - name: Fail on the type check
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
+        run: |
+          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
+          exit 1
 
   database:
     name: web-database-tests

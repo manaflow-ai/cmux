@@ -44,9 +44,28 @@ export function hostRefusedTooLarge(error: unknown): boolean {
 /// gets the same reply), not another build's acpmux holding this app's socket (`restartOffered`:
 /// only Restart agent service clears it), not a refusal that waits on the person (an untrusted
 /// folder, acpmux missing). Such a failure is one quiet "Reconnecting…" (HostError.tsx), however
-/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff").
-export function hostSelfRetrying(error: unknown, restartOffered: boolean): boolean {
-  return hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered;
+/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff"), up to
+/// SELF_RETRY_SAID_MS of trouble (`troubleForMs`); past it the line says why, with Details and Retry.
+export function hostSelfRetrying(error: unknown, restartOffered: boolean, troubleForMs = 0): boolean {
+  return (
+    hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered && troubleForMs < SELF_RETRY_SAID_MS
+  );
+}
+
+/// How long the pane may get its chat back on its own, saying only "Reconnecting…", before it says
+/// why and offers Retry. A chat that never opens (an attach that never answers, a daemon that drops
+/// the pane right after every connect) spun "Reconnecting…" forever with nothing to read or press
+/// (Leo, 2026-11-23: "im getting an infinite Reconnecting... thing with claude-sr2-coord-old"). Two
+/// minutes, as a machine's link (hostLine.ts PEER_LINK_DEADLINE_MS): a restart, an update's handoff
+/// or a short drop ends well inside it, so the usual recovery still says nothing more.
+export const SELF_RETRY_SAID_MS = 120_000;
+
+/// When the pane's trouble began, after a connection was lost `upForMs` after it connected: a
+/// connection that stayed up CONNECTION_STABLE_MS ended the last trouble, so this one starts now; one
+/// lost sooner did not, so a daemon that drops the pane after every connect keeps its first start and
+/// the bound above still comes (each connect cleared `failingSince`, so that clock never got there).
+export function troubleSinceAfterLoss(since: number | undefined, upForMs: number, now: number): number {
+  return upForMs >= CONNECTION_STABLE_MS || since === undefined ? now : since;
 }
 
 /// How long a pane's handshakes may keep failing while the host is still recovering (an update's
