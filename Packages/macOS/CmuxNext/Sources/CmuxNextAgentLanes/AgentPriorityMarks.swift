@@ -19,6 +19,8 @@ public final class AgentPriorityMarks {
         /// Archived from the view; acpmux hides it from its lists too.
         public var archived: Set<String> = []
         public var collapsed = false
+        /// The Archived fold is open (folded by default).
+        public var archivedOpen = false
         /// Session id to the place (0 is the top) the person dragged it to: it shows there until
         /// they drag it again, whatever its state (Leo 2026-10-21).
         public var placed: [String: Int] = [:]
@@ -30,7 +32,7 @@ public final class AgentPriorityMarks {
 
         public init() {}
 
-        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed }
+        enum CodingKeys: String, CodingKey { case pinned, read, snoozed, archived, collapsed, placed, archivedOpen }
 
         /// Each mark may be missing: marks saved by an older build still load.
         public init(from decoder: any Decoder) throws {
@@ -40,6 +42,7 @@ public final class AgentPriorityMarks {
             snoozed = try c.decodeIfPresent([String: Snooze].self, forKey: .snoozed) ?? [:]
             archived = try c.decodeIfPresent(Set<String>.self, forKey: .archived) ?? []
             collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
+            archivedOpen = try c.decodeIfPresent(Bool.self, forKey: .archivedOpen) ?? false
             placed = try c.decodeIfPresent([String: Int].self, forKey: .placed) ?? [:]
         }
 
@@ -86,6 +89,9 @@ public final class AgentPriorityMarks {
     public func unarchive(_ id: String) { state.archived.remove(id) }
 
     public func setCollapsed(_ collapsed: Bool) { state.collapsed = collapsed }
+
+    /// Opens or folds the Archived fold.
+    public func setArchivedOpen(_ open: Bool) { state.archivedOpen = open }
 
     /// The person dragged `id` in the Priority view, which now shows `order`: it keeps that place,
     /// and each chat dragged before keeps the place it shows at now.
