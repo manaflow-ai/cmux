@@ -1509,6 +1509,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this computer sends its agent turns' usage to the person's team: the person's choice only.",
+      "keys": [
+        "diagnostics.usageSharing"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [
