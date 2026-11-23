@@ -793,6 +793,67 @@ class CargoBinariesPrintTheirSummary(unittest.TestCase):
         self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests").own)
 
 
+# The three shapes a Rust step's failure names come in, each named so a later reader never has to guess at a fixture:
+#
+# ONE TARGET, EACH NAME PRINTED ONCE: libtest's own shape. A failure prints `test NAME ... FAILED` as it fails, and
+# the run closes with a `failures:` list of bare indented names. Only the first is a name line, so the closing list
+# never counts twice -- ONE_TARGET_CLOSING_LIST.
+#
+# SEVERAL TARGETS, EACH WITH ITS OWN SUMMARY: one `cargo test` over several test binaries, cmux#50814's shape
+# (LIVE_MULTI_TARGET above). The totals sum and the names are read per line, so two targets that each fail a test of
+# the same path are two failures, not one -- SAME_PATH_IN_TWO_TARGETS. This is why names are counted per line and
+# never deduplicated by test name across the step: a dedupe would read these two as one identity, leave a summed
+# total of 2 against 1 name, and refuse the step as a failure no parser names, which is cmux#50814's bug again in a
+# narrower shape.
+#
+# ONE TARGET, EACH NAME PRINTED TWICE: nextest under `failure-output = "immediate-final"`
+# (cmux-tui/.config/nextest.toml `[profile.ci]`), which prints each failure when it fails and again in a closing
+# list, with the same duration and thread id. No pattern here reads nextest: its `FAIL [ 1.00s] crate test::name`
+# lines name nothing to this parser and its `Summary [ ... ] N tests run:` line is no summary marker, so a nextest
+# step has no names and no reported total and the tally never runs on it -- NEXTEST_IMMEDIATE_FINAL pins that, so a
+# later reader does not take this parser for one that reads nextest.
+ONE_TARGET_CLOSING_LIST = ["running 3 tests", "test gauges::tests::rate_is_per_second ... FAILED",
+                          "failures:", "", "---- gauges::tests::rate_is_per_second stdout ----",
+                          "assertion failed", "",
+                          "failures:", "    gauges::tests::rate_is_per_second", "",
+                          cargo_summary(2, 1)]
+SAME_PATH_IN_TWO_TARGETS = ["running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1),
+                           "running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1)]
+NEXTEST_IMMEDIATE_FINAL = ["    Starting 6872 tests across 1 binary",
+                          "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
+                          "--- STDERR:              acpmux gauges::tests::rate_is_per_second ---",
+                          "thread 'gauges::tests::rate_is_per_second' (48474) panicked at gauges.rs:91:9:",
+                          "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
+                          "------------",
+                          "     Summary [ 450.123s] 6872 tests run: 6867 passed, 5 failed, 77 skipped"]
+
+
+class EveryRustStepShapeIsNamed(unittest.TestCase):
+    """Which shape each Rust fixture is, and that the tally reads names per line rather than deduplicating them by
+    test name across the step. Detector: `tests/test_test_reds.py` `EveryRustStepShapeIsNamed`, beside
+    `SeveralSummariesInOneStepAreOneTally` (the summing rule) and `CargoBinariesPrintTheirSummary` (a cut-short
+    run)."""
+
+    def test_one_targets_closing_failures_list_is_not_a_second_name(self):
+        lines = ONE_TARGET_CLOSING_LIST
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"gauges::tests::rate_is_per_second"})
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 1)  # printed twice, counted once
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_two_targets_failing_the_same_test_path_are_two_failures(self):
+        lines = SAME_PATH_IN_TWO_TARGETS
+        # One name, two name lines, 1 + 1 reported: a dedupe by test name would refuse this step.
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"tests::smoke"})
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_nextest_immediate_final_is_read_by_no_pattern_here(self):
+        lines = NEXTEST_IMMEDIATE_FINAL
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), set())
+        self.assertEqual(reds.unnamed_failures(reds.lines_of(log(*lines))), [])
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+
 # One bun invocation of test/a.test.ts: RESULTS printed in the run, the recap (`N tests failed:`) of RECAP titles, and
 # bun's ` N fail` count.
 def bun_invocation(results=(), recap=(), fail=None):
