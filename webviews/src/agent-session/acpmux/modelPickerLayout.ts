@@ -59,6 +59,7 @@ export type ModelPickerProps = {
     offLabel: string;
     lastOnValue?: string;
     values?: readonly string[];
+    choices?: readonly { value: string; name?: string }[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
@@ -124,6 +125,8 @@ export type ModelPickerProps = {
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
   /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
+  /** A manifest contributes presentation only. All choices and picks still come from this session. */
+  reasoningMenu?: "column" | "separate";
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a

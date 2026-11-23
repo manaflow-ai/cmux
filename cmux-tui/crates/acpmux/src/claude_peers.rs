@@ -170,6 +170,11 @@ pub fn live(config: &Path) -> Vec<Peer> {
     dir.flatten().filter_map(|e| read_entry(&e.path())).collect()
 }
 
+/// The live session registered under `pid` (`<pid>.json`), checked as [`live`] checks each.
+pub fn entry(config: &Path, pid: u32) -> Option<Peer> {
+    read_entry(&registry(config).join(format!("{pid}.json")))
+}
+
 /// The live session registered with Claude Code session id `id`.
 pub fn find(config: &Path, id: &str) -> Option<Peer> {
     live(config).into_iter().find(|p| p.session_id == id)
