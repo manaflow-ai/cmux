@@ -1303,6 +1303,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether cmux reads the person's clipboard for the Chief's + menu.",
+      "keys": [
+        "home.clipboardHistory"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Where the person's direct messages and group chats go: an agent must not move them to another server.",
       "keys": [
         "home.server"
@@ -1377,6 +1384,13 @@
       "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the Rex-style Hosts section is visible in the sidebar: the person decides when this preview surface appears.",
+      "keys": [
+        "labs.hostsSidebar"
       ]
     },
     {
@@ -1687,6 +1701,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Bounds how long an agent's share of this Mac lasts with no viewer; an agent never lengthens its own window.",
+      "keys": [
+        "remote.agentShareIdleMinutes"
       ]
     },
     {
