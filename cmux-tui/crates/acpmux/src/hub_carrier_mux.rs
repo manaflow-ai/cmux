@@ -637,11 +637,19 @@ mod live {
             shown: relay.shown(),
         });
         let key = crate::mesh_node_key::read_noise_static(&home).unwrap();
-        let carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+        // CARRIER_STAGES_FRESH=1: a new carrier per run, so every dial is a first one (no kept
+        // ticket, no kept circuit): the cold dial before cut 5's ticket cache.
+        let fresh = std::env::var_os("CARRIER_STAGES_FRESH").is_some();
+        let mut carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
         let ms = |d: Duration| format!("{:.0}", d.as_secs_f64() * 1e3);
         for run in 0..runs {
             // A raw TCP connect to the relay the ticket names, to split TCP from TLS+WS+allocate.
             let answer = tickets.connect(&peer).await.unwrap();
+            let now_s = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            eprintln!("CARRIER-STAGES ticket expires_at={} now={now_s}", answer.expires_at);
             let url = url::Url::parse(&answer.relay).unwrap();
             let target = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap_or(443));
             let started = Instant::now();
@@ -649,6 +657,9 @@ mod live {
             let tcp_ms = started.elapsed();
             drop(tcp);
 
+            if fresh {
+                carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+            }
             let started = Instant::now();
             let (secure, stages) = carrier.open_circuit(&peer).await.unwrap();
             let step = Instant::now();

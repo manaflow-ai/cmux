@@ -273,6 +273,15 @@ pub trait Tickets: Send + Sync + 'static {
     async fn register(&self) -> Result<CarrierAnswer, String>;
     /// A Connect ticket for the slot of the machine whose hub `daemonId` is `peer`.
     async fn connect(&self, peer: &str) -> Result<CarrierAnswer, String>;
+    /// A Connect ticket asked now, never a kept one: after the relay refused one.
+    async fn connect_fresh(&self, peer: &str) -> Result<CarrierAnswer, String> {
+        self.connect(peer).await
+    }
+    /// Connect tickets for every machine the Register ticket lets in, pre-minted by the platform
+    /// (RFD 0039 cut 5); `None` from a platform that mints none.
+    async fn connects(&self) -> Result<Option<Vec<CarrierAnswer>>, String> {
+        Ok(None)
+    }
     /// What a log may say of where the tickets come from: the hub's origin, never a token.
     fn shown(&self) -> String {
         "the hub".into()
@@ -393,7 +402,12 @@ enum KeptOpen {
 
 /// One machine's hub carrier: its key, its ticket source and its peer routes.
 pub struct HubCarrier {
+    /// Connect asks go through [`Self::ticket_cache`]; Register asks pass straight through.
     tickets: Arc<dyn Tickets>,
+    /// One Connect ticket per far machine, kept and renewed off the dial path (cut 5).
+    ticket_cache: Arc<tickets::TicketCache>,
+    /// Whether the pre-mint loop ([`tickets::TicketCache::premint_until`]) runs.
+    preminting: std::sync::atomic::AtomicBool,
     /// The node key as a Noise static key; [`Self::rekey`] puts the next one in.
     identity: RwLock<StaticIdentity>,
     /// How many times [`Self::rekey`] ran; the serve loop registers again when it moves.
@@ -434,8 +448,11 @@ pub type HubStream = tokio::io::DuplexStream;
 impl HubCarrier {
     /// A carrier with `private_key` (the node key) as its Noise static key.
     pub fn new(tickets: Arc<dyn Tickets>, private_key: [u8; 32], timings: Timings) -> Arc<Self> {
+        let ticket_cache = tickets::TicketCache::new(tickets);
         Arc::new(Self {
-            tickets,
+            tickets: Arc::new(tickets::CachedTickets(ticket_cache.clone())),
+            ticket_cache,
+            preminting: std::sync::atomic::AtomicBool::new(false),
             identity: RwLock::new(StaticIdentity::from_private(private_key)),
             generation: AtomicU64::new(0),
             rekeyed: tokio::sync::Notify::new(),
@@ -462,8 +479,11 @@ impl HubCarrier {
         timings: Timings,
         check: KeyCheck,
     ) -> Arc<Self> {
+        let ticket_cache = tickets::TicketCache::new(tickets);
         Arc::new(Self {
-            tickets,
+            tickets: Arc::new(tickets::CachedTickets(ticket_cache.clone())),
+            ticket_cache,
+            preminting: std::sync::atomic::AtomicBool::new(false),
             identity: RwLock::new(StaticIdentity::from_private(private_key)),
             generation: AtomicU64::new(0),
             rekeyed: tokio::sync::Notify::new(),
@@ -509,6 +529,7 @@ impl HubCarrier {
         drop(identity);
         // The far machines pinned the old key: its kept circuits go with it.
         self.kept.clear();
+        self.ticket_cache.clear();
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.rekeyed.notify_one();
         Ok(())
@@ -806,7 +827,8 @@ impl HubCarrier {
             async move {
                 match first {
                     Some(ticket) => Ok(ticket.to_string()),
-                    None => tickets.connect(&peer).await.map(|a| a.ticket),
+                    // The relay refused the ticket in hand (or wants another): a fresh one.
+                    None => tickets.connect_fresh(&peer).await.map(|a| a.ticket),
                 }
             }
         });
@@ -958,6 +980,13 @@ impl HubCarrier {
             }
         };
         set_allowed(&allowed, &answer.peers);
+        // Registered: from here the peers' Connect tickets are kept ready (cut 5), once per carrier.
+        if !self.preminting.swap(true, Ordering::SeqCst) {
+            tickets::scope().spawn_named(
+                "hub carrier ticket pre-mint",
+                self.ticket_cache.clone().premint_until(Arc::downgrade(&self.alive)),
+            );
+        }
         let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
         let credentials = {
             let tickets = self.tickets.clone();
@@ -1447,6 +1476,10 @@ impl Tickets for PlatformTickets {
         self.hub.carrier(Some(peer)).await
     }
 
+    async fn connects(&self) -> Result<Option<Vec<CarrierAnswer>>, String> {
+        self.hub.carrier_connects().await
+    }
+
     fn shown(&self) -> String {
         self.shown.clone()
     }
@@ -1708,6 +1741,9 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
 
 #[path = "hub_carrier_serve_reason.rs"]
 mod serve_reason;
+
+#[path = "hub_carrier_tickets.rs"]
+pub mod tickets;
 
 #[path = "hub_carrier_mux.rs"]
 mod mux;
