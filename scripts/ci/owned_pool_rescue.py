@@ -3352,19 +3352,38 @@ BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
 # queue policy; this predicate is only used by the portable failover.
 BLACKSMITH_PORTABLE_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-(?:ubuntu|linux)-[0-9]+(?:-[a-z0-9]+)*")
 PICKED_RETRY = re.compile(r"\boutputs\.[A-Za-z0-9_-]*retry[A-Za-z0-9_-]*")
+# A pool read (`fromJSON(vars.RUNNER_POOLS).<pool>`, .github/runners.json): any of the pool's members.
+POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS(?:\s*\|\|\s*'\{\}')?\s*\)\.([A-Za-z0-9_]+)")
+RUNNERS_FILE = Path(__file__).resolve().parents[2] / ".github" / "runners.json"
+
+
+def pool_members(name: str) -> set[str] | None:
+    """The labels a read of pool `name` may yield (its declared members), or None when it is not declared."""
+    try:
+        spec = json.loads(RUNNERS_FILE.read_text(encoding="utf-8"))["pools"].get(name)
+    except (OSError, ValueError, KeyError, AttributeError):
+        return None
+    members = spec.get("members") if isinstance(spec, dict) else None
+    return {str(member) for member in members} if isinstance(members, list) and members else None
 
 
 def retry_labels(workflow_text: str | None) -> set[str]:
     """The picker Blacksmith labels a re-run of the workflow may take, as far as its file shows.
 
     Every picker label the file names anywhere counts: runs-on fallbacks, matrix entries, and the inputs it
-    passes a reusable workflow (cmux-tui.yml's macos_retry_runner). A file that names none, cannot be
+    passes a reusable workflow (cmux-tui.yml's macos_retry_runner), and every member of a pool it reads. A file that names none, cannot be
     read, or routes a retry through a picker job's output (PICKED_RETRY) may route anywhere, so every
     picker label counts, and the rescue judges the worst of them (move_verdict())."""
     every = set(simple_pool_picker.BLACKSMITH)
     if PICKED_RETRY.search(workflow_text or ""):
         return every
     found = set(BLACKSMITH_MACOS_LABEL.findall(workflow_text or "")) & every
+    for pool in set(POOL_READ.findall(workflow_text or "")):
+        members = pool_members(pool)
+        if members is None:
+            # An undeclared pool may hold any value runner_pools.py writes: judge the worst label.
+            return every
+        found |= members & every
     return found or every
 
 

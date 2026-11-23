@@ -117,12 +117,13 @@ def unwrap(text: str) -> str:
 
 def unconditional(alternative: str) -> bool:
     """Whether an `||` alternative always yields a label: a non-empty literal, or a group one of whose
-    alternatives does. A variable may be unset, and a conjunction may be false."""
+    alternatives does. A variable may be unset, and a conjunction may be false. A pool read
+    (`fromJSON(vars.RUNNER_POOLS).<pool>`) yields a label too: runner_pools.py writes every declared pool."""
     alternative = unwrap(alternative)
     alternatives = split_top(alternative, "||")
     if len(alternatives) > 1:
         return any(unconditional(part) for part in alternatives)
-    return re.fullmatch(r"'[^'\s]+'", alternative) is not None
+    return re.fullmatch(r"'[^'\s]+'|fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", alternative) is not None
 
 
 def conjuncts(text: str) -> list[str]:

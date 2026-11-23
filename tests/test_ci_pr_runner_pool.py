@@ -539,19 +539,19 @@ class JanitorSnapshot(unittest.TestCase):
 
 # The pull-request lane, wherever its event condition puts it: compile admission
 # also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
-PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR[^()]*)\)")
+PR_ROUTE = re.compile(r"&& \((?P<lane>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*vars\.MACOS_RUNNER_PR(?:[^()]|\(vars\.RUNNER_POOLS\))*)\)")
 
 
 def retry_lane(key: str) -> str:
     """The pull-request lane of the job whose owned_jobs key is `key`."""
     return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def root_lane(key: str) -> str:
     """retry_lane() for a root job: the root label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && (github.triggering_actor == 'github-actions[bot]' || github.event_name != 'pull_request') || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_root_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def gui_lane(key: str) -> str:
@@ -562,7 +562,7 @@ def gui_lane(key: str) -> str:
 def side_lane(key: str) -> str:
     """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
     return (f"(github.run_attempt > 2 && github.triggering_actor == 'github-actions[bot]' || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
-            "|| inputs.pr_side_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+            "|| inputs.pr_side_runner || inputs.pr_runner || vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15")
 
 
 def warm_lane(index: str = "") -> str:
@@ -2894,7 +2894,7 @@ class Wiring(unittest.TestCase):
             # The Claude wrapper, a side lane: the light side label when the picker put it there, else the side
             # label first.
             "ci.yml": "(contains(needs.changes.outputs.macos_pr_light_side_jobs, ' claude-wrapper ') && needs.changes.outputs.macos_pr_light_side_runner || needs.changes.outputs.macos_pr_side_runner) || needs.changes.outputs.macos_pr_runner "
-                      "|| vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
+                      "|| vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_PR || fromJSON(vars.RUNNER_POOLS).macos_15",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
             # root jobs; the side lanes are not. tests-build-and-lag is a GUI
@@ -3084,7 +3084,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("contains(inputs.pr_owned_jobs, ' swift-package ')", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertIn("inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR", job["env"]["CMUX_CI_XCODE_APP"])
         self.assertEqual(job["runs-on"].count("swift-package"), 1)
-        self.assertEqual(job["runs-on"].count("blacksmith-6vcpu-macos-15"), 2)
+        # A fork pull request's literal, and the macos_15 pool everywhere else.
+        self.assertEqual(job["runs-on"].count("'blacksmith-6vcpu-macos-15'"), 1)
+        self.assertEqual(job["runs-on"].count("fromJSON(vars.RUNNER_POOLS).macos_15"), 1)
         # The Xcode follows the same condition: the lane pin on the owned
         # label, the macOS 15 pin everywhere else.
         self.assertIn("inputs.owned_head_repos", job["env"]["CMUX_CI_XCODE_APP"])
@@ -4401,7 +4403,7 @@ class E2EQueueRounds(unittest.TestCase):
 class IrohReleaseGateWiring(unittest.TestCase):
     """iroh-release-gate.yml offers its Tailscale job to the owned Macs; simulator-e2e stays on Blacksmith."""
 
-    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15')"
+    BLACKSMITH = "(vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || fromJSON(vars.RUNNER_POOLS).macos_15)"
 
     def setUp(self):
         self.jobs = yaml.safe_load((WORKFLOWS / "iroh-release-gate.yml").read_text())["jobs"]
@@ -4438,7 +4440,7 @@ class IrohReleaseGateWiring(unittest.TestCase):
         self.assertEqual(job["needs"], "resolve-ref")
         # Production Stack credentials: a literal label, never MACOS_RUNNER_15 (test_ci_fork_runner_routing.py).
         self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                         "'blacksmith-6vcpu-macos-15' }}")
+                                         "fromJSON(vars.RUNNER_POOLS).macos_15 }}")
 
 
 class IOSWiring(unittest.TestCase):
@@ -4542,7 +4544,7 @@ class IOSWiring(unittest.TestCase):
                          "'ubuntu-24.04' || contains(fromJSON('[\"blacksmith-4vcpu-ubuntu-2404\","
                          "\"blacksmith-8vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\",\"blacksmith-32vcpu-ubuntu-2404\"]'), "
                          "vars.LINUX_RUNNER) "
-                         "&& vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+                         "&& vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}")
         self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
         self.assertEqual(seed["needs"], ["ios-simulator-build"])
         # As the step ran: only after a successful build, only on a main seed_cache run.
@@ -4595,7 +4597,7 @@ class IOSWiring(unittest.TestCase):
 
         upload = jobs["app-store-upload"]
         self.assertEqual(upload["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                            "'blacksmith-6vcpu-macos-26' }}")
+                                            "fromJSON(vars.RUNNER_POOLS).macos_26 }}")
         self.assertIn("screenshots", upload["needs"])
         self.assertEqual(upload["if"], "${{ github.event_name == 'workflow_dispatch' && inputs.upload }}")
         self.assertEqual(upload["environment"], "release")
@@ -4640,7 +4642,7 @@ class IOSWiring(unittest.TestCase):
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         # It holds CLAUDE_CODE_OAUTH_TOKEN: a literal label, never MACOS_RUNNER_IOS.
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "'blacksmith-6vcpu-macos-26' }}")
+                                              "fromJSON(vars.RUNNER_POOLS).macos_26 }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there

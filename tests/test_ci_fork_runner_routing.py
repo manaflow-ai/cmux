@@ -198,7 +198,7 @@ BOUNDED_LINUX_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu
                         "blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404")
 BOUNDED_LINUX_SELECTOR = (
     "contains(fromJSON('" + json.dumps(list(BOUNDED_LINUX_LABELS), separators=(",", ":"))
-    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404'"
+    + "'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4"
 )
 # The key-holding Linux jobs that follow LINUX_RUNNER through it (#27557 pinned them to 4 vCPU,
 # so a 4 vCPU stall left them queued). Nightly jobs read no shared variable.
@@ -300,6 +300,9 @@ def evaluate_runs_on(node: tuple, context: dict[str, str]) -> object:
             return {"true": True, "false": False, "null": None}[text]
         # GitHub coerces numbers against strings and booleans; this check does not model it.
         raise _Unsupported(f"number literal {text}")
+    if kind == "pool":
+        # Every value runner_pools.py writes for a pool is one of its declared members; the first one models it.
+        return context.get(f"vars.RUNNER_POOLS.{node[1]}") or declared_pools()[node[1]][0]
     if kind == "ref":
         path = re.sub(r"\['([A-Za-z_][A-Za-z0-9_-]*)'\]", r".\1", node[1])
         if path not in context:
@@ -367,6 +370,23 @@ def _is_fork_branch(operand: tuple) -> bool:
             == [("literal", "manaflow-ai"), ("ref", "github.repository_owner")])
 
 
+def declared_pools() -> dict[str, list[str]]:
+    """pool -> its members, from .github/runners.json `pools`."""
+    pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
+    return {name: list(spec["members"]) for name, spec in pools.items() if isinstance(spec, dict)}
+
+
+def ephemeral_blacksmith_pools() -> frozenset[str]:
+    """Pools a secret-holding job may read: marked `ephemeral_only` and every member a Blacksmith label, so no
+    value runner_pools.py may write there (one of the pool's members) is an owned or persistent machine. Adding
+    an owned member to one of these pools turns every secret job that reads it red here."""
+    pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8"))["pools"]
+    return frozenset(
+        name for name, spec in pools.items()
+        if isinstance(spec, dict) and spec.get("ephemeral_only") is True and spec.get("members")
+        and all(re.fullmatch(r"blacksmith-\d+vcpu-[a-z0-9.-]+", member) for member in spec["members"]))
+
+
 def runner_label_errors(runs_on: str) -> list[str]:
     """Why a runs-on could put a secret on a machine it does not name; [] when it never can.
 
@@ -403,6 +423,8 @@ def runner_label_errors(runs_on: str) -> list[str]:
         if label is not None and (blacksmith.fullmatch(label) or label in FLEET_EPHEMERAL_LABELS
                                   or label in OWNED_EPHEMERAL_LABELS):
             continue
+        if result[0] == "pool" and result[1] in ephemeral_blacksmith_pools():
+            continue
         # A fork pull request's branch to a GitHub-hosted label: a one-job VM, and outside every
         # label the persistent pool registers (POOL_REGISTERED_LABELS).
         if label is not None and HOSTED_LITERAL_LABEL.fullmatch(label) and _is_fork_pull_request_branch(operand):
@@ -420,8 +442,9 @@ def runner_label_errors(runs_on: str) -> list[str]:
         if picked and all(blacksmith.fullmatch(item) or item in OWNED_EPHEMERAL_LABELS for item in picked):
             continue
         errors.append(f"{runs_on!r}: operand {index + 1} can yield something other than a Blacksmith label it names")
-    if not errors and _string(chain[-1]) is None:
-        errors.append(f"{runs_on!r} does not end with a literal label")
+    ends_in_pool = chain[-1][0] == "pool" and chain[-1][1] in ephemeral_blacksmith_pools()
+    if not errors and _string(chain[-1]) is None and not ends_in_pool:
+        errors.append(f"{runs_on!r} does not end with a literal label or an ephemeral Blacksmith pool")
     return errors
 
 
@@ -722,6 +745,17 @@ class _Parser:
                     args.append(self._or())
             self._take(")")
             call = ("call", text, args)
+            # `fromJSON(vars.RUNNER_POOLS).<pool>`: one declared pool's live member (.github/runners.json
+            # `pools`), kept as its own node so the secret rule can read which pool it is.
+            if (text.lower() == "fromjson" and len(args) == 1 and args[0] == ("ref", "vars.RUNNER_POOLS")
+                    and self._peek() == "."):
+                self._take(".")
+                name = self._take()
+                if name[0] != "name":
+                    raise ExpressionSyntaxError(f"bad pool property {name[1]!r}")
+                if self._peek() in (".", "["):
+                    raise ExpressionSyntaxError(f"a pool's value is a label: nothing indexes it ({name[1]!r})")
+                return ("pool", name[1])
             if self._peek() not in (".", "["):
                 return call
             # e.g. fromJSON(x)[0]: an index into a call's result. Its refs are
@@ -778,6 +812,9 @@ def evaluate_runner_condition(node: tuple, context: dict[str, str]) -> bool | st
         return int(node[1])
     if kind == "ref":
         return context[node[1]]
+    if kind == "pool":
+        # The context may set a pool's live member (`vars.RUNNER_POOLS.<pool>`); else its first declared one.
+        return context.get(f"vars.RUNNER_POOLS.{node[1]}") or declared_pools()[node[1]][0]
     if kind == "cmp" and node[1] in ("==", "!="):
         left = str(evaluate_runner_condition(node[2], context)).lower()
         right = str(evaluate_runner_condition(node[3], context)).lower()
@@ -1723,6 +1760,14 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertTrue(_trusted_fork_exclusion(parse_expression(
             "!contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)")))
         self.assertNotEqual(runner_label_errors("self-hosted"), [])
+        # A pool read passes only for an ephemeral_only pool of Blacksmith members: a pool an owned label
+        # leads (linux_8, linux_16) can hand a secret to a reused machine, and an undeclared pool reads ''.
+        fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        for pool in ("linux_4", "linux_2_ephemeral", "linux_16_ephemeral", "macos_26", "windows"):
+            self.assertEqual(runner_label_errors(f"${{{{ {fork}fromJSON(vars.RUNNER_POOLS).{pool} }}}}"), [], pool)
+        for pool in ("linux", "linux_2", "linux_8", "linux_16", "linux_32", "linux_owned_small", "provenance", "nope"):
+            self.assertNotEqual(runner_label_errors(f"${{{{ {fork}fromJSON(vars.RUNNER_POOLS).{pool} }}}}"), [], pool)
+        self.assertNotEqual(runner_label_errors("${{ fromJSON(vars.RUNNER_POOLS).linux_4.x }}"), [])
 
     def test_only_the_one_job_jit_nightly_label_of_ours_counts_as_ephemeral(self) -> None:
         # cmux-gcp-nightly-x64 is also served by a persistent runner on a lane VM; the JIT label never is.
@@ -1741,7 +1786,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):
             runs_on = jobs[name]["runs-on"]
             self.assertIn("github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64'", runs_on, name)
-            self.assertTrue(runs_on.rstrip("} ").endswith("'blacksmith-2vcpu-ubuntu-2404'"), name)
+            # Then its size's pool: linux_2_ephemeral is ephemeral_only, all Blacksmith (the secret rule above).
+            self.assertTrue(runs_on.rstrip("} ").endswith("fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral"), name)
 
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
         runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}

@@ -110,8 +110,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                      else "glaeda-nightly-std-xcode-26.6")
         # Main uses the shared nightly slot; its admission hook does not
         # accept RC or branch dogfood refs. They take the one-job JIT nightly
-        # VM on a first attempt (no vendor queue, 2026-11-20) and keep their
-        # existing Blacksmith route on re-runs.
+        # VM on a first attempt (no vendor queue, 2026-11-20) and take the
+        # linux_2 pool's live member on re-runs (here its Blacksmith 2 vCPU member).
         for ref in ("refs/heads/rc/1.0", "refs/heads/lane/dogfood"):
             for event in ("push", "workflow_dispatch"):
                 for attempt, expected in (("1", "cmux-gcp-nightly-jit-x64"), ("2", "blacksmith-2vcpu-ubuntu-2404")):
@@ -120,7 +120,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                                       "github.run_attempt": attempt,
                                                       "github.ref": ref, "github.event_name": event,
                                                       "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "",
-                                                      "vars.CI_CLASSIC_NIGHTLY_MINI": ""}),
+                                                      "vars.CI_CLASSIC_NIGHTLY_MINI": "",
+                                                      "vars.RUNNER_POOLS.linux_2": "blacksmith-2vcpu-ubuntu-2404"}),
                                          expected)
         # NEXT's push bootstrap uses the owned nightly control runner only on
         # its first attempt; retries keep the paid fallback route.
@@ -133,7 +134,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                           "github.event_name": "push",
                                           "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": configured,
                                           # One-mini mode off (tests/test_classic_nightly_one_mini.py).
-                                          "vars.CI_CLASSIC_NIGHTLY_MINI": ""})
+                                          "vars.CI_CLASSIC_NIGHTLY_MINI": "",
+                                          "vars.RUNNER_POOLS.linux_2": "blacksmith-2vcpu-ubuntu-2404"})
                     if attempt == "1":
                         self.assertTrue(label.startswith("glaeda-nightly-"), label)
                         self.assertEqual(label, configured if configured.startswith("glaeda-nightly-")
@@ -246,7 +248,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
 
         2026-10-28: every Blacksmith Linux size stopped starting jobs for over an
         hour while Blacksmith macOS served; these light jobs had nowhere else to go.
-        Unset, they keep their Blacksmith Linux default. A first attempt goes to
+        Unset, they read their size's pool (linux_2). A first attempt goes to
         the one-job JIT nightly VM ahead of both (2026-11-20, nightly priority on
         Linux); re-runs keep CI_CONTROL_RUNNER and then Blacksmith. The tick's request
         job left it on 2026-11-22: it holds the cmux-bot App key for its promotion
@@ -259,17 +261,18 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                                           "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || "
-                                          "vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}")
+                                          "vars.CI_CONTROL_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
 
     def test_the_tick_jobs_holding_the_app_key_name_their_runners(self) -> None:
         """The request and unstick jobs mint the cmux-bot token, so no variable picks a machine
-        outside the nightly JIT VM and the Blacksmith Linux sizes they name."""
+        outside the nightly JIT VM and the Blacksmith Linux sizes they name, then linux_2_ephemeral
+        (ephemeral_only, every member Blacksmith) when linux_2 is on its owned lead."""
         jobs = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))["jobs"]
         expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                     "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || "
                     "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
                     "fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || "
-                    "'blacksmith-2vcpu-ubuntu-2404' }}")
+                    "fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral }}")
         for job in ("request", "unstick"):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["runs-on"], expected)

@@ -354,7 +354,7 @@ jobs:
   app-store-upload:
     needs: [resolve-ref, screenshots]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     # No upload from CI has been timed yet. deliver deletes the version's screenshots
     # (overwrite_screenshots) before it uploads about 14 locales x 2 devices x 10 shots
     # and waits for Apple's processing, so a timeout part way leaves the pending

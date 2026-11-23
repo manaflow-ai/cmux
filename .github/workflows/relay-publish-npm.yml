@@ -387,9 +387,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: blacksmith-4vcpu-ubuntu-2404
+          - os: ${{ fromJSON(vars.RUNNER_POOLS).linux_4 }}
             package: cmux-relay-linux-x64
-          - os: blacksmith-6vcpu-macos-15
+          - os: ${{ fromJSON(vars.RUNNER_POOLS).macos_15 }}
             package: cmux-relay-darwin-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15

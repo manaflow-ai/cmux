@@ -23,7 +23,7 @@ jobs:
     # so it runs on a literal ephemeral label, not the MACOS_RUNNER_BACKGROUND
     # lane a variable could point at a reused machine
     # (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}
     timeout-minutes: 60
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash

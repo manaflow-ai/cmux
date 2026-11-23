@@ -134,7 +134,8 @@ class RequiredGateLabelTest(unittest.TestCase):
                 after = runs_on(load(name)["jobs"][job_id]).replace(operand, "", 1)
                 self.assertNotIn(GATE_LABEL, after)
                 self.assertTrue(after.startswith(FORK_BRANCH), after)
-                self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")
+                # Then a Blacksmith literal, or the linux_4 pool (every member Blacksmith, .github/runners.json).
+                self.assertRegex(after, r"(?:'blacksmith-\dvcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_4) }}$")
 
     def test_the_operand_refuses_a_shared_or_variable_label(self) -> None:
         operand = re.compile(re.escape(GATE_OPERAND))

@@ -49,7 +49,7 @@ ADMIT_COMMAND = (
 # one-job JIT nightly VM (cmux-gcp-nightly-jit-x64: ephemeral, no ingress, deleted after its job),
 # so the nightly's sign path does not queue behind vendor pools; a re-run Blacksmith Linux.
 LINUX_RUNNER = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+                "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}")
 # The shared GitHub API call log hook (#49486): BASH_ENV loads the checkout's env.sh, else the same files at a pinned commit.
 API_CALL_LOG_ENV = "scripts/ci/api_call_log/env.sh"
 API_CALL_LOG_URL = re.compile(r"^https://raw\.githubusercontent\.com/manaflow-ai/cmux/[0-9a-f]{40}/scripts/ci/api_call_log/\$x$")
@@ -63,7 +63,8 @@ WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"
 ALLOWED_CONTEXTS = re.compile(
     r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|github\.run_attempt|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
-    r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN)$"
+    # vars.RUNNER_POOLS only as LINUX_RUNNER's 4 vCPU pool read: ephemeral_only, every member Blacksmith.
+    r"inputs\.source_run_(id|attempt)|vars\.NIGHTLY_SIGN|vars\.RUNNER_POOLS)$"
 )
 FORBIDDEN_IN_TOOL = re.compile(
     r"\b(subprocess|os\.system|os\.exec\w*|os\.spawn\w*|popen|tarfile|extractall|codesign|notary\w*|"
@@ -156,7 +157,7 @@ def check_workflow() -> None:
         check(isinstance(permissions, dict) and set(permissions) <= READ_PERMISSIONS
               and set(permissions.values()) == {"read"},
               f"{where}: permissions must be read-only actions/checks/contents (got {permissions!r})")
-        check(job.get("runs-on") == LINUX_RUNNER, f"{where}: a shadow job runs on literal Linux labels ({LINUX_RUNNER})")
+        check(job.get("runs-on") == LINUX_RUNNER, f"{where}: a shadow job runs on LINUX_RUNNER ({LINUX_RUNNER})")
         for name in contexts(yaml.safe_dump(job)) | contexts("${{ " + gate + " }}"):
             check(bool(ALLOWED_CONTEXTS.match(name)), f"{where}: reads {name}, which a shadow job must not use")
         steps = job.get("steps") or []

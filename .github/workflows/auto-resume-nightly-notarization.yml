@@ -192,7 +192,7 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 90
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
@@ -559,7 +559,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -831,7 +831,7 @@ jobs:
     outputs:
       decided: ${{ steps.poll.outputs.decided }}
       outer_variants: ${{ steps.poll.outputs.outer_variants }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # A stapled-app DMG is polled until Accepted or its 6 h fallback.
     timeout-minutes: 360
     environment: release
@@ -893,7 +893,7 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 90
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
@@ -1008,7 +1008,7 @@ jobs:
         variant: [arm64, x86_64, universal]
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 30
     env:
       CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -1486,7 +1486,7 @@ jobs:
       fail-fast: false
       matrix:
         variant: [arm64, x86_64, universal]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
@@ -1576,7 +1576,7 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16_ephemeral || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     environment: release
     env:
       # One writer at a time, newest first, without a concurrency group (a

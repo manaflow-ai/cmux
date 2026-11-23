@@ -59,7 +59,7 @@ jobs:
   op:
     name: ASC ${{ inputs.op }}
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     environment: release
     steps:

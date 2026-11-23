@@ -7,8 +7,10 @@ a literal 'blacksmith-4vcpu-ubuntu-2404' after it stopped starting jobs, and a r
 475 runs-on lines in 185 workflows ended that way.
 
 A job names the size it was measured at by reading that size's pool, `fromJSON(vars.RUNNER_POOLS).<pool>`
-(.github/runners.json `pools` on main: linux_2, linux_4, linux_8, linux_16, linux_32, linux_arm64, macos_15,
-macos_26, macos_26_large, macos_latest, windows, ...). scripts/ci/runner_pools.py moves a pool off a member that
+(.github/runners.json `pools`: linux_2, linux_4, linux_8, linux_16, linux_32, linux_arm64, macos_15,
+macos_26, macos_26_large, macos_latest, windows, ...). A job that holds a secret reads an ephemeral_only pool of
+its size (linux_4, linux_2_ephemeral, linux_16_ephemeral, the macOS, Windows and ARM64 pools), never one the owned
+GCP label leads (tests/test_ci_fork_runner_routing.py, test_a_job_with_a_secret_runs_where_no_variable_can_move_it). scripts/ci/runner_pools.py moves a pool off a member that
 starts nothing, so the job follows with no YAML edit.
 
 Every value under a runner-selection key (runs-on, runs_on, os, labels, group, pool and any *runner* key: matrix
@@ -60,9 +62,25 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
-    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
-        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
-        "would queue on that value instead of going red"
+    ("cmux-next-dev-daily.yml", "jobs.tip-dmg-build.runs-on"): (
+        "falls back exactly as verify, a signing job kept under its trust rules, and the runner job's pick counts "
+        "Blacksmith room only on that one label (BLACKSMITH_LABELS; tests/test_cmux_next_dev_tip_feed.py)"
+    ),
+    ("fast-checks.yml", "jobs.admit.runs-on"): (
+        "holds the routing App key and its whole expression is pinned (FAST_CHECKS_ADMISSION_EXPRESSION in "
+        "tests/test_ci_fork_runner_routing.py): the broker's re-dispatch, not a variable, moves it"
+    ),
+    ("fast-checks.yml", "jobs.checks.runs-on"): (
+        "runs the broker's arbitrary command; it takes the admit job's proven runner or this fixed Blacksmith label "
+        "and trusts no mutable repository variable (tests/test_ci_runner_set.py test_fast_checks_reads_the_linux_pool). "
+        "linux_8 is led by the owned fleet label"
+    ),
+    ("cmux-tui-testbox-warmup.yml", "jobs.cmux-tui-rust.runs-on"): (
+        "a Blacksmith Testbox: `blacksmith testbox warmup` binds its box to this exact Blacksmith label, and "
+        "linux_32 is led by the owned GCP label, which no Testbox runs on"
+    ),
+    ("cmux-tui-testbox-warmup.yml", "jobs.cmux-tui-rust.steps.15.env.RUNNER_LABEL"): (
+        "records the job's runs-on above in the box's identity file, so it names the same literal"
     ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules

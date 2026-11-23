@@ -423,12 +423,12 @@ class Workflow(unittest.TestCase):
         following = re.search(r"\n  [A-Za-z0-9_-]+:\n", self.TEXT[start + 1:])
         return self.TEXT[start: start + 1 + following.start()] if following else self.TEXT[start:]
 
-    def test_the_build_reads_the_picker_and_keeps_a_literal_fallback(self) -> None:
+    def test_the_build_reads_the_picker_and_falls_back_to_its_pool(self) -> None:
         job = self.job("build-nightly-app")
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("pick-nightly-app-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(", runs_on)
-        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}", runs_on)
+        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
 
@@ -438,7 +438,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("pick-classic-prepare-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' "
                       "&& needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(", runs_on)
-        self.assertTrue(runs_on.endswith("|| needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertTrue(runs_on.endswith("|| needs.pick-classic-sign-runner.outputs.runner || fromJSON(vars.RUNNER_POOLS).macos_26 }}"))
         self.assertNotIn("secrets.", job)
         self.assertNotIn("environment:", job)
         pick = self.job("pick-classic-prepare-runner")
@@ -465,7 +465,7 @@ class Workflow(unittest.TestCase):
 
     def check_picker(self, name: str) -> None:
         job = self.job(name)
-        self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", job)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2_ephemeral", job)
         self.assertNotIn("macos", re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1).split("||")[-1])
         # Every step continues on error and their budgets fit inside the job's, so the job ends green.
         steps = job[job.index("    steps:"):]

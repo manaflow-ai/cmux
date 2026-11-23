@@ -102,6 +102,24 @@
         "blacksmith-16vcpu-ubuntu-2404"
       ]
     },
+    "linux_2_ephemeral": {
+      "why": "Jobs measured at 2 vCPU that hold a secret or an App key (main's test_ci_fork_runner_routing secret rule), so they may not read linux_2, which the owned GCP label leads. A job that used to end in a literal 'blacksmith-2vcpu-ubuntu-2404' reads this pool, so a stalled 2 vCPU size moves it to 4 vCPU by declaration (Leo, 2026-10-28: \"Where the f*** are the generalized solution to all these f***ing problems that these incessant f***ing pins?\"). ephemeral_only: Blacksmith members only",
+      "ephemeral_only": true,
+      "members": [
+        "blacksmith-2vcpu-ubuntu-2404",
+        "blacksmith-4vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_16_ephemeral": {
+      "why": "Jobs measured at 16 vCPU that hold a secret (the CI_CLOUD_OVERFLOW_SAVED operand of the R2 and release-next jobs), so they may not read linux_16, which the owned GCP label leads. Same order as linux_16: a stalled 16 vCPU size moves them down to 8 vCPU first, else to 32 vCPU. ephemeral_only: Blacksmith members only",
+      "ephemeral_only": true,
+      "min_vcpu": 8,
+      "members": [
+        "blacksmith-16vcpu-ubuntu-2404",
+        "blacksmith-8vcpu-ubuntu-2404",
+        "blacksmith-32vcpu-ubuntu-2404"
+      ]
+    },
     "linux_8": {
       "why": "Jobs measured at 8 vCPU (tooling tests, mid-size compiles). A stalled 8 vCPU size moves them down to 4 vCPU first (Blacksmith caps the org on vCPUs at once, so a bigger size is the one that starves; runner_pools.py grows_before_shrinking()), else to 16, then 32 vCPU. 32 vCPU is last: on 2026-11-20 11:31Z 8 vCPU ran 0 of 101 queued jobs, 4 vCPU 12 of 161 and 16 vCPU 0 of 79, while 32 vCPU had no job waiting, so the writer kept linux_8 on a size that started nothing for 4 h and the required cmux-tui clippy check never ran. Led by the owned GCP pool's label (cmux-fleet-linux-x64, OWNED_GCP_LINUX), which only our machines take; once a job waits there past the stall cutoff, the pool overflows to the Blacksmith sizes after it until that queue drains (Leo, 2026-11-21: \"i just am like fundamentally opposed to paying for ci when i exist\")",
       "members": [
@@ -134,6 +152,7 @@
     },
     "linux_arm64": {
       "why": "Native ARM64 Linux package checks",
+      "ephemeral_only": true,
       "members": [
         "blacksmith-4vcpu-ubuntu-2404-arm"
       ]
@@ -148,18 +167,21 @@
     },
     "windows": {
       "why": "Windows builds and tests",
+      "ephemeral_only": true,
       "members": [
         "blacksmith-4vcpu-windows-2025"
       ]
     },
     "macos_15": {
       "why": "The macOS 15 image (its default SDK), after any owned-Mac picker",
+      "ephemeral_only": true,
       "members": [
         "blacksmith-6vcpu-macos-15"
       ]
     },
     "macos_26": {
       "why": "The macOS 26 image, after any owned-Mac picker",
+      "ephemeral_only": true,
       "members": [
         "blacksmith-6vcpu-macos-26",
         "blacksmith-12vcpu-macos-26"
@@ -167,6 +189,7 @@
     },
     "macos_26_large": {
       "why": "macOS 26 work that wants the 12 vCPU, 48 GB SKU (release, the nightly app, seeds). 6 vCPU leads: the 12 vCPU label starves behind 6 vCPU jobs in Blacksmith's shared macOS vCPU pool and ran nothing from 2026-11-08 16:44Z to 11-09 10:24Z (jobs queued up to 282 min) while 6 vCPU ran 6 to 14. Led by 12 vCPU, the pool went back to it each time a dead mark expired (DEAD_TTL). 12 vCPU stays the fallback when 6 vCPU stalls",
+      "ephemeral_only": true,
       "members": [
         "blacksmith-6vcpu-macos-26",
         "blacksmith-12vcpu-macos-26"
@@ -174,6 +197,7 @@
     },
     "macos_latest": {
       "why": "Jobs that build on Blacksmith's macos-latest image (coderouter release binaries); the pinned macOS 26 image takes them when it stalls",
+      "ephemeral_only": true,
       "members": [
         "blacksmith-6vcpu-macos-latest",
         "blacksmith-6vcpu-macos-26"
