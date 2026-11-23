@@ -40,8 +40,11 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # The type check runs in webviews-checks (`bun run check`), not before these bundle tests: a type error
+      # never stops the build, which only transpiles (Leo, 2026-11-19: "the CI doesn't necessarily have to fail
+      # and like give up").
       - name: Verify webviews source checks
-        run: ./scripts/build-webviews-app.sh --check
+        run: ./scripts/build-webviews-app.sh --check --skip-typecheck
 
       # The app build path (cx-vn5): every build entry runs build-web-bundles.sh
       # before it compiles. The bundles must build, the strings tables (still
@@ -106,7 +109,11 @@ jobs:
       - name: Build the web bundles
         run: ./scripts/cmux-next/build-web-bundles.sh
 
+      # Its red (the type check among them) reports and keeps going: the tests below still run, and the
+      # last step fails the job on it.
       - name: vp check
+        id: check
+        continue-on-error: true
         working-directory: webviews
         run: bun run check
 
@@ -125,6 +132,12 @@ jobs:
       - name: bun test
         working-directory: webviews
         run: ../scripts/ci/run-webviews-tests.sh
+
+      - name: Fail on vp check
+        if: ${{ !cancelled() && steps.check.outcome == 'failure' }}
+        run: |
+          echo "::error title=vp check::vp check failed; see its step. The tests after it ran anyway."
+          exit 1
 
   # Interaction-latency scoreboard (plans/cmux-next/zero-latency.md): input-to-paint of every
   # page's named actions in headless Chromium and WebKit. A scoreboard only: it reports numbers in
