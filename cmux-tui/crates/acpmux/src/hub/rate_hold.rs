@@ -82,6 +82,19 @@
 //!   them in, and a turn that completes with them puts none back. The leading message's sender
 //!   had the turn's error; the others' sends wait on. A turn its model began is continued as
 //!   before, and its messages go back once (`requeue_joined`).
+//!
+//! An agent process that quits on the account's limit between turns (Leo, 2026-11-21: "i dont
+//! think 429 should just cause a process to just exit on its own, this is pretty weird") left the
+//! chat `Disconnected` with no hold: the next message respawned it straight into the limit, and
+//! with none the chat stayed down. Now ([`Hub::hold_at_exit`], `permissions.rs`):
+//!
+//! - The exit is a strike and holds the chat as a turn's 429 does, at least [`backoff_ms`] of
+//!   its strikes: whatever is queued or comes in waits for the reset. A chat already held (its
+//!   turn's 429 came first) takes no second strike for the same 429.
+//! - At the reset the hold's timer starts the agent again on its conversation (`child_for`, the
+//!   cold start and `session/load` every lazy start uses), with no prompt: no model request. A
+//!   parked, stopped or closed chat is not started. A revived agent that quits on the limit
+//!   again is the next strike, so the waits double and the sixth parks the chat.
 
 use super::*;
 use std::sync::Mutex as StdMutex;
@@ -158,6 +171,9 @@ struct HoldState {
     parked: Option<u64>,
     /// When the chat last told the session it reports to that it parked.
     noticed_at: Option<u64>,
+    /// The agent process quit on the limit between turns ([`Hub::hold_at_exit`]): the chat's
+    /// stop count then ([`Session::stops`]). The timer's lift at the reset starts the agent again.
+    revive: Option<u64>,
 }
 
 impl RateHold {
@@ -279,8 +295,12 @@ impl Hub {
                 drop(s);
                 hold.due.notify_one();
             } else {
+                let revive = s.revive.take();
                 drop(s);
                 self.lift_rate_hold(session, "reset");
+                if let Some(stops) = revive {
+                    self.revive_at_reset(session, stops);
+                }
             }
             return;
         }
@@ -317,6 +337,7 @@ impl Hub {
             }
             s.until = None;
             s.continuation = false;
+            s.revive = None;
             (s.turn.take(), s.strikes)
         };
         hold.changed.notify_waiters();
@@ -354,6 +375,66 @@ impl Hub {
         let until = reset.max(not_before).unwrap_or(now + MIN_HOLD_MS);
         self.hold_for_rate_limit(session, turn, until, false);
         false
+    }
+
+    /// `session`'s agent process quit between turns on the account's limit, saying `error`
+    /// (`permissions.rs`, its `exited` record's `reason: "rate_limit"`): a strike that holds the
+    /// chat as a turn's 429 does ([`Hub::hold_at_failure`]), at least [`backoff_ms`] of its
+    /// strikes, and the hold's lift at the reset starts the agent again ([`Hub::revive_at_reset`]).
+    /// A turn that runs or was cut by this exit is the turn's to hold (`auto_resume.rs`); a chat
+    /// already held for the same 429 takes no second strike, and a parked one stays parked.
+    pub(super) async fn hold_at_exit(self: &Arc<Self>, session: &Arc<Session>, error: &str) {
+        if session.turn().is_some() || session.turn_claimed() {
+            return;
+        }
+        let stops = session.stops.load(std::sync::atomic::Ordering::SeqCst);
+        let strikes = {
+            let mut s = session.rate_hold.lock();
+            if s.parked.is_some() {
+                return;
+            }
+            s.revive = Some(stops);
+            if s.until.is_some() {
+                return;
+            }
+            s.strikes.saturating_add(1)
+        };
+        let configured = self.config.read().await.auto_resume_delays_ms.clone();
+        let base = backoff_base(&super::auto_resume::effective_delays(configured));
+        let now = now_ms();
+        let exit = format!("exit-{now}");
+        let parked =
+            self.hold_at_failure(session, &exit, error, Some(now + backoff_ms(strikes, base)));
+        if parked {
+            session.rate_hold.lock().revive = None;
+        }
+    }
+
+    /// The hold an agent's limit exit set lifted at its reset ([`Hub::hold_at_exit`]): the agent
+    /// starts again on its conversation by the lazy start every warm, model or mode change uses
+    /// (`child_for_since`: its cold start and `session/load`), and no prompt goes to it. Only a
+    /// chat still down since the exit: not one stopped, closed or deleted since (its stop count
+    /// moved, or it is not `Disconnected`), nor one a prompt started meanwhile.
+    fn revive_at_reset(self: &Arc<Self>, session: &Arc<Session>, stops: u64) {
+        let (hub, session) = (self.clone(), session.clone());
+        // One per lifted hold; the start is bounded by `ensure_child`'s own limits.
+        self.scope.spawn_until_cancelled("rate-limit-revive", async move {
+            let down = session.status() == SessionStatus::Disconnected
+                && session.stops.load(std::sync::atomic::Ordering::SeqCst) == stops
+                && !session.purging.load(std::sync::atomic::Ordering::SeqCst);
+            if !down {
+                return;
+            }
+            let strikes = session.rate_hold.strikes();
+            match hub.child_for_since(&session, stops).await {
+                Ok(_) => {
+                    hub.append(&session, "mux", "rate_limit_revived", json!({"strikes": strikes}));
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "rate limit: not revived at the reset: {}", e.message);
+                }
+            }
+        });
     }
 
     /// Whether the turn of `session` that started at `turn_seq` failed with `error` on the

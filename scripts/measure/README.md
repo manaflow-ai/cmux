@@ -31,6 +31,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | idle-compare | `idle-energy-compare.sh` (`idle-energy-compare.py`) on a fleet display Mac | cmux NEXT vs Claude Code desktop vs Terminal.app idle: fresh signed-out profiles, a calibration window, then at least 3 interleaved rounds of equal windows per app; CPU energy mW, CPU % and wakeups/s with baseline counters read first (hq#19931). |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| ci-vm-idle | `ci-vm-idle.py` from a local capture | GCP CI VM running time, idle time and list-price cost for persistent and JIT runner pools. The wrapper records VM-hours as seconds and USD as integer cents for stable scalar rows. |
 | chat-size | `chat-size-sweep.sh` on the Linux fleet | Real daemon open, pages at three depths, first token, prompt index and RSS at 1 MB, 100 MB, 1 GB and 4 GB, with ratios and a Markdown table. |
 | agent-turn | `cargo bench -p acpmux --bench turn_overhead` (`benches/turn_overhead.rs`) on Linux CI | One agent turn through a real acpmux daemon with a stand-in model that answers at once: send, harness, store, deliver, render, turn, shown (median and p95 over 100 turns). |
 | cloud-turn | `cargo bench -p acpmux --features hub-carrier --bench turn_overhead -- --route local`, then `--route relay` (`benches/turn_overhead.rs`, `turn_overhead/relay.rs`) on Linux CI | The agent-turn turns with the chat crossing a real relay on loopback (the Cloud carrier's relay, its client and the Noise link), beside the local route from the same binary: the same stages plus relay_in, relay_out and a pane attach (connect, handshake, first frame). |
@@ -157,6 +158,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | name | what it measures | ticket / owner | last touched | status |
 |---|---|---|---|---|
 | `idle-cpu.sh` | Idle CPU and wakeups of the app, acpmux and cmux-tui after N minutes. | - | 2026-11-04 | active |
+| `ci-vm-idle.py` | Running VM-hours, idle VM-hours and list-price USD for persistent and JIT GCP CI pools from a local capture (`cmux-bench ci-vm-idle --arg input=PATH`). | GCP CI capacity | 2026-11-23 | active |
 | `mcp-fanout.sh` | MCP tool-server processes, RSS and idle CPU per kind at N open chats (Claude, Codex) on any build (`app=`). | nightly-mcp-fanout | 2026-11-17 | active |
 | `mcp-fanout.py` | Python driver for mcp-fanout.sh. | nightly-mcp-fanout | 2026-11-17 | active |
 | `perf-10x-idle.sh` | Idle CPU, wakeups and RSS at 1, 10 and 50 workspaces; with `axes=`, the marginal idle cost (CPU, footprint, wakeups, disk bytes per hour, GPU utilization) of one more chat or terminal, hidden or visible, per process. | perf-10x, CMUX-672 | 2026-11-19 | active |
