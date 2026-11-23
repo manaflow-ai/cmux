@@ -642,7 +642,12 @@ fn display_sender_name(sender: &Value, fallback: &str) -> String {
         (Some(label), true, false) => format!("{label} (self-declared, unauthenticated)"),
         (Some(label), true, true) if fallback.is_empty() => label.to_owned(),
         (Some(label), true, true) => format!("{fallback} (label: {label})"),
-        _ => fallback.to_owned(),
+        // A session with a given name reads by it, with the name it was known by
+        // (`Mango · HOST/NAME`, `prompt_provenance::display_label`).
+        _ => crate::prompt_provenance::display_label(
+            sender.get("displayName").and_then(Value::as_str),
+            fallback,
+        ),
     }
 }
 
