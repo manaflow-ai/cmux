@@ -181,7 +181,8 @@ nonisolated enum AcpmuxPersonKey {
                 if let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) {
                     logger.error("acpmux person_enroll not sent: \(String(describing: refusal), privacy: .public); acpmux \(pid) runs a replaced bundle")
                     return await handOff(status, environment: environment, mayHandOff: mayHandOff,
-                                         why: "runs a bundle an update replaced, which cannot take this launch's person key") ? .handedOff : .refused
+                                         why: "runs a bundle an update replaced, which cannot take this launch's person key",
+                                         replaced: true) ? .handedOff : .refused
                 }
                 // Another install's or another user's daemon refuses for good: no retry there.
                 guard Self.mayPass(refusal), let delay = delays.popFirst(), !Task.isCancelled else {
@@ -214,8 +215,10 @@ nonisolated enum AcpmuxPersonKey {
 
     /// Stops the daemon `status` describes so the caller starts one that takes this launch's key:
     /// only with `mayHandOff`, only one with agent hosts (its agents keep running), once per pid.
+    /// `replaced`: its executable was replaced by an update; it is asked to swap to the installed
+    /// build itself first (``AcpmuxVersionHandoff/swapReplaced(_:pid:reason:)``), make-before-break.
     private static func handOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, mayHandOff: Bool,
-                                why: String) async -> Bool {
+                                why: String, replaced: Bool = false) async -> Bool {
         guard mayHandOff else {
             logger.error("acpmux \(status.pid ?? -1) \(why, privacy: .public); a reconnect does not hand it off")
             return false
@@ -227,6 +230,9 @@ nonisolated enum AcpmuxPersonKey {
         }
         guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
         logger.info("acpmux \(pid) \(why, privacy: .public); handing it off")
+        if replaced, await AcpmuxVersionHandoff.swapReplaced(environment, pid: pid, reason: "person key: acpmux \(why)") {
+            return true
+        }
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home,
                                                   reason: "person key: acpmux \(why)",

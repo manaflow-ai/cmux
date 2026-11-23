@@ -42,4 +42,12 @@ public nonisolated extension RemoteRdHello {
     static let clockCap = "clock"
     /// The stage ledger (`caps::LEDGER`): each frame's host times follow its last shard.
     static let ledgerCap = "ledger"
+    /// The cap a viewer offers to take frames larger than one FEC block (cmux-rd-core
+    /// `caps::FEC_BLOCKS`): the host splits them across interleaved FEC blocks and the Rust
+    /// reassembler (`RemoteRdCore`) rebuilds them.
+    static let fecBlocksCap = "fec.blocks"
+    /// The cap a viewer offers when it shows a picture smaller than the stream scaled up to the
+    /// stream's size (welcome `width`/`height`) and keeps sending input in stream pixels: the
+    /// host may then encode a smaller picture on a slow link (its resolution ladder).
+    static let videoScaledCap = "video.scaled"
 }

@@ -33,8 +33,25 @@ public nonisolated struct AppPresentation: Sendable, Hashable {
         public var origins: [String]
     }
 
+    /// `overlay`: the app's `cmux.pane/1` scene may also open as a floating overlay over the
+    /// window, from the person's own gesture only (the supervisor refuses any other origin).
+    public struct Overlay: Sendable, Hashable {
+        /// Default 480 by 320 points; the window's size caps both.
+        public static let defaultSize = CGSize(width: 480, height: 320)
+        /// Default: the app name.
+        public var title: AppLocalizedText?
+        public var size: CGSize
+
+        init(json: AppJSON) {
+            title = AppLocalizedText(json: json["title"])
+            size = CGSize(width: json["width"]?.numberValue ?? Self.defaultSize.width,
+                          height: json["height"]?.numberValue ?? Self.defaultSize.height)
+        }
+    }
+
     public var sidebarItem: SidebarItem?
     public var screen: Screen?
+    public var overlay: Overlay?
     /// The app may also open as a page tab.
     public var tab: Bool
     /// Where typing goes when nothing has focus: a CSS selector or a scene node id.
@@ -49,6 +66,7 @@ public nonisolated struct AppPresentation: Sendable, Hashable {
         }
         screen = json["screen"]?.stringValue.flatMap(Screen.init(rawValue:))
         tab = json["tab"]?.boolValue ?? false
+        overlay = json["overlay"].flatMap { $0.objectValue == nil ? nil : Overlay(json: $0) }
         primaryInput = json["primaryInput"]?.stringValue
         if let web = json["web"], let url = web["url"]?.stringValue.flatMap(URL.init(string:)) {
             self.web = Web(url: url, profile: web["profile"]?.stringValue ?? "app",
