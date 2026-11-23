@@ -361,13 +361,14 @@ async function run(
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const reader = step.reader;
         if (scroller)
-          scroller.scrollTop = "scrollBy" in reader
-            ? scroller.scrollTop + reader.scrollBy
-            : "scroll" in reader
-              ? reader.scroll === "top"
-                ? 0
-                : scroller.scrollHeight
-              : scroller.scrollTop;
+          scroller.scrollTop =
+            "scrollBy" in reader
+              ? scroller.scrollTop + reader.scrollBy
+              : "scroll" in reader
+                ? reader.scroll === "top"
+                  ? 0
+                  : scroller.scrollHeight
+                : scroller.scrollTop;
       }
       if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
       if (index < fastUntil) {

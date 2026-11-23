@@ -253,7 +253,9 @@ test("the + menu's rows carry what Return does, and the none arm draws no hint",
   const verbOf = (name: string) =>
     rows.find((el) => el.textContent?.includes(name))?.querySelector(".acpmux-menu-return-verb")?.textContent;
   expect(verbOf("Plan mode")).toBe("Switch to");
-  expect(rows.every((row) => row.querySelector(".acpmux-menu-return .ui-key-hint")?.textContent === "return")).toBe(true);
+  expect(rows.every((row) => row.querySelector(".acpmux-menu-return .ui-key-hint")?.textContent === "return")).toBe(
+    true,
+  );
   expect(rows.every((row) => row.querySelector(".acpmux-menu-return")?.getAttribute("aria-hidden") === "true")).toBe(
     true,
   );
