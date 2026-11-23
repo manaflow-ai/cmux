@@ -97,6 +97,83 @@ public struct CloudCLICall: Sendable {
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
     }
 
+    /// `cmux cloud auth-handoff-relay` (cmux-tui `cli/cloud_auth_handoff_relay.rs`) for `auth.handoff.mint` and
+    /// `auth.handoff.redeem` (`cmux auth handoff`): `op` is `mint` or `redeem`, the request its params as JSON
+    /// bytes, the answer `{ok: true, value}` or `{ok: false, error: {code, message}}`. The two cmux-api requests and
+    /// their rules are that Rust's. This hands it the signed-in human Stack session for a mint (read per call, on
+    /// stdin, never argv) and the account signed in now for a redeem, signs in with the session a redeem answers
+    /// through the browser sign-in's own completion, and answers only the reply, never a token. A redeem whose
+    /// account changed while it ran signs nothing in.
+    @MainActor
+    public func authHandoffRelay(signedIn auth: CloudAuth) -> @Sendable (String, Data) async -> Data {
+        let api = auth.configuration.ownerAPIBaseURL().absoluteString
+        let account: @Sendable (Bool) async -> (credential: String?, user: String?) = { @MainActor [weak auth] mint in
+            guard let auth else { return (nil, nil) }
+            if mint {
+                guard await auth.restoredAccessToken() != nil, let access = try? await auth.tokens().access else { return (nil, nil) }
+                return (access, nil)
+            }
+            await auth.awaitRestored()
+            return (nil, auth.isSignedIn ? auth.user?.id : nil)
+        }
+        let signIn: @Sendable (String?, String, String) async -> Bool = { @MainActor [weak auth] before, access, refresh in
+            guard let auth, (auth.isSignedIn ? auth.user?.id : nil) == before else { return false }
+            return await auth.browserSignIn.completeHandoff(accessToken: access, refreshToken: refresh)
+        }
+        let unchanged: @Sendable (String?) async -> Bool = { @MainActor [weak auth] before in
+            guard let auth else { return false }
+            return (auth.isSignedIn ? auth.user?.id : nil) == before
+        }
+        return { [self] op, request in
+            let mint = op == "mint"
+            let (credential, before) = await account(mint)
+            if mint, credential == nil { return Self.handoffRefusal("not_signed_in", "Sign in to cmux on this Mac first.") }
+            guard let stdin = Self.handoffEnvelope(api: api, credential: credential, op: op, request: request, expectedUser: before),
+                  let line = try? await run(["cloud", "auth-handoff-relay"], stdin: stdin, timeout: .seconds(23)) else {
+                return Self.handoffUnavailable
+            }
+            guard !mint, let redeemed = Self.handoffRedeemed(line) else { return line }
+            if let session = redeemed.session {
+                guard await signIn(before, session.access, session.refresh) else { return Self.handoffUnavailable }
+            } else if await !unchanged(before) {
+                return Self.handoffUnavailable
+            }
+            return redeemed.reply
+        }
+    }
+
+    /// The relay's stdin: the origin, the credential and the request (`device` and `code` from the params, `op` and
+    /// `expected_user` this app's own).
+    nonisolated private static func handoffEnvelope(api: String, credential: String?, op: String, request: Data, expectedUser: String?) -> Data? {
+        let params = (try? JSONSerialization.jsonObject(with: request)) as? [String: Any] ?? [:]
+        var body = params.filter { $0.key == "device" || $0.key == "code" }
+        body["op"] = op
+        if let expectedUser { body["expected_user"] = expectedUser }
+        let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": body]
+        return try? JSONSerialization.data(withJSONObject: envelope)
+    }
+
+    /// A redeem's `{session, reply}`: the session's tokens, if any, and the reply as an answer line; nil for a refusal.
+    nonisolated private static func handoffRedeemed(_ line: Data) -> (session: (access: String, refresh: String)?, reply: Data)? {
+        guard let answer = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], answer["ok"] as? Bool == true,
+              let value = answer["value"] as? [String: Any], let reply = value["reply"] as? [String: Any],
+              let replyLine = try? JSONSerialization.data(withJSONObject: ["ok": true, "value": reply]) else { return nil }
+        let session = value["session"] as? [String: Any]
+        guard let session else { return (nil, replyLine) }
+        guard let access = session["access_token"] as? String, let refresh = session["refresh_token"] as? String else {
+            return (nil, handoffUnavailable)
+        }
+        return ((access, refresh), replyLine)
+    }
+
+    nonisolated private static func handoffRefusal(_ code: String, _ message: String) -> Data {
+        (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["code": code, "message": message]])) ?? Data()
+    }
+
+    nonisolated private static var handoffUnavailable: Data {
+        handoffRefusal("unavailable", "cmux could not be reached. Try again in a moment.")
+    }
+
     private static func unreachable(_ message: String) -> Data {
         let answer: [String: Any] = ["ok": false, "error": ["code": "owner.unreachable", "message": message]]
         return (try? JSONSerialization.data(withJSONObject: answer)) ?? Data(#"{"ok":false,"error":{"code":"owner.unreachable","message":""}}"#.utf8)

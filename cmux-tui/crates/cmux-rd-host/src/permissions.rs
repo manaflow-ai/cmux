@@ -1,12 +1,9 @@
 //! A fresh permission snapshot for the process responsible for this one, and the one request
-//! that asks macOS for a grant. On a Mac the app runs both from the Screen Sharing helper,
-//! started with responsibility disclaimed (plans/cmux-next/screen-sharing-helper.md): in
-//! Release, NIGHTLY and RC this executable inside the Computer Use helper
-//! (`cmux Computer Use.app`, `com.cmuxterm.cua`, so Screen Sharing and Computer Use share one
-//! app's grants), in DEV the separate `<app> Screen Sharing.app`. macOS checks and names the
-//! helper, never the app: a grant restarts at most the helper, never cmux. A fresh process each
-//! time, because a running one can keep an old Screen Recording answer after the person changes
-//! it.
+//! that asks macOS for a grant. On a Mac the app runs both from the Screen Sharing helper
+//! (`<app> Screen Sharing.app`, started with responsibility disclaimed;
+//! plans/cmux-next/screen-sharing-helper.md), so macOS checks and names the helper, never the
+//! app: a grant restarts at most the helper, never cmux. A fresh process each time, because a
+//! running one can keep an old Screen Recording answer after the person changes it.
 //! `permissions` creates no capture session, posts no input and never requests permission;
 //! `request-permission` asks for exactly the one grant named, then prints the same snapshot.
 
@@ -219,9 +216,6 @@ mod tests {
         assert!(crate::is_launch_services_open(&[], helper));
         assert!(crate::is_launch_services_open(&["-psn_0_1234".into()], helper));
         assert!(!crate::is_launch_services_open(&["serve".into()], helper));
-        let in_cua = Path::new("/x/cmux Computer Use.app/Contents/MacOS/cmux-screen-sharing");
-        assert!(crate::is_launch_services_open(&[], in_cua));
-        assert!(!crate::is_launch_services_open(&["serve".into()], in_cua));
         assert!(!crate::is_launch_services_open(&[], cli));
     }
 

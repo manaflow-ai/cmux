@@ -1237,18 +1237,25 @@ fn run_git<const N: usize>(
     Ok(())
 }
 
+/// A DEV build's own plugin folder (the Mac app sets it: BuildStatePaths `muxPluginsDirectoryKey`), so its
+/// plugins never land in `~/.local/share/cmux/mux-plugins`, which NIGHTLY and stable share.
+const PLUGINS_DIR_ENV: &str = "CMUX_NEXT_MUX_PLUGINS_DIR";
+
 fn install_root(kind: PluginKind) -> anyhow::Result<PathBuf> {
     // A relative XDG_DATA_HOME (a quoted "~/.local/share") is ignored, as the
     // XDG spec says; it would resolve against the caller's project directory.
-    let root = if let Some(data_home) =
-        non_empty_env_path("XDG_DATA_HOME").filter(|path| path.is_absolute())
-    {
-        data_home.join("cmux").join("mux-plugins")
-    } else {
-        let home = cmux_tui_core::platform::home_dir()
-            .ok_or_else(|| anyhow::anyhow!("could not resolve home directory"))?;
-        home.join(".local").join("share").join("cmux").join("mux-plugins")
-    };
+    let root =
+        if let Some(own) = non_empty_env_path(PLUGINS_DIR_ENV).filter(|path| path.is_absolute()) {
+            own
+        } else if let Some(data_home) =
+            non_empty_env_path("XDG_DATA_HOME").filter(|path| path.is_absolute())
+        {
+            data_home.join("cmux").join("mux-plugins")
+        } else {
+            let home = cmux_tui_core::platform::home_dir()
+                .ok_or_else(|| anyhow::anyhow!("could not resolve home directory"))?;
+            home.join(".local").join("share").join("cmux").join("mux-plugins")
+        };
     Ok(match kind {
         PluginKind::Sidebar => root,
         PluginKind::Agent => root.join("agent"),

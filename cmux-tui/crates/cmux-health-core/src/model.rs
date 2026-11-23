@@ -21,9 +21,15 @@
 //! repair that loads a page again) passes without the part's signal
 //! coming back (a `repairResult` with `ok: false` makes it due at once).
 //! Past [`policy::MAX_REPAIRS`] attempts in [`policy::REPAIR_WINDOW_MS`] the
-//! part is `failed` and waits for the user's click, which clears the cap and
-//! starts again at step 1. The episode ends only when the signal comes back
+//! part is `failed`: it tries again by itself from step 1 once its oldest
+//! attempt leaves the window, and the user's click clears the cap and starts
+//! again at step 1 at once. The episode ends only when the signal comes back
 //! (a beat, `responsive`, `connected`, `loaded`), never on a result alone.
+//!
+//! Pages silent together are one stall ([`policy::PAGE_SHARED_STALL_MS`]): the model keeps the
+//! timed pages (visible, not resting, not crashed) ordered by their last beat, so a page finds the
+//! oldest silence among the others in O(log n), and a stall of many pages is waited out instead of
+//! reloading each one and then killing the renderer they share.
 
 use crate::detail::{self, Cause};
 use crate::policy;
@@ -140,6 +146,19 @@ struct Part {
     detail: String,
     deadline: Option<u64>,
     generation: u64,
+    /// Its last beat in [`Health::timed`], while it is a timed page.
+    timed_beat: Option<u64>,
+}
+
+/// What a page knows about the other timed pages at one instant.
+#[derive(Debug, Clone, Copy, Default)]
+struct Siblings {
+    /// The timed page silent longest: its last beat and slot.
+    oldest: Option<(u64, usize)>,
+    /// The oldest last beat among the timed pages other than this one.
+    other_beat: Option<u64>,
+    /// The last renderer restart sent for any page.
+    restarted_at: Option<u64>,
 }
 
 /// The whole model. One per app; the host holds it under its own lock.
@@ -152,6 +171,11 @@ pub struct Health {
     /// Parts with a deadline (live heap entries).
     armed: usize,
     generation: u64,
+    /// Timed pages (visible, not resting, not crashed, beat once) by `(last beat, slot)`.
+    timed: BTreeSet<(u64, usize)>,
+    /// The last `restartRenderer` sent for a page: a shared renderer restarts at most once per
+    /// [`policy::PAGE_BOOT_MS`] for a stall, whichever page is silent longest after it.
+    restarted_at: Option<u64>,
     /// Ids of the parts that are not healthy (the snapshot's parts).
     unhealthy: BTreeSet<String>,
     /// Newest first, at most [`policy::RECEIPTS`].
@@ -172,8 +196,30 @@ fn prune(times: &mut VecDeque<u64>, window: u64, now: u64) {
     }
 }
 
-/// The condition of `part` at `now` (the daemon's start list is pruned).
-fn evaluate(part: &mut Part, now: u64) -> Cond {
+/// A page stuck by silence while another timed page has been silent at least
+/// [`policy::PAGE_SLOW_SILENT_MS`]: one stall of what they share. `slow` and waited out; past
+/// [`policy::PAGE_SHARED_STALL_MS`] from the oldest silence (and the boot wait after the last renderer
+/// restart), the page silent longest alone restarts the renderer. `None`: not a shared stall.
+fn shared_stall(slot: usize, silent_ms: u64, siblings: Siblings, now: u64) -> Option<Cond> {
+    let other = siblings.other_beat?;
+    if other.saturating_add(policy::PAGE_SLOW_SILENT_MS) > now {
+        return None;
+    }
+    let (since, leader) = siblings.oldest?;
+    let after_restart =
+        siblings.restarted_at.map_or(0, |at| at.saturating_add(policy::PAGE_BOOT_MS));
+    let escalate_at = since.saturating_add(policy::PAGE_SHARED_STALL_MS).max(after_restart);
+    let cause = Cause::PagesStalled { ms: silent_ms };
+    if leader == slot && now >= escalate_at {
+        return Some(Cond::at(State::Stuck, cause, Mode::Ladder(policy::PAGE_SHARED_STALL_LADDER)));
+    }
+    let recheck = now.saturating_add(policy::PAGE_SHARED_RECHECK_MS);
+    let next = if escalate_at > now { escalate_at.min(recheck) } else { recheck };
+    Some(Cond::at(State::Slow, cause, Mode::Wait).until(next))
+}
+
+/// The condition of `part` (in `slot`) at `now` (the daemon's start list is pruned).
+fn evaluate(part: &mut Part, slot: usize, siblings: Siblings, now: u64) -> Cond {
     let healthy = Cond::default();
     if !part.visible {
         return healthy;
@@ -186,6 +232,15 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
             let ladder = Mode::Ladder(policy::PAGE_LADDER);
             if s.crashed {
                 return stuck(Cause::PageCrashed, ladder);
+            }
+            // Silent with its siblings: their shared renderer or the Mac stalls, not this page (its
+            // unhandled input then waits for the same thread).
+            let silent_ms = s.last_beat.filter(|_| !s.resting).map(|beat| now.saturating_sub(beat));
+            let shared = silent_ms
+                .filter(|&ms| ms >= policy::PAGE_STUCK_MS)
+                .and_then(|ms| shared_stall(slot, ms, siblings, now));
+            if let Some(shared) = shared {
+                return shared;
             }
             // A resting page beats no more until something happens in it: silence is its normal state.
             let silence = s.last_beat.filter(|_| !s.resting).map_or(healthy, |beat| {
@@ -343,6 +398,7 @@ impl Health {
             detail: String::new(),
             deadline: None,
             generation: 0,
+            timed_beat: None,
         };
         let slot = match self.free.pop() {
             Some(slot) => match self.slots.get_mut(slot) {
@@ -369,6 +425,9 @@ impl Health {
     pub fn unregister(&mut self, id: &str) {
         let Some(slot) = self.ids.remove(id) else { return };
         self.set_deadline(slot, None);
+        if let Some(beat) = self.part(slot).and_then(|p| p.timed_beat.take()) {
+            self.timed.remove(&(beat, slot));
+        }
         if let Some(freed) = self.slots.get_mut(slot) {
             *freed = None;
             self.free.push(slot);
@@ -665,13 +724,24 @@ impl Health {
     /// `now` for the host's next tick.
     fn refresh(&mut self, slot: usize, now: u64, mut actions: Option<&mut Vec<Action>>) {
         let mut receipts: Vec<ReceiptParts> = Vec::new();
-        let Some(part) = self.part(slot) else { return };
-        let cond = evaluate(part, now);
+        let siblings = self.time_page(slot);
+        let restarted_at = &mut self.restarted_at;
+        let Some(part) = self.slots.get_mut(slot).and_then(Option::as_mut) else { return };
+        let cond = evaluate(part, slot, siblings, now);
         let mut deadline = cond.next;
         let kind = part.kind;
         let r = &mut part.repair;
         let state = match (cond.level, cond.mode) {
             (State::Stuck, Mode::Ladder(ladder)) => {
+                if r.failed {
+                    // The cap is MAX_REPAIRS in the window, not for good: once the oldest attempt leaves
+                    // it, the part tries again by itself from step 1, with no click (David Beyer,
+                    // 2026-11-20: "Agent chat needs a repair" asked for what the app can do itself).
+                    prune(&mut r.history, policy::REPAIR_WINDOW_MS, now);
+                    if r.history.len() < policy::MAX_REPAIRS as usize {
+                        (r.failed, r.attempt, r.next_at) = (false, 0, None);
+                    }
+                }
                 let due = r.attempt == 0 || r.next_at.is_some_and(|at| at <= now);
                 if r.failed {
                     State::Failed
@@ -690,6 +760,9 @@ impl Health {
                         r.action = policy::step(ladder, r.attempt);
                         r.next_at = Some(now + policy::wait_after(r.action, r.attempt));
                         r.sent += 1;
+                        if kind == Kind::Page && r.action == RepairAction::RestartRenderer {
+                            *restarted_at = Some(now);
+                        }
                         let (action, attempt, token) = (r.action, r.attempt, r.sent);
                         out.push(Action { id: part.id.clone(), kind, action, attempt, token });
                         let words =
@@ -734,6 +807,11 @@ impl Health {
         if state == State::Repairing {
             deadline = earliest(deadline, r.next_at);
         }
+        if state == State::Failed {
+            // One deadline: when the oldest attempt leaves the cap's window, it tries again by itself.
+            let free = r.history.front().map(|&at| at.saturating_add(policy::REPAIR_WINDOW_MS));
+            deadline = earliest(deadline, free);
+        }
         part.detail = match state {
             State::Healthy => String::new(),
             State::Repairing => {
@@ -757,6 +835,36 @@ impl Health {
             self.receipt(id.clone(), now, receipt);
         }
         self.set_deadline(slot, deadline);
+    }
+
+    /// Keeps `slot` in [`Self::timed`] while it is a timed page, then reads its siblings: the
+    /// oldest timed page and the oldest other than it (at most two entries looked at).
+    fn time_page(&mut self, slot: usize) -> Siblings {
+        let Some(part) = self.slots.get_mut(slot).and_then(Option::as_mut) else {
+            return Siblings::default();
+        };
+        let s = &part.signals;
+        let timed = part.kind == Kind::Page && part.visible && !s.resting && !s.crashed;
+        let beat = s.last_beat.filter(|_| timed);
+        if part.timed_beat != beat {
+            if let Some(old) = part.timed_beat {
+                self.timed.remove(&(old, slot));
+            }
+            if let Some(new) = beat {
+                self.timed.insert((new, slot));
+            }
+            part.timed_beat = beat;
+        }
+        if part.kind != Kind::Page {
+            return Siblings::default();
+        }
+        let mut first_two = self.timed.iter().take(2);
+        let oldest = first_two.next().copied();
+        let other_beat = match oldest {
+            Some((_, first)) if first == slot => first_two.next().map(|&(beat, _)| beat),
+            other => other.map(|(beat, _)| beat),
+        };
+        Siblings { oldest, other_beat, restarted_at: self.restarted_at }
     }
 
     fn set_deadline(&mut self, slot: usize, deadline: Option<u64>) {

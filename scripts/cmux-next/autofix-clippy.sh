@@ -7,12 +7,22 @@
 # file, or "left: ..." when the crates do not build (their errors are a
 # person's to fix).
 #
+# --affected (the base autofix, base-autofix-repair.sh): the crates those paths can
+# affect instead (scripts/ci/cargo_affected.py: the owners and every crate that
+# depends on them, or the workspace), close to what the required clippy gate
+# checks (.github/scripts/cmux-tui-clippy-changed.py), so a machine-applicable base
+# clippy red is repaired on feat-cmux-next once, not by hand in every pull
+# request it blocks (#48173, #48184 and #48186 each removed the same
+# std::time:: qualification on 2026-11-20).
+#
 # A stale Cargo.lock (cargo's --locked refusal) is named as such, with its fix,
 # by cargo-locks.py explain, instead of "could not build".
 #
-# Usage: gh pr diff N --name-only | scripts/cmux-next/autofix-clippy.sh REPO
+# Usage: gh pr diff N --name-only | scripts/cmux-next/autofix-clippy.sh [--affected] REPO
 set -euo pipefail
-repo="$(cd "${1:?usage: $0 REPO}" && pwd)"
+affected=0
+if [[ "${1:-}" == --affected ]]; then affected=1; shift; fi
+repo="$(cd "${1:?usage: $0 [--affected] REPO}" && pwd)"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 changed="$(cat)"
 grep -qE '^cmux-tui/.*\.rs$' <<<"$changed" || exit 0
@@ -34,6 +44,13 @@ if (( status != 0 )); then
   fi
   exit 1  # as before, when the package lookup read cargo metadata's empty output
 fi
+if (( affected )); then
+  # One package (or --workspace) per line (cargo_affected.py), from the metadata read above.
+  packages="$(python3 -I "$here/../ci/cargo_affected.py" --root "$repo" --metadata "$metadata" --files - --format lines <<<"$changed")" || {
+    echo "left: cargo clippy --fix did not run: scripts/ci/cargo_affected.py could not select the crates (see the job log)"
+    exit 0
+  }
+else
 # Owning crate: the workspace member whose directory is the longest prefix.
 packages="$(CHANGED="$changed" REPO="$repo" python3 -I -c '
 import json, os, sys
@@ -50,9 +67,12 @@ for path in os.environ["CHANGED"].splitlines():
                 break
 print("\n".join(sorted(names)))
 ' <"$metadata")"
+fi
 [[ -n "$packages" ]] || exit 0
-args=()
-while IFS= read -r package; do args+=(-p "$package"); done <<<"$packages"
+args=() fmt_args=()
+while IFS= read -r package; do
+  if [[ "$package" == --workspace ]]; then args+=(--workspace) fmt_args+=(--all); else args+=(-p "$package") fmt_args+=(-p "$package"); fi
+done <<<"$packages"
 
 if ! (cd "$repo/cmux-tui" && cargo clippy --fix --allow-dirty --allow-staged --locked --all-targets "${args[@]}" >"$log" 2>&1); then
   tail -n 40 "$log" >&2
@@ -64,5 +84,5 @@ if ! (cd "$repo/cmux-tui" && cargo clippy --fix --allow-dirty --allow-staged --l
   git -C "$repo" checkout --quiet -- cmux-tui
   exit 0
 fi
-(cd "$repo/cmux-tui" && cargo fmt "${args[@]}")
+(cd "$repo/cmux-tui" && cargo fmt "${fmt_args[@]}")
 git -C "$repo" diff --name-only -- cmux-tui | sed 's/^/fixed: cargo clippy --fix /'

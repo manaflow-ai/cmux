@@ -35,6 +35,7 @@ import { applyHostEvent } from "../src/agent-session/acpmux/pageHost";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 import { SummaryButton } from "../src/agent-session/acpmux/summary/SummaryButton";
+import { SEARCH_CHATS_ACTION } from "../src/agent-session/acpmux/header/glassToolbar.experiment";
 import { until } from "./support/until";
 import { settleReact } from "./support/domTeardown";
 
@@ -229,6 +230,23 @@ test("native and DOM PR labels retain aggregate failure and pending state withou
       }
     }
   }
+});
+
+test("glass toolbar keeps quick tools and search in the native tab row", async () => {
+  const h = nativeHarness();
+  const searches: string[] = [];
+  await h.render({ glass: "keycaps", onSearch: () => searches.push("search") });
+
+  // The experiment changes the host row's treatment, not its owner. No duplicate web controls
+  // may appear beside the native buttons while the flag is on.
+  expect(h.tool("terminal")).toBeDefined();
+  expect(h.tool(SEARCH_CHATS_ACTION)).toEqual(expect.objectContaining({ symbol: "magnifyingglass", enabled: true }));
+  expect(h.container.querySelector("[data-quick-action]")).toBeNull();
+  expect(h.container.querySelector(".acpmux-glass-search")).toBeNull();
+  expect(h.container.querySelector(".acpmux-header-more")).toBeNull();
+
+  act(() => applyHostEvent({ kind: "tabRowToolInvoked", value: { id: SEARCH_CHATS_ACTION } }));
+  expect(searches).toEqual(["search"]);
 });
 
 test("native worktree uses the DOM refusal, retry, exclusion and removed state machine", async () => {

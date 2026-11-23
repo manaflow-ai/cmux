@@ -77,6 +77,10 @@
       "count": 4,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
+    "agent-pane.blank-load-fade#stagger": {
+      "count": 4,
+      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
+    },
     "agent-pane.chat-motion-pass#mid-turn-send": {
       "count": 17,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"

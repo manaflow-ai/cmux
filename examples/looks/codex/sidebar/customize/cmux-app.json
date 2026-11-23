@@ -1,0 +1,31 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": { "en": "Reference sidebar" },
+  "version": "1.0.0",
+  "description": "A chat list after a desktop coding agent app: a New chat row, Pinned, chats by project or in one list, a sort, archive from a row, a plain thread hover card, and quiet one-line row decorations.",
+  "engines": { "cmux": "^2.0" },
+  "repository": "https://github.com/local/customize",
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderChats",
+      "title": "Chats",
+      "symbol": "bubble.left.and.bubble.right",
+      "options": { "defaultRegion": "top", "maxRows": 60 }
+    },
+    "cmux.hovercard/1": { "export": "renderCard" },
+    "cmux.sidebar.rows/1": { "export": "decorateRows" }
+  },
+  "scopes": {
+    "chat:read": "List your chats, including archived ones, to hide them.",
+    "workspace:read": "Know which workspace is open, to mark its chat.",
+    "workspace:write": "Show a chat's workspace when you click it.",
+    "chat:write": "Pin and archive the chats you choose.",
+    "actions:run": "Start a chat, or open one in a tab.",
+    "storage:local": "Remember the sort, grouping and which lists are open."
+  },
+  "activation": ["onInterface:cmux.section/1", "onInterface:cmux.hovercard/1", "onInterface:cmux.sidebar.rows/1"],
+  "files": ["main.js"]
+}

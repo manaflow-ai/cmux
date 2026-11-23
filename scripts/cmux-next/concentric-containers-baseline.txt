@@ -106,9 +106,7 @@ webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
 webviews/src/pages/passwords/styles.css: .pw-notice { border-radius: 7px }
 webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: var(--page-size-10) }
-webviews/src/pages/shared/desktop.css: .ui-tooltip, .ui-title-tooltip { border-radius: 5px }
 webviews/src/pages/tasks/styles.css: .tasks-card { border-radius: 6px }
-webviews/src/styles.css: .comment-composer, .comment-card { border-radius: 10px }
 webviews/src/ui/importCards.css: .import-card { border-radius: 10px }
 webviews/src/ui/ui.css: .ui-sheet { border-radius: 12px 12px 0 0 }
 webviews/src/viewer-empty/styles.css: .ve-hint kbd { border-radius: var(--ui-row-radius, 4px) }

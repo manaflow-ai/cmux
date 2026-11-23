@@ -363,6 +363,14 @@ pub(in crate::cli) fn start_words(
     name: &str,
 ) -> Result<Vec<String>, UsageError> {
     super::here_wait(start)?;
+    // Refused, never dropped: a joined machine's start takes a harness, model and folder only.
+    if start.effort.is_some() || start.mode.is_some() {
+        return Err(UsageError::new(format!(
+            "--effort and --mode pick a chat here or in Cloud; on {} start it, then set them with \
+             cmux acp session set SESSION effort=EFFORT",
+            machine.host
+        )));
+    }
     let mut words: Vec<String> = match machine.carrier {
         Carrier::Hub => {
             ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec()

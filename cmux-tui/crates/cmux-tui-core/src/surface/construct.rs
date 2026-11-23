@@ -189,10 +189,11 @@ impl Surface {
         #[cfg(not(windows))]
         let host_start_failed = false;
         // The holder runs the shell; this daemon parses it (holder_runtime).
+        // A holder that cannot start sends the terminal to a host of its own.
         #[cfg(unix)]
         if lifetime == PtyLifetime::SessionOwned
-            && crate::holder_runtime::enabled()
             && let Some(host_root) = opts.terminal_host_root.clone()
+            && crate::holder_runtime::serves(&host_root)
         {
             return Self::spawn_on_holder(HolderSpawn {
                 id,

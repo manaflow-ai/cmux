@@ -1,6 +1,6 @@
 //! Fault `flood-bulk` (cmuxterm-hq `docs/design/remote-cloud-durability.md` F18, H13): bulk
 //! replays fill a connection's outbound stream, and the cheap reads asked on it (identify, the
-//! session list, host health, status) still answer at once. Before, every line went into one
+//! session list, host health, status, the agent pane's liveness probe) still answer at once. Before, every line went into one
 //! queue in order, so an `initialize` answer waited behind every replay line queued before it:
 //! the broker's 1.2 s read that took 40-100 s (cmuxterm-hq #11963), here on the daemon's links.
 
@@ -13,8 +13,11 @@ const READ_BUDGET: Duration = Duration::from_millis(200);
 /// The bulk replays that hold the connection, and each one's lines.
 const REPLAYS: usize = 4;
 const LINES_PER_REPLAY: usize = 1_500;
-/// The cheap reads asked under the flood: identify, the session list and host health.
-const READS: usize = 3;
+/// The cheap reads asked under the flood: identify, the session list, host health, and the agent
+/// pane's liveness probe (`_acpmux/peers`, webviews `direct.ts` `probeDaemon`). The pane gives its
+/// socket up when the probe goes unanswered for 15 s, so a probe answer queued behind a huge
+/// chat's replay cut every pane of a busy but alive daemon at once.
+const READS: usize = 4;
 /// The link's bandwidth that times each answer: 8 MiB/s, so the 4 replays
 /// (about 12 MiB) take over a second to read.
 const BYTES_PER_MS: usize = 8 << 10;
@@ -90,6 +93,7 @@ async fn flood_bulk_cheap_reads_answer_while_four_replays_hold_the_link() {
         (2, method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": name}})),
         (3, method::SESSION_LIST, json!({})),
         (4, "_acpmux/host_health", json!({})),
+        (5, "_acpmux/peers", json!({})),
     ];
     let queued = conn.out.gauge().lines;
     for (id, m, params) in &reads {

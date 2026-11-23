@@ -139,13 +139,13 @@ extension AgentPaneTransport {
         if let violation = AcpmuxPaneMethods.paramsRuleViolation(object, modeFields: snapshot.modeFields) {
             // The rule it broke and the chat it was for, so a refusal that fails every chat's start
             // or open (cmux#42185, #42460) names its cause in the app's log (cmux#44964).
-            let session = params["sessionId"] as? String
-            Self.logger.error("agent pane params rule refused method=\(method ?? "-", privacy: .public) session=\(session ?? "none", privacy: .public) cause=\(violation, privacy: .public)")
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID, detail: violation), spend: carried)
+            return .refuse(intentInvalid(.paramsRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation, detail: violation), spend: carried)
         }
         // Answers go only to a pending question, keyed by its items and bounded (the answers rule).
-        if AcpmuxPaneMethods.breaksAnswersRule(object, options: snapshot.options) {
-            return .refuse(.refuse(.intentInvalid, method: method, requestID: pageID), spend: carried)
+        if let violation = AcpmuxPaneMethods.answersRuleViolation(object, options: snapshot.options) {
+            return .refuse(intentInvalid(.answersRule, method: method, requestID: pageID, session: params["sessionId"] as? String,
+                                         cause: violation), spend: carried)
         }
         // A prompt block's own _meta never reaches the harness.
         var frame = AcpmuxPaneMethods.strippingPromptMeta(object) ?? object
@@ -155,6 +155,10 @@ extension AgentPaneTransport {
             frame = stripped
             facts.ticket = ticket
             facts.otherMeta = otherMeta
+            if otherMeta {
+                // Read from the page's own `_meta`, before any strip (the gesture_meta log line).
+                facts.otherMetaKeys = AcpmuxPaneMethods.otherMetaKeys(object)
+            }
             if ticket != nil {
                 facts.pick = AgentPaneGesturePick(method: method, params: params)
                 facts.sessionId = params["sessionId"] as? String

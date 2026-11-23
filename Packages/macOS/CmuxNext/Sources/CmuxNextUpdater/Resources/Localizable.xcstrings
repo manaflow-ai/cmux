@@ -2895,43 +2895,43 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "جرّبه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Isprobaj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prøv det"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Ausprobieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Pruébalo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Essayer"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prova"
           }
         },
         "ja": {
@@ -2943,73 +2943,73 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "សាកល្បង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "사용해 보기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Prøv det"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Wypróbuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Experimentar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Попробовать"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "ลองใช้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Dene"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Спробувати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "Dùng thử"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "试一试"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Try It"
+            "value": "試試看"
           }
         }
       }
@@ -3272,268 +3272,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 無法判斷上一個版本能否讀取你的資料，因此沒有回復。"
-          }
-        }
-      }
-    },
-    "updater.rollback.confirm.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Roll Back to the Previous Version?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الرجوع إلى الإصدار السابق؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vratiti na prethodnu verziju?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gå tilbage til den forrige version?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auf die vorherige Version zurücksetzen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Volver a la versión anterior?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revenir à la version précédente ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tornare alla versione precedente?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以前のバージョンに戻しますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ត្រឡប់ទៅកំណែមុនវិញឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이전 버전으로 되돌릴까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gå tilbake til forrige versjon?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przywrócić poprzednią wersję?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Voltar para a versão anterior?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вернуться к предыдущей версии?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้อนกลับไปเวอร์ชันก่อนหน้าไหม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Önceki sürüme geri dönülsün mü?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Повернутися до попередньої версії?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quay lại phiên bản trước?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回退到上一个版本？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "回復到上一個版本？"
-          }
-        }
-      }
-    },
-    "updater.rollback.confirm.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux quits and reopens the build this Mac kept. Your terminals and agents keep running."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سيُغلق cmux ويُعيد فتح الإصدار الذي احتفظ به جهاز Mac هذا. تستمر الطرفيات والوكلاء في العمل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se zatvara i ponovo otvara verziju koju je ovaj Mac sačuvao. Vaši terminali i agenti nastavljaju raditi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux lukker og åbner den version, denne Mac har gemt. Dine terminaler og agenter kører videre."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux wird beendet und öffnet den Build, den dieser Mac aufbewahrt hat. Deine Terminals und Agenten laufen weiter."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se cierra y abre la compilación que este Mac guardó. Tus terminales y agentes siguen funcionando."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux se ferme et rouvre la version conservée sur ce Mac. Vos terminaux et agents continuent de tourner."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux si chiude e riapre la build conservata su questo Mac. I terminali e gli agenti continuano a funzionare."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux を終了し、この Mac に保管されているビルドを開き直します。ターミナルとエージェントは実行を続けます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux នឹងបិទ ហើយបើកកំណែដែល Mac នេះបានរក្សាទុកឡើងវិញ។ ទែមីណល់ និងភ្នាក់ងាររបស់អ្នកនៅតែដំណើរការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux를 종료하고 이 Mac에 보관된 빌드를 다시 엽니다. 터미널과 에이전트는 계속 실행됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux avslutter og åpner versjonen denne Macen har tatt vare på. Terminalene og agentene dine fortsetter å kjøre."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux zamknie się i otworzy wersję zachowaną na tym Macu. Terminale i agenci nadal działają."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O cmux fecha e reabre a versão que este Mac guardou. Seus terminais e agentes continuam rodando."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux закроется и откроет сборку, сохранённую на этом Mac. Терминалы и агенты продолжат работу."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux จะปิดและเปิดบิลด์ที่ Mac เครื่องนี้เก็บไว้ เทอร์มินัลและเอเจนต์ของคุณยังทำงานต่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux kapanır ve bu Mac'in sakladığı derlemeyi yeniden açar. Terminalleriniz ve ajanlarınız çalışmaya devam eder."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux закриється й відкриє збірку, збережену на цьому Mac. Термінали й агенти продовжать працювати."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux sẽ thoát và mở lại bản dựng mà máy Mac này đã giữ. Terminal và agent của bạn vẫn tiếp tục chạy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 将退出并重新打开这台 Mac 保留的版本。你的终端和代理会继续运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 將結束並重新開啟這台 Mac 保留的版本。你的終端機和代理會繼續執行。"
           }
         }
       }
@@ -16241,137 +15979,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此夜間版本已撤回"
-          }
-        }
-      }
-    },
-    "updater.pulled.rollBack": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Roll Back"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الرجوع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vrati"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gå tilbage"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zurücksetzen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Volver atrás"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revenir en arrière"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Torna indietro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "元に戻す"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រឡប់ក្រោយ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "되돌리기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gå tilbake"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przywróć"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Voltar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Откатить"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ย้อนกลับ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Geri Dön"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Відкотити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quay lại"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "回退"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "回復"
           }
         }
       }
@@ -33009,6 +32616,1054 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在 GitHub 上為 cmux 加星"
+          }
+        }
+      }
+    },
+    "updater.held.modal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a dialog is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイアログが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت نافذة حوار مفتوحة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok je dijalog otvoren. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens en dialogboks er åben. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Dialog geöffnet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras un cuadro de diálogo está abierto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’une boîte de dialogue est ouverte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché una finestra di dialogo è aperta. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលប្រអប់សន្ទនាកំពុងបើក។«ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화상자가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens en dialogboks er åpen. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki okno dialogowe jest otwarte. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto uma caixa de diálogo está aberta. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыт диалог. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่กล่องโต้ตอบเปิดอยู่ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir iletişim kutusu açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрито діалог. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi một hộp thoại đang mở. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "对话框打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "對話框開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.sheet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a sheet is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シートが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت ورقة مفتوحة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok je list otvoren. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens et ark er åbent. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Sheet geöffnet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras una hoja está abierta. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’une feuille est ouverte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché un pannello è aperto. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលសន្លឹកកំពុងបើក។«ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시트가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens et ark er åpent. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki arkusz jest otwarty. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto uma folha está aberta. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыт лист. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่แผ่นงานเปิดอยู่ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir sayfa açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрито аркуш. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi một trang đang mở. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表单打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表單開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a menu is open. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューが開いているため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت قائمة مفتوحة. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok je meni otvoren. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens en menu er åben. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Menü geöffnet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras un menú está abierto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant que un menu est ouvert. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché un menu è aperto. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលម៉ឺនុយកំពុងបើក។«ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메뉴가 열려 있는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens en meny er åpen. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki menu jest otwarte. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto um menu está aberto. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока открыто меню. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่เมนูเปิดอยู่ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir menü açıkken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки відкрито меню. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi một menu đang mở. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "菜单打开时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選單開啟時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.composing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while you compose text. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字を入力中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل أثناء كتابتك للنص. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok pišete tekst. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med genstart, mens du skriver tekst. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, während du Text eingibst. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras escribes texto. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer pendant que vous saisissez du texte. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio mentre scrivi del testo. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ពេលអ្នកកំពុងវាយអត្ថបទ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트를 입력하는 동안 업데이트는 다시 시작을 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med omstart mens du skriver tekst. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, gdy piszesz tekst. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização aguarda para reiniciar enquanto você digita texto. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока вы вводите текст. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะรอรีสตาร์ทขณะที่คุณกำลังพิมพ์ข้อความ «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, siz metin yazarken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає на перезапуск, поки ви вводите текст. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại khi bạn đang nhập văn bản. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你输入文字时，更新会等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你輸入文字時，更新會等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.notIdle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits until cmux is idle. Restart to Update installs now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が操作されていない状態になると、アップデートをインストールします。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُثبَّت التحديث عندما يكون cmux خاملًا. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje se instalira kada cmux miruje. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen installeres, når cmux er inaktiv. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wird installiert, sobald cmux nicht benutzt wird. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización se instala cuando cmux está inactivo. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour s’installe dès que cmux est inactif. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento si installa quando cmux è inattivo. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពនឹងដំឡើង នៅពេល cmux ទំនេរ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 사용되지 않을 때 업데이트가 설치됩니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen installeres når cmux er inaktiv. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja zainstaluje się, gdy cmux będzie bezczynny. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização é instalada quando o cmux fica ocioso. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление установится, когда cmux будет бездействовать. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตจะติดตั้งเมื่อ cmux ไม่ได้ใช้งาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, cmux boşta olduğunda yüklenir. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення встановиться, коли cmux буде без дії. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật sẽ được cài khi cmux không hoạt động. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 闲置时，更新就会安装。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 閒置時，更新就會安裝。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.agentWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while an agent is working. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが作業中のため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دام وكيل يعمل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok agent radi. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens en agent arbejder. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange ein Agent arbeitet. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras un agente trabaja. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’un agent travaille. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché un agente è al lavoro. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈភ្នាក់ងារកំពុងធ្វើការ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 작업 중이라 업데이트가 다시 시작을 기다리고 있습니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens en agent arbeider. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki agent pracuje. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto um agente trabalha. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока работает агент. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตรอรีสตาร์ทขณะที่เอเจนต์กำลังทำงาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, bir ajan çalışırken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає перезапуску, поки працює агент. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi một tác tử đang làm việc. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有智能体正在工作，更新等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有代理程式正在工作，更新等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.unsentDraft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits to restart while a message is unsent. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未送信のメッセージがあるため、アップデートは再起動を待っています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث إعادة التشغيل ما دامت هناك رسالة لم تُرسل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka s ponovnim pokretanjem dok postoji neposlana poruka. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter med at genstarte, mens en besked ikke er sendt. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet mit dem Neustart, solange eine Nachricht nicht gesendet ist. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera para reiniciar mientras hay un mensaje sin enviar. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend pour redémarrer tant qu’un message n’est pas envoyé. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende il riavvio finché c’è un messaggio non inviato. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំចាប់ផ្ដើមឡើងវិញ ខណៈមានសារមិនទាន់ផ្ញើ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보내지 않은 메시지가 있어 업데이트가 다시 시작을 기다리고 있습니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter med å starte på nytt mens en melding ikke er sendt. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka z ponownym uruchomieniem, dopóki wiadomość nie zostanie wysłana. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera para reiniciar enquanto houver uma mensagem não enviada. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт перезапуска, пока есть неотправленное сообщение. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตรอรีสตาร์ทขณะที่มีข้อความที่ยังไม่ได้ส่ง «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, gönderilmemiş bir mesaj varken yeniden başlatmayı bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає перезапуску, поки є ненадіслане повідомлення. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ khởi động lại trong khi còn tin nhắn chưa gửi. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有消息尚未发送，更新等待重新启动。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有訊息尚未傳送，更新等待重新啟動。「重新啟動以更新」會立即安裝。"
+          }
+        }
+      }
+    },
+    "updater.held.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The update waits until cmux can tell no agent is working. Restart to Update installs it now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のエージェントがないことを cmux が確認できるまで、アップデートは待機しています。「再起動してアップデート」で今すぐインストールします。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينتظر التحديث حتى يتأكد cmux من أن أي وكيل لا يعمل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažuriranje čeka dok cmux ne utvrdi da nijedan agent ne radi. „Ponovo pokreni za ažuriranje“ ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdateringen venter, indtil cmux kan se, at ingen agent arbejder. „Genstart for at opdatere“ installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Update wartet, bis cmux feststellen kann, dass kein Agent arbeitet. „Zum Aktualisieren neu starten“ installiert es jetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización espera hasta que cmux pueda confirmar que ningún agente está trabajando. «Reiniciar para actualizar» la instala ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour attend que cmux puisse vérifier qu’aucun agent ne travaille. « Redémarrer pour mettre à jour » l’installe maintenant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento attende finché cmux non verifica che nessun agente è al lavoro. «Riavvia per aggiornare» lo installa ora."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពរង់ចាំរហូតដល់ cmux អាចដឹងថាគ្មានភ្នាក់ងារណាកំពុងធ្វើការ។ «ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព» ដំឡើងវាឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 중인 에이전트가 없는지 cmux가 확인할 때까지 업데이트가 기다립니다. '다시 시작하여 업데이트'를 누르면 지금 설치됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdateringen venter til cmux kan se at ingen agent arbeider. «Start på nytt for å oppdatere» installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualizacja czeka, aż cmux ustali, że żaden agent nie pracuje. „Uruchom ponownie, aby zaktualizować” instaluje ją teraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização espera até o cmux confirmar que nenhum agente está trabalhando. “Reiniciar para Atualizar” a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновление ждёт, пока cmux не убедится, что ни один агент не работает. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดตรอจนกว่า cmux จะยืนยันได้ว่าไม่มีเอเจนต์ใดกำลังทำงาน «รีสตาร์ทเพื่ออัปเดต» จะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncelleme, cmux hiçbir ajanın çalışmadığından emin olana kadar bekler. “Güncellemek için Yeniden Başlat” onu şimdi yükler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновлення чекає, доки cmux не переконається, що жоден агент не працює. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật chờ đến khi cmux xác định được không có tác tử nào đang làm việc. “Khởi động lại để cập nhật” cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新会等到 cmux 能确认没有智能体在工作。“重新启动以更新”会立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更新會等到 cmux 能確認沒有代理程式在工作。「重新啟動以更新」會立即安裝。"
           }
         }
       }

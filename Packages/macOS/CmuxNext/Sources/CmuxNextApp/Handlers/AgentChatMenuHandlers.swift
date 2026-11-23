@@ -74,8 +74,7 @@ enum AgentChatMenuHandlers {
                     try TabUnreadMark.set(true, tab: tab, daemon: daemon)
                 }
             )
-            // The action's owner is this one mark request. CLI/MCP callers await the registry's
-            // tracked work; a palette or menu invocation receives the same refusal if both paths fail.
+            // Owner: this one mark request; CLI/MCP callers await the tracked work, a palette or menu run gets the same refusal.
             registry.track(Task { @MainActor in
                 guard view.model.sessionId == session, tab.agentSession?.session == session else {
                     return ActionWorkFailure(refusal: .unavailable, reason: context.registry.reason(.noChat, for: "agentPane.markUnread"))
@@ -89,6 +88,7 @@ enum AgentChatMenuHandlers {
                 }
             })
         })
+        registry.gate("agentPane.markUnread") { run in if let tab = context.daemonTab(run)?.tab, tab.agentSession?.session == nil { context.registry.refuse(.noChat, "agentPane.markUnread") } }
     }
 
     private static func bindRevealCwd(into registry: ActionRegistry, context: AppActionContext) {

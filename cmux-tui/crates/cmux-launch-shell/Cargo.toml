@@ -1,0 +1,16 @@
+[package]
+name = "cmux-launch-shell"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+license = "GPL-3.0-or-later"
+publish = false
+workspace = "../cmux-app-ffi"
+description = "The stage-0 launch window's plan (what it shows) and input hold, in Rust"
+
+[dependencies]
+cmux-launch-record = { path = "../cmux-launch-record" }
+cmux-window-rules = { path = "../cmux-window-rules" }
+
+[dev-dependencies]
+proptest = "1"

@@ -17,6 +17,9 @@
 //!
 //! A machine that is not joined, or whose join record was copied from another box, runs none of
 //! it: no socket, no process.
+//!
+//! On a joined Linux machine the host is cmux-rd's (`cmux-rd linux-host`), which the daemon sets
+//! up at its start ([`linux`]); `share-host status` says how that went.
 
 pub(crate) mod cli;
 
@@ -26,6 +29,8 @@ mod channel;
 mod helper;
 #[cfg(unix)]
 mod link;
+#[cfg(unix)]
+pub(crate) mod linux;
 #[cfg(unix)]
 mod records;
 #[cfg(unix)]
@@ -59,20 +64,12 @@ pub(crate) fn dir(home: &Path) -> PathBuf {
 
 /// The device hub of the cmux-platform deployment a machine credential was joined at
 /// (`MachineCredential::hub_origin` is the platform's origin, not the device hub's): each
-/// deployment's own, from `cmux-cloud-environment`. None for an origin no deployment has.
+/// deployment's own, from the table cmux-rd reads too (`cmux_hub_host::deployment`), so the
+/// daemon and the host it sets up pick the same hub for a credential. None for an origin no
+/// deployment has.
 #[cfg(unix)]
 pub(crate) fn device_hub_origin(platform_origin: &str) -> Option<String> {
-    use cmux_cloud_environment as env;
-    let origin = platform_origin.trim().trim_end_matches('/');
-    [
-        env::PRODUCTION_DEPLOYMENT,
-        env::STAGING_DEPLOYMENT,
-        env::DEVELOPMENT_DEPLOYMENT,
-        env::LOCAL_DEPLOYMENT,
-    ]
-    .into_iter()
-    .find(|deployment| deployment.platform_origin == origin)
-    .map(|deployment| deployment.device_hub_origin.to_owned())
+    cmux_hub_host::deployment::device_hub_of(platform_origin).map(str::to_owned)
 }
 
 /// This machine's join as the share host reads it.
@@ -100,23 +97,18 @@ pub(crate) fn join() -> Join {
     }
 }
 
-/// The hub client a share-host process signs in with: this Mac's device and the machine
-/// credential, at the device hub of the credential's deployment. The device is made (and saved)
-/// when `create` and there is none yet.
+/// This machine's credential and the device hub of its deployment, when it is joined here (not
+/// copied from another box, not revoked).
 #[cfg(unix)]
-pub(crate) fn machine_hub(
-    home: &Path,
-    create: bool,
-) -> Result<cmux_hub_host::hub::Hub, NotRunning> {
-    use cmux_hub_host::hub::{Hub, Renewal};
-    use cmux_hub_host::identity::{self, Device};
+pub(crate) fn joined() -> Result<(Box<crate::machine_record::MachineCredential>, String), NotRunning>
+{
     let credential = match join() {
         Join::Joined(credential) => credential,
-        Join::NotJoined => return Err(NotRunning::new("not_joined", "this Mac is not joined")),
+        Join::NotJoined => return Err(NotRunning::new("not_joined", "this machine is not joined")),
         Join::Cloned => {
             return Err(NotRunning::new(
                 "cloned",
-                "this Mac's join record was copied from another box; join it again here",
+                "this machine's join record was copied from another box; join it again here",
             ));
         }
         Join::Revoked => return Err(NotRunning::new("revoked", "the hub revoked this machine")),
@@ -127,6 +119,20 @@ pub(crate) fn machine_hub(
             &format!("no device hub serves {}", cmux_hub_host::printable(&credential.hub_origin)),
         ));
     };
+    Ok((credential, origin))
+}
+
+/// The hub client a share-host process signs in with: this Mac's device and the machine
+/// credential, at the device hub of the credential's deployment. The device is made (and saved)
+/// when `create` and there is none yet.
+#[cfg(unix)]
+pub(crate) fn machine_hub(
+    home: &Path,
+    create: bool,
+) -> Result<cmux_hub_host::hub::Hub, NotRunning> {
+    use cmux_hub_host::hub::{Hub, Renewal};
+    use cmux_hub_host::identity::{self, Device};
+    let (credential, origin) = joined()?;
     let folder = dir(home);
     let failed = |e: Box<dyn std::error::Error + Send + Sync>| {
         NotRunning::new("identity_unreadable", &format!("{}: {e}", folder.display()))
@@ -253,6 +259,6 @@ pub(crate) fn status_now() -> serde_json::Value {
     #[cfg(not(unix))]
     {
         serde_json::json!({"schema": "acpmux.share-host.status/1", "running": false,
-            "state": "unsupported", "detail": "the share host runs on macOS"})
+            "state": "unsupported", "detail": "the share host runs on macOS and Linux"})
     }
 }

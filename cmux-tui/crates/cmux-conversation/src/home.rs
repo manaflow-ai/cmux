@@ -8,6 +8,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use cmux_message_preview::{MessagePreview, Words};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{AgentClass, Message, Part, Participant, ParticipantKind, Summary, WorkStatus};
@@ -72,6 +73,9 @@ pub struct HomeInboxInput<'a> {
     /// conversation leaves the list, on every device that reads it, as Delete
     /// Chief promises.
     pub deleted_chiefs: BTreeSet<String>,
+    /// The words a preview says for a table or pictures alone, in the
+    /// person's language ([`Words::for_locale`]).
+    pub preview_words: Words,
 }
 
 /// One row of the Home list.
@@ -143,9 +147,15 @@ fn others<'s>(summary: &'s Summary, me: &str) -> Vec<&'s str> {
         .collect()
 }
 
+/// Most characters of a Markdown message the preview reads: a table's header
+/// and the first lines fit well inside, and a long reply costs no more.
+const PREVIEW_SOURCE_CHARS: usize = 4096;
+
 /// The text a row previews: the text parts, else the file names; nothing
-/// for a deleted message.
-pub fn preview_of(message: &Message) -> Option<String> {
+/// for a deleted message. `markdown` (an agent's text, [`is_markdown`]): its
+/// words, never its syntax ([`MessagePreview`]): a table by its columns, a
+/// link by its label, pictures alone by their count, in `words`.
+pub fn preview_of(message: &Message, markdown: bool, words: &Words) -> Option<String> {
     if message.retracted_at.is_some() {
         return None;
     }
@@ -157,8 +167,12 @@ pub fn preview_of(message: &Message) -> Option<String> {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join(" ");
-    let text = text.trim();
+        .join(if markdown { "\n" } else { " " });
+    let flat = markdown.then(|| {
+        let head: String = text.chars().take(PREVIEW_SOURCE_CHARS).collect();
+        MessagePreview::new(&head).text(words)
+    });
+    let text = flat.as_deref().unwrap_or(&text).trim();
     let shown = if text.is_empty() {
         message
             .parts
@@ -173,6 +187,16 @@ pub fn preview_of(message: &Message) -> Option<String> {
         text.to_string()
     };
     (!shown.is_empty()).then(|| shown.chars().take(PREVIEW_CHARS).collect())
+}
+
+/// Whether `message`'s text is Markdown, as the apps read it (`HomeMapping`):
+/// an agent's text without mentions. A person's text stays as typed.
+pub fn is_markdown(summary: &Summary, message: &Message) -> bool {
+    participant(summary, &message.author).is_some_and(|p| p.kind == ParticipantKind::Agent)
+        && !message.parts.iter().any(|part| match part {
+            Part::Text { runs: Some(runs), .. } => runs.iter().any(|run| run.mention.is_some()),
+            _ => false,
+        })
 }
 
 fn last_work(message: &Message) -> Option<WorkStatus> {
@@ -259,7 +283,9 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
                 unread: summary.last_seq.saturating_sub(cursor),
                 activity_at: last
                     .map_or_else(|| summary.updated_at.clone(), |last| last.created_at.clone()),
-                preview: last.and_then(preview_of),
+                preview: last.and_then(|last| {
+                    preview_of(last, is_markdown(summary, last), &input.preview_words)
+                }),
                 last_author: live.map(|last| last.author.clone()),
                 chief: chief.map(str::to_string),
                 chief_state,
@@ -392,3 +418,7 @@ fn activity_key(row: &HomeRow) -> std::borrow::Cow<'_, str> {
     let millis: String = digits.chars().chain(std::iter::repeat('0')).take(3).collect();
     std::borrow::Cow::Owned(format!("{seconds}.{millis}Z"))
 }
+
+#[cfg(test)]
+#[path = "home_preview_tests.rs"]
+mod preview_tests;

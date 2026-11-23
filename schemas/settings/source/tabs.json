@@ -12,7 +12,7 @@
       "rows": [
         {
           "key": "tabs.newTabTemplate",
-          "note": "Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the legacy composer case, which loads as Minimal.",
+          "note": "Which New Tab page template shows (the page's dots also set it). NewTabTemplate is hand-written: it keeps the retired composer, cards, default, threads and console cases, which load as Minimal. Those four pages are templates a person builds now (Leo 2026-11-18: \"The templates should be like the customixastikms api you can build them i don't think they should ship as is\"): skills/cmux-customization/templates/newtab-*, picked with tabs.newTabApp.",
           "title": {
             "key": "settings.tabs.newTabTemplate",
             "text": "New Tab Template"
@@ -33,34 +33,6 @@
               "title": {
                 "key": "settings.choice.newTabTemplateMinimal",
                 "text": "Minimal"
-              }
-            },
-            {
-              "value": "cards",
-              "title": {
-                "key": "settings.choice.newTabTemplateCards",
-                "text": "Cards"
-              }
-            },
-            {
-              "value": "default",
-              "title": {
-                "key": "settings.choice.newTabTemplateDefault",
-                "text": "Default"
-              }
-            },
-            {
-              "value": "threads",
-              "title": {
-                "key": "settings.choice.newTabTemplateThreads",
-                "text": "Threads"
-              }
-            },
-            {
-              "value": "console",
-              "title": {
-                "key": "settings.choice.newTabTemplateConsole",
-                "text": "Console"
               }
             },
             {
@@ -88,9 +60,6 @@
             "greeting",
             "terminal",
             "classic",
-            "threads",
-            "console",
-            "cards",
             "search",
             "ask"
           ]

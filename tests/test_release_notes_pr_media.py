@@ -336,13 +336,16 @@ class LatePictureTests(HighlightRepo):
         auto = lambda role: release_notes.gallery_auto_url("group-colors", role)
         self.pictures = {auto("after"): PNG, auto("before"): PNG + b"before"}
 
-    def notes(self, shipped_media, pictures=True, feed=True):
-        """This span's highlights, with the feed's one earlier build showing group-colors with `shipped_media`."""
+    def notes(self, shipped_media, pictures=True, feed=True, newer=0):
+        """This span's highlights, with the feed's one earlier build showing group-colors with `shipped_media`,
+        after `newer` builds that show nothing."""
         feed_base = release_notes.NOTES_FEED
         published = {"highlights": [{"id": "group-colors", "category": "improved", "media": shipped_media}]}
         files = dict(self.pictures) if pictures else {}
         if feed:
-            files[feed_base + "index.json"] = json.dumps({"builds": [{"build": "1"}]}).encode()
+            builds = [f"n{i}" for i in range(newer)] + ["1"]
+            files[feed_base + "index.json"] = json.dumps({"builds": [{"build": b} for b in builds]}).encode()
+            files.update({f"{feed_base}{b}.json": b"{}" for b in builds[:-1]})
             files[feed_base + "1.json"] = json.dumps(published).encode()
         fixture = os.path.join(self.repo, "fixture.json")
         stored = {}
@@ -457,6 +460,21 @@ class LatePictureTests(HighlightRepo):
         self.clip_line_history(spec=False)
         self.pictures = {release_notes.clip_auto_url("group-colors", "before"): WEBP}
         self.assertEqual(self.notes([{"url": CLIP_LINE, "sha256": CLIP_SHA}]), [])
+
+    def test_an_older_highlight_rides_along_while_its_showing_is_in_the_window(self):
+        # new-tab-run-command (2026-11-17): nightlies stalled a day and it aged past LATE_PICTURE_DAYS, its after
+        # alone, before its before could ride; NOW judges the newest LATE_PICTURE_WINDOW builds, not days.
+        later = int(git(self.repo, "show", "-s", "--format=%ct", self.shipped)) + 3 * 86400
+        git(self.repo, "reset", "-q", "--hard", self.shipped)
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "later work (#124)"], cwd=self.repo, check=True,
+                       env={**os.environ, "GIT_COMMITTER_DATE": f"@{later} +0000", "GIT_AUTHOR_DATE": f"@{later} +0000"})
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        shipped = [{"url": release_notes.gallery_auto_url("group-colors", "after"), "sha256": "0" * 64}]
+        window = release_notes.LATE_PICTURE_WINDOW
+        highlights = self.notes(shipped, newer=window - 1)
+        self.assertEqual([h["id"] for h in highlights], ["group-colors"])
+        self.assertEqual([m["role"] for m in highlights[0]["media"]], ["after", "before"])
+        self.assertEqual(self.notes(shipped, newer=window), [])  # past the window it is no gap
 
     def test_no_pictures_yet_or_no_feed_means_no_ride_along(self):
         self.assertEqual(self.notes([], pictures=False), [])
@@ -650,14 +668,37 @@ class GalleryRenderPlanTests(unittest.TestCase):
     def test_a_before_whose_state_its_commit_added_is_named_not_rendered_at_the_parent(self):
         # agent-file-result-cards added its gallery file: at the parent there was nothing to render (2026-11-09).
         cases = [self.case("a.b", "x"), self.case("a.b", "y")]
-        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40}]
-        for at_parent in (None, "y: {}\n"):
-            with self.subTest(at_parent=at_parent):
-                out, missing = self.tool.resolve(rows, cases, lambda rev, path: at_parent, {})
-                self.assertEqual(out, [])
-                self.assertEqual(len(missing), 1)
-                self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
-                self.assertIn('"Before:"', missing[0])
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p" * 40, "commit": "c"}]
+        files = {"c": "y: {}\nx: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
+        self.assertEqual(out, [])
+        self.assertEqual(len(missing), 1)
+        self.assertIn("h before: a.b/x is new in its commit, not in src/a.gallery.tsx at pppppppppppp", missing[0])
+        self.assertIn('"Before:"', missing[0])
+
+    def test_a_variant_its_commit_added_to_a_file_already_there_renders_at_the_parent_with_that_file(self):
+        # new-tab-run-command (2026-11-17) added typed-command to NewTabScreen.gallery.ts and shipped with no before.
+        import contextlib, io, json
+        from pathlib import Path
+        cases = [self.case("a.b", "x"), self.case("a.b", "y")]
+        rows = [{"id": "h", "role": "before", "state": "a.b/x", "parent": "p", "commit": "c"},
+                {"id": "g", "role": "before", "state": "a.b/y", "parent": "q", "commit": "d"}]
+        files = {"p": "y: {}\n", "c": "y: {}\nx: {}\n", "q": "x: {}\n", "d": "x: {}\n"}
+        out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
+        self.assertEqual(missing[1:], [])
+        self.assertIn("g before: a.b/y is new in its commit", missing[0])  # not in its own commit either
+        self.assertEqual([(r["state"], r["parent"], r["overlay"]) for r in out],
+                         [("a.b/x", "p", "webviews/src/a.gallery.tsx")])
+        # At the parent, the same state from that checkout's cases (the overlaid file draws it there).
+        self.assertEqual(self.tool.manifest(out, cases, "p")[0], [{**cases[0], "id": "h--before"}])
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "plan.json"
+            plan.write_text(json.dumps(out + [{"id": "k", "parent": "p"}]))
+            for parent, want in (("p", ["c webviews/src/a.gallery.tsx"]), ("q", [])):
+                printed = io.StringIO()
+                with contextlib.redirect_stdout(printed):
+                    self.tool.main(["overlays", "--plan", str(plan), "--parent", parent])
+                self.assertEqual(printed.getvalue().splitlines(), want)
 
     def test_parents_come_newest_highlight_first(self):
         import json

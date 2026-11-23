@@ -31,11 +31,11 @@ for (const olderHost of [false, true]) {
           .harnesses.find((harness) => harness.id === id)!
           .models.map((model) => model.id);
       };
-      expect(join()).not.toContain("gpt-6.1-terra");
+      // GPT-6.1 Luna has no feed row (identity-only); Terra joined the feed on 2026-11-19.
       expect(join()).not.toContain("gpt-6.1-luna");
-      expect(join(["gpt-6.1-terra"])).toContain("gpt-6.1-terra");
-      expect(join(undefined, true)).toContain("gpt-6.1-terra");
-      expect(join(undefined, false, "gpt-6.1-terra")).toContain("gpt-6.1-terra");
+      expect(join(["gpt-6.1-luna"])).toContain("gpt-6.1-luna");
+      expect(join(undefined, true)).toContain("gpt-6.1-luna");
+      expect(join(undefined, false, "gpt-6.1-luna")).toContain("gpt-6.1-luna");
     }
   });
 }
@@ -233,7 +233,7 @@ test("a harness acpmux marks pickerHidden (the cmux router fallback) is not a ch
 test("live releases absent from the bundled catalog reach the Claude Code picker", async () => {
   const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
   const live = [
-    { id: "claude-fable-5-2", name: "Fable 5.2" },
+    { id: "claude-fable-5-3", name: "Fable 5.3" },
     { id: "claude-opus-5-6", name: "Opus 5.6" },
     { id: "claude-new-family-1", name: "New Family 1" },
   ];

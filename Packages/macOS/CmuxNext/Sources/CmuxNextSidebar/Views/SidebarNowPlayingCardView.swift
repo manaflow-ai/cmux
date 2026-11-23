@@ -128,7 +128,7 @@ final class SidebarNowPlayingCardView: NSView {
     }
 
     static var closeLabel: String {
-        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .module)
+        String(localized: "sidebar.nowPlaying.close", defaultValue: "Hide Media Card", bundle: .localizedModule)
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).

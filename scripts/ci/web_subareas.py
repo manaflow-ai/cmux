@@ -332,7 +332,8 @@ def route() -> int:
     # commit: a multi-commit push can end on a commit that touches no web path.
     push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
     if push_base == EVERY_SUBAREA:
-        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py).
+        # A coalesced cmux-next-web.yml push run whose covered range is unknown (scripts/ci/web_coalesce.py), or a
+        # post-merge batch call (ci-web.yml inputs.sha set), which runs every subarea.
         print("the range this push covers is unknown; running every web subarea")
         WebSubareas.all().emit(output)
         return 0

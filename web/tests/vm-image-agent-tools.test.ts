@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -59,11 +59,16 @@ import {
   desktopCheckScript,
   desktopSessionScript,
   desktopSessionUnit,
+  DESKTOP_STARTER,
+  desktopStarterScript,
+  NO_NEW_PRIVS_ENV,
+  WORK_USER_CMUX_JSON_TEXT,
 } from "../scripts/cmux-vm-image/agent-tools";
 import { bakeOptionsFromArgv, daemonUnit, desktopRecord, refusedFirstUsePackages } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
 import { DEVBOX_WORK_UID } from "../services/vms/images/workUser";
 import { runChild } from "./helpers/run-child";
+import net from "node:net";
 
 const lock = readInputsLock();
 /**
@@ -207,8 +212,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(cua).not.toContain("[Install]");
   });
 
-  test("probe: the tool list must name the cua tools, the browser REPL tools and the browser skill", () => {
-    const full = "mcp__cmux-cua__get_desktop_state\nmcp__cmux-cua__click\nmcp__cmux__browser_repl_eval\nmcp__cmux__browser_repl_open\n- cmux:cmux-browser";
+  test("probe: the tool list must name the Computer Use tools, the browser REPL tools and the browser skill", () => {
+    const full = "mcp__cmux-computer-use__screenshot\nmcp__cmux-computer-use__click\nmcp__cmux__browser_repl_eval\nmcp__cmux__browser_repl_open\n- cmux:cmux-browser";
     expect(toolListProblems(full)).toEqual([]);
     expect(toolListProblems("I have no MCP servers connected.")).toHaveLength(5);
     expect(toolListProblems(full.replace("mcp__cmux__browser_repl_eval", ""))).toEqual(["the agent does not list mcp__cmux__browser_repl_eval"]);
@@ -253,11 +258,74 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     }
   });
 
+  test("probe: acpmux's gateway (#48374) attaches cmux as loopback HTTP with no command; the parser keeps its url", () => {
+    // Bake run 44875111659: the launch's cmux entry was {type: http, url} and the probe threw on its missing command.
+    const url = "http://127.0.0.1:41733/mcp/s-1f2e/tools";
+    const text = `--print\n--mcp-config\n${JSON.stringify({ mcpServers: { cmux: { type: "http", url, headers: { Authorization: "Bearer x" } } } })}\n\x1e\n`;
+    const servers = parseRecordedLaunch(text).servers;
+    expect(servers).toEqual([{ name: "cmux", command: "", args: [], env: {}, url }]);
+    expect(gatewayProblems(servers)).toEqual([]);
+    expect(attachedComputerUse(servers)).toBeNull();
+    expect(gatewayProblems([{ ...servers[0], url: "http://10.0.0.5:41733/mcp/s-1f2e/tools" }])).toEqual(["cmux url http://10.0.0.5:41733/mcp/s-1f2e/tools is not loopback"]);
+    // Roll 44895229777: acpmux gives a harness its session endpoint itself, `/mcp/<session>` (mcp_gateway.rs).
+    for (const path of ["/mcp/s-1f2e", "/mcp/s-1f2e/tools/cmux"]) expect(gatewayProblems([{ ...servers[0], url: `http://127.0.0.1:41733${path}` }])).toEqual([]);
+    expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/other" }])).toHaveLength(1);
+    expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/mcp/s-1f2e/admin" }])).toHaveLength(1);
+    expect(gatewayProblems([{ name: "cmux", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: {} }])).toEqual([]);
+    expect(gatewayProblems([{ name: "cmux", command: "/tmp/cmux", args: [], env: {} }])).toHaveLength(1);
+    expect(gatewayProblems([])).toEqual(["no cmux server"]);
+  });
+
   test("probe: in code mode the cmux server must list cmux_exec; with --all-tools its browser tools; cmux-cua always its own", () => {
     // Bake run 42112724172: the code-mode cmux server listed ["cmux_exec", "cmux_workflow"] and answered browser_repl_eval.
     expect(requiredTools("cmux", ["mcp", "serve"])).toEqual(["cmux_exec"]);
     expect(requiredTools("cmux", ["mcp", "serve", "--all-tools"])).toEqual(["browser_repl_eval", "browser_repl_open"]);
     expect(requiredTools("cmux-cua", ["mcp"])).toEqual(["get_desktop_state", "click"]);
+    expect(requiredTools(CU_SERVER, ["acp", "computer-use-mcp"])).toEqual(["screenshot", "list_windows", "click", "type_text", "get_ui_tree"]);
+  });
+
+  test("probe: the Computer Use server is the one acpmux attached: cmux-tui's own (#37003) from the image's cmux-tui, else the cmux-cua wrapper", () => {
+    // What roll 44806546922's candidate recorded (acpmux at cmux-tui 067b466a), folded into the cmux server's upstreams.
+    const store = "/opt/cmux/store/25c0f8363379dd03d9da4b27b43a067f52602cd4abdb6aa5596413de2413afc6/cmux-tui";
+    const cmux = { name: "cmux", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: {} };
+    const cu = { name: CU_SERVER, command: store, args: ["acp", "computer-use-mcp"], env: {} };
+    expect(attachedComputerUse([cmux, cu])).toEqual({ name: CU_SERVER, ok: true, legacy: false });
+    expect(attachedComputerUse([{ ...cu, command: "/tmp/fake-cu" }])).toEqual({ name: CU_SERVER, ok: false, legacy: false });
+    expect(attachedComputerUse([{ ...cu, args: ["acp", "offer-mcp"] }])?.ok).toBe(false);
+    const legacy = { name: LEGACY_CU_SERVER, command: `${AGENT_TOOLS_BIN}/cmux-cua`, args: ["mcp"], env: {} };
+    expect(attachedComputerUse([cmux, legacy])).toEqual({ name: LEGACY_CU_SERVER, ok: true, legacy: true });
+    expect(attachedComputerUse([{ ...legacy, command: `${CURRENT_BIN}/cmux-cua` }])?.ok).toBe(false);
+    // Both: cmux-tui's own wins; none: null, and the probe fails cmux-computer-use's checks.
+    expect(attachedComputerUse([legacy, cu])?.name).toBe(CU_SERVER);
+    expect(attachedComputerUse([cmux])).toBeNull();
+  });
+
+  test("probe: a Computer Use screenshot shows the whole display, at its size or scaled down whole (cmux-computer-use's 1456 px edge)", () => {
+    expect(screenshotShowsDisplay("1920x1080", "1920x1080")).toBe(true);
+    expect(screenshotShowsDisplay("1456x819", "1920x1080")).toBe(true);
+    expect(screenshotShowsDisplay("1456x818", "1920x1080")).toBe(true);
+    // A window-sized shot, a crop, a thumbnail, a larger image or nothing readable is not the display.
+    expect(screenshotShowsDisplay("1280x800", "1920x1080")).toBe(false);
+    expect(screenshotShowsDisplay("1456x1092", "1920x1080")).toBe(false);
+    expect(screenshotShowsDisplay("1920x1000", "1920x1080")).toBe(false);
+    expect(screenshotShowsDisplay("640x360", "1920x1080")).toBe(false);
+    expect(screenshotShowsDisplay("3840x2160", "1920x1080")).toBe(false);
+    expect(screenshotShowsDisplay("", "1920x1080")).toBe(false);
+  });
+
+  test("probe: role cua-video stays off: cmux-tui's Computer Use server may list no video or install tool", () => {
+    // The bridge's catalog (cmux-computer-use tools.rs) as tools/list answers it.
+    const catalog = ["status", "list_machines", "list_apps", "list_windows", "screenshot", "get_ui_tree", "click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait", "batch", "launch_app", "request_permission"];
+    expect(videoToolProblems(catalog)).toEqual([]);
+    expect(videoToolProblems([...catalog, "install_ffmpeg", "start_recording", "screen_video"])).toEqual(["lists install_ffmpeg", "lists start_recording", "lists screen_video"]);
+  });
+
+  test("probe: the worker check parses and reads the worker by its hidden mode, never its own pgrep line", async () => {
+    const command = computerUseWorkerCommand();
+    await bashSyntax(command);
+    expect(command).toContain("pgrep -u cmux -f '[_]_computer-use-worker'");
+    expect(command).toContain(`${DISPLAY_UNIT} ${A11Y_UNIT}`);
+    expect(command).toContain("NoNewPrivs");
   });
 
   test("probe: acpmux's --mcp-config is a 0600 file it removes later: the recorder keeps its JSON, and code mode's upstreams count as servers", async () => {
@@ -282,6 +350,83 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("desktop starter (cmux-tui's Computer Use worker on the agent display, #37003)", () => {
+    /** Runs the starter with a recording `sudo` (exit 1 for `failUnit`) and, with `socket`, the display's X11 socket. */
+    async function runStarter(opts: { failUnit?: string; socket?: boolean }): Promise<{ status: number | null; stdout: string; stderr: string; calls: string[] }> {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cu-starter-"));
+      const x11 = path.join(dir, "x11");
+      mkdirSync(x11);
+      const server = opts.socket ? net.createServer() : null;
+      try {
+        if (server) await new Promise<void>((resolve) => server.listen(path.join(x11, "X99"), resolve));
+        const log = path.join(dir, "calls.log");
+        writeFileSync(path.join(dir, "sudo"), `#!/bin/sh\necho "sudo $*" >> ${log}\necho "starting $4" >&2\ncase "$4" in ${opts.failUnit ?? "none"}) exit 1;; esac\nexit 0\n`);
+        chmodSync(path.join(dir, "sudo"), 0o755);
+        writeFileSync(path.join(dir, "starter"), desktopStarterScript(x11));
+        chmodSync(path.join(dir, "starter"), 0o755);
+        const r = await runChild(path.join(dir, "starter"), [], { timeout: 20_000, env: { ...process.env, PATH: `${dir}:/usr/bin:/bin` } });
+        const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
+        return { status: r.status, stdout: r.stdout, stderr: r.stderr, calls };
+      } finally {
+        server?.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+
+    test("it starts the display, then its AT-SPI bus, and names the worker's display, bus, headless switch, refusing PATH and no-new-privileges", async () => {
+      const r = await runStarter({ socket: true });
+      expect(r.status).toBe(0);
+      expect(r.calls).toEqual([`sudo -n systemctl start ${DISPLAY_UNIT}`, `sudo -n systemctl start ${A11Y_UNIT}`]);
+      const vars = Object.fromEntries(r.stdout.trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+      const { PATH: workerPath, ...rest } = vars;
+      expect(rest).toEqual({
+        DISPLAY: ":99",
+        XAUTHORITY: AGENT_XAUTHORITY,
+        CMUX_CU_HEADLESS: "1",
+        [NO_NEW_PRIVS_ENV]: "1",
+        DBUS_SESSION_BUS_ADDRESS: `unix:path=${a11yRuntimeDir("99")}/bus`,
+      });
+      // The refusing tools first, then the daemon's PATH, so the worker still finds everything else.
+      expect(workerPath.startsWith(`${CUA_REFUSE_DIR}:`)).toBe(true);
+      expect(workerPath.endsWith(":/usr/bin:/bin")).toBe(true);
+
+      // systemctl's own words go to stderr, never into the variables.
+      expect(r.stdout).not.toContain("starting");
+    });
+
+    test("a bus that does not start leaves screenshots and X11 input: the display is named, the bus is not, and it says why", async () => {
+      const r = await runStarter({ socket: true, failUnit: A11Y_UNIT });
+      expect(r.status).toBe(0);
+      expect(r.stdout).toContain("DISPLAY=:99");
+      expect(r.stdout).not.toContain("DBUS_SESSION_BUS_ADDRESS");
+      expect(r.stderr).toContain(`systemctl status ${A11Y_UNIT}`);
+    });
+
+    test("a display that does not start, or has no socket, gives no desktop and names the unit", async () => {
+      for (const opts of [{ socket: true, failUnit: DISPLAY_UNIT }, { socket: false }]) {
+        const r = await runStarter(opts);
+        expect(r.status).toBe(1);
+        expect(r.stdout).not.toContain("DISPLAY=");
+        expect(r.stderr).toMatch(new RegExp(`systemctl status ${DISPLAY_UNIT}|has no socket`));
+      }
+    });
+
+    test("the bake installs it root-owned at the path cmux-tui trusts, checks it parses and its folder is root's, and parses as sh", async () => {
+      const file = agentToolsFiles(rdLock).find((f) => f.path === DESKTOP_STARTER);
+      expect(DESKTOP_STARTER).toBe("/etc/cmux/computer-use-desktop");
+      expect(file).toEqual({ path: DESKTOP_STARTER, text: desktopStarterScript(), mode: 0o755 });
+      expect(agentToolsLinkCommand()).toContain(`sh -n ${DESKTOP_STARTER}`);
+      expect(agentToolsLinkCommand()).toContain("'root:root 755 root:root 755 '");
+      const r = await runChild("sh", ["-n"], { input: desktopStarterScript(), timeout: 20_000 });
+      expect(r.status).toBe(0);
+    });
+  });
+
+  test("the work user's cmux.json turns the cmux server on and gives agents cmux's tools (agents.cmuxMcp on, acpmux agent_tools.rs)", () => {
+    // Without agents.cmuxMcp acpmux attaches no cmux server: roll 44806546922's candidate had no browser tools.
+    expect(JSON.parse(WORK_USER_CMUX_JSON_TEXT)).toEqual({ mcp: { enabled: true }, agents: { cmuxMcp: "on" } });
   });
 
   test("cua-video stays off: the computer-use driver cannot install ffmpeg (install_ffmpeg runs `sudo -n apt-get install -y ffmpeg`)", async () => {

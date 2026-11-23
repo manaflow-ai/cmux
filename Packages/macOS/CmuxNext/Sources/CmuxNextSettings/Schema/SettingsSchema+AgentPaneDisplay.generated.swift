@@ -7,6 +7,7 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let widthDefault: Double = 800
     nonisolated static let widthRange: ClosedRange<Double> = 480...4000
     nonisolated static let widthPlaceholder: Double = 800
+    nonisolated static let widthValues = ["narrow", "medium", "wide"]
     /// `agentPane.display.fullWidth`.
     nonisolated static let fullWidthPath = ["agentPane", "display", "fullWidth"]
     nonisolated static let fullWidthDefault = false
@@ -50,6 +51,12 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let uiFontPath = ["agentPane", "display", "font", "ui"]
     nonisolated static let uiFontDefault = "system-ui"
     nonisolated static let uiFontValues = ["system-ui", "system-ui-tight", "inter-tuned", "inter", "verdana", "roboto", "plex", "source-sans", "geist", "cmux-sans", "hanken", "atkinson"]
+    /// `agentPane.display.font.uiFamily`: A CSS family or comma stack, no quotes; when set it wins over agentPane.display.font.ui (webviews chatUiFont). A theme's font pack names its faces here and in agentPane.display.font.faces.
+    nonisolated static let uiFamilyPath = ["agentPane", "display", "font", "uiFamily"]
+    /// `agentPane.display.font.proseFamily`: The face of the agent's reply prose; when set it wins over agentPane.display.font.preset.
+    nonisolated static let proseFamilyPath = ["agentPane", "display", "font", "proseFamily"]
+    /// `agentPane.display.font.faces`: Font files the chat page declares as @font-face: key = family, optionally suffixed :italic; value = file:PATH (absolute or at ~; in a theme file relative to the themes folder). At most 8 faces, each a plain woff2, woff, ttf or otf file of at most 2 MiB whose extension matches its bytes (cmux-config font_faces, Swift ChatFontFaces); the page gets each as a data:font URL.
+    nonisolated static let facesPath = ["agentPane", "display", "font", "faces"]
     /// `agentPane.display.font.size`.
     nonisolated static let fontSizePath = ["agentPane", "display", "font", "size"]
     nonisolated static let fontSizeDefault: Double = 14
@@ -86,6 +93,13 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let presentationPath = ["agentPane", "display", "presentation"]
     nonisolated static let presentationDefault = "transcript"
     nonisolated static let presentationValues = ["transcript", "messages"]
+    /// `agentPane.display.transcriptLook`: A named look of the transcript (docs/cmux-next/transcript-customization.md): a bundle of look tokens from schemas/transcript-look/transcript-look.json. cmux sets no token, so it is the chat as it draws today.
+    nonisolated static let transcriptLookPath = ["agentPane", "display", "transcriptLook"]
+    nonisolated static let transcriptLookDefault = "cmux"
+    nonisolated static let transcriptLookValues = ["cmux", "claude", "codex", "studio"]
+    /// `agentPane.display.transcriptTokens`: Per-token overrides of the transcript look: an object of token name to value, each checked against schemas/transcript-look/transcript-look.json (cmux-config transcript_look; the page drops a value it refuses).
+    nonisolated static let transcriptTokensPath = ["agentPane", "display", "transcriptTokens"]
+    nonisolated static let transcriptTokensDefault: JSONValue = .object([:])
     /// `agentPane.display.promptCoach`: Prompt coach (webviews conversation/PromptCoachCard.tsx; Leo, 2026-11-08): after a chat in which the person corrected the agent three or more times before moving on, a card under that turn shows the chat's first prompt rewritten with what they added later, with Copy. Off: the chat asks acpmux for no rewrite (`_acpmux/prompt_coach`) and draws no card.
     nonisolated static let promptCoachPath = ["agentPane", "display", "promptCoach"]
     nonisolated static let promptCoachDefault = true
@@ -95,6 +109,24 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let statusVerbsModeValues = ["thinking", "rotate", "custom"]
     /// `agentPane.display.statusVerbs.custom`.
     nonisolated static let statusVerbsCustomPath = ["agentPane", "display", "statusVerbs", "custom"]
+    /// `agentPane.display.thinking.shimmer`: How the live line's light band moves while the agent works (webviews agent chat). Cadenced is today's one-second sweep every four seconds; Continuous sweeps back to back, eased in and out, over shimmerPeriod.
+    nonisolated static let thinkingShimmerPath = ["agentPane", "display", "thinking", "shimmer"]
+    nonisolated static let thinkingShimmerDefault = "cadenced"
+    nonisolated static let thinkingShimmerValues = ["cadenced", "continuous"]
+    /// `agentPane.display.thinking.shimmerPeriod`: One continuous shimmer pass in milliseconds; read only when shimmer is continuous.
+    nonisolated static let thinkingShimmerPeriodPath = ["agentPane", "display", "thinking", "shimmerPeriod"]
+    nonisolated static let thinkingShimmerPeriodDefault: Double = 1250
+    nonisolated static let thinkingShimmerPeriodRange: ClosedRange<Double> = 600...4000
+    nonisolated static let thinkingShimmerPeriodPlaceholder: Double = 1250
+    /// `agentPane.display.thinking.shimmerBand`: The shimmer band's width in points; 0 keeps today's band, half the line's width.
+    nonisolated static let thinkingShimmerBandPath = ["agentPane", "display", "thinking", "shimmerBand"]
+    nonisolated static let thinkingShimmerBandDefault: Double = 0
+    nonisolated static let thinkingShimmerBandRange: ClosedRange<Double> = 0...240
+    nonisolated static let thinkingShimmerBandPlaceholder: Double = 0
+    /// `agentPane.display.thinking.jumpButton`: What Jump to latest shows while the agent works: the arrow (today), or three small dots in the theme accent moving in turn; the arrow comes back on hover and when the agent stops.
+    nonisolated static let thinkingJumpButtonPath = ["agentPane", "display", "thinking", "jumpButton"]
+    nonisolated static let thinkingJumpButtonDefault = "arrow"
+    nonisolated static let thinkingJumpButtonValues = ["arrow", "dots"]
     /// `agentPane.display.harnessPlacement`.
     nonisolated static let harnessPlacementPath = ["agentPane", "display", "harnessPlacement"]
     nonisolated static let harnessPlacementDefault = "symbols"
@@ -103,7 +135,20 @@ extension AgentPaneDisplaySettingsSchema {
     nonisolated static let railSidePath = ["agentPane", "display", "rail", "side"]
     nonisolated static let railSideDefault = "left"
     nonisolated static let railSideValues = ["left", "right"]
+    /// `agentPane.display.rail.show`: What the prompt rail draws a tick for (webviews threadMinimap/railShow.ts; Leo, 2026-11-21: "why cant you see an agents'? why cant you filter it? customize it immediately?"). The rail's right-click menu and its head control write it too, so every rail changes at once.
+    nonisolated static let railShowPath = ["agentPane", "display", "rail", "show"]
+    nonisolated static let railShowDefault = "prompts"
+    nonisolated static let railShowValues = ["prompts", "mine", "received", "replies", "everything", "errors", "edits", "tools", "subagents"]
+    /// `agentPane.display.rail.control`: A control at the prompt rail's head that names what it shows and opens the same choices (webviews threadMinimap/RailShowControl.tsx). Off by default: the rail looks as it did.
+    nonisolated static let railControlPath = ["agentPane", "display", "rail", "control"]
+    nonisolated static let railControlDefault = false
     /// `agentPane.display.commandLabels`: How the chat's running tray names background commands no built-in rule knows (CommandLabelsSetting; webviews session-info/commandLabelSettings.ts): preset names and rules of one's own, edited as JSON.
     nonisolated static let commandLabelsPath = ["agentPane", "display", "commandLabels"]
     nonisolated static let commandLabelsDefault: [String] = []
+}
+
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum AgentPaneDisplaySettingsSchema {
+    /// The agent chat's look (plans/cmux-next/chat-display-settings-DESIGN.md): the chat page reads the same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts CHAT_DISPLAY), and its ... menu's Text & Width popover writes them. The font, code font and code size have no value of their own by default: the chat then follows the Markdown viewer's, and code follows the terminal font. Sizes and width never follow the viewer.
+    static var descriptors: [SettingDescriptor] { descriptorsPart1 + descriptorsPart2 }
 }

@@ -64,15 +64,6 @@ cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
 fi
-build_start=$SECONDS
-app="" cached=false
-if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
-  mkdir -p "$out/app"
-  ditto "$cache/$key/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
-  touch "$cache/$key/ok"
-  app="$out/app/cmux DEV $tag.app" cached=true
-  echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
-fi
 # >>> follow-log (scripts/measure/tests/split-spring-follow-log.test.sh runs these two)
 # follow_log FILE: prints FILE's lines as they come, each prefixed "reload-log: ", from a `tail` this script starts
 # (its PID in follow_pid). FILE starts empty, so only this run's lines show.
@@ -125,15 +116,35 @@ heartbeat_stop() {
   heartbeat_pid=""
 }
 # <<< follow-log
+# The heartbeat runs from here until the app is ready, and each step says its name first: a glass-perf step
+# on cmux-austin-mini-0 (1dc02f92) printed nothing after the worker's checkout, before reload.sh started,
+# and the controller stopped it after 45 min with no step named. The heartbeat used to start only with
+# reload.sh, so the app-cache copy, the submodule fetch and the GhosttyKit download ran silent.
+heartbeat_start
+trap 'heartbeat_stop' EXIT
+build_start=$SECONDS
+app="" cached=false
+if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
+  echo "split-spring: copying the cached app (key $key)"
+  mkdir -p "$out/app"
+  ditto "$cache/$key/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
+  touch "$cache/$key/ok"
+  app="$out/app/cmux DEV $tag.app" cached=true
+  echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
+fi
 if [[ -z "$app" ]]; then
   for sub in ghostty ghostty-next; do
-    [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
+    if [ ! -e "$sub/.git" ]; then
+      echo "split-spring: fetching submodule $sub"
+      git submodule update --init --depth 1 "$sub"
+    fi
   done
   if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
     rm -rf GhosttyKit.xcframework
     if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
       export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
     fi
+    echo "split-spring: getting GhosttyKit"
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
   # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
@@ -144,13 +155,12 @@ if [[ -z "$app" ]]; then
   # stopped after 45 min with no output after "reload starting").
   # Only an EXIT trap while reload.sh runs: bash runs a TERM/INT/HUP trap only after the foreground pipeline ends (a
   # hung reload never does), while an EXIT trap alone runs at once when such a signal ends the script.
+  echo "split-spring: building the app (reload.sh --tag $tag)"
   follow_log "/tmp/cmux-reload-$tag.log"
-  heartbeat_start
   trap 'unfollow_log; heartbeat_stop' EXIT
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
-  heartbeat_stop
   unfollow_log
-  trap - EXIT
+  trap 'heartbeat_stop' EXIT
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
@@ -174,6 +184,8 @@ if [[ -z "$app" ]]; then
     fi
   fi
 fi
+heartbeat_stop
+trap - EXIT
 if [[ -n "$cache" && -d "$cache/$key" ]]; then
   [[ "$build_only" == 1 ]] && touch "$cache/$key/pin"
   # Keep the 3 newest unpinned apps; a pin younger than 13 h (780 min) keeps its app whatever its age.

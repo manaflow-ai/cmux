@@ -1,0 +1,1145 @@
+//! Running apps and app launch through NSWorkspace / NSRunningApplication.
+//!
+//! Plain Objective-C messages through objc2; strings and URLs cross as their
+//! toll-free bridged CoreFoundation types.
+
+use std::sync::mpsc;
+use std::time::Duration;
+
+use block2::RcBlock;
+use objc2::msg_send;
+use objc2::rc::{Retained, autoreleasepool};
+use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+use super::sys::Cf;
+use crate::desktop::{DResult, DesktopError};
+
+/// How long launch_app waits for the app to report it started.
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+const POLICY_REGULAR: isize = 0;
+const POLICY_ACCESSORY: isize = 1;
+
+/// One running app as NSRunningApplication sees it.
+#[derive(Clone, Debug)]
+pub struct RunningApp {
+    pub pid: i32,
+    pub bundle_id: Option<String>,
+    /// The executable's file name (`executableURL`).
+    pub executable: Option<String>,
+    pub name: String,
+    pub policy: isize,
+    pub active: bool,
+    pub hidden: bool,
+}
+
+impl RunningApp {
+    /// The policy identity: the bundle id, else the executable name.
+    pub fn id(&self) -> String {
+        self.bundle_id
+            .clone()
+            .filter(|b| !b.is_empty())
+            .or_else(|| self.executable.clone())
+            .unwrap_or_else(|| format!("pid:{}", self.pid))
+    }
+
+    pub fn is_regular(&self) -> bool {
+        self.policy == POLICY_REGULAR
+    }
+
+    pub fn is_accessory(&self) -> bool {
+        self.policy == POLICY_ACCESSORY
+    }
+}
+
+fn class(name: &std::ffi::CStr) -> DResult<&'static AnyClass> {
+    AnyClass::get(name).ok_or_else(|| DesktopError::Failed(format!("{name:?} is not available")))
+}
+
+fn ns_string(o: Option<Retained<AnyObject>>) -> Option<String> {
+    let o = o?;
+    let p: *const AnyObject = &*o;
+    Cf::retained(p.cast()).and_then(|s| s.as_string())
+}
+
+fn shared_workspace() -> DResult<Retained<AnyObject>> {
+    let cls = class(c"NSWorkspace")?;
+    // SAFETY: +[NSWorkspace sharedWorkspace] returns the shared instance.
+    let ws: Option<Retained<AnyObject>> = unsafe { msg_send![cls, sharedWorkspace] };
+    ws.ok_or_else(|| DesktopError::Failed("NSWorkspace is not available".into()))
+}
+
+fn describe(app: &AnyObject) -> Option<RunningApp> {
+    // SAFETY: app is an NSRunningApplication; each selector exists on it
+    // since macOS 10.6 and returns the declared type.
+    unsafe {
+        let terminated: Bool = msg_send![app, isTerminated];
+        if terminated.as_bool() {
+            return None;
+        }
+        let pid: i32 = msg_send![app, processIdentifier];
+        if pid <= 0 {
+            return None;
+        }
+        let policy: isize = msg_send![app, activationPolicy];
+        let active: Bool = msg_send![app, isActive];
+        let hidden: Bool = msg_send![app, isHidden];
+        let bundle_id = ns_string(msg_send![app, bundleIdentifier]);
+        let url: Option<Retained<AnyObject>> = msg_send![app, executableURL];
+        let executable = url
+            .and_then(|u| ns_string(msg_send![&*u, lastPathComponent]))
+            .filter(|s| !s.is_empty());
+        let name = ns_string(msg_send![app, localizedName])
+            .filter(|s| !s.is_empty())
+            .or_else(|| executable.clone())
+            .unwrap_or_default();
+        Some(RunningApp {
+            pid,
+            bundle_id,
+            executable,
+            name,
+            policy,
+            active: active.as_bool(),
+            hidden: hidden.as_bool(),
+        })
+    }
+}
+
+/// The app of one pid, fresh from the system (also when the workspace's
+/// cached list has not caught up yet).
+pub fn app_for_pid(pid: i32) -> Option<RunningApp> {
+    autoreleasepool(|_| {
+        let cls = AnyClass::get(c"NSRunningApplication")?;
+        // SAFETY: +runningApplicationWithProcessIdentifier: returns nil or an app.
+        let app: Option<Retained<AnyObject>> =
+            unsafe { msg_send![cls, runningApplicationWithProcessIdentifier: pid] };
+        app.as_deref().and_then(describe)
+    })
+}
+
+/// The general pasteboard's change count (it goes up with every write).
+pub fn pasteboard_change_count() -> Option<i64> {
+    autoreleasepool(|_| {
+        let cls = AnyClass::get(c"NSPasteboard")?;
+        // SAFETY: +generalPasteboard returns the shared pasteboard (or nil).
+        let pb: Option<Retained<AnyObject>> = unsafe { msg_send![cls, generalPasteboard] };
+        let pb = pb?;
+        // SAFETY: -changeCount returns NSInteger.
+        let count: isize = unsafe { msg_send![&*pb, changeCount] };
+        Some(count as i64)
+    })
+}
+
+/// The frontmost app's pid, as NSWorkspace knows it.
+pub fn frontmost_pid() -> Option<i32> {
+    autoreleasepool(|_| {
+        let ws = shared_workspace().ok()?;
+        // SAFETY: -frontmostApplication returns nil or an NSRunningApplication.
+        let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*ws, frontmostApplication] };
+        let app = app?;
+        // SAFETY: -processIdentifier returns pid_t.
+        let pid: i32 = unsafe { msg_send![&*app, processIdentifier] };
+        (pid > 0).then_some(pid)
+    })
+}
+
+/// Asks the system to make `pid` the active app again (the person's app,
+/// after another took focus without them). True when the request was taken.
+pub fn activate(pid: i32) -> bool {
+    autoreleasepool(|_| {
+        let Some(cls) = AnyClass::get(c"NSRunningApplication") else { return false };
+        // SAFETY: +runningApplicationWithProcessIdentifier: returns nil or an app.
+        let app: Option<Retained<AnyObject>> =
+            unsafe { msg_send![cls, runningApplicationWithProcessIdentifier: pid] };
+        let Some(app) = app else { return false };
+        // SAFETY: -activateWithOptions: takes NSApplicationActivationOptions (0: none).
+        let ok: Bool = unsafe { msg_send![&*app, activateWithOptions: 0usize] };
+        ok.as_bool()
+    })
+}
+
+/// A running, not terminated app with `bundle_id`.
+fn running(bundle_id: &str) -> Option<RunningApp> {
+    autoreleasepool(|_| {
+        let cls = AnyClass::get(c"NSRunningApplication")?;
+        let id = Cf::string(bundle_id)?;
+        let id_obj: *const AnyObject = id.ptr().cast();
+        // SAFETY: +runningApplicationsWithBundleIdentifier: takes an NSString
+        // (toll-free bridged CFString) and returns an NSArray.
+        let list: Option<Retained<AnyObject>> =
+            unsafe { msg_send![cls, runningApplicationsWithBundleIdentifier: id_obj] };
+        let list = list?;
+        // SAFETY: -count on an NSArray.
+        let count: usize = unsafe { msg_send![&*list, count] };
+        (0..count).find_map(|i| {
+            // SAFETY: i < count; -objectAtIndex: returns an NSRunningApplication.
+            let app: Option<Retained<AnyObject>> = unsafe { msg_send![&*list, objectAtIndex: i] };
+            app.as_deref().and_then(describe)
+        })
+    })
+}
+
+/// Launches the app with `bundle_id` without activating it, and returns it
+/// once it runs. An app that already runs with a window on screen is
+/// returned as it is, with no open request: LaunchServices would send it a
+/// reopen event, which apps answer by showing (and often activating) a
+/// window. One with no window gets the reopen, so the agent has a window to
+/// work in; the engine's focus guard puts back any activation it causes.
+pub fn launch(bundle_id: &str) -> DResult<RunningApp> {
+    if let Some(app) = running(bundle_id)
+        && super::cgwindows::on_screen().iter().any(|w| w.pid == app.pid && w.is_app_window())
+    {
+        return Ok(app);
+    }
+    let rx = autoreleasepool(|_| start_launch(bundle_id))?;
+    match rx.recv_timeout(LAUNCH_TIMEOUT) {
+        Ok(Ok(pid)) => app_for_pid(pid).ok_or_else(|| {
+            DesktopError::Failed(format!("{bundle_id} started (pid {pid}) and quit at once"))
+        }),
+        Ok(Err(message)) => {
+            Err(DesktopError::Failed(format!("could not open {bundle_id}: {message}")))
+        }
+        Err(_) => Err(DesktopError::Failed(format!(
+            "{bundle_id} did not finish launching in {} s",
+            LAUNCH_TIMEOUT.as_secs()
+        ))),
+    }
+}
+
+type LaunchResult = Result<i32, String>;
+
+fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
+    let ws = shared_workspace()?;
+    let id = Cf::string(bundle_id).ok_or_else(|| DesktopError::Failed("bad bundle id".into()))?;
+    let id_obj: *const AnyObject = id.ptr().cast();
+    // SAFETY: -URLForApplicationWithBundleIdentifier: takes an NSString
+    // (a CFString is toll-free bridged) and returns nil or an NSURL.
+    let url: Option<Retained<AnyObject>> =
+        unsafe { msg_send![&*ws, URLForApplicationWithBundleIdentifier: id_obj] };
+    let url = url.ok_or_else(|| {
+        DesktopError::TargetNotFound(format!("no installed app has the bundle id {bundle_id}"))
+    })?;
+    let config_cls = class(c"NSWorkspaceOpenConfiguration")?;
+    // SAFETY: +configuration returns a new configuration; -setActivates:
+    // takes a BOOL (macOS 10.15+).
+    let config: Option<Retained<AnyObject>> = unsafe { msg_send![config_cls, configuration] };
+    let config =
+        config.ok_or_else(|| DesktopError::Failed("NSWorkspaceOpenConfiguration failed".into()))?;
+    // Not activated; and no LaunchServices UI (a first-launch or update
+    // prompt is a modal panel that takes the person's keyboard): such a
+    // launch fails with a message instead.
+    unsafe {
+        let _: () = msg_send![&*config, setActivates: Bool::NO];
+        let _: () = msg_send![&*config, setAddsToRecentItems: Bool::NO];
+        let _: () = msg_send![&*config, setPromptsUserIfNeeded: Bool::NO];
+    }
+    let (tx, rx) = mpsc::channel::<LaunchResult>();
+    let block = RcBlock::new(move |app: *mut AnyObject, error: *mut AnyObject| {
+        let result = if app.is_null() {
+            // SAFETY: error is nil or an NSError for the duration of the call.
+            let message = unsafe { error.as_ref() }
+                .and_then(|e| ns_string(unsafe { msg_send![e, localizedDescription] }))
+                .unwrap_or_else(|| "unknown error".into());
+            Err(message)
+        } else {
+            // SAFETY: app is a live NSRunningApplication for the call.
+            Ok(unsafe { msg_send![&*app, processIdentifier] })
+        };
+        let _ = tx.send(result);
+    });
+    // SAFETY: the completion handler block has the signature
+    // void (^)(NSRunningApplication *, NSError *); NSWorkspace copies it.
+    unsafe {
+        let _: () = msg_send![
+            &*ws,
+            openApplicationAtURL: &*url,
+            configuration: &*config,
+            completionHandler: &*block
+        ];
+    }
+    Ok(rx)
+}
+
+/// Whether an app with this bundle id is installed (LaunchServices knows it).
+pub fn bundle_installed(bundle_id: &str) -> bool {
+    autoreleasepool(|_| {
+        let Ok(ws) = shared_workspace() else { return false };
+        let Some(id) = Cf::string(bundle_id) else { return false };
+        let id_obj: *const AnyObject = id.ptr().cast();
+        // SAFETY: -URLForApplicationWithBundleIdentifier: takes an NSString and
+        // returns nil or an NSURL.
+        let url: Option<Retained<AnyObject>> =
+            unsafe { msg_send![&*ws, URLForApplicationWithBundleIdentifier: id_obj] };
+        url.is_some()
+    })
+}
+
+/// The bundle ids `app` names for launch_app: itself when it is an installed
+/// bundle id, else the apps with that name ("Notes", "System Settings"),
+/// as the person sees them in the app folders, or as LaunchServices resolves
+/// the name. Empty when nothing matches.
+pub fn launch_targets(app: &str) -> Vec<String> {
+    let app = app.trim();
+    if app.is_empty() {
+        return Vec::new();
+    }
+    if bundle_installed(app) {
+        return vec![app.to_string()];
+    }
+    let name = app.strip_suffix(".app").unwrap_or(app);
+    match apps_named(name) {
+        Some(ids) if !ids.is_empty() => ids,
+        // The index is still being built, or knows no app of that name: ask
+        // LaunchServices directly.
+        _ => launch_services_id(name).into_iter().collect(),
+    }
+}
+
+/// The bundle ids of every installed app known by `name` (case-insensitive):
+/// its localized display name in the person's language ("Systemeinstellungen"
+/// on a German Mac), its bundle name, and its file name, across the app
+/// folders (and one level of subfolders: Setapp, Adobe, Chrome Apps), plus
+/// the app LaunchServices finds by that name when the index has none.
+/// Several ids for a shared name; none for an unknown one.
+///
+/// The index is built on a background thread and rebuilt when an app
+/// folder changes. Until the first build is done, a name is answered from
+/// the guard's blocked apps by every name they are known by, else by
+/// LaunchServices (as launch_targets does), so the menu bar and key
+/// shortcuts are not held back meanwhile; `None` when those names cannot be
+/// read (no guard yet, or LaunchServices cannot be asked: the caller
+/// refuses, fail-closed). Answers that needed
+/// LaunchServices are kept per name for ANSWER_TTL and tagged with the index
+/// generation they came from.
+pub fn apps_named(name: &str) -> Option<Vec<String>> {
+    let key = name.trim().to_lowercase();
+    if key.is_empty() {
+        return Some(Vec::new());
+    }
+    let index = names_index();
+    let Some((generation, by_name)) = index.current() else {
+        // The blocked apps' names first, fresh each time (they follow the
+        // deny list); only LaunchServices answers are cached, under
+        // generation 0 until the first build, which clears them.
+        let blocked = cold_blocked_names();
+        return cold_resolve(&key, blocked.as_deref(), || {
+            if let Some(hit) = index.answer(&key, 0) {
+                return hit;
+            }
+            let ids: Vec<String> = launch_services_id(name.trim()).into_iter().collect();
+            index.remember(key.clone(), 0, ids.clone());
+            ids
+        });
+    };
+    // The blocked apps known since the build (a prefix entry added, an app
+    // outside the folders) count too.
+    let cold = cold_blocked_names();
+    if let Some(ids) = by_name.get(&key) {
+        return merged_names(Some(&by_name), cold.as_deref(), &key).or(Some(ids.clone()));
+    }
+    if let Some(ids) = cold.as_deref().and_then(|m| m.get(&key)) {
+        return Some(ids.clone());
+    }
+    if let Some(hit) = index.answer(&key, generation) {
+        return Some(hit);
+    }
+    let ids: Vec<String> = launch_services_id(name.trim()).into_iter().collect();
+    index.remember(key, generation, ids.clone());
+    Some(ids)
+}
+
+/// The names opened menus are checked against, fetched once for a walk or
+/// a call: the built index plus the blocked apps known before it (the cold
+/// map: exact ids by every name, windowed apps a `prefix*` entry covers),
+/// which can know names the index does not (an app outside the app
+/// folders, a prefix entry added since the build). The listing and the
+/// press use the same one, so they agree.
+pub struct NameSource {
+    index: Option<std::sync::Arc<NameMap>>,
+    cold: Option<std::sync::Arc<NameMap>>,
+}
+
+impl NameSource {
+    pub fn now() -> Self {
+        NameSource { index: names_index().current().map(|(_, m)| m), cold: cold_blocked_names() }
+    }
+
+    /// For tests: a source over these maps.
+    #[cfg(test)]
+    pub(super) fn of(index: Option<NameMap>, cold: Option<NameMap>) -> Self {
+        NameSource { index: index.map(std::sync::Arc::new), cold: cold.map(std::sync::Arc::new) }
+    }
+
+    /// The cold map's answer alone: its ids, or none (never "unknown").
+    pub fn cold_answer(&self, name: &str) -> Option<Vec<String>> {
+        let key = name.trim().to_lowercase();
+        Some(self.cold.as_deref().and_then(|m| m.get(&key).cloned()).unwrap_or_default())
+    }
+
+    /// The ids known by `name`: the index's and the cold map's together;
+    /// before the index is built only the cold map's, and None for a name it
+    /// does not know (not answered yet).
+    pub fn resolve(&self, name: &str) -> Option<Vec<String>> {
+        merged_names(self.index.as_deref(), self.cold.as_deref(), &name.trim().to_lowercase())
+    }
+}
+
+/// [`NameSource::resolve`] on plain maps. Pure, for tests.
+pub(super) fn merged_names(
+    index: Option<&NameMap>,
+    cold: Option<&NameMap>,
+    key: &str,
+) -> Option<Vec<String>> {
+    if key.is_empty() {
+        return Some(Vec::new());
+    }
+    let cold_ids = cold.and_then(|m| m.get(key));
+    match index {
+        Some(index) => {
+            let mut ids = index.get(key).cloned().unwrap_or_default();
+            for id in cold_ids.into_iter().flatten() {
+                if !ids.contains(id) {
+                    ids.push(id.clone());
+                }
+            }
+            Some(ids)
+        }
+        None => cold_ids.cloned(),
+    }
+}
+
+/// Whether the app-name index has been built. Items of a menu the desktop
+/// opens, and their word runs, are checked against it alone (a font pop-up
+/// has hundreds of items): until it is, they fail closed whatever the deny
+/// list, and calls say the names are loading. The menu bar and shortcuts
+/// ask LaunchServices meanwhile ([`apps_named`]).
+pub fn app_names_ready() -> bool {
+    names_index().current().is_some()
+}
+
+/// AppKit's titles, in every language it ships, of the submenus whose items
+/// launch, open or hand data to other apps: Services, Quick Actions, Share,
+/// Open With, Recent Items. Read once from AppKit's string tables, so an
+/// app in any language (its own or the person's) is matched.
+pub fn launch_submenu_titles() -> &'static [String] {
+    static TITLES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    TITLES.get_or_init(|| {
+        // (table, key): the keys are AppKit's own.
+        const ENTRIES: &[(&str, &str)] = &[
+            ("Services", "Services"),
+            ("MenuCommands", "Open With"),
+            ("MenuCommands", "Share"),
+            ("Menus", "Recent Items"),
+            // AppKit names Quick Actions only in its control strip images.
+            ("AccessibilityImageDescriptions", "NSTouchBarControlStripUserActionsTemplate"),
+        ];
+        const RESOURCES: &str = "/System/Library/Frameworks/AppKit.framework/Resources";
+        let mut out: Vec<String> = Vec::new();
+        let mut add = |t: String| {
+            let t = super::roles::submenu_title_key(&t);
+            if !t.is_empty() && !out.contains(&t) {
+                out.push(t);
+            }
+        };
+        for (table, key) in ENTRIES {
+            let path = format!("{RESOURCES}/{table}.loctable");
+            let Some(plist) = std::fs::read(&path).ok().and_then(|b| Cf::property_list(&b)) else {
+                continue;
+            };
+            for language in plist.dict_values() {
+                if let Some(title) = language.get(key).and_then(|v| v.as_string()) {
+                    add(title);
+                }
+            }
+        }
+        // English too, always: an app that ships no other language shows
+        // these, and an older AppKit may keep no tables.
+        for english in ["Services", "Open With", "Share", "Recent Items", "Quick Actions"] {
+            add(english.to_string());
+        }
+        out
+    })
+}
+
+/// The titles of menu commands that open or reveal documents or apps, in
+/// English and in every language AppKit's own tables give them (normalized:
+/// lowercase, no trailing ellipsis): File > Open, Open Recent, Open in New
+/// Tab or Window, Show or Reveal in Finder, Show Original, Open Enclosing
+/// Folder. A title that starts with one of them followed by a space counts
+/// too (Open in New Tab, Open "x" With).
+pub fn open_item_titles() -> &'static [String] {
+    static TITLES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    TITLES.get_or_init(|| {
+        const KEYS: &[(&str, &str)] = &[
+            ("MenuCommands", "Open…"),
+            ("MenuCommands", "Open"),
+            ("MenuCommands", "Open Recent"),
+            ("MenuCommands", "Show in Finder"),
+        ];
+        const RESOURCES: &str = "/System/Library/Frameworks/AppKit.framework/Resources";
+        let mut out: Vec<String> = Vec::new();
+        let mut add = |t: String| {
+            let t = super::roles::submenu_title_key(&t);
+            if !t.is_empty() && !out.contains(&t) {
+                out.push(t);
+            }
+        };
+        for (table, key) in KEYS {
+            let path = format!("{RESOURCES}/{table}.loctable");
+            let Some(plist) = std::fs::read(&path).ok().and_then(|b| Cf::property_list(&b)) else {
+                continue;
+            };
+            for language in plist.dict_values() {
+                if let Some(title) = language.get(key).and_then(|v| v.as_string()) {
+                    add(title);
+                }
+            }
+        }
+        for english in [
+            "Open",
+            "Open Recent",
+            "Open in New Tab",
+            "Open in New Window",
+            "Open in New Tabs",
+            "Show in Finder",
+            "Reveal in Finder",
+            "Show Original",
+            "Open Enclosing Folder",
+        ] {
+            add(english.to_string());
+        }
+        out
+    })
+}
+
+/// How often the app folders are checked for changes.
+const FOLDER_CHECK: Duration = Duration::from_secs(5);
+/// How long one LaunchServices answer is reused.
+const ANSWER_TTL: Duration = Duration::from_secs(60);
+
+pub(super) type NameMap = std::collections::HashMap<String, Vec<String>>;
+
+struct NamesIndex {
+    state: std::sync::Mutex<IndexState>,
+}
+
+struct IndexState {
+    generation: u64,
+    built: Option<std::sync::Arc<NameMap>>,
+    folders: Vec<Option<std::time::SystemTime>>,
+    checked: Option<std::time::Instant>,
+    building: bool,
+    /// name -> (index generation, when, ids), expired one by one.
+    answers: std::collections::HashMap<String, (u64, std::time::Instant, Vec<String>)>,
+}
+
+fn names_index() -> &'static NamesIndex {
+    static INDEX: std::sync::OnceLock<NamesIndex> = std::sync::OnceLock::new();
+    INDEX.get_or_init(|| NamesIndex {
+        state: std::sync::Mutex::new(IndexState {
+            generation: 0,
+            built: None,
+            folders: Vec::new(),
+            checked: None,
+            building: false,
+            answers: std::collections::HashMap::new(),
+        }),
+    })
+}
+
+impl NamesIndex {
+    /// The current index and its generation, starting a background rebuild
+    /// when an app folder changed (checked at most every FOLDER_CHECK). The
+    /// old index serves until the new one is ready; None before the first.
+    fn current(&'static self) -> Option<(u64, std::sync::Arc<NameMap>)> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let due = st.checked.is_none_or(|t| t.elapsed() > FOLDER_CHECK);
+        if due && !st.building {
+            st.checked = Some(std::time::Instant::now());
+            let folders = folder_times();
+            if st.built.is_none() || folders != st.folders {
+                st.building = true;
+                let spawned =
+                    std::thread::Builder::new().name("cu-app-names".into()).spawn(move || {
+                        // Reset `building` however the build ends (a panic too).
+                        struct Done(&'static NamesIndex);
+                        impl Drop for Done {
+                            fn drop(&mut self) {
+                                self.0.state.lock().unwrap_or_else(|e| e.into_inner()).building =
+                                    false;
+                            }
+                        }
+                        let _done = Done(self);
+                        let map = std::sync::Arc::new(build_name_index());
+                        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                        st.generation += 1;
+                        st.built = Some(map);
+                        st.folders = folders;
+                        st.answers.clear();
+                    });
+                if spawned.is_err() {
+                    st.building = false;
+                }
+            }
+        }
+        st.built.clone().map(|m| (st.generation, m))
+    }
+
+    fn answer(&self, key: &str, generation: u64) -> Option<Vec<String>> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        match st.answers.get(key) {
+            Some((g, at, ids)) if *g == generation && at.elapsed() < ANSWER_TTL => {
+                Some(ids.clone())
+            }
+            Some(_) => {
+                st.answers.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn remember(&self, key: String, generation: u64, ids: Vec<String>) {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // An answer from an older generation would outlive a rebuild: drop it.
+        if st.generation == generation {
+            st.answers.retain(|_, (_, at, _)| at.elapsed() < ANSWER_TTL);
+            st.answers.insert(key, (generation, std::time::Instant::now(), ids));
+        }
+    }
+}
+
+/// Starts building the app-name index in the background (the engine calls
+/// it when it sets the menu guard), so the first menu walk rarely waits.
+pub fn warm_app_names() {
+    let _ = names_index().current();
+}
+
+fn app_folders() -> Vec<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = [
+        "/Applications",
+        "/Applications/Utilities",
+        "/System/Applications",
+        "/System/Applications/Utilities",
+        "/System/Cryptexes/App/System/Applications",
+        "/System/Library/CoreServices",
+        "/System/Library/CoreServices/Applications",
+    ]
+    .iter()
+    .map(std::path::PathBuf::from)
+    .collect();
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.push(std::path::PathBuf::from(home).join("Applications"));
+    }
+    dirs
+}
+
+fn folder_times() -> Vec<Option<std::time::SystemTime>> {
+    app_folders().iter().map(|d| std::fs::metadata(d).and_then(|m| m.modified()).ok()).collect()
+}
+
+fn build_name_index() -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut add = |name: &str, id: &str| {
+        let key = name.trim().to_lowercase();
+        if key.is_empty() || id.is_empty() {
+            return;
+        }
+        let ids = map.entry(key).or_default();
+        if !ids.iter().any(|x| x == id) {
+            ids.push(id.to_string());
+        }
+    };
+    autoreleasepool(|_| {
+        let Ok(fm_cls) = class(c"NSFileManager") else { return };
+        let Ok(bundle_cls) = class(c"NSBundle") else { return };
+        // SAFETY: +defaultManager returns the shared file manager.
+        let fm: Option<Retained<AnyObject>> = unsafe { msg_send![fm_cls, defaultManager] };
+        let Some(fm) = fm else { return };
+        let mut paths = Vec::new();
+        for dir in app_folders() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("app") {
+                    paths.push(path);
+                } else if path.is_dir()
+                    && let Ok(inner) = std::fs::read_dir(&path)
+                {
+                    // One level of subfolders (Setapp, Adobe, Chrome Apps).
+                    paths.extend(
+                        inner
+                            .flatten()
+                            .map(|e| e.path())
+                            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("app")),
+                    );
+                }
+            }
+        }
+        {
+            for path in paths {
+                let Some(p) = path.to_str().and_then(Cf::string) else { continue };
+                let p_obj: *const AnyObject = p.ptr().cast();
+                // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
+                let bundle: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
+                let Some(bundle) = bundle else { continue };
+                let Some(id) = ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] }) else {
+                    continue;
+                };
+                for name in bundle_names(&fm, &bundle, &path) {
+                    add(&name, &id);
+                }
+            }
+        }
+    });
+    map
+}
+
+/// Every name an app bundle is known by: its localized display name
+/// (-displayNameAtPath:, without .app), CFBundleDisplayName, CFBundleName
+/// and its file name.
+fn bundle_names(fm: &AnyObject, bundle: &AnyObject, path: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(p) = path.to_str().and_then(Cf::string) else { return out };
+    let p_obj: *const AnyObject = p.ptr().cast();
+    // SAFETY: -displayNameAtPath: takes an NSString and returns an NSString.
+    if let Some(display) = ns_string(unsafe { msg_send![fm, displayNameAtPath: p_obj] }) {
+        out.push(display.strip_suffix(".app").unwrap_or(&display).to_string());
+    }
+    for key in [c"CFBundleDisplayName", c"CFBundleName"] {
+        let Some(k) = key.to_str().ok().and_then(Cf::string) else { continue };
+        let k_obj: *const AnyObject = k.ptr().cast();
+        // SAFETY: -objectForInfoDictionaryKey: returns nil or an object; only a string is read.
+        let value: Option<Retained<AnyObject>> =
+            unsafe { msg_send![bundle, objectForInfoDictionaryKey: k_obj] };
+        if let Some(v) = value.and_then(|v| ns_string(Some(v))) {
+            out.push(v);
+        }
+    }
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        out.push(stem.to_string());
+    }
+    out
+}
+
+/// The names of the bundles with these ids, as the index would hold them
+/// (lower-cased name -> ids): the guard's blocked apps, found by id through
+/// LaunchServices (-URLsForApplicationsWithBundleIdentifier:), about thirty
+/// bundles. None when LaunchServices cannot be asked.
+fn names_of_bundles(ids: &[String]) -> Option<NameMap> {
+    autoreleasepool(|_| {
+        let ws = shared_workspace().ok()?;
+        let fm_cls = class(c"NSFileManager").ok()?;
+        let bundle_cls = class(c"NSBundle").ok()?;
+        // SAFETY: +defaultManager returns the shared file manager.
+        let fm: Option<Retained<AnyObject>> = unsafe { msg_send![fm_cls, defaultManager] };
+        let fm = fm?;
+        let mut map = NameMap::new();
+        for id in ids {
+            let Some(id_cf) = Cf::string(id) else { continue };
+            let id_obj: *const AnyObject = id_cf.ptr().cast();
+            // SAFETY: -URLsForApplicationsWithBundleIdentifier: takes an
+            // NSString and returns an NSArray of NSURL (macOS 12+).
+            let urls: Option<Retained<AnyObject>> =
+                unsafe { msg_send![&*ws, URLsForApplicationsWithBundleIdentifier: id_obj] };
+            let Some(urls) = urls else { continue };
+            // SAFETY: an NSArray: -count and -objectAtIndex:.
+            let count: usize = unsafe { msg_send![&*urls, count] };
+            for i in 0..count {
+                let url: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![&*urls, objectAtIndex: i] };
+                let Some(url) = url else { continue };
+                // SAFETY: -path returns nil or an NSString.
+                let Some(path) = ns_string(unsafe { msg_send![&*url, path] }) else { continue };
+                let path = std::path::PathBuf::from(path);
+                let Some(p) = path.to_str().and_then(Cf::string) else { continue };
+                let p_obj: *const AnyObject = p.ptr().cast();
+                // SAFETY: +bundleWithPath: takes an NSString; nil or an NSBundle.
+                let bundle: Option<Retained<AnyObject>> =
+                    unsafe { msg_send![bundle_cls, bundleWithPath: p_obj] };
+                let Some(bundle) = bundle else { continue };
+                for name in bundle_names(&fm, &bundle, &path) {
+                    let key = name.trim().to_lowercase();
+                    if key.is_empty() {
+                        continue;
+                    }
+                    let ids = map.entry(key).or_default();
+                    if !ids.contains(id) {
+                        ids.push(id.clone());
+                    }
+                }
+            }
+        }
+        Some(map)
+    })
+}
+
+/// How a name is answered before the full index is built: the guard's
+/// blocked apps by every name they are known by first (LaunchServices
+/// matches file names only, so "Systemeinstellungen" on a German Mac would
+/// be missed), then LaunchServices. None when the blocked names could not
+/// be read. Pure, for tests.
+pub(super) fn cold_resolve(
+    key: &str,
+    blocked_names: Option<&NameMap>,
+    launch_services: impl FnOnce() -> Vec<String>,
+) -> Option<Vec<String>> {
+    let blocked = blocked_names?;
+    if let Some(ids) = blocked.get(key) {
+        return Some(ids.clone());
+    }
+    Some(launch_services())
+}
+
+/// Adds the apps a `prefix*` deny entry covers that own a window to the cold map by
+/// their names (an app known only by a prefix has no exact id to look up).
+/// `running` is (bundle id, localized name). Pure, for tests.
+pub(super) fn add_prefixed_running(
+    map: &mut NameMap,
+    prefixes: &[String],
+    running: &[(String, String)],
+) {
+    for (id, name) in running {
+        // Bundle ids compare in any case, as the deny list's matcher does.
+        let lower = id.to_ascii_lowercase();
+        if !prefixes.iter().any(|p| lower.starts_with(&p.to_ascii_lowercase())) {
+            continue;
+        }
+        let key = name.trim().to_lowercase();
+        if key.is_empty() {
+            continue;
+        }
+        let ids = map.entry(key).or_default();
+        if !ids.contains(id) {
+            ids.push(id.clone());
+        }
+    }
+}
+
+/// The apps that own a window (every window, as list_apps reads them):
+/// (bundle id, localized name). Read from the window list, never by scanning
+/// processes (plans/cmux-next/pty-holder.md).
+fn running_ids_and_names() -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    super::cgwindows::all()
+        .into_iter()
+        .filter(|w| seen.insert(w.pid))
+        .filter_map(|w| app_for_pid(w.pid))
+        .filter_map(|a| Some((a.bundle_id?, a.name)))
+        .collect()
+}
+
+/// Where the cold path learns the guard's blocked ids (set with the menu
+/// guard).
+type BlockedIds = Box<dyn Fn() -> Vec<String> + Send + Sync>;
+
+fn blocked_ids_source() -> &'static std::sync::Mutex<Option<BlockedIds>> {
+    static S: std::sync::OnceLock<std::sync::Mutex<Option<BlockedIds>>> =
+        std::sync::OnceLock::new();
+    S.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// Tells the cold path which ids the guard blocks (the desktop calls it
+/// when the engine sets the menu guard).
+pub fn set_blocked_ids_source(source: BlockedIds) {
+    *blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+}
+
+/// The guard's entries as (exact ids, lower-cased `prefix*` prefixes). A
+/// lone `*` is the empty prefix: every app. Pure, for tests.
+pub(super) fn split_entries(entries: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let (prefixes, ids): (Vec<String>, Vec<String>) =
+        entries.into_iter().partition(|e| e.ends_with('*'));
+    let prefixes =
+        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_ascii_lowercase()).collect();
+    (ids, prefixes)
+}
+
+/// Whether the names cached for `cached` serve `ids` (the same set, so a
+/// deny-list edit rebuilds them). Pure, for tests.
+pub(super) fn reuse_cached(cached: &[String], ids: &[String]) -> bool {
+    cached == ids
+}
+
+/// The blocked apps' names: the exact ids' names built once per id set
+/// (again when it changes), and, only when there are `prefix*` entries, the
+/// windowed apps they cover, refreshed every few seconds. None with no guard
+/// yet or when LaunchServices cannot be asked.
+fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
+    // The exact ids and their names.
+    static EXACT: std::sync::Mutex<Option<(Vec<String>, std::sync::Arc<NameMap>)>> =
+        std::sync::Mutex::new(None);
+    // (prefixes, the exact map it was built on, when, the merged map).
+    type Merged =
+        (Vec<String>, std::sync::Arc<NameMap>, std::time::Instant, std::sync::Arc<NameMap>);
+    static MERGED: std::sync::Mutex<Option<Merged>> = std::sync::Mutex::new(None);
+    const RUNNING_FRESH: Duration = Duration::from_secs(5);
+    let entries = {
+        let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
+        (source.as_ref()?)()
+    };
+    let (ids, prefixes) = split_entries(entries);
+    let exact = {
+        let mut cache = EXACT.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.as_ref() {
+            Some((cached, map)) if reuse_cached(cached, &ids) => map.clone(),
+            _ => {
+                let map = std::sync::Arc::new(names_of_bundles(&ids)?);
+                *cache = Some((ids, map.clone()));
+                map
+            }
+        }
+    };
+    if prefixes.is_empty() {
+        return Some(exact);
+    }
+    let mut merged = MERGED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cached, base, at, map)) = merged.as_ref()
+        && *cached == prefixes
+        && std::sync::Arc::ptr_eq(base, &exact)
+        && at.elapsed() < RUNNING_FRESH
+    {
+        return Some(map.clone());
+    }
+    let mut map = (*exact).clone();
+    add_prefixed_running(&mut map, &prefixes, &running_ids_and_names());
+    let map = std::sync::Arc::new(map);
+    *merged = Some((prefixes, exact, std::time::Instant::now(), map.clone()));
+    Some(map)
+}
+
+/// The bundle id of the app LaunchServices finds by name, if any.
+fn launch_services_id(name: &str) -> Option<String> {
+    autoreleasepool(|_| {
+        let ws = shared_workspace().ok()?;
+        let n = Cf::string(name)?;
+        let n_obj: *const AnyObject = n.ptr().cast();
+        // SAFETY: -fullPathForApplication: takes an NSString and returns nil
+        // or an NSString path.
+        let path: Option<Retained<AnyObject>> =
+            unsafe { msg_send![&*ws, fullPathForApplication: n_obj] };
+        let path = path?;
+        let bundle_cls = class(c"NSBundle").ok()?;
+        // SAFETY: +bundleWithPath: takes an NSString; -bundleIdentifier returns nil or an NSString.
+        let bundle: Option<Retained<AnyObject>> =
+            unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
+        let bundle = bundle?;
+        ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] })
+    })
+}
+
+/// The Services shortcuts: the services' own (`pbs -dump`, every
+/// NSKeyEquivalent value; Command implied) and the person's assignments, as
+/// (key code, flags). Read on a background thread, refreshed every
+/// SERVICES_REFRESH. A caller that finds no list it can use while a read is
+/// in flight (the first chord after start, or after SERVICES_STALE idle)
+/// waits for that read, at most SERVICES_WAIT. `None` when there is still no
+/// usable list (the caller refuses a chord then, fail-closed).
+pub fn service_shortcuts() -> Option<Vec<(u16, u64)>> {
+    use std::time::Instant;
+    let (cell, ready) = services_state();
+    let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+    start_services_refresh(&mut st);
+    // An old list does not count while its refresh is in flight, nor after
+    // a refresh past the window failed (an idle pause alone does not drop
+    // it once refreshed).
+    let usable = |st: &ServicesState| {
+        let old = st.last.as_ref().is_some_and(|(at, _)| at.elapsed() > SERVICES_STALE);
+        let failed_since = st
+            .failed_at
+            .is_some_and(|f| st.last.as_ref().is_some_and(|(at, _)| f > *at + SERVICES_STALE));
+        let stale = old && (st.refreshing || failed_since);
+        if stale { None } else { st.last.as_ref().map(|(_, list)| list.clone()) }
+    };
+    let deadline = Instant::now() + SERVICES_WAIT;
+    loop {
+        if let Some(list) = usable(&st) {
+            return Some(list);
+        }
+        let now = Instant::now();
+        if !st.refreshing || now >= deadline {
+            return None;
+        }
+        st = ready.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
+    }
+}
+
+/// Starts the Services read now if one is due, so the first chord finds it
+/// done (called when a deny list is set).
+pub fn warm_service_shortcuts() {
+    let (cell, _) = services_state();
+    let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+    start_services_refresh(&mut st);
+}
+
+struct ServicesState {
+    last: Option<(std::time::Instant, Vec<(u16, u64)>)>,
+    refreshing: bool,
+    /// When the last read failed: the next try waits SERVICES_RETRY.
+    failed_at: Option<std::time::Instant>,
+}
+
+fn services_state() -> &'static (std::sync::Mutex<ServicesState>, std::sync::Condvar) {
+    use std::sync::{Condvar, Mutex, OnceLock};
+    static STATE: OnceLock<(Mutex<ServicesState>, Condvar)> = OnceLock::new();
+    STATE.get_or_init(|| {
+        (
+            Mutex::new(ServicesState { last: None, refreshing: false, failed_at: None }),
+            Condvar::new(),
+        )
+    })
+}
+
+fn start_services_refresh(st: &mut ServicesState) {
+    use std::time::Instant;
+    let due = st.last.as_ref().is_none_or(|(at, _)| at.elapsed() > SERVICES_REFRESH)
+        && st.failed_at.is_none_or(|at| at.elapsed() > SERVICES_RETRY);
+    if !due || st.refreshing {
+        return;
+    }
+    st.refreshing = true;
+    let spawned = std::thread::Builder::new().name("cu-services".into()).spawn(move || {
+        // Ends the read however it ends (an error, a panic), and wakes the
+        // callers waiting for it.
+        struct Done(Option<Vec<(u16, u64)>>);
+        impl Drop for Done {
+            fn drop(&mut self) {
+                let (cell, ready) = services_state();
+                let mut st = cell.lock().unwrap_or_else(|e| e.into_inner());
+                st.refreshing = false;
+                match self.0.take() {
+                    Some(list) => {
+                        st.last = Some((Instant::now(), list));
+                        st.failed_at = None;
+                    }
+                    None => st.failed_at = Some(Instant::now()),
+                }
+                ready.notify_all();
+            }
+        }
+        let mut done = Done(None);
+        done.0 = read_service_shortcuts();
+    });
+    if spawned.is_err() {
+        st.refreshing = false;
+    }
+}
+
+/// How far the current keyboard layout keeps the ANSI key codes the Services
+/// check maps characters to (roles::layout_of): on another layout it cannot
+/// tell which physical key a service uses. This is the person's current
+/// layout setting; an app with a per-document
+/// input source can differ (a later TIS/UCKeyTranslate check would cover it).
+pub fn keyboard_layout() -> super::roles::Layout {
+    // A long-lived process caches another app's preferences until it
+    // synchronizes them: re-read HIToolbox's on every check, so a switch
+    // from U.S. to German after launch is seen.
+    Cf::synchronize_preferences("com.apple.HIToolbox");
+    let id = Cf::preference("AppleCurrentKeyboardLayoutInputSourceID", "com.apple.HIToolbox")
+        .and_then(|v| v.as_string());
+    // CFPreferences gives no read error: a missing key and a failed read are
+    // both NULL. Nothing recorded counts as a default (U.S.) install only
+    // when HIToolbox has no preferences file at all; one that exists but
+    // gave nothing, or cannot be checked, fails closed.
+    let recorded = || {
+        let Some(home) = std::env::var_os("HOME") else { return true };
+        let file =
+            std::path::Path::new(&home).join("Library/Preferences/com.apple.HIToolbox.plist");
+        !matches!(std::fs::symlink_metadata(file), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    };
+    let enabled = Cf::preference("AppleEnabledInputSources", "com.apple.HIToolbox").is_some()
+        || (id.is_none() && recorded());
+    super::roles::layout_of(id.as_deref(), enabled)
+}
+
+/// How often the Services shortcuts are re-read.
+const SERVICES_REFRESH: Duration = Duration::from_secs(30);
+/// A list is dropped after this many refresh periods without a good read.
+const SERVICES_STALE: Duration = Duration::from_secs(120);
+/// How long to wait after a failed read before trying again.
+const SERVICES_RETRY: Duration = Duration::from_secs(15);
+/// How long `pbs -dump` may take.
+const PBS_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a chord waits for a Services read in flight: a little more than
+/// the read's worst case (PBS_TIMEOUT for the output, PBS_TIMEOUT for the exit).
+const SERVICES_WAIT: Duration = Duration::from_secs(7);
+
+/// Runs a short command in its own process group and returns its output
+/// and whether it exited 0, or None when it did not finish within
+/// PBS_TIMEOUT (then the whole group is killed and reaped).
+fn run_bounded(program: &str, args: &[&str]) -> Option<(String, bool)> {
+    use std::io::Read;
+    // Its own process group, so a timeout kills it and anything it started
+    // (a grandchild holding the pipe would keep the reader alive).
+    let mut child = cmux_process::Command::new(program)
+        .args(args)
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
+        .process_group(0)
+        .spawn()
+        .ok()?;
+    let group = child.id() as i32;
+    let kill_group = |child: &mut cmux_process::Child| {
+        // SAFETY: plain syscall; group is the child's own process group.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
+        let _ = child.wait();
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        kill_group(&mut child);
+        return None;
+    };
+    // The output is read on a thread and handed over a channel: one bounded
+    // recv_timeout. Then the exit status, bounded too.
+    let (tx, rx) = mpsc::channel::<Option<String>>();
+    let reader = std::thread::Builder::new().name("cu-pbs-read".into()).spawn(move || {
+        let mut out = String::new();
+        let _ = tx.send(stdout.read_to_string(&mut out).ok().map(|_| out));
+    });
+    let out = match reader {
+        Ok(_) => rx.recv_timeout(PBS_TIMEOUT).ok().flatten(),
+        Err(_) => None,
+    };
+    let Some(out) = out else {
+        kill_group(&mut child);
+        return None;
+    };
+    // The exit, bounded by an event wait (it reaps the child when it ends).
+    match child.wait_timeout(PBS_TIMEOUT) {
+        Ok(Some(status)) => Some((out, status.success())),
+        _ => {
+            kill_group(&mut child);
+            None
+        }
+    }
+}
+
+/// One read of both sources: the services' own key equivalents
+/// (`pbs -dump`, Command implied) and the person's assignments
+/// (pbs's NSServicesStatus default). None when the dump failed.
+fn read_service_shortcuts() -> Option<Vec<(u16, u64)>> {
+    let (dump, ok) = run_bounded("/System/Library/CoreServices/pbs", &["-dump"])?;
+    if !ok || !dump.contains("NSBundlePath") {
+        return None;
+    }
+    let mut list: Vec<(u16, u64)> = super::roles::service_equivalents(&dump)
+        .iter()
+        .map(|e| super::keymap::service_shortcut(e, true))
+        .collect::<Option<_>>()?;
+    // The person's assignments: NSServicesStatus in pbs's defaults, absent
+    // until they assign one. Read in process (a missing key is NULL, which
+    // is none assigned); Command only where they wrote "@".
+    Cf::synchronize_preferences("pbs");
+    if let Some(status) = Cf::preference("NSServicesStatus", "pbs") {
+        for entry in status.dict_values() {
+            let Some(value) = entry.get("key_equivalent").and_then(|v| v.as_string()) else {
+                continue;
+            };
+            if !value.is_empty() {
+                list.push(super::keymap::service_shortcut(&value, false)?);
+            }
+        }
+    }
+    Some(list)
+}
