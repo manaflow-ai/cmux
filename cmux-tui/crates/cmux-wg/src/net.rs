@@ -345,6 +345,7 @@ enum Command {
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
+    SendLiveness { from_port: u16, to: SocketAddr, payload: Vec<u8>, answer: bool },
     Rebind { rebind: Rebind, reply: oneshot::Sender<()> },
     Shutdown,
 }
@@ -378,8 +379,30 @@ struct Driver {
     /// Bound datagram-service ports.
     datagram_ports: HashMap<u16, mpsc::Sender<Datagram>>,
     watchdog: Watchdog,
+    /// When the peer's last authenticated data arrived, and whether it came
+    /// after a silence of [`RESUME_GAP`] (a blackout ending on the same path).
+    last_inbound: Option<Instant>,
+    resumed: bool,
     wakeups: Arc<AtomicU64>,
     scratch: Vec<u8>,
+}
+
+/// A peer silent this long and then heard again counts as a path change for
+/// the tunnel's TCP: a blackout on the same route backs smoltcp's RTO off
+/// (doubling up to 60 s) exactly as a dead route does, and nothing else tells
+/// the stack the route came back. With nothing in flight it does nothing.
+const RESUME_GAP: Duration = Duration::from_secs(2);
+
+/// Authenticated data from the peer: the watchdog's answer, and the end of a
+/// silence long enough to call the route back. Fields, not `&mut Driver`: the
+/// packet still borrows the scratch buffer.
+fn note_inbound(watchdog: &mut Watchdog, last_inbound: &mut Option<Instant>, resumed: &mut bool) {
+    watchdog.on_inbound_data();
+    let now = Instant::now();
+    if last_inbound.is_some_and(|last| now.saturating_duration_since(last) >= RESUME_GAP) {
+        *resumed = true;
+    }
+    *last_inbound = Some(now);
 }
 
 enum Event {
@@ -437,6 +460,8 @@ impl Driver {
             auto,
             datagram_ports: HashMap::new(),
             watchdog: Watchdog::default(),
+            last_inbound: None,
+            resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
@@ -547,7 +572,7 @@ impl Driver {
                     // (Done for other messages, a cookie reply, proves less.)
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
-                        self.watchdog.on_inbound_data();
+                        note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
                     }
                     break;
                 }
@@ -595,7 +620,7 @@ impl Driver {
                         self.underlay.set_metered(self.negotiation.metered());
                     }
                     self.underlay.authenticated(origin);
-                    self.watchdog.on_inbound_data();
+                    note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
                     if hello.is_some() || off_path.is_some() {
                         // Taken above; neither is activity.
                     } else if let Some(probe) = probing::decode(packet).filter(|_| allowed) {
@@ -675,7 +700,9 @@ impl Driver {
     /// bytes between sockets and streams, then poll again so anything the
     /// streams produced leaves in the same pass.
     fn service(&mut self) {
-        if self.underlay.take_path_change() {
+        // Both are taken every pass, so neither carries over.
+        let roamed = self.underlay.take_path_change();
+        if std::mem::take(&mut self.resumed) | roamed {
             self.stack.path_changed();
         }
         loop {
@@ -732,6 +759,9 @@ impl Driver {
             }
             Command::SendDatagram { from_port, to, payload, priority } => {
                 self.send_datagram(from_port, to, &payload, priority);
+            }
+            Command::SendLiveness { from_port, to, payload, answer } => {
+                self.send_liveness(from_port, to, &payload, answer);
             }
             Command::Rebind { rebind, reply } => {
                 match rebind {

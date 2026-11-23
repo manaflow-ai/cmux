@@ -272,12 +272,6 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
-  // App health's web gallery entries (ui.app-health, ui.app-health.footer-row) draw the indicator with the
-  // words its own table carries; the shipped line and card are native (CmuxNextAppHealth).
-  "app-health": {
-    out: "webviews/src/app-health/generated/strings.json",
-    catalogs: [{ file: "webviews/src/app-health/Localizable.xcstrings" }],
-  },
   // The Cloud progress page (cmux-page://cmux.cloud-progress/): a Cloud machine on its way to its terminal.
   // Its table lives next to it; the words are the retired AppKit view's (Cloud.xcstrings `cloud.progress.`).
   "cloud-progress": {
@@ -443,6 +437,19 @@ export const PAGES = {
                 "preview.openIn",
               ].includes(key),
           ),
+      },
+    ],
+  },
+  // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
+  // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
+  // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
+  // raw keys (planUsage.window.session) in every account's usage.
+  "settings-pane": {
+    out: "webviews/src/pages/settings/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
       },
     ],
   },

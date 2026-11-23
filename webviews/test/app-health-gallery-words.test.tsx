@@ -1,5 +1,5 @@
-// App health's gallery entries draw the indicator's words, never its raw keys: both load the surface's
-// own table (gen-strings `app-health`), which holds every appHealth.* key the model asks for. They once
+// App health's gallery entries draw the indicator's words, never its raw keys: both read the surface's own
+// catalog (galleryStrings' englishTable over app-health/Localizable.xcstrings) on top of the server table. They once
 // loaded the server page's table and rendered "appHealth.line.repairing" (beyer-themes-beyond sweep,
 // error-repair finding 4).
 import { expect, test } from "bun:test";
