@@ -22,7 +22,7 @@ Rows (report.json `rows`, perf-cron.py kind budgets; reporting only, perf-cron.p
   With --payload sgr the same three rows are named terminal.throughput_sgr.*.
 Prints TERMINAL-THROUGHPUT lines. Exits 1 when a terminal gave no timed burst (the report says why in `missing`).
 
-  terminal-throughput-bench.py --app "<cmux DEV tag.app>" --out DIR [--json FILE] [--mb 200] [--runs 3]
+  terminal-throughput-bench.py (--app "<cmux DEV tag.app>" | --installed APP) --out DIR [--json FILE] [--mb 200] [--runs 3]
       [--warmup-mb 16] [--timeout 240] [--ghostty-app PATH] [--no-ghostty] [--breakdown] [--trace]
       [--payload mixed|sgr]
 
@@ -31,6 +31,13 @@ that per-run renderers fall over on (termbench's color arm). The default mixed p
 style change per cell is never measured there. Escape bytes count as payload bytes, so read the ratio, not the MB/s,
 against the mixed arm: a lower sgr ratio says NEXT's extra parses (host, daemon, app) or the attach hop handle
 escape-dense bytes worse than Ghostty does.
+
+--installed APP (scripts/measure/terminal-throughput-quick.sh): NEXT is a side instance of an installed app (the
+NIGHTLY), not a tagged DEV build: side-instance.sh makes a copy of APP with its own bundle id, socket, daemon and state
+(remade only when APP's CFBundleVersion changes), launches it in front, and stops only the copy's processes after. The
+installed app and the person's running cmux are never touched. No build, no measurement slot, no lock; the bursts,
+the Ghostty side and the rows are the ones below. In front because a Release build stops drawing an occluded window
+(WindowDrawPolicy), and Ghostty opens in front too. Not with --next-arm (a copy's launch takes no added variables).
 
 --trace (terminal_throughput_trace.py): the first timed burst of each terminal runs under one Instruments recording of
 every process (System Trace and Time Profiler). Per thread of the terminal's processes, over the burst window: running,
@@ -271,6 +278,101 @@ class Breakdown:
 
 
 
+SIDE_INSTANCE = os.path.join(HERE, "side-instance.sh")
+
+
+class _Pid:
+    """A process this script did not start (`open` launched it), with Popen's poll(): None while it runs."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+            return None
+        except ProcessLookupError:
+            return 0
+        except PermissionError:
+            return None
+
+
+def side_marker(name):
+    """{key: value} of side-instance.sh's marker for `name`, {} when it has none (pure but for the read)."""
+    root = os.environ.get("CMUX_SIDE_ROOT") or os.path.expanduser("~/Library/Application Support/cmux-side")
+    try:
+        with open(os.path.join(root, name, ".side-instance")) as f:
+            return dict(line.rstrip("\n").split("=", 1) for line in f if "=" in line)
+    except OSError:
+        return {}
+
+
+def bundle_version(app):
+    try:
+        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
+            info = __import__("plistlib").load(f)
+    except Exception:  # noqa: BLE001  an unreadable plist: no version, so the copy is remade
+        return None
+    return info.get("CFBundleVersion") if isinstance(info, dict) else None
+
+
+def side_copy_current(marker, installed, version):
+    """Whether side-instance.sh's copy (its `marker`) is a copy of `installed` at `version` and still there (pure but
+    for the bundle check)."""
+    return bool(marker.get("app") and os.path.isdir(marker["app"]) and marker.get("from") == installed
+                and version and marker.get("version") == version and marker.get("socket"))
+
+
+class SideApp:
+    """--installed: NEXT as a side instance of an installed app (side-instance.sh), with BenchApp's launch, rpc,
+    process and stop. Only the copy's processes are ever stopped."""
+
+    def __init__(self, installed, name="tt-bench"):
+        self.installed, self.name = os.path.realpath(installed.rstrip("/")), name
+        self.process, self.socket = None, None
+        marker = side_marker(name)
+        if not side_copy_current(marker, self.installed, bundle_version(self.installed)):
+            self.side("stop", timeout=90)  # make refuses while an earlier run's copy still runs
+            self.side("make", "--from", self.installed, "--neutral-shell", timeout=900)
+            marker = side_marker(name)
+        self.app, self.socket = marker["app"], marker["socket"]
+
+    def side(self, *args, timeout=120):
+        got = subprocess.run([SIDE_INSTANCE, args[0], self.name, *args[1:]], capture_output=True, text=True,
+                             timeout=timeout)
+        if got.returncode != 0:
+            raise RuntimeError(f"side-instance.sh {args[0]} {self.name}: {(got.stderr or got.stdout).strip()[-300:]}")
+        return got.stdout
+
+    def rpc(self, method, params=None, timeout=60):
+        from bench_launch import rpc_at
+        return rpc_at(self.socket, method, params, timeout)
+
+    def launch(self, timeout=60):
+        said = self.side("launch", "--front", timeout=timeout + 30)
+        m = re.search(r"pid (\d+)", said)
+        if not m:
+            raise RuntimeError(f"side-instance.sh launch {self.name} named no pid: {said.strip()[-200:]}")
+        self.process = _Pid(int(m.group(1)))
+        cli = os.path.join(self.app, "Contents", "Resources", "bin", "cmux")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and self.process.poll() is None:
+            ping = subprocess.run([cli, "--app-socket", self.socket, "app", "ping"], capture_output=True, text=True,
+                                  timeout=30)
+            if ping.returncode == 0:
+                return
+            time.sleep(0.5)  # test harness: the copy's socket answers once it runs
+        raise RuntimeError(f"the side copy {self.app} answered no ping on {self.socket} within {timeout} s")
+
+    def stop(self):
+        if self.process is None:
+            return
+        try:
+            self.side("stop", timeout=90)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:  # the bursts' numbers stand; say what still runs
+            print(f"terminal-throughput: WARNING: {e}", file=sys.stderr, flush=True)
+
+
 def parse_arm(text):
     """`base:CMUX_NEXT_X=0,CMUX_NEXT_Y=1` -> ("base", {"CMUX_NEXT_X": "0", "CMUX_NEXT_Y": "1"}) (pure). Only
     CMUX_NEXT_* names: the app strips every other inherited CMUX variable, so any other name would measure nothing."""
@@ -439,7 +541,7 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
     the rows."""
     from bench_launch import BenchApp
     out = {"runs": []}
-    app = BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
+    app = opts.side or BenchApp(opts.app, out=os.path.join(opts.out, label), env=env)
     try:
         app.launch()
         # The first window settles before the first burst: its panes and frames hold still.
@@ -488,7 +590,14 @@ def measure_next(opts, writer, payload, scratch, label="next", env=None):
 def ghostty_app(opts, scratch):
     """(path to Ghostty.app, version) or (None, why)."""
     if opts.ghostty_app:
-        return (opts.ghostty_app, "given") if os.path.isdir(opts.ghostty_app) else (None, f"no app at {opts.ghostty_app}")
+        if not os.path.isdir(opts.ghostty_app):
+            return None, f"no app at {opts.ghostty_app}"
+        try:
+            with open(os.path.join(opts.ghostty_app, "Contents", "Info.plist"), "rb") as f:
+                version = __import__("plistlib").load(f).get("CFBundleShortVersionString")
+        except Exception:  # noqa: BLE001  an unreadable plist: the version is unknown, the app still runs
+            version = None
+        return opts.ghostty_app, f"given {version or '?'}"
     cache_root = os.environ.get("CI_SHARED_CACHE_DIR")
     home = os.path.join(cache_root, "ghostty-standalone", GHOSTTY_VERSION) if cache_root else os.path.join(scratch, "ghostty")
     app = os.path.join(home, "Ghostty.app")
@@ -595,7 +704,10 @@ def report_rows(next_mb_s, ghostty_mb_s, interrupts=None, prefix="terminal.throu
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--app", required=True)
+    which = parser.add_mutually_exclusive_group(required=True)
+    which.add_argument("--app", help="a tagged `cmux DEV <tag>.app` build (split-spring.sh, the perf cron)")
+    which.add_argument("--installed", metavar="APP",
+                       help="an installed app (the NIGHTLY): NEXT is its side-instance copy (terminal-throughput-quick.sh)")
     parser.add_argument("--out", required=True)
     parser.add_argument("--json")
     parser.add_argument("--tag")  # split-spring-terminal.py passes it; the app path names the tag
@@ -621,7 +733,15 @@ def main(argv=None):
                              "launch variables (a daemon knob's off value): a same-Mac A/B in one step "
                              "(TERMINAL-THROUGHPUT-ARM, report next_arms)")
     opts = parser.parse_args(argv)
+    if opts.installed and opts.next_arm:
+        parser.error("--next-arm needs --app: a side copy's launch takes no added variables")
+    if opts.installed and not os.path.isfile(os.path.join(opts.installed, "Contents", "Info.plist")):
+        parser.error(f"--installed: no app at {opts.installed}")
     os.makedirs(opts.out, exist_ok=True)
+    opts.side = None
+    if opts.installed:
+        opts.side = SideApp(opts.installed)
+        opts.app = opts.side.app  # --breakdown matches the copy's processes by its path
     scratch = tempfile.mkdtemp(prefix="tput.", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)
     try:
         writer = os.path.join(scratch, "writer.py")
@@ -630,7 +750,7 @@ def main(argv=None):
         payload = os.path.join(scratch, "payload.txt")
         size = write_payload(payload, opts.mb, opts.payload)
         prefix = ROW_PREFIX[opts.payload]
-        report = {"suite": "terminal-throughput", "payload": opts.payload, "payload_bytes": size, "runs_per_terminal": opts.runs,
+        report = {"suite": "terminal-throughput", "next_app": opts.installed or opts.app, "payload": opts.payload, "payload_bytes": size, "runs_per_terminal": opts.runs,
                   "host": platform.node(), "missing": []}
         arms = [parse_arm(a) for a in opts.next_arm]
         for arm, env in arms:
