@@ -28,13 +28,13 @@ final class AnimationFrameBenchUITests: XCTestCase {
 
         app.typeText("one")
         let oneLine = field.frame.height
-        // A software Return inserts a newline; the composer's hardware Return sends.
-        let returnKey = keyboard.descendants(matching: .any).matching(NSPredicate(
-            format: "label ==[c] 'return' OR identifier ==[c] 'return'"
-        )).firstMatch
-        // A keyboard key can report not hittable while it is on screen; tap its frame.
-        let insertLine = center(returnKey, in: app, hittable: false)
-        window("composer-grow", in: app) { insertLine.tap() }
+        // Shift-Return is the composer's New Line key command; it needs no software key on screen
+        // (a keyboard key can sit outside the hit test, and its frame tap inserted nothing).
+        window("composer-grow", in: app) { app.typeKey(XCUIKeyboardKey.return, modifierFlags: .shift) }
+        let deadline = Date().addingTimeInterval(5)
+        while field.frame.height <= oneLine + 1, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
         XCTAssertGreaterThan(field.frame.height, oneLine + 1, "inserting a newline grew the composer")
 
         // The short drag from ComposerGrowKeepsTranscriptUITests leaves the
@@ -143,7 +143,8 @@ final class AnimationFrameBenchUITests: XCTestCase {
         let closeGrid = app.buttons["Done"].firstMatch
         XCTAssertTrue(closeGrid.waitForExistence(timeout: 10))
         closeGrid.tap()
-        XCTAssertTrue(tabs.waitForExistence(timeout: 15))
+        // A loaded simulator (cpu 447%) took past 15 s to bring the page back.
+        XCTAssertTrue(tabs.waitForExistence(timeout: 40), "the selected page returned after the grid closed")
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.45))
         let far = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.45))
         window("workspace-exit", in: app) {
@@ -175,13 +176,9 @@ final class AnimationFrameBenchUITests: XCTestCase {
     }
 
     @MainActor
-    private func center(_ element: XCUIElement, in app: XCUIApplication, hittable: Bool = true) -> XCUICoordinate {
+    private func center(_ element: XCUIElement, in app: XCUIApplication) -> XCUICoordinate {
         XCTAssertTrue(element.waitForExistence(timeout: 30), element.description)
-        if hittable {
-            XCTAssertTrue(element.isHittable, element.description)
-        } else {
-            XCTAssertFalse(element.frame.isEmpty, element.description)
-        }
+        XCTAssertTrue(element.isHittable, element.description)
         let frame = element.frame
         let bounds = app.frame
         return app.coordinate(withNormalizedOffset: CGVector(
