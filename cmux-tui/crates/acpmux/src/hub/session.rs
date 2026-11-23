@@ -74,7 +74,7 @@ pub struct Session {
     pub(super) seq: AtomicU64,
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.
-    pub(super) append_lock: StdMutex<()>,
+    pub(super) append_lock: crate::worker_lock::Mutex<()>,
     /// Incremental per-chat wall-time and token attribution, seeded lazily from the journal.
     pub(super) time_breakdown: StdMutex<super::time_breakdown::State>,
     /// The one writer of its metadata (`meta_save.rs`): versioned changes, committed to
@@ -376,6 +376,9 @@ pub struct Session {
     /// The agent message that holds its turn's start in an idle chat for the gather window, by
     /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
     pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
+    /// The person's prompt that holds its turn's start in a held chat, and when that hold ends
+    /// (`person_hold.rs`).
+    pub(super) person_hold: StdMutex<Option<super::person_hold::Hold>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.

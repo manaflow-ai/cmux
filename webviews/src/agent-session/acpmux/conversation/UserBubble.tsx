@@ -43,6 +43,7 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
+import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
@@ -125,21 +126,23 @@ export function UserBubble({
     const kept = imageOriginals(row);
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
-  // A prompt whose attachments the composer placed in its text (`placed`, acpmux keeps it;
-  // inlinePrompt.ts), or whose text follows an attachment (which the old shape never has), draws
-  // every attachment in one block above its bubble, in its recorded order, and its text as plain
-  // flow in the bubble below (Leo, 2026-11-17: "Attachments render inline in the middle of the
-  // text line, at odd sizes. Put them in a block above the text."), in every attachment view: the
-  // view places attachments in the composer only. The old shape (its text, then its pastes, then
-  // its attachments) keeps the legacy bands above the bubble.
-  // The row's height estimate reads the same rule (bubbleParts.ts `bubbleLayout`).
+  // A prompt whose attachments the composer placed draws in its recorded order, each attachment
+  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
+  // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
+  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
+  // to read beside its attachments, keep the legacy bands above the bubble. Each attachment's box
+  // is its sent size from its first frame (SentImage, SentVideoTile), and the row's estimate flows
+  // the same boxes (model.ts `inlinePromptHeight`), so nothing on its line moves when it loads
+  // (Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send").
+  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
   // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
   // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
   // row while the DOM draws nothing and the next virtualized row jumps into that space.
   // The row's estimate reads the same rule (bubbleParts.ts `attachmentOnlyPrompt`).
   const inlineAttachmentOnly = attachmentOnly(orderedParts, text);
-  const strip = hasInterleaved || inlineAttachmentOnly;
+  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
   // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
   // attachment-only row carries both shapes (send and replay record each), and drawing both drew
   // every attachment twice.
@@ -151,7 +154,9 @@ export function UserBubble({
     inlineAttachmentOnly && (row.images?.length ?? 0) > inlineImages.length
       ? row.images!.filter((image) => !inlineImages.some((part) => part.id === image.id))
       : [];
-  const banded = (part: PromptContentPart) => strip && isStripMedia(part);
+  // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
+  const banded = (part: PromptContentPart) =>
+    isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
   const stripMedia = orderedParts?.filter(isStripMedia).filter(banded) ?? [];
   // These are bubbleParts.ts `bubbleParts` in the pane's view, which Find and the row's estimate read.
   const shownParts = orderedParts?.filter((part) => !banded(part));
@@ -187,9 +192,14 @@ export function UserBubble({
       />
     );
   }
+  // An answered prompt of an agent that forks only from its latest reply keeps the control and says
+  // why, rather than drawing it on the latest prompt alone (Leo, 2026-11-11: "why are only some
+  // chats forkable").
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : fork && own !== undefined ? (
+      <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
@@ -231,13 +241,14 @@ export function UserBubble({
             {hasInterleaved ? (
               <InlinePromptContent
                 rowId={row.id}
+                messageAt={row.at}
                 parts={shownParts!}
                 show={show}
                 renderImage={renderImage}
                 renderFile={renderFile}
               />
             ) : (
-              <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+              <PromptText rowId={row.id} messageAt={row.at} text={text} pasted={row.pasted} show={show} />
             )}
           </div>
         ) : null}
@@ -351,8 +362,9 @@ export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
 /// re-render or a remount draws the same <img> at once). Its slot holds the thumbnail's own shape
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
-/// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
-/// has shows nothing. It fades in on its first draw only.
+/// it), and says "Couldn't load image" when the image cannot be drawn. A read that still failed
+/// after its tries again (imageEntries.ts) says so with Retry, never nothing. An image acpmux no
+/// longer has shows nothing. It fades in on its first draw only.
 export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
@@ -368,11 +380,22 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // (conversation.css), never past the bubble's edge.
   const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
-  if (shown.src !== undefined && failed === shown.src)
+  if (shown.status === "failed" || (shown.src !== undefined && failed === shown.src))
     return (
       <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
+        {/* Only a read can work a second time; bytes that do not decode never will. */}
+        {shown.status === "failed" && (
+          <button
+            type="button"
+            className="cv-user__image-retry"
+            aria-label={t("composer.retryAttachment")}
+            onClick={shown.retry}
+          >
+            {t("composer.retryAttachment")}
+          </button>
+        )}
       </span>
     );
   // Keep the thumbnail's row slot while the host reads the attachment. Without this, the

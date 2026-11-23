@@ -59,6 +59,11 @@ export type SessionPage<S extends Summary> = { sessions: S[]; next?: string; run
  *  `afterSeq` (acpmux hub/row_log.rs). */
 export const LIST_FOLLOW_CAPABILITY = "session-list-follow-v1";
 
+/** The `initialize` capability of an acpmux that answers `_acpmux/usage`: every listed chat's
+ *  `usageStats` and nothing else, `unchanged` while the digest the client holds is current
+ *  (acpmux hub/usage_answer.rs). */
+export const USAGE_CAPABILITY = "session-usage-v1";
+
 /** A list position: the daemon run's `listEpoch` and a `listSeq` in it. */
 type Cursor = { epoch: string; seq: number };
 
@@ -192,9 +197,17 @@ export class SessionPager<S extends Summary> {
    * notice below it is older than the row held (`fresh`).
    */
   follows = false;
+  /** This connection's acpmux has `USAGE_CAPABILITY`: `usage` asks it alone, not every page. */
+  usageAlone = false;
+  /** The last `_acpmux/usage` answer and its digest, which the next ask sends (`usage`). */
+  private usageHeld?: { digest: string; usage: Map<string, unknown> };
   private cursor?: Cursor;
   private reading?: Cursor;
   private listedAt = 0;
+  /** Some notices were deliberately deferred: no cursor can describe the rows held now. */
+  private missedChanges = false;
+  private invalidations = 0;
+  private readInvalidations = 0;
   /** The connection identity this page's held list is kept under (`share`, `heldLists`). */
   private key?: string;
   /** The page after the rows held, while they are the first page and its follows rather than the
@@ -264,6 +277,15 @@ export class SessionPager<S extends Summary> {
     return this.more === undefined;
   }
 
+  /** A hidden page discarded a notice; its next read must reset, even if later notices arrive. */
+  invalidate(): void {
+    this.missedChanges = true;
+    this.invalidations += 1;
+    this.cursor = undefined;
+    this.reading = undefined;
+    if (this.key) heldLists.delete(this.key);
+  }
+
   /** Turns the watch on and answers its first page, or undefined when a newer list started meanwhile.
    *  With a cursor (`follows`) it answers the held rows with every change since laid over them, as
    *  one whole page; a cursor acpmux cannot follow is answered with the first page (`reset`). */
@@ -277,10 +299,11 @@ export class SessionPager<S extends Summary> {
     // Positions start again on another daemon run; until this list's reply says where it is, every
     // notice is kept (and one older than the reply dropped then, `listedFrom`).
     this.listedAt = 0;
-    let from = this.follows ? this.cursor : undefined;
+    let from = this.follows && !this.missedChanges ? this.cursor : undefined;
     // A new client of a connection this page read before (a reconnect, a client made again): the
     // list kept for it, followed from its cursor, never read again.
-    const kept = this.follows && !from && this.key ? heldLists.get(this.key) : undefined;
+    const kept = this.follows && !this.missedChanges && !from && this.key ? heldLists.get(this.key) : undefined;
+    this.readInvalidations = this.invalidations;
     if (kept) {
       from = kept.cursor;
       this.more = kept.more;
@@ -466,10 +489,11 @@ export class SessionPager<S extends Summary> {
   done(run: number | undefined): void {
     if (run === undefined || run !== this.run) return;
     this.loading = false;
+    if (this.readInvalidations === this.invalidations) this.missedChanges = false;
     // Held now (the first page and its follows, or the whole list): a reconnect or a lag follows
     // from here. A list with no position (an older acpmux) leaves none, and the next one is read
     // anew as before.
-    this.cursor = this.reading;
+    this.cursor = this.missedChanges ? undefined : this.reading;
     this.keepBelowOwed();
     // A whole-list read still out keeps them until it lands (`settledWhole`).
     if (this.wholeReads === 0) this.forget();
@@ -482,7 +506,7 @@ export class SessionPager<S extends Summary> {
    *  (`heldLists`): at each list settled, and when the client closes (its cursor moved with every
    *  notice since). */
   keep(): void {
-    if (!this.key || !this.cursor || this.loading) return;
+    if (!this.key || !this.cursor || this.loading || this.missedChanges) return;
     heldLists.set(this.key, { rows: this.held(), cursor: this.cursor, ...(this.more ? { more: this.more } : {}) });
   }
 
@@ -503,7 +527,7 @@ export class SessionPager<S extends Summary> {
       if (run === this.run) {
         this.loading = false;
         // A page that fell back to the whole list (`whole`) read the list anew from its position.
-        this.cursor ??= this.reading;
+        if (!this.missedChanges) this.cursor ??= this.reading;
         if (this.wholeReads === 0) this.forget();
         this.keep();
       }
@@ -574,6 +598,12 @@ export class SessionPager<S extends Summary> {
    * `MAX_PAGES` ends it with what came.
    */
   async usage(): Promise<Map<string, unknown>> {
+    if (this.usageAlone) return this.usageByDigest();
+    return this.usagePages();
+  }
+
+  /** `usage` read from every page of the list. */
+  private async usagePages(): Promise<Map<string, unknown>> {
     const found = new Map<string, unknown>();
     const seen = new Set<string>();
     let cursor: string | undefined;
@@ -588,6 +618,33 @@ export class SessionPager<S extends Summary> {
       if (cursor !== undefined) seen.add(cursor);
     } while (cursor !== undefined);
     return found;
+  }
+
+  /**
+   * `usage` from an acpmux with `USAGE_CAPABILITY`: one `_acpmux/usage`, its cost the chats that
+   * report usage, not the list. It sends the digest of the answer held, and an `unchanged` reply
+   * keeps that answer, so Session Info shown again reads no stats while none changed. A refusal (a
+   * host whose pane policy predates the method) reads the pages from then on; a failed request
+   * (a timeout, a dropped link) or a reply without stats (stats past a reply page) reads them this
+   * time only.
+   */
+  private async usageByDigest(): Promise<Map<string, unknown>> {
+    const held = this.usageHeld;
+    let refused = false;
+    const reply: any = await this.request("_acpmux/usage", held ? { known: held.digest } : {}).catch((error) => {
+      refused = methodRefused(error);
+      return undefined;
+    });
+    const digest = typeof reply?.digest === "string" ? reply.digest : undefined;
+    if (digest && held && reply.unchanged === true && held.digest === digest) return held.usage;
+    if (digest && reply.usage && typeof reply.usage === "object") {
+      const usage = new Map<string, unknown>(Object.entries(reply.usage));
+      this.usageHeld = { digest, usage };
+      return usage;
+    }
+    this.usageHeld = undefined;
+    if (refused) this.usageAlone = false;
+    return this.usagePages();
   }
 
   /** Ends the pages in flight. */
@@ -624,4 +681,11 @@ export function withUsage<S extends Summary>(list: S[], usage: ReadonlyMap<strin
     return { ...session, usageStats: stats };
   });
   return changed ? next : list;
+}
+
+/** A host or acpmux without the method: acpmux's unknown method, the host's allowlist, or a
+ *  remote chat's wire without the relay (as `cloudAgentLogin.ts` `methodMissing`). */
+function methodRefused(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === -32601 || code === "transport.method_refused" || code === "remote.unsupported";
 }
