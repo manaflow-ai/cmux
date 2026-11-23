@@ -130,13 +130,8 @@ struct CloudGitHubReposTests {
 
     /// A connect beside a pending connection (Settings', another launch's) would add a second: the picker reads
     /// `integration.list` first unless it holds a flow of its own for the team.
+    /// (Which connection is pending is cmux-cloud-api's `owner.github_list`.)
     @MainActor @Test func aPendingConnectionHoldsAnotherConnect() async {
-        let pending = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"gmail","status":"pending"},{"provider":"github","status":"pending"}],"providers":[]}}"#)
-        let active = Self.body(#"{"ok":true,"value":{"connections":[{"provider":"github","status":"active"},{"provider":"gmail","status":"pending"}],"providers":[]}}"#)
-        #expect(CloudGitHubConnects.pending(status: 200, body: pending) == true)
-        #expect(CloudGitHubConnects.pending(status: 200, body: active) == false)
-        #expect(CloudGitHubConnects.pending(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"auth.forbidden"}}"#)) == nil)
-        #expect(CloudGitHubConnects.pending(status: 500, body: pending) == nil)
         let connects = CloudGitHubConnects(newKey: { "key" })
         #expect(!connects.resumable(team: "team_a"))
         _ = await connects.page(team: "team_a", now: Date()) { _ in .noAnswer }
@@ -146,15 +141,12 @@ struct CloudGitHubReposTests {
 
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
 
-    @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {
-        let ok = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"\#(Self.page)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: ok) == .page(URL(string: Self.page)!))
-        let elsewhere = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"https://example.com/apps/cmux/installations/new"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: elsewhere) == .refused)
-        let noConnection = Self.body(#"{"ok":true,"value":{"authorize_url":"\#(Self.page)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
-        #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"policy.denied"}}"#)) == .refused)
-        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(status: status, body: Data()) == .noAnswer, "\(status)") }
+    @Test func aConnectThatGaveNoPageIsRefusedOrNoAnswer() {
+        #expect(CloudGitHubConnects.answer(.http(status: 403, code: "policy.denied", message: nil)) == .refused)
+        #expect(CloudGitHubConnects.answer(.http(status: 200, code: "integration.not_configured", message: nil)) == .refused)
+        #expect(CloudGitHubConnects.answer(.decoding("no install page")) == .refused)
+        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(.http(status: status, code: nil, message: nil)) == .noAnswer, "\(status)") }
+        for failure in [CloudAPIError.timedOut("x"), .transport("x"), .notSignedIn] { #expect(CloudGitHubConnects.answer(failure) == .noAnswer) }
         #expect(CloudGitHubApp.authorizationExpiry(URL(string: Self.page)!) == Date(timeIntervalSince1970: 4_102_444_800))
     }
 
