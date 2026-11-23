@@ -1,0 +1,12 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-composer-controls",
+  "name": "Claude Code composer controls",
+  "description": "Open the model picker with Option-P or Command-Shift-I or the attachment and command menu with Command-J then A.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "screenshots": [
+    "preview.png"
+  ]
+}

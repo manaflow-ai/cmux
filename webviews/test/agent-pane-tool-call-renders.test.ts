@@ -80,7 +80,9 @@ await requireBrowserLane("agent-pane-tool-call-renders.test.ts", async () => {
     );
     const run = (await page.evaluate(() =>
       (window as any).cmuxAcpmuxDebug.loadRun({
-        seconds: 4,
+        // The run is timed, not counted: 4 s made 7 to 9 tool calls on a shard 1 runner beside 5 other files
+        // (11-21), under the floor below. 10 s keeps more than 10 there.
+        seconds: 10,
         chunk_chars: 24,
         chunk_ms: 12,
         tool_every: 8,

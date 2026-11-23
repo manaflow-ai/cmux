@@ -163,3 +163,7 @@ pub fn restart_in_place(cli: &Path, socket: &Path) -> Result<(), String> {
 #[cfg(test)]
 #[path = "daemon_skew_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "daemon_skew_lint_tests.rs"]
+mod lint_tests;

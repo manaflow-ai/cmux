@@ -25,6 +25,9 @@ export type JourneyFixture = {
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
 export const FIXTURE_LOGIN = `sk-ant-oat01-${"a".repeat(40)}`;
+/** client-config's platform_origin: the only host the fake cmux-tui takes a warm-spare for. The API host answers an
+ * empty 404, as cloud-api.cmux.dev does for /v1/machines/reservations. */
+export const FIXTURE_PLATFORM = "https://platform.fixture.invalid";
 
 export function runJourney(fixture: JourneyFixture): { steps: Step[]; probe: any; log: string[]; stdout: string } {
   const dir = mkdtempSync(join(tmpdir(), "journey-fake-"));
@@ -40,6 +43,9 @@ export function runJourney(fixture: JourneyFixture): { steps: Step[]; probe: any
         "#!/usr/bin/env bash",
         "cat >/dev/null",
         'req=""; while [ $# -gt 0 ]; do [ "$1" = --request ] && req="$2"; shift; done',
+        `case "$req" in *'"platform":"${FIXTURE_PLATFORM}"'*) ;; *)`,
+        `  echo '{"ok":false,"error_code":"platform.refused","error":"refused: the cmux platform refused the reservation (404 )"}'; exit 1 ;;`,
+        "esac",
         `case "$req" in`,
         `  *'"loginReceipt"'*) echo '{"value":{"installed":${fixture.preclaim.receipt}}}' ;;`,
         `  *'"installed"'*|*'"ready"'*) echo '{"value":{}}' ;;`,
@@ -93,6 +99,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   const body = init.body ? JSON.parse(String(init.body)) : {};
   const route = url.pathname;
   if (route === "/v1/health") return json({ commit: "fixture" });
+  if (route === "/v1/client-config") return json({ platform_origin: ${JSON.stringify(FIXTURE_PLATFORM)} });
   if (route === "/api/v1/auth/password/sign-in") return json({ access_token: "fake-access", refresh_token: "fake-refresh" });
   if (route === "/v1/auth/challenge") return json({ nonce: "fake-nonce", message_prefix: "fixture:" });
   if (route === "/v1/auth/token") return json({ access_token: "fake-install-token" });

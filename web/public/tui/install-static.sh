@@ -224,7 +224,10 @@ if [ "$actual" != "$checksum" ]; then
 fi
 
 mkdir -p "$bin_dir"
-install -m 755 "$tmp_dir/cmux" "$bin_dir/cmux"
+# Staged and renamed into place: a running cmux cannot be written over
+# ("Text file busy"), and a rename never leaves a half-written binary.
+install -m 755 "$tmp_dir/cmux" "$bin_dir/.cmux.new"
+mv -f "$bin_dir/.cmux.new" "$bin_dir/cmux"
 
 case ":$PATH:" in
   *":$bin_dir:"*) ;;

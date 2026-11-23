@@ -99,7 +99,7 @@ struct HomeAgentPills {
     /// The time's font: the title's size less one, tabular figures, so a new minute never jiggles its digits.
     private static func timeFont(_ shape: Shape) -> NSFont {
         let base = titleFont(shape)
-        return NSFont.monospacedDigitSystemFont(ofSize: base.pointSize - 1, weight: .regular)
+        return HomeFonts.monospacedDigit(ofSize: base.pointSize - 1, weight: .regular)
     }
 
     /// The time's width and the gap before it; 0 for no time.

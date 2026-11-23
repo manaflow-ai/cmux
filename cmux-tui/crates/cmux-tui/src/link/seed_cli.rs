@@ -16,6 +16,13 @@
 //! copy would send (`copy_files`, `copy_bytes`), and writes nothing, so the
 //! person decides whether the copy goes.
 //!
+//! A full push with no `--head-first` (Move to Cloud's) projects the folder first
+//! (`sync_cli/project.rs`, as a new Cloud chat's folder is): the machine mounts a
+//! stat-only manifest and reads each file's bytes from this Mac on first use, so
+//! the chat moves at once whatever the folder's size. Projection off, a machine
+//! without `projection-v1` or a projection that fails seeds or copies as below.
+//! `--since-last` of a projected folder projects it again as it is now.
+//!
 //! `--since-last` sends only what changed since this Mac's last push of the
 //! same folder to the same machine folder ([`record`]): a delta bundle after
 //! a seed (nothing at all when nothing changed), or a re-push of the copy
@@ -202,6 +209,8 @@ pub(super) struct Pushed {
     pub(super) fallback: Option<SeedError>,
     /// The machine answered at the seed's head and still fills the rest.
     pub(super) filling: bool,
+    /// `projected`: the machine's answer to the projection (`sync_cli/project.rs`).
+    pub(super) projected: Option<Value>,
 }
 
 impl Pushed {
@@ -220,6 +229,9 @@ impl Pushed {
         }
         if self.filling {
             line.set("filling", json!(true));
+        }
+        if let Some(projected) = &self.projected {
+            line.set("projected", projected.clone());
         }
         if let Some(fallback) = &self.fallback {
             line.set("fallback_code", json!(fallback.code));
@@ -320,6 +332,10 @@ pub(super) fn run(args: &[String]) -> i32 {
                 push_since_last(&socket, &local, &remote)
             } else if seed_only {
                 push_seed_only(&socket, &local, &remote, head_first.as_deref())
+            } else if head_first.is_none()
+                && let Some(projected) = project_first(&socket, &local, &remote)
+            {
+                Ok(projected)
             } else {
                 push(&socket, &local, &remote, head_first.as_deref())
             };
@@ -616,13 +632,89 @@ fn refusal(local: &Path, fallback: SeedError) -> SeedError {
     }
 }
 
+/// Move to Cloud's full push (`cmux link seed push LOCAL REMOTE`, no `--head-first`): the folder
+/// is projected (`sync_cli/project.rs`) when projected moves are on (`cmux link project moves
+/// on`; off until Bring Back Local brings a projection's edits home) and the machine serves it, as a new
+/// Cloud chat's folder is, so the chat moves at once whatever the folder's size or whether it is a
+/// git repository, its files read from this Mac on first use. None when it is not, or the
+/// projection fails: the seed or copy goes as before. A seed record of an earlier push of the
+/// folder there is dropped, so neither `--since-last` nor Bring Back Local builds on it.
+fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
+    if !sync_cli::project::moves_enabled() {
+        return None;
+    }
+    let local = std::fs::canonicalize(local).ok()?;
+    let key = sync_cli::project::move_key(remote);
+    match sync_cli::project::restart(socket, &local, remote, &key) {
+        Ok(Ok(answer)) => {
+            let _ = record::forget(&local, remote);
+            Some(projected(&answer))
+        }
+        Ok(Err(why)) => {
+            eprintln!(
+                "cmux link seed push: {} is not projected ({why:?}); seeding or copying it",
+                local.display()
+            );
+            None
+        }
+        Err(error) => {
+            eprintln!(
+                "cmux link seed push: projecting {} failed: {error:#}; seeding or copying it",
+                local.display()
+            );
+            None
+        }
+    }
+}
+
+/// A push that projected: the machine's answer to it.
+fn projected(answer: &Value) -> Pushed {
+    Pushed {
+        mode: "projected",
+        unchanged: false,
+        bundle_bytes: 0,
+        head: None,
+        work: None,
+        skipped_files: Value::Array(Vec::new()),
+        copy: None,
+        fallback: None,
+        filling: false,
+        projected: Some(answer.get("data").cloned().unwrap_or_default()),
+    }
+}
+
+/// `--since-last` of a folder [`project_first`] projected: projected again, as it is now (the
+/// chat may have changed it since, until the move froze it), in place of the older manifest. It
+/// never falls back to a copy, which would write the whole folder into the projection.
+fn project_again(socket: &Path, local: &Path, remote: &str, key: &str) -> anyhow::Result<Pushed> {
+    let failed = |why: String| {
+        SeedError::new(
+            "sync_failed",
+            format!("{} could not be projected again: {why}", local.display()),
+        )
+    };
+    match sync_cli::project::restart(socket, local, remote, key) {
+        Ok(Ok(answer)) => Ok(projected(&answer)),
+        Ok(Err(why)) => Err(failed(format!("{why:?}")).into()),
+        Err(error) => Err(failed(format!("{error:#}")).into()),
+    }
+}
+
 /// [`push`] with `--since-last` (module docs), for `cmux link agent move
-/// --sync seed` too. Its errors' codes are [`failure_code`]'s.
+/// --sync seed` too. Its errors' codes are [`failure_code`]'s. A folder the last push projected
+/// is projected again ([`project_again`]).
 pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
-    let machine = Machine::read(socket)?;
-    let local = std::fs::canonicalize(local).map_err(|error| {
+    let canonical = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
+    let machine = Machine::read(socket)?;
+    if let Some(on) = sync_cli::project::projected_at(remote)
+        && on.local == canonical
+        && machine.id.as_deref().unwrap_or_default() == on.machine
+    {
+        return project_again(socket, &canonical, remote, &on.chat);
+    }
+    let local = canonical;
     let no_previous = |why: &str| SeedError::new("seed.no_previous", why);
     let Some(mut record) = record::load(&local, remote)? else {
         return Err(no_previous("this Mac never pushed this folder to that machine folder").into());
@@ -783,6 +875,7 @@ fn copied(
         copy: Some(line),
         fallback,
         filling: filling.is_some(),
+        projected: None,
     }
 }
 
@@ -840,6 +933,7 @@ fn seeded(mode: &'static str, planned: &Planned, ended: &Ended) -> Pushed {
         copy: None,
         fallback: None,
         filling: ended.filling().is_some(),
+        projected: None,
     }
 }
 

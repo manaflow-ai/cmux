@@ -29,7 +29,11 @@ struct ChatRestingStack: Codable, Equatable {
 @MainActor
 @Observable
 public final class AgentChatSurface {
-    public var text = ""
+    public var text = "" {
+        didSet { if text != oldValue { onTextChange?(text) } }
+    }
+    /// Told when the draft changes: a workspace tab keeps it on disk (`ComposerDraftStore`).
+    @ObservationIgnored public var onTextChange: (@MainActor (String) -> Void)?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
@@ -367,7 +371,7 @@ public final class AgentChatSurface {
         case .artifactsLayout(let grid):
             artifacts.grid = grid
         case .artifactsOpen(let reference):
-            let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+            let collected = store.artifacts
             if let artifact = collected.artifacts.first(where: { $0.reference == reference }) { artifacts.path = [artifact] }
         case .artifactsSource(let on):
             artifacts.showSource = on
@@ -550,7 +554,7 @@ public struct AgentChatTranscript: View {
                     return .handled
                 }
             },
-            empty: AnyView(AgentChatEmptyState(store: store)),
+            empty: AnyView(AgentChatEmptyState(store: store, entrance: true)),
             dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, bottomPadding: 0)) : nil,
             // Both placements: the controller hosts the circle at a fixed
             // size, 4 pt above the stack's top (verify/jump-button.md).
@@ -640,6 +644,9 @@ extension AgentChatTranscript {
 /// Centered in the space between the header and the composer.
 struct AgentChatEmptyState: View {
     let store: AgentChatStore
+    /// The live chat plays the new-chat entrance (`NewChatEntrance`); a still (a tab card's
+    /// preview) draws the greeting at rest.
+    var entrance = false
 
     var body: some View {
         if store.isLoadingHistory && !store.hasTurns || store.awaitsFirstPrompt {
@@ -647,17 +654,39 @@ struct AgentChatEmptyState: View {
             // (New Task's) is on its way: never the new-chat prompt.
             AgentChatLoadingState(store: store)
         } else if store.isNewChat {
-            VStack(spacing: 12) {
-                // The agent's own mark (the Claude or Codex logo), not a generic glyph.
-                AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
-                    .frame(width: 48, height: 48)
-                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-                Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
-                Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
-            }
-            .multilineTextAlignment(.center)
-            .accessibilityElement(children: .combine)
+            NewChatGreeting(store: store, entrance: entrance)
         }
+    }
+}
+
+/// The new-chat prompt: the agent's mark, "What should <agent> do?" and where it runs, settling
+/// in on the entrance's spring the first time the chat shows (`NewChatEntrance`).
+struct NewChatGreeting: View {
+    let store: AgentChatStore
+    private let style: NewChatEntrance.Style
+    @State private var settled: Bool
+
+    init(store: AgentChatStore, entrance: Bool) {
+        self.store = store
+        style = NewChatEntrance.Style.current
+        _settled = State(initialValue: !entrance || store.newChatEntrance.greeting || UIAccessibility.isReduceMotionEnabled)
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // The agent's own mark (the Claude or Codex logo), not a generic glyph.
+            AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
+                .frame(width: 48, height: 48)
+                .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+                .newChatEntrance(.mark, style: style, settled: settled)
+            Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
+                .newChatEntrance(.title, style: style, settled: settled)
+            Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
+                .newChatEntrance(.detail, style: style, settled: settled)
+        }
+        .multilineTextAlignment(.center)
+        .accessibilityElement(children: .combine)
+        .releasesNewChatEntrance($settled) { [store] in store.newChatEntrance.greeting = true }
     }
 }
 
@@ -682,22 +711,25 @@ struct AgentChatLoadingState: View {
 }
 
 /// Kept rows show while the chat is away from the Mac or catches up with it; after
-/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
-/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+/// ``QuietStatusGate/threshold`` a small chip floats just above the composer
+/// (``AgentChatStore/connectionLine`` is its VoiceOver sentence). An overlay, never
+/// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
+/// not be pushing up the text ... a symbol or short thing, not a sentence. stop
+/// layout shifting").
 struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
     var body: some View {
-        if let line = store.connectionLine {
-            Text(verbatim: line)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .accessibilityIdentifier("agentChat.connectionLine")
-                .allowsHitTesting(false)
-                .transition(.opacity)
+        Group {
+            if let line = store.connectionLine {
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
+                    .padding(.leading, 20)
+                    .alignmentGuide(.top) { $0[.bottom] + 8 }
+                    .accessibilityIdentifier("agentChat.connectionLine")
+                    .transition(.opacity)
+            }
         }
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: store.connectionLine)
     }
 }
 
@@ -734,7 +766,8 @@ struct AgentChatJumpButton: View {
                         }
                         .contentShape(.circle)
                 }
-                .buttonStyle(.cmuxPressFill)
+                // The interactive glass disc is the press; a wash here drew a square around it.
+                .buttonStyle(.cmuxPressGlass)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -759,16 +792,24 @@ public struct AgentChatBottomStack: View {
     nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
+    /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
+    /// composer rises in. Typing works throughout; the motion is render only.
+    @State private var composerSettled: Bool
+    private let entranceStyle: NewChatEntrance.Style
 
     public init(store: AgentChatStore, surface: AgentChatSurface) {
-        self.store = store
-        self.surface = surface
+        self.init(store: store, surface: surface, bottomPadding: 8)
     }
 
     init(store: AgentChatStore, surface: AgentChatSurface, bottomPadding: CGFloat) {
         self.store = store
         self.surface = surface
         self.bottomPadding = bottomPadding
+        entranceStyle = NewChatEntrance.Style.current
+        // Only a new chat's first showing rises in; a chat with history, one still loading it,
+        // or a second visit draws the composer in place.
+        _composerSettled = State(initialValue: !store.isNewChat || store.awaitsFirstPrompt || store.newChatEntrance.composer
+            || UIAccessibility.isReduceMotionEnabled)
     }
 
     public var body: some View {
@@ -785,12 +826,11 @@ public struct AgentChatBottomStack: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                     }
-                    .buttonStyle(.cmuxPressFill)
+                    .buttonStyle(.cmuxPressFillCapsule)
                     .glassEffect(.regular, in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -836,6 +876,10 @@ public struct AgentChatBottomStack: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
+                        // After the geometry reader: the entrance is render only, so the stack's
+                        // measured place (the transcript's inset, the keyboard pin) is the resting one.
+                        .newChatEntrance(.composer, style: entranceStyle, settled: composerSettled)
+                        .releasesNewChatEntrance($composerSettled) { [store] in store.newChatEntrance.composer = true }
                         .transition(.opacity)
                 }
             }
@@ -873,6 +917,9 @@ public struct AgentChatBottomStack: View {
                 surface.drawnStackHeight = height
                 surface.stackHeightFrame?(height)
             })
+            // Floats just above the stack, never in it: showing it moves
+            // neither the composer nor the transcript's rows.
+            .overlay(alignment: .topLeading) { AgentChatConnectionLine(store: store) }
             // As in Messages, a downward swipe on the composer takes the
             // keyboard down (the transcript's interactive dismissal covers
             // drags that start above it).

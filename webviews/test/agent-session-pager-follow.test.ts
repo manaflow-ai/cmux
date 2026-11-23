@@ -56,6 +56,52 @@ test("a reconnect asks one watch from its cursor and no session pages", async ()
   expect(again?.next).toBeUndefined();
 });
 
+test("discarded notices reset the list despite newer selected-chat notices", async () => {
+  const { calls, pager, client } = scripted(
+    [],
+    { sessions: [row("selected", 1), row("other", 1)], listSeq: 5, listEpoch: "e1" },
+    { sessions: [row("selected", 7), row("other", 6, { title: "renamed" })], listSeq: 7, listEpoch: "e1" },
+  );
+  await listed(pager, client);
+  pager.share("hidden-cursor-reset");
+  pager.keep();
+  pager.invalidate(); // Discarded other-chat change 6.
+  pager.fresh(7); // Selected-chat change must not hide the missing row.
+  await listed(pager, client);
+  expect(calls.at(-1)?.params.afterSeq).toBeUndefined();
+  expect(client.held.find((session) => session.sessionId === "other")?.title).toBe("renamed");
+});
+
+test("a failed reset and notices missed during a read keep the cursor invalid", async () => {
+  const calls: Call[] = [];
+  const client = { held: [] as Row[] };
+  let fail = false;
+  const pager = new SessionPager<Row>(
+    async (method, params) => {
+      calls.push({ method, params });
+      if (fail) throw new Error("offline");
+      return { sessions: [row("selected", 1)], listSeq: 5, listEpoch: "e1" };
+    },
+    () => client.held,
+  );
+  pager.follows = true;
+  await listed(pager, client);
+  pager.invalidate();
+  fail = true;
+  await expect(pager.first()).rejects.toThrow("offline");
+  fail = false;
+  await listed(pager, client);
+  expect(calls.at(-1)?.params.afterSeq).toBeUndefined();
+  const reading = pager.first();
+  pager.invalidate(); // Hidden after the request, before its response.
+  pager.fresh(8);
+  const page = await reading;
+  client.held = pager.settle(page!.sessions);
+  pager.done(page!.run);
+  await listed(pager, client);
+  expect(calls.at(-1)?.params.afterSeq).toBeUndefined();
+});
+
 test("a follow puts its rows in place, adds new ones and removes the gone", async () => {
   const { pager, client } = scripted(
     [],

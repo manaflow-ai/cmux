@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 632,
+  "count": 673,
   "sections": [
     {
       "id": "general",
@@ -108,6 +108,14 @@
           ]
         },
         {
+          "key": "agentPane.links.openCitationsInEditor",
+          "title": "Open File Citations in Text Editor",
+          "help": "Open local chat links that name a line in your chosen text editor.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.links.outsideRoots",
           "title": "Files Outside the Project",
           "help": "What a link to a file outside the chat's folders does. Keys and .env files never open.",
@@ -147,6 +155,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.sessionWorktrees",
+          "title": "Session Worktrees",
+          "help": "Choose where to keep worktrees for local chats and forks.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Agent Chat",
+          "values": [
+            "off",
+            "shared",
+            "project"
+          ]
         },
         {
           "key": "agentPane.showContextUsage",
@@ -247,6 +268,21 @@
             "max": 95,
             "unit": "count"
           }
+        },
+        {
+          "key": "agents.chats.archiveInactive",
+          "title": "Archive Inactive Chats",
+          "help": "Archives chats after a period of no activity. Chats that are running or have background work never are.",
+          "kind": "choice",
+          "default": "never",
+          "group": "Chats",
+          "values": [
+            "never",
+            "1d",
+            "3d",
+            "7d",
+            "30d"
+          ]
         },
         {
           "key": "agents.chats.coldArchive",
@@ -517,8 +553,40 @@
           "title": "Hide Dock Icon When No Windows Are Open",
           "help": "cmux stays in the menu bar until a window opens.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Window"
+        },
+        {
+          "key": "app.language",
+          "title": "Language",
+          "help": "The language of cmux's menus, pages and messages.",
+          "kind": "choice",
+          "default": "system",
+          "group": "Language",
+          "values": [
+            "system",
+            "en",
+            "ar",
+            "bs",
+            "da",
+            "de",
+            "es",
+            "fr",
+            "it",
+            "nb",
+            "pl",
+            "pt-BR",
+            "tr",
+            "vi",
+            "ru",
+            "uk",
+            "th",
+            "km",
+            "ja",
+            "ko",
+            "zh-Hans",
+            "zh-Hant"
+          ]
         },
         {
           "key": "app.quitBehavior",
@@ -1325,6 +1393,18 @@
           "group": "cmux Remote"
         },
         {
+          "key": "remote.screenSharingProfile",
+          "title": "Screen Sharing Profile",
+          "help": "Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network.",
+          "kind": "choice",
+          "default": "balanced",
+          "group": "cmux Remote",
+          "values": [
+            "balanced",
+            "ultra"
+          ]
+        },
+        {
           "key": "remote.ultra",
           "title": "Ultra Connection Mode",
           "help": "Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data.",
@@ -1505,10 +1585,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -1535,6 +1611,18 @@
           "values": [
             "hover",
             "always"
+          ]
+        },
+        {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
           ]
         },
         {
@@ -1652,6 +1740,27 @@
           "group": "Updates"
         },
         {
+          "key": "updates.installWhenIdle",
+          "title": "Update When Idle",
+          "help": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.installWhenIdleMinutes",
+          "title": "Idle Time Before Updating",
+          "help": "How long cmux must be idle before Update When Idle installs.",
+          "kind": "number",
+          "default": 15,
+          "group": "Updates",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "unit": "minutes"
+          }
+        },
+        {
           "key": "updates.keepPreviousVersions",
           "title": "Keep Previous Versions",
           "help": "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
@@ -1710,7 +1819,7 @@
           "title": "Show Feature Tips",
           "help": "A small tip now and then points at a feature an update added.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1939,6 +2048,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.display.font.faces",
+          "title": "Chat Font Files",
+          "help": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\".",
+          "kind": "string_map",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -1964,6 +2081,14 @@
             "serif",
             "mono"
           ]
+        },
+        {
+          "key": "agentPane.display.font.proseFamily",
+          "title": "Chat Reply Font Family",
+          "help": "The font of the agent's replies. When set, it replaces the Chat Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.font.size",
@@ -1999,6 +2124,14 @@
             "hanken",
             "atkinson"
           ]
+        },
+        {
+          "key": "agentPane.display.font.uiFamily",
+          "title": "Chat Interface Font Family",
+          "help": "A font family or a comma list of them. When set, it replaces the Chat Interface Font.",
+          "kind": "font_family",
+          "default": null,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.fullWidth",
@@ -2062,6 +2195,33 @@
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.rail.control",
+          "title": "Prompt Rail Button",
+          "help": "Shows what the rail lists above it while you point at it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.rail.show",
+          "title": "Prompt Rail Shows",
+          "help": "Right-click the rail to change it.",
+          "kind": "choice",
+          "default": "prompts",
+          "group": "Agent Chat",
+          "values": [
+            "prompts",
+            "mine",
+            "received",
+            "replies",
+            "everything",
+            "errors",
+            "edits",
+            "tools",
+            "subagents"
+          ]
         },
         {
           "key": "agentPane.display.rail.side",
@@ -2148,6 +2308,56 @@
           ]
         },
         {
+          "key": "agentPane.display.thinking.jumpButton",
+          "title": "Jump to Latest While Working",
+          "help": "What the Jump to latest button shows while the agent works.",
+          "kind": "choice",
+          "default": "arrow",
+          "group": "Agent Chat",
+          "values": [
+            "arrow",
+            "dots"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmer",
+          "title": "Thinking Shimmer",
+          "help": "How the light band moves across the live status line.",
+          "kind": "choice",
+          "default": "cadenced",
+          "group": "Agent Chat",
+          "values": [
+            "cadenced",
+            "continuous"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerBand",
+          "title": "Shimmer Width",
+          "help": "The width of the shimmer's light band. 0 uses half the line.",
+          "kind": "number",
+          "default": 0,
+          "group": "Agent Chat",
+          "range": {
+            "min": 0,
+            "max": 240,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerPeriod",
+          "title": "Shimmer Speed",
+          "help": "How long one continuous pass of the shimmer takes.",
+          "kind": "number",
+          "default": 1250,
+          "group": "Agent Chat",
+          "range": {
+            "min": 600,
+            "max": 4000,
+            "unit": "milliseconds"
+          }
+        },
+        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -2206,14 +2416,9 @@
           "key": "agentPane.display.width",
           "title": "Chat Text Width",
           "help": "The widest the chat's column gets. On a wider pane the chat stays centered.",
-          "kind": "number",
+          "kind": "choice_or_number",
           "default": 800,
-          "group": "Agent Chat",
-          "range": {
-            "min": 480,
-            "max": 4000,
-            "unit": "points"
-          }
+          "group": "Agent Chat"
         },
         {
           "key": "app.uiScale",
@@ -2246,6 +2451,14 @@
             "magenta",
             "cyan"
           ]
+        },
+        {
+          "key": "appearance.agentGlow",
+          "title": "React to Agents",
+          "help": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
         },
         {
           "key": "appearance.appTheme",
@@ -2482,6 +2695,14 @@
           "group": "Window Background"
         },
         {
+          "key": "appearance.backgroundMemory",
+          "title": "Background Mode Memory",
+          "help": "The folder and picture each background mode last showed, so switching back restores them.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2493,6 +2714,22 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
         },
         {
           "key": "appearance.backgroundRotation",
@@ -2682,6 +2919,20 @@
           }
         },
         {
+          "key": "appearance.cornerFlush",
+          "title": "Selected Tab Shape",
+          "help": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+          "kind": "choice",
+          "default": "flush",
+          "group": "Panes",
+          "values": [
+            "off",
+            "flush",
+            "flush-tight",
+            "flush-goo"
+          ]
+        },
+        {
           "key": "appearance.customDensities",
           "title": "Custom Densities",
           "help": "",
@@ -2808,13 +3059,13 @@
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": "Text Size",
-          "help": "Text size of tabs, the sidebar and chat. Terminals have their own size.",
+          "help": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
           "range": {
             "min": 10,
-            "max": 16,
+            "max": 20,
             "unit": "points"
           }
         },
@@ -2909,6 +3160,14 @@
           ]
         },
         {
+          "key": "appearance.previousGlass",
+          "title": "Previous Glass Look",
+          "help": "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.rotateFavoriteThemes",
           "title": "Rotate Starred Themes",
           "help": "Switches the terminal theme to the next starred one. Needs two starred themes.",
@@ -2933,6 +3192,18 @@
             "max": 2,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.selection",
+          "title": "Selection",
+          "help": "Accent tints the selected row and tab with the accent. Neutral keeps them gray.",
+          "kind": "choice",
+          "default": "accent",
+          "group": "App Theme",
+          "values": [
+            "accent",
+            "neutral"
+          ]
         },
         {
           "key": "appearance.sidebarSurface",
@@ -3375,6 +3646,26 @@
           ]
         },
         {
+          "key": "appearance.twoTone",
+          "title": "Two-Tone",
+          "help": "The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Panes",
+          "values": [
+            "off",
+            "auto",
+            "inkSakura",
+            "charcoalRose",
+            "inkMagenta",
+            "creamForest",
+            "navySand",
+            "boneOxblood",
+            "slateMatcha",
+            "plumAmber"
+          ]
+        },
+        {
           "key": "appearance.wallpaperTint",
           "title": "Tint with Desktop Wallpaper",
           "help": "The glass takes the colors of your desktop picture.",
@@ -3813,7 +4104,7 @@
           "title": "Show Tips",
           "help": "A daily card shows one cmux feature you have not used yet.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -3903,11 +4194,12 @@
         {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
-          "help": "How a group's background draws. Sections shows plain headings instead.",
+          "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "auto",
+          "default": "folder",
           "group": "Sidebar",
           "values": [
+            "folder",
             "auto",
             "glass",
             "solid",
@@ -4068,7 +4360,7 @@
           "title": "Workspace Card Layout",
           "help": "What a workspace's hover card shows.",
           "kind": "choice",
-          "default": "timeline",
+          "default": "compact",
           "group": "Sidebar",
           "values": [
             "timeline",
@@ -4130,6 +4422,20 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.look",
+          "title": "Sidebar Look",
+          "help": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Sidebar",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
         },
         {
           "key": "sidebar.minimal",
@@ -4237,6 +4543,22 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.settleFinished",
+          "title": "Settle Finished Chats",
+          "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.showAutomaticSessions",
+          "title": "Show Automatic Sessions",
+          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -4289,15 +4611,15 @@
           "title": "Show Search Button",
           "help": "A search button after the profile button. Off: search from the palette.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
           "key": "sidebar.showSpaces",
           "title": "Show Spaces",
-          "help": "",
+          "help": "Spaces show once you have more than one. New Space is in the command palette.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -5927,7 +6249,7 @@
     },
     {
       "id": "home",
-      "title": "Home",
+      "title": "Chief",
       "rows": [
         {
           "key": "chief.autoRouteSubagents",
@@ -6123,6 +6445,14 @@
           "group": "Chief Dock"
         },
         {
+          "key": "home.chiefDock.sidePanel",
+          "title": "Chief in Side Panel",
+          "help": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chief Dock"
+        },
+        {
           "key": "home.chiefEngine",
           "title": "Engine",
           "help": "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -6134,14 +6464,6 @@
             "local",
             "hosted"
           ]
-        },
-        {
-          "key": "home.chiefPanel.seesScreen",
-          "title": "Chief Sees Your Screen When It Opens",
-          "help": "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Chief Dock"
         },
         {
           "key": "home.chiefPanel.style",
@@ -6382,6 +6704,18 @@
           "group": "Attention Ring"
         },
         {
+          "key": "notifications.attention.mark",
+          "title": "Needs You Look",
+          "help": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.",
+          "kind": "choice",
+          "default": "badge",
+          "group": "Attention Ring",
+          "values": [
+            "badge",
+            "glow"
+          ]
+        },
+        {
           "key": "notifications.attention.moveToTop",
           "title": "Move the Workspace to the Top",
           "help": "A notification moves its workspace to the top, unless you are looking at it.",
@@ -6460,6 +6794,44 @@
             "max": 8,
             "unit": "points"
           }
+        },
+        {
+          "key": "notifications.delivery.permissionRequest",
+          "title": "Permission Request",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
+        },
+        {
+          "key": "notifications.delivery.question",
+          "title": "Question",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
+        },
+        {
+          "key": "notifications.delivery.taskComplete",
+          "title": "Task Complete",
+          "help": "",
+          "kind": "choice",
+          "default": "banner",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "banner"
+          ]
         },
         {
           "key": "notifications.desktop",
@@ -6853,9 +7225,73 @@
           "group": "Developer Tools"
         },
         {
+          "key": "experiments.agentBadges",
+          "title": "Agent Badges",
+          "help": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.agentBadgesBeam",
+          "title": "Agent Badges: Running Beam",
+          "help": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.chatWidgets",
+          "title": "Extension Chat Widgets",
+          "help": "Installed extensions can show a card under a finished tool call in agent chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.composerV2",
+          "title": "Composer Refresh",
+          "help": "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.glassToolbarGroups",
+          "title": "Glass Toolbar Groups",
+          "help": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.toastsV2",
+          "title": "Toasts v2",
+          "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "labs.agentCustomization",
+          "title": "Claude Code and Codex Customization",
+          "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.liveTree",
+          "title": "Live Tree",
+          "help": "Show the shared live-tree path and compile lanes in the agent pane.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
@@ -6869,9 +7305,17 @@
           "group": "Labs"
         },
         {
+          "key": "labs.pauseAgentMachines",
+          "title": "Pause Agent Machines",
+          "help": "Pause a new agent machine after 15 idle minutes; it resumes when work arrives.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
-          "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+          "help": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

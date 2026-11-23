@@ -14,6 +14,7 @@ import CmuxNextTabs
 ///   over the middle of the pane's tab strip.
 /// - `menu: "pane"`: the pane's menu, the one the tab strip's empty space opens (`.emptyStrip`).
 /// - `menu: "paneMore"`: the pane's ⋮ at its tab bar's trailing end (``PaneToolbar``), as its click opens it.
+/// - `menu: "browserMore"`: the page's More menu on glass; `folders` open in place, `dismiss` closes it (no posted keys).
 /// - `folders: ["More", "Copy"]`: with a menu open, opens each folder in turn with keys posted to the app's event
 ///   queue, which the open menu reads. A tab or pane menu (which this holds) gets Down to the folder's row, then
 ///   Right. The workspace menu gets a Down arrow (out of its name field), then each title typed (type-select)
@@ -68,6 +69,11 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: NSPoint(x: bar.bounds.maxX - 32, y: bar.isFlipped ? bar.bounds.maxY : 0), in: bar).schedule()
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
+            case "browserMore":
+                guard let entry = page(controller) else { return failure("the focused pane shows no browser page") }
+                entry.chrome?.toolbarButtons.presentGlass(BrowserToolbarHandlers.overflowMenu(
+                    for: entry, registry: services.registry, settings: services.settings), from: .overflow)
+                answer["menu"] = .string(menu)
             case "browserProfile":
                 // The browser toolbar's profile button menu of the focused pane's page (tour:browser-profile-menu).
                 guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
@@ -80,11 +86,15 @@ enum DebugObjectMenu {
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
             default:
-                return failure("menu is workspace, tab, pane, paneMore or browserProfile")
+                return failure("menu is workspace, tab, pane, paneMore, browserProfile or browserMore")
             }
         }
         let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let choice = params["choose"]?.stringValue
+        if let glass = page(controller)?.chrome?.toolbarButtons.shownGlassMenu {
+            if params["dismiss"]?.boolValue == true { glass.close() } else if !glass.openSubmenus(folders) { return failure("no \(folders) in More") }
+            return .object(answer)
+        }
         if !folders.isEmpty || choice != nil {
             let events: [NSEvent]
             if let menu = services.debugFixtures.objectMenu {
@@ -147,6 +157,11 @@ enum DebugObjectMenu {
                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                              characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)
         }
+    }
+
+    private static func page(_ controller: WindowController) -> BrowserEntry? {
+        guard case .browser(let entry) = controller.focusedPane?.currentContent else { return nil }
+        return entry
     }
 
     private static func failure(_ message: String) -> JSONValue { .object(["error": .string(message)]) }

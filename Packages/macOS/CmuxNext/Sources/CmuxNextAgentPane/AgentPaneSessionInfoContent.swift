@@ -581,7 +581,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             control.state = toggle ? .on : .off
             control.target = self
             control.action = #selector(toggleChanged(_:))
-            control.themedToolTip = line.help
+            control.setAccessibilityHelp(line.help) // beside its title: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
             self.toggle = control
         }
         if !line.menu.isEmpty {
@@ -595,7 +595,9 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         }
         buttons = line.buttons.map { SessionInfoButtonView(button: $0, ink: ink) }
         for view in [glyph, grip, title, detail, subtitle, trailing, chevron, meter, segmentedMeter, marksView, toggle, menuButton].compactMap({ $0 }) + buttons { addSubview(view) }
-        themedToolTip = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: "\n")
+        // A row has no tooltip (a1315's cut 3); VoiceOver hears what one said.
+        let help = [line.help, line.hover?.title, line.hover?.detail].compactMap { $0 }.joined(separator: ". ")
+        setAccessibilityHelp(help.isEmpty ? nil : help)
         setAccessibilityElement(true)
         setAccessibilityLabel([line.title, line.detail, line.subtitle ?? line.progress, line.trailing].compactMap { $0 }.joined(separator: ", "))
         setAccessibilityRole(line.action != nil ? .button : .staticText)

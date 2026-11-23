@@ -149,7 +149,11 @@ fn settings(path: &str, text: &str, found: &mut Vec<Problem>) {
                     .filter(|_| !diagnostic.path.is_empty())
                     .and_then(|document| written_at(document, &diagnostic.path));
                 (
-                    format!("{} has a value this setting does not accept", diagnostic.path),
+                    if diagnostic.path == "workspaceColors.indicatorStyle" {
+                        "workspaceColors.indicatorStyle has an unsupported value; use \"dot\", \"leftRail\" or \"fill\" (legacy \"solidFill\" is accepted)".to_owned()
+                    } else {
+                        format!("{} has a value this setting does not accept", diagnostic.path)
+                    },
                     written.map(|value| (diagnostic.path.clone(), digest(value))),
                 )
             }
@@ -369,6 +373,21 @@ mod tests {
     }
 
     #[test]
+    fn an_invalid_workspace_indicator_names_the_repair_values() {
+        let lines = check(
+            SETTINGS,
+            "{\n  \"workspaceColors\": { \"indicatorStyle\": \"__not_a_choice__\" }\n}\n",
+        );
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].contains("workspaceColors.indicatorStyle")
+                && lines[0].contains("\"fill\"")
+                && lines[0].contains("legacy \"solidFill\" is accepted"),
+            "{lines:?}"
+        );
+    }
+
+    #[test]
     fn a_problem_never_quotes_the_value_it_refuses() {
         let lines = check(
             SETTINGS,
@@ -390,8 +409,9 @@ mod tests {
 
     #[test]
     fn a_refused_value_already_there_unchanged_is_not_introduced() {
-        let stale = "{ \"workspaceColors\": { \"indicatorStyle\": \"solidFill\" } }";
-        let moved = "{\n  // mine\n  \"sidebar\": {},\n  \"workspaceColors\": {\n    \"indicatorStyle\": \"solidFill\"\n  }\n}";
+        let stale =
+            "{ \"workspaceColors\": { \"indicatorStyle\": \"__unsupported_indicator__\" } }";
+        let moved = "{\n  // mine\n  \"sidebar\": {},\n  \"workspaceColors\": {\n    \"indicatorStyle\": \"__unsupported_indicator__\"\n  }\n}";
         let other = "{ \"workspaceColors\": { \"indicatorStyle\": \"glow\" } }";
         assert_eq!(settings_problems(stale).len(), 1);
         // The same value, wherever it sits in the file, is still theirs.

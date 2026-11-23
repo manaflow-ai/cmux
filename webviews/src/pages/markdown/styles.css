@@ -870,7 +870,8 @@ body {
   border: 0;
   padding: 0 0 2px;
   background: transparent;
-  color: var(--cmux-md-faint-color);
+  /* A button's label is text: the muted ink (4.5:1), not the faint hint (3:1). */
+  color: var(--cmux-md-muted-color);
   font-size: var(--cmux-md-toolbar-font-size);
   cursor: default;
 }

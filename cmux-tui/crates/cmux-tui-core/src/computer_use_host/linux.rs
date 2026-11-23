@@ -3,13 +3,45 @@
 //! systemd user scope when the user manager runs (so closing the terminal
 //! that started the daemon does not take the worker with it), else as a
 //! plain child.
+//!
+//! A machine whose desktop starts on demand (a cmux Cloud VM: Xvfb and its
+//! AT-SPI bus stay off until an agent asks) installs a desktop starter,
+//! [`DESKTOP_STARTER`]: when the daemon has no display, the launcher runs it
+//! (only when root owns it and no other user can write it, as the owner
+//! policy file), and it starts the display and prints the worker's
+//! variables, one `KEY=VALUE` per line. Only [`STARTER_VARS`] are taken.
 
 use std::ffi::OsString;
+use std::fs::File;
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use cmux_process::{Command, Stdio};
 
-use super::{Launcher, WORKER_MODE, WorkerProcess};
+use super::{Launcher, NO_NEW_PRIVS_ENV, WORKER_MODE, WorkerProcess};
+
+/// The machine's desktop starter (see the module docs).
+pub(crate) const DESKTOP_STARTER: &str = "/etc/cmux/computer-use-desktop";
+/// How long the starter may take (a display and its AT-SPI bus).
+const STARTER_LIMIT: Duration = Duration::from_secs(60);
+/// The most of the starter's output read (its variables, its reason).
+const STARTER_OUTPUT_LIMIT: u64 = 64 * 1024;
+/// The variables a desktop starter may set for the worker: the session's,
+/// the headless switch, a PATH (the machine's refusing tools first) and the
+/// no-new-privileges switch. Anything else it prints is ignored.
+const STARTER_VARS: &[&str] = &[
+    "DISPLAY",
+    "WAYLAND_DISPLAY",
+    "XAUTHORITY",
+    "XDG_RUNTIME_DIR",
+    "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP",
+    "DBUS_SESSION_BUS_ADDRESS",
+    "PATH",
+    "CMUX_CU_HEADLESS",
+    NO_NEW_PRIVS_ENV,
+];
 
 /// The session variables the worker needs to reach the desktop.
 const SESSION_VARS: &[&str] = &[
@@ -34,6 +66,9 @@ const PROCESS_VARS: &[&str] = &[
     // Whether a person shares the display (1: cmux cloud images, 0: someone
     // watches an Xvfb display); the worker reads it, so it must get through.
     "CMUX_CU_HEADLESS",
+    // The worker drops the right to gain privileges (no sudo for it or the
+    // apps it starts) when this is 1 (computer_use_worker.rs).
+    NO_NEW_PRIVS_ENV,
 ];
 
 /// The plain process variables (PROCESS_VARS) the worker gets from `own`.
@@ -109,16 +144,119 @@ fn fake_desktop() -> bool {
     cfg!(debug_assertions) && std::env::var_os("CMUX_CU_FAKE_DESKTOP").is_some_and(|v| v == "1")
 }
 
+fn has_display(env: &[(String, OsString)]) -> bool {
+    env.iter().any(|(k, v)| (k == "DISPLAY" || k == "WAYLAND_DISPLAY") && !v.is_empty())
+}
+
+/// `env` with each of `over`'s variables in place of its own.
+fn overridden(
+    mut env: Vec<(String, OsString)>,
+    over: Vec<(String, OsString)>,
+) -> Vec<(String, OsString)> {
+    for (key, value) in over {
+        env.retain(|(k, _)| *k != key);
+        env.push((key, value));
+    }
+    env
+}
+
+/// An anonymous in-memory file (`memfd_create`) for a child's output.
+fn capture_file(name: &str) -> Result<File, String> {
+    use std::os::fd::FromRawFd;
+    let name = std::ffi::CString::new(name).map_err(|e| e.to_string())?;
+    // SAFETY: a valid C string; the returned fd is new and owned by the File.
+    let fd = unsafe { libc::memfd_create(name.as_ptr(), libc::MFD_CLOEXEC) };
+    if fd < 0 {
+        return Err(format!("starter output: {}", std::io::Error::last_os_error()));
+    }
+    // SAFETY: `fd` was just created and nothing else owns it.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+/// The first [`STARTER_OUTPUT_LIMIT`] bytes written to a [`capture_file`].
+fn captured(mut file: File) -> String {
+    let mut text = String::new();
+    if file.rewind().is_ok() {
+        let _ = file.take(STARTER_OUTPUT_LIMIT).read_to_string(&mut text);
+    }
+    text
+}
+
+/// Runs the desktop starter at `path` when `trust` accepts it, and returns
+/// the [`STARTER_VARS`] it printed. `Err` says why there is no desktop: the
+/// file is not trusted, did not run, failed (with what it said) or took
+/// longer than [`STARTER_LIMIT`].
+pub(crate) fn run_starter(
+    path: &Path,
+    trust: impl Fn(&Path) -> Result<(), String>,
+) -> Result<Vec<(String, OsString)>, String> {
+    trust(path).map_err(|why| format!("the desktop starter was not run: {why}"))?;
+    // The starter's output goes to two in-memory files, not pipes: a display
+    // it leaves running may keep them open, and nothing waits for that.
+    let (out, err) = (capture_file("cmux-cu-starter-out")?, capture_file("cmux-cu-starter-err")?);
+    let mut child = Command::new(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(out.try_clone().map_err(|e| format!("starter output: {e}"))?))
+        .stderr(Stdio::from(err.try_clone().map_err(|e| format!("starter output: {e}"))?))
+        .spawn()
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let status =
+        child.wait_timeout(STARTER_LIMIT).map_err(|e| format!("{}: {e}", path.display()))?;
+    let Some(status) = status else {
+        // Ended when `child` drops.
+        drop(child);
+        return Err(format!(
+            "the desktop starter {} did not finish within {} s",
+            path.display(),
+            STARTER_LIMIT.as_secs()
+        ));
+    };
+    let (out, err) = (captured(out), captured(err));
+    if !status.success() {
+        let said = err.trim();
+        let said = said.get(said.len().saturating_sub(600)..).unwrap_or(said);
+        return Err(format!("the desktop starter {} failed ({status}): {said}", path.display()));
+    }
+    Ok(parse_environment(&out)
+        .into_iter()
+        .filter(|(key, _)| STARTER_VARS.contains(&key.as_str()))
+        .map(|(key, value)| (key, value.into()))
+        .collect())
+}
+
+/// The worker's whole environment: the graphical session's variables and
+/// the plain process ones from `own`; with no display, those of the desktop
+/// `starter` (when one exists) over them.
+pub(crate) fn worker_env(
+    own: impl Fn(&str) -> Option<OsString>,
+    starter: &Path,
+    trust: impl Fn(&Path) -> Result<(), String>,
+) -> Result<Vec<(String, OsString)>, String> {
+    let session = session_env(&own);
+    let started = if has_display(&session) || fake_desktop() {
+        Vec::new()
+    } else if std::fs::symlink_metadata(starter).is_ok() {
+        run_starter(starter, trust)?
+    } else {
+        Vec::new()
+    };
+    let env = overridden(overridden(session, process_env(&own)), started);
+    if !has_display(&env) && !fake_desktop() {
+        return Err("no graphical session here: Computer Use needs a desktop (DISPLAY or \
+                    WAYLAND_DISPLAY in the cmux daemon's environment or the systemd user \
+                    session, or a desktop starter at /etc/cmux/computer-use-desktop)"
+            .into());
+    }
+    Ok(env)
+}
+
 impl Launcher for NativeLauncher {
     fn launch(&self, log: &Path) -> Result<WorkerProcess, String> {
-        let mut env = session_env(|name| std::env::var_os(name));
-        if !env.iter().any(|(k, _)| k == "DISPLAY" || k == "WAYLAND_DISPLAY") && !fake_desktop() {
-            return Err("no graphical session here: Computer Use needs a desktop (DISPLAY or \
-                        WAYLAND_DISPLAY in the cmux daemon's environment or the systemd user \
-                        session)"
-                .into());
-        }
-        env.extend(process_env(|name| std::env::var_os(name)));
+        let mut env = worker_env(
+            |name| std::env::var_os(name),
+            Path::new(DESKTOP_STARTER),
+            super::config::trusted,
+        )?;
         if let Some(dir) = log.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -169,29 +307,5 @@ impl Launcher for NativeLauncher {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn session_vars_come_from_the_daemon_first() {
-        let own = |name: &str| match name {
-            "DISPLAY" => Some(OsString::from(":1")),
-            "XDG_RUNTIME_DIR" => Some(OsString::from("/nonexistent-run")),
-            "WAYLAND_DISPLAY" => Some(OsString::new()),
-            _ => None,
-        };
-        let env = session_env(own);
-        assert!(env.contains(&("DISPLAY".into(), ":1".into())));
-        assert!(!env.iter().any(|(k, _)| k == "WAYLAND_DISPLAY"));
-        assert_eq!(
-            parse_environment("DISPLAY=:0\nBROKEN\nA=b=c\n"),
-            [("DISPLAY".to_string(), ":0".to_string()), ("A".into(), "b=c".into())]
-        );
-    }
-
-    #[test]
-    fn the_headless_switch_reaches_the_worker() {
-        let own = |name: &str| (name == "CMUX_CU_HEADLESS").then(|| OsString::from("0"));
-        assert_eq!(process_env(own), [("CMUX_CU_HEADLESS".to_string(), OsString::from("0"))]);
-    }
-}
+#[path = "linux_tests.rs"]
+mod tests;

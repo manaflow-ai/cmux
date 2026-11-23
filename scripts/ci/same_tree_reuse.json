@@ -1,0 +1,442 @@
+{
+ "_doc": "scripts/ci/same_tree_reuse.py: every job of a pull-request workflow is wired (reuses a pass on the same tree) or denied with its reason. tests/test_same_tree_reuse.py checks it.",
+ "wired": {
+  "cmux-next-ios-kit.yml": {
+   "host": "runner",
+   "jobs": [
+    "kit-tests"
+   ]
+  }
+ },
+ "deny": {
+  "agent-brands.yml": {
+   "drift": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "auth-refresh-tests.yml": {
+   "auth-refresh-tests": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "backend-migrations.yml": {
+   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by apply-staging, gate: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}, not the run's commit",
+   "apply-staging": "needed by apply-production: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "apply-production": "needed by gate: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "gate": "reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
+  },
+  "backend.yml": {
+   "test": "needed by deploy-staging, migrations-development, vitess-development: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action), not only the tree",
+   "vitess-development": "reads secrets",
+   "migrations-development": "needed by preview: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.action, github.head_ref), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "preview": "needed by journey-preview: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.action, github.event.pull_request.number, github.head_ref), not only the tree",
+   "journey-preview": "reads secrets; reads pull request metadata or the base (github.event.pull_request.number), not only the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "migrations-push-guard": "reads pull request metadata or the base (github.event.before), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-staging": "its outputs feed later jobs; a skipped run leaves them empty; needed by deploy-dashboard-staging, journey-staging, promote-gates: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.before), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-dashboard-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "journey-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-development": "reads secrets; reads pull request metadata or the base (github.event.before), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "promote-gates": "its outputs feed later jobs; a skipped run leaves them empty; needed by journey-production, promote-production: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "promote-production": "needed by journey-production: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.promote-gates.outputs.candidate }}, not the run's commit; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "rollback-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "chief-off-production": "reads secrets; checks out ${{ steps.serving.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-production": "needed by journey-production: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.before), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "journey-production": "reads secrets; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "preview-cleanup": "reads secrets; reads pull request metadata or the base (github.event.action, github.event.pull_request.number, github.head_ref), not only the tree"
+  },
+  "billing.yml": {
+   "billing": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-billing: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
+   "ios-billing": "below break-even: 3 runs, 5 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "chief-evals.yml": {
+   "evals": "writes to GitHub (a write permission): a side effect, not a verdict on the tree"
+  },
+  "ci-pr-closed-cancel.yml": {
+   "cancelled": "reads pull request metadata or the base (github.event.action), not only the tree"
+  },
+  "ci.yml": {
+   "changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by browser, ci-status, ci-timing, dogfood-build, ghosttykit-release-check, guards, linux-preflight, macos, macos-admission-gate, remote-daemon, web: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
+   "fast-guards": "needed by ci-status, ci-timing, linux-preflight, macos-admission-gate: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.label), not only the tree",
+   "static-preflight": "needed by ci-status, ci-timing, dogfood-build, linux-preflight, macos, macos-admission-gate, remote-daemon: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "guards": "calls a reusable workflow: no step here can record its pass; needed by ci-status, ci-timing, linux-preflight, macos-admission-gate: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "ghosttykit-release-check": "needed by ci-status, ci-timing, linux-preflight, macos-admission-gate: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "browser": "calls a reusable workflow: no step here can record its pass; needed by ci-status, ci-timing, macos-admission-gate: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "remote-daemon": "calls a reusable workflow: no step here can record its pass; needed by ci-status, ci-timing: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "web": "calls a reusable workflow: no step here can record its pass; needed by ci-status, ci-timing, linux-preflight, macos-admission-gate, pr-red-checks: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "macos-admission-gate": "needed by ci-status, ci-timing: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "macos": "calls a reusable workflow: no step here can record its pass; needed by ci-status, ci-timing: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "linux-preflight": "needed by ci-status, ci-timing: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree",
+   "dogfood-build": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out ${{ github.event.pull_request.head.sha }}, not the run's commit",
+   "ci-status": "reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree",
+   "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
+   "ci-timing": "reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree"
+  },
+  "classic-api-guard.yml": {
+   "classic-api": "reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.base.sha, github.event.pull_request.body), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
+  },
+  "classic-frozen-guard.yml": {
+   "classic-frozen": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
+  },
+  "cloud-journey-pr.yml": {
+   "journey": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "cloud-vm-guest-install.yml": {
+   "guest-install": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "cloudflare-relay.yml": {
+   "cloudflare-relay": "needed by deploy-production, deploy-staging: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
+   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by build-journey-cmux, deploy-production, deploy-staging, journey-production, journey-production-baseline, journey-staging, migration-approval, rollback-production: a skip would skip them or read as no verdict",
+   "migration-approval": "needed by deploy-production, deploy-staging: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-staging": "its outputs feed later jobs; a skipped run leaves them empty; needed by deploy-production, journey-staging: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.plan.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "build-journey-cmux": "needed by journey-production, journey-staging: a skip would skip them or read as no verdict; checks out ${{ needs.plan.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "journey-staging": "needed by deploy-production, journey-production-baseline: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.plan.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "journey-production-baseline": "needed by deploy-production, journey-production: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.plan.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by journey-production, rollback-production: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.plan.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "journey-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by rollback-production: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.plan.outputs.sha }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "rollback-production": "reads secrets; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
+  },
+  "cmux-cloud-cli.yml": {
+   "test": "reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree"
+  },
+  "cmux-mobile-ffi.yml": {
+   "rust": "checks out ${{ inputs.ref || github.sha }}, not the run's commit",
+   "apple": "checks out ${{ inputs.ref || github.sha }}, not the run's commit",
+   "android": "checks out ${{ inputs.ref || github.sha }}, not the run's commit"
+  },
+  "cmux-next-batch.yml": {
+   "debounce": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.head.ref, github.event.pull_request.number), not only the tree; checks out feat-cmux-next, not the run's commit",
+   "batch": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "regen": "checks out ${{ inputs.sha }}, not the run's commit",
+   "regen-linux": "checks out ${{ inputs.sha }}, not the run's commit",
+   "build": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "cmux-next-car-guards.yml": {
+   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by linux, mac: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree; checks out ${{ inputs.head || github.event.pull_request.head.sha }}, not the run's commit",
+   "linux": "its outputs feed later jobs; a skipped run leaves them empty; checks out ${{ needs.plan.outputs.head }}, not the run's commit",
+   "mac": "its outputs feed later jobs; a skipped run leaves them empty; checks out ${{ needs.plan.outputs.head }}, not the run's commit"
+  },
+  "cmux-next-crash-class.yml": {
+   "crash-class": "below break-even: 26 runs, 20 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "cmux-next-fast-gates.yml": {
+   "resolve": "its outputs feed later jobs; a skipped run leaves them empty; needed by fast-gates, panic-ratchet, post, receipt: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.draft, github.event.pull_request.head.sha), not only the tree; judges other jobs (if: always() or failure())",
+   "receipt": "its outputs feed later jobs; a skipped run leaves them empty; needed by fast-gates, post: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.body), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
+   "fast-gates": "its outputs feed later jobs; a skipped run leaves them empty; needed by panic-ratchet, post: a skip would skip them or read as no verdict",
+   "panic-ratchet": "needed by post: a skip would skip them or read as no verdict",
+   "post": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; judges other jobs (if: always() or failure())",
+   "fast-check-route": "its outputs feed later jobs; a skipped run leaves them empty"
+  },
+  "cmux-next-guards.yml": {
+   "pinned-asset-store": "reads secrets; reads pull request metadata or the base (github.event.before), not only the tree",
+   "nightly-guards": "calls a reusable workflow: no step here can record its pass; publish, release, deploy, live or cloud work (by its name)",
+   "signing-runner-variables": "below break-even: 82 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
+   "ci-guard-group": "reads pull request metadata or the base (github.event.before), not only the tree; checks out ${{ steps.changes.outputs.base }}, not the run's commit",
+   "static-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
+   "rust-notices-tree": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
+   "own-change-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
+   "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
+   "tooling-tests": "reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
+   "release-notary": "publish, release, deploy, live or cloud work (by its name)",
+   "fast-check-route": "its outputs feed later jobs; a skipped run leaves them empty",
+   "coalesce": "calls a reusable workflow: no step here can record its pass"
+  },
+  "cmux-next-hot-verify.yml": {
+   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by hand-off: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.pull_request.base.ref, github.event.pull_request.draft), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
+   "hand-off": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree",
+   "target": "its outputs feed later jobs; a skipped run leaves them empty; needed by again, publish, request, rust, web: a skip would skip them or read as no verdict",
+   "web": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "rust": "its outputs feed later jobs; a skipped run leaves them empty; needed by request: a skip would skip them or read as no verdict; checks out ${{ needs.target.outputs.head }}, not the run's commit",
+   "request": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "publish": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "cmux-next-ios-kit.yml": {
+   "runner": "its outputs feed later jobs; a skipped run leaves them empty; needed by kit-tests: a skip would skip them or read as no verdict; reads secrets"
+  },
+  "cmux-next-media.yml": {
+   "route": "its outputs feed later jobs; a skipped run leaves them empty; needed by hand-off, publish, tour: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.label), not only the tree",
+   "tour": "its outputs feed later jobs; a skipped run leaves them empty; needed by hand-off, publish, whats-new-clips: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.head.sha || github.sha }}, not the run's commit",
+   "whats-new-clips": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "hand-off": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "publish": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "cmux-next-motion-golden.yml": {
+   "dispatch": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.draft), not only the tree"
+  },
+  "cmux-next-pr-autofix-closed-cancel.yml": {
+   "cancelled": "reads pull request metadata or the base (github.event.action), not only the tree"
+  },
+  "cmux-next-pr-autofix.yml": {
+   "action-areas": "its outputs feed later jobs; a skipped run leaves them empty; needed by action-exports, generated-drift, generated-exports, push, repair: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree",
+   "generated-exports": "its outputs feed later jobs; a skipped run leaves them empty; needed by action-exports, push, repair: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.number), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
+   "action-exports": "its outputs feed later jobs; a skipped run leaves them empty; needed by push, repair: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree",
+   "repair": "its outputs feed later jobs; a skipped run leaves them empty; needed by push: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.ref, github.event.pull_request.head.sha), not only the tree",
+   "generated-drift": "reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.labels, github.event.pull_request.number), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
+   "push": "reads secrets; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.head.ref, github.event.pull_request.head.sha), not only the tree; checks out refs/heads/${{ github.event.pull_request.base.ref }}, not the run's commit"
+  },
+  "cmux-next-pr-closed-cancel.yml": {
+   "cancelled": "reads pull request metadata or the base (github.event.action), not only the tree"
+  },
+  "cmux-next-react-doctor.yml": {
+   "react-doctor": "below break-even: 100 runs, 103 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
+   "fast-check-route": "its outputs feed later jobs; a skipped run leaves them empty"
+  },
+  "cmux-next-shell-integration.yml": {
+   "shell-integration": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "zsh-head-watch": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "cmux-next-terminal.yml": {
+   "rust-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
+   "swift-terminal-linux": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known",
+   "rust-terminal": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known"
+  },
+  "cmux-next.yml": {
+   "push-head-preflight": "its outputs feed later jobs; a skipped run leaves them empty; needed by app-compile-fleet, app-compile-placement, cmux-scheme-compile, compile-status, daemon-test, dev-daily-place, fast-tier, fast-tier-cargo, fast-tier-fleet, fast-tier-rerun-placement, generated-files, macos-placement, release-compile, release-compile-fast, same-tree-cmux-tui, swift-canary, swift-canary-fleet, swift-test: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "path_route": "its outputs feed later jobs; a skipped run leaves them empty; needed by app-compile-fleet, app-compile-placement, cmux-scheme-compile, compile-status, daemon-test, dev-daily-place, dev-daily-tree-wait, fast-tier, fast-tier-fleet, fast-tier-rerun-placement, generated-files, generated-verdict, macos-placement, release-compile, release-compile-fast, same-tree-cmux-tui, swift-canary, swift-canary-fleet, swift-exports-cache, swift-test, web-bundles: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.base_ref, github.event.pull_request.base.ref, github.event.pull_request.head.ref), not only the tree; judges other jobs (if: always() or failure())",
+   "dev-daily-tree-wait": "its outputs feed later jobs; a skipped run leaves them empty; needed by cmux-scheme-compile, dev-daily-place: a skip would skip them or read as no verdict",
+   "macos-placement": "its outputs feed later jobs; a skipped run leaves them empty; needed by cmux-scheme-compile, daemon-test, fast-tier, fast-tier-fleet, fast-tier-rerun-placement, generated-files, release-compile, release-compile-fast, swift-canary, swift-canary-fleet, swift-test: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.base_ref, github.event.pull_request.base.sha, github.event.pull_request.labels), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.sha }}, not the run's commit",
+   "checks": "needed by pr-red-checks, push-attribution, swift-exports-cache: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before, github.event.pull_request.labels), not only the tree",
+   "web-bundles": "needed by daemon-test, generated-files, swift-test: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree; checks out ${{ inputs.same_tree_sha || '' }}, not the run's commit",
+   "same-tree-cmux-tui": "needed by same-tree-status-daemon, same-tree-status-scheme: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "swift-canary-fleet": "its outputs feed later jobs; a skipped run leaves them empty; needed by swift-canary: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.number), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "app-compile-placement": "its outputs feed later jobs; a skipped run leaves them empty; needed by app-compile-fleet, macos-placement: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.labels), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.sha }}, not the run's commit",
+   "app-compile-fleet": "its outputs feed later jobs; a skipped run leaves them empty; needed by release-compile: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.head.sha, github.event.pull_request.labels, github.event.pull_request.number), not only the tree",
+   "swift-canary": "needed by push-attribution: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels, github.event.pull_request.number), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "fast-tier-rerun-placement": "its outputs feed later jobs; a skipped run leaves them empty; needed by fast-tier-fleet: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.base_ref, github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.sha }}, not the run's commit",
+   "fast-tier-fleet": "its outputs feed later jobs; a skipped run leaves them empty; needed by fast-tier, fast-tier-handback-placement: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.base_ref), not only the tree",
+   "fast-tier-handback-placement": "its outputs feed later jobs; a skipped run leaves them empty; needed by fast-tier: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha || github.sha }}, not the run's commit",
+   "fast-tier": "reads pull request metadata or the base (github.base_ref), not only the tree",
+   "fast-tier-cargo": "reads pull request metadata or the base (github.base_ref, github.event.pull_request.head.sha), not only the tree",
+   "swift-test": "its outputs feed later jobs; a skipped run leaves them empty; needed by generated-verdict, push-attribution, swift-exports-cache: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.base_ref, github.event.pull_request.labels, github.event.pull_request.number), not only the tree",
+   "daemon-test": "its outputs feed later jobs; a skipped run leaves them empty; needed by generated-verdict, push-attribution, same-tree-status-daemon, swift-exports-cache: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree; checks out ${{ inputs.same_tree_sha || '' }}, not the run's commit",
+   "generated-files": "its outputs feed later jobs; a skipped run leaves them empty; needed by push-attribution, swift-exports-cache: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
+   "generated-verdict": "needed by push-attribution, swift-exports-cache: a skip would skip them or read as no verdict",
+   "release-compile-fast": "its outputs feed later jobs; a skipped run leaves them empty; needed by compile-status-handoff, release-compile, release-compile-fast-admission: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
+   "release-compile-fast-admission": "needed by release-compile-revert: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "release-compile": "needed by compile-status-handoff, push-attribution, release-compile-revert, request-nightly-next: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "swift-exports-cache": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "request-nightly-next": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "dev-daily-place": "its outputs feed later jobs; a skipped run leaves them empty; needed by cmux-scheme-compile: a skip would skip them or read as no verdict; reads secrets",
+   "cmux-scheme-compile": "its outputs feed later jobs; a skipped run leaves them empty; needed by crash-ends-app, push-attribution, request-cmux-next-dev-publish, same-tree-status-scheme: a skip would skip them or read as no verdict; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.head.sha, github.event.pull_request.labels, github.event.pull_request.number), not only the tree; checks out ${{ inputs.same_tree_sha || '' }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "crash-ends-app": "needed by push-attribution, same-tree-status-scheme: a skip would skip them or read as no verdict",
+   "same-tree-status-daemon": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; judges other jobs (if: always() or failure())",
+   "same-tree-status-scheme": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; judges other jobs (if: always() or failure())",
+   "dev-landing-place": "its outputs feed later jobs; a skipped run leaves them empty; needed by dev-landing-compile: a skip would skip them or read as no verdict; reads secrets",
+   "dev-landing-compile": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "request-cmux-next-dev-publish": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
+   "push-attribution": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; judges other jobs (if: always() or failure())",
+   "release-compile-revert": "reads secrets; checks out feat-cmux-next, not the run's commit; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())",
+   "compile-status": "its outputs feed later jobs; a skipped run leaves them empty; needed by compile-status-handoff: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.pull_request.head.sha, github.event.pull_request.labels, github.event.pull_request.number), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "compile-status-handoff": "reads secrets; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
+  },
+  "cmux-rd-windows.yml": {
+   "host": "reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree",
+   "live-windows-host": "writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "live-macos-viewer": "writes to GitHub (a write permission): a side effect, not a verdict on the tree"
+  },
+  "cmux-tui-sdks.yml": {
+   "contract": "its outputs feed later jobs; a skipped run leaves them empty; needed by conformance, consumers, packages, rust-msrv: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
+   "packages": "matrix: a job-level skip cannot see one leg's receipt",
+   "consumers": "matrix: a job-level skip cannot see one leg's receipt",
+   "rust-msrv": "below break-even: 4 runs, 16 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
+   "conformance": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)",
+   "code-mode": "below break-even: 32 runs, 30 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "cmux-tui-spec.yml": {
+   "changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by acpmux-protocol-ir, acpmux-sim, acpmux-tests, api-compat, carrier-sim, clippy, inventory, router-replay, rustfmt: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
+   "router-replay": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "inventory": "below break-even: 36 runs, 71 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
+   "api-compat": "below break-even: 28 runs, 30 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
+   "acpmux-protocol-ir": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)",
+   "acpmux-tests": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)",
+   "acpmux-sim": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)",
+   "carrier-sim": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)",
+   "rustfmt": "reads pull request metadata or the base (github.base_ref, github.event.before, github.event.pull_request.base.sha), not only the tree",
+   "clippy": "reads pull request metadata or the base (github.event.before), not only the tree"
+  },
+  "cmux-tui-windows-check.yml": {
+   "route": "its outputs feed later jobs; a skipped run leaves them empty; needed by windows-gnu-check: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
+   "windows-gnu-check": "reuses a green on its own input tree, a finer key than the whole tree (cmux#46962, .github/actions/tree-result)"
+  },
+  "cmux-vm-clients.yml": {
+   "rust": "reads pull request metadata or the base (github.base_ref), not only the tree",
+   "sdk": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "cmux-vm-cloud.yml": {
+   "check": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "cmux-vm-secrets-seal.yml": {
+   "keys": "its outputs feed later jobs; a skipped run leaves them empty; needed by seal: a skip would skip them or read as no verdict; reads secrets",
+   "seal": "matrix: a job-level skip cannot see one leg's receipt; needed by collect: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "collect": "reads secrets"
+  },
+  "cmux-vm.yml": {
+   "check": "needed by deploy-preview, deploy-production, deploy-staging, migrate-production, migrate-staging: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.label), not only the tree",
+   "cloudflare-preflight": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "hyperdrive-ensure": "reads secrets",
+   "deploy-preview": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-staging": "its outputs feed later jobs; a skipped run leaves them empty; needed by journey-proof-staging, smoke-staging: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.action, github.event.before, github.event.label), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "smoke-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by image-roll-settle, journey-production, smoke-production: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.before), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "journey-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by journey-proof-production: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; publish, release, deploy, live or cloud work (by its name)",
+   "journey-proof-staging": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "journey-proof-production": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "smoke-production": "its outputs feed later jobs; a skipped run leaves them empty; needed by image-roll-settle: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "image-roll-settle": "reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out feat-cmux-next, not the run's commit; judges other jobs (if: always() or failure())",
+   "tail-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "sweep-orphans-production": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "journey-machines-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "migrate-production": "needed by deploy-production: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "db-connections-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "db-fault-staging": "reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "migrate-staging": "needed by deploy-staging: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "cmux-vnc.yml": {
+   "swift-test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "coderouter-ci.yml": {
+   "test": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "device-hub.yml": {
+   "test": "needed by deploy-dev, deploy-prod: a skip would skip them or read as no verdict",
+   "deploy-dev": "needed by deploy-prod: a skip would skip them or read as no verdict; reads secrets; publish, release, deploy, live or cloud work (by its name)",
+   "deploy-prod": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "docs-only-fallback.yml": {
+   "gate": "its outputs feed later jobs; a skipped run leaves them empty",
+   "ci": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-guards": "calls a reusable workflow: no step here can record its pass",
+   "cmux-next-pr-autofix": "calls a reusable workflow: no step here can record its pass",
+   "pr-checks": "calls a reusable workflow: no step here can record its pass",
+   "rust-workspaces": "calls a reusable workflow: no step here can record its pass",
+   "web-validation": "calls a reusable workflow: no step here can record its pass"
+  },
+  "fleet-artifact-cdn.yml": {
+   "test": "needed by deploy: a skip would skip them or read as no verdict",
+   "deploy": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "fleet-rd-host-macos.yml": {
+   "check": "below break-even: 3 runs, 0 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "ios-e2e.yml": {
+   "route": "its outputs feed later jobs; a skipped run leaves them empty; needed by backend, ios-e2e-status, mac-ios-e2e: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.number), not only the tree",
+   "backend": "needed by ios-e2e-status: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree",
+   "mac-ios-e2e": "needed by ios-e2e-status: a skip would skip them or read as no verdict; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name)",
+   "ios-e2e-status": "publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
+  },
+  "ios-reliability-matrix.yml": {
+   "runner": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios: a skip would skip them or read as no verdict; reads secrets",
+   "protocol": "needed by report: a skip would skip them or read as no verdict; checks out ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}, not the run's commit",
+   "ios": "needed by report: a skip would skip them or read as no verdict; checks out ${{ github.event_name == 'schedule' && 'feat-cmux-next' || '' }}, not the run's commit",
+   "report": "judges other jobs (if: always() or failure())"
+  },
+  "ios-review-gate.yml": {
+   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by asc-validate, lint, report, reviewer-path: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree; checks out ${{ steps.plan.outputs.gate_sha }}, not the run's commit",
+   "lint": "needed by report: a skip would skip them or read as no verdict; checks out ${{ needs.plan.outputs.gate_sha }}, not the run's commit",
+   "reviewer-path": "matrix: a job-level skip cannot see one leg's receipt; needed by report, seed-link-ffi: a skip would skip them or read as no verdict; checks out ${{ needs.plan.outputs.sha }}, not the run's commit",
+   "asc-validate": "needed by report: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.plan.outputs.gate_sha }}, not the run's commit",
+   "seed-link-ffi": "reads secrets; judges other jobs (if: always() or failure())",
+   "report": "its outputs feed later jobs; a skipped run leaves them empty; reads pull request metadata or the base (github.event.pull_request.base.sha), not only the tree; checks out ${{ needs.plan.outputs.gate_sha }}, not the run's commit; judges other jobs (if: always() or failure())"
+  },
+  "iroh-v2.yml": {
+   "client": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "backend": "needed by deploy-development: a skip would skip them or read as no verdict",
+   "deploy-development": "reads secrets; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "language-boundaries.yml": {
+   "language-boundaries": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.head.sha, github.event.pull_request.labels), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
+  },
+  "measure-swift-typecheck.yml": {
+   "typecheck": "new on feat-cmux-next after this map's 52-PR replay: no runs measured yet, so a receipt write is not shown to pay; wire it in a later slice once its pull-request minutes are known"
+  },
+  "merge-freeze.yml": {
+   "check": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out main, not the run's commit",
+   "expire": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree"
+  },
+  "merge-group-policy-checks.yml": {
+   "cla-assistant": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "cla-policy-guard": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "namespace-autofix.yml": {
+   "autofix": "pull_request_target only: runs the base's workflow with write access, not the tree under test; reads secrets; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.draft, github.event.pull_request.head.ref), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
+  },
+  "nightly-next-canary.yml": {
+   "pick": "its outputs feed later jobs; a skipped run leaves them empty; needed by canary, verdict: a skip would skip them or read as no verdict",
+   "canary": "its outputs feed later jobs; a skipped run leaves them empty; needed by verdict: a skip would skip them or read as no verdict; publish, release, deploy, live or cloud work (by its name)",
+   "verdict": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; publish, release, deploy, live or cloud work (by its name); judges other jobs (if: always() or failure())"
+  },
+  "nightly-next-launch-smoke.yml": {
+   "pick": "its outputs feed later jobs; a skipped run leaves them empty; needed by crashed, record, smoke: a skip would skip them or read as no verdict; reads secrets; checks out ${{ env.TOOLING_REF }}, not the run's commit",
+   "smoke": "its outputs feed later jobs; a skipped run leaves them empty; needed by crashed, record: a skip would skip them or read as no verdict; checks out ${{ env.TOOLING_REF }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)",
+   "crashed": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; checks out ${{ env.TOOLING_REF }}, not the run's commit; judges other jobs (if: always() or failure())",
+   "record": "judges other jobs (if: always() or failure())"
+  },
+  "pr-body-checks.yml": {
+   "body": "reads pull request metadata or the base (github.event.action, github.event.label, github.event.pull_request.base.ref), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit; publish, release, deploy, live or cloud work (by its name)"
+  },
+  "pr-checks.yml": {
+   "advisory": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.before, github.event.changes), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit"
+  },
+  "relay-tls.yml": {
+   "diagnostic-presentation": "below break-even: 1 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
+   "system-keychain": "below break-even: 1 runs, 2 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "release-rails.yml": {
+   "rails": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
+   "cmux-vm-schema-gate": "reads pull request metadata or the base (github.base_ref), not only the tree"
+  },
+  "required-checks-drift.yml": {
+   "reconcile": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "risk-tier-tests.yml": {
+   "tests": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "risk-tier.yml": {
+   "evidence": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.number), not only the tree; checks out ${{ github.workflow_sha }}, not the run's commit"
+  },
+  "rust-workspaces.yml": {
+   "receipt": "its outputs feed later jobs; a skipped run leaves them empty; needed by plan, summary: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.body, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
+   "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by summary, workspace: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
+   "workspace": "matrix: a job-level skip cannot see one leg's receipt; needed by summary: a skip would skip them or read as no verdict",
+   "summary": "judges other jobs (if: always() or failure())"
+  },
+  "signing-keychain-macos.yml": {
+   "real-import-plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by real-import: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree",
+   "real-import": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for",
+   "bash32-syntax": "below break-even: 6 runs, 4 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "terminal-hang-diagnostics.yml": {
+   "release-gate": "publish, release, deploy, live or cloud work (by its name)",
+   "phase-attribution": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
+  },
+  "test-ios.yml": {
+   "runner": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-simulator-build, ios-tests, mobile-core-package: a skip would skip them or read as no verdict; reads secrets; reads pull request metadata or the base (github.base_ref), not only the tree",
+   "detect-ios-changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-simulator-build, ios-tests, mobile-core-package, package-conventions-lint: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.head.sha), not only the tree; checks out ${{ github.ref }}, not the run's commit",
+   "package-conventions-lint": "needed by ios-simulator-build, ios-tests, mobile-core-package: a skip would skip them or read as no verdict; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
+   "mobile-core-package": "needed by ios-tests: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.base_ref, github.event.pull_request.labels), not only the tree; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
+   "ios-simulator-build": "its outputs feed later jobs; a skipped run leaves them empty; needed by ios-tests: a skip would skip them or read as no verdict; reads secrets; checks out ${{ needs.detect-ios-changes.outputs.target_sha }}, not the run's commit",
+   "ios-tests": "below break-even: 21 runs, 1 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
+  },
+  "thunderdome-label.yml": {
+   "label": "pull_request_target only: runs the base's workflow with write access, not the tree under test; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.labels, github.event.pull_request.number, github.event.pull_request.title), not only the tree"
+  },
+  "web-complexity-trusted.yml": {
+   "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha, github.event.pull_request.head.sha), not only the tree; checks out ${{ env.TRUSTED_SHA }}, not the run's commit"
+  },
+  "web-complexity.yml": {
+   "complexity": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree"
+  },
+  "web-validation.yml": {
+   "changes": "its outputs feed later jobs; a skipped run leaves them empty; needed by build, database, tests, web-validation: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
+   "build": "needed by web-validation: a skip would skip them or read as no verdict",
+   "tests": "needed by web-validation: a skip would skip them or read as no verdict",
+   "database": "needed by web-validation: a skip would skip them or read as no verdict",
+   "web-validation": "judges other jobs (if: always() or failure())"
+  },
+  "pr-router.yml": {
+   "route": "its outputs feed later jobs; a skipped run leaves them empty",
+   "size-budget": "calls a reusable workflow: no step here can record its pass",
+   "classic-api-guard": "calls a reusable workflow: no step here can record its pass",
+   "swift-linux-packages": "calls a reusable workflow: no step here can record its pass",
+   "web-validation": "calls a reusable workflow: no step here can record its pass",
+   "pipeline": "calls a reusable workflow: no step here can record its pass"
+  }
+ }
+}

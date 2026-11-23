@@ -63,10 +63,11 @@ case "$mode" in
     [[ $# -eq 2 && "$workspace" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && "/$workspace/" != *"/../"* && "/$workspace/" != *"/./"* ]] || usage
     ;;
   sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) [[ $# -eq 1 ]] || usage ;;
+  *) usage ;;
 esac
 case "$mode" in
   clippy-changed | react-doctor) [[ "$workspace" =~ ^[0-9a-f]{40}$ ]] || usage ;;
-  *) usage ;;
+  *) ;;
 esac
 umask 022
 root="$(pwd -P)"
@@ -294,12 +295,62 @@ fi
 # change is compared with (the pull request's base tip; its merge base with HEAD when the
 # checkout can reach it), and runs its workflow job's own commands.
 required_base() { # BASE: fetch it when the checkout lacks it, then print the merge base (or BASE)
-  local base="$1" depth=()
-  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
-  git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null \
-    || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} origin "$base" 2>/dev/null \
-    || echo "base: cannot fetch $base" >&2
+  local base="$1" depth=() shallow=false remote
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && { depth=(--depth=200); shallow=true; }
+  # A pool worker's checkout is `git init` plus a depth-1 fetch of the head, so it has no origin remote. Use the
+  # worker's configured Git base when present, otherwise the public repository. A normal checkout keeps its origin.
+  remote="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
+  if [[ -z "$remote" ]]; then
+    remote="${CMUX_CI_STEP_GIT_BASE:-https://github.com}"
+    [[ "$remote" == */cmux || "$remote" == */cmux.git ]] || remote="${remote%/}/manaflow-ai/cmux.git"
+  fi
+  have_base() { git -C "$root" cat-file -e "$base^{commit}" 2>/dev/null; }
+  # The exact commit first. A remote that refuses a fetch by SHA, or history too shallow to reach the base, gets
+  # the base branch's tip and then the whole history (2026-11-20: cmux#46751 and #45681 failed with "base: cannot
+  # fetch" and `fatal: bad object`, exit 128, after the single fetch of the SHA).
+  have_base || git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "$base" || true
+  have_base || git -C "$root" fetch --quiet --no-tags --depth=1000 "$remote" "refs/heads/$requiredChecksBranch" || true
+  if ! have_base && [[ "$shallow" == true ]]; then
+    git -C "$root" fetch --quiet --no-tags --unshallow "$remote" || true
+  fi
+  if ! have_base; then
+    # No verdict (exit 3, setup): the pool poster requeues a setup fault on the same head, where exit 1 is the
+    # change's red. The callers' `base="$(required_base ...)"` ends the step with this code (set -e).
+    echo "base: cannot fetch $base (tried the commit, $requiredChecksBranch and the full history)" >&2
+    return 3
+  fi
   git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
+}
+requiredChecksBranch=feat-cmux-next
+# Go at cmux-tailnet's pin (crates/cmux-tailnet/go-version) first on PATH: its build.rs builds libtailscale with
+# it (CI: actions/setup-go). A pool worker without that Go gets the release tarball in .build/tools, checked
+# against the sha256 go.dev publishes for it (2026-11-20: cmux#46751 clippy failed with "go was not found").
+use_pinned_go() { # ROOT
+  local want have dir tmp file sum got goarch
+  want="$(tr -d '[:space:]' <"$1/cmux-tui/crates/cmux-tailnet/go-version")" || return 3
+  have="$(go version 2>/dev/null | awk '{print $3}')" || true
+  if [[ "$have" == "go$want" ]]; then echo "go: $(command -v go) ($have)"; return 0; fi
+  case "$(uname -m)" in x86_64) goarch=amd64 ;; aarch64 | arm64) goarch=arm64 ;; *) echo "error: no Go for $(uname -m)" >&2; return 3 ;; esac
+  file="go$want.linux-$goarch.tar.gz"
+  dir="$1/.build/tools/go-$want"
+  if [[ ! -x "$dir/go/bin/go" ]]; then
+    tmp="$(mktemp -d)"
+    sum="$(curl -fsSL --retry 5 'https://go.dev/dl/?mode=json&include=all' | python3 -c '
+import json, sys
+for rel in json.load(sys.stdin):
+    for f in rel["files"]:
+        if f["filename"] == sys.argv[1]:
+            print(f["sha256"])
+            sys.exit(0)
+sys.exit(1)' "$file")" || { echo "error: go.dev lists no $file" >&2; return 3; }
+    curl -fsSL --retry 5 -o "$tmp/go.tgz" "https://go.dev/dl/$file" || { echo "error: download of $file failed" >&2; return 3; }
+    got="$(sha256sum "$tmp/go.tgz" | cut -d' ' -f1)"
+    [[ "$got" == "$sum" ]] || { echo "error: $file sha256 $got is not the published $sum" >&2; return 3; }
+    rm -rf "$dir.part" && mkdir -p "$dir.part" && tar -xzf "$tmp/go.tgz" -C "$dir.part" && rm -rf "$dir" && mv "$dir.part" "$dir" || return 3
+    rm -rf "$tmp"
+  fi
+  export PATH="$dir/go/bin:$PATH" GOROOT="$dir/go"
+  echo "go: $(command -v go) ($(go version | awk '{print $3}'))"
 }
 if [[ "$mode" == clippy-changed ]]; then
   # cmux-tui-spec.yml `clippy (changed cmux-tui packages)`.
@@ -314,6 +365,14 @@ if [[ "$mode" == clippy-changed ]]; then
     step "zig" ./scripts/install-zig-ci.sh
   fi
   step "pinned cargo" use_pinned_cargo "$root/cmux-tui"
+  step "pinned go" use_pinned_go "$root"
+  # The target lives in the checkout's .build, which a fleet worker's warm cargo slot keeps between steps at one
+  # path (HQ build-fleet step_warm.go; the worker measures the slot, counts it against its disk floor and wipes it
+  # over its cap), so the next step rechecks only what changed. Before, it was cmux-tui/target in a fresh checkout:
+  # every step checked about 1,067 crates from nothing, three times when the panic ratchet linted the base too.
+  # A cold step (no free slot) builds it in its own checkout as before, and the worker removes it with the checkout.
+  [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
+  echo "cargo target: $CARGO_TARGET_DIR"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
   host_identity() {
     local changed log rc=0

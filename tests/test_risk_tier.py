@@ -809,7 +809,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.unowned_takebacks("", []), [])
 
     def test_a_held_takeback_names_the_line_to_paste_in_its_error(self):
-        """cmux#41154, a revert of #41113: merge_hold quoted only the check's error annotation, which said "the job
+        """cmux#41154, a revert of #41113: land-judge quoted only the check's error annotation, which said "the job
         summary says how", so the revert sat refused until someone opened the summary. The annotation now carries the
         line itself, its PR number filled in."""
         self.assertEqual(risk.takeback_fix([41113]), "If the base is stale, merge it and push; if it's on purpose, "
@@ -1155,33 +1155,35 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIsNone(self.state(line, association="NONE")[0])
         self.assertIsNone(self.state(line, kind="Bot")[0])
 
+    def grade_end_to_end(self, body, comments=()):
+        """pr_mode with the API stubbed: (GITHUB_OUTPUT text, summary). `comments=None` makes the comments read fail."""
+        pull = dict(self.pr(body), base={"sha": "b" * 40})
+        answers = {
+            "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+            "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+            "repos/o/r/pulls/7/reviews?per_page=100": [],
+            "repos/o/r/issues/7/events?per_page=100": [],
+        }
+        saved = risk.gh_items, risk.gh_json
+
+        def items(endpoint):
+            if answers[endpoint] is None:
+                raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+            return answers[endpoint]
+        risk.gh_items = items
+        risk.gh_json = lambda *args: pull
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                           "--summary", str(summary)])
+                return out.read_text(), summary.read_text()
+        finally:
+            risk.gh_items, risk.gh_json = saved
+
     def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
         """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
-        def grade(body, comments=()):
-            pull = dict(self.pr(body), base={"sha": "b" * 40})
-            answers = {
-                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
-                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
-                "repos/o/r/pulls/7/reviews?per_page=100": [],
-                "repos/o/r/issues/7/events?per_page=100": [],
-            }
-            saved = risk.gh_items, risk.gh_json
-
-            def items(endpoint):
-                if answers[endpoint] is None:
-                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
-                return answers[endpoint]
-            risk.gh_items = items
-            risk.gh_json = lambda *args: pull
-            try:
-                with tempfile.TemporaryDirectory() as tmp:
-                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
-                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
-                               "--summary", str(summary)])
-                    return out.read_text(), summary.read_text()
-            finally:
-                risk.gh_items, risk.gh_json = saved
-
+        grade = self.grade_end_to_end
         out, summary = grade(f"Review (codex, started by lead): SHIP at {HEAD}")
         self.assertIn("tier=high", out)
         self.assertIn("ready=true", out)
@@ -1198,6 +1200,20 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+    def test_only_a_refused_sign_off_read_asks_for_a_second_grade(self):
+        """risk-tier.yml grades on the glaeda-route App's read and grades again on GITHUB_TOKEN only when this says
+        the sign-off read was refused. It used to grade every held pull request twice: a FIX on the head, read
+        fine, spent about ten more GITHUB_TOKEN calls (files, comments, reviews, label events) on the
+        self-hosted runners' token hour, the one the production promote gates read (2026-11-21)."""
+        out, _ = self.grade_end_to_end(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end(f"Review (codex, started by lead): SHIP at {HEAD}")
+        self.assertIn("signoff_unread=false", out.splitlines())
+        out, _ = self.grade_end_to_end("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("signoff_unread=true", out.splitlines())
 
 
 class StandaloneCheckoutTests(unittest.TestCase):
@@ -1268,6 +1284,54 @@ class EventPayloadTests(unittest.TestCase):
             calls, out = self.run_pr(event)
             self.assertEqual(calls, ["repos/o/r/pulls/7"], event)
             self.assertIn("tier=low", out)
+
+
+class GhFailureTests(unittest.TestCase):
+    """A gh call that fails names its reason on the job's log, and a rate limit stops the retries.
+
+    #50881's "risk evidence" job was red with nothing in the log but "CalledProcessError ... returned non-zero
+    exit status 1": gh's stderr went into capture_output and was dropped, so neither a person nor
+    base_red_excuse.py could tell a drained API budget from a graded pull request."""
+
+    def run_gh(self, returncode, stderr, attempts=3):
+        calls, slept = [], []
+        saved_run, saved_sleep = subprocess.run, time.sleep
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, returncode, stdout="", stderr=stderr)
+
+        risk.subprocess.run, risk.time.sleep = fake_run, lambda s: slept.append(s)
+        self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
+                                 setattr(risk.time, "sleep", saved_sleep)))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with self.assertRaises(subprocess.CalledProcessError):
+                risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"], attempts=attempts)
+        return calls, slept, err.getvalue()
+
+    def test_a_rate_limit_stops_at_once_and_says_it_is_not_a_verdict(self):
+        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
+        self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
+        self.assertEqual(slept, [])
+        self.assertIn("API rate limit exceeded", err)
+        self.assertIn("not a verdict", err)
+
+    def test_another_failure_retries_and_still_prints_gh_s_words(self):
+        calls, slept, err = self.run_gh(1, "gh: Not Found (HTTP 404)")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(slept, [2, 4])
+        self.assertIn("Not Found (HTTP 404)", err)
+        self.assertNotIn("not a verdict", err)
+
+    def test_a_successful_call_prints_nothing(self):
+        saved = subprocess.run
+        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
+        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(risk.gh_run(["gh", "api", "x"]), "[]")
+        self.assertEqual(err.getvalue(), "")
 
 
 if __name__ == "__main__":

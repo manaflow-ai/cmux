@@ -20,7 +20,7 @@ extension WindowRules.NewTabKind {
 
     /// The facts of the tab a new tab opens next to: `agent` counts only where the caller counts it.
     static func facts(_ tab: TabModel?, id: String?, agent: Bool, newTabPage: Bool, user: Bool = false, followsSetting: Bool = false,
-                      canHostAgent: Bool = false) -> WindowRules.NewTabFacts {
+                      canHostAgent: Bool = false, terminalFirst: Bool = false) -> WindowRules.NewTabFacts {
         let kind: String? = switch tab?.kind {
         case .pty?: "pty"
         case .browser?: "browser"
@@ -28,7 +28,8 @@ extension WindowRules.NewTabKind {
         default: "other"
         }
         return WindowRules.NewTabFacts(selectedKind: kind, engine: tab?.browserEngine, localBrowser: id?.hasPrefix(LocalBrowserTab.prefix) == true,
-                                       agent: agent, newTabPage: newTabPage, user: user, followsSetting: followsSetting, canHostAgent: canHostAgent)
+                                       agent: agent, newTabPage: newTabPage, user: user, followsSetting: followsSetting, canHostAgent: canHostAgent,
+                                       terminalFirst: terminalFirst)
     }
 
     /// The kind New <Kind> Tab opens next to tab `id`, as the user sees it:

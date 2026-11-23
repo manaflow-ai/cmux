@@ -31,6 +31,7 @@ mod deploy;
 pub mod hidden;
 mod interfaces;
 mod issue;
+mod menus;
 pub mod module_store;
 mod package;
 mod presentation;
@@ -38,6 +39,7 @@ mod rules;
 mod scopes;
 mod toolbar;
 mod web_pane;
+pub mod whats_new;
 
 pub use capabilities::{
     Capabilities, OpCapability, OpClass, OpScope, scope_info, scope_reaches_out,
@@ -49,6 +51,7 @@ pub use cli::{
 };
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, interface_files};
 pub use issue::{Issue, Severity};
+pub use menus::MENU_TARGETS;
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo};
 pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
