@@ -535,7 +535,8 @@ jobs:
       # candidate. That commit's push roll rebakes the tip with the old pin, so a dispatched build would be dropped
       # (roll 45142787545); images/cmux-vm/image-roll-again.sh dispatches it again, at most 3 times.
       - name: Roll the same build again when the tip moved its image inputs during the bake
-        if: ${{ needs.promote.outputs.result == 'moved' && needs.plan.outputs.pin != '' }}
+        # Never on a dry run: it cannot reach production, so another bake would only cost one.
+        if: ${{ needs.promote.outputs.result == 'moved' && needs.plan.outputs.pin != '' && needs.plan.outputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PIN: ${{ needs.plan.outputs.pin }}

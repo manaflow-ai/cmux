@@ -874,7 +874,7 @@ describe("auto-roll scripts", () => {
     const record = report.steps.find((s) => s.name === "Record the roll")!;
     expect(record.run).toContain("pushed|dry-run|nothing|moved) exit 0 ;;");
     const again = report.steps.find((s) => s.run?.includes("image-roll-again.sh"))!;
-    expect(again.if).toBe("${{ needs.promote.outputs.result == 'moved' && needs.plan.outputs.pin != '' }}");
+    expect(again.if).toBe("${{ needs.promote.outputs.result == 'moved' && needs.plan.outputs.pin != '' && needs.plan.outputs.dry_run != 'true' }}");
     expect(again.env).toMatchObject({ PIN: "${{ needs.plan.outputs.pin }}", AGAIN: "${{ inputs.again || '0' }}", DRY_RUN_INPUT: "${{ inputs.dry_run || 'auto' }}" });
     expect(report.steps.indexOf(again)).toBeGreaterThan(report.steps.indexOf(record));
   });

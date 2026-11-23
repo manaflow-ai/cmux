@@ -11,9 +11,10 @@
 #   PIN=<40-hex> AGAIN=<n> DRY_RUN_INPUT=auto GH_TOKEN=... GITHUB_REPOSITORY=o/r GITHUB_RUN_ID=1 image-roll-again.sh
 #
 # It dispatches nothing when:
-# - a dispatched roll is already waiting: it carries this build or a newer one, and a new dispatch would replace it;
-# - this build was rolled again 3 times already (AGAIN): the tip keeps moving, and the next build or the
-#   cloud-vm-image-roll-catch-up.yml cron on main rolls it later.
+# - a dispatched roll is already waiting: a new dispatch would replace it. It is usually the artifacts run's newer
+#   build; a hand rebake (empty commit) would drop this build, and then the next build rolls the change;
+# - this build was rolled again 3 times already (AGAIN): the tip keeps moving, and the next build (or a hand
+#   dispatch with its commit) rolls it later.
 # A waiting push roll is replaced, which is fine: this roll bakes the same tip with the newer pin.
 set -euo pipefail
 pin="${PIN:-}"
@@ -34,7 +35,7 @@ fi
 waiting="$(gh api "repos/${repo}/actions/workflows/${workflow}/runs?branch=feat-cmux-next&event=workflow_dispatch&per_page=20" \
   --jq "[.workflow_runs[] | select(.status != \"completed\" and .id != ${run}) | .id] | first // empty")"
 if [ -n "$waiting" ]; then
-  echo "A dispatched roll is already waiting (run ${waiting}); it rolls this build or a newer one, so nothing is dispatched"
+  echo "A dispatched roll is already waiting (run ${waiting}); a new dispatch would replace it, so nothing is dispatched"
   exit 0
 fi
 gh api -X POST "repos/${repo}/actions/workflows/${workflow}/dispatches" -f ref=refs/heads/feat-cmux-next \
