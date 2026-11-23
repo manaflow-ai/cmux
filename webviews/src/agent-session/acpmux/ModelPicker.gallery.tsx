@@ -600,6 +600,9 @@ export default componentEntry<GalleryProps>({
       </UpdateOfferContext.Provider>
     )),
   variants: {
+    "reasoning-column": { props: { ...quick, reasoningMenu: "column", detail: "Medium" }, play: openPicker },
+    "separate-reasoning": { props: { ...quick, reasoningMenu: "separate", detail: "Medium" }, play: openPicker },
+    "model-only": { props: { ...curated, reasoningMenu: "column" }, play: openPicker },
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
       play: async (ctx) => {
