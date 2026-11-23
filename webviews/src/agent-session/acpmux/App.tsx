@@ -145,7 +145,7 @@ import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { jumpSide } from "./jumpPlace";
-import { githubFolderRepo, githubFolder } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -154,10 +154,11 @@ import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
 import { drawPaneSnapshot, PendingPaneDraw } from "./paneSnapshotLane";
 import {
+  FolderRecency,
   folderFields,
   isAgentHome,
+  placeFields,
   projectLabel,
-  recentLocalFolders,
   SessionsBy,
   sessionTitle,
   type AcpmuxSessionEntry,
@@ -219,7 +220,12 @@ import { liveToolOutput, toolOutputOnly } from "./liveToolOutput";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import { composerReadback, takeExternalInto } from "./composer/externalAttach";
-import { FolderContinuation, folderContinuationRequest } from "./folderContinuation";
+import {
+  FolderContinuation,
+  folderContinuationRequest,
+  readOnlyContinuationRequest,
+  readOnlyHarness,
+} from "./folderContinuation";
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
@@ -445,7 +451,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import { trackEditableTurns, type EditableTurns, trackPromptTurns, type PromptTurns } from "./conversation/editPrompt";
+import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -7303,6 +7309,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "resume",
       "login",
       "customize",
+      "help",
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
@@ -9042,8 +9049,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // A pick of another harness is a switch: drawn now, started behind it.
           // A new chat without a folder starts in the chat's start folder (startFolder.tsx);
           // a chat with no project (`noProject`) or for a peer gets no start folder.
-          "chat.new": async ({ harness, cwd, peer, deferred, noProject, model, options, continueWithoutFolder }) => {
-            if (noProject === true && continueWithoutFolder === true) {
+          "chat.new": async ({
+            harness,
+            cwd,
+            peer,
+            deferred,
+            noProject,
+            model,
+            options,
+            continueWithoutFolder,
+            continueReadOnly,
+          }) => {
+            const readOnly = continueReadOnly === true;
+            if ((noProject === true && continueWithoutFolder === true) || readOnly) {
               let generation = client.trustGeneration;
               const trustGeneration = trustRevision.current;
               const projectGeneration = continuationProjectGeneration.current;
@@ -9052,18 +9070,35 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               const intent = switchViewRef.current.intent;
               const selectedHarness = intent?.harness ?? summary?.harness;
               const selectedModel = intent?.config.model ?? summary?.model;
+              // Read-only stays in the declined folder (acpmux hub/restricted.rs); else no folder.
+              const readOnlyFolder = readOnly && typeof summary?.cwd === "string" ? summary.cwd : undefined;
+              if (readOnly && !readOnlyFolder) return;
               // A pending harness switch may still hold prompts behind this folder's trust gate.
               // Recovery is a different start, so retire that intent before taking the draft.
               harnessSwitch.cancel();
               return folderContinuation.run({
-                start: () => client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
+                start: () =>
+                  readOnlyFolder
+                    ? client.startSession(
+                        selectedHarness,
+                        readOnlyFolder,
+                        undefined,
+                        undefined,
+                        false,
+                        selectedModel,
+                        undefined,
+                        true,
+                      )
+                    : client.startSession(selectedHarness, undefined, undefined, undefined, true, selectedModel),
                 current: () =>
                   directClient.current === client &&
                   client.trustGeneration === generation &&
                   trustRevision.current === trustGeneration &&
                   composerHandle.current === holder,
                 copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
-                clearFolder: () => setProjectDraft(undefined),
+                clearFolder: () => {
+                  if (!readOnlyFolder) setProjectDraft(undefined);
+                },
                 discard: (id) => client.discard(id),
                 select: async (id) => {
                   holder?.suppressAttachmentCarryFor(summary?.sessionId);
@@ -11526,11 +11561,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [directProjects, projectsAnswered, newTab?.projects, newTab?.home]);
   // The folder lists read only where each chat works and when it was active (sessionList.ts
   // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
-  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy } | null>(null);
-  folderLists.current ??= { newTab: new SessionsBy(folderFields), composer: new SessionsBy(folderFields) };
+  // The New Tab list reads the folders apart from their order: a chat on this Mac working moves its
+  // folder up (`FolderRecency`) without naming every folder again.
+  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy; recency: FolderRecency } | null>(null);
+  folderLists.current ??= {
+    newTab: new SessionsBy(placeFields),
+    composer: new SessionsBy(folderFields),
+    recency: new FolderRecency(),
+  };
   const newTabFolderSessions = folderLists.current.newTab.of(newTabSnapshot.sessions);
   const composerFolderSessions = folderLists.current.composer.of(composerSnapshot.sessions);
-  const newTabProjectList = useMemo(() => {
+  const newTabRecentFolders = folderLists.current.recency.of(newTabSnapshot.sessions);
+  const newTabFolders = useMemo(() => {
     const byPath = new Map<string, Project>();
     // A folder the host listed keeps its repository (projectRepos.ts) when a chat names it again.
     const listed = (cwd: string): Project => {
@@ -11548,9 +11590,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
-    return byRecentUse([...byPath.values()], recentLocalFolders(newTabFolderSessions));
+    return [...byPath.values()];
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
+  // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
+  const newTabProjectList = useMemo(
+    () => byRecentUse(newTabFolders, newTabRecentFolders),
+    [newTabFolders, newTabRecentFolders],
+  );
   // The same list while it holds the same folders in the same order (session-info/sameValue.ts): it is
   // built again from the chat list, which changes on every event of any chat that runs, and the
   // composer takes it as a prop (`projectChoices`), so a new copy of it drew the composer again four
@@ -12014,6 +12060,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (taken.length) void giveBackTrustHeld.current(taken);
     return callNative<void>("chat.new", folderContinuationRequest);
   }, []);
+  // The same recovery in the declined folder, read-only (folderContinuation.ts).
+  const continueReadOnly = useCallback(() => {
+    const taken = trustHeldNow.current.takeShown();
+    if (taken.length) void giveBackTrustHeld.current(taken);
+    return callNative<void>("chat.new", readOnlyContinuationRequest);
+  }, []);
   const secret = snapshot.secret;
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
@@ -12131,6 +12183,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               trustAsk.ask.level === "untrusted" &&
               !isAgentHome(trustAsk.ask.cwd)
                 ? continueWithoutFolder
+                : undefined
+            }
+            onContinueReadOnly={
+              healthLocal &&
+              !remoteChat &&
+              Boolean(snapshot.sessionId) &&
+              !directClient.current?.startsOnSend &&
+              readOnlyHarness(snapshot.summary?.family) &&
+              trustAsk.ask?.state === "decided" &&
+              trustAsk.ask.level === "untrusted" &&
+              !isAgentHome(trustAsk.ask.cwd)
+                ? continueReadOnly
                 : undefined
             }
             answers={answersTrust}
