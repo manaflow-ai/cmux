@@ -85,6 +85,76 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
+    /// A page out of sight (a New Tab spare or a kept closed chat in an off-screen parking) draws until it painted at
+    /// its size there, then reports hidden, so Chromium stops drawing it and it can be frozen and released (CMUX-571,
+    /// cmux#43767: 3 of 4 live pages reported visible 150 s after the last chat opened, the GPU process at 93
+    /// wakeups/s). Resized there or pictured it draws again; held away by its owner it keeps drawing; adopted on
+    /// screen it shows.
+    @Test func aPaintedPageOutOfSightReportsHiddenOnceItDrewThere() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.fit(to: NSSize(width: 400, height: 300))
+        view.frame = parking.bounds
+        parking.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "a spare paints before it is adopted")
+
+        let painted: Bool? = await PageTestWait.value("paint") { done in
+            view.whenPainted { done(true) }
+            page.onEvent?(.devTools(FakeChromiumPage.bindingCall(["name": PagePaintProbe.handlerName, "body": 5])))
+        }
+        #expect(painted == true)
+        #expect(await Self.settles { page.visibility.last == false }, "drawn at its parked size, a page out of sight is hidden")
+
+        parking.fit(to: NSSize(width: 500, height: 300))
+        #expect(page.visibility.last == true, "resized out of sight, it draws at the new size")
+        #expect(await Self.settles { page.visibility.last == false })
+
+        let capture = VisibilityAtCall()
+        page.answer = { method, _ in
+            if method == "Page.captureScreenshot" { capture.visible = page.visibility.last }
+            return nil
+        }
+        _ = await view.snapshot()
+        #expect(capture.visible == true, "its picture (a spare's cover) is taken while it draws")
+        #expect(await Self.settles { page.visibility.last == false })
+
+        view.drawsWhileAway = true
+        #expect(page.visibility.last == true, "a page its owner holds away until it shows keeps drawing")
+        view.drawsWhileAway = false
+        #expect(page.visibility.last == false)
+
+        view.removeFromSuperview()
+        view.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        host.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "adopted on screen, it shows")
+    }
+
+    /// The visibility the fake page had when a call reached it.
+    @MainActor private final class VisibilityAtCall {
+        var visible: Bool?
+    }
+
+    /// Whether `condition` holds within about 3 s (the page's frame wait and its visibility pass are tasks).
+    private static func settles(_ condition: @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<300 where !condition() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
     @Test func anOffscreenPageStartsRenderingWhenItsFirstLayoutGivesItArea() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()

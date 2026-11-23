@@ -45,9 +45,12 @@ extension AgentPaneView {
             var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
                                           "optionId": option, "answers": answers]
             if let annotations { params["annotations"] = annotations }
+            var refusal: String?
             let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
-                "params": params]])
+                "params": params]], refusal: &refusal)
             guard let intent else {
+                AgentPaneRefusalLog.log(.gestureParse, method: "_acpmux/permission_respond", session: snapshot.target.sessionID,
+                                        cause: refusal ?? "intent not parsed")
                 self.model.transport.rejectQuestionKeyReply(connection: connection, requestID: requestID,
                                                              target: snapshot.target, error: .intentInvalid)
                 return
@@ -121,8 +124,6 @@ extension AgentPaneView {
             self?.refreshQuestionKeyBinding()
             self?.refreshOtherInstallNotice()
             self?.shownPushes.onSessionChange?() // the new chat's owed work (AgentPaneOwedWork)
-            // A painted page that moved to another chat shows it (``AgentPaneSeenChats``).
-            if let model = self?.model, model.hasPainted, let session = model.sessionId { AgentPaneTailCache.shared.seen.noteShown(session) }
         }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
@@ -188,6 +189,7 @@ extension AgentPaneView {
         default:
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
+        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) } // the mark's own check first: a marked page asks no hidden state at a key. A parked page has the pane's frame too, and gets no input
         // Repeats belong to the original press, whose DOM proof may still be redeeming.
         // A new page event revokes it, even when posted input cannot grant a fresh witness.
         model.transport.gestures.recordQuestionReturn(false)
@@ -211,6 +213,7 @@ extension AgentPaneView {
         default:
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
+        if !model.hostTouch.marked, !isHiddenOrHasHiddenAncestor { model.hostTouch.mark(by: event) }
         model.transport.gestures.recordQuestionReturn(false)
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown)

@@ -45,8 +45,10 @@ jobs:
   linux-build:
     name: build on Linux and compare (no Apple SDK)
     needs: [mac-build]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
-    timeout-minutes: 60
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    # Cold, this job builds both macOS targets one after the other: on cmux-gcp-lane-build-x64 (LINUX_RUNNER_DARWIN_CROSS)
+    # run 44985475776 took 1934 s for aarch64-apple-darwin alone and was cancelled at 60 min mid x86_64. 90 fits two cold targets.
+    timeout-minutes: 90
     permissions:
       contents: read
     env:
@@ -102,15 +104,24 @@ jobs:
           path: ${{ runner.temp }}/macos-cross/ref
           merge-multiple: true
 
+      # cmux-tailnet's build.rs builds libtailscale with this Go (cmux-tui-build-package.yml pins the same).
+      - name: Install Go for the embedded tailnet archive
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
+          cache: false
+
       - name: Build on Linux (no Apple SDK)
         run: |
           set -euo pipefail
           sdk="$(./scripts/ci/macos-cross.sh ref-sdk "$RUNNER_TEMP/macos-cross/ref/cmux-tui-app-host-aarch64-apple-darwin")"
           ./scripts/ci/macos-cross.sh toolchain "$sdk"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
-          ./scripts/ci/macos-cross.sh hosts "$GITHUB_SHA" "$ghostty"
+          # all: the package build's own pass (cmux-tui-build-package.yml), every cargo invocation of a target at once in
+          # its own target dir (cargo-groups.sh). hosts then bins ran them one at a time: with codegen-units 1 the slowest
+          # crate's last unit holds one core while the rest wait (run 44985475776: bins 1934 s for aarch64 alone).
+          ./scripts/ci/macos-cross.sh all "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
           ./scripts/ci/macos-cross.sh vt
-          ./scripts/ci/macos-cross.sh bins "$GITHUB_SHA" "$ghostty" "0.0.0-r2.sha-$GITHUB_SHA"
 
       - name: Compare with the Mac builds
         run: |
