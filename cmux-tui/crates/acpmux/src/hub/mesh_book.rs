@@ -185,6 +185,7 @@ pub(crate) fn mine(
 /// The keys every session row lists, from this machine or another: a hub row lists each one,
 /// null when the hub does not say, so no reader drops or misfiles a chat for a missing key (Leo,
 /// 2026-11-22: "my gui chats are not showing yet").
+#[cfg(test)]
 pub(crate) const ROW_KEYS: [&str; 10] = [
     "name",
     "nameGiven",

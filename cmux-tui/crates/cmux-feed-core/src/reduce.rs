@@ -1,13 +1,20 @@
 //! The pure reducer of the local feed owner.
 
+use std::sync::Arc;
+
 use crate::model::{
     FeedError, Item, ItemState, ListFilter, MAX_ALIASES, MAX_ITEMS, Notice, RETENTION_MS,
 };
 
 /// Every item the local owner holds, oldest first.
+///
+/// The daemon applies each op to a copy and installs the copy after its
+/// commit, so a copy must cost the same with 1 item or [`MAX_ITEMS`]: items
+/// are shared, and an op copies only the items it changes
+/// ([`Arc::make_mut`]). No side index either, which every copy would clone.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Feed {
-    items: Vec<Item>,
+    items: Vec<Arc<Item>>,
 }
 
 /// Rows an op changed: the store writes `upserts` and deletes `removed` in
@@ -73,24 +80,33 @@ impl Feed {
     /// A feed from stored items in any order; they are kept oldest first.
     pub fn from_items(mut items: Vec<Item>) -> Self {
         items.sort_by(|a, b| a.created_at_ms.cmp(&b.created_at_ms).then_with(|| a.id.cmp(&b.id)));
-        Self { items }
+        Self { items: items.into_iter().map(Arc::new).collect() }
     }
 
-    pub fn items(&self) -> &[Item] {
-        &self.items
+    /// Every item, oldest first.
+    pub fn items(&self) -> impl ExactSizeIterator<Item = &Item> + DoubleEndedIterator + Clone {
+        self.items.iter().map(|item| &**item)
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 
     pub fn get(&self, id: &str) -> Option<&Item> {
-        self.items.iter().find(|item| item.id == id)
+        self.items().find(|item| item.id == id)
     }
 
     pub fn find_key(&self, key: &str) -> Option<&Item> {
-        self.items.iter().find(|item| item.has_key(key))
+        self.items().find(|item| item.has_key(key))
     }
 
     /// Items that match `filter`, oldest first.
     pub fn list(&self, filter: &ListFilter) -> Vec<&Item> {
-        self.items.iter().filter(|item| filter.matches(item)).collect()
+        self.items().filter(|item| filter.matches(item)).collect()
     }
 
     /// `feed.post` of a notice. Dedupe first (the key of any item, coalesced
@@ -132,7 +148,7 @@ impl Feed {
             });
         let outcome = match target {
             Some(index) => {
-                let item = &mut self.items[index];
+                let item = Arc::make_mut(&mut self.items[index]);
                 // A program's own notice (OSC 9/777/7501) for the event its agent's hook just
                 // posted is the same event told twice (Claude Code reports both): the hook's
                 // text, which names the agent and carries its details, stays.
@@ -176,8 +192,9 @@ impl Feed {
                     count: 1,
                 };
                 changes.upsert(&item);
-                self.items.push(item.clone());
-                PostOutcome::Created(item)
+                let outcome = PostOutcome::Created(item.clone());
+                self.items.push(Arc::new(item));
+                outcome
             }
         };
         Ok((outcome, changes))
@@ -191,13 +208,17 @@ impl Feed {
             let item = self.get(id).ok_or_else(|| FeedError::NotFound(id.clone()))?;
             refuse_unowned(item)?;
         }
+        // Each item is visited once, so its change is pushed without a
+        // dedupe scan of the changes so far.
         let mut changes = Changes::default();
-        for item in self.items.iter_mut().filter(|item| ids.contains(&item.id)) {
-            if item.read_at_ms.is_none() {
-                item.read_at_ms = Some(at_ms);
-                item.updated_at_ms = item.updated_at_ms.max(at_ms);
-                changes.upsert(item);
+        for shared in &mut self.items {
+            if shared.read_at_ms.is_some() || !ids.contains(&shared.id) {
+                continue;
             }
+            let item = Arc::make_mut(shared);
+            item.read_at_ms = Some(at_ms);
+            item.updated_at_ms = item.updated_at_ms.max(at_ms);
+            changes.upserts.push(item.clone());
         }
         Ok(changes)
     }
@@ -218,17 +239,19 @@ impl Feed {
     ) -> (Changes, Vec<FeedError>) {
         let mut changes = Changes::default();
         let mut refused = Vec::new();
-        for item in &mut self.items {
-            if !matches(item) || !item.is_unread() {
+        for shared in &mut self.items {
+            if !shared.is_unread() || !matches(shared) {
                 continue;
             }
-            if let Err(error) = refuse_unowned(item) {
+            if let Err(error) = refuse_unowned(shared) {
                 refused.push(error);
                 continue;
             }
+            let item = Arc::make_mut(shared);
             item.read_at_ms = Some(at_ms);
             item.updated_at_ms = item.updated_at_ms.max(at_ms);
-            changes.upsert(item);
+            // Each item is visited once: no dedupe scan of the changes.
+            changes.upserts.push(item.clone());
         }
         (changes, refused)
     }
@@ -326,28 +349,41 @@ impl Feed {
             (item.state == ItemState::Moved || item.read_at_ms.is_some())
                 && now_ms.saturating_sub(item.updated_at_ms) >= RETENTION_MS
         };
+        // Ids are unique and each leaves once, so removals are pushed with no
+        // dedupe scan, and one pass picks the overflow (no remove and rescan
+        // per dropped item: a first post after a load past the cap drops
+        // many).
         self.items.retain(|item| {
             if expired(item) {
-                changes.remove(&item.id);
+                changes.removed.push(item.id.clone());
                 false
             } else {
                 true
             }
         });
+        let mut excess = self.items.len().saturating_sub(MAX_ITEMS);
+        if excess == 0 {
+            return changes;
+        }
+        let mut dropped = vec![false; self.items.len()];
         for settled_first in [true, false] {
-            while self.items.len() > MAX_ITEMS {
-                let Some(index) = self.items.iter().position(|item| {
-                    item.state != ItemState::HandingOff
-                        && (!settled_first
-                            || item.state == ItemState::Moved
-                            || item.read_at_ms.is_some())
-                }) else {
+            for (item, dropped) in self.items.iter().zip(dropped.iter_mut()) {
+                if excess == 0 {
                     break;
-                };
-                let removed = self.items.remove(index);
-                changes.remove(&removed.id);
+                }
+                let eligible = item.state != ItemState::HandingOff
+                    && (!settled_first
+                        || item.state == ItemState::Moved
+                        || item.read_at_ms.is_some());
+                if eligible && !*dropped {
+                    *dropped = true;
+                    changes.removed.push(item.id.clone());
+                    excess = excess.saturating_sub(1);
+                }
             }
         }
+        let mut keep = dropped.into_iter().map(|dropped| !dropped);
+        self.items.retain(|_| keep.next().unwrap_or(true));
         changes
     }
 
@@ -355,6 +391,7 @@ impl Feed {
         self.items
             .iter_mut()
             .find(|item| item.id == id)
+            .map(Arc::make_mut)
             .ok_or_else(|| FeedError::NotFound(id.into()))
     }
 }
