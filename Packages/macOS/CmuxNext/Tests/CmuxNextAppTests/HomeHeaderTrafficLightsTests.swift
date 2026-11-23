@@ -166,6 +166,7 @@ import Testing
         #expect(h.search.minY >= controls.maxY)
         #expect(h.search.minX == HomeSidebarHeaderLayout.inset && h.search.width >= HomeSidebarHeaderLayout.minimumField)
         #expect(h.filter.maxX <= width - HomeSidebarHeaderLayout.inset, "the row overflows \(width)")
+        #expect(h.newChief.maxX <= width - HomeSidebarHeaderLayout.inset, "New Chief overflows \(width)")
     }
 
     /// The avatar-only list: the search circle and the Unread circle side by side inside the list,
