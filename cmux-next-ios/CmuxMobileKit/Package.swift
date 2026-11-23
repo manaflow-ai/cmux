@@ -112,6 +112,7 @@ let package = Package(
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
                 .product(name: "CmuxMobileBilling", package: "CmuxMobileBilling"),
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             ]
         ),
         .target(
