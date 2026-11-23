@@ -20,7 +20,12 @@ import {
 import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
-type Played = { node: HTMLElement; keyframes: Keyframe[]; delay: number; duration: number };
+type Played = {
+  node: HTMLElement;
+  keyframes: Keyframe[];
+  delay: number;
+  duration: number;
+};
 
 const moves = (keyframes: Keyframe[]) =>
   keyframes.some(
@@ -34,6 +39,10 @@ function page() {
   // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
   const dom = new JSDOM('<!doctype html><main data-turn-end-fold="fade"></main>', { pretendToBeVisual: true });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
+  // The thread stands in for the scroller here, so it needs a view of its own: `captureTurnEnd`
+  // plays nothing whose rows all sit outside the scroller's box, and jsdom gives every box its
+  // inline `top`/`height`, which a bare <main> leaves at zero (a view of no height sees nothing).
+  thread.style.height = "600px";
   const proto = dom.window.HTMLElement.prototype;
   Object.defineProperty(proto, "offsetTop", {
     get() {
@@ -48,7 +57,17 @@ function page() {
   proto.getBoundingClientRect = function () {
     const top = this.offsetTop;
     const height = this.offsetHeight;
-    return { top, bottom: top + height, height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON() {} };
+    return {
+      top,
+      bottom: top + height,
+      height,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: top,
+      toJSON() {},
+    };
   };
   const played: Played[] = [];
   proto.animate = function (keyframes, options) {
@@ -59,7 +78,12 @@ function page() {
       delay: Number(timing.delay ?? 0),
       duration: Number(timing.duration ?? 0),
     });
-    return { cancel() {}, finish() {}, onfinish: null, oncancel: null } as unknown as Animation;
+    return {
+      cancel() {},
+      finish() {},
+      onfinish: null,
+      oncancel: null,
+    } as unknown as Animation;
   };
   const draw = (id: string, kind: string, top: number, height: number, index?: number) => {
     const node = dom.window.document.createElement("article");
@@ -91,7 +115,12 @@ function timeline(played: Played[], leaving: (node: HTMLElement) => boolean) {
   };
 }
 
-const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
+const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({
+  id,
+  version: 1,
+  at: 1,
+  kind,
+});
 
 test("the exit lead is half the quick step, never past a third of the fold, and shorter for faint text", () => {
   expect(EXIT_LEAD_MS).toBe(40);
@@ -174,7 +203,11 @@ test("a reader opening Worked for plays no lead: the rows move at once", () => {
   const { dom, thread, played, draw } = page();
   draw("worked-u", "worked", 0, 30, 0);
   draw("answer", "assistant", 30, 50, 1);
-  const before: PlacedRows = { count: 2, idAt: (index) => ["worked-u", "answer"][index], tops: [0, 30] };
+  const before: PlacedRows = {
+    count: 2,
+    idAt: (index) => ["worked-u", "answer"][index],
+    tops: [0, 30],
+  };
   const ghosts = new Set<HTMLElement>();
   const fold = startTurnFold(thread, "worked-u", true, before, "chat", 0)!;
   try {
@@ -186,7 +219,11 @@ test("a reader opening Worked for plays no lead: the rows move at once", () => {
     playTurnFold(
       fold,
       thread,
-      { count: 3, idAt: (index) => ["worked-u", "call-1", "answer"][index], tops: [0, 30, 70] },
+      {
+        count: 3,
+        idAt: (index) => ["worked-u", "call-1", "answer"][index],
+        tops: [0, 30, 70],
+      },
       "chat",
       ghosts,
       0,

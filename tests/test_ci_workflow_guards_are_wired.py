@@ -214,6 +214,10 @@ UNWIRED: set[str] = {
     # GitHub release, the rest of the tail dispatched, and the retry at the newest head; run it by hand after
     # changing decide, retry-nightly-next or dispatch-published-in.
     "tests/test_nightly_next_single_loop.py",
+    # lane = "manual" for the same rule. It checks that retry-nightly-next's third failure in a row comments on the
+    # nightly-next-feed-stale issue (nightly_next_retry_exhausted.py) and that the job may write issues; run it by hand
+    # after changing retry-ask-push-group.sh, that script or the job's permissions.
+    "tests/test_nightly_next_retry_exhausted.py",
     # lane = "manual" for the same rule. It checks the nightly-next build and sign stages (the push run builds,
     # dispatch-nightly-next-sign hands the unsigned app to a sign run in its own group); run it by hand after
     # changing decide, the sign-stage dispatch, retry-nightly-next or resume-unsigned-nightly.py.
