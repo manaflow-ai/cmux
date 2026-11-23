@@ -5,6 +5,11 @@
 //! (Leo, 2026-11-22: "we need it to be able to run blazingly fast under duress"; `ls` exited 1
 //! after 15 s while `lane-gh sessions` stalled on a loaded lane VM).
 //!
+//! When a good listing is kept ([`CACHE_FILE`]), `ls` does not wait on the relay at all: it lists
+//! the kept rows, marked with their age, and starts one detached refresh for the next `ls`. Only
+//! without one does it read the relay, by the budget (lead, 2026-11-23: local `ls` p99 under
+//! 500 ms with the relay stalled).
+//!
 //! A relay listing that misses the budget (or fails) is served from the last good one, kept in
 //! [`CACHE_FILE`] under the acpmux home with the time it was read: its rows are marked `stale`
 //! with their `asOfMs`, the JSON listing says so in `remote`, and the text view in one stderr
@@ -36,6 +41,13 @@ const REFRESH_MARK: &str = "relay-ls-cache.refreshing";
 
 /// A cached listing older than this is not served: it would list sessions long gone.
 const CACHE_MAX_AGE_MS: u64 = 24 * 3_600_000;
+
+/// A kept listing younger than this is listed without the stderr line: it is as good as a
+/// fresh read for the text view (its rows and the JSON `remote` still say `stale`).
+const QUIET_AGE_MS: u64 = 60_000;
+
+/// What [`RelayRead::missed`] says when the kept listing was served without reading the relay.
+pub(crate) const FROM_CACHE: &str = "from the last listing, refreshing";
 
 /// After the budget, how long `finish` still waits for a read the deadline already killed.
 const GRACE: Duration = Duration::from_millis(250);
@@ -91,6 +103,11 @@ impl RelayRead {
         let missed = self.missed.as_deref()?;
         let listed = match self.state {
             RemoteState::Fresh => return None,
+            RemoteState::Stale { as_of_ms }
+                if missed == FROM_CACHE && now.saturating_sub(as_of_ms) < QUIET_AGE_MS =>
+            {
+                return None;
+            }
             RemoteState::Stale { as_of_ms } => {
                 format!("listed as of {} ago", crate::cli::ls_table::ago(now, as_of_ms))
             }
@@ -114,17 +131,24 @@ pub(crate) struct Far {
 
 type RelayTask = tokio::task::JoinHandle<anyhow::Result<Option<Vec<Value>>>>;
 
+/// The relay's part, started: a read by the budget, or the kept listing, served at once.
+enum RelayPart {
+    Reading(String, PathBuf, RelayTask),
+    Kept(RelayRead),
+}
+
 /// The far reads, running.
 pub(crate) struct FarRead {
     deadline: Instant,
     budget: Duration,
-    relay: Option<(String, PathBuf, RelayTask)>,
+    relay: Option<RelayPart>,
     /// Read for the down ssh peers in [`FarRead::finish`], beside the relay.
     client: Option<Arc<Client>>,
 }
 
 /// Starts the far reads for `client`'s listing, each by `budget` from now: the relay's at once
-/// (off the runtime), the ssh peers' when [`FarRead::finish`] runs it beside the relay's.
+/// (off the runtime), the ssh peers' when [`FarRead::finish`] runs it beside the relay's. With a
+/// kept listing the relay is not read here: the kept rows are served and a refresh detached.
 pub(crate) fn start(client: Arc<Client>, budget: Duration) -> FarRead {
     let relay = send_relay::configured().filter(|r| r.ls_argv.is_some());
     start_with(relay, cache_path(), Some(client), budget)
@@ -140,9 +164,18 @@ pub(crate) fn start_with(
     let deadline = Instant::now() + budget;
     let relay = relay.map(|relay| {
         let source = source_name(&relay);
+        if let Some((as_of_ms, rows)) = read_cache(&cache, crate::store::now_ms()) {
+            refresh_detached(&cache);
+            return RelayPart::Kept(RelayRead {
+                rows,
+                state: RemoteState::Stale { as_of_ms },
+                source,
+                missed: Some(FROM_CACHE.to_owned()),
+            });
+        }
         let task =
             tokio::task::spawn_blocking(move || send_relay::relay_ls(&relay, Some(deadline)));
-        (source, cache, task)
+        RelayPart::Reading(source, cache, task)
     });
     FarRead { deadline, budget, relay, client }
 }
@@ -169,7 +202,10 @@ impl FarRead {
             tokio::time::timeout_at(until, read).await.unwrap_or_default()
         };
         let relay = async move {
-            let (source, cache, mut task) = relay?;
+            let (source, cache, mut task) = match relay? {
+                RelayPart::Kept(kept) => return Some(kept),
+                RelayPart::Reading(source, cache, task) => (source, cache, task),
+            };
             let read = tokio::time::timeout_at(until, &mut task).await;
             let missed = match read {
                 Ok(Ok(Ok(Some(rows)))) => {

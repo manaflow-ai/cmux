@@ -638,6 +638,9 @@ public final class AgentPaneView: NSView {
         themeFollower.rebind(); redraw.paneWired(self)
         // Left the drawn keep by any path (a pane took it back, the closed-tab retirer moved it): no longer away.
         if page?.isDrawnAway == true, AgentPageDrawnParking.holding(self) == nil { cameBackDrawn() }
+        // Parked off screen or back in a pane, in the same window (no window move tells the probe): the socket
+        // hears whether anyone sees it (``AgentPaneFramePacer/parkedAway(_:)``).
+        transportPacer?.visibilityChanged()
         onNativeToolOwnerChange?()
     }
 
