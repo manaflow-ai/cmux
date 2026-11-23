@@ -21,7 +21,7 @@ EVENTS = {
     'Stop': ('stop', 'idle'),
     'SessionEnd': ('session_end', 'clear'),
 }
-CODEX_MANAGEMENT = set('a apply app app-server archive cloud completion debug delete doctor exec-server features help login logout mcp mcp-server plugin remote-control review sandbox unarchive update'.split())
+CODEX_MANAGEMENT = set('a apply app app-server archive cloud completion debug delete doctor exec-server features help login logout mcp mcp-server migrate-nfs-db migrate-rollouts plugin queue remote-control review sandbox unarchive update'.split())
 CODEX_VALUES = set('-c --config -m --model -p --profile -C --cd --remote -a --ask-for-approval -s --sandbox --output-last-message --enable --disable --add-dir -i --image --local-provider --remote-auth-token-env --output-schema --color'.split())
 
 

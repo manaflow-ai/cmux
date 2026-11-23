@@ -424,11 +424,15 @@ codex_subcommand_starts_session() {
     esac
 }
 
+# `queue` adds a message to an existing session and refuses the hook flags a
+# session launch gets, so it has to be listed here: an unlisted first token is
+# taken as a prompt and gets the full injection.
 codex_known_subcommand() {
     case "$1" in
         exec|e|review|login|logout|mcp|plugin|mcp-server|app-server|\
         remote-control|app|completion|update|doctor|sandbox|debug|apply|a|\
-        resume|archive|delete|unarchive|fork|cloud|exec-server|features|help)
+        resume|queue|archive|delete|migrate-rollouts|migrate-nfs-db|\
+        unarchive|fork|cloud|exec-server|features|help)
             return 0
             ;;
     esac
