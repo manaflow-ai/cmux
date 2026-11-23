@@ -26,8 +26,18 @@
 //!   check `sign_in` refuses with), `signInRequired`, or `ready` (a signed-in, enabled account:
 //!   `account` is the default one's id, else the first's, and `label` its email or login).
 //!
-//! Who may ask: this machine's unix socket and its app (`Origin::Local`, `Origin::LocalApp`),
-//! never a Web client or a peer (`allowed`). The caller names an account or a family only:
+//! Who may ask: exactly who may run an agent's sign-in here (`agent_login::allowed`, one rule for
+//! both): this machine's unix socket and its app, and the owner's own peer daemon (the person's
+//! Mac, forwarding its card for a Cloud or remote machine's chat: `vm_boundary::owner`), so a
+//! Cloud or remote machine signs GitHub, Codex or Claude in there with the same device card
+//! (Leo, 2026-11-22: "if we host the browser and the app at the same time and the cloud
+//! product... theres no reason for us not only to be able to have s*** side by side opened where
+//! it's convienient"). Never a Web client, a paired device, a teammate on a team machine, or a
+//! peer forwarding for one of them (`REMOTE_REFUSED`); a team machine itself refuses every own
+//! sign-in (`shared_machine`, `Machine::refuse_shared`). A request that names a chat
+//! (`sessionId`) was forwarded to the chat's machine before it got here; one whose chat is not
+//! here is refused (`unknown_session`), never run on this machine in its place. The caller names
+//! an account or a family only:
 //! every program, path and variable comes from this daemon. Nothing here logs, traces or
 //! answers a code beyond `userCode` in the start reply, or any token.
 
@@ -37,8 +47,8 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use serde_json::{Value, json};
 
-use super::Origin;
 use super::agent_login::{REMOTE_REFUSED, cli_for, error, machine};
+use super::{Conn, ConnAuth, Origin};
 use crate::agent_login::{self as login, Agent, Cli, LoginError, github, reason};
 use crate::hub::Hub;
 use crate::routes::{self, RouteFile};
@@ -67,14 +77,18 @@ pub const GITHUB_PREFIX: &str = "github:";
 /// The longest typed name kept (the Mac's picker keeps as many).
 pub const NAME_MAX: usize = 128;
 
-/// Whether `origin` may ask (module docs).
-pub fn allowed(origin: Origin) -> bool {
-    matches!(origin, Origin::Local | Origin::LocalApp)
+/// Whether a connection of `origin` that presented `auth` may ask (module docs): the agent
+/// sign-in's own owner rule, not a second policy.
+pub fn allowed(origin: Origin, auth: ConnAuth, params: &Value) -> bool {
+    super::agent_login::allowed(origin, auth, params)
 }
 
 fn refused() -> RpcError {
-    RpcError::new(-32000, "accounts sign in only from this machine's unix socket or its cmux app")
-        .with_data(json!({"reason": REMOTE_REFUSED}))
+    RpcError::new(
+        -32000,
+        "accounts sign in only from this machine, its cmux app, or its owner's own machine",
+    )
+    .with_data(json!({"reason": REMOTE_REFUSED}))
 }
 
 fn unknown(id: &str) -> LoginError {
@@ -288,12 +302,22 @@ fn agent_of(family: &str) -> Option<Agent> {
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
-    origin: Origin,
+    conn: &Conn,
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    if !allowed(origin) {
+    if !allowed(conn.origin, conn.auth, params) {
         return Err(refused());
+    }
+    // A named chat this daemon does not have (module docs); a cancel stops a sign-in by its id.
+    if m != method::MUX_ACCOUNT_SIGN_IN_CANCEL
+        && let Some(key) = text(params, "sessionId")
+        && hub.resolve(key).is_err()
+    {
+        return Err(error(LoginError::new(
+            reason::UNKNOWN_SESSION,
+            format!("no chat {key:?} here: open the chat again"),
+        )));
     }
     match m {
         method::MUX_ACCOUNT_SIGN_IN => sign_in(hub, params).await,
