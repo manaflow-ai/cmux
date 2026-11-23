@@ -57,14 +57,22 @@ afterAll(async () => {
 
 const reply: AcpmuxRow = { id: "reply", kind: "assistant", version: 1, at: 2, text: "The review is complete." };
 const marks = () =>
-  [...document.querySelectorAll(".acpmux-transcript-loading, .acpmux-older-loading")].map((node) => node.getAttribute("aria-label"));
+  [...document.querySelectorAll(".acpmux-transcript-loading, .acpmux-older-loading")].map((node) =>
+    node.getAttribute("aria-label"),
+  );
 
 test("a chat still reading its rows shows a spinner, and the spinner goes once the rows are in", async () => {
   const root = createRoot(document.getElementById("root")!);
   const draw = (rows: AcpmuxRow[], loading: boolean) =>
     act(async () =>
       root.render(
-        <VirtualTranscript rows={rows} sessionId="chat" loading={loading} onToggleActivity={() => {}} expanded={new Set()} />,
+        <VirtualTranscript
+          rows={rows}
+          sessionId="chat"
+          loading={loading}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
       ),
     );
   await draw([], true);
@@ -80,7 +88,9 @@ test("a chat still reading its rows shows a spinner, and the spinner goes once t
 test("a read chat with no rows (a new chat) shows no spinner", async () => {
   const root = createRoot(document.getElementById("root")!);
   await act(async () =>
-    root.render(<VirtualTranscript rows={[]} sessionId="new" loading={false} onToggleActivity={() => {}} expanded={new Set()} />),
+    root.render(
+      <VirtualTranscript rows={[]} sessionId="new" loading={false} onToggleActivity={() => {}} expanded={new Set()} />,
+    ),
   );
   expect(marks()).toEqual([]);
   await act(async () => root.unmount());

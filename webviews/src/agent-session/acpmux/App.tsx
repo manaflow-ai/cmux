@@ -1,6 +1,5 @@
 import { BrowserSidebar } from "./browser/BrowserSidebar";
 import { composerHealthHarness } from "./composerPickerEntries";
-import { Spinner } from "./conversation/icons";
 import { PaneLoadingMark } from "./PaneLoadingMark";
 import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
