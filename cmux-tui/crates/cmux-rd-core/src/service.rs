@@ -56,7 +56,7 @@ pub mod caps {
     /// High. A viewer that does not offer it (VideoToolbox) gets the host's profile.
     pub const H264_BASELINE: &str = "h264.baseline";
     /// Every named cap.
-    pub const ALL: [&str; 12] = [
+    pub const ALL: [&str; 13] = [
         INPUT_SERVICE,
         TILE,
         UP_MEDIA,
