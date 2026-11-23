@@ -36,14 +36,11 @@ import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
 import { newTabPageSubmit } from "../newtab/pageSubmit";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
-import { EmptyState, type EmptyStateProjects } from "../EmptyState";
+import { EmptyState } from "../EmptyState";
 import { projectName } from "../emptyStateModel";
 import { TourStartContext } from "../repoTour/TourBlock";
 import { ChatUnavailableState } from "../ChatUnavailableState";
 import { PastChat } from "../PastChat";
-import { answerFromHome } from "../homeInboxModel";
-import { HomeLists } from "../HomeLists";
-import { AgentDotGrid } from "../dotGrid/AgentDotGrid";
 import { ComputerUsePreviewCard } from "../computerUse/ComputerUsePreviewCard";
 import { translate, type Translate } from "../i18n";
 import { LINK_DOWN_SAID_MS } from "../afterDelay";
@@ -381,7 +378,6 @@ export type PaneBodyDeps = NewTabShown &
     githubRepository: string | undefined;
     sandboxView: SandboxRun | undefined;
     sandboxHoldsChat: boolean;
-    heroPicker: EmptyStateProjects | undefined;
     tourOffer: TourOfferActions | undefined;
     chatTones: Map<string, number> | undefined;
     chatAgentNames: ReadonlyMap<string, string>;
@@ -398,7 +394,6 @@ export type PaneBodyDeps = NewTabShown &
     paneToasts: NoticeQueue;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
-    dotGridArm: "off" | "on" | "compact";
     hostLine: React.JSX.Element;
     forkPendingLine: React.JSX.Element | undefined;
     composer: false | React.JSX.Element;
@@ -648,7 +643,6 @@ export function drawPaneBody({
   cloudStartShown,
   sandboxView,
   sandboxHoldsChat,
-  heroPicker,
   tourOffer,
   chatTones,
   chatAgentNames,
@@ -665,7 +659,6 @@ export function drawPaneBody({
   paneToasts,
   toastTop,
   asks,
-  dotGridArm,
   hostLine,
   forkPendingLine,
   composer,
@@ -1499,9 +1492,7 @@ export function drawPaneBody({
                   />
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
-                    project={projectName(composerSnapshot.summary?.cwd)}
-                    picker={heroPicker}
-                    tour={tourOffer}
+                    {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
@@ -1546,33 +1537,6 @@ export function drawPaneBody({
                 {/* The pane's toasts stand on the stack's top edge, over the transcript (ToastLayer.tsx). */}
                 <ToastLayer queue={paneToasts} topHost={toastTop} />
                 {asks}
-                {/* Between the hero and the docked composer. */}
-                {/* A Sandboxed send holds the new chat: no recent chat replaces it while it is out.
-                      Neither does a Cloud start's chat, which shows its sent message (CloudStartView). */}
-                {freshView && !premountsChatView && !sandboxHoldsChat && !viewedSandbox && !cloudStartShown && (
-                  <div className="acpmux-home-area">
-                    {dotGridArm !== "off" && (
-                      <AgentDotGrid
-                        sessions={snapshot.sessions}
-                        currentId={snapshot.sessionId}
-                        onSelect={selectSession}
-                        size={dotGridArm === "compact" ? "compact" : "regular"}
-                      />
-                    )}
-                    <HomeLists
-                      sessions={snapshot.sessions}
-                      currentId={snapshot.sessionId}
-                      asks={snapshot.asks}
-                      tabs={needsYou.attentionTabs}
-                      onSelect={selectSession}
-                      onOpen={(item) =>
-                        item.kind === "tab" ? needsYou.actions.goTo(item) : selectSession(item.sessionId)
-                      }
-                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
-                      shortcuts={!hasBottomAsk}
-                    />
-                  </div>
-                )}
                 {hostLine}
                 {forkPendingLine}
                 <LiveTypingLine
