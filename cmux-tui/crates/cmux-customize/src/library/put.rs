@@ -138,13 +138,16 @@ impl Customize {
     ) -> Result<Changed, Error> {
         self.library_change_locked(label, origin, now_ms, |library| {
             let rank = |name: &str| order.iter().position(|named| named == name);
-            let slots: Vec<usize> = (0..library.entries.len())
-                .filter(|at| rank(library.entries[*at].name()).is_some())
+            let mut held: Vec<_> = library
+                .entries
+                .iter()
+                .filter(|entry| rank(entry.name()).is_some())
+                .cloned()
                 .collect();
-            let mut held: Vec<_> = slots.iter().map(|at| library.entries[*at].clone()).collect();
             held.sort_by_key(|entry| rank(entry.name()));
-            for (at, entry) in slots.into_iter().zip(held) {
-                library.entries[at] = entry;
+            let slots = library.entries.iter_mut().filter(|entry| rank(entry.name()).is_some());
+            for (slot, entry) in slots.zip(held) {
+                *slot = entry;
             }
             Ok(())
         })

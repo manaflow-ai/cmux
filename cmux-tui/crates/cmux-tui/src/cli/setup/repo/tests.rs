@@ -131,7 +131,7 @@ impl Apps for World {
     fn fetch(&self, _reference: &Reference) -> Result<Checkout, Failure> {
         let dir = tempfile::tempdir().unwrap().keep();
         copy(&self.repo, &dir);
-        Ok(Checkout { dir, commit: self.commit.borrow().clone(), keep: false })
+        Ok(Checkout { dir, commit: self.commit.borrow().clone() })
     }
 
     fn info(&self, reference: &str) -> Option<Value> {
@@ -638,7 +638,7 @@ impl Apps for Local {
 
 /// A look in a folder: id `leo/NAME`, picking theme `NAME-dusk`, shipping
 /// `NAME-dusk` and `NAME-dawn`.
-fn look(root: &Path, name: &str) -> std::path::PathBuf {
+fn look(root: &Path, name: &str) -> PathBuf {
     let dir = root.join(name);
     fs::create_dir_all(dir.join("themes")).unwrap();
     fs::write(
@@ -665,7 +665,7 @@ fn look(root: &Path, name: &str) -> std::path::PathBuf {
 }
 
 /// The views file of look `name`'s layer.
-fn view(home: &Path, name: &str) -> std::path::PathBuf {
+fn view(home: &Path, name: &str) -> PathBuf {
     home.join(format!("config/setups/setup-leo-{name}/main.js"))
 }
 

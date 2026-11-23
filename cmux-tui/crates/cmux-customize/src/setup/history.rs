@@ -269,11 +269,12 @@ impl Customize {
         } else {
             history.cursor.checked_sub(1)
         };
-        let Some(index) = index else {
+        let Some((index, step)) =
+            index.and_then(|index| Some((index, history.steps.get(index)?.clone())))
+        else {
             let what = if forward { "redo" } else { "undo" };
             return Err(Error::Setup(format!("there is no setup step to {what}")));
         };
-        let step = history.steps[index].clone();
         let target = if forward { &step.after } else { &step.before };
         let word = if forward { "redo" } else { "undo" };
         self.put_setup_state_locked(
@@ -282,7 +283,7 @@ impl Customize {
             origin,
             now_ms,
         )?;
-        history.cursor = if forward { index + 1 } else { index };
+        history.cursor = if forward { index.saturating_add(1) } else { index };
         self.write_setup_history(&history)?;
         Ok(step)
     }
