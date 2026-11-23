@@ -107,6 +107,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
+    /// `labs.teamCompute`: Settings > Cloud shows the team's compute allotment (`cmux.settings.cloud.allotment.get`); off when unset.
+    public var teamCompute = CmuxConfigSnapshot.teamComputeDefault
     /// `labs.hostsSidebar`: the Rex-style Hosts section projects the Machines catalog into the sidebar; off when unset.
     public var hostsSidebar = CmuxConfigSnapshot.hostsSidebarDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
@@ -413,6 +415,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(Self.parseLabsToggle(root, path: customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
+        snapshot.take(Self.parseLabsToggle(root, path: teamComputePath, fallback: teamComputeDefault), \.teamCompute)
         snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)

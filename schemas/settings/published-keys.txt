@@ -430,6 +430,7 @@ labs.liveTree
 labs.machineJoin
 labs.pauseAgentMachines
 labs.previewFeatures
+labs.teamCompute
 labs.voiceRoom
 labs.voiceRoomURL
 layout.centerFocusedColumn
