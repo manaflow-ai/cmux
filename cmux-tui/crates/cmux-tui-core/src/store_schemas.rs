@@ -234,7 +234,8 @@ fn written_since(path: &Path, limit_ms: u64, only_with_bytes: bool) -> bool {
 /// bytes in the folder, which changes the folder's time; a read writes no
 /// byte to a `-wal` file and none to a store file. So this does not see a
 /// folder that a rename moves to a name at or before the place, when
-/// nothing wrote its stores since.
+/// nothing wrote its stores since. The daemon's reset makes such a rename:
+/// [`in_reset`] is for it.
 fn changed_since(session: &Path, since_ms: u64) -> bool {
     let limit_ms = since_ms.saturating_sub(FILE_TIME_MARGIN_MS);
     STORES.iter().any(|(_, file, _)| {
@@ -245,9 +246,28 @@ fn changed_since(session: &Path, since_ms: u64) -> bool {
     })
 }
 
+/// True when the name of the session folder `session` has the form that the
+/// daemon's reset gives a session folder before it deletes it. That rename
+/// can put a session that no call read yet at or before the place, and it
+/// changes no time of a store file. So each pass reads each folder of this
+/// form, with no look at a time.
+fn in_reset(session: &Path) -> bool {
+    use crate::workspace_registry::{RESET_DIR_HEAD, RESET_DIR_TAIL};
+    session
+        .file_name()
+        .and_then(OsStr::to_str)
+        .is_some_and(|name| name.starts_with(RESET_DIR_HEAD) && name.ends_with(RESET_DIR_TAIL))
+}
+
 /// Reads each store of the session folder `session`, and keeps in `found`
-/// the newest schema of each.
-fn read_session(session: &Path, found: &mut BTreeMap<String, i64>) -> anyhow::Result<()> {
+/// the newest schema of each. `in_delete` is for a folder that the reset
+/// deletes while the check runs: a store that cannot be read and whose file
+/// is then gone is no store and no error.
+fn read_session(
+    session: &Path,
+    in_delete: bool,
+    found: &mut BTreeMap<String, i64>,
+) -> anyhow::Result<()> {
     for (name, file, _) in STORES {
         let path = session.join(file);
         // A store can go away after the listing (a session that is
@@ -255,7 +275,12 @@ fn read_session(session: &Path, found: &mut BTreeMap<String, i64>) -> anyhow::Re
         if !path.is_file() {
             continue;
         }
-        if let Some(version) = schema_version(&path)? {
+        let version = match schema_version(&path) {
+            Ok(version) => version,
+            Err(_) if in_delete && !path.is_file() => continue,
+            Err(error) => return Err(error),
+        };
+        if let Some(version) = version {
             let newest = found.entry((*name).to_string()).or_insert(version);
             *newest = (*newest).max(version);
         }
@@ -315,8 +340,11 @@ const LOOKS_FOR_EACH_CLOCK_READ: usize = 64;
 /// call that read each session after the place makes a pass over the
 /// folders at or before it: it looks at the file times of each
 /// ([`changed_since`], against `place.since_ms`) and reads again each one
-/// that was written since. The call gives the numbers only after a pass
-/// that ran from its first folder to its last in this one call.
+/// that was written since. It reads each folder that the daemon's reset
+/// renamed ([`in_reset`]) with no look at a time, in each pass. The call
+/// gives the numbers only after a pass that ran from its first folder to
+/// its last in this one call. A store that is read again keeps the larger
+/// of its 2 numbers.
 ///
 /// A pass that stops keeps its place: `place.pass` names the last folder
 /// that it looked at, and the next call goes on after that folder. A pass
@@ -391,7 +419,7 @@ pub fn stored_from(
             let next = name_of(last).map(|after| Place { root, after, found, since_ms, pass });
             return Ok((Stored::NotReady { sessions: sessions.len(), sessions_read }, next));
         }
-        read_session(session, &mut found)?;
+        read_session(session, false, &mut found)?;
         last_read = Some(session);
     }
     // The last session folder that the calls read: nil only for a name that
@@ -415,7 +443,8 @@ pub fn stored_from(
             if cursor.is_some_and(|cursor| name.is_some_and(|name| name <= cursor)) {
                 continue;
             }
-            let changed = changed_since(session, compare_ms);
+            let reset = in_reset(session);
+            let changed = reset || changed_since(session, compare_ms);
             if (changed && read_one) || looks_left == 0 {
                 if past_the_end() {
                     let all = sessions.len();
@@ -425,7 +454,7 @@ pub fn stored_from(
                 looks_left = LOOKS_FOR_EACH_CLOCK_READ;
             }
             if changed {
-                read_session(session, &mut found)?;
+                read_session(session, reset, &mut found)?;
                 read_one = true;
             }
             looks_left = looks_left.saturating_sub(1);

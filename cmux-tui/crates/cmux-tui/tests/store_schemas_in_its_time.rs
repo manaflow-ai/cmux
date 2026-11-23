@@ -9,10 +9,10 @@
 //! small registry file with a stored schema number and nothing else: the
 //! check reads that number only.
 //!
-//! No row here measures a time, and no row waits. 9 rows call the check's
-//! functions of cmux-tui-core directly. 2 of them use an end time that is
+//! No row here measures a time, and no row waits. 13 rows call only the
+//! check's functions of cmux-tui-core. 2 of them use an end time that is
 //! past or far ahead and the text of `--within-ms`: the executable cannot
-//! show those with no wait. 7 of them use a first call that started 1 hour
+//! show those with no wait. 11 of them use a first call that started 1 hour
 //! ahead of the clock: for the executable each file that a row made is a
 //! file that changed a moment ago, so it cannot show which session a call
 //! does not read again. Where such a row needs a file that changed after
@@ -447,7 +447,7 @@ fn a_place_whose_start_time_is_after_this_call_is_no_place() {
     assert!(place["since_ms"].as_u64().is_some_and(|since| since < FAR), "{place}");
 }
 
-/// The clock of the 7 rows below: 1 hour ahead of the wall clock, in
+/// The clock of the 11 rows below: 1 hour ahead of the wall clock, in
 /// milliseconds since 1970. For a first call that started then, each file
 /// that a row made is a file that did not change after it.
 fn an_hour_ahead_ms() -> u64 {
@@ -770,4 +770,135 @@ fn a_place_of_another_state_root_is_no_place() {
     let (code, answer, stderr) = check(root_a.path(), &["--within-ms", "0", "--place", &place_a]);
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert_eq!(counts_of(&answer), Some((3, 2)), "{answer}");
+}
+
+/// The name that the daemon's reset gives the folder of the session `name`
+/// before it deletes it: `.reset-NAME-KIND-UUID.deleting`, in the same state
+/// root.
+fn reset_name(name: &str) -> String {
+    format!(".reset-{name}-session-6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f.deleting")
+}
+
+/// The daemon's reset renames a session folder to a name that starts with a
+/// dot, which sorts before the place, and deletes it later. The rename
+/// changes no time of a store file. Here the reset renames a session that no
+/// call read yet, between 2 calls, and no file changed after the first call
+/// started (1 hour ahead). The pass reads each folder of the reset's form,
+/// so the number 17 of that session is in the answer.
+#[test]
+fn a_session_that_the_reset_renames_between_two_calls_is_in_the_answer() {
+    let root = state_root_of(&[13, 14, 17]);
+    let sessions = sessions_of(root.path());
+    let now_ms = an_hour_ahead_ms();
+    let (stored, place) = stored_from(&sessions, Some(Instant::now()), None, now_ms).unwrap();
+    assert_eq!(stored, Stored::NotReady { sessions: 3, sessions_read: 1 });
+    let place = place.unwrap();
+    assert_eq!(place.after, "session-0");
+    fs::rename(sessions.join("session-2"), sessions.join(reset_name("session-2"))).unwrap();
+    assert_eq!(stored_from(&sessions, None, Some(&place), now_ms).unwrap(), the_number(17));
+}
+
+/// Each pass reads each folder of the reset's form: here 2 of them, and no
+/// file changed after the first call started. With an end time that is past
+/// the call reads the first one (17) and stops at the second one. The reset
+/// then deletes the second folder. The next call is no error, and the number
+/// 19 of the folder that is gone is not in the answer: no call read it.
+#[test]
+fn a_folder_of_the_reset_that_is_gone_at_the_next_call_is_no_error() {
+    let root = state_root_of(&[13]);
+    let sessions = sessions_of(root.path());
+    session(root.path(), &reset_name("session-8"), 17);
+    session(root.path(), &reset_name("session-9"), 19);
+    let now_ms = an_hour_ahead_ms();
+    let first = place_at(&sessions, "session-0", Some(13), now_ms);
+    let (stored, second) =
+        stored_from(&sessions, Some(Instant::now()), Some(&first), now_ms).unwrap();
+    assert_eq!(stored, Stored::NotReady { sessions: 3, sessions_read: 3 });
+    let mut wanted = place_at(&sessions, "session-0", Some(17), now_ms);
+    wanted.pass = Some(Pass { after: reset_name("session-8"), began_ms: now_ms });
+    assert_eq!(second, Some(wanted.clone()));
+    fs::remove_dir_all(sessions.join(reset_name("session-9"))).unwrap();
+    assert_eq!(stored_from(&sessions, None, Some(&wanted), now_ms).unwrap(), the_number(17));
+}
+
+/// The text of a place that has a `pass` part is the same place after the
+/// check reads it. Through the executable too: a call with that text goes on
+/// in the pass after the folder that the `pass` part names, and the place
+/// that it gives back has the pass at the next folder, with the same start.
+#[test]
+fn a_place_with_a_pass_goes_through_its_text_and_through_the_check() {
+    const SINCE_MS: u64 = 1_700_000_000_000;
+    let root = state_root_of(&[13, 15, 14]);
+    let sessions = sessions_of(root.path());
+    let mut place = place_at(&sessions, "session-2", None, SINCE_MS);
+    assert_eq!(Place::of(&place.text()), Some(place.clone()));
+    place.pass = Some(Pass { after: "session-0".to_string(), began_ms: SINCE_MS + 500 });
+    let text = place.text();
+    assert_eq!(Place::of(&text), Some(place));
+
+    // Each file here was written after `SINCE_MS`, so the pass reads the
+    // session 1 and, with no time, stops at the session 2.
+    let (code, answer, stderr) = check(root.path(), &["--within-ms", "0", "--place", &text]);
+    assert_eq!(code, Some(0), "stderr: {stderr}");
+    assert_eq!(counts_of(&answer), Some((3, 3)), "{answer}");
+    let mut wanted = place_at(&sessions, "session-2", Some(15), SINCE_MS);
+    wanted.pass = Some(Pass { after: "session-1".to_string(), began_ms: SINCE_MS + 500 });
+    assert_eq!(Place::of(&place_of(&answer)), Some(wanted));
+}
+
+/// A pass that an earlier call started comes to its end in this call, and
+/// the pass that follows it stops. The place that the call gives then
+/// compares with the start of the call in which the pass before started
+/// (`since_ms`), and its `pass` part has the start of this call. The first
+/// call started 1 hour ahead, the pass before 30 minutes after that, and
+/// this call 2 hours after it; the 2 stores that changed have a time 1 hour
+/// after the first start. The next call reads the store that is left, and
+/// its pass that follows compares with the start of this call: nothing was
+/// written since, and it gives the numbers. The store file of the session 0
+/// is no store after its read: a second read of it is an error.
+#[test]
+fn a_pass_that_follows_a_pass_stops_and_keeps_the_start_of_the_pass_before() {
+    let root = state_root_of(&[13, 15, 14]);
+    let sessions = sessions_of(root.path());
+    let since_ms = an_hour_ahead_ms();
+    let began_ms = since_ms + 1_800_000;
+    let now_ms = since_ms + 2 * 3_600_000;
+    for name in ["session-0", "session-1"] {
+        set_written_after_the_start(&sessions.join(name).join(REGISTRY_FILE));
+    }
+    let past = Instant::now();
+    let mut first = place_at(&sessions, "session-2", None, since_ms);
+    first.pass = Some(Pass { after: "session-1".to_string(), began_ms });
+
+    let (stored, second) = stored_from(&sessions, Some(past), Some(&first), now_ms).unwrap();
+    assert_eq!(stored, Stored::NotReady { sessions: 3, sessions_read: 3 });
+    let mut wanted = place_at(&sessions, "session-2", Some(13), began_ms);
+    wanted.pass = Some(Pass { after: "session-0".to_string(), began_ms: now_ms });
+    assert_eq!(second, Some(wanted.clone()));
+    fs::write(sessions.join("session-0").join(REGISTRY_FILE), vec![b'x'; 8192]).unwrap();
+
+    assert_eq!(stored_from(&sessions, Some(past), Some(&wanted), now_ms).unwrap(), the_number(15));
+}
+
+/// A call that carries a pass and stops before it comes to the pass (it has
+/// sessions after the place to read first) gives the pass back as it got
+/// it. The call after it reads the session that is left and goes on in that
+/// pass.
+#[test]
+fn a_call_that_stops_before_the_pass_that_it_carries_gives_the_pass_back() {
+    let root = state_root_of(&[13, 15, 14]);
+    let sessions = sessions_of(root.path());
+    let now_ms = an_hour_ahead_ms();
+    let carried = Pass { after: "session-0".to_string(), began_ms: now_ms };
+    let mut first = place_at(&sessions, "session-0", Some(13), now_ms);
+    first.pass = Some(carried.clone());
+
+    let (stored, second) =
+        stored_from(&sessions, Some(Instant::now()), Some(&first), now_ms).unwrap();
+    assert_eq!(stored, Stored::NotReady { sessions: 3, sessions_read: 2 });
+    let mut wanted = place_at(&sessions, "session-1", Some(15), now_ms);
+    wanted.pass = Some(carried);
+    assert_eq!(second, Some(wanted.clone()));
+
+    assert_eq!(stored_from(&sessions, None, Some(&wanted), now_ms).unwrap(), the_number(15));
 }
