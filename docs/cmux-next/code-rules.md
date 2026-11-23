@@ -52,7 +52,9 @@ The pre-push gate (`scripts/cmux-next/prepush-gate.py`) and CI enforce most of t
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](../../plans/cmux-next/perf-lead.md)), before and after.
 - Agents may add CI gates, perf-gate rows and budgets, CI jobs, steps and tests (Aziz 2026-11-18 lifted the
-  2026-10-23 "no new CI" rule; comments that cite it describe why older checks stayed local). CI is
+  2026-10-23 "no new CI" rule; comments that cite it describe why older checks stayed local). Lawrence's separate
+  perf decision still stands: a perf run never blocks or slows a push, a pull request merge or a nightly; it runs on
+  the perf cron (`scripts/cmux-next/perf-cron.py`, [perf-lead.md](../../plans/cmux-next/perf-lead.md) F9). CI is
   in addition to your own run, never instead of it: each fix still gets a regression test that fails without it,
   you run it yourself on the fleet (cmux-ci, nx-remote) before and after the fix, and the commit says the result.
   Keep pull request CI fast: a check that takes more than about 10 minutes runs behind a path filter, on a

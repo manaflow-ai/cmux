@@ -73,10 +73,17 @@ fn a_typo_with_one_close_key_is_read_as_it_and_nothing_else_moves() {
     let (args, renamed) = call(&tools, "last", json!({"name": "a", "session": "b"}));
     assert_eq!(args, json!({"name": "a", "session": "b"}));
     assert!(renamed.is_empty());
-    // A key with no match stays for the tool to judge; run_wait's bg- id is its own case.
-    let (args, renamed) = call(&tools, "run_wait", json!({"id": "bg-1", "timeout": "600"}));
-    assert_eq!(args, json!({"id": "bg-1", "timeout": "600"}));
+    // A key with no match stays for the tool to judge.
+    let (args, renamed) = call(&tools, "last", json!({"name": "s", "verbosity": "high"}));
+    assert_eq!(args, json!({"name": "s", "verbosity": "high"}));
     assert!(renamed.is_empty());
+    // run_wait lists id and timeoutSeconds (#48988): a bg- id's `timeout` reads as the latter.
+    let (args, renamed) = call(&tools, "run_wait", json!({"id": "bg-1", "timeout": "600"}));
+    assert_eq!(args, json!({"id": "bg-1", "timeoutSeconds": "600"}));
+    assert_eq!(
+        renamed,
+        vec![Renamed { given: "timeout".into(), canonical: "timeoutSeconds".into() }]
+    );
     // Every acpmux tool's canonical call is left as it is.
     for tool in crate::mcp_hint::names(&tools) {
         let props = tools.as_array().unwrap().iter().find(|t| t["name"] == tool).unwrap()

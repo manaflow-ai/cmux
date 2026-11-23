@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "hiroshige-dusk",
+  "description": "Hiroshige's coast at Hota behind dark glass, warm paper ink and a vermilion accent, floating panes.",
+  "settings": {
+    "appearance.themeFile": "hiroshige-dusk",
+    "agentPane.display.font.ui": "source-sans"
+  }
+}

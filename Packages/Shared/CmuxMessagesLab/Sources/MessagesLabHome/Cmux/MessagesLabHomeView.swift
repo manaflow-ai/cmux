@@ -27,6 +27,8 @@ public final class MessagesLabHomeView: NSView {
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
+    /// The strings bundle this view's text was last drawn with (useStrings).
+    private var appliedStrings = ObjectIdentifier(MessagesLabLocalization.bundle)
 
     /// - Parameters:
     ///   - store: the app's HomeStore (one per daemon session; the view never creates one).
@@ -271,7 +273,8 @@ public final class MessagesLabHomeView: NSView {
         PaletteScope.with(box) {
             controller.host.headerBackdrop.setTint(Fixture.background)
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge,
+                                                    fill: theme.active.fieldFill)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // This view draws again whenever its rows were made with another palette (its own applied generation).
@@ -284,6 +287,34 @@ public final class MessagesLabHomeView: NSView {
         }
         controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
+
+    /// This package's own strings bundle (every MessagesLab catalog: Localizable, AppKitNative, CmuxHome).
+    /// A host that picks the language itself hands ``useStrings(_:)`` that bundle's `.lproj`
+    /// (CmuxNext: `Bundle.inAppLanguage`, the `app.language` setting).
+    public static var packageStrings: Bundle { .module }
+
+    /// Every MessagesLab string (the composer's placeholder, receipts, day separators, menus, Home's
+    /// own rows) from `bundle` from now on, and this view's drawn text again in it: a host's language
+    /// switch, live. The strings bundle is one for the process; each view redraws once per bundle.
+    public func useStrings(_ bundle: Bundle) {
+        let id = ObjectIdentifier(bundle)
+        guard id != appliedStrings else { return }
+        appliedStrings = id
+        if MessagesLabLocalization.bundle !== bundle {
+            MessagesLabLocalization.bundle = bundle
+            RowBitmaps.shared.removeAll()  // row bitmaps hold the old language's words (receipts, separators)
+        }
+        guard let demo = controller.demo else { return }
+        demo.scope {
+            demo.compose.stringsChanged()
+            demo.chrome.setNeedsDisplay()
+            demo.chrome.subviews.forEach { $0.setNeedsDisplay() }
+            demo.refreshVisibleCells()
+        }
+    }
+
+    /// The composer's placeholder, as its field's accessibility label (drawn and labelled together; tests).
+    var composerPlaceholder: String? { controller.demo?.compose.textView.view.accessibilityLabel() }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
     /// opens it in the app (`link.open`). Nil: the link opens nothing.
@@ -383,6 +414,20 @@ public final class MessagesLabHomeView: NSView {
             controller.host.needsLayout = true
         }
     }
+
+    /// cmux: how far the rows are scrolled from the top of their range, in this view's points; 0 at the oldest row.
+    public var scrolledFromTop: CGFloat {
+        controller.demo.map { max(0, $0.collection.contentOffset.y - $0.minOffset) * zoom } ?? 0
+    }
+
+    /// cmux: runs when the rows' scroll position changes (what scrolls with them, Home's Set Up cmux card).
+    public var onScrolled: (() -> Void)? {
+        get { controller.onScrolled }
+        set { controller.onScrolled = newValue }
+    }
+
+    /// cmux: a wheel event over something that scrolls with the rows scrolls the rows.
+    public func scrollRows(with event: NSEvent) { controller.host.scrollView.scrollWheel(with: event) }
 
     /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
     /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
@@ -663,8 +708,8 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
     }
-    /// The content hashes of the field's attachments, in order, each time they change: a chip
-    /// added or removed, or the draft sent.
+    /// The ids of the field's chips (``draftAttachmentIDs``), in order, each time they change: a
+    /// chip added or removed, or the draft sent.
     public var onDraftAttachmentsChange: ([String]) -> Void {
         get { projection.onDraftAttachmentsChange }
         set { projection.onDraftAttachmentsChange = newValue }
@@ -692,9 +737,13 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    /// The field's chips' ids, in the order of `draftAttachments`: a chip's content hash, or
+    /// `hash#N` for another copy of the same picture (each paste is its own chip, #50984).
+    public var draftAttachmentIDs: [String] { projection.draftAttachmentIDs }
     public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
-    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+    /// Takes chip `id` out of the field: its content hash, or `hash#N` for another copy of it.
+    public func removeDraftAttachment(_ id: String) { projection.removeDraft(id) }
 
     /// The field's text.
     public var draftText: String { controller.store?.state.ui.draft.text ?? "" }

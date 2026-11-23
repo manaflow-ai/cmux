@@ -102,7 +102,7 @@ enum DebugNewTab {
     }
 
     private static func opening(_ opening: NewTabSparePool.Opening) -> JSONValue {
-        .object(["spare": .bool(opening.spare), "cross_window": .bool(opening.crossWindow), "refit": .bool(opening.refit),
+        .object(["spare": .bool(opening.spare), "idle": .bool(opening.idle), "cross_window": .bool(opening.crossWindow), "refit": .bool(opening.refit),
                  "ms": .number(opening.milliseconds)])
     }
 

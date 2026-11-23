@@ -27,6 +27,10 @@ deletes the clone; off a Mac it prints the fleet route, `cmux-ci hot-verify N --
 Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 [docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
 
+A signed-in build to drive is a copy of a signed-in app, not an "authenticated dev build": `cmux app try <PR|sha>`
+in your NIGHTLY (production account), `cmux-ci run ... --sign-in agent` for an agent step, `--for-person` on a
+Swift build handed to a person. Table: [cmux-hot-loop, Signed in](skills/cmux-hot-loop/SKILL.md#signed-in-without-an-authenticated-dev-build).
+
 ## Every session
 
 - **Agents never compile or test on the person's Mac.** No local `swift build`/`swift test`, `xcodebuild`,
@@ -55,13 +59,13 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 - **macOS and iOS parity.** Every new cmux-next macOS feature also works in the iPhone app (`cmux-next-ios/`),
   with a row in [cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md); the exceptions
   (Mac-only chrome, what [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded
-  there. A phone path that needs new trust policy goes to https://github.com/manaflow-ai/cmux/issues/13742 first.
+  there. A phone path that needs new trust policy goes to Leo as one decision first (`tbd-leo add`, with a recommendation).
 - **Dev builds are separate.** A tagged dev build (Mac and iPhone) never sees or changes another build's
   backend data or local state, nor nightly's or stable's, and never reuses NIGHTLY's sign-in. The pre-push
   gate's "Build spaces" and "Dev build state is its own" checks enforce it:
   [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md).
-- **Agents may add CI gates, perf-gate rows, CI jobs and CI tests** (Aziz, 2026-11-18, lifted the 2026-10-23 "no
-  new CI" rule). CI adds to your own run: each fix still gets a regression test you run yourself on the fleet.
+- **Agents may add CI gates, perf-gate rows, CI jobs and CI tests** (Aziz 2026-11-18 lifted the "no new CI" rule;
+  perf runs still never block a push, merge or nightly). Each fix still gets a regression test you run on the fleet.
 - **Nightlies never use Blacksmith, run on one signing Mac, and nobody cancels them** (Lawrence, 2026-10-30
   and 2026-11-04): [landing](docs/ci/landing.md#ci-runners-and-nightlies).
 - **A change to the Mac or iOS app is done when the person can open it**: the report ends with the dev build
@@ -73,6 +77,7 @@ Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 
 Into `feat-cmux-next` you merge your own PR, pinned (`gh pr merge N --squash --match-head-commit <sha>`), once it
 causes no red of its own; review runs beside it. Into `main` it needs a review SHIP at the head. Never `--admin`.
+Adding a test or a CI job needs no CI thought: put the test where the code's tests already live, and the routers run only what a diff can affect from each job's declared inputs. A new PR job gets an entry in its router's map; one you forget is recorded as runs-always by `scripts/ci/job_inputs.py fix` (the PR autofix), never refused. Team members: [the CI protocol](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/ci/protocol.md).
 Which CI a PR runs: [CI coverage](skills/cmux-testing/references/pr-ci-coverage.md). Full rules:
 [landing](docs/ci/landing.md).
 
@@ -92,6 +97,13 @@ Read these before working in their scope; nested files may not load automaticall
   [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `Packages/macOS/`, `App/`, `Native/` (the Mac app's Swift): [Packages/macOS/AGENTS.md](Packages/macOS/AGENTS.md)
+  (where a change goes, what a lane VM can check, the common reds).
+- `backend/`, `workers/`, `services/`: [backend/AGENTS.md](backend/AGENTS.md) (test one file, the migration and
+  catalog reds).
+- `scripts/`, `tests/`, `ci/`: [scripts/AGENTS.md](scripts/AGENTS.md); `.github/workflows/`:
+  [.github/AGENTS.md](.github/AGENTS.md) (find and run one script's tests, add a workflow).
+- `webviews/`: [webviews/README.md](webviews/README.md).
 - `cmux-next-ios/`: [cmux-next-ios/CLAUDE.md](cmux-next-ios/CLAUDE.md) and
   [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md).
 
@@ -105,6 +117,8 @@ Read these before working in their scope; nested files may not load automaticall
 | Dev build backend data, local state and sign-in | [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md) |
 | Finishing a task: dev build, simulator, iPhone hand-off | [finishing a task](skills/cmux-dev-workflow/references/finishing-a-task.md) |
 | Outside PRs, licenses, PR text, CI, review and merge | [landing](docs/ci/landing.md), [STYLE.md](STYLE.md), [risk tiers](docs/ci/risk-tiers.md) |
+| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
+| Screenshots and clips for a PR: crop, before/after, trim | [evidence](skills/cmux-review/references/dogfood-and-merge.md) and `scripts/media/media_polish.py --help` |
 | Typing paths, SwiftUI list/store boundaries, rendering, find layering, UTTypes or OS-specific bugs | [cmux-debugging](skills/cmux-debugging/SKILL.md) |
 | Packages, workspace groups, lockfiles or feature flags | [cmux-architecture](skills/cmux-architecture/SKILL.md) |
 | Submodules or GhosttyKit | [cmux-ghostty](skills/cmux-ghostty/SKILL.md) |
@@ -112,7 +126,7 @@ Read these before working in their scope; nested files may not load automaticall
 | User-facing strings, docs or help | [cmux-localization](skills/cmux-localization/SKILL.md); report the localization audit |
 | A change people will notice (What's New, update card) | [release-notes/next/WRITING.md](release-notes/next/WRITING.md); add one curated highlight file in the same commit, never a commit subject |
 | New cmux shortcuts | [cmux-keyboard-shortcuts](skills/cmux-keyboard-shortcuts/SKILL.md) |
-| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust |
+| Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); [adding a test](skills/cmux-testing/references/adding-a-test.md): CI finds it; Python tests take a lane entry; the `cmux` CLI is cmux-tui Rust |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 | v2 socket methods, remote CLI relay (default deny) | [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md) |
 | Every task skill | [skills/README.md](skills/README.md) |

@@ -11,6 +11,7 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -27,6 +28,32 @@ COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'
 ORPHAN = 'export function Orphan() {\n  return <div />;\n}\n'
 CLEAN = 'export const clean = 1;\n'
+
+
+IMPORT = re.compile(r'''(?:\bfrom|\bimport\(?)\s*["'](\.\.?/[^"']+)["']''')
+
+
+def outside_imports():
+    """OUTSIDE plus every repo folder (two levels: cmux-tui/crates) a tracked webviews file imports by a relative
+    path that leaves webviews/. The hand-kept list missed CalendarWidget.gallery.tsx's
+    first-party-apps/widget-calendar/preview/scenes.json (#47735) until #49071, and every test here failed with it;
+    it still misses cmux-tui/crates, cmux-tui/spec and config/vite-plus."""
+    listed = subprocess.run(['git', 'ls-files', '-z', '--', 'webviews/'], cwd=ROOT, check=True,
+                            capture_output=True).stdout.decode().split('\0')
+    found = set(OUTSIDE)
+    for name in listed:
+        if not name.endswith(('.ts', '.tsx', '.mts', '.mjs', '.js')) or not (ROOT / name).is_file():
+            continue
+        for target in IMPORT.findall((ROOT / name).read_text(errors='ignore')):
+            rel = os.path.relpath(os.path.normpath(ROOT / Path(name).parent / target), ROOT)
+            if rel.startswith(('webviews/', '..')):
+                continue
+            prefix = '/'.join(rel.split('/')[:2])
+            # The Swift page descriptors are copied into the fixture's history, not linked.
+            if not SWIFT.startswith(prefix) and (ROOT / prefix).exists():
+                found.add(prefix)
+    # A folder inside another listed one is linked with it.
+    return sorted(p for p in found if not any(p != q and p.startswith(q + '/') for q in found))
 
 
 def tracked_webviews_folders():
@@ -51,8 +78,9 @@ class Checkout:
             if (WEBVIEWS / name).exists():
                 shutil.copy2(WEBVIEWS / name, web / name)
         (web / 'node_modules').symlink_to(WEBVIEWS / 'node_modules')
-        # webviews/src imports these; they stay outside the fixture's history.
-        for name in OUTSIDE:
+        # webviews imports these (outside_imports); they stay outside the fixture's history.
+        outside = outside_imports()
+        for name in outside:
             (self.path / name).parent.mkdir(parents=True, exist_ok=True)
             (self.path / name).symlink_to(ROOT / name)
         for source in (ROOT / SWIFT).rglob('*.swift'):
@@ -60,7 +88,7 @@ class Checkout:
                 target = self.path / source.relative_to(ROOT)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
-        (self.path / '.gitignore').write_text(''.join(f'/{name}\n' for name in OUTSIDE) + 'node_modules\n')
+        (self.path / '.gitignore').write_text(''.join(f'/{name}\n' for name in outside) + 'node_modules\n')
         self.git('init', '-q', '-b', 'base')
         # This disposable repo is removed immediately after the test. Detached Git maintenance
         # must not keep writing .git/objects while TemporaryDirectory cleans it up.
@@ -208,6 +236,27 @@ class ScopedChecksTests(unittest.TestCase):
         entry = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
         checkout = self.checkout({f'{settings}/clean.ts': CLEAN}, {f'{settings}/AThemeTokens.gallery.tsx': entry})
         self.assertRun(checkout.run(COVERAGE), True, 'pages.settings.theme-tokens: duplicate id')
+
+    def test_coverage_pr_adding_an_invalid_entry_id_fails_with_warn_only_style_guards(self):
+        # Entry validity is not a style rule: #48230's invalid experiment id passed its own PR as a warning
+        # (CMUX_NEXT_STYLE_GUARDS=warn), then reddened every web-view PR's shard 1 (#49118).
+        settings = 'webviews/src/pages/settings/components'
+        entry = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
+        bad = entry.replace('id: "pages.settings.theme-tokens"', 'id: "pages.settings.Theme_Tokens"', 1)
+        self.assertNotEqual(bad, entry)
+        checkout = self.checkout({f'{settings}/clean.ts': CLEAN}, {f'{settings}/AThemeTokens.gallery.tsx': bad})
+        result = checkout.run(COVERAGE, style_guards='warn')
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn('pages.settings.Theme_Tokens: the id must be dotted lower kebab case', output)
+
+    def test_coverage_base_invalid_entry_id_warns_on_an_unrelated_pr_with_warn_only_style_guards(self):
+        settings = 'webviews/src/pages/settings/components'
+        entry = (WEBVIEWS / 'src/pages/settings/components/ThemeTokens.gallery.tsx').read_text()
+        bad = entry.replace('id: "pages.settings.theme-tokens"', 'id: "pages.settings.Theme_Tokens"', 1)
+        checkout = self.checkout({f'{settings}/AThemeTokens.gallery.tsx': bad}, {f'{settings}/clean.ts': CLEAN})
+        self.assertRun(checkout.run(COVERAGE, style_guards='warn'), False,
+                       'pages.settings.Theme_Tokens: the id must be dotted lower kebab case')
 
     def test_coverage_pr_dropping_an_owner_prefix_last_line_owns_it(self):
         allowlist = WEBVIEWS / 'test/gallery-coverage.allowlist.json'
