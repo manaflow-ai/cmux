@@ -100,7 +100,7 @@ enum BrowserHandlers {
         // Print, and Save Page As, Cast, QR code and Translate: the engine's own page panels (cmux_shim_page_command).
         registry.bindEffect("browserPrint", requires: nil, effect: { BrowserPagePrint(try context.page($0).tab).run() ? .done : .refused(MiscHandlerStrings.printUnavailable) })
         for (id, command) in BrowserPageCommand.Command.actions {
-            registry.bindEffect(id, requires: nil, effect: { try BrowserPageCommand(context.page($0).tab).run(command) ? .done : .refused(BrowserPageCommand.unavailable) })
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { try BrowserPageCommand(context.page($0).tab).run(command) ? .done : .refused(BrowserPageCommand.unavailable) })
         }
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
