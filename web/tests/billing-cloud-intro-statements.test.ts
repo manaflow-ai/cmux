@@ -68,6 +68,7 @@ function memoryStore(rows: CloudIntroStatementRow[]) {
       const due = dueCloudIntroStatement(row, now);
       if (!due) return null;
       const statement = build(row, due);
+      if (!statement) return null;
       byId.set(id, { ...row, statements: claimedStatementLog(row.statements, due, statement, now) });
       return { pass: row, day: due.day, statement };
     },
@@ -407,7 +408,7 @@ describe("the usage read", () => {
 
 describe("the statement cron route", () => {
   const captureCoderouterError = mock(() => {});
-  mock.module("../services/errors", () => ({ captureCoderouterError }));
+  mock.module("../services/errors", () => ({ captureBillingError: () => {}, captureCoderouterError }));
 
   test("refuses without the cron secret and does nothing with the flag off", async () => {
     const { GET } = await import("../app/api/cron/cloud-pass-statements/route");
