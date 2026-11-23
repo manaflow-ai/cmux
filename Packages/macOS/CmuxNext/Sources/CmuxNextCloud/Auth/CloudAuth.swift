@@ -33,6 +33,13 @@ public final class CloudAuth {
     /// The bundled cmux that runs this sign-in's person calls on the daemon (``CloudOwnerAPIClient``'s `cloud.owner.*`):
     /// the Cloud service sets it once at start. Nil (a test, a build without cmux): those calls answer "cmux is not available".
     @ObservationIgnored public var machineIO: CloudMachineIO?
+
+    /// Sets ``machineIO`` to `io` and answers it.
+    public func runningPersonCalls(on io: CloudMachineIO) -> CloudMachineIO {
+        machineIO = io
+        return io
+    }
+
     @ObservationIgnored private var captureCleanupWaiters: [CheckedContinuation<Void, Never>] = []
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
