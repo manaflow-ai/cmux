@@ -172,6 +172,9 @@ public final class SettingsStore {
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
+    /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalPlainScroll`) at each drag through the same key.
+    public var terminalPlainScroll: Bool { didSet { save(terminalPlainScroll, "terminalPlainScroll") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
@@ -233,6 +236,8 @@ public final class SettingsStore {
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
+        terminalPlainScroll = defaults.object(forKey: "cmuxMobile.settings.terminalPlainScroll") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
         predictiveEcho = bool("predictiveEcho", true)
         terminalFitToPhone = bool("terminalFitToPhone", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.

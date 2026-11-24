@@ -4308,7 +4308,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // The reader scrolls itself while it is open.
             return model.isTUI && surface.superview === tuiHost && !tuiReader.isOpen
         }
-        tuiScroll.readerOpens = { [weak self] in self?.openTUIReader() ?? false }
+        // Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default).
+        tuiScroll.readerOpens = { [weak self] in
+            CmuxMobilePreferences.terminalPlainScroll() && self?.openTUIReader() == true
+        }
         tuiScroll.readerMoved = { [weak self] y in self?.tuiReader.dragMoved(translationY: y) }
         tuiScroll.readerEnded = { [weak self] velocity in self?.tuiReader.dragEnded(velocityY: velocity) }
         tuiScroll.selectionOwns = { [weak self] touch in

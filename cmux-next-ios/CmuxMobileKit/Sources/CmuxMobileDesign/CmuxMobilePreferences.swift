@@ -20,6 +20,10 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default; Leo, 2026-11-24: "we can
+        /// just treat the scroll like any pedestrian scroll"): on, a drag toward older rows in a full-screen
+        /// app scrolls the rows the phone kept (`TerminalTUIReader`), not the app's wheel.
+        public static let terminalPlainScroll = "cmuxMobile.settings.terminalPlainScroll"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
@@ -52,6 +56,8 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     public static let defaultTerminalChatToggle = false
+    /// Off until Leo picks it up (UI merges default-off).
+    public static let defaultTerminalPlainScroll = false
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
@@ -84,6 +90,13 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalChatToggle) == nil
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
+    }
+
+    /// Whether a full-screen app's drag toward older rows scrolls the rows the phone kept (off by default).
+    public static func terminalPlainScroll(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalPlainScroll) == nil
+            ? defaultTerminalPlainScroll : defaults.bool(forKey: Key.terminalPlainScroll)
     }
 
     /// Typed characters show at once over a slow link, underlined until the
