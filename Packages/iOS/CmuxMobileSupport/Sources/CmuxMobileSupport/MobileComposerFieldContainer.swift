@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 public import SwiftUI
 
 /// Shared rounded glass shell for mobile composer text fields.
@@ -37,3 +38,4 @@ public struct MobileComposerFieldContainer<Field: View, Trailing: View>: View {
         .mobileGlassField(cornerRadius: cornerRadius)
     }
 }
+#endif

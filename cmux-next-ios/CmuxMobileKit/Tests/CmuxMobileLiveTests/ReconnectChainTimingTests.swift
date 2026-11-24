@@ -655,6 +655,32 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         Attachment.record(lines.joined(separator: "\n"), named: "resume-keep.txt")
     }
 
+    /// Leo, 2026-11-24: back from another app, "the like multi-second long reattach where like
+    /// the entire thing is somehow grayed out". The reconnect starts at UIKit's
+    /// `willEnterForeground` (before the first frame), and the scene's `.active` after it is a
+    /// repeat that neither resumes nor redials again.
+    @Test func willEnterForegroundResumesOnceBeforeActive() async throws {
+        let rig = try await rig()
+        defer { rig.stop() }
+        let (live, session) = (rig.live, rig.session)
+        let kept = try #require(session.link.link) as AnyObject
+        let serial = session.workspaces.connectionSerial
+        live.background()
+        #expect(session.link.isBackgrounded)
+        live.willEnterForeground()
+        #expect(!session.link.isBackgrounded, "the reconnect waited for the scene's .active")
+        live.foreground()
+        live.willEnterForeground()
+        #expect((session.link.link as AnyObject?) === kept, "the repeat replaced the link")
+        #expect(session.workspaces.connectionSerial == serial, "the repeat unbound the workspaces")
+        // The next return starts early again.
+        live.background()
+        #expect(session.link.isBackgrounded)
+        live.willEnterForeground()
+        #expect(!session.link.isBackgrounded)
+        live.foreground()
+    }
+
     @Test func reconnectChainAfterForeground() async throws {
         let rig = try await rig()
         defer { rig.stop() }
@@ -750,7 +776,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         let session: MacSession
         let stop: @MainActor () -> Void
 
-        var link: ChainLink? { session.link.link as? ChainLink }
+        @MainActor var link: ChainLink? { session.link.link as? ChainLink }
     }
 
     private func rig() async throws -> Rig {

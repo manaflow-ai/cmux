@@ -1,3 +1,6 @@
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -61,14 +64,29 @@ public final class DaemonTerminalSession: TerminalSession {
     public let terminalID: String?
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
-    /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
-    public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
+    /// The Mac terminal's rows the screen was shown (`vt-state`, `resized`),
+    /// else the size asked for. A grid the reclaim hold keeps back is not the
+    /// screen's yet: read here, the page laid its mirror out at the Mac's
+    /// 118x69 while the phone's claim was out (Leo, 2026-11-23: "im sometimes
+    /// seeing these 118x69 load ins which are wide... then it properly goes").
+    public var remoteRows: Int? { shownGrid?.rows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
     /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
     private var hostGridChanged = false
-    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
-    /// first attach. The screen renders this grid when it is not the phone's.
-    public var remoteColumns: Int? { reportedColumns }
+    /// The Mac terminal's columns the screen was shown (`vt-state`,
+    /// `resized`); nil before the first grid reaches the screen. The screen
+    /// renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { shownGrid?.columns }
+    /// The last grid given to the screen (past the reclaim hold).
+    private var shownGrid: (columns: Int, rows: Int)?
+
+    /// Gives the screen events past the reclaim hold, noting the grid it now has.
+    private func deliver(_ events: [TerminalSessionEvent]) {
+        for event in events {
+            if case .hostGrid(let columns, let rows) = event { shownGrid = (columns, rows) }
+            handler?(event)
+        }
+    }
     /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
     private var toldHostGridOwner: String??
 
@@ -122,9 +140,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
     /// The daemon lists `send-expect-agent-v1`: `send` takes `submit` with
-    /// `paste` (``sendPasteAndSubmit(_:notSent:)``). An older daemon ignores `submit`
+    /// `paste` (``sendPasteAndSubmit(_:notSent:maybeSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
+    /// The daemon lists `send-typed-submit-v1`: `send {text, submit:true}`
+    /// with no `paste` writes Return a paste-burst window after the typed
+    /// text, in the same request (``sendTypedAndSubmit(_:notSent:maybeSent:)``).
+    private var typedSubmit = false
+    /// Composer sends (by their id in `input`, `paste`) that go as typed text,
+    /// not a paste, where the request is built here (no Rust outbox).
+    private var typedSends: Set<Int> = []
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
@@ -192,15 +217,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input-lane channel for `send`, once open.
     private var inputClient: DaemonClient?
     /// Keystrokes not yet sent, with when they were typed; sent as one
-    /// `send` (``drainInput()``). Keys older than `inputHoldLimit` when the
-    /// terminal can take them are dropped, never sent late (termfix-r13 D5:
+    /// `send` (``drainInput()``). Keys held past the reconnect giving up
+    /// (``expireInput()``) are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
     /// `typed`: the person's own input; false for Ghostty's replies to
     /// terminal queries (``sendReply(_:)``), which are never "keys not sent".
     /// `key`: a batch that may already have reached the Mac, put back to go
     /// again once, alone and under its first `send` key (``sendKeys``); nil
     /// for new keys. `paste`: the bytes are the composer's draft (UTF-8), sent
-    /// alone as `send {text, paste:true, submit:true}` (``sendPasteAndSubmit(_:notSent:)``).
+    /// alone as `send {text, paste:true, submit:true}` (``sendPasteAndSubmit(_:notSent:maybeSent:)``).
     private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool, key: String?, paste: Int?)] = []
     /// The Mac's daemon lists `send-key-v1` (its latest `identify`): a `send`
     /// carries a key, and one with a key it already applied writes nothing.
@@ -210,11 +235,29 @@ public final class DaemonTerminalSession: TerminalSession {
     /// thing": the dropped text went back to the composer, and a second Send
     /// typed it twice when the first had arrived).
     private var sendKeys = false
-    /// A composer paste's "not sent" call, by its id in `input` (`paste`):
-    /// called once when the paste is dropped, refused or answered with an
-    /// error, and forgotten once the daemon answers it.
-    private var pasteNotSent: [Int: @MainActor () -> Void] = [:]
+    /// A composer paste's "not sent" and "may have been sent" calls, by its id
+    /// in `input` (`paste`): one is called once when the paste is given up,
+    /// refused or answered with an error, and both are forgotten once the
+    /// daemon applies it.
+    private var pasteNotSent: [Int: (notSent: @MainActor () -> Void, maybeSent: @MainActor () -> Void)] = [:]
     private var nextPaste = 0
+    #if canImport(CmuxMobileLinkFFI)
+    /// The composer's Sends until the Mac answers them (Rust, `cmux-composer-send`). Each is one
+    /// keyed `send` (the draft and its Return), made at the tap; every attempt, on any channel
+    /// and after any reattach, carries that key, and the daemon types a key once. A Send whose
+    /// answer was lost goes again under it instead of being dropped, and one given up after it
+    /// went out is "may have been sent", never put back in the composer to be sent twice (Leo,
+    /// 2026-11-23: "there's like a sort of like double send type thing"). `paste` ids in `input`
+    /// are its Send numbers.
+    private let composerOutbox = ComposerOutbox(
+        nonce: "ios-\(UUID().uuidString)",
+        holdMs: UInt64(DaemonTerminalSession.inputHoldLimit * 1000)
+    )
+    #endif
+    /// The latest attach read the daemon's `identify` (``pasteSubmit``, ``sendKeys``). Before it,
+    /// a composer Send waits in the outbox for the attach instead of going through the mirror as a
+    /// paste and a separate Return.
+    private var identified = false
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
     /// reach the shell after the rest was dropped (r13 review).
@@ -225,7 +268,17 @@ public final class DaemonTerminalSession: TerminalSession {
     /// blips and said so (Leo, 2026-11-12, on LTE: "thjs chatters too often
     /// with connectivity"). 10 s rides those out and still never runs a
     /// command long after it was typed (termfix-r13 D5).
-    public static let inputHoldLimit: TimeInterval = 10
+    nonisolated public static let inputHoldLimit: TimeInterval = 10
+    /// Keys typed while the terminal reconnects wait for the attach however long the
+    /// reconnect takes: they are dropped when it gives up (its retries ran out, or the Mac
+    /// stayed offline for `inputHoldLimit`), not 10 s after they were typed (Leo,
+    /// 2026-11-24, back from another app: "I can't interact with anything at all"). This
+    /// ceiling is far past any reconnect (its backoff gives up in about 16 s, the link
+    /// calls the Mac offline after 4-8 s): it only covers an app suspended with keys
+    /// queued, whose next attach must not type them minutes later (termfix-r13 D5).
+    nonisolated public static let inputHoldCeiling: TimeInterval = 60
+    /// When the coordinator last called the Mac offline (``now``'s clock), while it is.
+    private var offlineSince: TimeInterval?
     /// At most this many typed bytes wait for a detached terminal; past it
     /// the queue is dropped as an expired one is (a long paste into a dead
     /// link is not replayed whole into whatever runs when it comes back).
@@ -256,6 +309,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var tailProbe: Task<Void, Never>?
     /// Sends written and not yet answered (tests).
     var inputsInFlight: Int { inputInFlight }
+    /// The oldest typed batch whose echo has not come yet: its number and its first key's tap.
+    /// The first output after it is its echo (PROTOCOL.md "Link stats", `echo`).
+    private var echoDue: (number: Int, typedAt: TimeInterval)?
+    /// The Mac's answer to the `echoDue` batch, ms after its tap, when it came first.
+    private var echoDueAckMs: UInt32?
     /// A tail probe is armed (tests).
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
@@ -365,11 +423,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (termfix-r13 D4, T-LIFE-13); an attached one is unaffected.
     public func setMacOffline(_ offline: Bool) {
         guard offline != macOffline else { return }
+        // Back: keys that waited out the hold while it was offline go now, before the attach.
+        if !offline { expireInput() }
         let before = connectionState
         macOffline = offline
+        offlineSince = offline ? now() : nil
         let after = connectionState
         if after != before, handler != nil, !ended { handler?(.connection(after)) }
-        if offline { expireInput() }
+        if offline { scheduleInputExpiry(after: Self.inputHoldLimit) }
     }
 
     /// `open` returns a client on a fresh `daemon` channel to the Mac;
@@ -416,19 +477,85 @@ public final class DaemonTerminalSession: TerminalSession {
     /// be lost after a replay) and writes Return in the same request.
     /// False against a daemon that does not list `send-expect-agent-v1`, or
     /// before the first attach said which daemon this is.
-    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        guard !text.isEmpty, pasteSubmit || !identified else { return false }
+        let id = Int(composerOutbox.push(text: text, submit: true, nowMs: Self.milliseconds(now())))
+        #else
         guard pasteSubmit, !text.isEmpty else { return false }
         let id = nextPaste
         nextPaste += 1
-        pasteNotSent[id] = notSent
+        #endif
+        pasteNotSent[id] = (notSent, maybeSent)
         enqueueTyped(Data(text.utf8), paste: id)
         return true
     }
 
-    /// Tells the screen a composer paste was not sent (once).
+    /// The composer's Send of a one-line draft to a full-screen program, as
+    /// one keyed `send {surface, text, submit:true}`: typed (vim takes a
+    /// bracketed paste as text even in normal mode), with Return in the same
+    /// request, so a link blip can never deliver the text without its Return
+    /// (Leo, 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). Held through a blip and sent once, like a pasted Send. False
+    /// against a daemon that does not list `send-typed-submit-v1` (one that
+    /// would write Return right behind the text, inside an agent's paste-burst
+    /// window): the screen keeps the mirror's path there.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        guard !text.isEmpty, (pasteSubmit && typedSubmit) || !identified else { return false }
+        let id = Int(composerOutbox.pushTyped(text: text, nowMs: Self.milliseconds(now())))
+        #else
+        guard pasteSubmit, typedSubmit, !text.isEmpty else { return false }
+        let id = nextPaste
+        nextPaste += 1
+        typedSends.insert(id)
+        #endif
+        pasteNotSent[id] = (notSent, maybeSent)
+        enqueueTyped(Data(text.utf8), paste: id)
+        return true
+    }
+
+    /// Gives a composer paste up and tells the screen (once): "may have been sent" when an
+    /// attempt went out (``composerOutbox``), else "not sent".
     private func pasteWasNotSent(_ id: Int?) {
-        guard let id, let notSent = pasteNotSent.removeValue(forKey: id) else { return }
-        notSent()
+        guard let id else { return }
+        #if canImport(CmuxMobileLinkFFI)
+        // In flight (its answer settles it) or already settled: nothing to give up here.
+        guard let done = composerOutbox.giveUpSend(seq: UInt64(id)) else { return }
+        composerSendEnded(done)
+        #else
+        typedSends.remove(id)
+        pasteNotSent.removeValue(forKey: id)?.notSent()
+        #endif
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    /// The daemon's answer to the composer Send `id`'s request: applied, refused, or an error that
+    /// may have typed it. A lost answer is ``ComposerSendAnswer/lost``: it goes again under its key.
+    private func composerAnswered(_ id: Int, _ answer: ComposerSendAnswer) {
+        guard let done = composerOutbox.answer(seq: UInt64(id), answer: answer) else { return }
+        composerSendEnded(done)
+    }
+
+    private func composerSendEnded(_ done: ComposerSendDone) {
+        guard let calls = pasteNotSent.removeValue(forKey: Int(done.seq)) else { return }
+        switch done.outcome {
+        case .sent: break
+        case .notSent: calls.notSent()
+        case .maybeSent: calls.maybeSent()
+        }
+    }
+
+    /// The attached daemon takes no `send` keys: every queued composer Send is given up (a resend
+    /// there could type it twice), and the screen gets back the ones that never went out.
+    private func giveUpComposerSends() {
+        input.removeAll { $0.paste != nil }
+        composerOutbox.giveUp().forEach(composerSendEnded)
+    }
+    #endif
+
+    nonisolated static func milliseconds(_ seconds: TimeInterval) -> UInt64 {
+        UInt64(max(0, seconds) * 1000)
     }
 
     private func enqueueTyped(_ bytes: Data, paste: Int?) {
@@ -449,13 +576,44 @@ public final class DaemonTerminalSession: TerminalSession {
             scheduleInputDrain()
             noteInteraction()
         } else {
-            // Dropped once they are too old to send, not at the reattach:
-            // the screen says so while the person still remembers typing.
-            let limit = Self.inputHoldLimit
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(limit))
-                self?.expireInput()
-            }
+            // Held for the attach while the terminal reconnects; dropped when the reconnect
+            // gives up (``expireInput()``), and the screen says so then.
+            scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+            reportHeldInput()
+        }
+    }
+
+    /// Typed bytes the screen was last told wait for the attach (``reportHeldInput()``).
+    private var reportedHeldBytes = 0
+
+    /// Tells the screen how many typed bytes wait for the attach (`.inputHeld`), when that
+    /// changed: the composer says keys are pending and offers Discard while there are any,
+    /// since they will be typed into whatever the terminal shows after the attach.
+    private func reportHeldInput() {
+        let held = attached ? 0 : input.reduce(0) { $0 + ($1.detached && $1.typed ? $1.bytes.count : 0) }
+        guard held != reportedHeldBytes else { return }
+        reportedHeldBytes = held
+        if handler != nil, !ended { handler?(.inputHeld(bytes: held)) }
+    }
+
+    /// The person discarded the keys held for the attach: none of them is sent, and nothing
+    /// says "not sent" (they chose it). A held composer send comes back to the composer.
+    /// Typing goes on queueing for the attach. A no-op while attached.
+    public func discardHeldInput() {
+        guard !attached, !input.isEmpty else { return }
+        let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
+        let pastes = input.compactMap(\.paste)
+        input.removeAll()
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) held typed bytes discarded by the person")
+        pastes.forEach(pasteWasNotSent)
+        reportHeldInput()
+    }
+
+    /// Checks the held keys against the hold (``expireInput()``) after `delay`.
+    private func scheduleInputExpiry(after delay: TimeInterval) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            self?.expireInput()
         }
     }
 
@@ -478,22 +636,37 @@ public final class DaemonTerminalSession: TerminalSession {
         // after a reattach (the screen is replayed by then).
         input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true, $0.key, $0.paste) }
         guard !input.isEmpty else { return }
-        let limit = Self.inputHoldLimit
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(limit))
-            self?.expireInput()
-        }
+        scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+        reportHeldInput()
     }
 
-    /// Keys that waited for a detached terminal longer than
-    /// `inputHoldLimit`: all queued keys are dropped (never only the oldest:
-    /// the rest of a command must not run alone), input is refused until the
-    /// next attach, and the screen is told. Keys typed while attached (a
-    /// slow but live link) never expire here.
+    /// Keys held for a detached terminal whose reconnect gave up: all queued
+    /// keys are dropped (never only the oldest: the rest of a command must not
+    /// run alone), input is refused until the next attach, and the screen is
+    /// told. Held, not dropped, while the terminal reconnects
+    /// (``inputHoldCeiling``). Keys typed while attached (a slow but live link)
+    /// never expire here.
     private func expireInput() {
-        let cutoff = now() - Self.inputHoldLimit
-        guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
-        dropDetachedInput(reason: "the terminal was unreachable for longer than \(Self.inputHoldLimit) s")
+        guard let reason = Self.heldInputExpiry(typedAt: input.filter(\.detached).map(\.at), now: now(),
+                                                gaveUp: gaveUp, offlineSince: macOffline ? offlineSince : nil) else { return }
+        dropDetachedInput(reason: reason)
+    }
+
+    /// Why keys held for a detached terminal (typed at `typedAt`) go now, or nil while
+    /// they wait for the attach: the reconnect gave up, the Mac was offline for
+    /// ``inputHoldLimit`` since the later of the key and the Mac going offline, or a key
+    /// is past ``inputHoldCeiling``.
+    nonisolated static func heldInputExpiry(typedAt: [TimeInterval], now: TimeInterval, gaveUp: Bool,
+                                            offlineSince: TimeInterval?) -> String? {
+        guard !typedAt.isEmpty else { return nil }
+        if gaveUp { return "the reattach gave up" }
+        if let offlineSince, typedAt.contains(where: { now - max($0, offlineSince) >= inputHoldLimit }) {
+            return "the Mac was offline for \(inputHoldLimit) s"
+        }
+        if typedAt.contains(where: { now - $0 >= inputHoldCeiling }) {
+            return "the terminal was unreachable for longer than \(inputHoldCeiling) s"
+        }
+        return nil
     }
 
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
@@ -501,6 +674,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
+        reportHeldInput()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
         guard bytes > 0 else { return }
@@ -610,6 +784,9 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        typedSends.removeAll()
+        echoDue = nil
+        echoDueAckMs = nil
         tailProbe?.cancel()
         tailProbe = nil
         autoReattach?.cancel()
@@ -1034,6 +1211,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            typedSubmit = identify.map { Self.lists(Self.typedSubmitCapability, $0) } ?? false
+            // Attached: this daemon's answer (or its silence: an older one) settles the composer's
+            // waiting Sends. One that takes no keys gives them up; they never went out.
+            identified = true
+            #if canImport(CmuxMobileLinkFFI)
+            if !composerOutbox.setCapabilities(capabilities: identify.map(Self.capabilities) ?? []) { giveUpComposerSends() }
+            #endif
             // `attach-surface` with this view's size (if any) and history
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
@@ -1177,6 +1361,8 @@ public final class DaemonTerminalSession: TerminalSession {
             settleReclaimHold()
             refusingInput = false
             everAttached = true
+            // The held keys go now (``drainInput()``): nothing is pending any more.
+            reportHeldInput()
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
@@ -1266,6 +1452,8 @@ public final class DaemonTerminalSession: TerminalSession {
             // it instead: the composer's quiet line with Retry, and a keystroke
             // tries again.
             gaveUp = true
+            // Keys held for this reattach are dropped now, and the screen says so.
+            expireInput()
             handler?(.connection(connectionState))
         }
     }
@@ -1304,6 +1492,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
         case .output(let data):
+            keyEchoed()
             show(.output(data))
         case .stamped(let seq, let receivedMs):
             show(.paintMark(seq: seq, receivedMs: receivedMs))
@@ -1445,7 +1634,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 armReclaimDeadline()
             }
         }
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// On screen with a grid the phone did not ask for: its size again, at
@@ -1502,7 +1691,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let events = reclaimHold.release(from: grid)
         guard !events.isEmpty else { return }
         log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
-        for event in events { handler?(event) }
+        deliver(events)
     }
 
     /// Shown with the Mac's grid held. The Mac already at the phone's grid
@@ -1614,6 +1803,37 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    // MARK: Keystroke round trips
+
+    /// Milliseconds since `typedAt` (the input clock), or nil past the hold limit (keys held over an
+    /// outage are an outage, not a slow key).
+    private func msSince(_ typedAt: TimeInterval) -> UInt32? {
+        let elapsed = now() - typedAt
+        guard elapsed >= 0, elapsed <= Self.inputHoldLimit else { return nil }
+        return UInt32((elapsed * 1000).rounded())
+    }
+
+    /// The Mac answered typed batch `number`: one `ack` sample for the next `link_stat`.
+    private func keyAnswered(number: Int, typedAt: TimeInterval) {
+        guard let ms = msSince(typedAt) else { return }
+        if echoDue?.number == number { echoDueAckMs = ms }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyAck(ackMs: ms)
+        #endif
+    }
+
+    /// Terminal output came: the echo of the oldest typed batch still waiting for one.
+    private func keyEchoed() {
+        guard let due = echoDue else { return }
+        echoDue = nil
+        let ack = echoDueAckMs
+        echoDueAckMs = nil
+        guard let ms = msSince(due.typedAt) else { return }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyEcho(echoMs: ms, ackMs: ack)
+        #endif
+    }
+
     // MARK: Input lane
 
     /// Opens the input-lane channel for the attach `main` (a no-op without
@@ -1681,6 +1901,25 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         if inputInFlight > 0, inputRecovering || inputTarget !== target || inputInFlight >= Self.maxInputInFlight { return }
+        // A composer Send goes as the outbox's request (its key made at the tap), pipelined in
+        // tap order up to the outbox's window; past it, the next waits for an answer.
+        let composerRequest: String?
+        #if canImport(CmuxMobileLinkFFI)
+        if let paste = input[0].paste {
+            guard let request = composerOutbox.nextRequest() else { return }
+            guard Int(request.seq) == paste else {
+                // Never by construction (both are in tap order): released, and nothing goes.
+                log.fault("surface \(self.surface, privacy: .public): composer send \(request.seq, privacy: .public) is not the queued \(paste, privacy: .public)")
+                composerOutbox.linkLost()
+                return
+            }
+            composerRequest = request.paramsJson
+        } else {
+            composerRequest = nil
+        }
+        #else
+        composerRequest = nil
+        #endif
         inputWriting = true
         inputInFlight += 1
         inputTarget = target
@@ -1700,8 +1939,15 @@ public final class DaemonTerminalSession: TerminalSession {
         // The person's own bytes in it: a failed batch of terminal replies
         // alone is no "keys not sent".
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
-        let key = resendKey ?? (sendKeys ? UUID().uuidString : nil)
+        let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        let typedSend = paste.map { typedSends.contains($0) } ?? false
+        // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
+        let timesEcho = typedBytes > 0 && paste == nil && !resent
+        if timesEcho, echoDue == nil {
+            echoDue = (number, typedAt)
+            echoDueAckMs = nil
+        }
         let surface = surface
         let onLane = target !== client
         let deadline = inputRequestDeadline
@@ -1710,10 +1956,17 @@ public final class DaemonTerminalSession: TerminalSession {
             var written = false
             do {
                 let submit: @Sendable () async throws -> String = {
-                    var params: [String: Any] = paste != nil
-                        ? ["surface": surface, "text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
-                        : ["surface": surface, "bytes": batch.base64EncodedString()]
-                    if let key { params["key"] = key }
+                    var params: [String: Any]
+                    if let composerRequest,
+                       let request = try? JSONSerialization.jsonObject(with: Data(composerRequest.utf8)) as? [String: Any] {
+                        params = request
+                    } else {
+                        params = paste != nil
+                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": !typedSend, "submit": true]
+                            : ["bytes": batch.base64EncodedString()]
+                        if let key { params["key"] = key }
+                    }
+                    params["surface"] = surface
                     return try await target.submit("send", params: params, deadline: deadline)
                 }
                 // A lane request gets written and answered within seconds or
@@ -1744,13 +1997,28 @@ public final class DaemonTerminalSession: TerminalSession {
                 } else {
                     reply = try await target.reply(to: id)
                 }
+                if timesEcho, Self.error(in: reply) == nil {
+                    keyAnswered(number: number, typedAt: typedAt)
+                }
                 if let error = Self.error(in: reply) {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
+                    #if canImport(CmuxMobileLinkFFI)
+                    // Refused with nothing written: the text comes back. Any other error may have
+                    // typed it (its key stays applied, so a resend would read as sent): "may have
+                    // been sent".
+                    if let paste { composerAnswered(paste, Self.knownNotDelivered(reply) ? .refused : .uncertain) }
+                    #else
                     // A composer paste the daemon refused: the screen gets its text back.
                     pasteWasNotSent(paste)
+                    #endif
                 } else if let paste {
+                    #if canImport(CmuxMobileLinkFFI)
+                    composerAnswered(paste, .applied)
+                    #else
                     pasteNotSent[paste] = nil
+                    typedSends.remove(paste)
+                    #endif
                 }
             } catch {
                 if !written { inputWriting = false }
@@ -1824,9 +2092,18 @@ public final class DaemonTerminalSession: TerminalSession {
             inputRecovering = false
             let failed = inputFailed.sorted { $0.number < $1.number }
             inputFailed.removeAll()
+            #if canImport(CmuxMobileLinkFFI)
+            // The composer Send that was out has no answer coming: it goes again under its key.
+            composerOutbox.linkLost()
+            let outboxResends = true
+            #else
+            let outboxResends = false
+            #endif
             // A written batch of terminal replies alone is no part of a
-            // command: losing it costs the keys typed after it nothing.
-            let uncertain = failed.filter { $0.written && $0.typed > 0 }
+            // command: losing it costs the keys typed after it nothing. A
+            // composer Send is the outbox's to send again (under its key, as
+            // often as the link needs): it never makes the keys around it uncertain.
+            let uncertain = failed.filter { $0.written && $0.typed > 0 && !(outboxResends && $0.paste != nil) }
             // Back in the queue, in order: a batch that may have arrived (or
             // was a resend) keeps its key and goes alone; one never written
             // goes with the keys after it under a new key.
@@ -2114,6 +2391,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let sendKeyCapability = "send-key-v1"
     /// `send` takes `submit` (with `paste`): Return in the same request as the paste.
     static let pasteSubmitCapability = "send-expect-agent-v1"
+    /// `send` with `submit` and typed text waits past a paste-burst window before Return.
+    static let typedSubmitCapability = "send-typed-submit-v1"
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
 
@@ -2178,10 +2457,15 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     nonisolated static func lists(_ capability: String, _ identify: Data) -> Bool {
+        capabilities(identify).contains(capability)
+    }
+
+    /// The `identify` reply's capabilities (none when it has no list).
+    nonisolated static func capabilities(_ identify: Data) -> [String] {
         guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
               let data = object["data"] as? [String: Any],
-              let capabilities = data["capabilities"] as? [String] else { return false }
-        return capabilities.contains(capability)
+              let capabilities = data["capabilities"] as? [String] else { return [] }
+        return capabilities
     }
 
     /// Whether the daemon takes the viewer's size in `attach-surface`.
@@ -2190,6 +2474,17 @@ public final class DaemonTerminalSession: TerminalSession {
               let data = object["data"] as? [String: Any],
               let capabilities = data["capabilities"] as? [String] else { return false }
         return capabilities.contains("attach-initial-size")
+    }
+
+    /// The daemon says the request's error wrote nothing (`error_delivery`).
+    nonisolated static func knownNotDelivered(_ reply: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] else { return false }
+        return object["error_delivery"] as? String == "known-not-delivered"
+    }
+
+    /// A composer request's `key`.
+    nonisolated static func requestKey(_ request: String) -> String? {
+        (try? JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])?["key"] as? String
     }
 
     private static func error(in reply: Data) -> String? {

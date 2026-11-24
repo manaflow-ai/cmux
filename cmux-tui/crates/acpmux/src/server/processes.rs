@@ -139,6 +139,14 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
 ///
 /// A census too large for one reply has its longest command lines cut (`fit_census`); one that
 /// still does not fit is refused with a pointer to `acpmux ps --json`, never sent over the cap.
+#[cfg(not(unix))]
+async fn census(_hub: &Arc<Hub>, _params: &Value) -> Result<Value, RpcError> {
+    // `cli::process_census` reads /proc and ps, which this platform has no arm for yet.
+    Err(RpcError::internal("the process census runs on unix only")
+        .with_data(json!({"reason": "census.unsupported"})))
+}
+
+#[cfg(unix)]
 async fn census(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     use crate::cli::process_census::{self, SessionInfo, Sessions};
     let caller = match params.get("callerSession").filter(|v| !v.is_null()) {
