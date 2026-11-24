@@ -93,6 +93,12 @@ pub enum SignalPayload {
         /// older peers, which still send relay frames and their marker.
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
+        /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"):
+        /// [`RELAY_READY`] when this side can join it, [`RELAY_NOW`] when it
+        /// joins at once (it has no other path); absent from older peers,
+        /// which never join.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -116,6 +122,10 @@ pub enum SignalPayload {
         /// older Macs.
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
+        /// As in `wg-init`: [`RELAY_READY`] or [`RELAY_NOW`]; absent from
+        /// older Macs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
     },
     /// A WireGuard side's new endpoints after a roam (or a new TURN
     /// allocation), the same announcement it sends inside the tunnel
@@ -131,6 +141,12 @@ pub enum SignalPayload {
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
     },
+    /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
+    /// "WebSocket relay"): its datagrams no longer reach the peer any other
+    /// way, so the peer joins too. Sent only to a peer that offered the
+    /// relay (`relay` in its `wg-init` / `wg-resp`).
+    #[serde(rename = "wg-relay")]
+    WgRelay {},
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -150,6 +166,11 @@ pub struct SignalEnvelope {
     /// sender. Clients never set it (the backend overwrites it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_user_id: Option<String>,
+    /// Stamped by the backend on forwarded `wg-*` signals (API 0.17.0): this
+    /// device's own ticket for the session's WebSocket relay, which a relay
+    /// join presents (PROTOCOL.md "WebSocket relay"). Clients never set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_ticket: Option<String>,
 }
 
 /// One sealed reply the backend held for this Mac (PROTOCOL.md "Reply
@@ -207,6 +228,14 @@ pub enum SignalMessage {
         session_id: Option<String>,
     },
 }
+
+/// `relay` in `wg-init` / `wg-resp`: this side can join cmux's WebSocket
+/// relay (PROTOCOL.md "WebSocket relay") when nothing else reaches the peer.
+pub const RELAY_READY: &str = "ready";
+/// `relay`: this side joins the relay at once, since it has no other path
+/// (no plain UDP and no TURN allocation); the peer joins too, without
+/// waiting for its own paths to fail.
+pub const RELAY_NOW: &str = "now";
 
 /// The WireGuard protocol version this side speaks (`version` in `wg-init`
 /// and `wg-resp`, PROTOCOL.md):
@@ -348,6 +377,9 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
+    /// sessions never move onto a Worker socket, nor a Worker's onto it.
+    local: std::sync::atomic::AtomicBool,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -524,6 +556,7 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            local: std::sync::atomic::AtomicBool::new(false),
         });
         let pinger = Arc::clone(&out);
         crate::liveness::spawn(async move { out.write_out(sink).await });
@@ -615,6 +648,19 @@ impl SignalingClient {
 
     pub fn device_id(&self) -> &str {
         &self.shared.device_id
+    }
+
+    /// Connect to a Mac's local hub (`local_hub.rs`) at `ws://host:port`:
+    /// no Worker, no account token (`token` is the hub's own).
+    pub async fn connect_local(base_url: &str, token: &str, device_id: &str) -> Result<Self, SignalingError> {
+        let client = Self::connect_in(base_url, token, crate::local::LOCAL_TEAM, device_id, None).await?;
+        client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(client)
+    }
+
+    /// Whether this socket runs to a Mac's local hub rather than the Worker.
+    pub fn is_local(&self) -> bool {
+        self.shared.local.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether `other` is a handle of this same socket.
@@ -717,6 +763,7 @@ impl SignalingClient {
             session_id: session_id.to_owned(),
             payload,
             from_user_id: None,
+            relay_ticket: None,
         });
         let text = serde_json::to_string(&message).expect("signal serializes");
         self.shared.out.push_signal(Signal::Text(text))
@@ -882,6 +929,7 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            local: std::sync::atomic::AtomicBool::new(false),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
@@ -994,6 +1042,7 @@ mod tests {
                 sdp_m_line_index: Some(0),
             },
             from_user_id: None,
+            relay_ticket: None,
         });
         let json: serde_json::Value = serde_json::to_value(&offer).unwrap();
         assert_eq!(

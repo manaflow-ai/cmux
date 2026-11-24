@@ -347,6 +347,14 @@ struct TerminalPage: View {
                 Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
             }
             Section {
+                Toggle(isOn: $settings.terminalComposerAutocorrect) {
+                    SettingsLabel("Composer Autocorrect", symbol: "textformat.abc")
+                }
+                .accessibilityIdentifier("settings.terminalComposerAutocorrect")
+            } footer: {
+                Text("Corrects and predicts words in the terminal composer, for talking to an agent in prose. Also in the composer's + menu.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalChatToggle) {
                     SettingsLabel("Terminal and Chat Toggle", symbol: "arrow.left.arrow.right")
                 }
@@ -378,6 +386,9 @@ struct ComposerPage: View {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
+                }
+                Toggle(isOn: $settings.swipeDownCollapsesComposer) {
+                    SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
@@ -549,6 +560,7 @@ struct TransportPage: View {
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @AppStorage(DeveloperOptions.blockUDPKey) private var blockUDP = false
+    @AppStorage(DeveloperOptions.forceRelayKey) private var forceRelay = false
     @AppStorage(DeveloperOptions.proxyOnlyKey) private var proxyOnly = false
     @AppStorage(DeveloperOptions.dropWireGuardKey) private var dropWireGuard = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
@@ -633,6 +645,11 @@ struct TransportPage: View {
                 }
                 .disabled(relayAvailable == false && !blockUDP)
                 .accessibilityIdentifier("settings.transport.blockUDP")
+                // The last resort on its own: cmux's WebSocket relay over HTTPS, at the next connection.
+                Toggle(isOn: $forceRelay) {
+                    Text("Relay via cmux (HTTPS) only")
+                }
+                .accessibilityIdentifier("settings.transport.forceRelay")
                 Toggle(isOn: $proxyOnly) {
                     Text("Proxy only")
                 }

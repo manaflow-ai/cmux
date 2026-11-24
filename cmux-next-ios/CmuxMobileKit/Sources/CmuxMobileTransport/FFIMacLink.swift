@@ -40,6 +40,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
                 options: ConnectOptions(relayOnly: endpoint.relayOnly, blockUdp: endpoint.blockUDP,
+                                        forceRelay: endpoint.forceRelay,
                                         proxyOnly: endpoint.proxyOnly, dropWireguard: endpoint.dropWireGuard,
                                         noVideoLane: endpoint.browserVideoOnChannel,
                                         ultra: Self.ultra()),
@@ -103,6 +104,13 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
     }
 
     var connectedPath: LinkPathKind? { handle.path().kind }
+
+    var peerScope: String { handle.peerScope() }
+
+    var tunnelKeys: TunnelKeys? {
+        let keys = handle.tunnelKeys()
+        return keys.count == 2 ? TunnelKeys(dialer: keys[0], answerer: keys[1]) : nil
+    }
 
     var receivedAgo: Duration? { .milliseconds(handle.receivedAgoMs()) }
 
@@ -338,6 +346,7 @@ extension LinkPath {
         case .direct: .direct
         case .turn: .turn
         case .turnTls: .turnTLS
+        case .httpsRelay: .httpsRelay
         case .noPath: .noPath
         }
     }

@@ -29,7 +29,7 @@ use tokio::net::{TcpListener, TcpStream};
 /// A phone network's round trip to the service (LTE, good signal).
 const RTT: Duration = Duration::from_millis(80);
 /// Samples per scenario.
-const SAMPLES: usize = 10;
+const SAMPLES: usize = 20;
 /// How long the phone stays in the background with its sockets cut: longer than one signaling
 /// keepalive (15 s), so the socket missed a pong, as after any background of more than a moment.
 const SUSPENDED: Duration = Duration::from_secs(20);
@@ -182,6 +182,7 @@ impl Rig {
             block_udp: false,
             proxy_only: false,
             drop_wireguard: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -191,12 +192,16 @@ impl Rig {
     /// What `.resume` does: `prewarm` and a fresh dial at once, then the first channel's first
     /// event. Every step in ms from the start.
     async fn resume(&self) -> BTreeMap<String, f64> {
+        self.resume_once().await.expect("redial or first echo")
+    }
+
+    async fn resume_once(&self) -> Option<BTreeMap<String, f64>> {
         let start = Instant::now();
         let (warmed, handle) = tokio::join!(
             self.pool.prewarm(self.path.url.clone(), "user:alice".into(), "team".into(), self.device.clone()),
             self.pool.connect(self.request(), None),
         );
-        let handle = handle.expect("redial");
+        let handle = handle.ok()?;
         let mut steps = BTreeMap::new();
         for mark in handle.timings() {
             steps.insert(mark.name, mark.millis);
@@ -205,13 +210,16 @@ impl Rig {
             steps.insert(format!("prewarm:{}", mark.name), mark.millis);
         }
         steps.insert("dialed".into(), ms(start.elapsed()));
-        let channel = handle.open_channel("echo".into(), String::new()).await.expect("channel");
+        let channel = handle.open_channel("echo".into(), String::new()).await.ok()?;
         steps.insert("channel_opened".into(), ms(start.elapsed()));
-        channel.send(b"first".to_vec()).await.unwrap();
-        assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"first".to_vec() });
+        channel.send(b"first".to_vec()).await.ok()?;
+        let echoed = tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.ok()?;
+        if echoed != (ChannelMessage::Data { bytes: b"first".to_vec() }) {
+            return None;
+        }
         steps.insert("first_event".into(), ms(start.elapsed()));
         handle.close();
-        steps
+        Some(steps)
     }
 
     /// A link up and idle, as the chat is before the app leaves the foreground.
@@ -248,6 +256,17 @@ fn summarize(scenario: &str, samples: &[BTreeMap<String, f64>]) {
             "RECONNECT_STEP {}",
             json!({"scenario": scenario, "rtt_ms": ms(RTT), "step": name, "n": values.len(),
                    "p50": percentile(&values, 0.5), "p95": percentile(&values, 0.95)})
+        );
+    }
+    let mut first_events: Vec<_> =
+        samples.iter().filter_map(|sample| sample.get("first_event").copied()).collect();
+    if !first_events.is_empty() {
+        first_events.sort_by(f64::total_cmp);
+        println!(
+            "RECONNECT_SUMMARY {}",
+            json!({"scenario": scenario, "n": samples.len(), "ok": first_events.len(),
+                   "first_event_p50": percentile(&first_events, 0.5),
+                   "first_event_p95": percentile(&first_events, 0.95)})
         );
     }
 }
@@ -287,6 +306,31 @@ async fn resume_after_a_suspension() {
         samples.push(steps);
     }
     summarize("resume_after_suspension", &samples);
+}
+
+/// FFI-path redial timing harness. Run once idle and once while the mobile-link
+/// duress matrix runs in another process, with the load label in the summary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "timed FFI redial measurement"]
+async fn ffi_redial_first_echo_n20() {
+    let scenario = std::env::var("RECONNECT_SCENARIO").unwrap_or_else(|_| "ffi_redial_idle".into());
+    let rig = Rig::start().await;
+    let mut samples = Vec::new();
+    let mut ok = 0;
+    for sample in 0..SAMPLES {
+        rig.settle().await;
+        rig.path.cut();
+        tokio::time::sleep(SUSPENDED).await;
+        if let Some(steps) = rig.resume_once().await {
+            ok += 1;
+            println!("RECONNECT {}", json!({"scenario": scenario, "sample": sample, "steps": steps}));
+            samples.push(steps);
+        } else {
+            println!("RECONNECT {}", json!({"scenario": scenario, "sample": sample, "ok": false}));
+        }
+    }
+    summarize(&scenario, &samples);
+    assert_eq!(ok, SAMPLES, "FFI redial samples failed");
 }
 
 /// Regression (ask-48f698fc26): after a suspension the warm signaling socket is half open, and a

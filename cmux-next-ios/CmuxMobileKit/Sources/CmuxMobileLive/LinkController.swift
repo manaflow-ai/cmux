@@ -36,6 +36,8 @@ public final class LinkController {
     public var dialGeneration: Int { machine.generation }
     /// The Mac holds the current link while the app is suspended.
     public var isParked: Bool { machine.isParked }
+    /// The app is in the background as far as this link knows (`.background` until `.resume`).
+    public var isBackgrounded: Bool { machine.isBackgrounded }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
@@ -276,9 +278,16 @@ public final class LinkController {
         // Before the effects: a background probe still out is cancelled first, so a probe an
         // effect starts now (a short resume's quick probe) is the one that runs.
         if wasBackgrounded != machine.isBackgrounded, phase.isConnected {
-            // A resumed park's probe is the one that ends the park: keep it.
-            let resuming = effects.contains { if case .resumeParked = $0 { true } else { false } }
-            if !resuming {
+            // A resumed park's probe is the one that ends the park: keep it. A park
+            // waits for the probe already out (its ping ignores cancellation; see `park`):
+            // keep that one too, or the park goes out while its ping is unanswered.
+            let keepsProbe = effects.contains {
+                switch $0 {
+                case .resumeParked, .park: true
+                default: false
+                }
+            }
+            if !keepsProbe {
                 probeTask?.cancel()
                 probeTask = nil
             }
@@ -320,7 +329,8 @@ public final class LinkController {
             endpoint.proxyOnly = DeveloperOptions.proxyOnly
             endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
+            endpoint.forceRelay = DeveloperOptions.forceRelay
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
