@@ -271,6 +271,10 @@ export type LoadStreamOptions = {
     elapsedMs: number;
     maxGapMs: number;
     maxScheduleOffsetMs: number;
+    /// This chunk's own gap from the one before and its lateness against its due time, so a reader
+    /// can take the maxima over a window of its own (a bench's typing window) instead of the run's.
+    gapMs: number;
+    scheduleOffsetMs: number;
   }) => void;
 };
 
@@ -544,10 +548,13 @@ export class MockAcpmuxSocket {
       } else await this.delay(options.chunkMs);
       if (options.stopped?.() || this.closed) break;
       const now = performance.now();
-      maxGapMs = Math.max(maxGapMs, now - previous);
+      const gapMs = now - previous;
+      maxGapMs = Math.max(maxGapMs, gapMs);
       previous = now;
+      let scheduleOffsetMs = 0;
       if (options.fixedSchedule) {
-        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, Math.max(0, now - nextChunkAt));
+        scheduleOffsetMs = Math.max(0, now - nextChunkAt);
+        maxScheduleOffsetMs = Math.max(maxScheduleOffsetMs, scheduleOffsetMs);
         nextChunkAt = started + (deltas + 2) * options.chunkMs;
       }
       const chunk = reply.slice(at % reply.length, (at % reply.length) + options.chunkChars);
@@ -569,7 +576,15 @@ export class MockAcpmuxSocket {
           },
         });
       }
-      options.progress?.({ deltas, toolLines, elapsedMs: now - started, maxGapMs, maxScheduleOffsetMs });
+      options.progress?.({
+        deltas,
+        toolLines,
+        elapsedMs: now - started,
+        maxGapMs,
+        maxScheduleOffsetMs,
+        gapMs,
+        scheduleOffsetMs,
+      });
       if (options.toolEvery > 0 && deltas % options.toolEvery === 0) {
         this.emit(target, { update: streamedTool(turn, tools) });
         tools += 1;

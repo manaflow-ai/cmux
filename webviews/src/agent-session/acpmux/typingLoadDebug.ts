@@ -4,6 +4,9 @@ import { MockAcpmuxSocket } from "./mock";
 // scrolling or layout reads: those would add measurement work to the key's critical path.
 export type TypingLoadOptions = {
   stop?: boolean;
+  /// Start the measurement window now: `windowMaxGapMs` and `windowMaxScheduleOffsetMs` cover only
+  /// the chunks sent after it. The run's own maxima (`maxGapMs`, `maxScheduleOffsetMs`) stay as they are.
+  mark?: boolean;
   chunks_per_second?: number;
   tool_lines_per_second?: number;
   seconds?: number;
@@ -21,6 +24,8 @@ let active:
         elapsedMs: number;
         maxGapMs: number;
         maxScheduleOffsetMs: number;
+        windowMaxGapMs: number;
+        windowMaxScheduleOffsetMs: number;
         error?: string;
       };
     }
@@ -40,6 +45,12 @@ export async function typingLoad(
     current.stopped = true;
     await current.done;
     return snapshot(current.receipt);
+  }
+  if (options.mark) {
+    if (!active) return { error: "no typing load" };
+    active.receipt.windowMaxGapMs = 0;
+    active.receipt.windowMaxScheduleOffsetMs = 0;
+    return snapshot(active.receipt);
   }
   // With no rate, read the receipt without starting or resetting the generator.
   if (options.chunks_per_second === undefined) return active ? snapshot(active.receipt) : { error: "no typing load" };
@@ -71,6 +82,8 @@ export async function typingLoad(
       elapsedMs: 0,
       maxGapMs: 0,
       maxScheduleOffsetMs: 0,
+      windowMaxGapMs: 0,
+      windowMaxScheduleOffsetMs: 0,
       error: undefined as string | undefined,
     },
   };
@@ -84,7 +97,11 @@ export async function typingLoad(
       fixedSchedule: true,
       toolLinesPerSecond: lines,
       stopped: () => state.stopped,
-      progress: (counts) => Object.assign(state.receipt, counts),
+      progress: ({ gapMs, scheduleOffsetMs, ...counts }) => {
+        Object.assign(state.receipt, counts);
+        state.receipt.windowMaxGapMs = Math.max(state.receipt.windowMaxGapMs, gapMs);
+        state.receipt.windowMaxScheduleOffsetMs = Math.max(state.receipt.windowMaxScheduleOffsetMs, scheduleOffsetMs);
+      },
     })
     .catch((error: unknown) => {
       state.receipt.error = String(error);
