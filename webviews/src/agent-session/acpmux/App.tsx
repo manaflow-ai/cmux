@@ -4806,6 +4806,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Send: the one Auto decided keeps the decision only if it goes (whenSendRefused).
   /// Auto picked and not yet decided: the daemon says where first; the prompt stays until it has.
   const autoSendGate = {
+    /// Auto picked: a send may stop at `holds` (asking nothing here), so it never goes ahead of its files.
+    picked: autoPicked,
     /// true: the composer's send stops here (the prompt stays); Auto sends it once decided.
     holds: (): boolean => {
       if (autoPicked && autoDecided.current?.page !== newTabGeneration) {
