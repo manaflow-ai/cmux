@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::Holder;
+use super::{Holder, MoveWish};
 
 /// What a client shows for a chat.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -102,6 +102,10 @@ pub struct SessionView {
     /// lease.
     #[serde(default)]
     pub standby: Vec<Holder>,
+    /// `move`: the person asked to move the chat and its holder has not given it yet. None when
+    /// nobody asked.
+    #[serde(rename = "move", default, skip_serializing_if = "Option::is_none")]
+    pub moving: Option<MoveWish>,
     /// The last event seq the store has.
     #[serde(default)]
     pub last_seq: u64,

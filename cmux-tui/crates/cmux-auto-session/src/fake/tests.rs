@@ -8,6 +8,7 @@ mod held;
 mod inbox;
 mod journey;
 mod lease;
+mod moves;
 mod owner;
 
 use std::fmt::Debug;

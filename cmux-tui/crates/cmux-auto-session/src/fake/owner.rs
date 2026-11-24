@@ -2,13 +2,15 @@
 //! list, one chat, and keeping a chat in the Cloud.
 
 use super::check;
+use super::moves;
 use super::record::view_of;
 use super::rules::{self, Step};
 use super::store::{Caller, Chat, Message, Store, invalid, named};
 use crate::chunks;
 use crate::cloud::{AutoCloudError, CloudResult};
 use crate::wire::{
-    CreateRequest, Delivery, ErrorCode, MachineSetting, PutRequest, SessionList, SessionView,
+    CreateRequest, Delivery, ErrorCode, MachineSetting, MoveRequest, MoveTo, PutRequest,
+    SessionList, SessionView,
 };
 
 /// How many chats a page of the list has when the caller names no limit, and at most.
@@ -115,8 +117,14 @@ impl Store {
 
     /// A chat started with no laptop: the Auto machine holds it, with a `create` assignment.
     /// Its first message is message 1 of its inbox, and names the chat: the same request
-    /// again answers the chat the first made.
-    pub fn create(&mut self, caller: &Caller, request: &CreateRequest) -> CloudResult<SessionView> {
+    /// again answers the chat the first made. `keep_in_cloud`: the request's `keepInCloud`,
+    /// which makes the chat in Cloud mode.
+    pub fn create(
+        &mut self,
+        caller: &Caller,
+        request: &CreateRequest,
+        keep_in_cloud: bool,
+    ) -> CloudResult<SessionView> {
         self.owner_only(caller)?;
         if request.title.as_deref().is_some_and(|title| !check::title(title)) {
             return Err(invalid("title: the chat's title (at most 200 characters)"));
@@ -142,7 +150,8 @@ impl Store {
             return Err(AutoCloudError::refused(ErrorCode::NoMachine, "no Auto machine is set"));
         };
         let now = self.now;
-        let mut chat = Chat::new(rules::cloud_record(&id, &self.owner, &machine, request, now));
+        let rec = rules::cloud_record(&id, &self.owner, &machine, request, keep_in_cloud, now);
+        let mut chat = Chat::new(rec);
         chat.inbox.push(Message {
             n: 1,
             id: first.id.clone(),
@@ -205,5 +214,29 @@ impl Store {
         named(id)?;
         self.owner_only(caller)?;
         self.apply(id, |chat, _| rules::keep(&chat.rec, keep_in_cloud)).map(|((), view)| view)
+    }
+
+    /// The person moves the chat now (`moves::move_to`). A laptop is named only with
+    /// `to: local`, as `device:<id>`.
+    pub fn move_to(
+        &mut self,
+        caller: &Caller,
+        id: &str,
+        request: &MoveRequest,
+    ) -> CloudResult<SessionView> {
+        named(id)?;
+        self.owner_only(caller)?;
+        let device = request.device.as_ref();
+        if device.is_some_and(|device| !device.is_device() || !check::writer(device)) {
+            return Err(invalid("device: the laptop to move the chat to, as device:<id>"));
+        }
+        if device.is_some() && request.to != MoveTo::Local {
+            return Err(invalid("device: only with to: local"));
+        }
+        let machine = self.machine.clone();
+        let moved = self.apply(id, |chat, now| {
+            moves::move_to(&chat.rec, request.to, device, machine.as_ref(), now)
+        });
+        moved.map(|((), view)| view)
     }
 }

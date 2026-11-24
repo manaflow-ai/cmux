@@ -21,7 +21,11 @@ const STATUS: Record<string, number> = {
   "auto.no_snapshot": 404,
   "auto.chunk_mismatch": 400,
   "auto.too_large": 413,
-  "auto.closed": 409
+  "auto.closed": 409,
+  "auto.off": 409,
+  "auto.no_laptop": 409,
+  "auto.no_move": 409,
+  "auto.not_copied": 409
 }
 /** A refusal goes out with the chat as it is now, and with what its code promises (`lastSeq`, `missing`), beside `error`. */
 export const refusal = (r: Extract<AutoResult<unknown>, { ok: false }>): Response => fail(STATUS[r.code] ?? 400, r.code, r.message, { ...(r.session ? { session: r.session } : {}), ...r.extra })
@@ -90,6 +94,8 @@ export const writerOf = (holder: unknown, epoch: unknown): { readonly holder: st
   return typeof holder === "string" && HOLDER.test(holder) && e !== null ? { holder, epoch: e } : null
 }
 export const WRITER_HELP = "holder: device:<id> or vm:<machine>; epoch: the epoch the holder last saw"
+/** A laptop as a holder names it: `device:<id>`. */
+export const isLaptop = (v: unknown): v is string => typeof v === "string" && v.startsWith("device:") && DEVICE.test(v.slice("device:".length))
 export const repoOf = (v: unknown): { readonly remote: string; readonly branch: string } | null => {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null
   const { remote, branch } = v as { remote?: unknown; branch?: unknown }

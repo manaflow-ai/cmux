@@ -11,6 +11,10 @@ pub const LEASE_MS: u64 = 45_000;
 /// under [`LEASE_MS`], so the laptop always stops before the Cloud takes the chat over.
 pub const SELF_STOP_MS: u64 = 35_000;
 
+/// A wish to move a chat by hand waits this long for its holder to give the chat. After it the
+/// store drops the wish and the chat stays where it is.
+pub const MOVE_MS: u64 = 120_000;
+
 /// While a turn streams, a copy goes to the Cloud at most this often.
 pub const STREAM_COPY_MS: u64 = 5_000;
 

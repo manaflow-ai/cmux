@@ -6,8 +6,9 @@ import { appendEvents, dropEvents, EVENTS_TABLE, planAppend, readEvents, type Ev
 import { ackInbox, addMessage, dropInbox, INBOX_TABLE, readInbox, sentState, type InboxMessage } from "./inbox.ts"
 import { ackAssignment, ackedInbox, close, cloudRecord, deliver, edit, fence, keep, leaseDue, machineSet, nextDue, openRecord, release, renew, tick, type LeaseRole, type OpenInput, type Refuse, type RenewInput, type Step } from "./lease.ts"
 import { machineGone } from "./machine-gone.ts"
-import { isVm, LEASE_MS, MAX_CHAT_BYTES, MAX_CHUNK_BYTES, MAX_INBOX_PENDING, MAX_WAIT_MS, viewOf, vmHolder, type AutoCaller, type AutoIndexEntry, type AutoMachine, type AutoRecord, type AutoRefusal, type AutoRepo, type AutoResult, type AutoSessionView, type InboxState } from "./model.ts"
-import { armIndexRetry, indexState, insertRecord, loadRecord, markIndexed, saveRecord } from "./record-store.ts"
+import { isVm, LEASE_MS, MAX_CHAT_BYTES, MAX_CHUNK_BYTES, MAX_INBOX_PENDING, MAX_WAIT_MS, viewOf, vmHolder, type AutoCaller, type AutoIndexEntry, type AutoMachine, type AutoRecord, type AutoRefusal, type AutoRepo, type AutoResult, type AutoSessionView, type InboxState, type MoveTo } from "./model.ts"
+import { give, move } from "./move.ts"
+import { armIndexRetry, indexState, insertRecord, loadRecord, markIndexed, openRecordTable, saveRecord } from "./record-store.ts"
 import { acceptSnapshot, chunkNames, CHUNKS_TABLE, dropSnapshots, getChunk, hasChunk, putChunk, readSnapshot, roomForChunk, sha256Hex, SNAPSHOTS_TABLE, weighChunks } from "./snapshots.ts"
 
 /** How soon a chat retries a failed write to its owner's index. */
@@ -24,7 +25,8 @@ const indexEntry = (r: AutoRecord, now: number): AutoIndexEntry => ({
   id: r.id,
   owner: r.owner,
   view: viewOf(r, now),
-  assignment: r.assignment !== null && isVm(r.holder) && r.machine !== null && r.team !== null ? { kind: r.assignment, machine: r.machine, team: r.team } : null
+  assignment: r.assignment !== null && isVm(r.holder) && r.machine !== null && r.team !== null ? { kind: r.assignment, machine: r.machine, team: r.team } : null,
+  wake: r.move?.machine ?? null
 })
 
 /**
@@ -34,14 +36,16 @@ const indexEntry = (r: AutoRecord, now: number): AutoIndexEntry => ({
  * Every change is one decision and its write in one storage transaction (`apply`): a pure rule of lease.ts reads
  * the record there and answers the next one or a refusal. After a change a viewer can see, it wakes its waits and
  * writes its row in the owner's AutoSessionIndexDO. That row also carries the assignment a machine has not acked,
- * which is how the machine finds its chats and how the index knows to start it.
+ * which is how the machine finds its chats and how the index knows to start it, and the machine a move waits on.
  *
- * One alarm serves three clocks: a laptop's lease end, a standby that stopped renewing, and the retry of an index
- * write that did not land. The change that moves a clock sets the alarm in the same write.
+ * One alarm serves four clocks: a laptop's lease end, a standby that stopped renewing, a wish to move the chat
+ * that its holder did not act on, and the retry of an index write that did not land. The change that moves a
+ * clock sets the alarm in the same write.
  */
 export class AutoSessionDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, raw: RawEnv) {
     super(ctx, envForObject(ctx, raw))
+    openRecordTable(ctx.storage.sql)
   }
 
   private readonly waiters = new Set<() => void>()
@@ -146,7 +150,8 @@ export class AutoSessionDO extends DurableObject<Env> {
   }
 
   /**
-   * The alarm: a laptop's lease that ran out, standbys that lapsed, an index write to try again. A failure of the
+   * The alarm: a laptop's lease that ran out, standbys that lapsed, a wish to move the chat that ran out, an index
+   * write to try again. A failure of the
    * work looks again shortly. Only a failure to set the next alarm is thrown, so the runtime runs this alarm again:
    * swallowed, it would leave a lease that never runs out.
    */
@@ -208,8 +213,9 @@ export class AutoSessionDO extends DurableObject<Env> {
   /**
    * `POST /v1/auto-sessions`: a chat started with no laptop. The Auto machine holds it and has to create it; its
    * first message waits in the inbox. `team`: the caller's, where a machine is looked for when the owner named none.
+   * `input.keepInCloud`: the chat is made in Cloud mode.
    */
-  async createCloud(owner: string, id: string, team: string | null, input: { readonly title: string; readonly harness: string; readonly repo: AutoRepo; readonly message: { readonly id: string; readonly text: string } }): Promise<AutoResult<AutoSessionView>> {
+  async createCloud(owner: string, id: string, team: string | null, input: { readonly title: string; readonly harness: string; readonly repo: AutoRepo; readonly keepInCloud?: boolean; readonly message: { readonly id: string; readonly text: string } }): Promise<AutoResult<AutoSessionView>> {
     const seen = loadRecord(this.sql)
     if (seen) return seen.owner === owner ? ok(viewOf(seen, Date.now())) : NOT_FOUND
     const machine = await this.autoMachine({ owner, team })
@@ -244,10 +250,13 @@ export class AutoSessionDO extends DurableObject<Env> {
     }
   }
 
-  async lease(by: AutoCaller, input: RenewInput): Promise<AutoResult<{ readonly session: AutoSessionView; readonly role: LeaseRole; readonly leaseMs: number }>> {
+  async lease(by: AutoCaller, input: RenewInput): Promise<AutoResult<{ readonly session: AutoSessionView; readonly role: LeaseRole; readonly leaseMs: number; readonly move?: MoveTo }>> {
     if (!this.admitted(by, true)) return NOT_FOUND
     const r = await this.apply((current, now) => renew(current, by, input, now))
-    return r.ok ? ok({ session: r.value.session, role: r.value.out.role, leaseMs: LEASE_MS }) : r
+    if (!r.ok) return r
+    const { session, out } = r.value
+    // The holder learns here that the person asked to move the chat: it stops, stores its copy and gives.
+    return ok({ session, role: out.role, leaseMs: LEASE_MS, ...(out.role === "holder" && session.move ? { move: session.move.to } : {}) })
   }
 
   async release(by: AutoCaller, holder: string, epoch: number): Promise<AutoResult<AutoSessionView>> {
@@ -267,6 +276,27 @@ export class AutoSessionDO extends DurableObject<Env> {
   async keep(owner: string, keepInCloud: boolean): Promise<AutoResult<AutoSessionView>> {
     if (!this.admitted({ kind: "owner", owner }, true)) return NOT_FOUND
     const r = await this.apply((current) => keep(current, keepInCloud))
+    return r.ok ? ok(r.value.session) : r
+  }
+
+  /**
+   * `POST move`: the person moves the chat now (move.ts). To the Cloud, the owner's Auto machine is found first,
+   * by the lookup a takeover uses; the chat's row in the owner's index then names it, so it is started.
+   */
+  async move(owner: string, to: MoveTo, device: string | null): Promise<AutoResult<AutoSessionView>> {
+    const chat = this.admitted({ kind: "owner", owner }, true)
+    if (!chat) return NOT_FOUND
+    const machine = to === "cloud" && chat.auto ? await this.autoMachine(chat) : null
+    const r = await this.apply((current, now) => move(current, to, device, machine, now))
+    return r.ok ? ok(r.value.session) : r
+  }
+
+  /** `POST give`: the holder hands the chat over as the person asked (move.ts). */
+  async give(by: AutoCaller, holder: string, epoch: number): Promise<AutoResult<AutoSessionView>> {
+    const held = this.admitted(by, true)
+    if (!held) return NOT_FOUND
+    const machine = await this.autoMachine(held)
+    const r = await this.apply((current, now) => give(current, by, holder, epoch, machine, now))
     return r.ok ? ok(r.value.session) : r
   }
 

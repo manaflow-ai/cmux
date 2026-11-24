@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Holder, SessionView};
+use super::{Holder, MoveTo, SessionView};
 
 /// What the store made of a renewal. A renewal is answered a role, never `auto.stale_epoch`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -58,6 +58,11 @@ pub struct LeaseAnswer {
     pub role: Role,
     /// How long the lease lasts from this renewal.
     pub lease_ms: u64,
+    /// `move`: the person asked to move the chat, and the caller holds it. The holder stops its
+    /// agent, stores its last events and a snapshot that covers them, then calls `give`. None
+    /// when nobody asked, and always None to a standby or a holder that lost the chat.
+    #[serde(rename = "move", default, skip_serializing_if = "Option::is_none")]
+    pub move_to: Option<MoveTo>,
 }
 
 /// `{holder, epoch}`: the writer's holder and epoch. `release` and `assignment/ack` send only

@@ -11,7 +11,7 @@ import { MAX_WAIT_MS, type AssignmentKind, type AutoIndexEntry, type AutoMachine
 
 export type AutoListCursor = { readonly createdAt: number; readonly id: string }
 export type AutoAssignment = { readonly kind: AssignmentKind; readonly session: AutoSessionView }
-type Row = { id: string; view: string; assign_kind: string | null; epoch: number; version: number }
+type Row = { id: string; view: string; assign_kind: string | null; epoch: number; version: number; wake_machine: string | null }
 /** How soon the alarm looks again after a start step could not run at all. */
 const STEP_RETRY_MS = 5_000
 /** The teams one look for a machine reads, at most. */
@@ -39,12 +39,17 @@ export const mayUseTeam = async (env: Env, owner: string, team: string): Promise
  *   the owner's chats. The wait is held here: a row that gains an assignment wakes it.
  * - One start per machine with an assignment waiting (machine-start.ts), and one look for a machine while a chat
  *   waits for one (machine-pick.ts), both stepped by this object's alarm.
+ * - The machine a move waits on (`wake_machine`: the person asked to move the chat, move.ts). It is kept started
+ *   as a machine with an assignment is: the Auto machine, so it is up when the laptop gives the chat, or the
+ *   machine that holds the chat and may be paused, so it reads the wish and gives.
  */
 export class AutoSessionIndexDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, raw: RawEnv) {
     super(ctx, envForObject(ctx, raw))
     const sql = ctx.storage.sql
-    sql.exec(`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, view TEXT NOT NULL, auto INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0, assign_kind TEXT, assign_machine TEXT, epoch INTEGER NOT NULL, created_at INTEGER NOT NULL, version INTEGER NOT NULL, team TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, view TEXT NOT NULL, auto INTEGER NOT NULL, blocked INTEGER NOT NULL DEFAULT 0, assign_kind TEXT, assign_machine TEXT, epoch INTEGER NOT NULL, created_at INTEGER NOT NULL, version INTEGER NOT NULL, team TEXT, wake_machine TEXT)`)
+    // An object made before a chat could be moved by hand has no machine a move waits on: none of its chats has one.
+    if (!hasColumn(sql, "sessions", "wake_machine")) sql.exec(`ALTER TABLE sessions ADD COLUMN wake_machine TEXT`)
     // An object made before a pick was kept per team has its rows without the chat's team: each row's view has it.
     if (!hasColumn(sql, "sessions", "team")) {
       sql.exec(`ALTER TABLE sessions ADD COLUMN team TEXT`)
@@ -52,6 +57,7 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
     }
     sql.exec(`CREATE INDEX IF NOT EXISTS sessions_newest ON sessions (created_at DESC, id DESC)`)
     sql.exec(`CREATE INDEX IF NOT EXISTS sessions_assigned ON sessions (assign_machine) WHERE assign_kind IS NOT NULL`)
+    sql.exec(`CREATE INDEX IF NOT EXISTS sessions_woken ON sessions (wake_machine) WHERE wake_machine IS NOT NULL`)
     openMachineTables(sql)
     sql.exec(STARTS_TABLE)
     sql.exec(LOOK_TABLE)
@@ -83,15 +89,21 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
    * - To a chat given to a machine that is not the one stored for it, and never picked up there: the stored one.
    *   So a move of the owner's chats that crossed another (a pick being sent while the owner named a machine)
    *   ends with every chat on the machine that is stored, whichever word reached the chat last.
+   *
+   * A row that names a machine a move waits on (`wake`) opens that machine's start too, once per wish.
    */
   async put(e: AutoIndexEntry): Promise<AutoMachine | null> {
-    const old = this.sql.exec<Row>(`SELECT id, view, assign_kind, epoch, version FROM sessions WHERE id = ?`, e.id).toArray()[0]
+    const old = this.sql.exec<Row>(`SELECT id, view, assign_kind, epoch, version, wake_machine FROM sessions WHERE id = ?`, e.id).toArray()[0]
     if (old && old.version >= e.view.version) return null
     this.sql.exec(
-      `INSERT INTO sessions (id, view, auto, blocked, assign_kind, assign_machine, epoch, created_at, version, team) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (id) DO UPDATE SET view = excluded.view, auto = excluded.auto, blocked = excluded.blocked, assign_kind = excluded.assign_kind, assign_machine = excluded.assign_machine, epoch = excluded.epoch, version = excluded.version, team = excluded.team`,
-      e.id, JSON.stringify(e.view), e.view.auto ? 1 : 0, e.view.blocked === "no_machine" ? 1 : 0, e.assignment?.kind ?? null, e.assignment?.machine ?? null, e.view.epoch, e.view.createdAt, e.view.version, e.view.team
+      `INSERT INTO sessions (id, view, auto, blocked, assign_kind, assign_machine, epoch, created_at, version, team, wake_machine) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET view = excluded.view, auto = excluded.auto, blocked = excluded.blocked, assign_kind = excluded.assign_kind, assign_machine = excluded.assign_machine, epoch = excluded.epoch, version = excluded.version, team = excluded.team, wake_machine = excluded.wake_machine`,
+      e.id, JSON.stringify(e.view), e.view.auto ? 1 : 0, e.view.blocked === "no_machine" ? 1 : 0, e.assignment?.kind ?? null, e.assignment?.machine ?? null, e.view.epoch, e.view.createdAt, e.view.version, e.view.team, e.wake?.machine ?? null
     )
+    if (e.wake && (old?.wake_machine !== e.wake.machine || !hasStart(this.sql, e.wake.machine))) {
+      openStart(this.sql, { machine: e.wake.machine, team: e.wake.team, owner: e.owner }, Date.now())
+      await this.arm()
+    }
     const team = e.view.team ?? personalTeamIdFor(e.owner)
     if (!e.assignment) {
       if (e.view.blocked !== "no_machine") return null
@@ -308,7 +320,8 @@ export class AutoSessionIndexDO extends DurableObject<Env> {
   private async due(): Promise<void> {
     try {
       for (const row of dueStarts(this.sql, Date.now())) {
-        const pending = this.sql.exec(`SELECT 1 FROM sessions WHERE assign_machine = ? AND assign_kind IS NOT NULL LIMIT 1`, row.machine).toArray().length
+        // What keeps a start open: an assignment the machine has not acked, or a move that waits on it.
+        const pending = this.sql.exec(`SELECT 1 FROM sessions WHERE (assign_machine = ? AND assign_kind IS NOT NULL) OR wake_machine = ? LIMIT 1`, row.machine, row.machine).toArray().length
         const said = await stepStart(this.sql, wakeCloud(this.env), (owner, team) => mayUseTeam(this.env, owner, team), row, pending, Date.now())
         // The store's own pick does not exist any more: look now, which replaces it or leaves its chats waiting for
         // a machine. A machine the owner named is theirs to name again; its start goes on as it did.

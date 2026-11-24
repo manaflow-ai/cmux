@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use vectors::{Case, Step, Vectors};
 
 /// Every route of the `AutoCloud` trait. Each has at least one step in the vectors.
-const OPS: [&str; 21] = [
+const OPS: [&str; 23] = [
     "machine",
     "set_machine",
     "put",
@@ -36,6 +36,8 @@ const OPS: [&str; 21] = [
     "inbox",
     "ack_inbox",
     "keep",
+    "move",
+    "give",
     "assignments",
     "ack_assignment",
 ];
