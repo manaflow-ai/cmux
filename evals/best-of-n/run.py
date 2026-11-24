@@ -36,8 +36,10 @@ import time
 
 HERE = Path(__file__).resolve().parent
 TASKS = HERE / "tasks"
-# Task sets: `tasks` (small, saturated for current models) and `tasks_hard` (aimed at single ~0.3-0.5).
-SETS = ("tasks", "tasks_hard")
+# Task sets: `tasks` (small, saturated for current models), `tasks_hard` (aimed at single ~0.3-0.5, but single 0.85
+# for haiku) and `tasks_real` (real cmux bug fixes ported to Python: the buggy code, its bug report and the spec;
+# saturated too: haiku solved 36 of 36 at effort low, results/ holds the runs).
+SETS = ("tasks", "tasks_hard", "tasks_real")
 
 
 def use_set(work: Path, chosen: str | None = None) -> str:
