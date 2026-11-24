@@ -140,7 +140,7 @@ jobs:
   tier-full:
     name: "ci tier: full"
     needs: [route, size-budget, screen-share-drop-gate, classic-api-guard, swift-linux-packages, web-validation, pipeline]
-    if: ${{ always() && needs.route.result == 'success' && needs.route.outputs.tier == 'full' }}
+    if: ${{ !cancelled() && needs.route.result == 'success' && needs.route.outputs.tier == 'full' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
