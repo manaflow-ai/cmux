@@ -168,6 +168,11 @@ public struct LinkMachine: Sendable {
     /// what to show instead of "Reconnecting…" while the quiet retries go on,
     /// until a dial succeeds or the target or transport changes.
     public private(set) var networkBlock: NetworkBlock?
+    /// The dial whose `networkBlocked` set ``networkBlock``: a later dial that
+    /// fails for another reason (no `networkBlocked` before its `dialFailed`,
+    /// say the Mac went to sleep) clears it, so the line never blames the
+    /// network for a failure it did not cause.
+    private var networkBlockGeneration: Int?
     /// Retry delays in seconds after the silent retries; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
     /// A background shorter than this keeps the link: a quick probe, no redial.
@@ -331,9 +336,11 @@ public struct LinkMachine: Sendable {
         case .networkBlocked(let gen, let block):
             guard gen == generation, case .connecting = phase else { return [] }
             networkBlock = block
+            networkBlockGeneration = gen
             return []
         case .dialFailed(let gen, let reason):
             guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
+            if networkBlockGeneration != gen { networkBlock = nil }
             // Presence said offline and a dial (``Event/open``) confirmed it:
             // offline now, no retry loop until presence brings the Mac back.
             if target?.isOnline == false {

@@ -603,7 +603,7 @@ export const nextDocPages: NextDocPage[] = [
       { ul: [
         "mobile-api.cmux.dev, TCP 443: wss://mobile-api.cmux.dev/v1/relay/... (HTTP/1.1 with Upgrade: websocket).",
       ] },
-      { p: "A proxy or firewall must allow WebSocket upgrades to that host and keep the connection open. This way is slower than the others, so the app moves off it as soon as a direct or TURN path works again." },
+      { p: "A proxy or firewall must allow WebSocket upgrades to that host and keep the connection open. This way is slower than the others, so the app moves off it about a minute after a direct or TURN path works again." },
       { h2: "TLS inspection" },
       { p: "The app checks the certificates of cmux's hosts and of the TURN host against the public certificate authorities. A proxy that decrypts HTTPS and re-signs it with its own certificate makes those checks fail. Exempt mobile-api.cmux.dev, api.stack-auth.com, cmux.com and turn.cloudflare.com from TLS inspection." },
       { h2: "When nothing works" },

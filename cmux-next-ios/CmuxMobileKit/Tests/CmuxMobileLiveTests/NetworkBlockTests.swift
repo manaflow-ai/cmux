@@ -71,6 +71,22 @@ import Testing
         #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (cmux, HTTPS)")
     }
 
+    /// Review of #53164: after moving to a good network, a later failure of
+    /// another kind (the Mac went to sleep) must not still say the network
+    /// blocks cmux.
+    @Test func aLaterFailureOfAnotherKindClearsTheBlock() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
+        let block = NetworkBlock(json: #"{"udp":"blocked","turn":"no_allocation","relay":"timeout"}"#)
+        _ = machine.handle(.networkBlocked(generation: machine.generation, block))
+        _ = machine.handle(.dialFailed(generation: machine.generation, reason: "this network blocks cmux"))
+        #expect(machine.networkBlock == block)
+        // The quiet retry fails with a plain timeout: no networkBlocked before it.
+        _ = machine.handle(.dialFailed(generation: machine.generation, reason: LinkError.timeoutReason))
+        #expect(machine.networkBlock == nil)
+        #expect(machine.phase.statusLine(macName: "Studio", block: machine.networkBlock) == "Reconnecting…")
+    }
+
     @Test func anotherMacOrTransportForgetsTheBlock() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
