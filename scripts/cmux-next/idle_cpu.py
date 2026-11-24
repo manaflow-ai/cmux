@@ -254,12 +254,31 @@ def wake_report(before: dict, after: dict) -> dict:
             "ledger_per_s": round(sum(e["per_s"] for e in ledger), 3), "timers": timers}
 
 
-def thread_wake_rows(traced: dict) -> list[dict]:
-    """thread_wakes.record's threads, busiest first: wakeups and CPU ms per second, with the thread's name."""
+def executable_name(bundle: str) -> str:
+    """The app's executable name (CFBundleExecutable): what a trace shows for a thread with no pthread name."""
+    import plistlib
+    try:
+        with open(Path(bundle) / "Contents" / "Info.plist", "rb") as handle:
+            return str(plistlib.load(handle).get("CFBundleExecutable") or "")
+    except (OSError, plistlib.InvalidFileException):
+        return ""
+
+
+def thread_wake_rows(traced: dict, sampled: dict | None = None, process_name: str = "") -> list[dict]:
+    """thread_wakes.record's threads, busiest first: wakeups and CPU ms per second, with the thread's name. A thread
+    with no pthread name (the trace shows the process name) is named by `sampled` (thread_wakes.sample_threads of a
+    `sample` of the same process): its dispatch queue, else its heaviest stack's first frames."""
+    import thread_wakes
     seconds = max(float(traced.get("seconds") or 0), 1e-3)
-    rows = [{"tid": tid, "name": t.get("name") or "?", "wakes_per_s": round(t.get("wakes", 0) / seconds, 2),
-             "cpu_ms_per_s": round(t.get("running_ns", 0) / 1e6 / seconds, 3)}
-            for tid, t in (traced.get("threads") or {}).items()]
+    rows = []
+    for tid, t in (traced.get("threads") or {}).items():
+        name = (t.get("name") or "").strip()
+        got = (sampled or {}).get(tid)
+        row = {"tid": tid, "name": thread_wakes.label("" if name == process_name else name, got) if got else (name or "?"),
+               "wakes_per_s": round(t.get("wakes", 0) / seconds, 2), "cpu_ms_per_s": round(t.get("running_ns", 0) / 1e6 / seconds, 3)}
+        if got and got.get("frames"):
+            row["frames"] = got["frames"][:6]
+        rows.append(row)
     return sorted(rows, key=lambda r: -r["wakes_per_s"])
 
 
@@ -832,7 +851,9 @@ def main(argv: list[str] | None = None) -> int:
             result["wakeups"] = wake_report(wakes_before, wake_call())
             log("IDLE-CPU-WAKE-LEDGER " + json.dumps(result["wakeups"], sort_keys=True)[:4000])
             traced = thread_wakes.record(process.pid, args.wake_trace)
-            result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced)
+            # A sample right after names the threads the trace cannot (no pthread name): same tids.
+            sampled = thread_wakes.sample_threads(sample(process.pid, "app-wake", out))
+            result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced, sampled, executable_name(bundle))
             log("IDLE-CPU-WAKE-THREADS " + json.dumps(result["thread_wakes"])[:4000])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
