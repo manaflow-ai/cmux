@@ -2479,6 +2479,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-web"
+version = "0.1.0"
+dependencies = [
+ "cmux-remote-protocol",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "snow",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "cmux-scope"
 version = "0.1.0"
 dependencies = [
