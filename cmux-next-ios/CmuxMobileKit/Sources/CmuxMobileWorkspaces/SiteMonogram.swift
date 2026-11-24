@@ -49,7 +49,18 @@ enum SiteMonogram {
 /// The monogram card face, laid out at the full page size like every card (the grid scales it
 /// down). `style` is the gallery's variant; the card uses `.tile`.
 struct SiteMonogramFace: View {
-    enum Style: String, CaseIterable { case tile, wash, letterOnly }
+    enum Style: String, CaseIterable {
+        case tile, wash, letterOnly
+
+        /// The gallery's row title: A is the one the setting turns on.
+        var galleryTitle: String {
+            switch self {
+            case .tile: "A tile"
+            case .wash: "B wash"
+            case .letterOnly: "C letter only"
+            }
+        }
+    }
 
     let host: String?
     var style: Style = .tile
@@ -106,8 +117,9 @@ public struct SiteMonogramGallery: View {
                 row("Off (today)") { _ in
                     BrowserCard(model: nil, insets: EdgeInsets(), lastKnown: nil, host: nil)
                 }
-                ForEach(Array(SiteMonogramFace.Style.allCases.enumerated()), id: \.offset) { index, style in
-                    row(["A", "B", "C"][index] + " " + style.rawValue) { host in SiteMonogramFace(host: host, style: style) }
+                // visible-only: a fixed gallery of three variants by six hosts (a DEBUG screenshot page).
+                ForEach(SiteMonogramFace.Style.allCases, id: \.self) { style in
+                    row(style.galleryTitle) { host in SiteMonogramFace(host: host, style: style) }
                 }
             }
             .padding(16)
@@ -120,6 +132,7 @@ public struct SiteMonogramGallery: View {
             Text(title).font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
+                    // visible-only: the gallery's six fixed hosts, unique by name.
                     ForEach(Self.hosts, id: \.self) { host in
                         VStack(spacing: 4) {
                             // A page-sized face scaled to a grid card, as TabsKit does.
