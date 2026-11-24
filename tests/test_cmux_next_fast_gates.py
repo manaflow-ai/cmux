@@ -600,8 +600,19 @@ class WorkflowShape(unittest.TestCase):
         # whose outcome the last step reads.
         # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
         # in full) and the last two run after the gate, so none of them is a verdict.
+        # Shard 1's background starts (scripts/ci/shard1_background.sh) fail open too: each check's own step waits for
+        # it, runs it inline when it never started, and that step's outcome is the one the gate reads.
         receipt_steps = ("same-input receipt", "the receipt's results")
+        fail_open = [s for s in steps if "shard1_background.sh start" in s.get("run", "")]
+        for step in fail_open:
+            with self.subTest(started=step["name"]):
+                started = step["run"].split("shard1_background.sh start ", 1)[1].split()[0]
+                waits = [s for s in steps if f"shard1_background.sh wait {started} " in s.get("run", "")]
+                self.assertEqual(len(waits), 1)
+                self.assertIn(f"${{{{ steps.{waits[0]['id']}.outcome }}}}", gated)
         for step in steps:
+            if step in fail_open:
+                continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
