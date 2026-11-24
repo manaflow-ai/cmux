@@ -28,17 +28,22 @@ public actor ParakeetModelStore {
     private var loaded: AsrModels?
     private var download: Task<AsrModels, any Error>?
     private var observer: (@Sendable (State) -> Void)?
-    public private(set) var state: State
+    public private(set) var state: State = .notDownloaded
 
     /// Parakeet runs on the Neural Engine of Apple silicon only.
     public nonisolated static var isSupported: Bool { SystemInfo.isAppleSilicon }
 
     /// - Parameter directory: The model's own folder, for example
     ///   `~/Library/Application Support/cmux-next/speech-models/parakeet-v3`.
+    ///   Made on any thread: the disk is read later, on the store's own executor (``refresh()``).
     public init(directory: URL) {
         self.directory = directory
-        state = AsrModels.modelsExist(at: directory, version: .v3)
-            ? .ready(diskBytes: Self.diskBytes(directory)) : .notDownloaded
+    }
+
+    /// Reads whether the model is on disk (and its size) when nothing is loading.
+    public func refresh() {
+        guard download == nil, loaded == nil else { return }
+        set(AsrModels.modelsExist(at: directory, version: .v3) ? .ready(diskBytes: Self.diskBytes(directory)) : .notDownloaded)
     }
 
     /// Calls `observer` with each new state (on no particular thread).

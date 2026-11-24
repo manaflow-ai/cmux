@@ -58,6 +58,7 @@ public final class ParakeetDictationLab {
         let store = makeStore()
         claims.engine = { meter in ParakeetDictationTranscriber(store: store, levelMeter: meter) }
         // On disk already: the first dictation loads it; nothing to show.
+        await store.refresh()
         if case .ready = await store.state { return }
         showsDownload = true
         await store.prepare()
