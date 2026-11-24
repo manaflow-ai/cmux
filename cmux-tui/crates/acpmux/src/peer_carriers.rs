@@ -816,6 +816,7 @@ impl Peer {
                     _ = stopped.changed() => return,
                 }
             }
+            crate::gauges::bump(&crate::gauges::links().probe_dials);
             let opened = tokio::select! {
                 opened = tokio::time::timeout(PROBE_CONNECT, self.open_probe(via)) => opened,
                 _ = stopped.changed() => return,
@@ -844,6 +845,8 @@ impl Peer {
     ) where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        // Held while this probe's connection is: `gauges.links.probesOpen`.
+        let _open = crate::gauges::Held::on(&crate::gauges::links().probes_open);
         let mut stopped = self.stop_changed.subscribe();
         let mut ping = tokio::time::interval(PROBE_EVERY);
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
