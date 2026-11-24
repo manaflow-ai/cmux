@@ -230,3 +230,72 @@ async fn the_dormant_tunnel_clears_at_its_bound() {
     assert!(!dormant::keeps(&pair.phone_id));
     dormant::set_hold_for_tests(None);
 }
+
+/// Lockstep: no new message goes on the wire (a resumed link is a new
+/// connection inside the tunnel both sides already run), so an old build on
+/// either side keeps working. A new phone with an old Mac (its tunnel ended
+/// with the link and it said `bye`): the phone keeps no ticket, or its
+/// resume misses and the full dial links as fast as alone. A new Mac with an
+/// old phone: the phone's `bye` ends the Mac's dormant tunnel, and its full
+/// dial links.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_old_side_on_either_end_still_links() {
+    let _serial = SERIAL.lock().await;
+    dormant::set_hold_for_tests(None);
+
+    // New phone, old Mac.
+    dormant::act_old_for_tests(false, true);
+    let pair = pair().await;
+    let connected =
+        dial::connect(&pair.phone, &pair.mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
+            .await
+            .expect("dial an old Mac");
+    echo(&connected.link).await;
+    connected.link.close("keepalive timed out");
+    drop(connected);
+    // The old Mac's bye ends the phone's dormant tunnel.
+    wait_until("the old Mac's bye ends the phone's dormant tunnel", Duration::from_secs(2), || {
+        dormant::ticket(&pair.mac_id).is_none()
+    })
+    .await;
+    assert!(!dormant::keeps(&pair.phone_id));
+    let ticket = dormant::ticket(&pair.mac_id);
+    let full_options = options();
+    let full = dial::connect(
+        &pair.phone,
+        &pair.mac_id,
+        TransportKind::WireGuard,
+        &full_options,
+        LinkConfig::default(),
+    );
+    let won = dormant::hedged(ticket, LinkConfig::default(), &Timeline::new(), full).await.expect("redial");
+    let Hedged::Full(connected) = won else { panic!("resumed on an old Mac") };
+    echo(&connected.link).await;
+    connected.link.close("done");
+    drop(connected);
+    dormant::act_old_for_tests(false, false);
+
+    // Old phone, new Mac.
+    dormant::act_old_for_tests(true, true);
+    let pair = pair().await;
+    let connected =
+        dial::connect(&pair.phone, &pair.mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
+            .await
+            .expect("an old phone dials");
+    echo(&connected.link).await;
+    connected.link.close("keepalive timed out");
+    drop(connected);
+    assert!(dormant::ticket(&pair.mac_id).is_none(), "an old phone keeps no ticket");
+    wait_until("the old phone's bye ends the Mac's dormant tunnel", Duration::from_secs(2), || {
+        !dormant::keeps(&pair.phone_id)
+    })
+    .await;
+    let connected =
+        dial::connect(&pair.phone, &pair.mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
+            .await
+            .expect("an old phone redials");
+    echo(&connected.link).await;
+    assert_eq!(pair.resumed.load(Ordering::Relaxed), 0);
+    connected.link.close("done");
+    dormant::act_old_for_tests(true, false);
+}

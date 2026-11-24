@@ -56,6 +56,8 @@ const PHONE_MARGIN: Duration = Duration::from_secs(10);
 /// The transport hold outlasts the bound a little (the tunnel is dropped at
 /// the bound anyway).
 const HOLD_MARGIN: Duration = Duration::from_secs(5);
+/// How long a resumed link waits for the Mac's answer loop to take it.
+const UNCLAIMED: Duration = Duration::from_secs(10);
 /// How often a dormant tunnel looks for the peer's `bye`.
 const BYE_CHECK: Duration = Duration::from_millis(250);
 /// The most dormant tunnels one side keeps (each peer has at most one: a
@@ -93,6 +95,27 @@ fn waiting() -> &'static Mutex<HashMap<u64, Dialed>> {
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Tests: a side that keeps no dormant tunnel, as a build before this one
+/// (bit 0: the phone, bit 1: the Mac).
+static OLD_SIDES_FOR_TESTS: AtomicU64 = AtomicU64::new(0);
+
+/// Tests: the phone (`dialer`) or the Mac side of this process acts as a
+/// build without dormant tunnels: its tunnel ends with its link, and it
+/// tells the peer (`bye`), as before.
+#[doc(hidden)]
+pub fn act_old_for_tests(dialer: bool, old: bool) {
+    let bit = if dialer { 1 } else { 2 };
+    if old {
+        OLD_SIDES_FOR_TESTS.fetch_or(bit, Ordering::Relaxed);
+    } else {
+        OLD_SIDES_FOR_TESTS.fetch_and(!bit, Ordering::Relaxed);
+    }
+}
+
+fn acts_old(dialer: bool) -> bool {
+    OLD_SIDES_FOR_TESTS.load(Ordering::Relaxed) & if dialer { 1 } else { 2 } != 0
+}
 
 /// A shorter bound for tests (0: [`DORMANT_HOLD`]).
 static HOLD_FOR_TESTS: AtomicU64 = AtomicU64::new(0);
@@ -182,6 +205,7 @@ impl Keeper {
                 return;
             }
             reason.is_some_and(ended_on_its_own)
+                && !acts_old(self.dialer)
                 && self.session.net().is_ok()
                 && tokio::runtime::Handle::try_current().is_ok()
         };
@@ -348,6 +372,12 @@ impl Keeper {
                 phone = self.peer_device,
                 "resumed link from a dormant tunnel"
             );
+            // The answer loop refused it (admission: the Mac's owner changed)
+            // or never took it: the link is dropped, and with it the tunnel.
+            tokio::spawn(async move {
+                tokio::time::sleep(UNCLAIMED).await;
+                lock(waiting()).remove(&ticket);
+            });
         } else {
             // No answer loop to take it: the phone's full dial goes on.
             lock(waiting()).remove(&ticket);
