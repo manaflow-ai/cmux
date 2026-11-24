@@ -48,7 +48,8 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
-import { OverloadNotice, useHostOverload } from "../OverloadNotice";
+import { OverloadNotice } from "../OverloadNotice";
+import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
 import { RulesNotice } from "../RulesNotice";
 import { composerShell, shellContextAttachments, type ShellRuns } from "../shell/shellRuns";
@@ -129,6 +130,8 @@ type WorktreeError = {
 export type PaneComposerDeps = {
   /// The dock's focus edge (App.tsx `markDockEdge`): the composer reports focus-visible in its card.
   markDockEdge: (lit: boolean) => void;
+  /// acpmux's overload verdict for this Mac (App.tsx `useHostOverload`); the notice shows only when over.
+  hostOverload: HostOverload | undefined;
   readOnlySubagent: boolean;
   /// The Composer relayed to the subagent a subagent pane shows (Composer.tsx `relay`).
   subagentRelay: ComposerRelay | undefined;
@@ -403,6 +406,7 @@ export type PaneComposerDeps = {
 /// The pane's composer tree: a subagent pane's relayed Composer, or (unless reviewing) the bottom
 /// stack of notices, the hat and the Composer.
 export function drawPaneComposer({
+  hostOverload,
   markDockEdge,
   readOnlySubagent,
   subagentRelay,
@@ -617,12 +621,6 @@ export function drawPaneComposer({
   setComputerUseAsked,
   holdsForComputerUseSetup,
 }: PaneComposerDeps) {
-  // acpmux's verdict on this Mac's load and swap (host_overload.rs): drawn only when it says over.
-  const readOverload = useCallback(
-    () => directClient.current?.hostOverload() ?? Promise.reject(new Error("no client")),
-    [directClient],
-  );
-  const hostOverload = useHostOverload(readOverload);
   // Where the composer's send runs, for `@computer-use` (CMUX-682): a chat off this Mac (a Cloud VM, a
   // Sandboxed run, a peer, an SSH host) has no Computer Use tools (acpmux gives a remote session no cmux
   // tools, #48541), so its send is held too, and the chat says so.
