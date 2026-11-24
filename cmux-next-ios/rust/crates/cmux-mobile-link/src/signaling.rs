@@ -227,6 +227,19 @@ pub enum SignalMessage {
         #[serde(default, rename = "sessionId")]
         session_id: Option<String>,
     },
+    /// The relay ticket of a session (PROTOCOL.md "Relay ticket"). Device → backend: `to` names
+    /// the peer; the session's ticket for this device is asked for before any signal of it.
+    /// Backend → device: `relayTicket` is that ticket. A backend that does not know the frame
+    /// refuses it like `link_stat`, and a device that does not know it ignores it.
+    #[serde(rename = "relay_ticket")]
+    RelayTicket {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to: Option<String>,
+        #[serde(rename = "relayTicket", default, skip_serializing_if = "Option::is_none")]
+        relay_ticket: Option<String>,
+    },
 }
 
 /// `relay` in `wg-init` / `wg-resp`: this side can join cmux's WebSocket
@@ -387,6 +400,14 @@ struct Shared {
     /// side; and the server stamped a relay ticket on it): the phone's early cue to
     /// join the relay. Else it is dropped, as a Mac before relay first drops it.
     early_relay_cue: std::sync::atomic::AtomicBool,
+    /// Relay tickets asked for and not yet delivered: sessionId → who waits for it.
+    ticket_waiters: Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>,
+    /// When the last `relay_ticket` request went out: a Worker older than the frame refuses it
+    /// with a session-less `bad_request "unknown frame type"` (swallowed within
+    /// [`LINK_STAT_ANSWER_WITHIN`], like `link_stat`'s, and no request goes out on this socket
+    /// again).
+    ticket_asked: Mutex<Option<std::time::Instant>>,
+    ticket_refused: std::sync::atomic::AtomicBool,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -515,6 +536,9 @@ impl SignalingClient {
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
             early_relay_cue: std::sync::atomic::AtomicBool::new(false),
+            ticket_waiters: Mutex::new(HashMap::new()),
+            ticket_asked: Mutex::new(None),
+            ticket_refused: std::sync::atomic::AtomicBool::new(false),
         });
         let pinger = Arc::clone(&out);
         crate::liveness::spawn(async move { out.write_out(sink).await });
@@ -743,6 +767,40 @@ impl SignalingClient {
         !self.shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Ask for this device's relay ticket for `session_id` with `peer`, before any signal of
+    /// it is sent (PROTOCOL.md "Relay ticket"): the answer arrives on the returned receiver, so
+    /// a relay join can start while the dial is still gathering and signaling. `None` when this
+    /// socket's Worker does not know the frame (it refused one), or the socket is closed; the
+    /// ticket then comes stamped on the peer's first `wg-*` signal, as before.
+    pub fn request_relay_ticket(
+        &self,
+        peer: &str,
+        session_id: &str,
+    ) -> Option<tokio::sync::oneshot::Receiver<String>> {
+        if self.shared.ticket_refused.load(std::sync::atomic::Ordering::Relaxed) {
+            return None;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.shared
+            .ticket_waiters
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(session_id.to_owned(), tx);
+        *self.shared.ticket_asked.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(std::time::Instant::now());
+        let text = serde_json::to_string(&SignalMessage::RelayTicket {
+            session_id: session_id.to_owned(),
+            to: Some(peer.to_owned()),
+            relay_ticket: None,
+        })
+        .expect("relay_ticket serializes");
+        if self.shared.out.push_signal(Signal::Text(text)).is_err() {
+            self.shared.ticket_waiters.lock().unwrap_or_else(PoisonError::into_inner).remove(session_id);
+            return None;
+        }
+        Some(rx)
+    }
+
     /// Close the socket. Sessions see `Disconnected`.
     pub fn close(&self) {
         self.shared.out.close();
@@ -812,8 +870,36 @@ impl Shared {
         }
     }
 
+    /// Whether `text` is an older Worker's refusal of the `relay_ticket` this socket just asked:
+    /// `bad_request "unknown frame type"` within [`LINK_STAT_ANSWER_WITHIN`] of it (a session
+    /// is named or not). It stops this socket's requests and never reaches a dial.
+    fn answers_relay_ticket(&self, text: &str) -> bool {
+        if !text.contains(UNKNOWN_FRAME_TYPE) {
+            return false;
+        }
+        let asked = *self.ticket_asked.lock().unwrap_or_else(PoisonError::into_inner);
+        if asked.is_none_or(|at| at.elapsed() >= LINK_STAT_ANSWER_WITHIN) {
+            return false;
+        }
+        match serde_json::from_str::<SignalMessage>(text) {
+            Ok(SignalMessage::Error { code, message, .. })
+                if code == "bad_request" && message == UNKNOWN_FRAME_TYPE =>
+            {
+                // A refusal of a `link_stat` sent meanwhile is told apart by its own window:
+                // both are rare, and both stop only their own frame.
+                self.ticket_refused.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.ticket_waiters.lock().unwrap_or_else(PoisonError::into_inner).clear();
+                tracing::debug!(
+                    "this Worker does not take relay_ticket; the ticket comes on the peer's signal"
+                );
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn dispatch_text(&self, text: &str, incoming: &mpsc::UnboundedSender<IncomingSession>) {
-        if self.answers_link_stat(text) || self.answers_app_ping(text) {
+        if self.answers_relay_ticket(text) || self.answers_link_stat(text) || self.answers_app_ping(text) {
             return;
         }
         let message = match serde_json::from_str::<SignalMessage>(text) {
@@ -838,6 +924,14 @@ impl Shared {
                 let _ = self.events.send(SignalingEvent::Mailbox(items));
             }
             SignalMessage::MailboxAck { .. } => {}
+            SignalMessage::RelayTicket { session_id, relay_ticket, .. } => {
+                if let Some(ticket) = relay_ticket
+                    && let Some(waiter) =
+                        self.ticket_waiters.lock().unwrap_or_else(PoisonError::into_inner).remove(&session_id)
+                {
+                    let _ = waiter.send(ticket);
+                }
+            }
             SignalMessage::Signal(envelope) => {
                 let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
                 if let Some(tx) = sessions.get(&envelope.session_id) {
@@ -899,6 +993,9 @@ mod tests {
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
             early_relay_cue: std::sync::atomic::AtomicBool::new(false),
+            ticket_waiters: Mutex::new(HashMap::new()),
+            ticket_asked: Mutex::new(None),
+            ticket_refused: std::sync::atomic::AtomicBool::new(false),
         };
         (shared, rx)
     }
@@ -929,6 +1026,55 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_relay_ticket_frame_reads_and_writes_the_documented_shape() {
+        let asked = serde_json::to_value(SignalMessage::RelayTicket {
+            session_id: "s1".into(),
+            to: Some("mac".into()),
+            relay_ticket: None,
+        })
+        .unwrap();
+        assert_eq!(asked["type"], "relay_ticket");
+        assert_eq!(asked["sessionId"], "s1");
+        assert_eq!(asked["to"], "mac");
+        let answer: SignalMessage =
+            serde_json::from_str(r#"{"type":"relay_ticket","sessionId":"s1","relayTicket":"T"}"#).unwrap();
+        assert!(matches!(
+            answer,
+            SignalMessage::RelayTicket { relay_ticket: Some(ref ticket), .. } if ticket == "T"
+        ));
+    }
+
+    #[test]
+    fn an_older_workers_refusal_of_relay_ticket_stops_requests_and_fails_no_dial() {
+        let (shared, mut events) = shared_for_test();
+        let (incoming, _in_rx) = mpsc::unbounded_channel();
+        let refusal = r#"{"type":"error","code":"bad_request","message":"unknown frame type"}"#;
+        // Nothing asked: a real error.
+        shared.dispatch_text(refusal, &incoming);
+        assert!(matches!(events.try_recv(), Ok(SignalingEvent::Error { session_id: None, .. })));
+        assert!(!shared.ticket_refused.load(std::sync::atomic::Ordering::Relaxed));
+        // A request is waiting: the refusal is swallowed, the waiter is released empty.
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        shared.ticket_waiters.lock().unwrap().insert("s1".into(), tx);
+        *shared.ticket_asked.lock().unwrap() = Some(std::time::Instant::now());
+        shared.dispatch_text(refusal, &incoming);
+        assert!(events.try_recv().is_err());
+        assert!(shared.ticket_refused.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_relay_ticket_answer_reaches_the_dial_waiting_for_it() {
+        let (shared, mut events) = shared_for_test();
+        let (incoming, _in_rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<String>();
+        shared.ticket_waiters.lock().unwrap().insert("s1".into(), tx);
+        shared.dispatch_text(r#"{"type":"relay_ticket","sessionId":"s1","relayTicket":"T"}"#, &incoming);
+        assert_eq!(rx.try_recv().unwrap(), "T");
+        assert!(events.try_recv().is_err());
+    }
 
     #[test]
     fn an_older_workers_refusal_of_link_stat_stops_stats_and_fails_no_dial() {

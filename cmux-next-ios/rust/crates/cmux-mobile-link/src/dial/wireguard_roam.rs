@@ -98,60 +98,14 @@ pub(super) enum Control {
     Relay { carrier: super::RelayCarrier, pending: bool },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
-}
-
-/// A relay join the Mac started on the phone's an early `wg-relay`, before `wg-init`.
-/// The relay watch takes its result instead of joining again; dropped unused
-/// it aborts the join (and closes a socket that finished).
-pub(super) struct EarlyJoin {
-    task: std::sync::Mutex<
-        Option<JoinHandle<Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure>>>,
-    >,
-}
-
-impl EarlyJoin {
-    pub(super) fn start(
-        endpoint: super::super::relay::RelayEndpoint,
-        session: String,
-        peer: String,
-        ticket: String,
-    ) -> Arc<Self> {
-        let task = tokio::spawn(async move {
-            super::super::relay::RelayCarrier::join(&endpoint, &session, &peer, Some(&ticket)).await
-        });
-        Arc::new(Self { task: std::sync::Mutex::new(Some(task)) })
-    }
-
-    /// The join's outcome, once; `None` after the first call or when it was
-    /// aborted or panicked.
-    async fn take(
-        &self,
-    ) -> Option<Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure>> {
-        let task = lock(&self.task).take()?;
-        task.await.ok()
-    }
-}
-
-impl Drop for EarlyJoin {
-    fn drop(&mut self) {
-        if let Some(task) = lock(&self.task).take() {
-            task.abort();
-        }
-    }
-}
-
-impl std::fmt::Debug for EarlyJoin {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EarlyJoin")
-    }
+    /// The relay says the peer's socket joined: the pending handshake initiation goes
+    /// again at once (the first one met an empty seat and was dropped).
+    RelayPeerUp,
 }
 
 /// This session's relay, when both sides offered it.
 #[derive(Debug, Clone)]
 pub(super) struct RelayPlan {
-    /// The Mac's join started on an early `wg-relay`, if the plan joins as the dial
-    /// starts ([`Self::first`]).
-    pub early: Option<Arc<EarlyJoin>>,
     pub endpoint: super::super::relay::RelayEndpoint,
     /// Join at once: one side said it has no other path.
     pub now: bool,
@@ -162,6 +116,52 @@ pub(super) struct RelayPlan {
     /// on a signal to this device (`relayTicket`); `None` from a service that
     /// stamps none, whose join is then refused.
     pub ticket: Option<String>,
+    /// A join already under way, started at the dial's start with the ticket the
+    /// service handed over before the peer's answer ([`EarlyJoin`]); the relay watch
+    /// takes it instead of dialing again.
+    pub early: Option<Arc<EarlyJoin>>,
+}
+
+/// A relay join that began before the tunnel did (PROTOCOL.md "Relay ticket"): the
+/// phone asked the service for its ticket at the dial's start, and joins as it arrives.
+/// `None` out of it: the join failed, and the watch joins on its own as before. Dropped
+/// unused (the peer does not dial the relay first), it ends the join.
+#[derive(Debug)]
+pub(super) struct EarlyJoin(
+    Mutex<Option<tokio::task::JoinHandle<Option<super::super::relay::RelayCarrier>>>>,
+);
+
+impl EarlyJoin {
+    pub(super) fn new(handle: tokio::task::JoinHandle<Option<super::super::relay::RelayCarrier>>) -> Self {
+        Self(Mutex::new(Some(handle)))
+    }
+
+    /// The Mac's join, started on the phone's early `wg-relay` before its `wg-init`
+    /// (with the ticket the service stamped on that signal).
+    pub(super) fn start(
+        endpoint: super::super::relay::RelayEndpoint,
+        session: String,
+        peer: String,
+        ticket: String,
+    ) -> Self {
+        Self::new(tokio::spawn(async move {
+            super::super::relay::RelayCarrier::join(&endpoint, &session, &peer, Some(&ticket)).await.ok()
+        }))
+    }
+
+    /// The join's outcome, once: `None` when it failed or was taken already.
+    pub(super) async fn take(&self) -> Option<super::super::relay::RelayCarrier> {
+        let handle = lock(&self.0).take()?;
+        handle.await.ok().flatten()
+    }
+}
+
+impl Drop for EarlyJoin {
+    fn drop(&mut self) {
+        if let Some(handle) = lock(&self.0).take() {
+            handle.abort();
+        }
+    }
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
@@ -1428,14 +1428,13 @@ async fn run_relay_watch(session: Weak<Session>) {
         let decided = Instant::now();
         tracing::info!(session = session.session_id, reason, "WireGuard joins cmux's relay");
         let host = plan.endpoint.host();
-        // The Mac's join started before `wg-init` is awaited, not begun here;
-        // one that failed is tried again as any join.
+        // A join begun at the dial's start is taken once; a failed one joins as before.
         let early = match &plan.early {
-            Some(early) => early.take().await.and_then(Result::ok),
+            Some(early) => early.take().await.map(Ok),
             None => None,
         };
         let joined = match early {
-            Some(carrier) => Ok(carrier),
+            Some(carrier) => carrier,
             None => {
                 super::super::relay::RelayCarrier::join(
                     &plan.endpoint,
@@ -1465,11 +1464,31 @@ async fn run_relay_watch(session: Weak<Session>) {
                 if lock(&shared.state).left.is_some_and(|left| left.elapsed() < RELAY_STICKY_WITHIN) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
-                *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
-                if session.control.send(Control::Relay { carrier, pending: plan.first }).is_err() {
+                let peer_online = carrier.peer_online_watch();
+                *lock(&shared.peer_online) = Some(peer_online.clone());
+                if session
+                    .control
+                    .send(Control::Relay { carrier, pending: plan.first && session.dialer })
+                    .is_err()
+                {
                     return;
                 }
                 shared.set_held(true);
+                if plan.first && session.dialer {
+                    // The initiation sent on the join finds an empty seat when the peer
+                    // joins later: send it again the moment the relay reports the peer,
+                    // not at the next repeat (250 ms).
+                    let mut online = peer_online;
+                    let control = session.control.clone();
+                    tokio::spawn(async move {
+                        while !*online.borrow_and_update() {
+                            if online.changed().await.is_err() {
+                                return;
+                            }
+                        }
+                        let _ = control.send(Control::RelayPeerUp);
+                    });
+                }
                 // Wake the tunnel so its handshake rides the relay: the dialer at once,
                 // the answerer a random moment later and only if the dialer's did not
                 // arrive meanwhile. Both sides often join in the same instant (their

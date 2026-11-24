@@ -450,7 +450,7 @@ fn relay_plan(
     own_now: bool,
     peer: Option<&str>,
     ticket: Option<String>,
-    early: Option<Arc<roam::EarlyJoin>>,
+    early: Option<roam::EarlyJoin>,
 ) -> Option<roam::RelayPlan> {
     let endpoint = options.relay.clone()?;
     let Some(peer) = peer else {
@@ -461,10 +461,31 @@ fn relay_plan(
     // Both sides join as the dial starts only when both said `first` (an older
     // peer says `ready` and keeps the 3 s rule; one with no other path, `now`).
     let first = !now && options.relay_first && peer == RELAY_FIRST;
-    // A join started on an early `wg-relay` is kept only when this plan joins as the dial
-    // starts; else it is dropped here, which closes it.
-    let early = if first || now { early } else { None };
+    // A join begun at the dial's start serves only a side that joins as the tunnel
+    // starts; for any other (an older peer: it keeps the 3 s rule) it ends unused.
+    let early = early.filter(|_| now || first).map(Arc::new);
     Some(roam::RelayPlan { endpoint, now, first, ticket, early })
+}
+
+/// Ask for this device's relay ticket now and join the relay when it arrives, beside the
+/// gather and the signaling round trip (PROTOCOL.md "Relay ticket"). `None` when the
+/// dial has no relay, does not dial it first, or the service takes no such request.
+fn start_early_join(
+    signaling: &SignalingClient,
+    options: &DialOptions,
+    mac: &str,
+    session_id: &str,
+) -> Option<roam::EarlyJoin> {
+    let endpoint = options.relay.clone()?;
+    if !options.relay_first || !options.relay_ticket_early {
+        return None;
+    }
+    let ticket = signaling.request_relay_ticket(mac, session_id)?;
+    let (mac, session_id) = (mac.to_owned(), session_id.to_owned());
+    Some(roam::EarlyJoin::new(tokio::spawn(async move {
+        let ticket = ticket.await.ok()?;
+        super::relay::RelayCarrier::join(&endpoint, &session_id, &mac, Some(&ticket)).await.ok()
+    })))
 }
 
 /// This side's `relay` in its `wg-init` / `wg-resp`: `now` with no other path,
@@ -1342,6 +1363,13 @@ impl HybridUnderlay {
                 // What went nowhere while nothing reached the peer goes again.
                 if self.direct.is_none_or(|route| route.carrier != Carrier::Udp) {
                     self.replay_recent(true);
+                }
+            }
+            Control::RelayPeerUp => {
+                if let Some((datagram, class)) =
+                    self.handshake_repeat.as_ref().map(|repeat| (repeat.datagram.clone(), repeat.class))
+                {
+                    self.send_relay(&datagram, class);
                 }
             }
             Control::KillRelay => {
@@ -2499,6 +2527,9 @@ pub(super) fn dial_wireguard<'a>(
             options.timeline.mark("early_wg_relay_sent");
         }
         let socket = bind_udp().map_err(transport_error)?;
+        // The relay ticket is asked for now, and the join runs beside the gather and the
+        // signaling round trip, so the relay is up when the Mac's answer arrives.
+        let early_join = start_early_join(signaling, options, mac, session_id);
         let (gathered, turn) = match early {
             Some(mut early) => {
                 let stun_side = early.stun.take();
@@ -2600,7 +2631,7 @@ pub(super) fn dial_wireguard<'a>(
         if peer_ip == DIALER_OVERLAY {
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
-        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, None);
+        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, early_join);
         if relay.is_none() && no_plain_udp(options) && turn.is_none() {
             // The relay was this side's only way, and the Mac has none.
             return Err(options.diagnosis.blocked());

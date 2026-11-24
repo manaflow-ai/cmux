@@ -57,6 +57,13 @@ pub struct FakeOptions {
     /// session: what an older Mac does with it (it drops signals of a session it
     /// has not seen), so only the phone's early cue is lost.
     pub drop_early_wg_relay: bool,
+    /// Behave as a Worker before `relay_ticket` frames: refuse one with
+    /// `bad_request "unknown frame type"`.
+    pub no_relay_ticket_frames: bool,
+    /// One network leg (say 20 ms), for counting a dial in legs: a signal or a relay
+    /// frame takes two (sender to the service, service to the peer), a `relay_ticket`
+    /// answer two, a relay join four (TCP open, then the upgrade and its answer).
+    pub signal_leg: std::time::Duration,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -286,6 +293,40 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
         match message {
             Message::Text(text) => {
                 let Ok(mut value) = serde_json::from_str::<Value>(&text) else { continue };
+                if value["type"] == "relay_ticket" {
+                    // The device's own ticket for a session with `to`, bound as a first
+                    // signal binds it (team-hub.ts); the answer goes to the asker only.
+                    let to = value["to"].as_str().unwrap_or_default().to_owned();
+                    let session = value["sessionId"].as_str().unwrap_or_default().to_owned();
+                    if options.no_relay_ticket_frames {
+                        let _ = out_tx.send(Message::Text(
+                            json!({"type":"error","code":"bad_request","message":"unknown frame type"})
+                                .to_string()
+                                .into(),
+                        ));
+                        continue;
+                    }
+                    let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+                    let admitted = match state.sessions.get(&session) {
+                        Some((a, b)) => (a == &device && b == &to) || (b == &device && a == &to),
+                        None => state.devices.get(&to).is_some_and(|target| target.user == user),
+                    };
+                    if admitted {
+                        state.sessions.entry(session.clone()).or_insert_with(|| (device.clone(), to.clone()));
+                        let ticket = state
+                            .tickets
+                            .entry((session.clone(), device.clone()))
+                            .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
+                            .clone();
+                        let answer = json!({"type":"relay_ticket","sessionId":session,"relayTicket":ticket});
+                        let (out, leg) = (out_tx.clone(), options.signal_leg * 2);
+                        tokio::spawn(async move {
+                            tokio::time::sleep(leg).await;
+                            let _ = out.send(Message::Text(answer.to_string().into()));
+                        });
+                    }
+                    continue;
+                }
                 if value["type"] != "signal" {
                     continue;
                 }
@@ -369,7 +410,16 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                                 .clone();
                             value["relayTicket"] = Value::String(ticket);
                         }
-                        let _ = target.send(Message::Text(value.to_string().into()));
+                        let text = value.to_string();
+                        if options.signal_leg.is_zero() {
+                            let _ = target.send(Message::Text(text.into()));
+                        } else {
+                            let leg = options.signal_leg * 2;
+                            tokio::spawn(async move {
+                                tokio::time::sleep(leg).await;
+                                let _ = target.send(Message::Text(text.into()));
+                            });
+                        }
                     }
                     (true, None) => {
                         let _ = out_tx.send(Message::Text(
@@ -474,7 +524,7 @@ async fn serve_relay(
     } else {
         None
     };
-    tokio::time::sleep(options.relay_join_delay).await;
+    tokio::time::sleep(options.relay_join_delay + options.signal_leg * 4).await;
     let callback = |_: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
         if let Some((status, code)) = refusal {
             let body = json!({"error": {"code": code, "message": code}}).to_string();
@@ -521,10 +571,6 @@ async fn serve_relay(
         }
         let _ = sink.close().await;
     });
-    let peer_socket = |state: &Arc<Mutex<State>>| {
-        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
-    };
     while let Some(Ok(message)) = source.next().await {
         match message {
             Message::Binary(bytes) => {
@@ -535,17 +581,35 @@ async fn serve_relay(
                 }
                 frame.peer = PeerId(device_bytes);
                 let Ok(encoded) = frame.encode() else { continue };
-                match peer_socket(&state) {
-                    Some(target) => {
-                        tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
-                        state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
-                        let _ = target.send(Message::Binary(encoded.into()));
+                // One leg to the service, which then looks the peer up, and one on to it.
+                let one_leg = options.signal_leg;
+                let (state, session, device, peer, out_tx) =
+                    (Arc::clone(&state), session.clone(), device.clone(), peer.clone(), out_tx.clone());
+                let forward = async move {
+                    tokio::time::sleep(one_leg).await;
+                    let target = {
+                        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+                        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
+                    };
+                    match target {
+                        Some(target) => {
+                            tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
+                            state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
+                            tokio::time::sleep(one_leg).await;
+                            let _ = target.send(Message::Binary(encoded.into()));
+                        }
+                        None => {
+                            tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
+                            let _ = out_tx.send(Message::Text(
+                                json!({"type":"peer","online": false}).to_string().into(),
+                            ));
+                        }
                     }
-                    None => {
-                        tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
-                        let _ = out_tx
-                            .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));
-                    }
+                };
+                if one_leg.is_zero() {
+                    forward.await;
+                } else {
+                    tokio::spawn(forward);
                 }
             }
             Message::Text(text) if text.as_str() == "ping" => {
