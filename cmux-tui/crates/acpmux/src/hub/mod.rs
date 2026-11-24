@@ -182,6 +182,7 @@ pub use peer_row::PeerRow;
 pub(crate) mod native_history;
 pub(crate) mod page_replies;
 pub(crate) mod row_log;
+pub(crate) mod subagent_list;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
@@ -267,6 +268,8 @@ pub(crate) fn prompt_attribution_mark(
     prompt_attribution::mark(params, sender, provenance);
 }
 mod prompt_sender;
+// A wake onto a cold, large chat: one batch on an interval, compacted first.
+pub(crate) mod cold_wake;
 mod protected_hold;
 // The account's rate limit holds every turn of a chat until its reset.
 mod queue;
@@ -2353,6 +2356,8 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             unwritten_prompt: StdMutex::new(None),
             gathering: StdMutex::new(None),
+            cold_batch: StdMutex::new(None),
+            cold_batch_turn: AtomicBool::new(false),
             person_hold: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
