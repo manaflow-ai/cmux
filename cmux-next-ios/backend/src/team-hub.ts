@@ -47,6 +47,8 @@ const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "n
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
+// How the link left the device: through a proxy, or one that inspects TLS (absent: direct).
+const LINK_STAT_EGRESS = new Set(["proxy", "inspected"])
 const LINK_STAT_MARKS = new Set([
   "signaling_open",
   "signaling_reused",
@@ -104,6 +106,8 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   if (switches !== undefined) line.switches = switches
   const net = word(f.net, LINK_STAT_NETS)
   if (net) line.net = net
+  const egress = word(f.egress, LINK_STAT_EGRESS)
+  if (egress) line.egress = egress
   const upS = num(f.upS, 30 * 86_400)
   if (upS !== undefined) line.upS = upS
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined

@@ -110,6 +110,9 @@ pub enum LinkPath {
     Turn,
     /// Through a TURN server reached over TLS (UDP blocked).
     TurnTls,
+    /// Through cmux's own WebSocket relay over HTTPS (neither UDP nor TURN
+    /// gets through: a network that allows only cmux's hosts, or only HTTPS).
+    HttpsRelay,
     /// No working route at the moment.
     NoPath,
 }
@@ -120,6 +123,7 @@ impl From<cmux_mobile_link::LinkPath> for LinkPath {
             cmux_mobile_link::LinkPath::Direct => Self::Direct,
             cmux_mobile_link::LinkPath::Turn => Self::Turn,
             cmux_mobile_link::LinkPath::TurnTls => Self::TurnTls,
+            cmux_mobile_link::LinkPath::HttpsRelay => Self::HttpsRelay,
             cmux_mobile_link::LinkPath::NoPath => Self::NoPath,
         }
     }
@@ -220,6 +224,13 @@ pub enum CmuxMobileError {
     Closed { message: String },
 }
 
+/// The code of [`CmuxMobileError::Refused`] when no way to the Mac worked
+/// and each one's failure is known (PROTOCOL.md "When no path works"): the
+/// network blocks the link. Its message is the failures as one JSON object
+/// (`cmux_mobile_link::dial::diagnosis::PathFailures`), which the app turns
+/// into the person's sentence and the IT details.
+pub const NETWORK_BLOCKED: &str = "network_blocked";
+
 /// The code of [`CmuxMobileError::Refused`] when the cmux service refused the
 /// access token (HTTP 401). The app refreshes the token once; a refused fresh
 /// token is a revoked session (it stops redialing and asks to sign in).
@@ -244,6 +255,9 @@ impl From<DialError> for CmuxMobileError {
             DialError::Bye(reason) => Self::Refused { code: "bye".into(), message: reason },
             DialError::Timeout => Self::Timeout,
             DialError::Transport(message) | DialError::Unexpected(message) => Self::Transport { message },
+            DialError::Blocked(failures) => {
+                Self::Refused { code: NETWORK_BLOCKED.into(), message: failures.to_json() }
+            }
         }
     }
 }
@@ -714,6 +728,23 @@ pub struct ConnectOptions {
     /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
     #[uniffi(default = false)]
     pub block_udp: bool,
+    /// Debug "simulate a network whose only way out is its proxy": like
+    /// `block_udp`, and TURN over TLS must leave through the system's proxy
+    /// (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
+    /// TURN server the dial fails at once and says so. WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub proxy_only: bool,
+    /// Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
+    /// requests pass, every UDP datagram carrying WireGuard (plain, or inside
+    /// TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
+    /// over TLS (path `TurnTls`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub drop_wireguard: bool,
+    /// Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+    /// takes no TURN allocation; it joins cmux's WebSocket relay at once and
+    /// rides it (path `HttpsRelay`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub force_relay: bool,
     /// Debug: do not offer the media lane, so browser video rides its
     /// reliable channel on either transport (the comparison baseline).
     #[uniffi(default = false)]
@@ -781,6 +812,9 @@ pub async fn connect_with_options(
         include_loopback: false,
         relay_only: options.relay_only,
         block_udp: options.block_udp,
+        proxy_only: options.proxy_only,
+        drop_wireguard: options.drop_wireguard,
+        force_relay: options.force_relay,
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
             && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
@@ -806,6 +840,12 @@ pub struct ConnectRequest {
     pub include_loopback: bool,
     pub relay_only: bool,
     pub block_udp: bool,
+    /// `ConnectOptions::proxy_only`.
+    pub proxy_only: bool,
+    /// `ConnectOptions::drop_wireguard`.
+    pub drop_wireguard: bool,
+    /// Debug: ride cmux's WebSocket relay only (`ConnectOptions::force_relay`).
+    pub force_relay: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
     pub video_lane: bool,
     /// WireGuard: offer a WebRTC media session beside the link for browser
@@ -1532,6 +1572,9 @@ mod redial_tests {
             include_loopback: true,
             relay_only: true,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -1794,19 +1837,40 @@ async fn dial(
         }
         Ok::<_, CmuxMobileError>((socket, reused))
     };
-    let (ice_servers, socket) =
-        tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
-    let (socket, reused) = socket?;
-    let ice_servers = without_turn_if_asked(ice_servers);
-    let options = DialOptions {
-        ice_servers,
+    let mut options = DialOptions {
+        // Filled in once `/v1/ice` answers, below.
+        ice_servers: Vec::new(),
+        // cmux's WebSocket relay, on the service the phone signs in and signals
+        // through: the last way to the Mac (PROTOCOL.md "WebSocket relay").
+        // CMUX_MOBILE_DEV_NO_RELAY=1 (simulator) dials without it.
+        relay: std::env::var_os("CMUX_MOBILE_DEV_NO_RELAY").is_none().then(|| {
+            cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+                request.base_url.clone(),
+                build_space(),
+                request.device_id.clone(),
+                request.token.clone(),
+            )
+        }),
+        // Debug "Relay via cmux (HTTPS) only" (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1).
+        force_relay: request.force_relay || std::env::var_os("CMUX_MOBILE_DEV_FORCE_RELAY").is_some(),
         include_loopback: request.include_loopback,
         // The rig's relay-only and UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
         relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        // A proxy-only network blocks UDP too.
+        block_udp: request.block_udp
+            || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some()
+            || proxy_only(request),
+        // The corporate network simulations (PROTOCOL.md "Corporate networks";
+        // simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1,
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1, and
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://host:port for the proxy).
+        drop_wireguard_udp: request.drop_wireguard
+            || std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress { require_proxy: proxy_only(request), ..Default::default() },
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,
@@ -1815,7 +1879,22 @@ async fn dial(
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
-    let attempt = dial_on(&socket, request, &options, reused).await;
+    // Once ICE answers, a WireGuard dial's TURN allocation starts
+    // (`EarlyTurn`, as a redial's does beside its reconnect), beside the rest
+    // of the socket's open, instead of after it inside the dial.
+    let ice = async {
+        let ice_servers =
+            without_turn_if_asked(pool.ice_servers(&request.base_url, &request.token, timeline).await);
+        let early = cmux_mobile_link::dial::EarlyTurn::for_dial(
+            request.transport.into(),
+            &DialOptions { ice_servers: ice_servers.clone(), ..options.clone() },
+        );
+        (ice_servers, early)
+    };
+    let ((ice_servers, early), socket) = tokio::join!(ice, socket);
+    let (socket, reused) = socket?;
+    options.ice_servers = ice_servers;
+    let attempt = dial_on(&socket, request, &options, reused, early).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
@@ -1827,6 +1906,11 @@ async fn dial(
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
+}
+
+/// The debug "Proxy only" network, from the app or the rig's environment.
+fn proxy_only(request: &ConnectRequest) -> bool {
+    request.proxy_only || std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some()
 }
 
 /// Measurement support (simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_TURN=1): no
@@ -1913,21 +1997,24 @@ async fn fail(pool: &Warm, socket: &Arc<WarmSocket>, error: DialError) -> CmuxMo
     error.into()
 }
 
-/// Dial on `socket`. A reused socket is probed while the dial runs: when it
-/// does not answer within `STALE_PROBE`, the dial is abandoned as stale
-/// instead of waiting out its whole timeout.
+/// Dial on `socket`, taking `early`, the TURN allocation started when ICE
+/// answered. A reused socket is probed while the dial runs: when it does not
+/// answer within `STALE_PROBE`, the dial is abandoned as stale instead of
+/// waiting out its whole timeout.
 async fn dial_on(
     socket: &Arc<WarmSocket>,
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
+    early: Option<cmux_mobile_link::dial::EarlyTurn>,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect(
+    let dial = cmux_mobile_link::dial::connect_with_early_turn(
         &socket.client,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+        early,
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);

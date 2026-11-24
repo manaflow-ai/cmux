@@ -125,6 +125,10 @@ pub struct LinkStat {
     pub end: Option<&'static str>,
     /// The link library's version.
     pub lib: &'static str,
+    /// `proxy` or `inspected` when this network's link connections leave
+    /// through a proxy (one that inspects TLS); absent when direct.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress: Option<&'static str>,
 }
 
 impl LinkStat {
@@ -247,6 +251,7 @@ impl Reporter {
                 .min(30 * 86_400),
             end: end.map(end_kind),
             lib: env!("CARGO_PKG_VERSION"),
+            egress: crate::egress::seen().map(crate::egress::PathKind::as_str),
         })
     }
 }
@@ -461,6 +466,47 @@ mod tests {
             reporter.build(Reason::Path, first + PATH_GAP, &PingStats::default(), None, None, false).unwrap();
         assert_eq!((stat.path, stat.switches), ("turn", 3));
         assert_eq!(reporter.next_periodic(), first + PATH_GAP + PERIOD);
+    }
+
+    /// Lockstep (PROTOCOL.md "Link stats", compatibility): `egress` is an optional
+    /// field of v 1. A direct link sends no key at all, so an old reader sees the
+    /// v 1 shape it knows; a proxied one adds only a fixed word; and an old reader
+    /// that knows none of it still parses the new frame.
+    #[test]
+    fn egress_is_optional_both_ways_and_keeps_version_one() {
+        #[derive(serde::Deserialize)]
+        #[allow(dead_code)]
+        struct OldReader {
+            #[serde(rename = "type")]
+            kind: String,
+            v: u8,
+            transport: String,
+            path: String,
+            reason: String,
+            pings: u32,
+            lost: u32,
+        }
+        let up = Instant::now();
+        let mut reporter = Reporter::new(TransportKind::WireGuard, LinkPath::Direct, up);
+        let mut stat = reporter.build(Reason::First, up, &pings(1, 1, 0, &[9]), None, None, false).unwrap();
+        stat.egress = None;
+        let direct: serde_json::Value = serde_json::from_str(&stat.to_text()).unwrap();
+        assert!(direct.get("egress").is_none(), "a direct link names no egress");
+        assert_eq!(direct["v"], 1);
+        for word in [crate::egress::PathKind::Proxy, crate::egress::PathKind::Inspected] {
+            stat.egress = Some(word.as_str());
+            let text = stat.to_text();
+            let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(json["egress"], word.as_str());
+            assert_eq!(json["v"], 1, "an optional field never bumps v (an old service drops v != 1)");
+            let old: OldReader = serde_json::from_str(&text).expect("an old reader parses a new frame");
+            assert_eq!((old.kind.as_str(), old.v), ("link_stat", 1));
+        }
+        assert_eq!(
+            [crate::egress::PathKind::Proxy.as_str(), crate::egress::PathKind::Inspected.as_str()],
+            ["proxy", "inspected"],
+            "the words the service keeps (team-hub.ts LINK_STAT_EGRESS)"
+        );
     }
 
     #[test]

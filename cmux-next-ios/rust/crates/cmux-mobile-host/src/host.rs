@@ -90,6 +90,27 @@ impl IceOrigin {
 }
 
 impl IceSource {
+    /// cmux's WebSocket relay for an answer of `device_id` (PROTOCOL.md
+    /// "WebSocket relay"): on the backend this source asks for ICE servers,
+    /// with a current access token at each join. `None` for fixed servers
+    /// (tests, tools) and when `CMUX_MOBILE_RELAY=0` turns it off.
+    pub fn relay(&self, device_id: &str) -> Option<cmux_mobile_link::dial::relay::RelayEndpoint> {
+        let Self::Api { base_url, build_space, tokens, .. } = self else { return None };
+        if std::env::var("CMUX_MOBILE_RELAY").is_ok_and(|value| value == "0") {
+            return None;
+        }
+        let tokens = Arc::clone(tokens);
+        Some(cmux_mobile_link::dial::relay::RelayEndpoint::new(
+            base_url.clone(),
+            build_space.clone(),
+            device_id,
+            move || {
+                let tokens = Arc::clone(&tokens);
+                Box::pin(async move { tokens.access_token().await.ok() })
+            },
+        ))
+    }
+
     pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
         Self::Api {
             base_url,
@@ -656,6 +677,7 @@ async fn answer_session(
     timeline.mark(origin.mark());
     let options = DialOptions {
         ice_servers,
+        relay: context.ice.relay(signaling.device_id()),
         include_loopback: context.include_loopback,
         exclude_cgnat: context.exclude_cgnat,
         timeline: timeline.clone(),
@@ -671,6 +693,16 @@ async fn answer_session(
         // video while it works (media_session.rs; CMUX_MOBILE_WEBRTC_MEDIA=0 turns
         // it off).
         webrtc_media: std::env::var("CMUX_MOBILE_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
+        // The corporate network simulations, as on the phone (PROTOCOL.md
+        // "Corporate networks"): CMUX_MOBILE_DEV_DROP_WIREGUARD=1 drops every
+        // WireGuard-shaped UDP datagram, CMUX_MOBILE_DEV_PROXY_ONLY=1 lets
+        // TURN over TLS out only through the system's proxy.
+        drop_wireguard_udp: std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress {
+            require_proxy: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
+            ..Default::default()
+        },
+        block_udp: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {

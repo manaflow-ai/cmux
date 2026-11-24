@@ -4881,6 +4881,26 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var blockUdp: Bool
     /**
+     * Debug "simulate a network whose only way out is its proxy": like
+     * `block_udp`, and TURN over TLS must leave through the system's proxy
+     * (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
+     * TURN server the dial fails at once and says so. WebRTC ignores it.
+     */
+    public var proxyOnly: Bool
+    /**
+     * Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
+     * requests pass, every UDP datagram carrying WireGuard (plain, or inside
+     * TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
+     * over TLS (path `TurnTls`). WebRTC ignores it.
+     */
+    public var dropWireguard: Bool
+    /**
+     * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+     * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+     * rides it (path `HttpsRelay`). WebRTC ignores it.
+     */
+    public var forceRelay: Bool
+    /**
      * Debug: do not offer the media lane, so browser video rides its
      * reliable channel on either transport (the comparison baseline).
      */
@@ -4914,6 +4934,23 @@ public struct ConnectOptions: Equatable, Hashable {
          * TLS on 443 (path `TurnTls`). WebRTC ignores it.
          */blockUdp: Bool = false, 
         /**
+         * Debug "simulate a network whose only way out is its proxy": like
+         * `block_udp`, and TURN over TLS must leave through the system's proxy
+         * (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
+         * TURN server the dial fails at once and says so. WebRTC ignores it.
+         */proxyOnly: Bool = false, 
+        /**
+         * Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
+         * requests pass, every UDP datagram carrying WireGuard (plain, or inside
+         * TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
+         * over TLS (path `TurnTls`). WebRTC ignores it.
+         */dropWireguard: Bool = false, 
+        /**
+         * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+         * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+         * rides it (path `HttpsRelay`). WebRTC ignores it.
+         */forceRelay: Bool = false, 
+        /**
          * Debug: do not offer the media lane, so browser video rides its
          * reliable channel on either transport (the comparison baseline).
          */noVideoLane: Bool = false, 
@@ -4930,6 +4967,9 @@ public struct ConnectOptions: Equatable, Hashable {
          */ultra: String = "auto") {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
+        self.proxyOnly = proxyOnly
+        self.dropWireguard = dropWireguard
+        self.forceRelay = forceRelay
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
         self.ultra = ultra
@@ -4953,6 +4993,9 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
+                proxyOnly: FfiConverterBool.read(from: &buf), 
+                dropWireguard: FfiConverterBool.read(from: &buf), 
+                forceRelay: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
                 ultra: FfiConverterString.read(from: &buf)
@@ -4962,6 +5005,9 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
         FfiConverterBool.write(value.blockUdp, into: &buf)
+        FfiConverterBool.write(value.proxyOnly, into: &buf)
+        FfiConverterBool.write(value.dropWireguard, into: &buf)
+        FfiConverterBool.write(value.forceRelay, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
         FfiConverterString.write(value.ultra, into: &buf)
@@ -7181,6 +7227,11 @@ public enum LinkPath: Equatable, Hashable {
      */
     case turnTls
     /**
+     * Through cmux's own WebSocket relay over HTTPS (neither UDP nor TURN
+     * gets through: a network that allows only cmux's hosts, or only HTTPS).
+     */
+    case httpsRelay
+    /**
      * No working route at the moment.
      */
     case noPath
@@ -7211,7 +7262,9 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
         
         case 3: return .turnTls
         
-        case 4: return .noPath
+        case 4: return .httpsRelay
+        
+        case 5: return .noPath
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -7233,8 +7286,12 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .noPath:
+        case .httpsRelay:
             writeInt(&buf, Int32(4))
+        
+        
+        case .noPath:
+            writeInt(&buf, Int32(5))
         
         }
     }
