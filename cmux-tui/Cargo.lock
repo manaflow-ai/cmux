@@ -39,6 +39,7 @@ dependencies = [
  "cmux-device-kind",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1919,6 +1920,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-file-lock"
 version = "0.1.0"
 dependencies = [
@@ -2281,6 +2289,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",
@@ -2756,6 +2765,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"

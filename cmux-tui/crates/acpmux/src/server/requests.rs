@@ -1375,6 +1375,7 @@ async fn dispatch_request_with_identity(
                 method::MUX_PLACE_CHAT,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
+                method::MUX_FELT_SNAPSHOT,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -2007,6 +2008,8 @@ async fn dispatch_request_with_identity(
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
+            // The felt send-to-ack starts here, before the admission wait (`felt.rs`).
+            let felt_started = std::time::Instant::now();
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
@@ -2355,6 +2358,7 @@ async fn dispatch_request_with_identity(
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             }
+            let on_accepted = super::felt::time_ack(felt_started, on_accepted);
             let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
                 prompt_admission: Some(prompt_admission),
@@ -2651,12 +2655,14 @@ async fn dispatch_request_with_identity(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, false)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, false, why)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, true)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -2689,6 +2695,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
+        // own clients only, like the perf watch beside it.
+        method::MUX_FELT_SNAPSHOT => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read the felt latency",
+                ));
+            }
+            Ok(cmux_felt::snapshot())
+        }
         // Each caller's requests and bytes over a recent window (`caller_stats.rs`): this
         // machine's own clients only. It names local pids and sessions.
         method::MUX_CALLERS => {
@@ -3858,7 +3874,10 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
+            // refused.
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         // Hibernate an idle session now, or start a hibernated one's agent now (`hub/pause.rs`).
