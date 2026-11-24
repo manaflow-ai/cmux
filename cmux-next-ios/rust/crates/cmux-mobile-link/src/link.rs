@@ -2341,7 +2341,7 @@ pub struct ChannelSender {
     meter: Option<Arc<ByteMeter>>,
     /// Each send is a numbered message, sent as datagrams too
     /// (`crate::classes`).
-    mirror: bool,
+    mirror: Option<Delivery>,
     next_seq: AtomicU64,
     /// Present on a [`Delivery::Screen`] channel.
     screen: Option<Arc<ScreenState>>,
@@ -2387,7 +2387,7 @@ impl ChannelSender {
     /// Whether this channel sends screen datagrams ([`Delivery::Screen`] and
     /// the peer agreed [`crate::classes::SCREEN_LANE`]).
     pub fn screen_class(&self) -> bool {
-        self.screen.is_some() && self.mirror
+        self.screen.is_some() && self.mirror.is_some()
     }
 
     /// The newest message number the peer acknowledged: a screen message
@@ -2427,8 +2427,8 @@ impl ChannelSender {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
-        let seq = self.mirror.then(|| self.next_seq.fetch_add(1, Ordering::Relaxed));
-        if let Some(seq) = seq
+        let seq = self.mirror.map(|_| self.next_seq.fetch_add(1, Ordering::Relaxed));
+        if let (Some(delivery), Some(seq)) = (self.mirror, seq)
             && data.len() <= crate::classes::MIRROR_MAX
             && !self.inner.writes_held.load(Ordering::Acquire)
         {
@@ -2439,7 +2439,7 @@ impl ChannelSender {
                     self.inner
                         .send_datagram_copies(crate::classes::screen_datagrams(self.id, seq, &data), copies);
                 }
-                None => self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data)),
+                None => self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery)),
             }
         }
         let mut rest = data;
@@ -2569,7 +2569,7 @@ impl Channel {
                 inner,
                 closed,
                 meter: None,
-                mirror: mirror.is_some(),
+                mirror,
                 next_seq: AtomicU64::new(0),
                 screen,
             },

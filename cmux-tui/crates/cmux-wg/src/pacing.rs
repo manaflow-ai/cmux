@@ -302,6 +302,8 @@ pub enum Priority {
     /// Terminal screen state (the link's class-1 datagrams): ahead of every
     /// other datagram and the TCP stack's interactive connections, unpaced.
     /// Each message is a whole state, so a full queue refuses the newest.
+    /// Ultra Mode repairs it only above 1 % measured loss (input is
+    /// repaired at any loss).
     Screen,
     /// Control and terminal bytes: before everything else but screen state.
     Interactive,

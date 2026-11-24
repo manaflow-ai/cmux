@@ -54,8 +54,11 @@ pub enum Delivery {
 
 /// The datagram kind of a class message fragment (liveness pings are 1, pongs 2).
 pub(crate) const DATAGRAM_CLASS: u8 = 3;
-/// The datagram kind of a screen message fragment: the same header as
-/// [`DATAGRAM_CLASS`], sent in the screen class.
+/// The datagram kind of a class-1 (screen) message fragment, for
+/// [`Delivery::Latest`] and [`Delivery::Screen`] channels alike: the same
+/// header as [`DATAGRAM_CLASS`]. The tunnel sends it as
+/// `cmux_wg::Priority::Screen`, repaired only above 1 % loss. A screen
+/// channel's payload starts with its base (see [`screen_wire`]).
 pub(crate) const DATAGRAM_SCREEN: u8 = 4;
 /// A screen acknowledgement: kind, channel (4), the newest message number
 /// delivered (8).
@@ -85,8 +88,12 @@ const HELD: usize = 1024;
 const ASSEMBLIES: usize = 64;
 
 /// Fragment `message` (number `seq` of `channel`) into class datagrams.
-pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8]) -> Vec<Vec<u8>> {
-    fragments_of(DATAGRAM_CLASS, channel, seq, message)
+pub(crate) fn datagrams(channel: u32, seq: u64, message: &[u8], delivery: Delivery) -> Vec<Vec<u8>> {
+    let kind = match delivery {
+        Delivery::Ordered => DATAGRAM_CLASS,
+        Delivery::Latest | Delivery::Screen => DATAGRAM_SCREEN,
+    };
+    fragments_of(kind, channel, seq, message)
 }
 
 /// Fragment screen `message` into kind-4 datagrams.
@@ -397,13 +404,18 @@ mod tests {
     use super::*;
 
     fn fragments(channel: u32, seq: u64, message: &[u8]) -> Vec<Fragment> {
-        datagrams(channel, seq, message).iter().map(|d| parse_datagram(d).unwrap()).collect()
+        datagrams(channel, seq, message, Delivery::Latest)
+            .iter()
+            .map(|d| parse_datagram(d).unwrap())
+            .collect()
     }
 
     #[test]
     fn datagrams_round_trip_and_fragment() {
         let message: Vec<u8> = (0..3500u32).map(|i| i as u8).collect();
-        let parts = datagrams(7, 9, &message);
+        let parts = datagrams(7, 9, &message, Delivery::Latest);
+        assert!(parts.iter().all(|d| d[0] == DATAGRAM_SCREEN));
+        assert!(datagrams(7, 9, &message, Delivery::Ordered).iter().all(|d| d[0] == DATAGRAM_CLASS));
         assert_eq!(parts.len(), 3);
         assert!(parts.iter().all(|d| d.len() <= DATAGRAM_HEADER + FRAGMENT));
         let mut sequencer = Sequencer::new(Delivery::Latest);

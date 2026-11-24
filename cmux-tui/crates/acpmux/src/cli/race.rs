@@ -16,6 +16,9 @@ const AUTH_HELP: &str = "Run race commands inside an authenticated acpmux agent 
     --parent may name that session or a descendant it can manage. \
     From an ordinary terminal, use the chat's menu → Tools → Race models in cmux NEXT.";
 
+/// The most attempts of one model a race asks for: each is a sub-session with its own worktree.
+pub(crate) const MAX_ATTEMPTS: u32 = 16;
+
 #[derive(Subcommand)]
 pub enum RaceCmd {
     /// From an authenticated agent session, start candidates and let a reviewer choose.
@@ -58,6 +61,10 @@ pub struct NewRace {
     /// HARNESS[/MODEL] for each candidate; repeat for every model to race.
     #[arg(long = "model", short = 'm', required = true)]
     models: Vec<String>,
+    /// Best-of-N: run each -m this many times, each attempt in its own worktree, and let the
+    /// reviewer pick one (`race new -n 4 -m codex --reviewer claude TASK`).
+    #[arg(long, short = 'n', default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=MAX_ATTEMPTS as i64))]
+    attempts: u32,
     /// HARNESS[/MODEL] for the independent reviewer.
     #[arg(long)]
     reviewer: String,
@@ -74,7 +81,7 @@ pub struct NewRace {
     prompt: Vec<String>,
 }
 
-fn target(spec: &str, effort: Option<&str>) -> Result<Value> {
+pub(crate) fn target(spec: &str, effort: Option<&str>) -> Result<Value> {
     let (harness, model) = split_target(spec);
     if harness.trim().is_empty()
         || spec.split_once('/').is_some_and(|(_, model)| model.trim().is_empty())
@@ -91,6 +98,20 @@ fn target(spec: &str, effort: Option<&str>) -> Result<Value> {
     Ok(value)
 }
 
+/// Each model's target `attempts` times, models in the order given (`-m a -m b -n 2`: a, a, b, b).
+pub(crate) fn attempts(
+    models: &[String],
+    attempts: u32,
+    effort: Option<&str>,
+) -> Result<Vec<Value>> {
+    let mut out = Vec::with_capacity(models.len() * attempts as usize);
+    for model in models {
+        let one = target(model, effort)?;
+        out.extend(std::iter::repeat_n(one, attempts as usize));
+    }
+    Ok(out)
+}
+
 fn scoped(scope: Parent) -> Result<Value> {
     let mut params = json!({});
     if let Some(parent) = scope.parent {
@@ -103,8 +124,11 @@ fn scoped(scope: Parent) -> Result<Value> {
 fn request(cmd: RaceCmd) -> Result<(&'static str, Value)> {
     match cmd {
         RaceCmd::New(args) => {
-            if args.models.len() < 2 {
-                return Err(AppError::usage("a race needs at least two -m candidates").into());
+            if args.models.len() * (args.attempts as usize) < 2 {
+                return Err(AppError::usage(
+                    "a race needs at least two candidates: two -m, or -n 2 or more attempts",
+                )
+                .into());
             }
             let prompt = match args.prompt_file {
                 Some(path) if path == std::path::Path::new("-") => arg_or_stdin(&["-".into()])?,
@@ -114,8 +138,7 @@ fn request(cmd: RaceCmd) -> Result<(&'static str, Value)> {
             if prompt.trim().is_empty() {
                 return Err(AppError::usage("a race needs a task or --prompt-file").into());
             }
-            let candidates: Result<Vec<_>> =
-                args.models.iter().map(|m| target(m, args.effort.as_deref())).collect();
+            let candidates = attempts(&args.models, args.attempts, args.effort.as_deref());
             let mut params = scoped(args.scope)?;
             params.set("prompt", json!(prompt));
             params.set("candidates", json!(candidates?));
@@ -176,7 +199,15 @@ fn target_name(value: &Value) -> String {
 }
 
 fn print_race(race: &Value) {
-    println!("{}  {}", text(race, "id"), text(race, "state"));
+    print!("{}", race_text(race));
+}
+
+/// A race as `race show` prints it: its state, each candidate (the winner starred) and the
+/// reviewer's reason. The MCP `race_show` tool answers with the same text.
+pub(crate) fn race_text(race: &Value) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let _ = writeln!(out, "{}  {}", text(race, "id"), text(race, "state"));
     let winner = race.get("winnerId").and_then(Value::as_str);
     for candidate in race.get("candidates").and_then(Value::as_array).into_iter().flatten() {
         let name = candidate.get("target").map(target_name).unwrap_or_default();
@@ -185,16 +216,18 @@ fn print_race(race: &Value) {
         } else {
             ""
         };
-        println!("  {name}  {}{mark}", text(candidate, "state"));
+        let _ =
+            writeln!(out, "  {} {name}  {}{mark}", text(candidate, "id"), text(candidate, "state"));
         for key in ["cwd", "reply", "error"] {
             if let Some(value) = candidate.get(key).and_then(Value::as_str) {
-                println!("    {value}");
+                let _ = writeln!(out, "    {value}");
             }
         }
     }
     if let Some(reason) = race.get("reason").and_then(Value::as_str) {
-        println!("{reason}");
+        let _ = writeln!(out, "{reason}");
     }
+    out
 }
 
 #[cfg(test)]
@@ -271,6 +304,62 @@ mod tests {
         }
         let (_, params) = parse(&["acpmux", "race", "ls"]).unwrap();
         assert!(params.get("parent").is_none());
+    }
+
+    #[test]
+    fn race_cli_attempts_repeat_each_model_in_order() {
+        let (_, value) = parse(&[
+            "acpmux",
+            "race",
+            "new",
+            "-n",
+            "4",
+            "-m",
+            "claude/haiku",
+            "--reviewer",
+            "claude",
+            "t",
+        ])
+        .unwrap();
+        let candidates = value["candidates"].as_array().unwrap();
+        assert_eq!(candidates.len(), 4);
+        assert!(candidates.iter().all(|c| c == &json!({"harness": "claude", "model": "haiku"})));
+        let (_, value) = parse(&[
+            "acpmux",
+            "race",
+            "new",
+            "--attempts",
+            "2",
+            "-m",
+            "a",
+            "-m",
+            "b",
+            "--reviewer",
+            "c",
+            "-e",
+            "low",
+            "t",
+        ])
+        .unwrap();
+        let names: Vec<_> =
+            value["candidates"].as_array().unwrap().iter().map(|c| c["harness"].clone()).collect();
+        assert_eq!(names, [json!("a"), json!("a"), json!("b"), json!("b")]);
+        assert_eq!(value.pointer("/candidates/3/effort"), Some(&json!("low")));
+    }
+
+    #[test]
+    fn race_cli_one_model_needs_two_attempts_and_caps_them() {
+        assert!(
+            parse(&["acpmux", "race", "new", "-n", "1", "-m", "a", "--reviewer", "c", "t"])
+                .is_err()
+        );
+        assert!(
+            parse(&["acpmux", "race", "new", "-n", "17", "-m", "a", "--reviewer", "c", "t"])
+                .is_err()
+        );
+        assert!(
+            parse(&["acpmux", "race", "new", "-n", "2", "-m", "a", "--reviewer", "c", "t"]).is_ok()
+        );
     }
 
     #[test]

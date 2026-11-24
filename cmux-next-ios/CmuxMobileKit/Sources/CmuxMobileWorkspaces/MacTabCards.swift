@@ -202,6 +202,7 @@ public final class MacTabCards {
         warmed = []
         arriving = [:]
         entries = [:]
+        screenWaiters = [:]
     }
 
     public func entry(_ key: TabSnapshotKey) -> MacCardEntry {
@@ -292,6 +293,8 @@ public final class MacTabCards {
         }
         let listed = Set(cards.map(\.tabID))
         for key in entries.keys where key.macID == macID && !listed.contains(key.tabID) { entries[key] = nil }
+        // A card the Mac no longer lists never gets its first screen: its waiter goes with it.
+        for key in screenWaiters.keys where key.macID == macID && !listed.contains(key.tabID) { screenWaiters[key] = nil }
         var keys: [TabSnapshotKey] = []
         for card in cards {
             let key = TabSnapshotKey(accountID: account, macID: macID, tabID: card.tabID)
