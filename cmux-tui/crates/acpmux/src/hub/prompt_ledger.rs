@@ -729,6 +729,16 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
 
+    /// A resend's keyed scans read held heads only for kinds the store holds heads of
+    /// (`store/kind_heads.rs` `KEYED_KINDS`); any other kind reads the chat's log.
+    #[test]
+    fn a_resends_kinds_are_keyed() {
+        for kind in PROMPT_STATE_KINDS.iter().chain(super::super::inbox::INBOX_ANSWER_KINDS) {
+            assert!(crate::store::KEYED_KINDS.contains(kind), "{kind}");
+            assert!(crate::store::INDEXED_KINDS.contains(kind), "{kind}");
+        }
+    }
+
     fn chat() -> (Arc<Hub>, Arc<Session>) {
         let mut cfg = crate::config::Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;

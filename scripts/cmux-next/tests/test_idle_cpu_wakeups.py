@@ -49,6 +49,17 @@ class WakeReport(unittest.TestCase):
         self.assertEqual(rows[0], {"tid": 7, "name": "CrBrowserMain", "wakes_per_s": 3.0, "cpu_ms_per_s": 0.5})
         self.assertEqual(rows[1]["name"], "?")
 
+    def test_an_unnamed_thread_is_named_by_its_sampled_stack(self):
+        # "cmux DEV" threads with no pthread name woke 4.5 times/s in all (ca941dd8): the sample says what they wait on.
+        traced = {"seconds": 10, "threads": {8: {"name": "", "wakes": 12, "running_ns": 1000},
+                                             9: {"name": "cmux DEV", "wakes": 3, "running_ns": 1000}}}
+        sampled = {8: {"header": "", "frames": ["kevent_id (libsystem_kernel.dylib)", "DaemonConnection.read() (cmux DEV)"]},
+                   9: {"header": "DispatchQueue_42: com.cmux.health  (serial)", "frames": ["x (y)"]}}
+        rows = idle_cpu.thread_wake_rows(traced, sampled, process_name="cmux DEV")
+        self.assertEqual(rows[0]["name"], "~kevent_id > DaemonConnection.read()")
+        self.assertEqual(rows[0]["frames"], sampled[8]["frames"])
+        self.assertEqual(rows[1]["name"], "DispatchQueue_42: com.cmux.health  (serial)")
+
     def test_the_option_is_bounded(self):
         args = idle_cpu.parse_args(["--app", "/x.app", "--wake-trace", "10"])
         self.assertEqual(args.wake_trace, 10)
