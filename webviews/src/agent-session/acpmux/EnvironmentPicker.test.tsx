@@ -376,6 +376,131 @@ test("with Auto picked, Cloud turns Auto off and makes Cloud the mode", async ()
   expect(log).toEqual(["auto:false", "mode:cloud"]);
 });
 
+// AutoCloud (Leo, 2026-11-24: "let's just use our existing dropdown and have it be able to have a
+// chevron that opens into more options"): with the hidden cloud.autoCloud key and an active plan, the
+// page marks Auto `cloud`, and Auto's row is a chevron that opens Auto ⌥⌘1, Cloud only ⌥⌘2, Machine… ⌥⌘3.
+function autoCloudChat(picked: boolean, log: string[], mode: RunMode = "persistent") {
+  const chat = autoChat(picked, log, mode);
+  return { runMode: { ...chat.runMode, auto: { ...chat.runMode.auto, cloud: true } } };
+}
+
+const autoKey = async (digit: number) => {
+  await act(async () =>
+    window.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { code: `Digit${digit}`, altKey: true, metaKey: true, bubbles: true }),
+    ),
+  );
+  await settle();
+};
+
+test("AutoCloud: Auto's row is a chevron that opens Auto, Cloud only and Machine… with their keys", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  const row = document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')!;
+  expect(row.querySelector(".acpmux-env-more-chevron")).not.toBeNull();
+  expect(optionRows().map(rowLabel)[0]).toBe(translate("composer.auto"));
+  await choose('[data-action="autoPlaces"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
+  expect(optionRows().map(rowLabel)).toEqual([
+    translate("composer.auto"),
+    translate("composer.autoCloudOnly"),
+    translate("composer.autoMachine"),
+  ]);
+  expect([...document.querySelectorAll(".acpmux-env-popover .acpmux-env-key")].map((key) => key.textContent)).toEqual([
+    "⌥⌘1",
+    "⌥⌘2",
+    "⌥⌘3",
+  ]);
+});
+
+test("AutoCloud: picking Auto in its list turns Auto on and focuses the prompt", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, log));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="autoPlace"]');
+  expect(log).toEqual(["auto:true"]);
+  expect(document.querySelector(".acpmux-env-popover")).toBeNull();
+  expect(document.activeElement).toBe(container.querySelector("textarea"));
+});
+
+test("AutoCloud: ⌥⌘1 in the open Auto list picks Auto, not This Mac", async () => {
+  const log: string[] = [];
+  const { container, picks } = await renderDevices(DEVICES, autoCloudChat(false, log));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await autoKey(1);
+  expect(log).toEqual(["auto:true"]);
+  expect(picks).toEqual([]);
+});
+
+test("AutoCloud: Cloud only (⌥⌘2) turns Auto off and makes Cloud the mode", async () => {
+  const log: string[] = [];
+  const { container } = await renderDevices(DEVICES, autoCloudChat(true, log));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlace"][data-current]')).not.toBeNull();
+  await autoKey(2);
+  expect(log).toEqual(["auto:false", "mode:cloud"]);
+});
+
+test("AutoCloud: Machine… opens the person's other devices in place", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="machine"]');
+  expect(document.querySelector(".acpmux-env-devices")).not.toBeNull();
+  expect(optionRows().map(rowLabel)).toContain("studio");
+});
+
+// Leo, 2026-11-24: "i cant click back". Every list opened in place heads with a row back to the list
+// it opened from; ← with no search typed does the same.
+test("AutoCloud: the Auto list's heading goes back to the main list, and Machine…'s back to Auto", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  await choose('[data-action="machine"]');
+  expect(document.querySelector(".acpmux-env-devices")).not.toBeNull();
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).not.toBeNull();
+  expect(optionRows().map(rowLabel)[1]).toBe(translate("composer.autoCloudOnly"));
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-auto-places")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="back"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+});
+
+test("← in a list opened in place goes back to the one it opened from", async () => {
+  const { container } = await renderDevices(DEVICES, autoCloudChat(false, []));
+  await open(container);
+  await choose('[data-action="autoPlaces"]');
+  const field = document.querySelector<HTMLElement>(".acpmux-env-popover .acpmux-location-search")!;
+  await act(async () =>
+    field.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
+    ),
+  );
+  await settle();
+  expect(document.querySelector(".acpmux-env-auto-places")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).not.toBeNull();
+});
+
+test("Other devices heads with a way back to the main list", async () => {
+  const { container } = await renderDevices(DEVICES);
+  await open(container);
+  await choose('[data-action="otherDevices"]');
+  await choose('[data-action="back"]');
+  expect(document.querySelector(".acpmux-env-devices")).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-action="otherDevices"]')).not.toBeNull();
+});
+
+test("AutoCloud gated off: Auto stays the one plain row, with no chevron", async () => {
+  const { container } = await renderDevices(DEVICES, autoChat(false, []));
+  await open(container);
+  expect(document.querySelector('.acpmux-env-popover [data-action="autoPlaces"]')).toBeNull();
+  expect(document.querySelector('.acpmux-env-popover [data-kind="auto"] .acpmux-env-more-chevron')).toBeNull();
+});
+
 // A started chat's Move to… list opens on where the chat runs now, checked: the person sees what
 // they are moving from. Picking that row moves nothing and closes the list.
 test("Move to… lists where the chat runs now, checked, before its targets; picking it moves nothing", async () => {

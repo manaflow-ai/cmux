@@ -1405,6 +1405,12 @@ export class AcpmuxDirectClient {
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
   private queuedSends = new Set<string>();
+  /// This pane's steers acpmux queued only until the turn they are for shows (its `queued` record's
+  /// `steerOnStart`), each with that record: their bubble stays in the transcript, never a queued
+  /// row over the composer it leaves a moment later (Leo, 2026-11-24: "my message passes through
+  /// the composer hat/composer area and it looks like it goes through the queue and THEN goes
+  /// properly"). One a failed turn holds (`queue_paused`) waits for the person: a queued row then.
+  private steersOnStart = new Map<string, EventRecord>();
   /// The steers the agent has not read yet, by row (the reply that was streaming when one went
   /// still streams above it; a later message means the agent read them).
   private waitingSteers: readonly { rowId: string; promptId?: string }[] = [];
@@ -3051,6 +3057,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptInputs.clear();
     this.retryInputs.clear();
     this.queuedSends.clear();
+    this.steersOnStart.clear();
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
@@ -8412,6 +8419,14 @@ export class AcpmuxDirectClient {
       // next turn completes or the queue is resumed; a resume names the prompts it let go, or none
       // for the whole queue.
       const ids = (value: unknown) => (Array.isArray(value) ? new Set(value.map(String)) : undefined);
+      // A failed turn holds the queue: a steer that waited for its turn waits for the person now,
+      // drawn as the queued row its record makes.
+      if (event.kind === "queue_paused" && msg.reason !== "stop")
+        for (const id of ids(msg.held) ?? [])
+          if (this.steersOnStart.has(id)) {
+            const queued = this.steersOnStart.get(id)!;
+            this.reduceLiveState({ ...queued, msg: { ...queued.msg, steerOnStart: false } });
+          }
       if (event.kind === "queue_paused" && msg.reason === "stop") {
         const held = ids(msg.held);
         if (held)
@@ -8434,6 +8449,15 @@ export class AcpmuxDirectClient {
       // draws as that turn's line once the agent takes it (`bgDoneNotice`), never pinned under the
       // running turn (Lucas, 2026-11-14).
       if (bgDoneNotice(msg)) return;
+      // The person's steer waiting only for its turn to show: its bubble stays where it is and
+      // steers in as a steer sent a moment later does (`steersOnStart`).
+      if (id && msg.steerOnStart === true && this.optimisticPromptRows.has(id)) {
+        this.steersOnStart.set(id, event);
+        this.queueAuthors.set(id, promptAuthor(msg) ?? null);
+        this.promptAccepts.get(id)?.();
+        return;
+      }
+      this.steersOnStart.delete(id);
       if (id) {
         this.dropDeferredSteer(id, String(msg.text ?? ""));
         this.queueAuthors.set(id, promptAuthor(msg) ?? null);
@@ -8494,6 +8518,16 @@ export class AcpmuxDirectClient {
     ) {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
+      // A steer acpmux held for its turn never runs when it is refused or withdrawn: its bubble,
+      // the only place it shows (`steersOnStart`), fails with Retry, or goes, instead of waiting
+      // as sent forever.
+      if (this.steersOnStart.delete(id) && event.kind !== "dequeued") {
+        if (event.kind === "prompt_refused") this.failStartSteer(id, msg.error);
+        else {
+          settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
+          this.optimisticPromptTexts.delete(id);
+        }
+      }
       this.queueAuthors.delete(id);
       this.queueEdited.delete(id);
       if (event.kind === "queue_removed" && id)
@@ -14452,6 +14486,37 @@ export class AcpmuxDirectClient {
     this.emit();
     return true;
   }
+  /// A steer acpmux held for its turn (`steersOnStart`), then refused: its bubble, already
+  /// delivered, says so with Retry, as a send that failed does.
+  private failStartSteer(promptId: string, error: unknown): void {
+    const entry = this.deliveries.get(promptId);
+    const row = entry ? this.rows.get(entry.rowId) : undefined;
+    if (!entry || !row) return;
+    const message = typeof error === "string" && error ? error : translate("transport.refused");
+    const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
+    const delivery: PromptDelivery = {
+      ...entry.delivery,
+      state: "failed",
+      failedAt: Date.now(),
+      hop: "acpmux",
+      error: message,
+    };
+    entry.delivery = delivery;
+    this.rows.set(entry.rowId, {
+      ...row,
+      pending: false,
+      failed: true,
+      error: failedSendText(new Error(message), false, attachments),
+      delivery,
+      version: row.version + 1,
+    });
+    this.failedPrompts.set(entry.rowId, {
+      input: this.optimisticPromptInputs.get(promptId) ?? row.text ?? "",
+      attachments,
+      promptId,
+    });
+  }
+
   /// The lost prompt drawn by `drawLostPrompt` never showed in acpmux's record: its row fails with
   /// Retry, which sends it again under the same prompt id (acpmux runs a prompt id once), never a
   /// line apart from the row while the row still looks sent. False when there is no such row.
