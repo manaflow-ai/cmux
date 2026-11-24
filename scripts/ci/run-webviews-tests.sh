@@ -615,8 +615,36 @@ fi
 if [ -s "$results/dev-cold" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-cold"
 fi
+# The gallery scans (accent-glass-invariants, control-contrast) declare alone for the dev server they
+# loaded their stages from: one Vite thread served every stage, and two parts beside each other hit their
+# limits (#41067). With the run's gallery build (CMUX_GALLERY_STAGE_BUILD, gallery_stages above) a stage is
+# a static page and the part is one Chromium, so CMUX_WEB_TEST_GALLERY_JOBS of them (default 2; 1 at fewer
+# than 4 jobs, as on the base replay) run at once, longest first, before the other alone files. Run one at
+# a time they were the longest stretch at one file of every full-matrix shard: 512-917 s of 2,819-3,622 s
+# jobs (jobs 138258027727, 138270158348, 138273448778, 2026-11-24). No build: one at a time, as before.
 if [ -s "$results/dev-alone" ]; then
-  xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-alone"
+  gallery_jobs="${CMUX_WEB_TEST_GALLERY_JOBS:-$((jobs > 3 ? 2 : 1))}"
+  [[ "$gallery_jobs" =~ ^[1-9][0-9]*$ ]] || gallery_jobs=1
+  : > "$results/alone-gallery"
+  : > "$results/alone-solo"
+  while IFS= read -r -d '' file && IFS= read -r -d '' cache && IFS= read -r -d '' seed; do
+    pool=alone-solo
+    if [ "$gallery_jobs" -gt 1 ] && [ -n "${CMUX_GALLERY_STAGE_BUILD:-}" ] && grep -qE -- "$gallery_stage_files" "$file"; then
+      pool=alone-gallery
+    fi
+    printf '%s\0%s\0%s\0' "$file" "$cache" "$seed" >> "$results/$pool"
+  done < "$results/dev-alone"
+  if [ "$durations" != /dev/null ] && [ -s "$results/alone-gallery" ]; then
+    python3 "$shards_py" order-triples "$results/alone-gallery" "$durations" desc > "$results/ordered"
+    mv "$results/ordered" "$results/alone-gallery"
+  fi
+  if [ -s "$results/alone-gallery" ]; then
+    echo "gallery scans on the built gallery: $(($(tr -cd '\0' < "$results/alone-gallery" | wc -c) / 3)) files, $gallery_jobs at a time"
+    xargs -0 -n 3 -P "$gallery_jobs" bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/alone-gallery"
+  fi
+  if [ -s "$results/alone-solo" ]; then
+    xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/alone-solo"
+  fi
 fi
 
 # Retry failed files once, alone, so a file that only lost a race for the CPU
