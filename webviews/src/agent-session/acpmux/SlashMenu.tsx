@@ -5,7 +5,7 @@ import { useComposerListBox } from "./backdropLayerModel";
 import { BoltIcon } from "./BoltIcon";
 import { COMPOSER_LABELS } from "./composerModel";
 import { useT } from "./i18n";
-import { isFastCommand, shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
+import { shownName, type SlashCommand, type SlashMatch, isFastCommand } from "./slashCommands";
 import {
   SLASH_MAX_VIEWPORT_PX,
   SLASH_ROW_PX,
@@ -112,9 +112,11 @@ export function SlashMenu({
         ? t("composer.slashSkill")
         : command.source === "prompt"
           ? t("composer.slashPrompt")
-          : command.source === "extension"
-            ? (command.extension ?? "cmux")
-            : "cmux";
+          : command.source === "saved"
+            ? t("composer.slashSaved")
+            : command.source === "extension"
+              ? (command.extension ?? "cmux")
+              : "cmux";
   // A tag every row shares tells no row apart: the tags show only for a list of more than one source.
   const tagged = new Set(matches.map(sourceTag)).size > 1;
 

@@ -27,7 +27,7 @@ import { SurgeHoldRow } from "../SurgeHoldRow";
 import { surgeShows } from "../conversation/surgeHold";
 import { githubFolder } from "../githubRepos";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../AddProjectPanel";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -93,6 +93,7 @@ import type { ManagedBy } from "../managedBy";
 import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
@@ -215,6 +216,10 @@ export type PaneComposerDeps = {
   hideManaged: (sessionId: string) => void;
   goalAtFoot: boolean;
   goalNode: React.JSX.Element | null;
+  /** The approved plan's band (ApprovedPlanBand.tsx), drawn under the goal; null with none. */
+  approvedPlanNode?: React.JSX.Element | null;
+  /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
+  approvedPlanAtFoot?: boolean;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -226,6 +231,10 @@ export type PaneComposerDeps = {
   hatPlan: readonly AcpmuxPlanEntry[] | undefined;
   hatKept: boolean;
   trayHandle: TrayHandleSide;
+  /// Where the tucked hat's pill stands: trayHandle, or aside when the jump stack takes the center
+  /// line (hatSide, hatPillPlace.experiment.ts).
+  hatHandle: TrayHandleSide;
+  hatPillArm: HatPillPlace;
   statusCardOpen: boolean;
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
@@ -431,6 +440,8 @@ export function drawPaneComposer({
   hideManaged,
   goalAtFoot,
   goalNode,
+  approvedPlanNode = null,
+  approvedPlanAtFoot = false,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -442,6 +453,8 @@ export function drawPaneComposer({
   hatPlan,
   hatKept,
   trayHandle,
+  hatHandle,
+  hatPillArm,
   statusCardOpen,
   setStatusCardOpen,
   openImage,
@@ -817,6 +830,7 @@ export function drawPaneComposer({
           />
         )}
         {!goalAtFoot && goalNode}
+        {!approvedPlanAtFoot && approvedPlanNode}
         <HatQuestions
           key={shownSessionId}
           questions={hatShows(hatQuestionList) ? hatQuestionList : NO_HAT_QUESTIONS}
@@ -828,12 +842,14 @@ export function drawPaneComposer({
               chat={shownSessionId}
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
-              side={trayHandle}
+              side={hatHandle}
+              quiet={hatPillArm === "quiet" && hatHandle !== trayHandle}
             />
           ) : (
             trayNode
           ))}
         {goalAtFoot && goalNode}
+        {approvedPlanAtFoot && approvedPlanNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
         <ImageViewerContext.Provider value={openImage}>
@@ -856,6 +872,7 @@ export function drawPaneComposer({
             stackAbove={
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
+              approvedPlanNode !== null ||
               (!showNewTab && surgeShows(snapshot.surge)) ||
               statusCardOpen ||
               hatShows(hatQuestionList)
