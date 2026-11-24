@@ -354,8 +354,10 @@ class WorkflowShape(unittest.TestCase):
     def test_permissions_are_minimal(self):
         doc = workflow()
         self.assertEqual(doc["permissions"], {"contents": "read"})
-        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read"})
-        # The jobs that run pull request code can write nothing; only post can write a status.
+        # resolve runs no pull request code; its receipt steps read the receipt's run and post a valid one's status.
+        self.assertEqual(job(doc, "resolve")["permissions"], {"contents": "read", "pull-requests": "read",
+                                                              "actions": "read", "statuses": "write"})
+        # The jobs that run pull request code can write nothing; only resolve and post can write a status.
         self.assertEqual(job(doc)["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "panic-ratchet")["permissions"], {"contents": "read"})
         self.assertEqual(job(doc, "post")["permissions"], {"statuses": "write"})
