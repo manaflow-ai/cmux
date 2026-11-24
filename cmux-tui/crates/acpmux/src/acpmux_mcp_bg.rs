@@ -47,7 +47,7 @@ pub(super) fn tools() -> Vec<Value> {
                 "command": {"type": "string", "description": "The command, run by bash -c (/bin/sh where there is no bash), in the agent's environment."},
                 "cwd": {"type": "string", "description": "Its folder (default: the chat's)."},
                 "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
-                "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
+                "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). A running turn reads it at its next tool step; it never interrupts one."}},
                 "required": ["command"]}}),
         json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), newest first, one line each: id, state (running, exited, stopped, killed, lost), exit code, age and the command, cut. A bare call lists the newest 30; the last line says how many more there are and the argument that lists them. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
             "inputSchema": {"type": "object", "properties": {"description": description,
