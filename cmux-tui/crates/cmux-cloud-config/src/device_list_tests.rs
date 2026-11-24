@@ -142,6 +142,23 @@ fn two_machines_with_one_name_stay_two_once_both_name_their_machine() {
     assert_eq!(ids, ["a", "b", "phone"]);
 }
 
+#[test]
+fn another_machine_with_this_macs_name_listed_first_stays_another_machine() {
+    // Review of #46754, F2: the older remote "Studio" comes first in the hub's order; it must not
+    // lend its machine group to this Mac's name and so vanish into This Mac.
+    let devices = [
+        on("g2", Device { online: true, ..device("remote", "Studio") }),
+        device("legacy", "Studio"),
+        on("g1", device("me", "Studio")),
+        on("g1", device("daemon", "studio-host")),
+    ];
+    let mine =
+        This { id: "me".into(), name: Some("Studio".into()), platform: Some("macos".into()) };
+    let listing = listing(&mine, &devices);
+    assert_eq!(listing.this_device, ["me", "legacy", "daemon"]);
+    assert_eq!(listing.others, [Machine { id: "remote".into(), ids: vec!["remote".into()] }]);
+}
+
 fn ready(connection: &str) -> DiscoveryInput {
     DiscoveryInput {
         status: "ready".into(),

@@ -114,8 +114,23 @@ fn better(a: &Device, b: &Device) -> bool {
 
 /// The hub's records as physical devices: this device's records, and one entry per other device.
 pub fn listing(this: &This, devices: &[Device]) -> Listing {
-    // A name that folds the same as a record naming its machine stands for that machine.
+    let own = devices.iter().find(|d| d.id == this.id);
+    let platform = own.and_then(|d| d.platform.as_deref()).or(this.platform.as_deref());
+    let own_names = || {
+        own.map(|d| d.name.as_str())
+            .into_iter()
+            .chain(this.name.as_deref())
+            .filter(|name| name.chars().any(char::is_alphanumeric))
+    };
+    // A name that folds the same as a record naming its machine stands for that machine. This
+    // device's machine claims its own names first: another machine with the same name, listed
+    // before it, keeps its own group and is never read as this device (review of #46754, F2).
     let mut by_name: HashMap<String, String> = HashMap::new();
+    if let Some(machine) = own.and_then(machine_key) {
+        for name in own_names() {
+            by_name.insert(key(&this.id, name, platform), machine.clone());
+        }
+    }
     for device in devices {
         if let Some(machine) = machine_key(device) {
             by_name
@@ -131,18 +146,10 @@ pub fn listing(this: &This, devices: &[Device]) -> Listing {
     // This device's keys: its listed record's machine, its name (a name pinned in Settings) and the
     // name it registers with (the Computer Name now, after a rename or while its record is blank or
     // not listed yet).
-    let own = devices.iter().find(|d| d.id == this.id);
-    let platform = own.and_then(|d| d.platform.as_deref()).or(this.platform.as_deref());
     let this_keys: Vec<String> = own
         .and_then(machine_key)
         .into_iter()
-        .chain(
-            own.map(|d| d.name.as_str())
-                .into_iter()
-                .chain(this.name.as_deref())
-                .filter(|name| name.chars().any(char::is_alphanumeric))
-                .map(|name| resolve(key(&this.id, name, platform))),
-        )
+        .chain(own_names().map(|name| resolve(key(&this.id, name, platform))))
         .collect();
     let mut this_device = vec![this.id.clone()];
     let mut order: Vec<String> = Vec::new();
