@@ -169,6 +169,13 @@ public final class CloudPlaceFlows {
         return report(session, ["event": "failed", "reason": reason, "atMs": nowMs])
     }
 
+    /// A move the app refused before its first step (no chat there, a chat that cannot move yet): its flow begins and fails at
+    /// once, so the chat shows the failure and its Retry instead of the mode it asked for with nothing moving.
+    public func refused(_ session: String, toCloud: Bool, trigger: Trigger, reason: String) {
+        begin(session: session, toCloud: toCloud, trigger: trigger, from: toCloud ? Self.thisMac : "", to: toCloud ? "" : Self.thisMac)
+        failed(session, reason: reason)
+    }
+
     /// The next step of the move. Throws ``CancellationError`` when the reducer says stop (a Cancel it honours at this boundary), for
     /// steps before the chat lands; once the chat committed, use ``step(_:_:)``, which never stops the move.
     public func advance(_ session: String?, _ step: String) throws {

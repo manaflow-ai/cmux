@@ -77,8 +77,10 @@ extension CloudHandlers {
                 switch id {
                 case AppServices.placeSet:
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
-                    place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation))
-                case AppServices.placeRetry: place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation))
+                    // A move refused at once fails in the chat's flow (with Retry) and answers the page with why.
+                    if let refusal = place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
+                case AppServices.placeRetry:
+                    if let refusal = place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeCancel: place.cancel(tab: tab, session: row ?? invocation["session"]?.stringValue)
                 case AppServices.placeEvacuateCancel: place.cancelEvacuation()
                 case AppServices.placeBringBackAll: place.bringBackAll(sessions: named)
@@ -181,6 +183,16 @@ extension CloudPlaceClaims {
     }
 }
 
+extension CloudPlaceRefusal {
+    /// What the page and the person read.
+    var message: String {
+        switch self {
+        case .moving: CloudMoveStrings.inProgress
+        case .refused(let reason): reason
+        }
+    }
+}
+
 /// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`. A person's move from the page
 /// takes its `queued` and `hasDraft` from the page's claims (``CloudPlaceClaims``) when it sent them; no Swift source reads the
 /// queued prompts, so Auto and Evacuate leave it out.
@@ -216,11 +228,12 @@ extension AppServices: CloudPlaceHost {
         for daemon in machines.daemons {
             for workspace in daemon.store.workspaces {
                 for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                    guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)],
-                          seen.insert(session).inserted else { continue }
+                    guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)] else { continue }
                     let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
+                    // Eligible first, then once per session: a tab that may not move never hides a later one of the same chat that may.
                     guard daemon.isLocal && !onCloud && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
-                        || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil else { continue }
+                        || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil,
+                          seen.insert(session).inserted else { continue }
                     found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
                                                 moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id)))
@@ -230,7 +243,7 @@ extension AppServices: CloudPlaceHost {
         return found
     }
 
-    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) async {
+    func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
         var arguments: [String: ActionValue] = ["trigger": .string(trigger.argument)]
         if let queued = claims.queued { arguments["queued"] = .int(queued) }
         if let hasDraft = claims.hasDraft { arguments["hasDraft"] = .bool(hasDraft) }
@@ -242,7 +255,14 @@ extension AppServices: CloudPlaceHost {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: arguments, origin: .user)
         let registry = self.registry
         let action = toCloud ? CloudMove.action : CloudBringBack.action
-        for work in registry.capturingWork({ _ = registry.perform(action, invocation: invocation) }) { _ = await work.value }
+        var ran = false, work: [ActionWork] = []
+        // The move's own checks refuse before it starts (no chat there, no first message, no folder): that refusal is the run's answer.
+        let refusal = registry.reportingRefusal { work = registry.capturingWork { ran = registry.perform(action, invocation: invocation) } }
+        if work.isEmpty, let reason = refusal ?? (ran ? nil : registry.unavailableReason(for: action) ?? CloudMoveStrings.moveFailed("")) {
+            return .refused(reason.trimmingCharacters(in: .whitespaces))
+        }
+        let started = work
+        return .started { for work in started { _ = await work.value } }
     }
 
     func placeCloudSessions() -> [String] { cloud.movedChats.all().filter { $0.broughtBack == nil }.map(\.session) }
