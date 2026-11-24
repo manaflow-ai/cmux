@@ -106,16 +106,14 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
   expectSameFlow(signature);
 });
 
-test("nothing shows under the bound, and the chip past it is out of flow", async () => {
+// Leo, 2026-11-16: "pls no messages like this :(": an automatic reconnect shows nothing, however long.
+test("an automatic reconnect shows nothing, under the bound or past it", async () => {
   const container = installDom();
   const draw = draws(container);
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS - 1} />);
-  expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
-  await draw(<HostRecoveringLine relinkingSince={0} now={RECONNECT_LINE_AFTER_MS} />);
-  const chip = container.querySelector(".acpmux-host-chip")!;
-  expect(chip.textContent).toBe("Reconnecting…");
-  expectOutOfFlow(chip);
-  expect(container.querySelector(".acpmux-host-line")).toBeNull();
+  for (const now of [RECONNECT_LINE_AFTER_MS - 1, RECONNECT_LINE_AFTER_MS, LONG]) {
+    await draw(<HostRecoveringLine relinkingSince={0} now={now} />);
+    expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
+  }
 });
 
 test("the failure's buttons stay, out of flow", async () => {
