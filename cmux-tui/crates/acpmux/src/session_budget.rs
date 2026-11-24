@@ -202,6 +202,29 @@ pub(crate) fn daemon_budget() -> (Budget, Host) {
     (Budget::read(&get, &host), host)
 }
 
+/// The budget of an agent host or background task scope (`agent_host/scope.rs`): the daemon's,
+/// with no default `MemoryHigh` on a host without swap. There the kernel cannot push a scope's
+/// anonymous memory anywhere, so a scope over `MemoryHigh` is throttled without end and never
+/// reaches `MemoryMax` (gcp-agent-lane-8, 2026-11-24: a 6 GB hog under MemoryMax=2G and
+/// MemoryHigh=1.8G sat at 1.79 GB under 96% memory pressure until it was ended; without the
+/// throttle it was OOM-killed at 2G in 0.7 s). A set `ACPMUX_SESSION_MEMORY_HIGH_MB` still wins.
+pub(crate) fn task_budget() -> (Budget, Host) {
+    let host = this_host();
+    let empty = std::collections::BTreeMap::new();
+    let limits = crate::session_scope::daemon_limits();
+    let get = crate::session_scope::knob_reader(&empty, limits);
+    (task_budget_from(&get, &host), host)
+}
+
+/// [`task_budget`] from a knob reader.
+pub(crate) fn task_budget_from(get: &dyn Fn(&str) -> Option<String>, host: &Host) -> Budget {
+    let mut budget = Budget::read(get, host);
+    if host.swap == 0 && get("ACPMUX_SESSION_MEMORY_HIGH_MB").is_none() {
+        budget.memory_high = 0;
+    }
+    budget
+}
+
 /// This machine's [`Host`]. The registry is read once per process; the rest is cheap.
 pub(crate) fn this_host() -> Host {
     #[cfg(target_os = "linux")]
@@ -271,13 +294,15 @@ pub(crate) fn home_disk() -> Option<(u64, u64)> {
     None
 }
 
-/// `daemon status`'s `sessionBudgets`: the version, the per-scope budget, what it was sized
+/// `daemon status`'s `sessionBudgets`: the version, the per-scope budget (a session's harness
+/// scope; `perTaskScope` for agent host and background task scopes), what it was sized
 /// from, whether the disk watcher runs, and each measured scope's use (`use`, from
 /// `hub/session_budget_watch.rs`).
-pub(crate) fn status(budget: &Budget, host: &Host, watch: Value) -> Value {
+pub(crate) fn status(budget: &Budget, task: &Budget, host: &Host, watch: Value) -> Value {
     json!({
         "version": VERSION,
         "perScope": budget.json(),
+        "perTaskScope": task.json(),
         "sizedFrom": {
             "memoryBytes": host.memory,
             "cores": host.cores,

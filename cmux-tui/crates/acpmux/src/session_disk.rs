@@ -27,6 +27,15 @@ use std::time::Duration;
 
 /// How often the watcher measures.
 pub(crate) const TICK: Duration = Duration::from_secs(15);
+/// How often while the host's free disk is under twice its floor: a `dd` writes 2 GB in 6 s
+/// here (gcp-agent-lane-8, 2026-11-24), so at [`TICK`] a 20 GB writer would run 5 GB past its
+/// budget before the watcher saw it.
+pub(crate) const LOW_TICK: Duration = Duration::from_secs(2);
+
+/// The wait before the next reading, with `free` bytes free on a host whose floor is `floor`.
+pub(crate) fn next_tick(free: u64, floor: u64) -> Duration {
+    if free < floor.saturating_mul(2) { LOW_TICK } else { TICK }
+}
 /// The most scopes, processes and temporary-directory entries one tick reads.
 pub(crate) const MAX_SCOPES: usize = 1024;
 pub(crate) const MAX_PIDS: usize = 32_768;
@@ -197,7 +206,7 @@ impl Watch {
             .collect();
         json!({
             "enabled": enabled,
-            "tickSeconds": TICK.as_secs(),
+            "tickSeconds": next_tick(self.free, self.floor).as_secs(),
             "ticks": self.ticks,
             "freeBytes": self.free,
             "floorBytes": self.floor,

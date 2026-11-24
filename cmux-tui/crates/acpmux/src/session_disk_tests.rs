@@ -106,7 +106,10 @@ fn the_watch_acts_per_scope_and_forgets_gone_ones() {
     assert_eq!(v["use"][0]["state"], "stopped");
     assert_eq!(v["use"][0]["stoppedPgid"], 9);
     assert_eq!(v["use"][0]["diskBytes"], 10 * GB);
-    assert_eq!(v["tickSeconds"], TICK.as_secs());
+    // The disk is low: measured every LOW_TICK.
+    assert_eq!(v["tickSeconds"], LOW_TICK.as_secs());
+    assert_eq!(next_tick(30 * GB, 10 * GB), TICK);
+    assert_eq!(next_tick(19 * GB, 10 * GB), LOW_TICK);
 }
 
 #[test]

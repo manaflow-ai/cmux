@@ -167,7 +167,7 @@ fn lanes_are_found_by_a_full_or_short_host_name() {
 fn status_carries_its_version_and_what_it_was_sized_from() {
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
-    let v = status(&b, &host, serde_json::json!({"enabled": true, "use": []}));
+    let v = status(&b, &b, &host, serde_json::json!({"enabled": true, "use": []}));
     assert_eq!(v["version"], VERSION);
     assert_eq!(v["perScope"]["cpuQuotaPercent"], 1200);
     assert_eq!(v["perScope"]["diskBytes"], 8 * GIB);
@@ -188,7 +188,7 @@ fn the_budget_line_reads_old_this_and_newer_daemons() {
     let watch =
         serde_json::json!({"use": [{"state": "ok"}, {"state": "over"}, {"state": "stopped"}]});
     assert_eq!(
-        budget_line(&status(&b, &host, watch)).unwrap(),
+        budget_line(&status(&b, &b, &host, watch)).unwrap(),
         "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes, 2 scope(s) over"
     );
 
@@ -203,4 +203,22 @@ fn the_budget_line_reads_old_this_and_newer_daemons() {
         budget_line(&newer).unwrap(),
         "mem off (high off), cpu no ceiling weight 30, disk 1.0G"
     );
+}
+
+#[test]
+fn a_task_scope_on_a_host_without_swap_gets_no_default_throttle() {
+    let host = lane_host();
+    let task = task_budget_from(&reader(&[]), &host);
+    assert_eq!(task.memory_high, 0);
+    assert_eq!(task.memory_max, GB60 / 6 * 2);
+    assert!(!task.bus_properties().iter().any(|t| t[0] == "MemoryHigh"));
+    // A set throttle stays, and with swap the default does.
+    let set = task_budget_from(&reader(&[("ACPMUX_SESSION_MEMORY_HIGH_MB", "1024")]), &host);
+    assert_eq!(set.memory_high, 1024 * MIB);
+    let swap = Host { swap: 8 * GIB, ..host };
+    assert_eq!(task_budget_from(&reader(&[]), &swap).memory_high, swap_budget_high(&swap));
+}
+
+fn swap_budget_high(host: &Host) -> u64 {
+    Budget::read(&reader(&[]), host).memory_high
 }
