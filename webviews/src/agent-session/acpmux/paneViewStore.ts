@@ -36,7 +36,8 @@ export function viewStore<T>(initial: T): ViewStore<T> {
   const listeners = new Map<string | null, Set<() => void>>();
   const wake = (view: string | null) => {
     const set = listeners.get(view);
-    if (set) for (const listener of [...set]) listener();
+    // A listener that unsubscribes while being woken is safe: Set iteration skips deleted entries.
+    if (set) for (const listener of set) listener();
   };
   const get = (view: string | null = null): T => (values.has(view) ? (values.get(view) as T) : initial);
   const subscribe = (listener: () => void, view: string | null = null) => {
