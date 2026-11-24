@@ -131,7 +131,7 @@ impl Hub {
         }
         if let Some(provider) = crate::subscriptions::Provider::for_kind(moved.file.kind) {
             let (_, home) = routes::places(&*self.config.read().await);
-            let (token, _, region) = self
+            let (token, expires_at, region) = self
                 .subscriptions
                 .grant(provider, &home, &id, crate::subscriptions::LOCAL_MARGIN)
                 .await
@@ -154,6 +154,14 @@ impl Hub {
                         .map(|(key, value)| (key.to_owned(), value)),
                     );
                     env.insert(crate::byo_endpoint::OPENAI_KEY_ENV.into(), token);
+                    env.insert(
+                        crate::agent_credentials::LOCAL_REDACTION.into(),
+                        crate::byo_endpoint::OPENAI_KEY_ENV.into(),
+                    );
+                    env.insert(
+                        crate::subscriptions::LOCAL_KIMI_EXPIRY.into(),
+                        expires_at.to_string(),
+                    );
                 }
                 crate::subscriptions::Provider::Copilot => {
                     env.insert(crate::agent_credentials::COPILOT_TOKEN.into(), token);
@@ -193,6 +201,32 @@ impl Hub {
         Ok(home)
     }
 
+    /// A local Kimi agent holds its launch grant until the next restart.
+    pub(super) async fn refresh_local_kimi_between_turns(&self, session: &Arc<Session>) {
+        let expiry = {
+            let launch = session.launch_env.lock().unwrap_or_else(|e| e.into_inner());
+            launch.as_ref().map(|env| {
+                env.get(crate::subscriptions::LOCAL_KIMI_EXPIRY)
+                    .and_then(|value| value.parse::<i64>().ok())
+            })
+        };
+        let expiry = match expiry {
+            Some(expiry) => expiry,
+            None => session
+                .child
+                .lock()
+                .await
+                .as_ref()
+                .and_then(|child| child.host_record())
+                .and_then(|record| record.local_kimi_expiry),
+        };
+        if expiry.is_some_and(|expiry| {
+            expiry.saturating_sub(crate::subscriptions::now()) <= crate::subscriptions::LOCAL_MARGIN
+        }) {
+            self.detach_idle_route_child(session).await;
+        }
+    }
+
     /// The prompt owns the turn lock and has yet to start its turn. Reopening the agent
     /// through the ordinary spawn path refreshes the route and resumes its conversation.
     pub(super) async fn refresh_local_chatgpt_between_turns(&self, session: &Arc<Session>) {
@@ -230,6 +264,10 @@ impl Hub {
         }) {
             return;
         }
+        self.detach_idle_route_child(session).await;
+    }
+
+    async fn detach_idle_route_child(&self, session: &Arc<Session>) {
         let _spawn = session.spawn_lock.lock().await;
         if session.turn().is_none()
             && session.pending_permissions().is_empty()

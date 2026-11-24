@@ -390,6 +390,8 @@ impl Hub {
         crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
         p.argv = self.resolved_launcher_argv(p.argv);
         p.env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
+        p.env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY);
+        p.env.remove(crate::agent_credentials::LOCAL_REDACTION);
         #[cfg(unix)]
         for key in
             [crate::agent::copilot_auth::ROUTE_ENV, crate::agent::copilot_auth::ROUTE_HOME_ENV]

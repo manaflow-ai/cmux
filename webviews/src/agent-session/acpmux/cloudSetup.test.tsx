@@ -13,6 +13,7 @@ import { cloudStartEnded, cloudStartSignedIn, type CloudStartProgress } from "./
 import { cloudPickExtras, makeCloudSignInRetry, startCloudChat, type CloudStartAnswer } from "./cloudRun";
 import {
   cloudSetupAction,
+  connectHeldCloudSend,
   readCloudSetupNeed,
   retryWithSetUpPick,
   waitForCloudSetUp,
@@ -90,6 +91,57 @@ test("each family has one setup action", () => {
   expect(cloudSetupAction({ family: "codex" })).toBe("addKey");
   expect(cloudSetupAction({ family: "codex" }, true)).toBe("connectChatGPT");
   expect(readCloudSetupNeed({ family: "codex", model: "  " })).toEqual({ family: "codex" });
+});
+
+test("the picker resumes the failed send on its selected machine", async () => {
+  const ready = Promise.withResolvers<unknown>();
+  const need = { family: "claude" };
+  const attempts: unknown[] = [];
+  const sent: string[] = [];
+  const setup = (action: CloudSetupAction) => {
+    const wait = waitForCloudSetUp(
+      (method, params) => {
+        attempts.push({ method, params });
+        return ready.promise;
+      },
+      "held-send",
+      action,
+      need,
+      undefined,
+      "vm_b",
+    );
+    return startAfterSignIn(
+      wait,
+      () => true,
+      async () => {
+        sent.push("held prompt");
+        return { ok: true };
+      },
+    );
+  };
+  let resumed: ReturnType<typeof setup> | undefined;
+  expect(connectHeldCloudSend("codex", need, false, setup)).toBe(false);
+  expect(
+    connectHeldCloudSend("claude", need, false, (action) => {
+      resumed = setup(action);
+    }),
+  ).toBe(true);
+  expect(connectHeldCloudSend("claude", need, true, setup)).toBe(true);
+  expect(attempts).toEqual([
+    {
+      method: "cloud.setUp",
+      params: {
+        key: "held-send",
+        family: "claude",
+        action: "setUpClaude",
+        machine: "vm_b",
+      },
+    },
+  ]);
+  expect(sent).toEqual([]);
+  ready.resolve({ ready: true });
+  expect(await resumed).toEqual({ ok: true });
+  expect(sent).toEqual(["held prompt"]);
 });
 
 test("a button runs its way in for the start's key, and the start goes again once a connection serves", async () => {

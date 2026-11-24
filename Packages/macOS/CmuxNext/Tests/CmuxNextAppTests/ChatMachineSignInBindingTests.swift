@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
@@ -63,6 +64,37 @@ struct ChatMachineSignInBindingTests {
         #expect(service.storePlan(for: tab, url: callback) == .blank)
         let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
         #expect(relaunched.boundMachine(ofTab: tab.id) == "vm-1")
+        #expect(relaunched.storePlan(for: tab, url: callback) == .blank)
+    }
+
+    @Test func localApprovalAndCallbackUseTheSamePrivateContextAndExpireTogether() async throws {
+        let defaults = Self.defaults()
+        let machines = MachineRegistry(local: DaemonService())
+        let service = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
+        let profiles = OffTheRecordProfiles()
+        let routing = SignInBrowserRouting(localhost: service, offTheRecord: profiles)
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser))
+        let approval = try #require(URL(string: "https://claude.ai/oauth/authorize"))
+        let callback = try #require(URL(string: "http://localhost:8100/callback?code=test"))
+        let wrongPort = try #require(URL(string: "http://localhost:8101/callback"))
+        let page = MockBrowserEngine(kind: .cef).makeMockTab(
+            BrowserTabConfiguration(profile: routing.callbackProfile, initialURL: approval, navigationGuard: .noLoopback))
+        service.expectCallbackPage(page, machine: nil, port: 8100, owner: "mac-approval", current: { true })
+        routing.adopt(page, for: tab.id)
+        let privacy = BrowserTabPrivacy { service.isSignInApprovalTab($0) }
+        #expect(profiles.isOffTheRecord(page.profileID))
+        #expect(!privacy.permitsPersistence(for: tab.id, incognito: false))
+        #expect(service.storePlan(for: tab, url: wrongPort) == .blank)
+        var base = BrowserTabConfiguration(initialURL: callback)
+        base.restoreState = .chromium("fixture")
+        let routed = await routing.configuration(for: tab, base: base, configure: service.configuration(for:url:base:))
+        #expect(routed.initialURL == callback)
+        #expect(routed.profile == page.profileID)
+        #expect(routed.machineStore == nil)
+        #expect(routed.restoreState == nil)
+        #expect(service.endSignInApproval(owner: "mac-approval") == [tab.id])
+        #expect(service.storePlan(for: tab, url: callback) == .blank)
+        let relaunched = RemoteLocalhostService(machines: machines, environment: [:], defaults: defaults)
         #expect(relaunched.storePlan(for: tab, url: callback) == .blank)
     }
 

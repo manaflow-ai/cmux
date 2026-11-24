@@ -134,7 +134,7 @@ final class TabContentCache {
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
     var configureBrowser: SignInBrowserRouting.Configure?
-    private let browserRouting: SignInBrowserRouting
+    let browserRouting: SignInBrowserRouting
     /// The omnibar's browser profile badge of tab `key` (nil: hidden).
     var profileBadge: ((String) -> BrowserProfileBadge?)?
     /// The menu of tab `key`'s browser profile badge.

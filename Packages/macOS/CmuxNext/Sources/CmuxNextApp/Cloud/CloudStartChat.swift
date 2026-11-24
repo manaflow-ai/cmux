@@ -63,16 +63,7 @@ struct CloudStartChat {
             // A connection travels with the launch. Without one, check the machine's own sign-in
             // before offering setup.
             let choice = await services.cloud.setup.choose(harness: start.harness, model: start.model, account: start.account)
-            if case .setup(let family, let model) = choice {
-                let nativeClaudeReady = if family == "claude" {
-                    await services.cloud.setup.canSignInToClaudeOnMachine?(start.machine) == true
-                } else { false }
-                if !nativeClaudeReady {
-                    return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required",
-                                                 details: ["family": family, "model": model ?? ""],
-                                                 retryable: false, origin: "native")
-                }
-            }
+            if let refusal = await start.connectionSetupReply(for: choice, setup: services.cloud.setup) { return refusal }
             let account = services.cloud.account
             var origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, connection: choice.connectionID) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
@@ -410,11 +401,12 @@ extension CloudStartChat {
             guard let services, services.cloud.listedMachineIDs.contains(id) else { return nil }
             return services.machines.session(id)?.credentialHarnesses(subscription: true)
         }
-        services.cloud.setup.run = { [weak services] _, family in
-            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, fromSend: true))
+        services.cloud.setup.ownsMachine = { [weak services] id in
+            guard let services, services.cloud.listedMachineIDs.contains(id), let machine = services.machines.session(id) else { return false }
+            return CloudTransferRules.isOwner(machine.machine, user: services.cloud.auth.platformUserID)
         }
-        services.cloud.setup.openConnectionSettings = { [weak services] family, machine in
-            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, machine: machine))
+        services.cloud.setup.openConnectionSettings = { [weak services] family, machine, fromSend in
+            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine))
         }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }

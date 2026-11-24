@@ -86,7 +86,7 @@ export interface CloudSendDeps {
   cloudHeldOnPage: RefObject<boolean>;
   cloudStartPending: RefObject<boolean>;
   sendToCloudLatest: RefObject<SendToCloud>;
-  cloudSetUpPick: RefObject<{ action: CloudSetupAction; need: CloudSetupNeed } | undefined>;
+  cloudSetUpPick: RefObject<{ action: CloudSetupAction; need: CloudSetupNeed; machine?: string } | undefined>;
   cloudSignInWait: RefObject<CloudSignInWait | undefined>;
   cloudSignInSend: RefObject<() => Promise<CloudStartAnswer> | undefined>;
   cloudTypedDuringStart: RefObject<CloudStartDraft | undefined>;
@@ -295,7 +295,9 @@ export function beginCloudSendWith(
     const pick = cloudSetUpPick.current;
     cloudSetUpPick.current = undefined;
     setUpNeed = pick?.need;
-    signIn = pick ? waitForCloudSetUp(callNative, key, pick.action, pick.need) : waitForCloudSignIn(callNative, key);
+    signIn = pick
+      ? waitForCloudSetUp(callNative, key, pick.action, pick.need, undefined, pick.machine)
+      : waitForCloudSignIn(callNative, key);
     cloudSignInWait.current = signIn;
   }
   const wait = signIn;

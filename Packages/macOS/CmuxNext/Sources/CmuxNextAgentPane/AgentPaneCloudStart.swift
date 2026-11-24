@@ -438,15 +438,16 @@ extension AgentPaneModel {
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
     /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
     /// withdraws it (the page left Cloud, or gave up).
-    func setUpCloud(key: String, action: String, family: String) async -> [String: Any] {
+    func setUpCloud(key: String, action: String, family: String, machine: String?) async -> [String: Any] {
         guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
-              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces else {
+              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces,
+              machine.map({ ownsCloudConnectionMachine?($0) == true }) != false else {
             return Self.unsupported("cloud.setUp")
         }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
         let generation = cloudSignInGeneration
         cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
-        let wait = Task { await onCloudSetUp(way, family) } // the model's own actor: it only awaits the App's wait
+        let wait = Task { await onCloudSetUp(way, family, machine) } // the model's own actor: it only awaits the App's wait
         cloudSetUpWait = wait
         let ready = await wait.value
         if cloudSetUpWait == wait { cloudSetUpWait = nil }
@@ -463,9 +464,11 @@ extension AgentPaneModel {
     public func useCloudSetup(_ setup: CloudSetup?) {
         guard let setup else {
             (onCloudSetUp, onCloudServed, onCloudConnect) = (nil, nil, nil)
+            ownsCloudConnectionMachine = nil
             return
         }
-        onCloudSetUp = { @MainActor (action: CloudSetup.Action, family: String) async -> Bool in await setup.setUp(action, family: family) }
+        ownsCloudConnectionMachine = { setup.ownsMachine?($0) == true }
+        onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2) }
         onCloudServed = { await setup.served(machine: $0) }
         onCloudConnect = { @MainActor family, machine in setup.connect(family: family, machine: machine) }
     }
@@ -482,9 +485,11 @@ extension AgentPaneModel {
                   machine == nil || machine == owned else { return Self.unsupported("cloud.connect") }
             recoveryMachine = owned
         } else {
-            guard machine == nil, onCloudStartChat != nil else { return Self.unsupported("cloud.connect") }
+            guard onCloudStartChat != nil, machine.map({ ownsCloudConnectionMachine?($0) == true }) != false else {
+                return Self.unsupported("cloud.connect")
+            }
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-            recoveryMachine = nil
+            recoveryMachine = machine
         }
         onCloudConnect(family, recoveryMachine)
         return AgentPaneReply.success()

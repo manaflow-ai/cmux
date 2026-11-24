@@ -461,14 +461,8 @@ extension AgentTabStore {
             // it is sent, through any daemon (the app link's own answer).
             let links = services.machines.session(daemon.machineID).map { CloudMachineLinks(appLink: $0.appLink) }
             host.ownerLink = links?.ownerLink
-            if let ownerLink = links?.ownerLink {
-                let chat = key.key
-                host.claudeSignedIn = { [weak services] in
-                    guard let services else { return }
-                    await services.chatSignIn.closeChatApproval(chat)
-                    guard await ownerLink() != nil, let environment = await QuitAgents.environment(services) else { return }
-                    await SettingsModels.retireLegacyClaudeConnections(environment: environment)
-                }
+            if links != nil {
+                host.claudeSignedIn = { [weak services] in await services?.chatSignIn.closeChatApproval(key.key) }
             }
             if host.cloudMachineID != nil, let ownerLink = links?.ownerLink {
                 host.restoreCloudCredential = { [weak tabs] surface in

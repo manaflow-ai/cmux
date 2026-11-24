@@ -22,6 +22,7 @@ use crate::routes::{self, RouteFile, RouteKind};
 
 pub(crate) type Failure = &'static str;
 const REFRESH_MARGIN: i64 = 300;
+pub(crate) const LOCAL_KIMI_EXPIRY: &str = "ACPMUX_LOCAL_KIMI_EXPIRY";
 pub(crate) const KIMI_MODEL: &str = "kimi-for-coding";
 
 pub(crate) fn migrate_all(home: &Path) {

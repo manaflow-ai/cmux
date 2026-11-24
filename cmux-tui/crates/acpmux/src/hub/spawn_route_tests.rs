@@ -6,22 +6,25 @@ use crate::{chatgpt, routes};
 const ROUTE: &str = "chatgpt-test";
 
 fn fixture(root: &Path) -> (Arc<Hub>, HarnessProfile) {
+    fixture_for(root, "codex", "chatgpt-plan", ROUTE)
+}
+
+fn fixture_for(root: &Path, family: &str, kind: &str, id: &str) -> (Arc<Hub>, HarnessProfile) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut config: crate::config::Config = serde_json::from_value(json!({
         "store": {"mode": "memory"},
-        "harnesses": {"codex-fake": {"argv": ["python3", fake], "family": "codex"}},
-        "defaultHarness": "codex-fake",
+        "harnesses": {"route-fake": {"argv": ["python3", fake], "family": family}},
+        "defaultHarness": "route-fake",
     }))
     .unwrap();
     config.path = Some(root.join("config.json"));
     config.profile_sources = crate::config::ProfileSources::none();
     config.profile_sources.cmux_json = Some(root.join("cmux.json"));
     let (dir, _) = routes::places(&config);
-    let route =
-        serde_json::from_value(json!({"kind": "chatgpt-plan", "families": ["codex"]})).unwrap();
-    routes::add(dir.as_deref(), ROUTE, &route, false).unwrap();
-    routes::set_binding(root, "family:codex", Some(ROUTE)).unwrap();
-    let profile = config.harnesses["codex-fake"].clone();
+    let route = serde_json::from_value(json!({"kind": kind, "families": [family]})).unwrap();
+    routes::add(dir.as_deref(), id, &route, false).unwrap();
+    routes::set_binding(root, &format!("family:{family}"), Some(id)).unwrap();
+    let profile = config.harnesses["route-fake"].clone();
     let store = crate::store::open(&config.store, root).unwrap();
     (Hub::new(config, store), profile)
 }
@@ -99,6 +102,49 @@ async fn local_chatgpt_refresh_resumes_the_chat_before_the_next_turn() {
     assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
     let launch_env = session.launch_env.lock().unwrap();
     assert_eq!(launch_env.as_ref().unwrap()[CHATGPT_TOKEN], "fixture-after-refresh");
+}
+
+#[tokio::test]
+async fn local_kimi_refresh_replaces_the_launch_grant_before_a_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let id = "kimi-test";
+    let (hub, _) = fixture_for(root.path(), "opencode", "kimi-plan", id);
+    let now = crate::subscriptions::now();
+    let save = |token, expiry| {
+        crate::subscription_store::Store::new(root.path(), "kimi")
+            .write(
+                id,
+                &json!({
+                    "access_token": token,
+                    "refresh_token": "fixture-refresh",
+                    "expires_at": expiry,
+                    "region": "global",
+                }),
+            )
+            .unwrap();
+    };
+    save("kimi-before-refresh", now + 3600);
+    let session = hub
+        .new_session(NewRequest { cwd: Some(root.path().to_owned()), ..NewRequest::default() })
+        .await
+        .unwrap();
+    let before = hub.child_for(&session).await.unwrap().generation;
+    let native_id = session.meta().agent_session_id.unwrap();
+    let prompt = || vec![json!({"type": "text", "text": "hello"})];
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+    {
+        let mut launch = session.launch_env.lock().unwrap();
+        let env = launch.as_mut().unwrap();
+        assert_eq!(env[crate::subscriptions::LOCAL_KIMI_EXPIRY], (now + 3600).to_string());
+        env.insert(crate::subscriptions::LOCAL_KIMI_EXPIRY.into(), (now - 1).to_string());
+    }
+    save("kimi-after-refresh", now + 7200);
+    hub.prompt(&session, prompt(), "test", false).await.unwrap();
+    assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
+    assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
+    let launch = session.launch_env.lock().unwrap();
+    assert_eq!(launch.as_ref().unwrap()[crate::byo_endpoint::OPENAI_KEY_ENV], "kimi-after-refresh");
 }
 
 #[tokio::test]

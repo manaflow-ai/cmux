@@ -175,12 +175,13 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
     /// The Set up Cloud card's way in, then the wait for a connection serving the family (``CloudSetup/setUp(_:family:)``);
     /// false when the wait ended without one. nil when Cloud is unavailable.
-    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String) async -> Bool)?
+    @ObservationIgnored public var onCloudSetUp: (@MainActor (CloudSetup.Action, String, String?) async -> Bool)?
     /// Per family a Cloud chat runs, readiness and the reason when disconnected (``CloudSetup/served()``); nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudServed: (@MainActor (String?) async -> CloudSetup.Readiness)?
     /// Opens Settings > Cloud > Cloud models for the picker's Connect (``CloudSetup/connect(family:)``); nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudConnect: (@MainActor (String, String?) -> Void)?
     /// Proves the current tab's connection to its own Cloud machine before opening Models for recovery.
+    @ObservationIgnored var ownsCloudConnectionMachine: (@MainActor (String) -> Bool)?
     @ObservationIgnored public var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?
     /// Whether the app's Cloud account is signed in now (in another pane, window or Settings, say):
     /// a `cloud.signIn` then resumes without opening the browser. nil reads as not signed in.
@@ -785,7 +786,7 @@ public final class AgentPaneModel {
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
         case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
         case .cloudSignIn(let key): return await signInToCloud(key: key)
-        case .cloudSetUp(let key, let action, let family): return await setUpCloud(key: key, action: action, family: family)
+        case .cloudSetUp(let key, let action, let family, let machine): return await setUpCloud(key: key, action: action, family: family, machine: machine)
         // A read for the model picker: needs no gesture and changes nothing.
         case .cloudSetupState(let machine): return await cloudSetupState(machine: machine)
         case .cloudConnect(let family, let machine): return await connectCloud(family: family, machine: machine)

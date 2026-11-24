@@ -13,7 +13,7 @@ import type { AccountRowWire } from "../shared/signIn/accountSignIn";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, click, settle, changeValue } = await import("./testing");
+const { renderPage, click, settle, changeValue, ops } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -55,6 +55,8 @@ const card = (rendered: Rendered) =>
 
 test("Sign In Again on a signed-out Claude login signs that login in, in place", async () => {
   const rendered = await open({ accounts: claudeSignedOut });
+  expect(ops(rendered.provider, "cmux.settings.accounts.state")).toHaveLength(1);
+  expect(rendered.provider.accountRuns).toEqual([]);
   await signInAgain(rendered);
   expect(card(rendered)?.dataset.state).toBe("waiting");
   expect(rendered.provider.accountRuns.find((run) => run.action === "signInStart")).toMatchObject({

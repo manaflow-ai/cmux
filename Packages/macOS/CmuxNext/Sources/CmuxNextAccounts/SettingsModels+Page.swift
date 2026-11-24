@@ -44,6 +44,7 @@ extension SettingsModels: PageProvider {
                             settings: SettingsController, activeTeam: @escaping @MainActor () -> ActiveTeam?,
                             agentKeys: TeamAgentKeys, policy: TeamModelsPolicy,
                             openSignInPage: @escaping @MainActor (URL, String) async -> Bool,
+                            openClaudeCallback: CloudClaudeMachine.CallbackOpener? = nil,
                             closeSignInPage: @escaping @MainActor (String) -> Void) -> SettingsModels {
         let models = SettingsModels(
             environment: environment, keys: KeychainModelKeyStore(),
@@ -59,6 +60,7 @@ extension SettingsModels: PageProvider {
                 try await settings.setSetting(at: ModelsSettings.spreadUsagePath, to: value, by: .user)
             })
         models.presentSignInPage = openSignInPage
+        models.presentClaudeCallback = openClaudeCallback
         models.dismissSignInPage = closeSignInPage
         return models
     }

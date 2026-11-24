@@ -141,6 +141,7 @@ impl Hub {
             holder: None,
             copilot_scratch: None,
             local_chatgpt_expiry: None,
+            local_kimi_expiry: None,
         };
         // The agent holder (`agent_host/custody.rs`), as for a session's own host.
         #[cfg(unix)]

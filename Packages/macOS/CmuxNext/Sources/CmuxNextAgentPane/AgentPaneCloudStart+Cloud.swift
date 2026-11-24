@@ -95,6 +95,18 @@ extension AgentPaneCloudStart {
 }
 
 extension AgentPaneCloudStart {
+    /// First-send setup is required unless the selected Cloud machine can offer its own Claude login.
+    @MainActor public func connectionSetupReply(for choice: CloudSetup.Choice, setup: CloudSetup) async -> [String: Any]? {
+        guard case .setup(let family, let model) = choice else { return nil }
+        if family == "claude", await setup.canSignInToClaudeOnMachine?(machine) == true { return nil }
+        return Self.cloudSetupReply(family: family, model: model)
+    }
+
+    private static func cloudSetupReply(family: String, model: String?) -> [String: Any] {
+        AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required",
+                              details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
+    }
+
     /// Offer setup only after the machine reports no usable sign-in and the local connection
     /// list confirms an addable connection is missing.
     @MainActor public func needsConnectionReply(_ message: String, setup: CloudSetup) async -> [String: Any] {
@@ -110,6 +122,6 @@ extension AgentPaneCloudStart {
         if !CloudSetup.setupFamilies.contains(family), await setup.launchConnection(family)?.endpointProfile != true {
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
         }
-        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required", details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
+        return Self.cloudSetupReply(family: family, model: model)
     }
 }

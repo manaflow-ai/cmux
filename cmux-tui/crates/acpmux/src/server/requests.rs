@@ -4717,6 +4717,6 @@ async fn agent_credentials_update(
     if let Some(endpoint) = params.get("endpoint") {
         wire["endpoint"] = endpoint.clone();
     }
-    let credential = crate::agent_credentials::AgentCredential::parse_delivery(&wire)?;
+    let credential = crate::agent_credentials::AgentCredential::parse(&wire)?;
     hub.update_credential(id, credential).await
 }

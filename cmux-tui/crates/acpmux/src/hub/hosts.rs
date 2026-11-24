@@ -1649,6 +1649,10 @@ impl Hub {
                     path: dir.path().to_owned(),
                     redaction: token.clone(),
                 }),
+            local_kimi_expiry: profile
+                .env
+                .get(crate::subscriptions::LOCAL_KIMI_EXPIRY)
+                .and_then(|v| v.parse().ok()),
             local_chatgpt_expiry: profile
                 .env
                 .get(crate::chatgpt::LOCAL_EXPIRY_ENV)

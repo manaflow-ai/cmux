@@ -197,11 +197,12 @@ export function useCloudServed(
         }),
       };
       pendingReturn.current = wanted;
-      void callRef.current("cloud.connect", { family }).catch(() => {
+      const machine = readMachine?.();
+      void callRef.current("cloud.connect", { family, ...(machine ? { machine } : {}) }).catch(() => {
         if (pendingReturn.current === wanted) disarm();
       });
     },
-    [active, disarm, isKey, read, watchKey],
+    [active, disarm, isKey, read, readMachine, watchKey],
   );
   return useMemo(
     () => ({ ...(active && served ? { served } : {}), refresh, openSettings }),

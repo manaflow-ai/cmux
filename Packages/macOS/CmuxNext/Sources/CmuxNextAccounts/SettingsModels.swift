@@ -52,6 +52,8 @@ public final class SettingsModels {
     @ObservationIgnored var claudeLoginTasks: [ClaudeLoginTarget: Task<Void, Never>] = [:]
     @ObservationIgnored var claudeLoginTimers: [ClaudeLoginTarget: DemandTimer] = [:]
     @ObservationIgnored var claudeLoginReplacements: [ClaudeLoginTarget: String] = [:]
+    @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String) -> Void)?
+    @ObservationIgnored var presentClaudeCallback: CloudClaudeMachine.CallbackOpener?
     @ObservationIgnored var claudeLoginAttempts: [ClaudeLoginTarget: ClaudeLoginAttempt] = [:]
     /// The current owner machine, keeping the machine this dialog used while it is still ready.
     @ObservationIgnored public var cloudClaudeLogin: (@MainActor (_ preferredMachine: String?) -> CloudClaudeLogin)?
@@ -235,7 +237,7 @@ public final class SettingsModels {
             if kind == "native-login", ["gemini", "grok", "cursor"].contains(provider) { return provider }
             return nil
         } ?? (kind == "claude-login" || kind == "claude-token" ? "anthropic" : "openai")
-        let servesCloud = kind != "claude-token" && (value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false)
+        let servesCloud = value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false
         return [
             "id": .string(id), "kind": .string(kind), "provider": .string(provider),
             "families": strings("families", "families"), "label": .string(value["label"]?.stringValue ?? id),
@@ -409,7 +411,7 @@ public final class SettingsModels {
             let target: ClaudeLoginTarget = params["cloud"]?.boolValue == true ? .cloud : .mac
             switch action {
             case "connectClaude":
-                try beginClaudeLogin(target, replacing: claudeReplacement(params), machine: params["machine"]?.stringValue)
+                try beginClaudeLogin(target, replacing: claudeReplacement(params, target: target), machine: params["machine"]?.stringValue)
             case "finishClaudeLogin":
                 finishClaudeLogin(target, code: params["code"]?.stringValue ?? "")
             case "cancelClaudeLogin":
@@ -454,8 +456,9 @@ public final class SettingsModels {
         return .object([:])
     }
 
-    private func claudeReplacement(_ params: JSONValue) throws -> String? {
+    private func claudeReplacement(_ params: JSONValue, target: ClaudeLoginTarget) throws -> String? {
         guard let id = params["replace"]?.stringValue else { return nil }
+        if target == .cloud, id == "claude-cloud-login" { return id }
         guard connections.contains(where: { $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "claude-token" }) else {
             throw PageError.invalidParams("replacement needs a listed Claude connection")
         }

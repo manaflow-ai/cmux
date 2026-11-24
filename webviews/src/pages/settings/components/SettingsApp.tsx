@@ -5,7 +5,7 @@ import { installKeyboard, runPageCommand } from "../keyboard";
 import { CLOUD_MODELS_FOCUS, parseLocation, sectionHref } from "../router";
 import { homes, shownSection } from "../categories";
 import { rowsByKey } from "../schema";
-import { filterRows, modelSettingsMatches } from "../search";
+import { exactSettingsDestination, filterRows, modelSettingsMatches } from "../search";
 import { managedOf, valueOf } from "../store";
 import { ReadOnlyNotice } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
@@ -118,6 +118,8 @@ export function SettingsApp() {
     clearField();
   };
   const submit = () => {
+    const exact = exactSettingsDestination(query, state.host?.dev_build === true);
+    if (exact) return go(exact.section, exact.card);
     const first = filterRows({
       query,
       valueOf: (key) => valueOf(state, key),

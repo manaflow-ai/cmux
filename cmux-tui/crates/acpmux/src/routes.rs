@@ -1312,6 +1312,10 @@ pub fn env_for_on(
         out.unset.extend(crate::agent_credentials::UNSET.iter().map(|key| (*key).to_owned()));
         if let Some(secret) = &route.file.secret {
             out.set.insert("OPENROUTER_API_KEY".into(), reference_value(secret));
+            out.set.insert(
+                crate::agent_credentials::LOCAL_REDACTION.into(),
+                "OPENROUTER_API_KEY".into(),
+            );
         }
         return Ok(out);
     }
@@ -1326,6 +1330,7 @@ pub fn env_for_on(
                 provider.api_key()
             };
             out.set.insert(key.into(), reference_value(reference));
+            out.set.insert(crate::agent_credentials::LOCAL_REDACTION.into(), key.into());
             if provider == crate::provider_cloud_auth::Provider::Gemini {
                 out.set.extend(
                     crate::provider_cloud_auth::gemini_key_env(vertex)

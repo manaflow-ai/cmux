@@ -419,9 +419,11 @@ extension AgentPaneRequest {
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil { self = .cloudSignIn(key: key) } else { self = .unsupported(method) }
         case "cloud.setUp":
             // The start's key, one of the card's ways in and the family it waits for (CloudSetup).
+            let machine = params?["machine"] as? String
             if let key = params?["key"] as? String, UUID(uuidString: key) != nil, let action = params?["action"] as? String,
-               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.isSetupFamily(family) {
-                self = .cloudSetUp(key: key, action: action, family: family)
+               CloudSetup.Action(rawValue: action) != nil, let family = params?["family"] as? String, CloudSetup.isSetupFamily(family),
+               params?["machine"] == nil || machine.map(CloudSetup.isConnectionID) == true {
+                self = .cloudSetUp(key: key, action: action, family: family, machine: machine)
             } else { self = .unsupported(method) }
         case "cloud.setup.state":
             let machine = (params?["machine"] as? String).flatMap { CloudSetup.isConnectionID($0) ? $0 : nil }

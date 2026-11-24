@@ -61,6 +61,18 @@ export function cloudSetupAction(need: CloudSetupNeed, chatGPTReady = CLOUD_CHAT
   return "openSettings";
 }
 
+/// A failed send owns Connect for its family, including while its setup is already pending.
+export function connectHeldCloudSend(
+  family: string,
+  need: CloudSetupNeed | undefined,
+  waiting: boolean,
+  setUp: (action: CloudSetupAction) => void,
+): boolean {
+  if (!need || need.family !== family) return false;
+  if (!waiting) setUp(cloudSetupAction(need));
+  return true;
+}
+
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// Runs `action` for start `key` on the card's click and waits for a connection serving `need`'s family,
@@ -75,6 +87,7 @@ export function waitForCloudSetUp(
     const deadline = setTimeout(run, CLOUD_SETUP_LIMIT_MS);
     return () => clearTimeout(deadline);
   },
+  machine?: string,
 ): CloudSignInWait {
   let finish!: (end: "signedIn" | CloudStartAnswer) => void;
   const ended = new Promise<"signedIn" | CloudStartAnswer>((resolve) => {
@@ -93,7 +106,7 @@ export function waitForCloudSetUp(
     finish(value);
   };
   const cancelDeadline = schedule(() => end({ ...notReady, details: { ...details, timedOut: true } }, true));
-  call("cloud.setUp", { key, action, family: need.family }).then(
+  call("cloud.setUp", { key, action, family: need.family, ...(machine ? { machine } : {}) }).then(
     () => end("signedIn"),
     (error: unknown) => {
       const code = (error as { code?: unknown } | null)?.code;

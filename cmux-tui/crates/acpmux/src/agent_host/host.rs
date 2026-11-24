@@ -170,6 +170,7 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         // A replacement host is the holder of the harness it took over.
         holder: Some(true),
         local_chatgpt_expiry: spec.local_chatgpt_expiry,
+        local_kimi_expiry: spec.local_kimi_expiry,
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -210,6 +211,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        .env_remove(crate::agent_credentials::LOCAL_REDACTION)
         // What this host started is found by it after the host is killed (`end_left_behind`).
         .env(super::HOST_MARK, &nonce)
         .current_dir(&spec.cwd)
@@ -258,6 +260,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         host_level: HOST_LEVEL,
         holder: Some(holder.is_some()),
         local_chatgpt_expiry: spec.local_chatgpt_expiry,
+        local_kimi_expiry: spec.local_kimi_expiry,
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -593,7 +596,8 @@ impl Started {
         // With the agent holder, stdout is read through its ring (`custody.rs`).
         let ring_reader = |pipe: OwnedFd, holder: &Holder| -> Result<Reader> {
             let ring = holder.fds.ring.clone();
-            Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from)?))
+            let local_key = spec.local_launch_key_index().map(|index| spec.env[index].1.as_str());
+            Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from, local_key)?))
         };
         let harness_start = match &harness {
             Harness::Spawned(_) => record.harness_pid.and_then(crate::owner_exit::process_start),
@@ -1942,6 +1946,30 @@ mod tests {
 #[cfg(test)]
 mod launch_key_redaction_tests {
     use super::*;
+
+    #[test]
+    fn local_route_keys_are_redacted_without_becoming_cloud_credentials() {
+        for name in ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"] {
+            let key = "fixture-local-provider-key";
+            let spec: SpawnSpec = serde_json::from_value(serde_json::json!({
+                "session_id": "chat",
+                "program": "fixture",
+                "args": [],
+                "env": [[name, key], [crate::agent_credentials::LOCAL_REDACTION, name]],
+                "cwd": "/",
+                "hosts_dir": "/",
+                "socket": "/unused",
+                "buffer_cap": 1024
+            }))
+            .unwrap();
+            let mut entry = Entry::Err { line: format!("provider refused {key}") };
+            redact_launch_key(&mut entry, spec.launch_key(spec.launch_key_index()).unwrap());
+            assert_eq!(entry, Entry::Err { line: "provider refused [redacted]".into() });
+            let process_env =
+                format!("{}={name}\0{name}={key}\0", crate::agent_credentials::LOCAL_REDACTION);
+            assert!(crate::agent_credentials::recovered(process_env.as_bytes()).is_none());
+        }
+    }
 
     #[test]
     fn local_kimi_grants_are_redacted_without_a_cloud_recovery_marker() {

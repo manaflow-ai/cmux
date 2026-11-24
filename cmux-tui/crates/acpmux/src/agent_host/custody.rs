@@ -234,17 +234,12 @@ impl Ring {
             }
         }
         let mut buf = vec![0u8; max.min(64 << 10)];
-        let n = loop {
-            // SAFETY: `buf` is valid for its length.
-            let n = unsafe { libc::read(pipe, buf.as_mut_ptr().cast(), buf.len()) };
-            if n >= 0 {
-                break n as usize;
-            }
-            let e = std::io::Error::last_os_error();
-            if e.kind() != std::io::ErrorKind::Interrupted {
-                return Err(e);
-            }
-        };
+        let n = read_pipe(pipe, &mut buf)?;
+        self.append(&buf[..n], at)
+    }
+
+    fn append(&self, buf: &[u8], at: u64) -> std::io::Result<usize> {
+        let n = buf.len();
         let mut done = 0;
         while done < n {
             // SAFETY: the filled part of `buf`.
@@ -300,6 +295,53 @@ impl Ring {
     }
 }
 
+fn read_pipe(pipe: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        // SAFETY: `buf` is valid for its length.
+        let n = unsafe { libc::read(pipe, buf.as_mut_ptr().cast(), buf.len()) };
+        if n >= 0 {
+            return Ok(n as usize);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+/// Holds only a possible prefix of the key across reads, so a split write cannot leak it.
+struct RingRedaction {
+    key: Vec<u8>,
+    tail: Vec<u8>,
+}
+
+impl RingRedaction {
+    fn append_from(&mut self, pipe: RawFd, ring: &Ring, at: u64) -> std::io::Result<(usize, bool)> {
+        let mut chunk = [0; 16 << 10];
+        let n = read_pipe(pipe, &mut chunk)?;
+        let eof = n == 0;
+        self.tail.extend_from_slice(&chunk[..n]);
+        let mut output = Vec::with_capacity(self.tail.len());
+        let mut rest = self.tail.as_slice();
+        let finder = memchr::memmem::Finder::new(&self.key);
+        while let Some(start) = finder.find(rest) {
+            output.extend_from_slice(&rest[..start]);
+            output.extend_from_slice(b"[redacted]");
+            rest = &rest[start + self.key.len()..];
+        }
+        let keep = if eof {
+            0
+        } else {
+            let possible = rest.len().min(self.key.len() - 1);
+            (1..=possible).rev().find(|&len| rest.ends_with(&self.key[..len])).unwrap_or(0)
+        };
+        output.extend_from_slice(&rest[..rest.len() - keep]);
+        let consumed = self.tail.len() - keep;
+        self.tail.drain(..consumed);
+        Ok((ring.append(&output, at)?, eof))
+    }
+}
+
 /// The harness's stdout through the ring: bytes from `read_off` on, read back from the ring, and
 /// moved there from the pipe as the reader needs more.
 pub(crate) struct RingPipe {
@@ -308,6 +350,7 @@ pub(crate) struct RingPipe {
     read_off: u64,
     end: u64,
     eof: bool,
+    redaction: Option<RingRedaction>,
 }
 
 impl RingPipe {
@@ -316,11 +359,15 @@ impl RingPipe {
         pipe: OwnedFd,
         ring: std::sync::Arc<Ring>,
         from: u64,
+        key: Option<&str>,
     ) -> std::io::Result<Self> {
         set_nonblocking(pipe.as_raw_fd())?;
         let end = ring.end()?;
         let pipe = tokio::io::unix::AsyncFd::with_interest(pipe, tokio::io::Interest::READABLE)?;
-        Ok(Self { pipe, ring, read_off: from.min(end), end, eof: false })
+        let redaction = key
+            .filter(|key| !key.is_empty())
+            .map(|key| RingRedaction { key: key.as_bytes().to_vec(), tail: Vec::new() });
+        Ok(Self { pipe, ring, read_off: from.min(end), end, eof: false, redaction })
     }
 }
 
@@ -348,9 +395,16 @@ impl tokio::io::AsyncRead for RingPipe {
                 Poll::Ready(g) => g?,
                 Poll::Pending => return Poll::Pending,
             };
-            match this.ring.append_from(this.pipe.get_ref().as_raw_fd(), this.end, 256 << 10) {
-                Ok(0) => this.eof = true,
-                Ok(n) => this.end += n as u64,
+            let pipe = this.pipe.get_ref().as_raw_fd();
+            let appended = match this.redaction.as_mut() {
+                Some(redaction) => redaction.append_from(pipe, &this.ring, this.end),
+                None => this.ring.append_from(pipe, this.end, 256 << 10).map(|n| (n, n == 0)),
+            };
+            match appended {
+                Ok((n, eof)) => {
+                    this.end += n as u64;
+                    this.eof = eof;
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => guard.clear_ready(),
                 Err(e) => return Poll::Ready(Err(e)),
             }
@@ -593,4 +647,27 @@ pub(crate) fn inherited(
     let (stdin, stdout, stderr, ring) = (take(0)?, take(1)?, take(2)?, take(3)?);
     let pidfd = if adopt.pidfd { Some(take(4)?) } else { None };
     Ok((stdin, stdout, stderr, Ring::from_fd(ring), pidfd))
+}
+
+#[cfg(test)]
+mod ring_redaction_tests {
+    use super::*;
+
+    #[test]
+    fn local_grants_split_across_reads_never_reach_the_ring() {
+        let dir = tempfile::tempdir().unwrap();
+        let ring = Ring::create(dir.path()).unwrap();
+        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        let mut redaction = RingRedaction { key: b"fixture-kimi-grant".to_vec(), tail: Vec::new() };
+        writer.write_all(b"provider refused fixture-kimi-").unwrap();
+        let (n, _) = redaction.append_from(reader.as_raw_fd(), &ring, 0).unwrap();
+        let mut first = vec![0; n];
+        assert_eq!(ring.read_at(&mut first, 0).unwrap(), n);
+        assert_eq!(first, b"provider refused ");
+        writer.write_all(b"grant twice: fixture-kimi-grant\n").unwrap();
+        redaction.append_from(reader.as_raw_fd(), &ring, n as u64).unwrap();
+        let mut replay = vec![0; ring.end().unwrap() as usize];
+        assert_eq!(ring.read_at(&mut replay, 0).unwrap(), replay.len());
+        assert_eq!(replay, b"provider refused [redacted] twice: [redacted]\n");
+    }
 }

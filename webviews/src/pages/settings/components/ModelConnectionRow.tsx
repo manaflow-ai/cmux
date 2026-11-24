@@ -106,21 +106,24 @@ export function ModelConnectionRow({
   const provider = apiKey ? providerById(connection.provider) : undefined;
   const edit =
     (apiKey && connection.canReplaceKey && provider?.kind === "api-key") || (endpoint && !!connection.endpoint);
-  const reauthProvider = cloudSubscription
-    ? connection.kind === "claude-token"
+  const reauthProvider =
+    connection.id === "claude-cloud-login"
       ? "claude"
-      : connection.kind === "kimi-plan"
-        ? "kimi-code"
-        : connection.kind.slice(0, -"-plan".length)
-    : builtin
-      ? connection.kind
-      : connection.kind === "subscription"
-        ? connection.families[0] === "claude"
-          ? "claude-login"
-          : "codex-login"
-        : undefined;
-  const reauthTarget = !builtin ? connection.id : undefined;
-  // The old Cloud token no longer runs anything: the row is Claude with one Reconnect action.
+      : cloudSubscription
+        ? connection.kind === "claude-token"
+          ? "claude"
+          : connection.kind === "kimi-plan"
+            ? "kimi-code"
+            : connection.kind.slice(0, -"-plan".length)
+        : builtin
+          ? connection.kind
+          : connection.kind === "subscription"
+            ? connection.families[0] === "claude"
+              ? "claude-login"
+              : "codex-login"
+            : undefined;
+  const reauthTarget = !builtin || connection.id === "claude-cloud-login" ? connection.id : undefined;
+  // Legacy Cloud token rows offer migration to the machine login.
   const legacyClaude = cloud && connection.kind === "claude-token";
   const reconnect = useRef<HTMLButtonElement>(null);
   const rename = tools && !nativeLogin && connection.kind !== "claude-login" && (!endpoint || !!connection.endpoint);

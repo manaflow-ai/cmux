@@ -2283,6 +2283,7 @@ mod tests {
         let route = routes::find(Some(&d.routes), &id).unwrap();
         let local = routes::env_for(&route, "openrouter", &d.home).unwrap();
         assert!(local.set["OPENROUTER_API_KEY"].contains(&key));
+        assert_eq!(local.set[crate::agent_credentials::LOCAL_REDACTION], "OPENROUTER_API_KEY");
         let profiles = config::profiles::load(&ProfileSources::none());
         for model in ["openrouter/openai/gpt-5.4-mini", "openai/gpt-5.4-mini"] {
             let plan =

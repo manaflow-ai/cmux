@@ -41,6 +41,13 @@ extension SettingsHarnesses {
         })
     }
 
+    /// Load the sign-in accounts before answering the Settings accounts query.
+    package func loadSignInAccounts(ready: (@MainActor () async -> AcpmuxEnvironment?)? = nil) async {
+        guard accounts == nil else { return }
+        let current = if let ready { await ready() } else { environment() }
+        if let current, accounts == nil { await readAccounts(current, generation: generation) }
+    }
+
     /// Settings > Accounts' `refresh` reads the accounts again; `focus` only after a terminal hand-off.
     public func accountsPageRead(_ gesture: String) async {
         if gesture == "focus" { return await refocused() }

@@ -264,6 +264,8 @@ pub struct SpawnSpec {
     pub copilot_scratch: Option<CopilotScratch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_chatgpt_expiry: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_kimi_expiry: Option<i64>,
 }
 
 /// On the private host pipe only. The grant is used to redact output, never exported.
@@ -283,6 +285,9 @@ impl SpawnSpec {
 
     /// The per-launch key's index in the existing environment, for output redaction.
     fn launch_key_index(&self) -> Option<usize> {
+        if let Some(index) = self.local_launch_key_index() {
+            return Some(index);
+        }
         let name = self
             .env
             .iter()
@@ -291,6 +296,12 @@ impl SpawnSpec {
         if !crate::agent_credentials::NAMES.contains(&name) {
             return None;
         }
+        self.env.iter().position(|(key, value)| key == name && !value.is_empty())
+    }
+
+    fn local_launch_key_index(&self) -> Option<usize> {
+        let (_, name) =
+            self.env.iter().find(|(name, _)| name == crate::agent_credentials::LOCAL_REDACTION)?;
         self.env.iter().position(|(key, value)| key == name && !value.is_empty())
     }
 }
@@ -452,6 +463,8 @@ pub struct HostRecord {
     pub holder: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub local_chatgpt_expiry: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_kimi_expiry: Option<i64>,
 }
 
 impl SpawnSpec {

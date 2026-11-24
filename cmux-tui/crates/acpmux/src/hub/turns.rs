@@ -908,6 +908,7 @@ impl Hub {
             self.hold_retry_start(session, &prompt_id).await;
         }
         self.refresh_local_chatgpt_between_turns(session).await;
+        self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
             // A continuation or retry of a cut turn is refused as one Stop overtook
             // (`auto_resume.stopped`): its callers answer `retry.stopped` and record the skip.

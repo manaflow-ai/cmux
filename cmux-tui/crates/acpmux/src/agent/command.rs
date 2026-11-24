@@ -184,6 +184,7 @@ fn build_harness_command(
     };
     let mut env = resolved_profile_env(profile)?;
     env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
+    env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY);
     let local_codex_route = crate::codex_app_server::is_launch(&owned.0, &owned.1)
         && !env.contains_key(crate::agent_credentials::MARKER)
         && env.contains_key(crate::routes::NAME_KEY);

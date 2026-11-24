@@ -20,6 +20,7 @@ fn record(session: &str, nonce: &str) -> HostRecord {
         host_level: 0,
         holder: None,
         local_chatgpt_expiry: None,
+        local_kimi_expiry: None,
     }
 }
 

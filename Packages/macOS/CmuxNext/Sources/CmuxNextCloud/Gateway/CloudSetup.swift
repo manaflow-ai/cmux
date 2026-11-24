@@ -41,7 +41,7 @@ public final class CloudSetup {
 
         /// A `Connection` object of `_acpmux/connections`; nil for anything without an id.
         public init?(json: [String: Any]) {
-            guard let id = json["id"] as? String, !id.isEmpty, json["kind"] as? String != "claude-token" else { return nil }
+            guard let id = json["id"] as? String, !id.isEmpty else { return nil }
             self.init(id: id, families: json["cloud_families"] as? [String] ?? json["families"] as? [String] ?? [],
                       signedIn: json["signed_in"] as? Bool ?? true, enabled: json["enabled"] as? Bool ?? true,
                       servesCloud: json["serves_cloud"] as? Bool ?? true,
@@ -196,7 +196,9 @@ public final class CloudSetup {
     /// when unread. Read only when nothing else serves the chat, so a start that has a connection pays nothing for it.
     public var gateway: (@MainActor () async -> Set<String>?)?
     /// Opens Settings > Cloud > Cloud models for the card's action and family while the send waits.
-    public var run: (@MainActor (Action, String) async -> Void)?
+    public var run: (@MainActor (Action, String, String?) async -> Void)?
+    /// Validates an explicit destination against the current Cloud account.
+    public var ownsMachine: (@MainActor (String) -> Bool)?
     /// Reads confirmed endpoint harnesses on a machine named by the picker.
     public var machineHarnesses: (@MainActor (String) -> Set<String>?)?
     /// Reads confirmed runners that accept subscription credentials.
@@ -204,7 +206,7 @@ public final class CloudSetup {
     /// The owner's Claude chat can start before Claude Code has a login on its machine.
     public var canSignInToClaudeOnMachine: (@MainActor (String?) async -> Bool)?
     /// Opens Settings > Cloud > Cloud models for the family selected in the picker.
-    public var openConnectionSettings: (@MainActor (String, String?) -> Void)?
+    public var openConnectionSettings: (@MainActor (String, String?, Bool) -> Void)?
 
     /// One wait's wake: fired once, by a change or by its task's cancel, whichever comes first.
     private final class Wake: Sendable {
@@ -229,11 +231,18 @@ public final class CloudSetup {
         }
     }
 
+    private final class ClaudeSetupWait {
+        let machine: String?
+        var connected = false
+        init(machine: String?) { self.machine = machine }
+    }
+
+    private var claudeSetups: [UUID: ClaudeSetupWait] = [:]
     private var waiters: [UUID: Wake] = [:]
     /// Bumped by every ``connectionsChanged()``: a wait whose read began before one reads again.
     private var changes = 0
 
-    public init(read: (@MainActor () async -> Snapshot)? = nil, run: (@MainActor (Action, String) async -> Void)? = nil) {
+    public init(read: (@MainActor () async -> Snapshot)? = nil, run: (@MainActor (Action, String, String?) async -> Void)? = nil) {
         (self.read, self.run) = (read, run)
     }
 
@@ -366,7 +375,7 @@ public final class CloudSetup {
 
     /// The picker's Connect shows the family's Settings destination.
     public func connect(family: String, machine: String? = nil) {
-        openConnectionSettings?(family, machine)
+        openConnectionSettings?(family, machine, false)
     }
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
@@ -404,16 +413,28 @@ public final class CloudSetup {
         for wake in woken.values { wake.fire() }
     }
 
+    /// A machine login completed while Settings was open for a held Cloud send.
+    public func claudeSignInCompleted(machine: String) {
+        for wait in claudeSetups.values where wait.machine == nil || wait.machine == machine {
+            wait.connected = true
+        }
+        connectionsChanged()
+    }
+
     /// Waits until a connection serves `family`, checking at each ``connectionsChanged()``; false
     /// when the waiting task is cancelled (the page withdrew, the pane closed).
     public func waitUntilServed(family: String) async -> Bool {
-        guard let read else { return false }
-        guard !Task.isCancelled else { return false }
+        await waitUntilServed(family: family, claude: nil)
+    }
+
+    private func waitUntilServed(family: String, claude: ClaudeSetupWait?) async -> Bool {
+        guard let read, !Task.isCancelled else { return false }
+        if claude?.connected == true { return true }
         let seen = changes
         if await routed(read()).serves(family) != false { return true }
         if await gatewayServes(family) { return true }
         if changes == seen { await nextChange() } // else it changed while it read: read again now
-        return await waitUntilServed(family: family)
+        return await waitUntilServed(family: family, claude: claude)
     }
 
     /// Parks until the next ``connectionsChanged()`` or the waiting task's cancel.
@@ -429,9 +450,14 @@ public final class CloudSetup {
     }
 
     /// Runs the card's `action`, then waits for a connection serving `family` (``waitUntilServed(family:)``).
-    public func setUp(_ action: Action, family: String) async -> Bool {
-        await run?(action, family)
+    public func setUp(_ action: Action, family: String, machine: String? = nil) async -> Bool {
+        let id = UUID()
+        let claude = family == "claude" ? ClaudeSetupWait(machine: machine) : nil
+        claudeSetups[id] = claude
+        defer { claudeSetups[id] = nil }
+        if let run { await run(action, family, machine) }
+        else { openConnectionSettings?(family, machine, true) }
         connectionsChanged()
-        return await waitUntilServed(family: family)
+        return await waitUntilServed(family: family, claude: claude)
     }
 }

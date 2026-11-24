@@ -13,6 +13,7 @@ import CmuxNextHomeEngine
 import CmuxNextKeys
 import CmuxNextMacScreen
 import CmuxNextPages
+import CmuxNextRemoteLocalhostService
 import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -200,25 +201,28 @@ struct PageFactory {
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         var returnFromModelSignIn: [String: @MainActor () -> Void] = [:]
-        let models = SettingsModels.live(
-            environment: { [weak services] in
-                guard let host = services?.agentTabs.host as? AcpmuxHost else { return nil }
-                return try? await host.readyEnvironment()
-            },
+        let opened: AppServices.ModelSignInOpened = { owner, back in returnFromModelSignIn.updateValue(back, forKey: owner)?() }
+        let anchor: @MainActor () -> NSView? = { [weak native] in native?.anchor() }
+        let modelEnvironment: @MainActor () async -> AcpmuxEnvironment? = { [weak services] in
+            guard let host = services?.agentTabs.host as? AcpmuxHost else { return nil }
+            return try? await host.readyEnvironment()
+        }
+        provider.loadSignInAccounts = { await harnesses.loadSignInAccounts(ready: modelEnvironment) }
+        let models = SettingsModels.live(environment: modelEnvironment,
             settings: settings, activeTeam: { [weak services] in services?.accounts.activeTeam },
             agentKeys: services.accounts.agentKeys, policy: services.accounts.modelsPolicy,
-            openSignInPage: { [weak services, weak native] url, owner in
+            openSignInPage: { [weak services] url, owner in
                 guard let services else { return false }
-                returnFromModelSignIn.removeValue(forKey: owner)?()
-                returnFromModelSignIn[owner] = services.linkOpener.openSignInPage(url, beside: native?.anchor())
+                opened(owner, services.linkOpener.openSignInPage(url, beside: anchor()))
                 return true
+            },
+            openClaudeCallback: { [weak services] url, owner, scope in
+                await services?.chatSignIn.openSettings(url, daemon: nil, from: anchor().flatMap { services?.linkOpener.source(containing: $0) } ?? services?.windows.active?.focusedPane,
+                                                        callbackPort: AgentPaneSignInPage.callbackPort(url), owner: owner, checking: scope, onOpened: opened) == true
             },
             closeSignInPage: { owner in returnFromModelSignIn.removeValue(forKey: owner)?() }
         )
-        services.settingsClaudeLogin(beside: { [weak native] in native?.anchor() }) { owner, back in
-            returnFromModelSignIn.removeValue(forKey: owner)?()
-            returnFromModelSignIn[owner] = back
-        }.install(on: models)
+        services.settingsClaudeLogin(beside: anchor, onOpened: opened).install(on: models, setup: services.cloud.setup)
         models.onConnections = { [weak services] in
             services?.cloud.setup.connectionsChanged()
             services?.cloud.agentCredentials.credentialConnectionsChanged()

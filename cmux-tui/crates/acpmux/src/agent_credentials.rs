@@ -85,6 +85,8 @@ pub const NAMES: &[&str] = &[
     COPILOT_TOKEN,
 ];
 
+/// The name of a route's local-only key to redact. These keys are never recovered as Cloud grants.
+pub(crate) const LOCAL_REDACTION: &str = "ACPMUX_LOCAL_CREDENTIAL_REDACTION";
 /// Set by [`apply`] on a credentialed agent's env to the name of its variable (a name, never a
 /// value): what lets a daemon that adopts the agent later take that variable back ([`recovered`]),
 /// and never a variable the agent merely inherited.
@@ -122,6 +124,7 @@ pub const UNSET: &[&str] = &[
     crate::subscriptions::grok_hook::ROUTE,
     byo_endpoint::OPENAI_KEY_ENV,
     MARKER,
+    LOCAL_REDACTION,
     ENDPOINT_MARKER,
 ];
 
@@ -295,19 +298,6 @@ impl AgentCredential {
         self.connection = id.map(str::to_owned);
     }
 
-    /// New launches and updates take API keys and supported grants. Legacy Claude tokens can
-    /// only be recovered from an existing process during migration.
-    pub(crate) fn parse_delivery(value: &Value) -> Result<Self, RpcError> {
-        let credential = Self::parse(value)?;
-        if credential.env.contains_key(CLAUDE_OAUTH) {
-            return Err(RpcError::invalid_params(
-                "credentials: sign in with Claude Code on this machine",
-            )
-            .with_data(serde_json::json!({"reason": "credentials.invalid"})));
-        }
-        Ok(credential)
-    }
-
     /// The family its variable serves.
     pub fn family(&self) -> Family {
         if self.env.contains_key(GEMINI_KEY) || self.env.contains_key(VERTEX_EXPRESS_KEY) {
@@ -399,7 +389,7 @@ pub(crate) fn token_shaped(value: &str) -> bool {
 pub fn requested(meta: Option<&Value>) -> Result<Option<AgentCredential>, RpcError> {
     match meta.and_then(|m| m.get(FIELD)) {
         None | Some(Value::Null) => Ok(None),
-        Some(value) => AgentCredential::parse_delivery(value).map(Some),
+        Some(value) => AgentCredential::parse(value).map(Some),
     }
 }
 
@@ -866,8 +856,9 @@ mod tests {
 
     #[test]
     fn a_claude_launch_drops_the_coderouter_route_and_takes_the_token() {
-        let c =
-            AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}})).unwrap();
+        let c = requested(Some(&json!({FIELD: {"env": {CLAUDE_OAUTH: "sk-ant-oat01-abc"}}})))
+            .unwrap()
+            .unwrap();
         let mut argv = vec!["claude".to_owned()];
         let mut e = env(&[
             ("ANTHROPIC_BASE_URL", "https://coderouter.cmux.internal"),
@@ -889,9 +880,9 @@ mod tests {
     #[test]
     fn a_delivered_setup_token_uses_anthropic_and_drops_competing_settings() {
         let name = byo_endpoint::ANTHROPIC_KEY_ENV;
-        assert!(AgentCredential::parse_delivery(&json!({"env": {name: "endpoint-only"}})).is_err());
+        assert!(AgentCredential::parse(&json!({"env": {name: "endpoint-only"}})).is_err());
         let token = "sk-ant-oat01-fixture";
-        let credential = AgentCredential::parse_delivery(&json!({"env": {name: token}})).unwrap();
+        let credential = AgentCredential::parse(&json!({"env": {name: token}})).unwrap();
         let mut argv = vec![
             "claude".to_owned(),
             "--settings".to_owned(),

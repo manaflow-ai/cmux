@@ -6,7 +6,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, changeValue, click, ops, settle } = await import("./testing");
+const { renderPage, changeValue, click, fire, ops, settle } = await import("./testing");
 const { createRoot } = await import("react-dom/client");
 const { CloudSetupCard } = await import("../../agent-session/acpmux/conversation/CloudSetupCard");
 const { waitForCloudSetUp } = await import("../../agent-session/acpmux/cloudSetup");
@@ -292,6 +292,13 @@ test("Settings search opens the Cloud models card", async () => {
   expect(rendered.history.location.pathname).toBe("/settings/cloud");
   expect(rendered.history.location.search).toContain("card.cloudModels");
   expect(card(rendered).querySelector("h3")?.textContent).toBe("Cloud models");
+});
+
+test("Return takes the exact Cloud models title ahead of the local Models result", async () => {
+  const rendered = await render(mockModels.empty, "/settings/models?q=cloud%20models");
+  await fire(rendered.container.querySelector("[data-settings-search]")!, "keydown", { key: "Enter" });
+  expect(rendered.history.location.pathname).toBe("/settings/cloud");
+  expect(rendered.history.location.search).toContain("card.cloudModels");
 });
 
 test("a picker link for an unsupported family lands in Cloud models with its status", async () => {

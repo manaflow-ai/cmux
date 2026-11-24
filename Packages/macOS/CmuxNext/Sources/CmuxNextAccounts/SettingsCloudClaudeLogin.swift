@@ -54,10 +54,11 @@ package struct SettingsCloudClaudeLogin {
         return requirePreferred ? .unavailable : .create
     }
 
-    package func install(on models: SettingsModels) {
+    package func install(on models: SettingsModels, setup: CloudSetup) {
         models.cloudClaudeLogin = { preferred in state(preferred: preferred) }
         models.prepareCloudClaudeLogin = { try await prepare(preferred: $0) }
         models.observeCloudClaudeAccount { host.account() }
+        models.onCloudClaudeSignIn = { setup.claudeSignInCompleted(machine: $0) }
     }
 
     private func state(preferred: String?) -> SettingsModels.CloudClaudeLogin {

@@ -69,6 +69,8 @@ export function ChatGPTDeviceForm({
     return () => clearTimeout(timer);
   }, [expiresAt, now, seconds]);
   const expired = seconds === 0 || (state?.phase === "failed" && state.error === "expired_token");
+  // A renewal dialog opens a new attempt even when the host still holds the last plan error.
+  const failed = phase === "failed" && (!target || (started && state !== initialState.current));
   const pending = phase === "starting" || (phase === "waiting" && !expired) || phase === "cancelling";
   const begin = () =>
     run({
@@ -114,7 +116,7 @@ export function ChatGPTDeviceForm({
           </output>
         </div>
       )}
-      {(error || expired || state?.phase === "failed") && (
+      {(error || seconds === 0 || failed) && (
         <ConnectionError>
           {error ??
             (expired
@@ -132,7 +134,7 @@ export function ChatGPTDeviceForm({
         onClose={onCancel}
         busy={busy}
         disabled={connected}
-        failed={!!error || expired || phase === "failed"}
+        failed={!!error || seconds === 0 || failed}
         connectAction="connectChatGPTDevice"
         loading={pending || busy}
       />

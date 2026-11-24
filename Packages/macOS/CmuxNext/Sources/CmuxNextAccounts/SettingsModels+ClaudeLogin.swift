@@ -20,11 +20,13 @@ extension SettingsModels {
         let request: @MainActor (String, [String: String]) async throws -> Data
         /// True while this approval remains the current sign-in attempt.
         public typealias CallbackScope = @MainActor @Sendable () -> Bool
-        let openCallback: @MainActor (URL, String, @escaping CallbackScope) async -> Bool
+        /// Opens the isolated approval browser while the attempt is still active.
+        public typealias CallbackOpener = @MainActor (URL, String, @escaping CallbackScope) async -> Bool
+        let openCallback: CallbackOpener
 
         /// Bind requests and browser approval to the same machine.
         public init(id: String, name: String? = nil, request: @escaping @MainActor (String, [String: String]) async throws -> Data,
-                    openCallback: @escaping @MainActor (URL, String, @escaping CallbackScope) async -> Bool) {
+                    openCallback: @escaping CallbackOpener) {
             self.id = id
             self.name = name
             self.request = request
@@ -140,8 +142,9 @@ extension SettingsModels {
         }
     }
 
-    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine preferred: String?) throws {
+    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine requestedMachine: String?) throws {
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil else { return }
+        let preferred = requestedMachine ?? (replacing == "claude-cloud-login" ? currentCloudClaudeState?.machine : nil)
         let prepare = target == .cloud ? prepareCloudClaudeLogin : nil
         let initial = prepare == nil ? try claudeMachine(target, preferred: preferred) : nil
         let account = cloudClaudeAccount?()
@@ -186,16 +189,11 @@ extension SettingsModels {
                 if let automatic = started["autoUrl"]?.stringValue.flatMap(URL.init(string:)),
                    let port = AgentPaneSignInPage.callbackPort(automatic),
                    started["callbackPort"]?.intValue == Int(port) {
-                    let opened: Bool
-                    if let machine {
-                        let current: CloudClaudeMachine.CallbackScope = { [weak self] in
-                            self?.claudeLoginAttempts[target]?.id == id && self?.claudeLogins[target]?.phase == "approving"
-                        }
-                        opened = await machine.openCallback(automatic, browserOwner, current)
-                    } else {
-                        try await openSignIn(automatic, owner: browserOwner)
-                        opened = true
+                    let current: CloudClaudeMachine.CallbackScope = { [weak self] in
+                        self?.claudeLoginAttempts[target]?.id == id && self?.claudeLogins[target]?.phase == "approving"
                     }
+                    let openCallback = machine?.openCallback ?? presentClaudeCallback
+                    let opened = await openCallback?(automatic, browserOwner, current) == true
                     try checkClaudeAccount(target, account)
                     guard claudeLoginAttempts[target]?.id == id, claudeLogins[target]?.phase == "approving" else { return }
                     if opened { return try await finishClaudeAttempt(target, code: nil, replacing: replacing) }
@@ -297,11 +295,14 @@ extension SettingsModels {
     private func completeClaudeLogin(_ target: ClaudeLoginTarget, _ machine: CloudClaudeMachine?, replacing: String?) async throws {
         let account = cloudClaudeStateAccount
         try checkClaudeAccount(target, account)
-        try await retireLegacyClaudeConnections(replacing: replacing) { try checkClaudeAccount(target, account) }
+        if target == .cloud, machine != nil, let replacing {
+            try await retireLegacyClaudeToken(replacing) { try checkClaudeAccount(target, account) }
+        }
         try checkClaudeAccount(target, account)
         await refresh()
         try checkClaudeAccount(target, account)
         setClaudeLogin(target, machine, "connected", signedIn: true, completion: UUID().uuidString)
+        if let machine { onCloudClaudeSignIn?(machine.id) }
     }
 
     private func checkClaudeAccount(_ target: ClaudeLoginTarget, _ account: [String?]?) throws {
@@ -310,28 +311,15 @@ extension SettingsModels {
         guard cloudClaudeAccount?() == account else { throw CancellationError() }
     }
 
-    /// Retire the Mac's legacy token rows after Claude Code signs in from a Cloud chat.
-    public static func retireLegacyClaudeConnections(environment: AcpmuxEnvironment) async {
-        let model = SettingsModels(environment: { environment }, keys: KeychainModelKeyStore(), openURL: { _ in })
-        _ = await model.loadedState()
-        try? await model.retireLegacyClaudeConnections(replacing: nil)
-    }
-
-    private func retireLegacyClaudeConnections(replacing: String?, checking check: () throws -> Void = {}) async throws {
-        let legacy = connections.compactMap { row -> String? in
-            guard row["kind"]?.stringValue == "claude-token", let id = row["id"]?.stringValue,
-                  replacing == nil || replacing == id else { return nil }
-            return id
-        }
-        for id in legacy {
+    private func retireLegacyClaudeToken(_ id: String, checking check: () throws -> Void) async throws {
+        guard connections.contains(where: { $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "claude-token" }) else { return }
+        try check()
+        do {
+            try await mutate(.connectionsRemove, ["id": id])
+        } catch {
             try check()
-            do {
-                try await mutate(.connectionsRemove, ["id": id])
-            } catch {
-                try check()
-                await refresh()
-                if !available || connections.contains(where: { $0["id"]?.stringValue == id }) { throw error }
-            }
+            await refresh()
+            if !available || connections.contains(where: { $0["id"]?.stringValue == id }) { throw error }
         }
     }
 

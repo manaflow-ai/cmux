@@ -57,7 +57,7 @@ struct AgentPaneCloudSetUpTests {
         var ran: [(CloudSetup.Action, String)] = []
         model.useCloudSetup(CloudSetup(
             read: { .init(personal: [.init(id: "claude-token", families: ["claude"])], organization: []) },
-            run: { ran.append(($0, $1)) }
+            run: { action, family, _ in ran.append((action, family)) }
         ))
         let key = UUID().uuidString
         let setUp = AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "setUpClaude", "family": "claude"]])
@@ -77,7 +77,7 @@ struct AgentPaneCloudSetUpTests {
     @Test func aSetUpThatEndsWithNoConnectionKeepsNoClick() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
-        model.onCloudSetUp = { _, _ in false }
+        model.onCloudSetUp = { _, _, _ in false }
         let key = UUID().uuidString
         model.transport.gestures.record()
         let reply = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "openSettings", "family": "claude"]]))
@@ -135,7 +135,7 @@ struct AgentPaneCloudSetUpTests {
         model.onCloudStartChat = { _ in AgentPaneReply.success() }
         let setup = CloudSetup()
         var opened: [String] = []
-        setup.openConnectionSettings = { family, _ in opened.append(family) }
+        setup.openConnectionSettings = { family, _, _ in opened.append(family) }
         model.useCloudSetup(setup)
         let request = { (family: String) in AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": family]]) }
         #expect(Self.code(await model.respond(to: request("google"))) == "transport.gesture_required")
@@ -145,6 +145,31 @@ struct AgentPaneCloudSetUpTests {
         #expect(await model.respond(to: request("google"))["ok"] as? Bool == true)
         #expect(opened == ["google"])
         #expect(Self.code(await model.respond(to: request("claude"))) == "transport.gesture_required")
+    }
+
+    @Test func aDraftAndItsHeldSendOnlyOpenSettingsForTheSelectedOwnedMachine() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        model.onCloudStartChat = { _ in AgentPaneReply.success() }
+        let setup = CloudSetup(read: { .init(personal: [.init(id: "claude-token", families: ["claude"])], organization: []) })
+        setup.ownsMachine = { ["vm_a", "vm_b"].contains($0) }
+        var opened: [(String, String?, Bool)] = []
+        setup.openConnectionSettings = { opened.append(($0, $1, $2)) }
+        model.useCloudSetup(setup)
+        let connect = { (machine: String) in AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude", "machine": machine]]) }
+        let key = UUID().uuidString
+        let retry = { (machine: String) in
+            AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "setUpClaude", "family": "claude", "machine": machine]])
+        }
+        model.transport.gestures.record()
+        #expect(Self.code(await model.respond(to: connect("shared"))) == "unsupported")
+        #expect(Self.code(await model.respond(to: retry("shared"))) == "unsupported")
+        #expect(opened.isEmpty)
+        #expect(await model.respond(to: connect("vm_b"))["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: retry("vm_b"))["ok"] as? Bool == true)
+        #expect(opened.map { $0.1 } == ["vm_b", "vm_b"])
+        #expect(opened.map { $0.2 } == [false, true])
+        #expect(model.takeCloudSignInGrant(key))
     }
 
     @Test func cloudRenewalUsesTheCurrentTabAndRequiresAnOwnerClick() async {
@@ -173,10 +198,10 @@ struct AgentPaneCloudSetUpTests {
     @Test func setupRequiresAnActionAndAValidFamily() {
         let request = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "cloud.setUp", "params": params]) }
         let key = UUID().uuidString
-        if case .cloudSetUp(key, "setUpClaude", "claude") = request(["key": key, "action": "setUpClaude", "family": "claude"]) {} else { Issue.record("the card's set up is taken") }
+        if case .cloudSetUp(key, "setUpClaude", "claude", nil) = request(["key": key, "action": "setUpClaude", "family": "claude"]) {} else { Issue.record("the card's set up is taken") }
         if case .unsupported = request(["action": "addKey", "family": "claude"]) {} else { Issue.record("a set up with no start key is refused") }
         if case .unsupported = request(["key": key, "action": "rm -rf", "family": "claude"]) {} else { Issue.record("an unknown action is refused") }
-        if case .cloudSetUp(key, "openSettings", "providers/custom") = request(["key": key, "action": "openSettings", "family": "providers/custom"]) {} else { Issue.record("a named harness profile can open settings") }
+        if case .cloudSetUp(key, "openSettings", "providers/custom", nil) = request(["key": key, "action": "openSettings", "family": "providers/custom"]) {} else { Issue.record("a named harness profile can open settings") }
         if case .unsupported = request(["key": key, "action": "addKey", "family": "providers//custom"]) {} else { Issue.record("a malformed family is refused") }
         if case .unsupported = request(["key": "nope", "action": "addKey", "family": "codex"]) {} else { Issue.record("a key that is not a start key is refused") }
     }

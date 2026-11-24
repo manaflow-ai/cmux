@@ -194,7 +194,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.setUp {key, action, family}`: the Set up Cloud card's button (Continue with ChatGPT, Set
     /// up Claude, Add an API key, Open Settings), on its click. Runs that way in, waits for a
     /// connection serving `family`, and keeps the click for the start `key` like `cloud.signIn`.
-    case cloudSetUp(key: String, action: String, family: String)
+    case cloudSetUp(key: String, action: String, family: String, machine: String?)
     /// `cloud.setup.state`: per family a Cloud chat runs, whether a connection serves it now (``CloudSetup/served()``),
     /// so a new chat's model picker shows Connect before any send. A read: no gesture, no secret.
     case cloudSetupState(machine: String?)

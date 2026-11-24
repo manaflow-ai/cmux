@@ -29,8 +29,8 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
     /// The reply of `_acpmux/connections/credential` for `connectionID`; nil for any other shape.
     public init?(connectionID: String, reply: Data) {
         guard let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any],
-              let family = object["family"] as? String, let kind = object["kind"] as? String, kind != "claude-token",
-              let env = object["env"] as? [String: String], !env.isEmpty, env["CLAUDE_CODE_OAUTH_TOKEN"] == nil else { return nil }
+              let family = object["family"] as? String, let kind = object["kind"] as? String,
+              let env = object["env"] as? [String: String], !env.isEmpty else { return nil }
         let expires = (object["expires_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) }
         if let metadata = object["endpoint"] {
             guard kind == "endpoint", let harness = object["harness"] as? String,

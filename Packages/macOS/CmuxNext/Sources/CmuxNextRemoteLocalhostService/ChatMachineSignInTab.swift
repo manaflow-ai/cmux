@@ -19,15 +19,18 @@ package protocol ChatMachineSignInHost: AnyObject {
 package final class ChatMachineSignInTab {
     private let localhost: RemoteLocalhostService
     private let chromiumAvailable: @MainActor () -> Bool
+    private let approvalProfile: @MainActor () -> BrowserProfileID?
     private let makePage: @MainActor (BrowserTabConfiguration) async throws -> any BrowserTab
     private let requestClose: @MainActor (any BrowserTab) -> Void
     private let closeTab: @MainActor (String) -> Void
 
     package init(localhost: RemoteLocalhostService, chromiumAvailable: @escaping @MainActor () -> Bool,
+                 approvalProfile: @escaping @MainActor () -> BrowserProfileID?,
                  makePage: @escaping @MainActor (BrowserTabConfiguration) async throws -> any BrowserTab,
                  requestClose: @escaping @MainActor (any BrowserTab) -> Void, closeTab: @escaping @MainActor (String) -> Void) {
         self.localhost = localhost
         self.chromiumAvailable = chromiumAvailable
+        self.approvalProfile = approvalProfile
         self.makePage = makePage
         self.requestClose = requestClose
         self.closeTab = closeTab
@@ -55,17 +58,23 @@ package final class ChatMachineSignInTab {
     }
 
     /// Opens the approval page and gives Settings a return action when requested.
-    package func open(_ url: URL, daemon: DaemonService, from host: any ChatMachineSignInHost,
+    package func open(_ url: URL, daemon: DaemonService?, from host: any ChatMachineSignInHost,
                       callbackPort: UInt16, owner: String, checking current: @escaping @MainActor () -> Bool,
                       onOpened: (@MainActor (@escaping @MainActor () -> Void) -> Void)? = nil) async -> Bool {
-        guard current(), isAvailable(on: daemon) else { return false }
-        let profile = host.signInProfile()
+        guard current(), daemon.map({ isAvailable(on: $0) }) ?? chromiumAvailable() else { return false }
+        let profile: (wire: String?, engine: BrowserProfileID)
+        if daemon != nil {
+            profile = host.signInProfile()
+        } else {
+            guard let isolated = approvalProfile() else { return false }
+            profile = (nil, isolated)
+        }
         let configuration = BrowserTabConfiguration(profile: profile.engine, initialURL: url, navigationGuard: .noLoopback)
         guard let page = try? await makePage(configuration) else { return false }
         guard !Task.isCancelled, current() else { page.close(); return false }
         let prepare: @MainActor () -> Bool = { [weak self, weak page] in
             guard let self, let page, current() else { return false }
-            localhost.expectCallbackPage(page, machine: daemon.machineID, port: callbackPort, owner: owner,
+            localhost.expectCallbackPage(page, machine: daemon?.machineID, port: callbackPort, owner: owner,
                                          current: current, closePending: { [requestClose, weak page] in
                 guard let page else { return }
                 requestClose(page)
@@ -88,6 +97,14 @@ package final class ChatMachineSignInTab {
             self?.closeApproval(owner: owner)
         }
         return true
+    }
+
+    package func openSettings(_ url: URL, daemon: DaemonService?, from host: (any ChatMachineSignInHost)?,
+                              callbackPort: UInt16?, owner: String, checking current: @escaping @MainActor () -> Bool,
+                              onOpened: @escaping @MainActor (String, @escaping @MainActor () -> Void) -> Void) async -> Bool {
+        guard let host, let callbackPort else { return false }
+        return await open(url, daemon: daemon, from: host, callbackPort: callbackPort, owner: owner,
+                          checking: current, onOpened: { onOpened(owner, $0) })
     }
 
     package func closeChatApproval(_ chat: String) { closeApproval(owner: Self.chatOwner(chat)) }

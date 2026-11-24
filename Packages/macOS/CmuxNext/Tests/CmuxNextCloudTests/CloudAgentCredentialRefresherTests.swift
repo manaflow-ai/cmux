@@ -9,6 +9,14 @@ import Testing
 @MainActor
 @Suite
 struct CloudAgentCredentialRefresherTests {
+    @Test(arguments: ["ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"])
+    func decodesTheSavedClaudeTokenForCloud(name: String) throws {
+        let reply = Data(#"{"family":"claude","kind":"claude-token","env":{"\#(name)":"sk-ant-oat-fixture"}}"#.utf8)
+        let credential = try #require(CloudAgentCredential(connectionID: "claude-token", reply: reply))
+        #expect(credential.env == [name: "sk-ant-oat-fixture"])
+        #expect(credential.endpoint == nil)
+    }
+
     @Test func endpointReplyNamesTheMachineModelAndRedactsValues() throws {
         let data = Data(#"""
         {"family":"opencode","kind":"endpoint","harness":"opencode","model":"byo/org/second","env":{"CMUX_BYO_API_KEY":"fixture-secret"},

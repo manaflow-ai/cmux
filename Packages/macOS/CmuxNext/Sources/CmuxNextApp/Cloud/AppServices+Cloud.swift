@@ -287,10 +287,8 @@ extension AppServices {
                                                                          failure: SettingsCloudClaudeLogin.startFailure)
             },
             openCallback: { [weak self] url, owner, scope in
-                guard let self, let port = AgentPaneSignInPage.callbackPort(url),
-                      let pane = anchor().flatMap({ linkOpener.source(containing: $0) }) else { return false }
-                return await chatSignIn.open(url, daemon: daemon, from: pane, callbackPort: port, owner: owner, checking: scope,
-                                                        onOpened: { onOpened(owner, $0) })
+                await self?.chatSignIn.openSettings(url, daemon: daemon, from: anchor().flatMap { self?.linkOpener.source(containing: $0) },
+                                                    callbackPort: AgentPaneSignInPage.callbackPort(url), owner: owner, checking: scope, onOpened: onOpened) == true
             }
         )
     }

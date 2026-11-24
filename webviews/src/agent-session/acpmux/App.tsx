@@ -495,7 +495,7 @@ import {
 import { cloudStartStalled, watchCloudStartStall, type CloudStartProgress } from "./cloudStartProgress";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
 import { type CloudSignInWait } from "./cloudSignIn";
-import { retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
+import { connectHeldCloudSend, retryWithSetUpPick, type CloudSetupAction, type CloudSetupNeed } from "./cloudSetup";
 import { ClaudeConnectContext, openClaudeCloudSettings, setupConnect } from "./claudeConnect";
 import { useCloudServed, CloudServedContext, selectFamilyOnReturn } from "./cloudServed";
 import { type QuickActionMode } from "./header/quickActions";
@@ -4472,7 +4472,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSignInWait = useRef<CloudSignInWait | undefined>(undefined);
   /// Set up Cloud's button (cloudSetup.ts): the next sign-in resend waits on that way in instead of the
   /// account sign-in, then the start goes again on the click the host kept.
-  const cloudSetUpPick = useRef<{ action: CloudSetupAction; need: CloudSetupNeed } | undefined>(undefined);
+  const cloudSetUpPick = useRef<{ action: CloudSetupAction; need: CloudSetupNeed; machine?: string } | undefined>(
+    undefined,
+  );
   const cancelCloudSignIn = () => {
     const wait = cloudSignInWait.current;
     cloudSignInWait.current = undefined;
@@ -4594,7 +4596,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!need) return;
     // The resend takes the pick at once (`beginCloudSend`); a retry that sent nothing (one already out
     // or resumed, an edited prompt, a reset) leaves none, so a later Sign in signs in.
-    void retryWithSetUpPick(cloudSetUpPick, { action, need }, cloudSignInRetry);
+    const machine = cloudDraftMachineID.current ?? undefined;
+    void retryWithSetUpPick(cloudSetUpPick, { action, need, machine }, cloudSignInRetry);
   };
   /// The model picker's Connect row (claudeConnect.ts `setupConnect`) while this chat's Cloud start
   /// waits for a connection: shown only for the family the host's Set up Cloud need names, so a local
@@ -4610,6 +4613,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const { openSettings: connectCloudPicker, refresh: refreshCloudPicker } = cloudServed;
   const openCloudPickerSettings = useCallback(
     (family: string) => {
+      if (connectHeldCloudSend(family, cloudSetupNeed, cloudSetupWaiting, setUpCloudNow.current)) return;
       const readPick = () => {
         if (cloudStartShown || !cloudComposeEligible.current) return undefined;
         const client = directClient.current;
@@ -4637,19 +4641,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       });
       connectCloudPicker(family, select);
     },
-    [connectCloudPicker, cloudStartShown, harnessSwitch],
+    [connectCloudPicker, cloudSetupNeed, cloudSetupWaiting, cloudStartShown, harnessSwitch],
   );
   const cloudPickerSetup = useMemo(
     () => ({ ...cloudServed, openSettings: openCloudPickerSettings }),
     [cloudServed, openCloudPickerSettings],
   );
   const modelConnect = useMemo(
-    () =>
-      setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => {
-        if (cloudPicked && cloudSetupNeed) openCloudPickerSettings(cloudSetupNeed.family);
-        else setUpCloudNow.current(action);
-      }),
-    [cloudPicked, cloudSetupNeed, cloudSetupWaiting, openCloudPickerSettings],
+    () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
+    [cloudSetupNeed, cloudSetupWaiting],
   );
   /// Set up Cloud's Not now: a wait still out is withdrawn (the start then ends here), else the card goes.
   const dismissCloudSetUp = () => (cloudStart?.signingIn ? cancelCloudSignIn() : dismissCloudFailure());

@@ -123,10 +123,12 @@ test("a refused read shows no state", async () => {
   expect(seen?.served).toBeUndefined();
 });
 
-test("Connect arms one return read and drops a superseded return", async () => {
+test("Connect targets the selected machine and drops a superseded return", async () => {
   const container = installDom();
   let watcher: (() => void) | undefined;
   let key = true;
+  let machine = "vm_b";
+  const readMachine = () => machine;
   const watchKey = (run: () => void) => {
     watcher = run;
     return () => {
@@ -138,7 +140,7 @@ test("Connect arms one return read and drops a superseded return", async () => {
   const connected: unknown[] = [];
   const call = (method: string, params?: Record<string, unknown>) => {
     if (method === "cloud.connect") {
-      connected.push(params?.family);
+      connected.push(params);
       return Promise.resolve({});
     }
     const read = Promise.withResolvers<unknown>();
@@ -147,7 +149,7 @@ test("Connect arms one return read and drops a superseded return", async () => {
   };
   let seen!: ReturnType<typeof useCloudServed>;
   function Probe() {
-    seen = useCloudServed(call, true, { watchKey, isKey });
+    seen = useCloudServed(call, true, { watchKey, isKey, readMachine });
     return null;
   }
   root = createRoot(container);
@@ -160,7 +162,7 @@ test("Connect arms one return read and drops a superseded return", async () => {
       selected = "claude";
     }),
   );
-  expect(connected).toEqual(["claude"]);
+  expect(connected).toEqual([{ family: "claude", machine: "vm_b" }]);
   key = false;
   watcher?.();
   expect(reads).toHaveLength(1);
@@ -168,11 +170,13 @@ test("Connect arms one return read and drops a superseded return", async () => {
   watcher?.();
   expect(watcher).toBeUndefined();
   expect(reads).toHaveLength(2);
+  machine = "vm_c";
   await act(async () =>
     seen.openSettings("codex", () => {
       selected = "codex";
     }),
   );
+  expect(connected[1]).toEqual({ family: "codex", machine: "vm_c" });
   await act(async () => reads[1]!.resolve(reply({ claude: true })));
   expect(selected).toBe("");
   watcher?.();

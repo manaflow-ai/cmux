@@ -38,7 +38,7 @@ import Testing
     """.utf8)
 
     /// `missing`: the sign-in methods answer method-not-found (an older daemon).
-    private func make(missing: Bool = false, reply: Data = githubStart)
+    private func make(missing: Bool = false, reply: Data = githubStart, preloaded: Bool = true)
         async -> (harnesses: SettingsHarnesses, recorder: Recorder, calls: OSAllocatedUnfairLock<[Call]>) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-account-sign-in-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
@@ -66,7 +66,7 @@ import Testing
             claudeStatus: { _, _ in nil },
             userHome: URL(fileURLWithPath: "/Users/alex", isDirectory: true),
             openSignInPage: { url in recorder.opened.append(url); return nil })
-        await harnesses.readAccounts(environment, generation: harnesses.generation)
+        if preloaded { await harnesses.readAccounts(environment, generation: harnesses.generation) }
         return (harnesses, recorder, calls)
     }
 
@@ -80,6 +80,13 @@ import Testing
             "accountRemove": "_acpmux/account/remove",
             "accountSignOut": "_acpmux/account/sign_out",
         ])
+    }
+
+    @Test func theFirstSettingsAccountsReadLoadsSignInRows() async {
+        let h = await make(preloaded: false)
+        #expect(h.harnesses.signInAccountsState == .null)
+        await h.harnesses.loadSignInAccounts()
+        #expect(h.harnesses.signInAccountsState.arrayValue?.contains { $0["id"]?.stringValue == "claude-2" } == true)
     }
 
     @Test func stateCarriesTheRowsAndNoSecret() async throws {

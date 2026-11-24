@@ -10,7 +10,7 @@ package final class SignInBrowserRouting {
 
     private let localhost: RemoteLocalhostService?
     private let offTheRecord: OffTheRecordProfiles
-    private lazy var callbackProfile = offTheRecord.begin()
+    package private(set) lazy var callbackProfile = offTheRecord.begin()
 
     package init(localhost: RemoteLocalhostService?, offTheRecord: OffTheRecordProfiles) {
         self.localhost = localhost
@@ -21,15 +21,17 @@ package final class SignInBrowserRouting {
                                configure: Configure?) async -> BrowserTabConfiguration {
         guard let tab, let configure else { return base }
         let approval = localhost?.isSignInApprovalTab(tab.id) == true
+        let localApproval = approval && localhost?.boundMachine(ofTab: tab.id) == nil
         if var routed = await configure(tab, base.initialURL, base) {
-            if !approval || routed.machineStore == nil { return routed }
-            if let url = routed.initialURL, localhost?.allowsSignInCallback(url, in: tab.id) == true {
+            let callback = routed.initialURL.map { localhost?.allowsSignInCallback($0, in: tab.id) == true } ?? false
+            if localApproval || (approval && callback) {
                 routed.profile = callbackProfile
                 routed.restoreState = nil
-                return routed
             }
+            if !approval || routed.machineStore == nil || callback { return routed }
         }
         var blank = base
+        if localApproval { blank.profile = callbackProfile }
         blank.initialURL = nil
         blank.restoreState = nil
         blank.navigationGuard = .noLoopback

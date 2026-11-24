@@ -38,9 +38,9 @@ public final class RemoteLocalhostService {
         debugSocket = nil
         #endif
         for entry in defaults.stringArray(forKey: Self.boundDefaultsKey) ?? [] {
-            let parts = entry.split(separator: "\t", maxSplits: 2).map(String.init)
+            let parts = entry.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
             guard parts.count >= 2, boundTabs[parts[0]] == nil else { continue }
-            boundTabs[parts[0]] = SignInBinding(machine: parts[1], callback: parts.count == 3 ? .restored : nil)
+            boundTabs[parts[0]] = SignInBinding(machine: parts[1].isEmpty ? nil : parts[1], callback: parts.count == 3 ? .restored : nil)
             boundOrder.append(parts[0])
         }
     }
@@ -67,7 +67,9 @@ public final class RemoteLocalhostService {
     /// machine through this Mac's tunnel.
     public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil,
                       known: (daemon: DaemonService, workspace: String?)? = nil) -> RemoteLocalhostRoute {
-        if let binding = boundTabs[tab.id] { return boundRoute(binding.machine, engine: engine) }
+        if let binding = boundTabs[tab.id] {
+            return binding.machine.map { boundRoute($0, engine: engine) } ?? .thisMac
+        }
         let daemon = known?.daemon ?? machines.daemon(forTab: tab)
         if let machine = Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) {
             let name = machines.cloudMachineBadge(machine: machine) ?? machine
@@ -129,8 +131,8 @@ public final class RemoteLocalhostService {
         guard case .machine(let name) = route else { return configuration }
         // A tab bound to a chat's machine (``expectPage(_:machine:)``) reaches that machine, whichever holds it.
         let daemon: DaemonService
-        if let bound = boundTabs[tab.id] {
-            guard let found = machines.daemon(machine: bound.machine) else { return nil }
+        if let bound = boundTabs[tab.id]?.machine {
+            guard let found = machines.daemon(machine: bound) else { return nil }
             daemon = found
         } else {
             daemon = machines.daemon(forTab: tab)
@@ -167,6 +169,9 @@ public final class RemoteLocalhostService {
             if let url, LoopbackHost(url: url)?.isLoopback == true, let callback = binding.callback, !callback.allows(url) {
                 return .blank
             }
+            if binding.machine == nil, url.flatMap(LoopbackHost.init(url:))?.isLoopback != true {
+                return .profile(.noLoopback)
+            }
             if case .thisMacInstead = route {
                 return url.flatMap(LoopbackHost.init(url:))?.isLoopback == true ? .blank : .profile(.noLoopback)
             }
@@ -188,10 +193,10 @@ public final class RemoteLocalhostService {
             }
         }
 
-        let machine: String
+        let machine: String?
         let callback: Callback?
 
-        init(machine: String, callback: Callback? = nil) {
+        init(machine: String?, callback: Callback? = nil) {
             self.machine = machine
             self.callback = callback
         }
@@ -221,7 +226,7 @@ public final class RemoteLocalhostService {
     }
 
     /// An approval can reach only its active machine's callback.
-    package func expectCallbackPage(_ page: AnyObject, machine: String, port: UInt16, owner: String? = nil,
+    package func expectCallbackPage(_ page: AnyObject, machine: String?, port: UInt16, owner: String? = nil,
                                     current: @escaping @MainActor () -> Bool, closePending: (@MainActor () -> Void)? = nil) {
         expectPage(page, binding: SignInBinding(machine: machine, callback: .active(port: port, owner: owner, current: current)),
                    close: closePending)
@@ -278,7 +283,7 @@ public final class RemoteLocalhostService {
         }
         // Restored Settings approval tabs stay bound but their live callback expires with the app.
         defaults.set(boundOrder.compactMap { id in
-            boundTabs[id].map { id + "\t" + $0.machine + ($0.callback == nil ? "" : "\tcallback") }
+            boundTabs[id].map { id + "\t" + ($0.machine ?? "") + ($0.callback == nil ? "" : "\tcallback") }
         }, forKey: Self.boundDefaultsKey)
     }
 

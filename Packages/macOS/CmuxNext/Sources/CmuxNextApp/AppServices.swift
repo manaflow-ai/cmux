@@ -523,6 +523,7 @@ final class AppServices {
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
     private(set) lazy var chatSignIn = ChatMachineSignInTab(
         localhost: remoteLocalhost, chromiumAvailable: { [weak self] in self.map { $0.cache.browserTabs.cefUnavailable() == nil } ?? false },
+        approvalProfile: { [weak self] in self?.cache.browserRouting.callbackProfile },
         makePage: { [weak self] configuration in
             guard let self else { throw CancellationError() }
             return try await cache.makeCEFTab(configuration)

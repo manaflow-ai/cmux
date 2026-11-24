@@ -819,7 +819,7 @@ test("Reconnect waits for the new Claude result when the previous login was conn
   expect(panel()).toBeNull();
 });
 
-test("a second ChatGPT plan never displays the first plan's wrong-account error", async () => {
+test.each(["same", "second"])("reopening the %s ChatGPT plan clears the previous wrong-account error", async (plan) => {
   const models = structuredClone(mockModels.chatgptForCloud);
   const first = models.personal.connections.find((connection) => connection.kind === "chatgpt-plan")!;
   first.signedIn = false;
@@ -841,14 +841,31 @@ test("a second ChatGPT plan never displays the first plan's wrong-account error"
   );
   expect(panel()?.querySelector("[role=alert]")?.textContent).toContain("wrong@example.com");
   await press(panel()!.querySelector("h2")!, "Escape");
-  await chooseAction(rendered, "chatgpt-2", "signInAgain");
+  const target = plan === "same" ? first.id : "chatgpt-2";
+  await chooseAction(rendered, target, "signInAgain");
   expect(panel()?.querySelector("[role=alert]")).toBeNull();
   expect(panel()?.textContent).not.toContain("wrong@example.com");
   await click(action(panel()!, "connectChatGPTDevice")!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({
     action: "connectChatGPTDevice",
     openBrowser: true,
-    id: "chatgpt-2",
+    id: target,
+  });
+});
+
+test("Cloud Claude Reauthenticate can start a new approval", async () => {
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" } },
+    "/settings/cloud",
+  );
+  await chooseAction(rendered, "claude-cloud-login", "signInAgain");
+  const connect = action(panel()!, "connectClaude")!;
+  expect(connect.hasAttribute("disabled")).toBe(false);
+  await click(connect);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({
+    action: "connectClaude",
+    cloud: true,
+    replace: "claude-cloud-login",
   });
 });
 

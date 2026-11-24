@@ -931,6 +931,7 @@ struct Spawned {
     /// Its command line carries the repository hook (`codex_repo_gate::in_args`).
     repo_gated: bool,
     plugin_hook_home: Option<std::path::PathBuf>,
+    local_launch_key: Option<Arc<str>>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
     #[cfg(feature = "sim")]
@@ -968,6 +969,12 @@ impl Spawned {
         // Never at background class while it starts; its class, from the harness's own env (its
         // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
         let env = command_env(&cmd);
+        let local_launch_key = env
+            .iter()
+            .find(|(key, _)| key == crate::agent_credentials::LOCAL_REDACTION)
+            .and_then(|(_, name)| env.iter().find(|(key, value)| key == name && !value.is_empty()))
+            .map(|(_, value)| Arc::from(value.as_str()));
+        cmd.env_remove(crate::agent_credentials::LOCAL_REDACTION);
         let run_class = crate::cpu_class::CpuClass::for_session(
             profile.kind,
             &profile.argv,
@@ -1014,6 +1021,7 @@ impl Spawned {
             run_class: std::sync::OnceLock::from(run_class),
             repo_gated,
             plugin_hook_home,
+            local_launch_key,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1037,6 +1045,7 @@ impl Spawned {
             run_class: std::sync::OnceLock::new(),
             repo_gated: false,
             plugin_hook_home: None,
+            local_launch_key: None,
             #[cfg(windows)]
             job: None,
             sim_alive: Some(pipes.alive),
@@ -1130,6 +1139,7 @@ impl ChildAgent {
             run_class,
             repo_gated,
             plugin_hook_home,
+            local_launch_key,
             #[cfg(windows)]
             job,
             #[cfg(feature = "sim")]
@@ -1217,13 +1227,15 @@ impl ChildAgent {
             agent.codex_lines(first.server, None).await;
         }
 
-        let launch_key: Option<Arc<str>> = profile
-            .env
-            .get(crate::agent_credentials::MARKER)
-            .filter(|name| crate::agent_credentials::NAMES.contains(&name.as_str()))
-            .and_then(|name| profile.env.get(name))
-            .or_else(|| profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
-            .map(|key| Arc::from(key.as_str()));
+        let launch_key = local_launch_key.or_else(|| {
+            profile
+                .env
+                .get(crate::agent_credentials::MARKER)
+                .filter(|name| crate::agent_credentials::NAMES.contains(&name.as_str()))
+                .and_then(|name| profile.env.get(name))
+                .or_else(|| profile.env.get(crate::agent_credentials::COPILOT_TOKEN))
+                .map(|key| Arc::from(key.as_str()))
+        });
         let stderr_done = {
             let inbound = inbound.clone();
             let generation = agent.generation;

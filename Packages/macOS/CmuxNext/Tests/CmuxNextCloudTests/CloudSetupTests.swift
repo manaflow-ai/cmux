@@ -22,7 +22,7 @@ struct CloudSetupTests {
         CloudSetup(read: {
             connections.reads += 1
             return connections.snapshot
-        }, run: { action, family in
+        }, run: { action, family, _ in
             connections.ran.append(action)
             connections.opened.append(family)
         })
@@ -34,7 +34,33 @@ struct CloudSetupTests {
         #expect(await setup.served().families["claude"] == nil)
         #expect(await setup.served(machine: "owner").families["claude"] == nil)
         #expect(await setup.served(machine: "team").families["claude"] == false)
-        #expect(CloudSetup.Connection(json: ["id": "claude-token", "kind": "claude-token", "serves_cloud": true]) == nil)
+    }
+
+    @Test func aSavedClaudeTokenFromTheCLIServesACloudStart() async throws {
+        let token = try #require(CloudSetup.Connection(json: [
+            "id": "claude-token", "kind": "claude-token", "families": ["claude"], "serves_cloud": true,
+        ]))
+        let rule = setup(Connections(.init(personal: [token], organization: [])))
+        #expect(await rule.choose(harness: "claude", model: nil, account: nil) == .connection(id: "claude-token", family: "claude"))
+        #expect(await rule.served().families["claude"] == true)
+    }
+
+    @Test func aHeldClaudeSendWaitsForApprovalOnItsOwnMachine() async {
+        let connections = Connections(.init(personal: [.init(id: "claude-token", families: ["claude"])], organization: []))
+        let rule = setup(connections)
+        rule.run = { [weak rule] _, _, machine in
+            #expect(machine == "vm_b")
+            rule?.claudeSignInCompleted(machine: "vm_a")
+        }
+        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b"))
+        #expect(connections.reads == 1)
+
+        rule.run = { [weak rule] _, _, machine in
+            if let machine { rule?.claudeSignInCompleted(machine: machine) }
+        }
+        #expect(await rule.setUp(.setUpClaude, family: "claude", machine: "vm_b"))
+        #expect(connections.reads == 1)
+        rule.run = nil
     }
 
     @Test func exactEndpointReadinessAndStartUseTheSameConnection() async {
@@ -254,7 +280,7 @@ struct CloudSetupTests {
         let connections = Connections(.init(personal: [], organization: []))
         let setup = setup(connections)
         var opened: [String] = []
-        setup.openConnectionSettings = { family, machine in opened.append(machine.map { "\(family):\($0)" } ?? family) }
+        setup.openConnectionSettings = { family, machine, _ in opened.append(machine.map { "\(family):\($0)" } ?? family) }
         setup.connect(family: "codex")
         setup.connect(family: "gemini")
         setup.connect(family: "claude", machine: "vm_b")

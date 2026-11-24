@@ -161,23 +161,33 @@ import Testing
     }
 
     @Test(arguments: [false, true])
-    func macClaudeLoginRemovesTheLegacyKeyOnlyAfterApproval(fails: Bool) async throws {
+    func macClaudeApprovalLeavesTheCloudRouteAndKeyIntact(fails: Bool) async throws {
         let daemon = Daemon()
         let keys = Keys()
         let opened = Opened()
         let models = make(daemon: daemon, keys: keys, opened: opened)
         daemon.committedClaudeToken.withLock { $0 = true }
         daemon.claudeFinishFails.withLock { $0 = fails }
+        models.presentClaudeCallback = { url, owner, current in
+            #expect(owner == "claude:native-login")
+            #expect(current())
+            opened.urls.append(url)
+            return true
+        }
+        var dismissed: [String] = []
+        models.presentSignInPage = { _, _ in Issue.record("Automatic approval used the ordinary browser"); return false }
+        models.dismissSignInPage = { dismissed.append($0) }
         _ = await models.loadedState()
-        _ = try await models.run(["action": "connectClaude", "replace": "claude-token-1"], context: click)
+        _ = try await models.run(["action": "connectClaude"], context: click)
         await models.claudeLoginTasks[.mac]?.value
 
         let calls = daemon.calls.withLock { $0 }
         #expect(opened.urls.first?.host == "claude.ai")
         #expect(calls.contains(Call(method: "_acpmux/agent_login/finish", params: ["loginId": "native-login"])))
-        #expect(calls.contains(Call(method: "_acpmux/connections/remove", params: ["id": "claude-token-1"])) == !fails)
-        #expect(keys.stored.withLock { $0 }.isEmpty)
-        #expect(keys.deleted.withLock { $0 } == (fails ? [] : ["keychain:cmux-model-key/claude-token-test"]))
+        #expect(!calls.contains(where: { $0.method == "_acpmux/connections/remove" }))
+        #expect(daemon.committedClaudeToken.withLock { $0 })
+        #expect(keys.deleted.withLock { $0 }.isEmpty)
+        #expect(dismissed == ["claude:native-login"])
         #expect(models.state["claudeLogin"]?["phase"]?.stringValue == (fails ? "failed" : "connected"))
         #expect(!models.state.compactText.contains("native-login"))
         #expect(!models.state.compactText.contains("redirect_uri"))
@@ -186,12 +196,14 @@ import Testing
     @Test func anExistingClaudeSignInOpensNoBrowserAndCanSignOut() async throws {
         let daemon = Daemon()
         daemon.claudeSignedIn.withLock { $0 = true }
+        daemon.committedClaudeToken.withLock { $0 = true }
         let opened = Opened()
         let models = make(daemon: daemon, opened: opened)
         _ = try await models.run(["action": "connectClaude"], context: click)
         await models.claudeLoginTasks[.mac]?.value
         #expect(opened.urls.isEmpty)
         #expect(models.state["claudeLogin"]?["phase"] == "connected")
+        #expect(daemon.committedClaudeToken.withLock { $0 })
         _ = try await models.run(["action": "signOutClaude"], context: click)
         #expect(daemon.calls.withLock { $0 }.contains(Call(method: "_acpmux/agent_login/logout", params: ["agent": "claude"])))
         #expect(models.state["claudeLogin"]?["phase"] == "idle")
@@ -242,7 +254,26 @@ import Testing
         #expect(!models.state.compactText.contains("cloud-id"))
     }
 
-    @Test func unavailableAutomaticCloudCallbackUsesTheManualCodeOnTheSameMachine() async throws {
+    @Test func cloudClaudeReauthenticationTargetsTheConnectedMachineAndKeepsOtherTokens() async throws {
+        let daemon = Daemon()
+        daemon.committedClaudeToken.withLock { $0 = true }
+        let models = make(daemon: daemon)
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", request: { op, fields in
+            daemon.calls.withLock { $0.append(Call(method: op, params: fields)) }
+            return Data(#"{"signedIn":true}"#.utf8)
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { _ in .ready(machine) }
+        models.prepareCloudClaudeLogin = { preferred in preferred == machine.id ? machine : nil }
+        await models.checkClaudeLogin(.cloud, machine: machine.id)
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "replace": "claude-cloud-login"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(daemon.calls.withLock { $0 }.contains(Call(method: "start", params: ["agent": "claude"])))
+        #expect(models.state["cloudClaudeLogin"]?["completion"]?.stringValue != nil)
+        #expect(daemon.committedClaudeToken.withLock { $0 })
+    }
+
+    @Test(arguments: [true, false])
+    func unavailableAutomaticCloudCallbackUsesTheManualCodeOnTheSameMachine(signedIn: Bool) async throws {
         let daemon = Daemon()
         daemon.committedClaudeToken.withLock { $0 = true }
         let opened = Opened()
@@ -253,7 +284,7 @@ import Testing
             if op == "start" {
                 return Data(#"{"loginId":"manual-id","url":"https://claude.ai/oauth/manual","callbackPort":1234,"autoUrl":"https://claude.ai/oauth/authorize?redirect_uri=http%3A%2F%2Flocalhost%3A1234%2Fcallback"}"#.utf8)
             }
-            return Data(#"{"signedIn":true}"#.utf8)
+            return Data(#"{"signedIn":\#(signedIn)}"#.utf8)
         }, openCallback: { _, _, _ in false })
         models.cloudClaudeLogin = { $0 == machine.id ? .ready(machine) : .connectable }
         models.prepareCloudClaudeLogin = { $0 == machine.id ? machine : nil }
@@ -267,8 +298,8 @@ import Testing
         _ = try await models.run(["action": "finishClaudeLogin", "cloud": true, "code": "fixture"], context: click)
         await models.claudeLoginTasks[.cloud]?.value
         #expect(daemon.calls.withLock { $0 }.contains(Call(method: "finish", params: ["loginId": "manual-id", "code": "fixture"])))
-        #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
-        #expect(!daemon.committedClaudeToken.withLock { $0 })
+        #expect(models.state["cloudClaudeLogin"]?["phase"]?.stringValue == (signedIn ? "connected" : "failed"))
+        #expect(daemon.committedClaudeToken.withLock { $0 } == !signedIn)
     }
 
     @Test func cloudClaudeMachinePickPrefersReadyThenPausedOrOfflineThenCreate() {
