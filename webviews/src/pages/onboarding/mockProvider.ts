@@ -9,6 +9,8 @@ import { MockAccountSignIn } from "../shared/signIn/mockSignIn";
 
 export class MockOnboardingProvider implements PageClient {
   private state: OnboardingState;
+  /** Make cmux Yours' choices before its first pick: what Skip puts back, as the host's revert() does. */
+  private openedChoices: OnboardingState["makeItYours"];
   private readonly listeners = new Set<(state: OnboardingState) => void>();
 
   /** The in-place sign-in (`cmux.onboarding.accounts.run`), the same mock Settings runs; tests and
@@ -119,12 +121,16 @@ export class MockOnboardingProvider implements PageClient {
         return {} as R;
       }
       case OPS.skip:
+        // Skip on Make cmux Yours puts back what was set when it opened (MakeItYoursStepModel.revert).
+        if (state.step === "makeItYours" && state.makeItYours && this.openedChoices)
+          this.change({ ...state, makeItYours: this.openedChoices });
         return {} as R;
       case OPS.workStyle:
       case OPS.density:
       case OPS.background: {
         const choices = state.makeItYours;
         if (!choices) return {} as R;
+        this.openedChoices ??= choices;
         const next =
           op === OPS.workStyle
             ? { ...choices, workStyle: input.value as WorkStyle }

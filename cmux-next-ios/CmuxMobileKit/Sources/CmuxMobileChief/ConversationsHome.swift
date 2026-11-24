@@ -40,8 +40,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// The filtered list, built once per change of the rows or the search.
     @State private var listMemo = MacHomeList.Memo()
     @State private var query = ""
-    /// When Home started showing kept rows while its list loads (the "Updating" chip's wait).
-    @State private var updatingSince: Date?
     @State private var homeRetries = 0
     /// The New Chief name prompt is up.
     @State private var namingChief = false
@@ -103,30 +101,42 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
-    /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
+    /// The connection chip over kept rows, the states Workspaces' banner uses
+    /// (``ConnectionBannerState``). Every state but a Mac known to be offline waits out the shared
+    /// quiet bound (``homeQuiet``): a retry or a redial that answers within it draws nothing over
+    /// the kept rows.
     private var homeBanner: ConnectionBannerState? {
         guard let status = connectionStatus, keptRowsShow else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
-        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
+        if status.kind != .macOffline, !homeQuiet.isShown { return nil }
         switch status.kind {
         case .macOffline: return .macOffline(mac, identity: homeMacID)
-        case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
+        case .unreachable, .connecting: return ConnectionBannerState.connectionFailed.identified(homeMacID)
         case .failed: return .refreshFailed(identity: homeMacID)
-        case .connecting: return .connecting(to: mac, identity: homeMacID)
         }
     }
 
+    /// Holds Home's quiet link states (connecting, can't reach, a failed read) for the shared bound
+    /// (``QuietStatusGate/threshold``) before anything is drawn for them.
+    ///
+    /// Leo, 2026-11-23: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it
+    /// to just work."
+    @State private var homeQuiet = QuietStatusGate()
+
     /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
+    /// A link that is still coming up draws no empty state until the quiet bound (``homeQuiet``);
+    /// a Mac known to be offline shows at once.
     private func showsProblemEmptyState(searching: Bool) -> Bool {
-        connectionStatus != nil && !keptRowsShow && !searching
+        guard let status = connectionStatus, !keptRowsShow, !searching else { return false }
+        return status.kind == .macOffline || homeQuiet.isShown
     }
 
     /// The status the arrival retry last ran for: returning to Home in the same state (from a
     /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
     @State private var autoRetriedFor: String?
 
-    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
-    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
+    /// Retry (the empty state's, or arriving at Home while it is not live). Nothing new is drawn
+    /// while it runs: the kept rows stay, and the empty state's Retry shows its spinner.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
         homeRetries += 1
@@ -392,18 +402,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .listRowBackground(CmuxMobileBackdrop.listRow)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("home.note.problem")
-                } else {
-                    loadingNote(HomeConnectionStatus.connectingTitle(macName: macTag), identifier: "home.note.connecting")
                 }
             } else if !showsHomeProblem {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
-                case .connecting:
-                    loadingNote(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"),
-                                identifier: "home.note.connecting")
                 case .loading:
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
-                case .updating, .none:
+                case .connecting, .updating, .none:
+                    // `.connecting` draws nothing (Leo, 2026-11-23: "i dont wanna see connecting to
+                    // cosmic-gray... with the spinner, i want it to just work."): the rows come with the link.
                     EmptyView()
                 }
             }
@@ -443,19 +450,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(CmuxMobileBackdrop().ignoresSafeArea())
-        // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes), as the one-word connection chip (Leo, 2026-11-21:
-        // "a symbol or short thing, not a sentence. stop layout shifting").
-        .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
-                ConnectionChip(.init(.updating, sentence: String(localized: "Updating…")), downSince: updatingSince ?? ConnectionChip.justDropped)
-                    .padding(.bottom, 8)
-                    .accessibilityIdentifier("home.note.updating")
-            }
-        }
-        .onChange(of: listNote(searching: searching) == .updating, initial: true) { _, updating in
-            updatingSince = ConnectionChip.nextDownSince(updatingSince, down: updating, now: Date())
-        }
+        // Kept rows show while the Mac's list loads, with no note over them (Leo, 2026-11-12:
+        // "just show the cache"); a list that cannot load says so past the quiet bound.
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
@@ -472,6 +468,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
         .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .onChange(of: connectionStatus.map { $0.kind != .macOffline } ?? false, initial: true) { _, quiet in
+            homeQuiet.update(down: quiet)
+        }
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
