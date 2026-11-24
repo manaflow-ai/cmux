@@ -1072,7 +1072,29 @@ impl RelaySlot {
             close(socket, 1011, "circuit allocation failed");
             return Ok(Allocation::DaemonFailed);
         }
+        self.place_circuit(&circuit);
         Ok(Allocation::Sent)
+    }
+
+    /// Create `circuit` near this slot, and so near the daemon, before either side's Join reaches
+    /// it (`crate::placement`). Off the answer's path; a Join that comes first places it as before.
+    fn place_circuit(&self, circuit: &CircuitId) {
+        let env = self.env.clone();
+        let circuit = circuit.0.clone();
+        self.state.wait_until(async move {
+            let placed = async {
+                let namespace = env.durable_object("RELAY_CIRCUITS")?;
+                let stub = namespace.id_from_string(&circuit)?.get_stub()?;
+                let request = Request::new(
+                    &format!("https://relay.internal{}", crate::placement::PLACE_PATH),
+                    Method::Post,
+                )?;
+                stub.fetch_with_request(request).await.map(|_| ())
+            };
+            if let Err(error) = placed.await {
+                worker::console_error!("RelaySlot circuit placement error: {error}");
+            }
+        });
     }
 
     async fn handle_message(
