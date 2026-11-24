@@ -19,15 +19,12 @@ import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.hybrid-cloud-toggle";
-const VARIANTS = [
-  "newtab-above-three-state-blocked-signed-out",
-  "newtab-above-three-state-blocked-no-plan",
-  "chat-above-off",
-  "chat-above-rainbow",
-  "chat-above-three-state",
-] as const;
-type Variant = (typeof VARIANTS)[number];
+type Variant =
+  | "newtab-above-three-state-blocked-signed-out"
+  | "newtab-above-three-state-blocked-no-plan"
+  | "chat-above-off"
+  | "chat-above-rainbow"
+  | "chat-above-three-state";
 
 /// What the eye reads off one cloud glyph: its paint, how strong it is, and whether it moves.
 type Look = {
@@ -39,6 +36,14 @@ type Look = {
 };
 
 await requireBrowserLane("hybrid-cloud-toggle-journey-browser.test.ts", async () => {
+  const ENTRY = "agent-pane.hybrid-cloud-toggle";
+  const VARIANTS = [
+    "newtab-above-three-state-blocked-signed-out",
+    "newtab-above-three-state-blocked-no-plan",
+    "chat-above-off",
+    "chat-above-rainbow",
+    "chat-above-three-state",
+  ] as const satisfies readonly Variant[];
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");
   const root = path.resolve(import.meta.dir, "..");
@@ -178,6 +183,8 @@ await requireBrowserLane("hybrid-cloud-toggle-journey-browser.test.ts", async ()
               moving: string[];
             }>((resolve) => {
               (button as HTMLButtonElement).click();
+              // raf-read: the click's first frame, before the 240 ms turn-on ends; it reads attributes and
+              // running animations, not layout, so a painted-frame wait would only arrive late.
               requestAnimationFrame(() =>
                 resolve({
                   checked: button.getAttribute("aria-checked"),
@@ -257,6 +264,8 @@ await requireBrowserLane("hybrid-cloud-toggle-journey-browser.test.ts", async ()
           (button) =>
             new Promise<{ fill: string; opacity: number; moving: string[] }>((resolve) => {
               (button as HTMLButtonElement).click();
+              // raf-read: the click's first frame is the point (lit at once, no fade); it reads computed
+              // paint and animations, not layout.
               requestAnimationFrame(() => {
                 const shape = button.querySelector(".acpmux-hybrid-cloud__shape")!;
                 resolve({
