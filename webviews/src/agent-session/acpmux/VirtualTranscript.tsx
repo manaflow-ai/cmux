@@ -487,6 +487,8 @@ const SCROLL_LEAD_STEPS = 2;
 /// of the reader and makes every later render pay for a scroll that already ended.
 // motion-allow: a scroll idle timeout, not a motion
 const SCROLL_LEAD_IDLE_MS = 120;
+/// How long heights held for a fling's next scroll frame wait for one (`heldDrawn`): two frames.
+const FLING_HELD_DRAWN_MS = 32;
 
 /// How long the frame guard (VirtualTranscript `armFrameGuard`) keeps reading the offset each frame after
 /// it last moved: a fling's frames and the pauses between a trackpad's flicks.
@@ -985,6 +987,10 @@ function TranscriptView({
   /// (ui/trailingTimer.ts). Held in a ref, made at its first push, so the scroll writers that call it
   /// (setScrollAt below) read only refs and stay stable for the hooks that use them.
   const scrollLeadTimer = useRef<TrailingTimer | undefined>(undefined);
+  /// Heights measured during a fling for rows out of sight, held for the next scroll frame's commit
+  /// (`pacedScroll`) rather than committed on their own: the fling drew the transcript twice a
+  /// frame, once for the scroll and once for these heights. The timer places them if no frame comes.
+  const heldDrawn = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scheduleScrollLeadReset = () => {
     if (scrollRef.current.delta === 0) {
       scrollLeadTimer.current?.cancel();
@@ -1179,6 +1185,11 @@ function TranscriptView({
     acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
       flushSync(() => {
+        if (heldDrawn.current !== undefined) {
+          clearTimeout(heldDrawn.current);
+          heldDrawn.current = undefined;
+          flushDrawn();
+        }
         setScroll(scrollRef.current);
         // Upward intent can arrive before the browser's default moves the offset. Even at the
         // queued frame's exact position, its old follow state must not replace that live intent.
@@ -2301,7 +2312,6 @@ function TranscriptView({
   const foldRide = useRef<FoldRide | undefined>(undefined);
   const flushDrawn = useCallback(() => {
     if (!pendingDrawn.current.size) return;
-    acpmuxPerf.span("diag.drawn.call", 1);
     // Rows placed at their new heights drop a ride's translate first, or they move by it twice.
     foldRide.current?.release();
     const updates = pendingDrawn.current;
@@ -2696,7 +2706,14 @@ function TranscriptView({
                 acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
                 measure();
               }
-            } else flushDrawn();
+            }
+            // Out of sight during a fling: the next scroll frame's commit places them (`heldDrawn`).
+            else if (flingMount.current)
+              heldDrawn.current ??= setTimeout(() => {
+                heldDrawn.current = undefined;
+                flushDrawn();
+              }, FLING_HELD_DRAWN_MS);
+            else flushDrawn();
           }),
     [reportRow, flushDrawn],
   );
@@ -4173,12 +4190,6 @@ function TranscriptView({
   // `:has()` on the scroller over its whole subtree is checked again for every node a commit inserts into
   // any row, and each check restyles every element under the scroller that some `X:has(...) Y` rule names
   // (test/agent-pane-stream-composer-still.test.ts), about 1.5 ms of forced layout per tool call in a long chat.
-  const diagKey = useRef({ key: "", top: 0 });
-  useLayoutEffect(() => {
-    const was = diagKey.current;
-    acpmuxPerf.span(was.key === mountedRangeKey ? (renderScroll.top === was.top ? "diag.same.top" : "diag.same.moved") : renderScroll.top === was.top ? "diag.window.still" : "diag.window.moved", 1);
-    diagKey.current = { key: mountedRangeKey, top: renderScroll.top };
-  });
   const liveLineMounted = mountedIndexOf(rows, mountedRanges, LIVE_THINKING) >= 0;
   // The scrolled rows only: a held row far from the view would widen every drawn-height search
   // (`measured`) to the rows between them. The held rows are looked up by index instead.
