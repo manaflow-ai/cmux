@@ -7731,8 +7731,13 @@ export class AcpmuxDirectClient {
       return false;
     const held = page.filter((event) => event.seq >= seq).sort((a, b) => a.seq - b.seq);
     if (held[0]?.seq !== seq || !startsTurn(held[0]!)) return false;
-    // The page ends at a turn's start, so a read forward folds on from between two turns.
-    const end = newerCut(held, 1, () => Infinity);
+    // The page ends at its last turn start, so a read forward folds on from between two turns. The window
+    // keeps every whole turn the page brought: cut at the first turn start after the target, it held the
+    // target's turn alone, so a short turn left the view at the held rows' end, that read as following
+    // the latest row, and the pane read the chat's newest page in place of the window (`returnToLatest`):
+    // the jump drew its prompt, then went to the chat's end (bench/thread-rail-jump.bench.ts, unloaded).
+    let end = -1;
+    for (let at = newerCut(held, 1, () => Infinity); at > 0; at = newerCut(held, at + 1, () => Infinity)) end = at;
     const window = end > 0 ? held.slice(0, end) : held;
     const after = window.at(-1)!.seq;
     if (after >= first) return false;
