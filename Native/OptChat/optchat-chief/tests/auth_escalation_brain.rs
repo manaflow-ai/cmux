@@ -136,6 +136,7 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
             "cmux-views".to_owned(),
             "landing".to_owned(),
             "paid-plans".to_owned(),
+            "send-agents".to_owned(),
             "whats-new".to_owned(),
         ]
     );
