@@ -1258,6 +1258,11 @@ async fn measure(rig: &Rig, condition: &str, seed: u64, long_minutes: u64) -> Ou
                 rig.vm.push(MEASURED_SURFACE, Some(MARKER));
                 link.resume();
                 wireguard::resume_session(&session_id);
+                // The app's probe right after resume: it ends the host's park, as the ios-mac
+                // rig does. Without it the host stays parked and no record comes (every sleep
+                // cell failed "no fresh record within 90 s").
+                let probe = link.probe(Duration::from_millis(1500)).await;
+                eprintln!("pairmatrix: sleep probe after resume: {probe:?}");
                 (bytes, end)
             }
             "failover" => {
