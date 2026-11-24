@@ -101,6 +101,9 @@ def advisory_class(check: str, lines: list[str]) -> bool:
     return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
+# Vite bundles its config to `.vite-temp/vite.config.ts.timestamp-<ms>-<hash>.mjs`, a new name every run: a config
+# crash's stack lines on the merge never matched the base's, so a base-only crash was charged to every PR.
+VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.mjs\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -179,7 +182,7 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 def key(line: str, root: str = "") -> str:
     """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+    return VITE_TEMP.sub(".timestamp.mjs", TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip())))
 
 
 def unroot(text: str, root: str) -> str:

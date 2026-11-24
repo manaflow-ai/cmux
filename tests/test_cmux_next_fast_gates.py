@@ -1793,6 +1793,14 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_vite_config_crash_on_the_base_too_is_not_new(self):
+        def crash(stamp):
+            return ("failed to load config from /r/webviews/vite.config.ts\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs:3176:23)\n")
+        new, old = self.module.compare(crash("1795538653897-0edd74a60d3a5"), crash("1795538601234-9abc01ef23456"))
+        self.assertEqual(new, [])
+        self.assertEqual(len(old), 2)
+
     def test_a_type_error_keys_on_file_code_and_message_not_line_or_frame(self):
         output = ("\x1b[31m  x typescript(TS2339): Property 'muted' does not exist on type 'Row'.\x1b[0m\n"
                   "     ,-[test/composer-row-layout.test.ts:350:22]\n"
