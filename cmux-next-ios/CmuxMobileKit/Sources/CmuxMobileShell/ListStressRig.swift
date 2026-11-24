@@ -23,6 +23,11 @@ final class ListStressRig: NSObject {
     private let shell: ShellModel
     private weak var scrollView: UIScrollView?
     private var link: CADisplayLink?
+    /// `CMUX_MOBILE_LIST_SCROLL_PROBE=1`: the list's offset and content height, as an element a UI
+    /// test reads ("list.scroll.probe").
+    private var probeLink: CADisplayLink?
+    private var probeLabel: UILabel?
+    private weak var probeScroll: UIScrollView?
     private var direction: CGFloat = 1
     private var pass = 0
     private var last: CFTimeInterval?
@@ -43,6 +48,8 @@ final class ListStressRig: NSObject {
 
     static func runIfConfigured(shell: ShellModel) async {
         let settings = ListStressSettings.shared
+        // A main thread busy for 2 s records its stack (UI tests attach it).
+        if ProcessInfo.processInfo.environment["CMUX_MOBILE_STALL_WATCHDOG"] == "1" { MainStallWatchdog.start() }
         guard let screen = settings.screen else { return }
         let rig = ListStressRig(settings: settings, shell: shell)
         running = rig
@@ -69,6 +76,7 @@ final class ListStressRig: NSObject {
                 scroll.contentOffset.y = top + (bottom - top) * CGFloat(min(max(fraction, 0), 1))
             }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
+            if ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_SCROLL_PROBE"] == "1" { rig.startScrollProbe() }
             // The capture suites shoot the held screen on this mark, not after a fixed pause.
             LaunchMarks.shared.markWhenStill("list_hold")
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
@@ -191,6 +199,20 @@ final class ListStressRig: NSObject {
         case "home":
             MacHomeFeed.shared.seedStressRows(count: settings.count, macID: "mac-studio")
             shell.tab = .home
+        case "subagent", "subagents", "inspector":
+            // A subagent's transcript, the Subagents list or the Event Inspector (ListStressChatScreens),
+            // presented over the shell with its live load.
+            guard let controller = settings.chatScreen() else { return }
+            let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+            var top = window?.rootViewController
+            while let presented = top?.presentedViewController { top = presented }
+            try? await Task.sleep(for: .seconds(settings.openDelay))
+            FrameIntervalLog.shared.begin("\(screen)-open")
+            top?.present(controller, animated: true)
+            try? await Task.sleep(for: .seconds(2.5))
+            try? await Task.sleep(for: .milliseconds(100))
+            FrameIntervalLog.shared.end()
+            logMemory("\(screen)-opened")
         default:
             log.error("FRAMELOG list-stress unknown screen \(screen, privacy: .public)")
         }
@@ -333,6 +355,32 @@ final class ListStressRig: NSObject {
         guard line != lastTrace else { return }
         lastTrace = line
         log.notice("PULL \(CACurrentMediaTime(), privacy: .public) \(line, privacy: .public)")
+    }
+
+    /// The list's content offset, top and content height every display frame in an invisible
+    /// accessibility element ("list.scroll.probe": "y=Y top=T h=H"), so a UI test sees the
+    /// transcript move only when it swipes (a rig's or director's scroll shows as a stray move).
+    func startScrollProbe() {
+        guard let scroll = findScrollView(horizontal: false), let window = scroll.window else { return }
+        let label = UILabel(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+        label.isAccessibilityElement = true
+        label.accessibilityIdentifier = "list.scroll.probe"
+        label.textColor = .clear
+        label.isUserInteractionEnabled = false
+        window.addSubview(label)
+        probeLabel = label
+        probeScroll = scroll
+        let link = CADisplayLink(target: self, selector: #selector(probeStep))
+        link.add(to: .main, forMode: .common)
+        probeLink = link
+        probeStep()
+    }
+
+    @objc private func probeStep() {
+        guard let scroll = probeScroll, let label = probeLabel else { probeLink?.invalidate(); return }
+        let top = -scroll.adjustedContentInset.top
+        label.accessibilityLabel = String(format: "y=%.1f top=%.1f h=%.1f", scroll.contentOffset.y, top, scroll.contentSize.height)
+        label.superview?.bringSubviewToFront(label)
     }
 
     func findScrollView(horizontal: Bool? = nil) -> UIScrollView? {

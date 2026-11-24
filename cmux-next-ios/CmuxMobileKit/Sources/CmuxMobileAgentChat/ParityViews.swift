@@ -161,22 +161,11 @@ struct SubagentsScreen: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
     @State private var selected: String?
-
-    private var ordered: [(agent: AgentSubagent, depth: Int)] {
-        var out: [(AgentSubagent, Int)] = []
-        func visit(_ parent: String?, depth: Int) {
-            for agent in store.subagents where agent.parent == parent {
-                out.append((agent, depth))
-                visit(agent.id, depth: depth + 1)
-            }
-        }
-        visit(nil, depth: 0)
-        return out
-    }
+    @State private var order = SubagentOrderMemo()
 
     var body: some View {
         List {
-            ForEach(ordered, id: \.agent.id) { entry in
+            ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
                     HStack(spacing: 12) {
                         SubagentStateGlyph(state: entry.agent.state)
@@ -223,115 +212,131 @@ struct SubagentsScreen: View {
     }
 }
 
-/// A subagent's own transcript: the "Subagent of" pill, its task, then its
-/// rows by the chat's rules (tool groups, edits, nested subagent groups).
+/// A subagent's own transcript: the "Subagent of" pill, its task, then its rows by the chat's
+/// rules (tool groups, edits, nested subagent groups), then its state. Drawn by the chat's
+/// transcript list (`SubagentTranscriptHost`), which measures its rows and holds the reader's
+/// place as rows above them change height.
 struct SubagentTranscriptScreen: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
     let subagentID: String
+    /// DEBUG rig: measures how far from the end a following reader gets (`FollowProbe`).
+    let probe: FollowProbe?
     @State private var nested: String?
+
+    init(store: AgentChatStore, surface: AgentChatSurface, subagentID: String, probe: FollowProbe? = nil) {
+        self.store = store
+        self.surface = surface
+        self.subagentID = subagentID
+        self.probe = probe
+    }
 
     var body: some View {
         if let agent = store.subagent(subagentID) {
-            let turn = agent.asTurn
-            let rows = turn.rows
-            ScrollView {
-                // Lazy: a long subagent run builds the rows on screen only.
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
-                        Text("Subagent of \(agent.parent.flatMap { store.subagent($0)?.name } ?? store.summary.name)")
+            SubagentTranscriptRepresentable(store: store, subagentID: subagentID, probe: probe) { nested = $0 }
+                .ignoresSafeArea(.container, edges: .bottom)
+                .overlay(alignment: .topLeading) {
+                    if let probe {
+                        Text(probe.summary)
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("chat.subagent.followprobe")
                     }
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 4)
-                    .frame(minHeight: 28)
-                    .background(Color.cmuxMobileFill, in: .capsule)
-                    if let task = agent.task {
-                        Text(task)
-                            .font(.body)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                    ForEach(rows) { row in
-                        SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
-                            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
-                    }
-                    HStack(spacing: 8) {
-                        SubagentStateGlyph(state: agent.state)
-                        Text(agent.state == .running ? (agent.action ?? "Working") : agent.state.label)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.top, 4)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-            }
-            .defaultScrollAnchor(.top)
-            .background(Color.cmuxMobileBackground)
-            .chatDemoReceiver(store: store, surface: surface)
-            .navigationTitle(agent.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(item: $nested) { id in
-                SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
-            }
+                .background(Color.cmuxMobileBackground)
+                .chatDemoReceiver(store: store, surface: surface)
+                .navigationTitle(agent.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(item: $nested) { id in
+                    SubagentTranscriptScreen(store: store, surface: surface, subagentID: id)
+                }
         } else {
             ContentUnavailableView("Subagent not found", systemImage: "person.2.slash")
         }
     }
 }
 
-/// A transcript row inside a subagent (no permission or question cards: those reach the parent).
-struct SubagentRowView: View {
-    let row: TurnRow
-    let turn: AgentTurn
-    let store: AgentChatStore
-    /// Diffs computed once each off the main thread (not per body).
-    let diffs: ChatDiffCache
-    let isLast: Bool
-    let open: (String) -> Void
+/// Whether a subagent transcript follows its end, and how its size changes hold the reader.
+struct SubagentFollow: Equatable {
+    enum Anchor { case top, bottom }
 
-    var body: some View {
-        switch row {
-        case .message(_, let markdown):
-            StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLast)
-        case .thought(_, let text):
-            ThoughtRow(text: text, isLive: turn.status == .running && isLast)
-        case .tool(let call):
-            // One row (same id) as the run grows into a group: swap in
-            // place instead of crossfading two labels over each other.
-            ToolRowView(call: call).transition(.identity)
-        case .toolGroup(_, let calls):
-            ToolGroupView(calls: calls, turnRunning: turn.status == .running).transition(.identity)
-        case .edit(let call):
-            if call.isRunning {
-                ToolRowView(call: call)
-            } else {
-                DiffSnippet(call: call, previews: diffs.files(for: call)) {
-                    await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
-                }
-            }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
-        case .subagents(_, let ids):
-            SubagentGroupCard(ids: ids, store: store, open: open)
-        case .steer(let message):
-            if let incoming = message.incoming {
-                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
-            } else {
-                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
-                           editAndResend: {})
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        case .permission, .question:
-            EmptyView()
+    /// The reader is on the end (within 60 pt), by their own scroll or at rest there.
+    var follows = false
+
+    /// Where size changes anchor: the end only while following a running subagent (growth keeps
+    /// the end in place in the same pass); otherwise the top, so rows measured as the reader
+    /// scrolls (a finished transcript's 15,000 pt log) move nothing on screen.
+    func sizeChangeAnchor(running: Bool) -> Anchor {
+        follows && running ? .bottom : .top
+    }
+
+    /// A scroll geometry change; true when the view should scroll to its end (rows came in below
+    /// a reader at rest on the end of a running subagent).
+    mutating func changed(atEnd: Bool, grew: Bool, scrolling: Bool, running: Bool) -> Bool {
+        if scrolling {
+            // The reader's own scroll decides.
+            follows = atEnd
+            return false
+        }
+        if atEnd {
+            follows = true
+            return false
+        }
+        return follows && running && grew
+    }
+
+    /// The content offset after the content's height changes from `old` to `new` under `anchor`
+    /// (SwiftUI's size-change anchor: the top keeps the offset, the bottom keeps the distance to
+    /// the end).
+    static func offset(_ offset: Double, anchor: Anchor, old: Double, new: Double) -> Double {
+        anchor == .bottom ? offset + (new - old) : offset
+    }
+}
+
+/// How far below the screen the end of a following subagent transcript got, over every layout
+/// pass while it grew (the list rig's `CMUX_MOBILE_LIST_EDGE=follow`).
+@MainActor @Observable
+public final class FollowProbe {
+    /// Samples count once armed (the stream started).
+    @ObservationIgnored public var armed = false
+    @ObservationIgnored private(set) var samples = 0
+    @ObservationIgnored private(set) var growths = 0
+    @ObservationIgnored private(set) var maxGap: CGFloat = 0
+    /// Redrawn twice a second, not per sample (the overlay would add a redraw per frame).
+    private(set) var summary = "follow probe: waiting"
+    @ObservationIgnored private var shownAt = Date.distantPast
+
+    public init() {}
+
+    func sample(gap: CGFloat, grew: Bool) {
+        guard armed else { return }
+        samples += 1
+        if grew { growths += 1 }
+        maxGap = max(maxGap, gap)
+        if Date().timeIntervalSince(shownAt) > 0.5 {
+            shownAt = Date()
+            summary = "follow gap max \(Int(maxGap.rounded())) pt over \(samples) passes, \(growths) growths"
         }
     }
 }
+
+/// A subagent transcript's first row: the agent that started it.
+struct SubagentOfPill: View {
+    let parent: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.down.right").font(.system(size: 12, weight: .semibold))
+            Text("Subagent of \(parent)")
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(minHeight: 28)
+        .background(Color.cmuxMobileFill, in: .capsule)
+    }
+}
+
 
 // MARK: Checkpoints
 

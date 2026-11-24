@@ -56,6 +56,115 @@ public struct AgentSubagent: Identifiable, Hashable, Sendable {
     }
 }
 
+/// A subagent transcript's turn and rows (`asTurn`, `rows`) for the screen that shows it, built
+/// once per change of that subagent. A redraw for anything else (another subagent's token, the
+/// parent chat) compares the subagent with the one last built, which is O(1) while its items
+/// are untouched (an array compares its storage first).
+@MainActor
+final class SubagentRowsMemo {
+    private var agent: AgentSubagent?
+    private var turn: AgentTurn?
+    private var rows: [TurnRow] = []
+    /// The item each row starts at.
+    private var starts: [Int] = []
+    private var permissionTools: Set<String> = []
+    /// Times the subagent changed and its turn was taken again (tests: not once per redraw).
+    private(set) var builds = 0
+    /// Rows made (tests: an append makes the rows it changed, not the transcript's).
+    private(set) var rowsMade = 0
+
+    func rows(for agent: AgentSubagent) -> (turn: AgentTurn, rows: [TurnRow]) {
+        if let last = self.agent, let turn, last == agent { return (turn, rows) }
+        builds += 1
+        let turn = agent.asTurn
+        let items = agent.items
+        let tools = TurnRowBuilder.permissionTools(items)
+        // Rows before the first changed item stay as they were; rows are made from there on.
+        var keep = 0
+        var from = 0
+        if let last = self.agent, tools == permissionTools {
+            let old = last.items
+            let common = min(old.count, items.count)
+            // A comparison per item (an untouched one compares its storage), no row made.
+            var first = 0
+            while first < common, old[first] == items[first] { first += 1 }
+            from = first
+            if let row = starts.lastIndex(where: { $0 <= first }) {
+                switch rows[row] {
+                case .tool, .toolGroup:
+                    // A run of calls can grow: made again from its first call.
+                    keep = row
+                    from = starts[row]
+                default:
+                    keep = starts[row] == first ? row : row + 1
+                }
+            }
+            // A run of calls just before can take the changed items in (a removed answer between
+            // two runs joins them): made again from its first call too.
+            if keep > 0 {
+                switch rows[keep - 1] {
+                case .tool, .toolGroup:
+                    keep -= 1
+                    from = starts[keep]
+                default:
+                    break
+                }
+            }
+        }
+        let made = TurnRowBuilder.rows(items, hidden: turn.hiddenToolCalls, permissionTools: tools, from: from)
+        rowsMade += made.rows.count
+        rows.removeSubrange(keep...)
+        starts.removeSubrange(keep...)
+        rows += made.rows
+        starts += made.starts
+        self.agent = agent
+        self.turn = turn
+        permissionTools = tools
+        return (turn, rows)
+    }
+}
+
+/// The Subagents list's order: each subagent under its parent, with its depth. Built in one
+/// pass when the set of subagents (ids and parents) changes, not when one changes state.
+@MainActor
+final class SubagentOrderMemo {
+    private var ids: [String] = []
+    private var parents: [String?] = []
+    private var order: [(index: Int, depth: Int)] = []
+    /// Subagents looked at while ordering (tests: each once per change of the set).
+    private(set) var visits = 0
+    /// Times the order was built.
+    private(set) var builds = 0
+
+    func ordered(_ agents: [AgentSubagent]) -> [(agent: AgentSubagent, depth: Int)] {
+        let same = agents.count == ids.count && agents.indices.allSatisfy { agents[$0].id == ids[$0] && agents[$0].parent == parents[$0] }
+        if !same { build(agents) }
+        return order.map { (agents[$0.index], $0.depth) }
+    }
+
+    private func build(_ agents: [AgentSubagent]) {
+        builds += 1
+        ids = agents.map(\.id)
+        parents = agents.map(\.parent)
+        // Children in start order, as the list draws them.
+        var children: [String: [Int]] = [:]
+        var roots: [Int] = []
+        for (index, agent) in agents.enumerated() {
+            if let parent = agent.parent { children[parent, default: []].append(index) } else { roots.append(index) }
+        }
+        order = []
+        var seen = Set<String>()
+        var stack = roots.reversed().map { (index: $0, depth: 0) }
+        while let entry = stack.popLast() {
+            let agent = agents[entry.index]
+            guard seen.insert(agent.id).inserted else { continue }
+            visits += 1
+            order.append(entry)
+            stack += (children[agent.id] ?? []).reversed().map { (index: $0, depth: entry.depth + 1) }
+        }
+    }
+}
+
 /// One `_meta.acpmux.subagents` entry: a subagent started or changed.
 public struct AgentSubagentChange: Hashable, Sendable {
     public var id: String

@@ -251,7 +251,10 @@ public final class MockAgentSession: AgentSessionSource {
                 content: [.content(.text(MockStressContent.testOutput(index)))],
                 rawInput: .object(["command": .string("swift test --filter Link")])
             ))))
-            let answer = MockStressContent.answer(index)
+            // `LIST_TALL_ANSWER=1`: the last turn's answer is the 240-line log (the shared block
+            // builder's tall-row check, as on a subagent's transcript).
+            let tall = ListStressSettings.shared.tallAnswer && index == count - 1
+            let answer = (tall ? MockStressContent.giantPrompt(index) : MockStressContent.answer(index))
                 + (ListStressSettings.shared.screen == "artifacts" ? "\n\n" + MockStressContent.artifacts(index) : "")
             emit(.update(.agentMessageChunk(text: answer, messageId: "\(turnID)-m")))
             emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: at.addingTimeInterval(1)))

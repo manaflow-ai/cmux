@@ -55,6 +55,10 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// A finished turn's work under one "Worked for" line (`WorkedFold`), its rows drawn under
         /// the line when it is open.
         indirect case worked(WorkedFold)
+        /// A subagent transcript's first row: "Subagent of <its parent>".
+        case subagentOf(String)
+        /// A subagent transcript's last row: its state, or the Mac being offline.
+        case subagentFooter(SubagentFooter)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -114,7 +118,21 @@ final class ChatTranscriptBuilder {
         var diffVersion: Int
     }
 
+    /// Which transcript the rows are for.
+    enum Mode: Sendable {
+        /// An agent chat: the session line, the prompt's edit actions, the answer's action row,
+        /// working, stopped and failed rows, next-step cards, edited files, the "Worked for" fold.
+        case chat
+        /// A subagent's transcript (one turn): its task, then its work and answers. None of the
+        /// chat's turn rows: a subagent is not prompted, retried or forked from the phone.
+        case subagent
+    }
+
     let diffs: ChatDiffCache
+    let mode: Mode
+    /// A turn's row grouping (`AgentTurn.rows`) when the source keeps it by what changed (a
+    /// subagent's long transcript: an appended item makes its own rows, `SubagentRowsMemo`).
+    var turnRows: ((AgentTurn) -> [TurnRow])?
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
     /// Each answer's block rows as last built, by its parse's key: the blocks its next parse leaves
@@ -138,8 +156,9 @@ final class ChatTranscriptBuilder {
     /// Rows made for built turns (tests: a token makes the rows it changed, not its turn's).
     private(set) var rowsMade = 0
 
-    init(diffs: ChatDiffCache) {
+    init(diffs: ChatDiffCache, mode: Mode = .chat) {
         self.diffs = diffs
+        self.mode = mode
     }
 
     /// Lines the last parse of `messageID` read (tests: a token re-parses the tail only).
@@ -245,12 +264,15 @@ final class ChatTranscriptBuilder {
             rows.append(ChatRow(id: id, turnID: turnID, kind: kind, gap: gap ?? nextGap))
             nextGap = 10
         }
-        if context.isFirst {
+        let chat = mode == .chat
+        if context.isFirst, chat {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
-        // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
-        if turn.incoming?.messages.isEmpty != true {
-            var gap: Double = context.isFirst ? 0 : (context.followsActions ? 18 : 24)
+        // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row;
+        // nor does a subagent with no task.
+        if turn.incoming?.messages.isEmpty != true, chat || !turn.prompt.isEmpty {
+            // A subagent's task sits under its "Subagent of" pill.
+            var gap: Double = context.isFirst ? (chat ? 0 : 14) : (context.followsActions ? 18 : 24)
             var prompt = turn.prompt
             // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
             if turn.incoming == nil, let envelope = ChiefEnvelope(turn.prompt) {
@@ -260,14 +282,14 @@ final class ChatTranscriptBuilder {
             }
             rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
                                 kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
-                                    ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                                    ?? .prompt(text: prompt, attachments: turn.attachments, at: turn.promptAt, isLast: chat && context.isLast),
                                 gap: gap))
         }
-        let turnRows = turn.rows
+        let turnRows = self.turnRows?(turn) ?? turn.rows
         let running = turn.status == .running
         // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
         // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
-        let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
+        let wrote = turn.status == .completed && chat ? NextStepAsk.lastWrapUp(turnRows) : nil
         var wrapUp = wrote
         if let ask = wrapUp, !ask.question.isEmpty, !context.isLast, context.nextPrompt == nil {
             wrapUp = ask.recap != nil || ask.tryIt != nil
@@ -276,7 +298,7 @@ final class ChatTranscriptBuilder {
         // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
         var nextStep: (rowID: String, ask: NextStepAsk)?
         // An earlier turn's card shows only with the reply that answered it (the Mac's rule).
-        if wrote == nil, turn.status == .completed, context.isLast || context.nextPrompt != nil,
+        if wrote == nil, chat, turn.status == .completed, context.isLast || context.nextPrompt != nil,
            let index = turnRows.lastIndex(where: { if case .message = $0 { true } else { false } }),
            case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
             nextStep = (turnRows[index].id, ask)
@@ -352,13 +374,18 @@ final class ChatTranscriptBuilder {
                 add(row.id, .steer(message))
             }
         }
-        if !running, context.foldsWork {
+        if !running, context.foldsWork, chat {
             WorkedFold.fold(&rows, work: workStart..<rows.count, keeping: replyRows, turnID: turnID,
                             status: turn.status, seconds: turn.duration)
         }
         if let wrapUp {
             let answer = wrapUp.question.isEmpty ? nil : context.nextPrompt.map { wrapUp.chosenAnswer($0) }
             add("n-\(turnID)", .nextStep(wrapUp, answer: answer, canAnswer: answer == nil && context.isLast))
+        }
+        // A subagent's state is its transcript's footer, not a turn row.
+        guard chat else {
+            rowsMade += rows.count - reused
+            return (rows, waits)
         }
         if running, turnRows.needsWorkingIndicator, !context.askOpen {
             add("w-\(turnID)", .working(label: turn.retry?.label ?? "Working", since: turn.startedAt))

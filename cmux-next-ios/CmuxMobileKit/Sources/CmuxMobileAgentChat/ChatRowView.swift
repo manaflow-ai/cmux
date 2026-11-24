@@ -13,21 +13,27 @@ import UIKit
 final class ChatRowContext {
     let store: AgentChatStore
     let surface: AgentChatSurface
+    /// The turns the transcript shows (the store's, or a subagent's transcript).
+    let turns: () -> [AgentTurn]
     var openDiff = OpenDiffAction { _, _ in }
     var openFile = OpenFileAction { _, _ in }
     var attachmentLoader = AttachmentLoader { _ in nil }
     var openURL = OpenURLAction { _ in .systemAction }
     /// A tapped disclosure holds its line while it opens or closes (the dock sets it).
     var foldHold = TranscriptFoldHold(begin: {}, end: {})
+    /// A subagent row tapped in a nested-subagent card: the chat pushes its transcript (the
+    /// surface's parity route); a subagent's own transcript pushes the nested one itself.
+    var openSubagent: ((String) -> Void)?
 
-    init(store: AgentChatStore, surface: AgentChatSurface) {
+    init(store: AgentChatStore, surface: AgentChatSurface, turns: (() -> [AgentTurn])? = nil) {
         self.store = store
         self.surface = surface
+        self.turns = turns ?? { [unowned store] in store.turns }
     }
 
     /// The agent message's whole text now (a block's Copy and Share take the message).
     func messageText(_ messageID: String) -> String {
-        for turn in store.turns.reversed() {
+        for turn in turns().reversed() {
             for case .message(let id, let markdown) in turn.items where id == messageID { return markdown }
         }
         return ""
@@ -36,7 +42,7 @@ final class ChatRowContext {
     /// A user bubble's Edit and Resend: the message goes into the composer to edit and is
     /// sent from there. A draft already in the composer is never replaced without asking.
     func editAndResend(turnID: String) {
-        guard let turn = store.turns.last(where: { $0.id == turnID }) else { return }
+        guard let turn = turns().last(where: { $0.id == turnID }) else { return }
         if surface.editAndResend(turn, store: store) { return }
         ChatReplaceDraft.present { [self] copyFirst in
             if copyFirst { UIPasteboard.general.string = surface.text }
@@ -47,19 +53,19 @@ final class ChatRowContext {
     /// Whether an earlier prompt's Edit and Resend is offered: a workspace tab's chat that
     /// can fork before it (the Mac's Edit and Resend, cx-ncc.60).
     func canEditEarlier(turnID: String) -> Bool {
-        guard surface.tabActions != nil, let turn = store.turns.last(where: { $0.id == turnID }) else { return false }
+        guard surface.tabActions != nil, let turn = turns().last(where: { $0.id == turnID }) else { return false }
         return store.editForkSeq(for: turn) != nil
     }
 
     /// An earlier prompt's Edit and Resend: its own sheet (the composer's draft stays).
     func editEarlier(turnID: String) {
-        guard let turn = store.turns.last(where: { $0.id == turnID }) else { return }
+        guard let turn = turns().last(where: { $0.id == turnID }) else { return }
         surface.editEarlier(turn, store: store)
     }
 
     /// The turn's changes when a diff opens (cached, else computed for the tap).
     func changeSet(turnID: String, fallbackID: String) async -> DiffChangeSet {
-        guard let turn = store.turns.last(where: { $0.id == turnID }) else {
+        guard let turn = turns().last(where: { $0.id == turnID }) else {
             return DiffChangeSet(id: fallbackID, title: "Changes", subtitle: "", files: [])
         }
         return await store.diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: fallbackID, title: "Changes", subtitle: "", files: [])
@@ -147,7 +153,10 @@ struct ChatRowView: View {
             }
         case .subagents(let ids):
             let surface = context.surface
-            SubagentGroupCard(ids: ids, store: store) { surface.parityRoute = .subagent($0) }
+            let open = context.openSubagent
+            SubagentGroupCard(ids: ids, store: store) { id in
+                if let open { open(id) } else { surface.parityRoute = .subagent(id) }
+            }
         case .working(let label, let since):
             WorkingLabel(label, since: since)
                 .frame(minHeight: 28)
@@ -155,6 +164,17 @@ struct ChatRowView: View {
             EditedFilesCard(changeSet: changes)
         case .stopped:
             Text("Stopped").font(.footnote).foregroundStyle(.tertiary)
+        case .subagentOf(let parent):
+            SubagentOfPill(parent: parent)
+        case .subagentFooter(let footer):
+            HStack(spacing: 8) {
+                SubagentStateGlyph(state: footer.glyph)
+                Text(footer.text)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("chat.subagent.footer")
+            }
+            .padding(.top, 4)
         case .failed(_, let errorText):
             let failure = TurnFailureCopy(message: errorText, harness: store.summary.harness)
             let turn = store.turns.last { $0.id == row.turnID }

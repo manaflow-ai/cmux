@@ -530,6 +530,8 @@ public final class AgentChatStore {
     nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
         switch event {
         case .update(.agentMessageChunk), .update(.agentThoughtChunk): true
+        // A subagent's tokens too: its open transcript redraws once per frame, not per token.
+        case .subagentUpdate(_, .agentMessageChunk), .subagentUpdate(_, .agentThoughtChunk): true
         default: false
         }
     }
@@ -543,6 +545,12 @@ public final class AgentChatStore {
                 out[out.count - 1] = .update(.agentMessageChunk(text: text + more, messageId: id))
             case (.update(.agentThoughtChunk(let text))?, .update(.agentThoughtChunk(let more))):
                 out[out.count - 1] = .update(.agentThoughtChunk(text: text + more))
+            case (.subagentUpdate(let agent, .agentMessageChunk(let text, let id))?,
+                  .subagentUpdate(let nextAgent, .agentMessageChunk(let more, let nextID))) where agent == nextAgent && id == nextID:
+                out[out.count - 1] = .subagentUpdate(subagentID: agent, .agentMessageChunk(text: text + more, messageId: id))
+            case (.subagentUpdate(let agent, .agentThoughtChunk(let text))?, .subagentUpdate(let nextAgent, .agentThoughtChunk(let more)))
+                where agent == nextAgent:
+                out[out.count - 1] = .subagentUpdate(subagentID: agent, .agentThoughtChunk(text: text + more))
             default:
                 out.append(chunk)
             }

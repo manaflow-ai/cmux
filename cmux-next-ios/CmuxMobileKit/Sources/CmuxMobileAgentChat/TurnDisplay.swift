@@ -35,64 +35,83 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
 
 extension AgentTurn {
     public var rows: [TurnRow] {
-        var rows: [TurnRow] = []
-        var pending: [ACPToolCall] = []
-        func flush() {
-            switch pending.count {
-            case 0: break
-            case 1: rows.append(.tool(pending[0]))
-            default: rows.append(.toolGroup(id: pending[0].id, calls: pending))
-            }
-            pending = []
-        }
-        // Permission requests render as their own card; hide the pending tool row they cover.
-        let permissionTools = Set(items.compactMap { item -> String? in
+        TurnRowBuilder.rows(items, hidden: hiddenToolCalls, permissionTools: TurnRowBuilder.permissionTools(items)).rows
+    }
+}
+
+/// The row rules (`AgentTurn.rows`) over `items[from...]`, with the item each row starts at, so
+/// a list that changes at its tail builds rows from there only (`SubagentRowsMemo`).
+enum TurnRowBuilder {
+    /// The tool calls a permission request covers (their pending row hides under its card).
+    static func permissionTools(_ items: [TurnItem]) -> Set<String> {
+        Set(items.compactMap { item -> String? in
             if case .permission(let record) = item { return record.request.toolCall.id }
             return nil
         })
-        for item in items {
-            switch item {
+    }
+
+    static func rows(_ items: [TurnItem], hidden: Set<String>, permissionTools: Set<String>,
+                     from: Int = 0) -> (rows: [TurnRow], starts: [Int]) {
+        var rows: [TurnRow] = []
+        var starts: [Int] = []
+        var pending: [ACPToolCall] = []
+        var pendingStart = 0
+        func add(_ row: TurnRow, _ start: Int) {
+            rows.append(row)
+            starts.append(start)
+        }
+        func flush() {
+            switch pending.count {
+            case 0: break
+            case 1: add(.tool(pending[0]), pendingStart)
+            default: add(.toolGroup(id: pending[0].id, calls: pending), pendingStart)
+            }
+            pending = []
+        }
+        for index in from..<max(from, items.count) {
+            switch items[index] {
             case .tool(let call):
-                if hiddenToolCalls.contains(call.id) {
+                if hidden.contains(call.id) {
                     continue
                 } else if !call.diffs.isEmpty {
                     flush()
-                    rows.append(.edit(call))
+                    add(.edit(call), index)
                 } else if permissionTools.contains(call.id), call.status == .pending {
                     continue
                 } else if WhoElseCall(call) != nil {
                     // "Who else is working on these files" stands alone: its row draws as the card.
                     flush()
-                    rows.append(.tool(call))
+                    add(.tool(call), index)
                 } else {
+                    if pending.isEmpty { pendingStart = index }
                     pending.append(call)
                 }
             case .thought(let id, let text):
                 // Thoughts sit inside the work run without breaking a group.
                 flush()
-                rows.append(.thought(id: id, text: text))
+                add(.thought(id: id, text: text), index)
             case .message(let id, let markdown):
                 flush()
-                rows.append(.message(id: id, markdown: markdown))
+                add(.message(id: id, markdown: markdown), index)
             case .plan(let id, let entries):
                 flush()
-                rows.append(.plan(id: id, entries: entries))
+                add(.plan(id: id, entries: entries), index)
             case .permission(let record):
                 flush()
-                rows.append(.permission(record))
+                add(.permission(record), index)
             case .question(let question):
                 flush()
-                rows.append(.question(question.id))
+                add(.question(question.id), index)
             case .subagents(let id, let ids):
                 flush()
-                rows.append(.subagents(id: id, ids: ids))
+                add(.subagents(id: id, ids: ids), index)
             case .steer(let message):
                 flush()
-                rows.append(.steer(message))
+                add(.steer(message), index)
             }
         }
         flush()
-        return rows
+        return (rows, starts)
     }
 }
 
