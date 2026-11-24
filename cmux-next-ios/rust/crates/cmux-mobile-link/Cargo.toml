@@ -34,7 +34,9 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # Larger UDP socket buffers for the tunnel (a replay burst after a roam).
-socket2 = "0.6"
+socket2 = { version = "0.6", features = ["all"] }
+# if_nametoindex: the cellular interface a second socket is bound to.
+libc.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 # TURN over TLS (dial/turn.rs); ring only, like every other TLS here.
