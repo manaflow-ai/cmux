@@ -735,7 +735,7 @@ struct AgentChatConnectionLine: View {
     var body: some View {
         Group {
             if let line = store.connectionLine {
-                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line))
+                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
