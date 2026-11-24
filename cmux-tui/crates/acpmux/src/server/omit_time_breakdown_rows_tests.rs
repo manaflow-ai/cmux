@@ -94,9 +94,13 @@ async fn a_phone_attachment_hears_rows_without_the_breakdown() {
         }
         p
     };
+    // Rows go out to a connection that watches the list (`deliver`'s `watching`), as the phone
+    // and the pane both do: an attachment alone hears the chat's records, not its row.
     let mut phone = Client::connect(&hub).await;
+    phone.call(method::MUX_WATCH, json!({"enabled": true})).await;
     phone.call(method::MUX_ATTACH, attach(true)).await;
     let mut pane = Client::connect(&hub).await;
+    pane.call(method::MUX_WATCH, json!({"enabled": true})).await;
     pane.call(method::MUX_ATTACH, attach(false)).await;
 
     hub.append(&session, "mux", "turn_end", json!({"turnSeq": 1, "turnId": "t1"}));
