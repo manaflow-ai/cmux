@@ -2,6 +2,7 @@
 /// why, and the lane fixing it. `VisibleRowsContract.check` runs these inside `withKnownIssue`, so a fix that makes one
 /// pass fails its test until the fix deletes its line here. Lines are only deleted or narrowed: a new list meets the
 /// contract, or its PR says why it may not. The count of lines is the number of known failures.
+// lint:allow namespace-type: the one list of known failures, a constant table read by VisibleRowsContract.check.
 public enum VisibleRowsBaseline {
     public struct Known: Sendable {
         /// What the list does today, and `fix: <lane>`.
