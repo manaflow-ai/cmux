@@ -137,10 +137,6 @@ UNWIRED: set[str] = {
     # scripts only as data: which callers read reload.sh's App path after --build-only without --keep-app. Run it after
     # adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
-    # lane = "manual" (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It reads workflows only as
-    # data: which files exist and which call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's
-    # scope. Exit: as below.
-    "tests/test_ci_hosted_light_rescue.py",
     # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
     # 2026-11-18). It runs scripts/ci/swiftpm_prefetch_binary_artifacts.py against a fake cache and reads the owned-Mac
     # workflows only as data (each SwiftPM step seeds first, #43932). Run it by hand when the seed or such a step
@@ -247,9 +243,6 @@ UNWIRED: set[str] = {
     "tests/test_ci_blacksmith_linux_sizes.py",
     # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
     "tests/test_ci_overflow_pick_reads_pool.py",
-    # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
-    # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
-    "tests/test_ci_cloud_probe_rescue.py",
     # lane = "manual" for the same rule. It checks the weekly rollback drill (nightly-next-rollback-drill.yml) and
     # its call into nightly-next-rollback.yml; run it by hand after changing either or
     # scripts/ci/nightly_next_rollback_drill.py.
