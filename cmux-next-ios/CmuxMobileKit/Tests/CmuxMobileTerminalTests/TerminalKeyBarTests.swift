@@ -243,13 +243,13 @@ import Testing
     @Test func restingHeightFollowsWhatShows() {
         let metrics = TerminalDockMetrics()
         let line: CGFloat = 20.29
-        // SF body: 20.29 + 2 x (3 + 6) = 38.3 -> the 40 pt circles win.
-        #expect(metrics.restingComposerHeight(lineHeight: line) == 40)
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == CGFloat(28 + 8 + 40))
+        // SF body: 20.29 + 2 x 2 = 24.3 -> the chat card's 48 pt (a 44 pt row) wins.
+        #expect(metrics.restingComposerHeight(lineHeight: line) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == CGFloat(28 + 8 + 48))
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 28)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(chromeHidden: true)) == 0)
         // Larger text: taller, but still fixed for that size.
-        #expect(metrics.restingComposerHeight(lineHeight: 40) == 58)
+        #expect(metrics.restingComposerHeight(lineHeight: 50) == 54)
     }
 }
 
