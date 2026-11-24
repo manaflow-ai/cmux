@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.hybridStart",
         "window.titlebar"
       ]
     },
@@ -1044,13 +1045,6 @@
       "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
       "keys": [
         "cloud.turnCheckpoints"
-      ]
-    },
-    {
-      "agent": "userOnly",
-      "why": "Whether a Cloud chat first runs on this Mac, with this Mac's files and logins, before it moves to its machine: only the person chooses where their chats run.",
-      "keys": [
-        "cloud.hybridStart"
       ]
     },
     {
