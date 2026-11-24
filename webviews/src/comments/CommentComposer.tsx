@@ -3,6 +3,7 @@ import type { DiffCommentLabels } from "./labels";
 
 export function CommentComposer({
   initialMessage = "",
+  inputLabel,
   labels,
   onCancel,
   onSave,
@@ -10,6 +11,7 @@ export function CommentComposer({
   saveLabel,
 }: {
   initialMessage?: string;
+  inputLabel?: string;
   labels: DiffCommentLabels;
   onCancel: () => void;
   onSave: (message: string) => void;
@@ -26,7 +28,7 @@ export function CommentComposer({
         ref={focusOnMount}
         className="comment-composer-input"
         placeholder={placeholder ?? labels.commentPlaceholder}
-        aria-label={labels.addComment}
+        aria-label={inputLabel ?? labels.addComment}
         rows={3}
         value={message}
         onChange={(event) => setMessage(event.currentTarget.value)}

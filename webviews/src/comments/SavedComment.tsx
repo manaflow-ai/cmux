@@ -72,6 +72,7 @@ export function SavedComment({
             replying ? (
               <CommentComposer
                 labels={labels}
+                inputLabel={labels.replyComment}
                 placeholder={labels.replyPlaceholder}
                 saveLabel={labels.replyComment}
                 onCancel={() => setReplying(false)}

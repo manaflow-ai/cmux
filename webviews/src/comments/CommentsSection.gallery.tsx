@@ -156,6 +156,39 @@ function AlternativeSection({
   );
 }
 
+function ThreadStage({ design }: { design: "thread-agent" | "thread-resolved" | "thread-reply" }) {
+  const labels = resolveCommentLabels(undefined);
+  const comment: DiffCommentRecord = {
+    ...record("thread", "src/net/client.ts", 3, "Should this retry use the request deadline?"),
+    resolved: design === "thread-resolved",
+    replies:
+      design === "thread-agent"
+        ? [
+            {
+              id: "reply-1",
+              author: "agent",
+              text: "I’ll use the request deadline and keep the backoff bounded.",
+              createdAt: "2026-11-07T00:01:00.000Z",
+            },
+          ]
+        : [],
+  };
+  return (
+    <div style={{ padding: 8 }}>
+      <SavedComment
+        comment={comment}
+        labels={labels}
+        onDelete={() => {}}
+        onSaveMessage={() => {}}
+        onReply={() => {}}
+        onResolve={() => {}}
+        replyOpen={design === "thread-reply"}
+        threads
+      />
+    </div>
+  );
+}
+
 /** A review header not taken, drawn with the same parts so the comparison is only the header. */
 function AlternativeReviewSection({
   design,
@@ -263,6 +296,18 @@ export default componentEntry<Props>({
     "alt-review-both": {
       props: { design: "review-both", count: 2 },
       note: "Not taken: Send and Post side by side in the header crowd a 300 px sidebar, the pull request shows nowhere, and Posted to needs a row that appears.",
+    },
+    "thread-agent": {
+      props: { design: "thread-agent" },
+      note: "A saved comment with an agent reply in its thread.",
+    },
+    "thread-resolved": {
+      props: { design: "thread-resolved" },
+      note: "A resolved thread is dimmed and collapsed until it is reopened.",
+    },
+    "thread-reply": {
+      props: { design: "thread-reply" },
+      note: "The reply composer is open for a saved comment.",
     },
   },
 });

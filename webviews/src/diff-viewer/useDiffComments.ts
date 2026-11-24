@@ -253,8 +253,8 @@ export function useDiffComments({
     if (pending.length > 0) pendingSends.current.set(targetRepoRoot, pending);
     else pendingSends.current.delete(targetRepoRoot);
     setSendState("sending");
-    const sendRequest = commentsThreads
-      ? bridgeSendThreadedComments(targetRepoRoot, batch.ids, batch.opid)
+    const sendRequest: Promise<string[] | undefined> = commentsThreads
+      ? bridgeSendThreadedComments(targetRepoRoot, batch.ids, batch.opid).then(() => undefined)
       : bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid);
     sendRequest
       .then((cleared) => {
@@ -272,7 +272,7 @@ export function useDiffComments({
         }
         // Only the comments sent and unchanged since leave, together; one saved or edited while the
         // send was on its way stays for the next send.
-        removeUnchanged(cleared, batch.versions);
+        removeUnchanged(cleared ?? [], batch.versions);
         setSendState("idle");
       })
       .catch((error) => {

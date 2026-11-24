@@ -179,6 +179,7 @@ function SidebarReply({
   }
   return (
     <CommentComposer
+      inputLabel={labels.replyComment}
       labels={labels}
       placeholder={labels.replyPlaceholder}
       saveLabel={labels.replyComment}
