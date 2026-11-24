@@ -27,6 +27,11 @@ final class BrowserCookieImportCard: NSView {
     /// floats on the window's overlay host, above every pane, so it must not show over the terminal,
     /// chat or Home the person is in (Lawrence 2026-11-07). Kept apart from `isHidden`, the pane's tab switch.
     var waitsForFocus = false
+    /// It showed on its tab, with the keyboard there: from then on the tab losing the keyboard, or another tab
+    /// showing, closes it for the launch instead of hiding it to come back (Leo 2026-11-22: "or maybe it just
+    /// "appears" to close when you unfocus and then the thing reappears when you refocus ... it just needs a
+    /// better lifecycle"). One offered before its tab had the keyboard still waits for it.
+    var wasSeen = false
     /// Set while the close animation runs; a new offer then gets a new card.
     var isDismissing = false
     private(set) var offer: BrowserCookieImportOffer

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { cloudStartFolder } from "./cloudRun";
+import { isAgentHome } from "./sessionList";
 import {
   chatFolderChoices,
   chatFolderFace,
@@ -97,4 +98,33 @@ test("an unsent Cloud chat has Cloud sources and an unsent Mac chat has local fo
       cloudMachine: false,
     }),
   ).toEqual({ kind: "chatFolders", addFolder: true });
+});
+
+test("this Mac's folder menu never lists a No folder chat's private agent-home folder by its UUID (cmux#53226)", () => {
+  const home = "/Users/me/Library/Application Support/cmux/agent-home/59542102-e040-40fc-bde3-8ad6934e795f";
+  const listed = [{ id: home }, { id: "/Users/me/code/api" }];
+  const known = [{ id: `${home.slice(0, -1)}0` }, { id: "/Users/me/code/web" }];
+  expect(chatFolderChoices({ known, listed, cloudMachine: false }).map((f) => f.id)).toEqual([
+    "/Users/me/code/api",
+    "/Users/me/code/web",
+  ]);
+  // An SSH machine's `~/chats/api` stays: it is a project of the person's.
+  expect(chatFolderChoices({ known: [{ id: "/home/me/chats/api" }], listed: undefined, cloudMachine: false })).toEqual([
+    { id: "/home/me/chats/api" },
+  ]);
+});
+
+test("a DEV build's own agent-home folder is no project either (cmux#53226)", () => {
+  const dev =
+    "/Users/me/Library/Application Support/cmux-next/builds/53226-folder-picker/agent-home/398db4c1-a9ba-45ec-945f-c764b1d2cab6";
+  expect(isAgentHome(dev)).toBe(true);
+  expect(
+    isAgentHome("/Users/me/Library/Application Support/cmux/agent-home/398db4c1-a9ba-45ec-945f-c764b1d2cab6"),
+  ).toBe(true);
+  // A project that only names the words elsewhere stays one.
+  expect(isAgentHome("/Users/me/code/agent-home")).toBe(false);
+  expect(isAgentHome("/Users/me/Library/Application Support/cmux-next/agent-home-notes")).toBe(false);
+  expect(
+    chatFolderChoices({ known: [{ id: dev }, { id: "/Users/me/code/api" }], listed: undefined, cloudMachine: false }),
+  ).toEqual([{ id: "/Users/me/code/api" }]);
 });
