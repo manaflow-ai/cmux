@@ -105,7 +105,7 @@ impl HttpHub {
     /// nothing more ([`HttpHub::refused`]).
     pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -162,7 +162,7 @@ impl HttpHub {
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))

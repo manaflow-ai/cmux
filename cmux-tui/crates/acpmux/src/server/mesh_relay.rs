@@ -678,7 +678,7 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed
@@ -802,6 +802,21 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             Err(error) => Ack::refused(error.message),
         });
     }
+    if op == crate::mesh_relay_config::MOVE_OUT_OP {
+        let mut args = match crate::mesh_control::MoveOutParams::parse(body, "version") {
+            Ok(args) => args,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        // Only the hub's authenticated sender stamp identifies the requesting machine.
+        if args.to.eq_ignore_ascii_case("local") {
+            args.to = message.from.daemon_id.clone()?;
+        }
+        let result = crate::cli::run::session_move::move_out(hub, args).await;
+        return Some(match result {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(format!("{error:#}")),
+        });
+    }
     let mut params = match op {
         "start" => {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {
@@ -816,7 +831,28 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             }
             without_unsent_answer(params, message)
         }
-        "resume" | "stop" => serde_json::json!({}),
+        "resume" => serde_json::json!({}),
+        // A peer's stop carries its closer's reason and outcome and the host the hub stamped
+        // (`close_why.rs`): recorded with the close, never a condition on it.
+        "stop" => {
+            let asked = body.get("params");
+            let text = |key: &str| {
+                asked
+                    .and_then(|p| p.get(key))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
+            let from = message.from.host.as_deref().unwrap_or("an unnamed machine");
+            let reason = match text("reason") {
+                Some(reason) => format!("mesh stop from {from}: {reason}"),
+                None => format!("mesh stop from {from}"),
+            };
+            let mut params = serde_json::json!({"reason": reason});
+            if let Some(outcome) = text("outcome") {
+                params["outcome"] = serde_json::Value::String(outcome);
+            }
+            params
+        }
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
     };
     if matches!(op, "resume" | "stop") {
