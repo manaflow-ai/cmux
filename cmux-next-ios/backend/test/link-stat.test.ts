@@ -88,6 +88,16 @@ describe("link_stat log line", () => {
     expect(linkStatLine(stat(), "phone", ingress, null)!.egress).toBeUndefined()
   })
 
+  it("reads old and new phones alike: no egress, an unknown egress word or a field it does not know keep the line", () => {
+    // An old phone sends no egress; a newer phone may send a word or a field this service does not know yet.
+    // None of them may drop the stat: only v, transport, path, reason, pings and lost are required.
+    const base = linkStatLine(stat(), "phone", ingress, null)
+    expect(base).not.toBeNull()
+    expect(linkStatLine(stat({ egress: "socks" }), "phone", ingress, null)).toEqual(base)
+    expect(linkStatLine(stat({ egress: 7 }), "phone", ingress, null)).toEqual(base)
+    expect(linkStatLine(stat({ egressHops: ["proxy"], futureField: { a: 1 } }), "phone", ingress, null)).toEqual(base)
+  })
+
   it("rejects a malformed stat", () => {
     for (const bad of [{ v: 2 }, { transport: "carrier-pigeon" }, { path: "10.0.0.1:443" }, { reason: "because" }, { pings: -1 }, { lost: "none" }, { pings: Number.NaN }]) {
       expect(linkStatLine(stat(bad), "phone", ingress, null)).toBeNull()
