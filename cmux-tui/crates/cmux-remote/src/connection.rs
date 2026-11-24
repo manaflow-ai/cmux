@@ -1180,6 +1180,13 @@ impl ClientConnection {
             if self.closed.load(Ordering::Acquire) && result.is_ok() {
                 return Err(ConnectionError::Closed);
             }
+            if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                eprintln!(
+                    "bench-trace reconnect attempt {attempt} took {}ms: {:?}",
+                    attempt_started.elapsed().as_millis(),
+                    result.as_ref().map(|_| ()).map_err(ToString::to_string)
+                );
+            }
             report.ended(result.as_ref().map(|_| ()));
             // Every failed redial is the reason the link reports, a gone session too.
             self.set_last_failure(result.as_ref().err().map(ToString::to_string));
@@ -1223,6 +1230,12 @@ impl ClientConnection {
                                 }
                             } => next,
                         };
+                        if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+                            eprintln!(
+                                "bench-trace next_group after attempt {attempt}: {}",
+                                if next.is_some() { "some" } else { "none" }
+                            );
+                        }
                         if let Some(next) = next {
                             group = next;
                         }

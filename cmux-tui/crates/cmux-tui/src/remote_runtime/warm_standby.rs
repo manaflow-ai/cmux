@@ -160,7 +160,16 @@ pub(crate) async fn arm_standby<T: Send>(
     };
     let request = connect_request(&routes[index], session, lane_policy)
         .map_err(|error| ProviderError::Configuration(error.to_string()))?;
-    let group = attempt.connect(index, request, auth).await?;
+    let t0 = Instant::now();
+    let group = attempt.connect(index, request, auth).await;
+    if std::env::var_os("CMUX_BENCH_TRACE").is_some() {
+        eprintln!(
+            "bench-trace arm_standby: route {index} connect {}ms ok={}",
+            t0.elapsed().as_millis(),
+            group.is_ok()
+        );
+    }
+    let group = group?;
     Ok(Armed::Dialed { index, retired: standby.put(index, group) })
 }
 
@@ -178,15 +187,28 @@ pub(crate) async fn next_warm_route<T: Send>(
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<(T, Option<T>), ProviderError> {
     let mut stale = None;
+    let bench_trace = std::env::var_os("CMUX_BENCH_TRACE").is_some();
     match standby.take() {
         Some(Ok((index, group))) => {
+            if bench_trace {
+                eprintln!("bench-trace next_warm_route: took fresh standby route {index}");
+            }
             next.store(index.saturating_add(1), Ordering::Relaxed);
             standby.set_active(index);
             standby.wake.notify_one();
             return Ok((group, None));
         }
-        Some(Err(old)) => stale = Some(old),
-        None => {}
+        Some(Err(old)) => {
+            if bench_trace {
+                eprintln!("bench-trace next_warm_route: standby stale");
+            }
+            stale = Some(old)
+        }
+        None => {
+            if bench_trace {
+                eprintln!("bench-trace next_warm_route: no standby");
+            }
+        }
     }
     let group =
         next_reconnect_route(next, routes, race, session, lane_policy, auth, attempt).await?;

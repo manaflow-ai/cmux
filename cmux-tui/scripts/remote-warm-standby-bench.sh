@@ -144,7 +144,8 @@ cap = subprocess.Popen(["tcpdump", "-i", "any", "-tt", "-n", "-l", "-q", "-Q", "
 time.sleep(0.4)
 p = subprocess.Popen([os.environ["BENCH_BIN"], "remote", "connect", "--headless", "--json",
                       "--iroh-path", "direct-only", "--state-dir", state],
-                     env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                     env=env, stdout=subprocess.PIPE,
+                     stderr=(open(os.environ["BENCH_STDERR"], "ab") if os.environ.get("BENCH_STDERR") else subprocess.DEVNULL),
                      start_new_session=True, bufsize=0)
 buf = b""
 def lines(deadline):
