@@ -154,7 +154,7 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Frame params refused on every verb (the guard is the daemon's own).
 const FORBIDDEN_PARAMS: &[&str] =
-    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id"];
+    &["guard", "roots", "control", "env", "mcpServers", "sessionId", "session_id", "preset"];
 
 /// What machine this daemon takes chats on, as the binary reads it at start
 /// (never from a request).
@@ -376,7 +376,6 @@ impl Mux {
 // MARK: Requests
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveParams {
     manifest: Map<String, Value>,
     cwd: String,
@@ -390,7 +389,6 @@ struct ReceiveParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct WriteParams {
     receive_id: String,
     path: String,
@@ -399,7 +397,6 @@ struct WriteParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct FinishParams {
     receive_id: String,
     #[serde(default)]
@@ -410,13 +407,11 @@ struct FinishParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReceiveAbortParams {
     receive_id: String,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SourceParams {
     #[serde(default)]
     surface: Option<SurfaceId>,
@@ -426,7 +421,6 @@ struct SourceParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BeginParams {
     #[serde(default)]
     surface: Option<SurfaceId>,
@@ -446,7 +440,6 @@ struct BeginParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ReadParams {
     transfer_id: String,
     path: String,
@@ -456,7 +449,6 @@ struct ReadParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct CommitParams {
     #[serde(default)]
     surface: Option<SurfaceId>,
@@ -468,7 +460,6 @@ struct CommitParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AbortParams {
     #[serde(default)]
     surface: Option<SurfaceId>,
@@ -496,6 +487,11 @@ impl Verb {
         if params.keys().any(|key| {
             FORBIDDEN_PARAMS.contains(&key.as_str()) || COMMAND_PARAMS.contains(&key.as_str())
         }) {
+            return None;
+        }
+        // Other unknown fields are ignored, but a receive abort never names a move:
+        // the move is the receive's own.
+        if cmd == "agent-transfer-receive-abort" && params.contains_key("transfer_id") {
             return None;
         }
         let params = Value::Object(params);

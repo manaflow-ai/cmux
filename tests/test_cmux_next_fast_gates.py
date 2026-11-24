@@ -1848,6 +1848,14 @@ class WebviewsChecksGate(unittest.TestCase):
         new = self.module.added(known + "error: Failed to resolve vite config: ENOENT\n", known)
         self.assertEqual(new, ["error: Failed to resolve vite config: ENOENT"])
 
+    def test_a_vite_config_stack_frame_keys_without_its_temp_stamp(self):
+        def frames(stamp: str) -> str:
+            return ("error: Failed to resolve vite config: ENOENT\n"
+                    f"    at markdownHost (file:///r/webviews/node_modules/.vite-temp/vite.config.ts.timestamp-{stamp}.mjs"
+                    ":3176:23)\n")
+        self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
+                         [])
+
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:
             return (f"  x typescript(TS2322): Type '{{ a: number; }}' is not assignable to type 'Props'.\n"
