@@ -396,6 +396,12 @@ fn build_harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
+        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        let env = command_env_with(&cmd, !remote_environment);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());

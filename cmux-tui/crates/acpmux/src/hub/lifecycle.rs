@@ -1258,6 +1258,13 @@ impl Hub {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
         let meta = session.meta();
+        // Its requests say interactive (the person's chat, a coordinator) or background
+        // (subrouter_priority.rs), so the gateways keep a share for the chats Leo talks to.
+        let for_person = super::host_level::made_for_a_person(
+            meta.created_by.as_ref(),
+            session.person.load(std::sync::atomic::Ordering::SeqCst),
+        );
+        let profile = &crate::subrouter_priority::profile_with(profile, &meta.name, for_person);
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();

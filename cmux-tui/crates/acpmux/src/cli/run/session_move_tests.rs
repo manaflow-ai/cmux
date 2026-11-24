@@ -976,19 +976,19 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    let both = vec!["s1".to_owned(), "s2".to_owned()];
+    let both = vec![("t/s1".to_owned(), "s1".to_owned()), ("t/s2".to_owned(), "s2".to_owned())];
     let started = tokio::time::Instant::now();
     assert_eq!(await_arrival(&client, &both, bound, poll).await, vec![]);
     assert_eq!(started.elapsed(), 3 * poll, "one wait for both, ended when the last arrived");
     // A link that stays down: the wait ends at its bound and says why, per chat.
-    let one = vec!["s1".to_owned()];
+    let one = vec![("t/s1".to_owned(), "s1".to_owned())];
     let late = await_arrival(&client, &one, std::time::Duration::from_secs(1), poll).await;
     assert_eq!(late, vec![("s1".to_owned(), "peer reconnecting".to_owned())]);
     drop(client);
     let asked = server.await.unwrap();
     assert_eq!(
         asked[..4],
-        [json!(["s1", "s2"]), json!(["s1", "s2"]), json!(["s1"]), json!(["s1"])]
+        [json!(["t/s1", "t/s2"]), json!(["t/s1", "t/s2"]), json!(["t/s1"]), json!(["t/s1"])]
     );
     assert!((4 + 4..=4 + 5).contains(&asked.len()), "asked {} times", asked.len());
 
@@ -999,6 +999,11 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
     // Another chat's row says nothing of this one.
     assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
+    assert_eq!(arrived(&json!({"rows": [{"sessionId": "s1", "status": "idle"}]}), "s1"), Ok(()));
+    assert_eq!(
+        arrived(&json!({"rows": [{"sessionId": "s1", "status": "closed"}]}), "s1"),
+        Err("listed here as closed".to_owned())
+    );
 }
 
 fn outcome(name: &str, error: Option<&str>) -> Outcome {
@@ -1014,6 +1019,8 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         error: error.map(str::to_owned),
         error_code: None,
         preflight: preflight::Preflight::default(),
+        arrival_key: None,
+        reachable: None,
     }
 }
 

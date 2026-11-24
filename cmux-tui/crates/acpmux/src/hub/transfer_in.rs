@@ -811,6 +811,8 @@ impl Hub {
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
+                // A prefix whose history follows the chat: awaited here (`transfer_history.rs`).
+                self.note_history_pending(&session, &dir);
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
                     let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
