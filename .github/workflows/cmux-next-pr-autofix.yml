@@ -136,6 +136,9 @@ jobs:
       actions: ${{ steps.areas.outputs.actions }}
       settings: ${{ steps.areas.outputs.settings }}
       changed: ${{ steps.changed.outputs.changed }}
+      # Whether the changed paths hold a generated output (generated_outputs.py output_of, the base's copy): false
+      # lets generated-drift skip, since its check can only flag a changed generated output. Empty runs it.
+      generated: ${{ steps.generated.outputs.generated }}
       # Whether the repair job has anything to repair (any autofix-areas.sh key on).
       repairs: ${{ steps.areas.outputs.repairs }}
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
@@ -211,6 +214,26 @@ jobs:
             git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
+
+      # generated-drift flags only a changed path that is a generated output with none of its inputs changed, so a
+      # change with no generated output among its paths cannot fail it. Its own job was a runner and a checkout on
+      # every head (about 2,100 runner-min/day on 2026-11-24 10:30-18:00Z) to pass on 97 % of them: 13 of the last 400
+      # feat-cmux-next merges changed a generated output, 7 drifted. The same list (BASE...HEAD, both paths of a
+      # rename) and the base's generated_outputs.py the drift job reads; any doubt (no list, no script, an error)
+      # leaves the output empty and the drift job runs as before.
+      - name: Whether a generated output changed
+        id: generated
+        if: steps.changed.outputs.listed == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          lib="$RUNNER_TEMP/autofix/scripts/cmux-next"
+          [[ -f "$lib/generated_outputs.py" ]] || { echo "The base has no generated_outputs.py; generated-drift runs."; exit 0; }
+          generated="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g
+          paths = [line for line in open(sys.argv[2]).read().splitlines() if line]
+          print("true" if any(g.output_of(p) for p in paths) else "false")' "$lib" "$RUNNER_TEMP/changed.txt")"
+          [[ "$generated" == true || "$generated" == false ]]
+          echo "generated=$generated" | tee -a "$GITHUB_OUTPUT"
 
       - name: Refuse stale generator inputs
         env:
@@ -1110,7 +1133,7 @@ jobs:
     needs: [action-areas]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok')) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') && needs.action-areas.outputs.generated != 'false') }}
     permissions:
       contents: read
       pull-requests: read
