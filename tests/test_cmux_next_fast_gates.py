@@ -358,6 +358,10 @@ class WorkflowShape(unittest.TestCase):
             # and the next step drops what it half extracted.
             if step.get("id") == "bun-cache" and step.get("uses", "").startswith("actions/cache/restore@"):
                 continue
+            # The pinned Node and Bun restores (scripts/ci/toolchain-r2.sh) are best-effort: a miss leaves the setup
+            # step after it to download as before, so they never decide the job.
+            if "toolchain-r2.sh\" restore " in step.get("run", ""):
+                continue
             self.assertNotIn("continue-on-error", step, step.get("name"))
         run = step_named(gates["steps"], "Fast gates")
         self.assertIn("scripts/ci/cmux_next_fast_gates.py run", run["run"])
@@ -664,6 +668,9 @@ class WorkflowShape(unittest.TestCase):
         # in full) and the last two run after the gate, so none of them is a verdict.
         receipt_steps = ("same-input receipt", "the receipt's results")
         for step in steps:
+            # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
+            if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
                     self.assertIn("id", step)
