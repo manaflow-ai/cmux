@@ -425,7 +425,7 @@ function namesSite(query: string, row: ScreenRow | undefined): boolean {
 /// The row named exactly what was typed, any case: a workspace by its name first ("app-efficiency"),
 /// then a tab by its title as the host sent it (before the row cleaned it), then a tab in a
 /// workspace of that name (a terminal tab titled "~" lists under its workspace's name).
-function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
+export function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
   const needle = query.toLocaleLowerCase();
   const named = (name: string | undefined) => name?.trim().toLocaleLowerCase() === needle;
   const tab = (row: ScreenRow) =>
