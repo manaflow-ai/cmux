@@ -1700,19 +1700,9 @@ function TranscriptView({
         dockCardRef.current < cardBefore - 0.5 && performance.now() < sendRiseUntil.current && !(sendClockMs(rows) > 0);
       // With the transaction (motionTransaction.ts) the send's motion is one glide: the room it gives
       // back while the send's hold is open joins that glide instead of landing in a frame of its own.
-      if (sendGaveRoom && transactionOn(rows)) {
-        const tx = threadTransaction(rows);
-        if (tx.expecting()) {
-          tx.settle("stack");
-          return;
-        }
-        // The send's hold already released (its prompt's rows came in the send's own commit, the
-        // order a loaded host draws): the room joins the glide still playing, never a frame of its own
-        // before it (#50851, send-5-one-commit drew v1f@31.2 then the glide).
-        if (tx.active()) {
-          tx.move(delta, "stack");
-          return;
-        }
+      if (sendGaveRoom && transactionOn(rows) && threadTransaction(rows).expecting()) {
+        threadTransaction(rows).settle("stack");
+        return;
       }
       const ms = Math.abs(delta) < 0.5 || sendGaveRoom ? 0 : foldMs(rows);
       if (!(ms > 0)) return;
