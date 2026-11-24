@@ -190,7 +190,10 @@ final class TerminalProjectionUITests: XCTestCase {
 /// is painted on the phone from the rows it already drew, so the phone sends
 /// the Mac 0 bytes in 0 sends and the app scrolls 0 times. `NoHeldRows`
 /// variants run the same pans with every wheel sent to the app (the path
-/// before held rows): the "before" in one harness. Each readout is a
+/// before held rows): the "before" in one harness. `-load` streams a row
+/// every 16 ms throughout: the reader stays where they read (dictator,
+/// 2026-11-24: output while panned into held rows does not return to live).
+/// Each readout is a
 /// `tuiheld ...` attachment (frames, receive-to-paint, gesture-to-paint).
 extension TerminalProjectionUITests {
     @MainActor func testPanWithinHeldRowsSendsNothing() throws {
@@ -207,6 +210,13 @@ extension TerminalProjectionUITests {
 
     @MainActor func testPanWithoutHeldRowsWhileStreamingScrollsTheApp() throws {
         try heldPan(variant: "keys-load", holds: false)
+    }
+
+    private static func value(_ name: String, in demo: String) -> Int? {
+        demo.split(separator: " ").lazy.compactMap { word -> Int? in
+            let pair = word.split(separator: "=", maxSplits: 1)
+            return pair.count == 2 && pair[0] == name ? Int(pair[1]) : nil
+        }.first
     }
 
     @MainActor
@@ -248,7 +258,9 @@ extension TerminalProjectionUITests {
             RunLoop.current.run(until: Date().addingTimeInterval(0.25))
             demo = probe.label
         }
+        let sendsPerDrag = drags > 0 ? Double(Self.value("sends", in: demo) ?? 0) / Double(drags) : 0
         let label = "tuiheld \(holds ? "held" : "noheld") \(demo) drags=\(drags)"
+            + String(format: " sendsPerDrag=%.2f", sendsPerDrag)
         print(label)
         let numbers = XCTAttachment(string: label + "\n")
         numbers.name = "tuiheld-\(holds ? "held" : "noheld")-\(variant) " + demo
@@ -272,6 +284,9 @@ extension TerminalProjectionUITests {
             XCTAssertEqual(values["sends"] ?? -1, 0, "a pan within held rows sent the Mac nothing: \(demo)")
             XCTAssertEqual(values["bytes"] ?? -1, 0, "a pan within held rows sent 0 bytes: \(demo)")
             XCTAssertEqual(values["appScrolls"] ?? -1, 0, "the app never scrolled: \(demo)")
+            // Read back, then the finger lifts: the app's output (a row every
+            // 16 ms under `-load`) leaves the reader where they are.
+            XCTAssertGreaterThan(values["back"] ?? 0, 0, "the reader is still back after the app's output: \(demo)")
         } else {
             XCTAssertGreaterThan(values["appScrolls"] ?? 0, 0, "every pan went to the app: \(demo)")
         }

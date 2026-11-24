@@ -230,12 +230,28 @@ impl Projection {
     /// phone is painted at the next feed (a reset whose replay follows).
     pub fn feed(&mut self, bytes: &[u8], paint: bool) -> Vec<Segment> {
         let mut segments = Vec::new();
-        // New output while the reader is back in the held rows: the live
-        // screen first, so the app's bytes draw on what they expect and a
-        // stale screen never shows as live.
-        let live = self.alt_return_live();
-        if !live.is_empty() {
+        // New output while the reader is back in the held rows (Claude
+        // Code's spinner repaints several times a second while it works,
+        // which is when one reads back): the reader stays where they are.
+        // In one synchronized update the surface shows the live screen, so
+        // the app's bytes draw on what they expect, takes them, then shows
+        // the same held rows again. The reader's place is kept in rows ever
+        // held, so rows held meanwhile do not move what they read. After a
+        // pan past the held rows the app's answer is what they asked for:
+        // that shows live.
+        let reading = (self.alt_back > 0 && self.term.is_alternate() && !self.alt_forwarded)
+            .then(|| self.term.held.pushed().saturating_sub(self.alt_back as u64));
+        let mut sync_open = false;
+        if reading.is_some() {
+            let mut live = held::paint_live(&self.term);
+            live.truncate(live.len() - b"\x1b[?2026l".len());
             segments.push(Segment::Raw(live));
+            sync_open = true;
+        } else {
+            let live = self.alt_return_live();
+            if !live.is_empty() {
+                segments.push(Segment::Raw(live));
+            }
         }
         let mut raw_start: Option<usize> = self.term.is_alternate().then_some(0);
         for (i, &byte) in bytes.iter().enumerate() {
@@ -258,7 +274,13 @@ impl Projection {
                 raw_start = Some(i + 1);
             } else {
                 let start = raw_start.take().unwrap_or(0);
-                segments.push(Segment::Raw(bytes.get(start..=i).unwrap_or_default().to_vec()));
+                let mut raw = bytes.get(start..=i).unwrap_or_default().to_vec();
+                if std::mem::take(&mut sync_open) {
+                    raw.extend_from_slice(b"\x1b[?2026l");
+                }
+                self.alt_back = 0;
+                self.alt_fraction = 0.0;
+                segments.push(Segment::Raw(raw));
                 self.term.passthrough.clear();
                 segments.push(Segment::Alternate(false));
                 // The phone's primary screen was drawn at another grid meanwhile.
@@ -276,6 +298,26 @@ impl Projection {
         if self.term.is_alternate() {
             self.term.observe_held();
         }
+        if std::mem::take(&mut sync_open) {
+            match reading {
+                Some(anchor) if self.term.is_alternate() && !self.term.held.is_empty() => {
+                    let held = &self.term.held;
+                    let back = held.pushed().saturating_sub(anchor) as usize;
+                    self.alt_back = back.clamp(1, held.len());
+                    segments.push(Segment::Raw(held::paint_back(&self.term, held, self.alt_back)));
+                }
+                _ => {
+                    // What was held is gone (the app cleared it): live.
+                    self.alt_back = 0;
+                    self.alt_fraction = 0.0;
+                    let mut end = held::paint_live(&self.term);
+                    if !self.term.is_alternate() {
+                        end = b"\x1b[?2026l".to_vec();
+                    }
+                    segments.push(Segment::Raw(end));
+                }
+            }
+        }
         segments
     }
 
@@ -284,17 +326,15 @@ impl Projection {
     /// held rows the phone paints them itself and nothing goes to the Mac.
     /// Past the oldest held row, the rest goes to the app as wheel rows (and
     /// the rows already back, so the app scrolls to where the reader is);
-    /// past the live screen, likewise. Everything goes to the app, as before
-    /// held rows, on the primary screen, for an app that asked for mouse
-    /// reports (a wheel is its own), and while nothing is held.
+    /// past the live screen, likewise. An app that asked for mouse reports
+    /// pans its held rows on the phone too, and gets the wheel past them.
+    /// Everything goes to the app, as before held rows, on the primary
+    /// screen and while nothing is held.
     pub fn alt_pan(&mut self, rows: f64) -> AltPan {
         if !rows.is_finite() || rows == 0.0 {
             return AltPan::default();
         }
-        if !self.term.is_alternate()
-            || self.term.mouse_reporting()
-            || (self.alt_back == 0 && self.term.held.is_empty())
-        {
+        if !self.term.is_alternate() || (self.alt_back == 0 && self.term.held.is_empty()) {
             let paint = self.alt_return_live();
             self.alt_fraction = 0.0;
             return AltPan { paint, forward_rows: rows };
@@ -337,8 +377,8 @@ impl Projection {
         AltPan { paint, forward_rows: forward }
     }
 
-    /// A key, a tap or the app's output: the phone's surface shows the
-    /// app's live screen again. The bytes that repaint it (empty when it
+    /// A key or a tap (or the app's answer to a pan past the held rows): the
+    /// phone's surface shows the app's live screen again. The bytes that repaint it (empty when it
     /// already does).
     pub fn alt_return_live(&mut self) -> Vec<u8> {
         self.alt_fraction = 0.0;
@@ -350,6 +390,12 @@ impl Projection {
         if !self.term.is_alternate() {
             return Vec::new();
         }
+        held::paint_live(&self.term)
+    }
+
+    /// The bytes that paint the app's live screen, wherever the reader is
+    /// (tests, the bench).
+    pub fn alt_live_paint(&self) -> Vec<u8> {
         held::paint_live(&self.term)
     }
 

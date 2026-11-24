@@ -245,9 +245,10 @@ impl Terminal {
     }
 
     /// The end of a batch of bytes on the alternate screen: the held rows
-    /// infer what a repaint moved ([`HeldRows::observe`]).
+    /// infer what a repaint moved ([`HeldRows::observe`]), unless the app
+    /// marks its frames (then only a whole frame is compared).
     pub fn observe_held(&mut self) {
-        if self.alt_active {
+        if self.alt_active && !self.held.framed() {
             self.held.observe(&self.alt);
         }
     }
@@ -810,7 +811,15 @@ impl Terminal {
                 self.cursor_position(0, 0);
             }
             7 => self.autowrap = on,
-            25 => self.cursor_visible = on,
+            25 => {
+                // Shown again after a hidden redraw: the app's frame is whole.
+                let frame_end = on && !self.cursor_visible;
+                self.cursor_visible = on;
+                if frame_end && self.alt_active {
+                    self.held.frame_end(&self.alt);
+                }
+            }
+            2026 if !on && self.alt_active => self.held.frame_end(&self.alt),
             47 | 1047 | 1049 => {
                 if on && !self.alt_active {
                     self.alt_mode = mode;
