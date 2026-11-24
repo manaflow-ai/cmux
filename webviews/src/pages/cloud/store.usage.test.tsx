@@ -29,6 +29,7 @@ const EN: Record<string, string> = {
   "payment.add": "Add payment method",
   "payment.card": "{brand} ••{digits}",
   "payment.change": "Change",
+  "payment.off": "Payments aren’t open yet",
   "page.retry": "Retry",
 };
 const strings: Strings = { language: "en", t: (key) => EN[key] ?? key, format: (key) => key };
@@ -92,7 +93,7 @@ test("no card shows Add payment method, which runs the checkout through the host
     ...usage,
     payment_method: { attached: false },
     stripe_mode: "live",
-    gaps: [{ from: 1, to: null }],
+    gaps: ["size_unknown"],
   };
   const { store, unsubscribe } = await open(provider);
   const html = panel(store);
@@ -104,6 +105,22 @@ test("no card shows Add payment method, which runs the checkout through the host
     (call) => call.op === ACTION_RUN && (call.params as { action?: string }).action === CloudOps.billingCheckout,
   );
   expect(checkout).toBeDefined();
+  // No plan: the checkout attaches a card and leaves the plan alone.
+  expect((checkout?.params as { args?: Record<string, unknown> }).args).not.toHaveProperty("plan");
+  unsubscribe();
+});
+
+test("payments not open yet replace the button with a note, not an error", async () => {
+  const provider = new MockCloudProvider();
+  provider.usage = { ...usage, payment_method: { attached: false, brand: null, last4: null } };
+  provider.billingOff = true;
+  const { store, unsubscribe } = await open(provider);
+  await store.addPaymentMethod();
+  await settle();
+  expect(store.getSnapshot().paymentOff).toBe(true);
+  const html = panel(store);
+  expect(html).toContain("Payments aren’t open yet");
+  expect(html).not.toContain("Add payment method");
   unsubscribe();
 });
 

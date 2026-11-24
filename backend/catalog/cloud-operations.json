@@ -2926,33 +2926,8 @@
           "type": {
             "kind": "array",
             "items": {
-              "kind": "object",
-              "fields": {
-                "machine": {
-                  "required": false,
-                  "type": {
-                    "kind": "primitive",
-                    "name": "string"
-                  }
-                },
-                "from": {
-                  "required": true,
-                  "type": {
-                    "kind": "primitive",
-                    "name": "int64"
-                  }
-                },
-                "to": {
-                  "required": true,
-                  "type": {
-                    "kind": "nullable",
-                    "inner": {
-                      "kind": "primitive",
-                      "name": "int64"
-                    }
-                  }
-                }
-              }
+              "kind": "primitive",
+              "name": "string"
             }
           }
         },
@@ -26450,7 +26425,7 @@
         "selectors": {},
         "fields": {
           "plan": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string",
@@ -26492,6 +26467,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.billing.off",
         "idempotency.conflict",
         "owner.unreachable",
         "revision.conflict",
@@ -26520,7 +26496,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first.",
+      "docs": "Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -26530,9 +26506,6 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
           }
         },
-        "required": [
-          "plan"
-        ],
         "additionalProperties": true,
         "$defs": {}
       },
@@ -38128,34 +38101,7 @@
               "gaps": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "machine": {
-                      "type": "string"
-                    },
-                    "from": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "to": {
-                      "anyOf": [
-                        {
-                          "type": "integer",
-                          "minimum": -9007199254740991,
-                          "maximum": 9007199254740991
-                        },
-                        {
-                          "type": "null"
-                        }
-                      ]
-                    }
-                  },
-                  "required": [
-                    "from",
-                    "to"
-                  ],
-                  "additionalProperties": true
+                  "type": "string"
                 }
               },
               "payment_method": {

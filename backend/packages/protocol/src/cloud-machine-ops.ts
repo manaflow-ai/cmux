@@ -538,7 +538,7 @@ export const CloudUsageCurrent = Schema.Struct({
   memory_gib_seconds: Schema.Number,
   stored_gib_seconds: Schema.Number,
   usd: Schema.Struct({ vcpu: Schema.Number, memory: Schema.Number, stored: Schema.Number, total: Schema.Number }),
-  gaps: Schema.Array(Schema.Struct({ machine: Schema.optionalKey(Schema.String), from: Millis, to: Schema.NullOr(Millis) })),
+  gaps: Schema.Array(Schema.String),
   payment_method: Schema.Struct({
     attached: Schema.Boolean,
     brand: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -557,10 +557,10 @@ export const CloudUsageCurrentGet = cloudRead(
 export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
   "money",
-  Schema.Struct({ plan: PlanId }),
+  Schema.Struct({ plan: Schema.optionalKey(PlanId) }),
   Schema.Struct({ url: Schema.String.check(isPattern(/^https:\/\//)) }),
-  [],
-  "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux.",
+  ["cloud.billing.off"],
+  "Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment.",
   "cloud billing checkout",
   true
 )

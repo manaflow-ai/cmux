@@ -802,7 +802,7 @@ pub struct CloudUsageCurrent {
     pub memory_gib_seconds: WireNumber,
     pub stored_gib_seconds: WireNumber,
     pub usd: CloudUsageCurrentUsd,
-    pub gaps: Vec<CloudUsageCurrentGapsItem>,
+    pub gaps: Vec<String>,
     pub payment_method: CloudUsageCurrentPaymentMethod,
     pub stripe_mode: CloudUsageCurrentStripeMode,
 }
@@ -813,14 +813,6 @@ pub struct CloudUsageCurrentUsd {
     pub memory: WireNumber,
     pub stored: WireNumber,
     pub total: WireNumber,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudUsageCurrentGapsItem {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub machine: Option<String>,
-    pub from: i64,
-    pub to: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -903,3 +895,9 @@ pub struct CodeRef {
 }
 
 pub type CommitSha = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Concurrency {
+    pub max: i64,
+    pub on_limit: ConcurrencyOnLimit,
+}

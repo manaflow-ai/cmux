@@ -127,6 +127,8 @@ function MonthUsage({ store, state, strings }: { store: CloudStore; state: Cloud
               {t(L.paymentChange)}
             </button>
           </>
+        ) : state.paymentOff ? (
+          <span className="cloud-muted">{t(L.paymentOff)}</span>
         ) : (
           <button type="button" className="cloud-button cloud-month-add" onClick={() => void store.addPaymentMethod()}>
             {t(L.paymentAdd)}

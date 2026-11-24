@@ -119,6 +119,8 @@ export interface CloudState {
   usage?: CloudUsage;
   /** The last usage read failed (not "not served"): the panel says so and offers Retry. */
   usageFailed?: boolean;
+  /** The checkout answered that payments are not open yet (`cloud.billing.off`): no Add payment method button. */
+  paymentOff?: boolean;
   /** "Later" hid the classic migration banner for this account (kept in this browser, account.ts). */
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
@@ -459,7 +461,7 @@ export class CloudStore {
 
   /** "Add payment method": the host confirms, then opens the checkout in the browser. */
   addPaymentMethod(): Promise<void> {
-    return this.account.checkout(this.state.plan?.plan_id ?? "");
+    return this.account.checkout();
   }
 
   /** Manage Billing beside the payment notice. */
@@ -1260,6 +1262,7 @@ function signedOutState(): Partial<CloudState> {
     paymentPastDue: undefined,
     usage: undefined,
     usageFailed: undefined,
+    paymentOff: undefined,
     refusal: undefined,
     blocked: undefined,
     selection: undefined,

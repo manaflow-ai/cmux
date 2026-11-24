@@ -447,11 +447,7 @@ export type CloudUsageCurrent = {
     readonly stored: number | "Infinity" | "-Infinity" | "NaN"
     readonly total: number | "Infinity" | "-Infinity" | "NaN"
   }
-  readonly gaps: ReadonlyArray<{
-    readonly machine?: string
-    readonly from: number
-    readonly to: number | null
-  }>
+  readonly gaps: ReadonlyArray<string>
   readonly payment_method: {
     readonly attached: boolean
     readonly brand?: string | null
@@ -2072,10 +2068,10 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first. */
+  /** Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first. */
   readonly "cloud.billing.checkout": {
     readonly params: {
-      readonly plan: string
+      readonly plan?: string
     }
     readonly result: {
       readonly url: string
