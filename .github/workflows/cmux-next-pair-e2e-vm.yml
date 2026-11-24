@@ -146,7 +146,7 @@ jobs:
           # of this run's own, as cmux-ci's build env does, with Rust still where the earlier steps put it.
           export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
           export HOME="$RUNNER_TEMP/pair-home"
-          bash scripts/ci/cmux-next-ios-sim.sh pair-e2e
+          bash scripts/ci/cmux-next-ios-sim.sh pair-e2e upload-mb=100 upload-random upload-wait=1800
 
       - name: Summarize
         if: always()
