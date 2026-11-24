@@ -10,7 +10,8 @@ use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::control::Event;
 use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
 use cmux_mobile_host::pairing::{
-    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, challenge_message, mac_proof_message,
+    DeniedDevice, DeviceTrust, MacIdentity, Pairing, TrustedDevice, TunnelKeys, challenge_message,
+    challenge_message_v2, mac_proof_message, mac_proof_message_v2,
 };
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link::{
@@ -1618,6 +1619,122 @@ async fn the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature() 
 /// by the Mac before the daemon socket closes, so the daemon never takes the
 /// close for a dropped link and holds the grid (PROTOCOL.md "Terminal size
 /// claims").
+/// A v2 `auth` (`proofVersion` 2) on a WireGuard link: the challenge says v2, and the Mac's
+/// proof covers the tunnel's two static keys as both ends of the real tunnel see them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_identity_proofs_cover_the_wireguard_keys() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let tunnel = connected.tunnel_keys.clone().expect("a WireGuard link has tunnel keys");
+    assert_ne!(tunnel.dialer, tunnel.answerer);
+    let phone_nonce = "pinnonce0123456789abcdef";
+    let (mut channel, challenge) = open_v2(&connected.link, &keys, phone_nonce).await;
+    assert_eq!(challenge["proofVersion"], "2");
+    let nonce = challenge["challenge"].as_str().unwrap().to_owned();
+    let mac_key = fixture.mac_key.as_deref().unwrap();
+    let mac_signature = challenge["macSignature"].as_str().unwrap();
+    // The proof holds over this phone's own tunnel keys (so the Mac's tunnel has the same ones),
+    // and neither over v1's message nor over other keys.
+    let proof = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &tunnel);
+    assert!(cmux_mobile_host::pairing::verify(mac_key, &proof, mac_signature));
+    let v1 = mac_proof_message(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce);
+    assert!(!cmux_mobile_host::pairing::verify(mac_key, &v1, mac_signature));
+    let swapped = TunnelKeys { dialer: tunnel.answerer.clone(), answerer: tunnel.dialer.clone() };
+    let other = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &swapped);
+    assert!(!cmux_mobile_host::pairing::verify(mac_key, &other, mac_signature));
+    sign_v2(&mut channel, &fixture, &keys, &nonce, &tunnel).await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+}
+
+/// A hub in the signaling path that ran its own tunnel to each side and relayed `auth` between
+/// them: the phone's tunnel then has the hub's key as its answerer, the Mac's the hub's as its
+/// dialer. The phone signs the keys it handshook with; the Mac, checking the keys it handshook
+/// with, refuses, and its proof does not hold for the phone's keys either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_relayed_auth_with_other_wireguard_keys_is_refused() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    // The hub's tunnel to the Mac: the real link, whose dialer key is the hub's.
+    let hub_to_mac = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mac_side = hub_to_mac.tunnel_keys.clone().unwrap();
+    // The phone's tunnel to the hub: the phone's own key, and the hub's other key as answerer.
+    let hub_key = |seed: u8| {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode([seed; 32])
+    };
+    let phone_side = TunnelKeys { dialer: hub_key(1), answerer: hub_key(2) };
+    assert_ne!(phone_side, mac_side);
+    let phone_nonce = "pinnonce0123456789abcdef";
+    let (mut channel, challenge) = open_v2(&hub_to_mac.link, &keys, phone_nonce).await;
+    let nonce = challenge["challenge"].as_str().unwrap().to_owned();
+    // The phone checks the Mac's proof over its own tunnel's keys: it does not hold.
+    let proof = mac_proof_message_v2(&fixture.mac_id, &fixture.phone_id, phone_nonce, &nonce, &phone_side);
+    let mac_key = fixture.mac_key.as_deref().unwrap();
+    assert!(!cmux_mobile_host::pairing::verify(mac_key, &proof, challenge["macSignature"].as_str().unwrap()));
+    // Relayed anyway, the phone's signature over its keys is refused by the Mac.
+    sign_v2(&mut channel, &fixture, &keys, &nonce, &phone_side).await;
+    let (code, _) = close_reason(&mut channel).await;
+    assert_eq!(code, "unpaired");
+    // A v1 signature on a link that asked for v2 is refused too (no downgrade inside the Mac).
+    let (mut channel, challenge) = open_v2(&hub_to_mac.link, &keys, phone_nonce).await;
+    let nonce = challenge["challenge"].as_str().unwrap();
+    let message = challenge_message(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        nonce,
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    let (code, _) = close_reason(&mut channel).await;
+    assert_eq!(code, "unpaired");
+}
+
+/// Opens a v2 `auth` with the phone's nonce and returns the channel and its challenge.
+async fn open_v2(
+    link: &cmux_mobile_link::Link,
+    keys: &PhoneKeys,
+    phone_nonce: &str,
+) -> (Channel, serde_json::Value) {
+    let mut channel = link
+        .open(
+            "auth",
+            serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                               "name": "Test iPhone", "action": "pair", "macNonce": phone_nonce,
+                               "proofVersion": "2"}),
+        )
+        .await
+        .unwrap();
+    let challenge = json_frame(channel.recv().await);
+    (channel, challenge)
+}
+
+/// Signs a v2 challenge over `tunnel` and sends the signature.
+async fn sign_v2(
+    channel: &mut Channel,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    nonce: &str,
+    tunnel: &TunnelKeys,
+) {
+    let message = challenge_message_v2(
+        &fixture.mac_id,
+        &fixture.phone_id,
+        nonce,
+        &keys.identity_hex,
+        &keys.approval_hex,
+        "pair",
+        tunnel,
+    );
+    let signature = hex(keys.identity.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
+    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_terminal_channel_the_phone_closes_releases_its_sizes() {
     let fixture = fixture(FakeOptions::default()).await;

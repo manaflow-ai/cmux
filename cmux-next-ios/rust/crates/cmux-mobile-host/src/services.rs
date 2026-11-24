@@ -291,6 +291,9 @@ pub const SURFACE_STREAM: &str = names::SURFACE_STREAM;
 /// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
 /// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
 pub const CLOUD_DESKTOP: &str = names::CLOUD_DESKTOP;
+/// Added when `surface` also streams this Mac's own displays, view only
+/// (`d~<display>`, `surface.rs`): the Mac screen as rd/1 on the phone's link.
+pub const MAC_DISPLAY: &str = names::MAC_DISPLAY;
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -304,6 +307,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.available() {
         out.push(CLOUD_DESKTOP);
+    }
+    if config.surface.streams_mac_display() {
+        out.push(MAC_DISPLAY);
     }
     out
 }
@@ -1235,7 +1241,7 @@ async fn acpmux(
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
-    let mut exposure = peer.session_exposure.clone();
+    let exposure = peer.session_exposure.clone();
     // What both directions learn about the sessions this phone touches. Locked only for a
     // moment, never across an await.
     let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
@@ -2485,6 +2491,13 @@ mod tests {
         config.surface = config.surface.clone().without_simulators();
         assert!(!capabilities(&config).contains(&SURFACE_STREAM));
         assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
+        assert!(!capabilities(&config).contains(&MAC_DISPLAY));
+        // The app that also captures this Mac's displays says so (`CMUX_MOBILE_MAC_DISPLAY=1`).
+        config.surface = config.surface.clone().with_mac_display();
+        assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP, MAC_DISPLAY]));
+        // No source at all: no display either.
+        config.surface = crate::surface::SurfaceConfig::default().with_mac_display();
+        assert!(!capabilities(&config).contains(&MAC_DISPLAY));
     }
 
     /// Everything `version` can list is a host name in the registry, and every host name there
@@ -2494,7 +2507,7 @@ mod tests {
         let listed: Vec<&str> = CAPABILITIES
             .iter()
             .copied()
-            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP])
+            .chain([BROWSER_STREAM, BROWSER_VIDEO_TRACK, SURFACE_STREAM, CLOUD_DESKTOP, MAC_DISPLAY])
             .collect();
         let host: Vec<&str> =
             names::ALL.iter().filter(|c| c.side == names::Side::Host).map(|c| c.name).collect();

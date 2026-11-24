@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { commentDisplayName } from "./format";
+import { CommentComposer } from "./CommentComposer";
 import type { SidebarCommentEntry } from "./annotations";
 import { fillCommentLabel, type DiffCommentLabels } from "./labels";
 import type { CommentsPostState, CommentsSendState, DiffReviewPosted, DiffReviewTarget } from "./types";
@@ -34,6 +36,9 @@ export function CommentsSidebarSection({
   posted,
   review,
   sendState = "idle",
+  threads = false,
+  onReply,
+  onResolve,
 }: {
   entries: SidebarCommentEntry[];
   hasDraft: boolean;
@@ -48,6 +53,9 @@ export function CommentsSidebarSection({
   posted?: DiffReviewPosted;
   review?: DiffReviewTarget;
   sendState?: CommentsSendState;
+  threads?: boolean;
+  onReply?: (comment: SidebarCommentEntry["comment"], message: string) => void;
+  onResolve?: (comment: SidebarCommentEntry["comment"], resolved: boolean) => void;
 }) {
   const reviewing = review != null && onPost != null;
   // A review worktree keeps its section with no drafts: it says which pull request, and what posted.
@@ -102,20 +110,92 @@ export function CommentsSidebarSection({
         {entries.length === 0 ? (
           <div className="comments-empty">{labels.noComments}</div>
         ) : (
-          entries.map((entry) => (
-            <button key={entry.comment.id} type="button" className="comment-entry" onClick={() => onSelect(entry)}>
-              <span className="comment-entry-header">
-                <span className="comment-entry-location">{commentDisplayName(entry.comment)}</span>
-                {!entry.pending && entry.anchor.state === "outdated" ? (
-                  <span className="comment-entry-badge">{labels.outdatedComment}</span>
+          entries.map((entry) => {
+            const content = (
+              <>
+                <span className="comment-entry-header">
+                  <span className="comment-entry-location">{commentDisplayName(entry.comment)}</span>
+                  {!entry.pending && entry.anchor.state === "outdated" ? (
+                    <span className="comment-entry-badge">{labels.outdatedComment}</span>
+                  ) : null}
+                </span>
+                <span className="comment-entry-message">{entry.comment.message}</span>
+              </>
+            );
+            if (!threads) {
+              return (
+                <button key={entry.comment.id} type="button" className="comment-entry" onClick={() => onSelect(entry)}>
+                  {content}
+                </button>
+              );
+            }
+            const resolved = entry.comment.resolved === true;
+            return (
+              <div
+                key={entry.comment.id}
+                className={`comment-entry comment-entry-thread${resolved ? " comment-entry-resolved" : ""}`}
+              >
+                <button type="button" className="comment-entry-select" onClick={() => onSelect(entry)}>
+                  {content}
+                </button>
+                <div className="comment-thread" data-resolved={resolved || undefined}>
+                  {(entry.comment.replies ?? []).map((reply) => (
+                    <div className="comment-thread-reply" key={reply.id}>
+                      <div className="comment-thread-reply-header">
+                        {reply.author === "agent" ? labels.agent : labels.you}
+                      </div>
+                      <div className="comment-thread-reply-text">{reply.text}</div>
+                    </div>
+                  ))}
+                  {onReply ? <SidebarReply entry={entry} labels={labels} onReply={onReply} /> : null}
+                </div>
+                {onResolve ? (
+                  <button
+                    type="button"
+                    className="comment-card-action comment-entry-resolve"
+                    onClick={() => onResolve(entry.comment, !resolved)}
+                  >
+                    {resolved ? labels.reopenComment : labels.resolveComment}
+                  </button>
                 ) : null}
-              </span>
-              <span className="comment-entry-message">{entry.comment.message}</span>
-            </button>
-          ))
+              </div>
+            );
+          })
         )}
       </div>
     </div>
+  );
+}
+
+function SidebarReply({
+  entry,
+  labels,
+  onReply,
+}: {
+  entry: SidebarCommentEntry;
+  labels: DiffCommentLabels;
+  onReply: (comment: SidebarCommentEntry["comment"], message: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button type="button" className="comment-card-action comment-thread-reply-button" onClick={() => setOpen(true)}>
+        {labels.replyComment}
+      </button>
+    );
+  }
+  return (
+    <CommentComposer
+      inputLabel={labels.replyComment}
+      labels={labels}
+      placeholder={labels.replyPlaceholder}
+      saveLabel={labels.replyComment}
+      onCancel={() => setOpen(false)}
+      onSave={(message) => {
+        onReply(entry.comment, message);
+        setOpen(false);
+      }}
+    />
   );
 }
 

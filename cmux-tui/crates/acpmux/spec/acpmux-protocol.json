@@ -229,6 +229,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/felt_snapshot",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/context",
       "params": true,
       "result": true
@@ -559,6 +565,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/native_history",
       "params": {
         "$ref": "#/types/NativeHistoryParams"
@@ -636,6 +650,12 @@
     {
       "kind": "request",
       "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_rest",
       "params": true,
       "result": true
     },
@@ -1017,6 +1037,18 @@
     {
       "kind": "request",
       "name": "_acpmux/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
       "params": true,
       "result": true
     },
@@ -1868,6 +1900,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_preflight",
       "params": true,
       "result": true
     },
@@ -2874,6 +2912,7 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -5738,6 +5777,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"
@@ -8650,6 +8691,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,
