@@ -178,8 +178,8 @@ struct CloudChatsConnectMac: View {
 /// request (`AcpmuxHub.bind`, 20 s).
 let cloudConnectBudget: Duration = .seconds(40)
 
-/// The wait for a Cloud machine's chats: what it waits on (the machine, through
-/// which Mac) and how long it can take, counted up once past 5 s (SPEC 6, "Working · 12s").
+/// The delayed status beneath the chat rows. The machine and its Mac take priority
+/// over the elapsed time when the available width only fits the connection message.
 struct CloudChatsConnecting: View {
     let machine: String
     let mac: String
@@ -190,19 +190,25 @@ struct CloudChatsConnecting: View {
         TimelineView(ElapsedTextSchedule(since: since, quietSeconds: quiet)) { context in
             let elapsed = Int(context.date.timeIntervalSince(since))
             if elapsed >= quiet {
-                VStack(spacing: 2) {
-                    // placeholder-ok: a delayed connection status above the retained rows.
-                    Text("Connecting to \(machine) through \(mac)…")
-                    Text("\(elapsed) s · up to \(cloudConnectBudget.components.seconds) s")
-                        .foregroundStyle(.tertiary)
+                // placeholder-ok: a delayed connection status beneath the retained rows.
+                let message = Text("Connecting to \(machine) through \(mac)…")
+                let timing = Text("\(elapsed) s · up to \(cloudConnectBudget.components.seconds) s")
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        message
+                        timing.foregroundStyle(.tertiary)
+                    }
+                    message
                 }
+                .lineLimit(1)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text("\(message) \(timing)"))
                 .font(CmuxMobileTheme.standard.type.meta)
                 .foregroundStyle(.secondary)
             }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, 20)
-        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("cloudChats.connecting")
     }
 }
