@@ -99,8 +99,9 @@ async fn send_list(hub: &Hub, conn: &Conn, text: Arc<String>) -> Result<Value, R
 }
 
 /// A page by `limit`, or a census in its own order (`orderBy`): its own rows, picked before any is
-/// built (`Hub::session_page_rows`), at most `limit` of them and at most [`LIST_PAGE_BYTES`]
-/// (`list_guard::cut_page`): a page of five costs five rows, whatever the list's size.
+/// built (`Hub::session_page`), at most `limit` of them and at most [`LIST_PAGE_BYTES`], each
+/// built only when the page's bytes take it (`Hub::session_page_text`): a page of five costs five
+/// rows, whatever the list's size, and a page of 1000 cut to 260 by its bytes costs 260.
 async fn page(
     hub: &Hub,
     conn: &Conn,
@@ -108,14 +109,13 @@ async fn page(
     tools: bool,
     cursor: Option<Cursor>,
 ) -> Result<Value, RpcError> {
-    use crate::hub::list_guard::{cut_page, serialize_in_order};
     let raw = conn.raw_text;
-    let (rows, next) = hub.session_page_rows(params, tools)?;
-    let (text, spans, keys) = serialize_in_order(&rows);
-    drop(rows);
-    let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
-        Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
-    })?;
+    let text = {
+        let picked = hub.session_page(params)?;
+        within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            Ok(hub.session_page_text(&picked, params, tools, budget))
+        })?
+    };
     send_list(hub, conn, with_watch_cursor(hub, text, cursor)).await
 }
 
@@ -244,7 +244,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
-    conn.watch_all.store(on, Ordering::SeqCst);
+    conn.set_watching(on);
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).
     let head = hub.list_cursor().0;

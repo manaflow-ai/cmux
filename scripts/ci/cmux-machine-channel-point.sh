@@ -11,6 +11,8 @@
 #                              another commit of the same tree with the same files is kept (an alias)
 #   cmux-mac-live-update       cmux-tui/<commit>/mac-live.json, written once (`cmux app try` reads it),
 #                              then cmux-tui/channels/mac-live.json (the same signed file)
+#   cmux-mac-app-build         cmux-tui/<commit>/mac-app.json, written once (`cmux app try` reads it, and
+#                              the app zip it names); never a channel, with or without --commit-only
 #
 # Used by point-machine-channel-early, point-machine-channel, point-mac-live-channel and (through
 # cmux-linux-release-aliases.sh) mark-tree-commits in
@@ -49,18 +51,25 @@ keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.j
 read -r purpose channel commit release_tree < <(python3 -c '
 import json, sys
 p = json.load(open(sys.argv[1]))
-print(p["purpose"], p["channel"], p["commit"], p.get("tree_key") or "-")' "$payload")
+print(p["purpose"], p.get("channel") or "-", p["commit"], p.get("tree_key") or "-")' "$payload")
+[[ "$channel" == - ]] && channel=""
 [[ "$release_tree" == - ]] && release_tree=""
-if [[ -n "$release_tree" && ( "$purpose" != cmux-linux-release || ! "$release_tree" =~ ^[0-9a-f]{40}$ ) ]]; then
-  echo "::error::$payload names tree_key $release_tree: only a Linux release payload names a tree, by its 40-hex key"
+if [[ -n "$release_tree" && ( ( "$purpose" != cmux-linux-release && "$purpose" != cmux-mac-live-update ) \
+      || ! "$release_tree" =~ ^[0-9a-f]{40}$ ) ]]; then
+  echo "::error::$payload names tree_key $release_tree: only a Linux release or Mac live payload names a tree, by its 40-hex key"
   exit 1
 fi
+# A Mac live payload names its tree for the Team-signed set a NIGHTLY's daemon updater takes
+# (cmux-tui/tree/<key>/team-signed/); only a Linux release file is also written under the tree.
+[[ "$purpose" == cmux-mac-live-update ]] && release_tree=""
 case "$purpose" in
   cmux-cloud-machine-update) object=cmux-tui/channels/cloud-machine.json label="Cloud machine channel" ;;
   cmux-linux-release) object="cmux-tui/channels/linux-$channel.json" label="Linux release channel $channel"
     once="cmux-tui/$commit/release.json" once_label="Linux release file" ;;
   cmux-mac-live-update) object=cmux-tui/channels/mac-live.json label="Mac live update channel"
     once="cmux-tui/$commit/mac-live.json" once_label="Mac live update file" ;;
+  cmux-mac-app-build) object="" label="Mac app build file" commit_only=1
+    once="cmux-tui/$commit/mac-app.json" once_label="Mac app build file" ;;
   *) echo "::error::$payload has the unknown purpose $purpose"; exit 1 ;;
 esac
 if [[ -n "$same_tree" && "$purpose" != cmux-cloud-machine-update ]]; then
@@ -150,8 +159,8 @@ write_once() { # OBJECT LABEL [SAME-BUILD-ARGS...]
     [[ $attempt == 3 ]] && { echo "::error::$release kept changing under this run"; exit 1; }
   done
   curl -fsS --retry 3 --max-time 60 -o "$dir/release-check.json" "https://files.cmux.com/$release?check=$GITHUB_RUN_ID"
-  python3 "$ptr" verify --pointer "$dir/release-check.json" --keys "$keys" --purpose "$purpose" --channel "$channel" \
-    --allow-expired >/dev/null
+  python3 "$ptr" verify --pointer "$dir/release-check.json" --keys "$keys" --purpose "$purpose" \
+    ${channel:+--channel "$channel"} --allow-expired >/dev/null
   echo "$label -> $release" | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 }
 
