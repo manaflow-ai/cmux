@@ -420,6 +420,10 @@ pub mod method {
     /// Make a new project folder with an empty git repository for a chat to start in
     /// (`server/project_new.rs`): `{name}` -> `{cwd, name, git}`.
     pub const MUX_PROJECT_NEW: &str = "_acpmux/project_new";
+    /// Where a new chat whose Where menu says Auto runs (`server/place.rs`,
+    /// `cmux_host_budget::place::decide`): `{where?, targets: [{place, headroom}]}` ->
+    /// `{placement, reason, why, targets}`.
+    pub const MUX_PLACE_CHAT: &str = "_acpmux/place_chat";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
@@ -509,6 +513,10 @@ pub mod method {
     /// `{sessionId, runId?, agentId, before?, after?, limit?}`
     /// (`claude_stdio/agent_transcript.rs`).
     pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// Every running subagent of a session and its latest ended ones, from the hub's subagent
+    /// tree, whatever a client's page of the chat holds: `{sessionId, ended?}` →
+    /// `{running, ended, endedOmitted, seen}` (`hub/subagent_list.rs`).
+    pub const MUX_SUBAGENT_LIST: &str = "_acpmux/subagents";
     /// A chat's older turns, read from its Claude Code transcript a page at a time:
     /// `{sessionId, before}` → `{events, before, turns, read}`, `before` a `native_history`
     /// cursor (`hub/native_history.rs`).

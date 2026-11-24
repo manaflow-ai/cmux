@@ -411,8 +411,16 @@ impl Hub {
                     // right after it, to go in with them (`digest.rs` `gathers`).
                     let gather = !waiting && super::digest::gathers(session, &p);
                     if gather {
+                        // A cold chat's batch (`cold_wake.rs`): the message waits for it, a burst
+                        // window past its deadline, so the inbox's notice at the deadline leads
+                        // the turn and takes it (`take_joined`).
+                        let wait = self
+                            .cold_batch_due(session, &session.meta(), now_ms())
+                            .map_or(0, |due| due.saturating_sub(now_ms()));
                         let until = tokio::time::Instant::now()
-                            + std::time::Duration::from_millis(super::digest::AGENT_GATHER_MS);
+                            + std::time::Duration::from_millis(
+                                wait + super::digest::AGENT_GATHER_MS,
+                            );
                         *session.gathering.lock().unwrap_or_else(|e| e.into_inner()) =
                             Some((turn_id.clone(), until));
                     }
