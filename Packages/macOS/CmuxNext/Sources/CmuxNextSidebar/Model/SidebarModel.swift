@@ -84,6 +84,8 @@ public final class SidebarModel {
     @ObservationIgnored public var holdsLaunchOrder = false {
         didSet { if oldValue != holdsLaunchOrder { holdsLaunchOrder ? startLaunchOrderHold() : endLaunchOrderHold() } }
     }
+    /// The structural set that ended the launch order hold, once it moved a row: it shows without motion.
+    @ObservationIgnored public internal(set) var releasedLaunchOrderRevision: UInt64?
     /// What the hold keeps (`SidebarModel+LaunchOrder`).
     @ObservationIgnored var launchOrder = LaunchOrderLists()
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
@@ -335,6 +337,10 @@ public final class SidebarModel {
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
+    /// A press on a chat's subagent under its row (`SidebarSubagentsView`): shows chat tab `TabID` of the workspace and
+    /// opens the subagent's pane beside it, as the chat's own subagent cards do; nil (the stacked line, "N more") shows
+    /// the chat only. Nil while the App offers none (the standalone mock).
+    @ObservationIgnored public var openSubagent: ((WorkspaceID, TabID, SidebarSubagent?) -> Void)?
     /// The sections another space shows (R99: the page beside the current
     /// one during a horizontal swipe). Read when a swipe reaches that page.
     @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
@@ -464,7 +470,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab, .closeTab:
+        case .selectTab, .closeTab, .openPort:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -839,6 +845,7 @@ public final class SidebarModel {
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
         o.automatic = automaticSessions()
+        o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
 

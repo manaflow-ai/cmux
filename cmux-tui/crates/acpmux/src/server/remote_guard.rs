@@ -13,7 +13,10 @@
 //! - A folder field (`cwd`, `additionalDirectories`) of `session/new`,
 //!   `session/fork`, `session/load`, `session/resume` and `acp.trust.set`
 //!   must be an absolute path to an existing directory; the request goes on
-//!   with the canonical path (symlinks resolved, no `..`). An `acp.trust.set`
+//!   with the canonical path (symlinks resolved, no `..`). A Web `session/new` folder must
+//!   also sit in a root; the owner's own daemon asking for itself may also use an existing
+//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`).
+//!   An `acp.trust.set`
 //!   for a peer's session names the peer's folder: it goes on to that peer
 //!   unchanged, and the peer's own guard checks the folder there.
 //! - A session method acpmux does not handle itself is not passed to the
@@ -94,6 +97,7 @@ pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
+    owner_checkout,
 };
 
 /// Whether a session method acpmux does not handle itself goes on to the
@@ -151,6 +155,20 @@ pub(super) fn control_of(
         }
         super::Origin::Peer => Control::Peer,
     }
+}
+
+/// Owner control (cmux#50026): the person's own daemon on another machine asking for itself or
+/// for its own person's unix socket or app (`cancel_owner::owner`: the peer token, `Control::Peer`,
+/// no `via: web` or `via: device`). Their CLI's `acpmux session fork HOST/CHAT` and `acpmux new
+/// --machine HOST` arrive so. It forks a chat in the mode the chat has, as a fork on this machine
+/// does, and starts a chat as this machine's own (not a remote chain), in the harness and policy
+/// it names, so no one has to walk over and allow it here (Leo, 2026-11-22: "who's gonna walk
+/// over and click allow on a headless mac mini, or a remote macbook??? stop having that shit.").
+/// Anyone holding the peer token reads it from this user's own `ACPMUX_HOME` and could do the
+/// same over the unix socket. A Web client, a paired machine's own credential (`Device`, a
+/// phone, read-only) and a peer forwarding for either are not the owner: their rules stand.
+pub(super) fn owner_control(origin: super::Origin, auth: super::ConnAuth, params: &Value) -> bool {
+    cancel_owner::owner(origin, auth, params)
 }
 
 /// The paired machine whose Full-access setting covers this request
@@ -487,7 +505,10 @@ async fn check_inner(
     log_own_phone_control(hub, sender, m, params);
     // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
     // agent session of this daemon asks over the unix socket; no page, app or peer does.
-    if m == method::MUX_GITHUB_ACTION || m == method::MUX_GITHUB_APP_LEASE {
+    if m == method::MUX_GITHUB_ACTION
+        || m == method::MUX_GITHUB_APP_LEASE
+        || m == method::MUX_GITHUB_REST
+    {
         return Err(refused(m));
     }
     // A person's name (`author.rs`) comes over the unix socket, from a peer forwarding one it took
@@ -694,7 +715,12 @@ async fn check_inner(
                 None => return Err(cwd_refused(cwd).await),
             };
             if let Some(canonical) = canonical {
-                if !inside(&canonical) {
+                // The owner's own daemon asking for itself (no Web client or paired device
+                // behind it) may also start in a git checkout outside the roots.
+                let owners_checkout = peer_new
+                    && cancel_owner::owner(origin, auth, params)
+                    && owner_checkout(Path::new(&canonical)).await;
+                if !inside(&canonical) && !owners_checkout {
                     return Err(outside_told(cwd, &told).await);
                 }
                 params.set("cwd", Value::String(canonical));
@@ -822,7 +848,8 @@ async fn check_inner(
     if web && !device_hub_prompt {
         let control = control_of(origin, auth, params);
         let vm_boundary = crate::hub::vm_boundary::asked(auth, control, params);
-        web_starts_asking(hub, control, vm_boundary, sender, m, params).await?;
+        let owner = owner_control(origin, auth, params);
+        web_starts_asking(hub, control, owner, vm_boundary, sender, m, params).await?;
     }
     // A chat in Full access by a machine's setting: every request that controls or changes its
     // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
@@ -1102,9 +1129,14 @@ fn asking_policy(p: crate::config::PermissionPolicy) -> bool {
 ///   source session's effective policy skips asking or its mode is a known
 ///   permissive one: a downgrade could not reach a mode held inside the
 ///   harness, which a fork copies.
+///
+/// `owner` ([`owner_control`]): neither holds. Its new chat starts in the harness and policy it
+/// names, and its fork keeps the chat's mode.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn web_starts_asking(
     hub: &std::sync::Arc<crate::hub::Hub>,
     control: crate::hub::Control,
+    owner: bool,
     vm_boundary: bool,
     device: Option<&str>,
     m: &str,
@@ -1122,7 +1154,7 @@ pub(super) async fn web_starts_asking(
         control == crate::hub::Control::Peer,
         hub.approve_all_allowed(),
     );
-    if m == method::SESSION_NEW {
+    if m == method::SESSION_NEW && !owner {
         let meta = params.pointer("/_meta/acpmux");
         let pick = |key: &str| {
             meta.and_then(|m| m.get(key))
@@ -1176,6 +1208,7 @@ pub(super) async fn web_starts_asking(
     }
     if m == method::SESSION_NEW
         && !vm_host_peer
+        && !owner
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
@@ -1345,6 +1378,10 @@ pub(super) async fn web_starts_asking(
     // The owner's phone with Full access copies a chat in the mode it has, as it drives one
     // (`Hub::owner_phone_full_access`): the floor holds the copy's turns once that ends.
     if web && hub.owner_phone_full_access(device) {
+        return Ok(());
+    }
+    // The owner's own daemon forks it as a fork on this machine does: in the mode it has.
+    if owner {
         return Ok(());
     }
     let default = hub.config.read().await.permission_policy;

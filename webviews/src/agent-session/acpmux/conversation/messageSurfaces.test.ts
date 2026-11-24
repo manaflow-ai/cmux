@@ -28,14 +28,14 @@ test("gallery keeps the bordered before arm and two borderless alternatives", ()
 
 test("transient surfaces share the generated role aliases", () => {
   for (const token of [
-    "--transient-surface-radius",
+    "--role-toast-radius",
     "--transient-surface-veil",
     "--transient-surface-shadow",
     "--transient-surface-gap",
   ]) {
     expect(desktopCss).toContain(token);
   }
-  expect(noticeCss).toContain("border-radius: var(--transient-surface-radius);");
+  expect(noticeCss).toContain("border-radius: var(--role-toast-radius);");
   // The turn error card is a transcript card, not transient glass (design/chat-surfaces.md): only its
   // actions take the transient roles.
   expect(css).not.toContain(".ui-transient-error");

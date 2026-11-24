@@ -107,6 +107,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./KeysCard").then(({ KeysCard }) => (_focus, _workspace, reveal) => <KeysCard reveal={reveal} />),
   mcpServers: () =>
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
+  integrationsHub: () =>
+    import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
   tailnet: () =>
     import("./TailnetCard").then(({ TailnetCard }) => () => <TailnetCard />),
   models: () =>
@@ -115,6 +117,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./WorktreeSetupCard").then(({ WorktreeSetupCard }) => () => <WorktreeSetupCard />),
   contextMenus: () =>
     import("./ContextMenusCard").then(({ ContextMenusCard }) => (focus) => <ContextMenusCard focus={focus} />),
+  extensions: () =>
+    import("./ExtensionsCard").then(({ ExtensionsCard }) => () => <ExtensionsCard />),
 };
 
 /** The background picker. The host adds a fresh `open` token to each Change Background… request:
