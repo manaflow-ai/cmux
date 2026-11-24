@@ -1328,6 +1328,16 @@ mark {
   margin-bottom: 0;
 }
 
+/* The tabs under the header: Connections, Approvals, Rules, Audit. The list keeps a step from the
+   header's last line, and each panel's first group starts one step under the tabs. */
+.hub-tabs {
+  margin-top: var(--ds-space-3);
+}
+
+.hub-tab-list {
+  margin-bottom: var(--ds-space-3);
+}
+
 .hub-form {
   gap: var(--ds-space-2);
   align-items: flex-start;
@@ -1335,6 +1345,63 @@ mark {
 
 .accounts-buttons > .hub-field {
   width: var(--page-size-160);
+}
+
+/* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
+   its title and status on one line, one line about it, and its button at the bottom. */
+.connections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
+  gap: var(--ds-space-2);
+}
+
+.connections-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  background: var(--input-bg);
+}
+
+.connections-tile[data-connections-state="unavailable"] {
+  opacity: 0.7;
+}
+
+.connections-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.connections-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-top: auto;
+  padding-top: var(--ds-space-2);
+}
+
+.connections-key {
+  display: flex;
+  flex: 1;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.connections-key > .keys-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.connections-owner {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */

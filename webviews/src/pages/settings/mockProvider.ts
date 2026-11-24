@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockHubState, runMockHub } from "./mockHub";
+import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
 import { createMockPair } from "../../protocol/adapters/mock";
@@ -87,6 +88,8 @@ import {
   type DoctorRun,
   type LibraryAnswer,
   type AgentSkillRow,
+  type ConnectionsRun,
+  type ConnectionsState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -961,6 +964,13 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.connections.state": () => this.connections,
+      "cmux.settings.connections.run": (params) => {
+        const run = params as ConnectionsRun;
+        if (run.action !== "refresh") this.connectionsRuns.push(run);
+        this.connections = runMockConnections(this.connections, run);
+        return {};
+      },
       "cmux.settings.mcp.state": () => this.mcpServers,
       "cmux.settings.mcp.run": (params) => {
         const run = params as McpServersRun;
@@ -1075,6 +1085,8 @@ export class MockSettingsProvider {
       "cmux.settings.mcp.state",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.connections.state",
+      "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
       "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
@@ -1805,6 +1817,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
+  connections: ConnectionsState = mockConnectionsState();
+  /** Every Connections gesture but refresh, in order (a pasted key included). */
+  connectionsRuns: ConnectionsRun[] = [];
 
   /** The person's saved MCP servers as the app serves them (`SettingsMcpServers.state`). */
   mcpServers: McpServersState = {

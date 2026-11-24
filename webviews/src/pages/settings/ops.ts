@@ -1609,8 +1609,12 @@ export type HubConnection = {
   /** "Test mode" / "Live mode", or null when the provider has no mode (GitHub). */
   modeLabel: string | null;
   sharingLabel: string;
+  /** The hub's raw `private` / `team`. */
+  sharing?: string;
   statusLabel: string;
   healthy: boolean;
+  /** Set when the provider stopped honouring it (`needs_reauth`): "key" takes a new pasted key, "link" links again. */
+  reconnect?: "key" | "link" | null;
   canRemove: boolean;
 };
 
@@ -1702,6 +1706,56 @@ export type HubRun =
   | { action: "approve"; id: string; remember?: boolean }
   | { action: "pause"; paused: boolean }
   | ({ action: "addRule" } & HubRuleFields);
+
+/** One catalog server in Settings > Integrations > Connections, as `cmux mcp-servers catalog --json` shapes it
+ * (cmux-tui cli/mcp_servers.rs `entry_view`): every label is the CLI's. Never a key. */
+export type ConnectionEntry = {
+  name: string;
+  title: string;
+  /** One line about what it gives an agent. */
+  line: string;
+  auth: "dcr" | "client" | "key" | "none";
+  rank: number;
+  category: string | null;
+  docsUrl: string | null;
+  available: boolean;
+  /** The one button the row shows: Connect, Connected (with tools), Reconnect, Enable, or why it cannot. */
+  state: "connect" | "connected" | "reconnect" | "enable" | "unavailable";
+  /** "Connected · 12 tools", "Sign in again", or why it is unavailable; null for a plain Connect. */
+  statusLabel: string | null;
+  buttonLabel: string | null;
+  /** A key-auth server not yet connected: Connect takes one pasted key. */
+  keyField: boolean;
+  connectionId: string | null;
+  owner: "me" | "team" | null;
+  ownerLabel: string | null;
+  toolCount: number | null;
+  toolsLabel: string | null;
+};
+
+/** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment
+ * with no catalog yet (calm, not a failure). */
+export type ConnectionsCatalog =
+  | { ok: true; available: boolean; message?: string; connected: number; entries: ConnectionEntry[] }
+  | { ok: false; error: { code: string; message: string } };
+
+/** Settings > Integrations > Connections (`SettingsConnections.state`). */
+export type ConnectionsState = {
+  loading: boolean;
+  /** `unavailable`: no bundled cmux CLI; `failed`: the catalog did not answer (its error is in `catalog`). */
+  problem: "unavailable" | "failed" | null;
+  catalog: ConnectionsCatalog | null;
+  /** The last gesture's refusal, in the platform's or the CLI's own words. */
+  error: { action: string; code: string; message: string } | null;
+  /** The server whose sign-in page Connect last opened, until it shows connected. */
+  pending: string | null;
+};
+
+/** One Connections gesture; everything but refresh runs only on a click. */
+export type ConnectionsRun =
+  | { action: "refresh" }
+  | { action: "connect"; name: string; owner: "me" | "team"; team?: string; key?: string }
+  | { action: "reconnect" | "remove" | "enable"; id: string };
 
 /** A coding agent whose own settings Settings > Agents > Claude Code & Codex shows. */
 export type AgentConfigAgent = "claude" | "codex";
@@ -2192,6 +2246,10 @@ export type SettingsOps = {
   "cmux.settings.hub.state": [Record<string, never>, HubState];
   /** Native: one Integrations gesture (`cmux hub link|remove|rule|pause`, or an approval answered on the click). */
   "cmux.settings.hub.run": [HubRun, unknown];
+  /** Native: Settings > Integrations > Connections, the hosted MCP catalog as `cmux mcp-servers catalog --json` shapes it. */
+  "cmux.settings.connections.state": [Record<string, never>, ConnectionsState];
+  /** Native: one Connections gesture (`cmux mcp-servers connect|reconnect|remove|enable`, or a refresh). */
+  "cmux.settings.connections.run": [ConnectionsRun, unknown];
   /** Native: Settings > Agents > Claude Code & Codex, one `cmux --json agent-config settings`
    * verb through the bundled CLI; `{enabled: false}` while labs.agentCustomization is off. */
   "cmux.settings.agentConfig": [AgentConfigRun, AgentConfigAnswer];
