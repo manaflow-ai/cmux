@@ -704,7 +704,7 @@ impl Hub {
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
-        let waiting = super::subsession_send::waiting_on(session);
+        let waiting = self.waiting_on(session);
         let turn = session.turn();
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
         let notice = turn.as_ref().is_some_and(|t| t.notice);
@@ -816,6 +816,8 @@ impl Hub {
             // prompt's start that waits to be tried again (`start_retry.rs`).
             starting: session.spawn_lock.try_lock().is_err()
                 || session.start_retry_waits.load(Ordering::SeqCst),
+            // A launch credential only this daemon's memory holds (`credentials.rs`).
+            credential_only_here: self.credential_only_here(session, &m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -963,6 +965,13 @@ impl Hub {
         // A cold-archived chat's preview (`cold_archive.rs`): the list draws it without its log.
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
+        }
+        // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
+        // unfinished closes from `ls --closed --json`.
+        if m.status == SessionStatus::Closed
+            && let Some(close) = &m.close
+        {
+            summary.set("close", json!(close));
         }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);

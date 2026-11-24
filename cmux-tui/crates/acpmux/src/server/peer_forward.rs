@@ -39,6 +39,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STATUS,
     method::MUX_PERF,
     method::MUX_CALLERS,
+    method::MUX_FELT_SNAPSHOT,
     method::MUX_SESSIONS,
     method::MUX_USAGE,
     method::MUX_WEB_MODES,
@@ -110,6 +111,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // This machine's own load and swap, for its app's warning (`host_overload.rs`).
     "_acpmux/host_overload",
     "_acpmux/place",
+    method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
