@@ -2639,6 +2639,8 @@ enum CmuxEmbeddedConfigSchema {
               "focusHistoryBack",
               "focusHistoryForward",
               "focusHistoryLast",
+              "focusHistoryLastSurface",
+              "focusHistoryLastWorkspace",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",
