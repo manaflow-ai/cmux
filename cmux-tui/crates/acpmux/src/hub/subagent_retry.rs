@@ -333,6 +333,8 @@ impl Hub {
                     }
                     "failed" => {
                         let mut sub = subs.remove(id).unwrap_or_default();
+                        // Its failure may name it where no `running` update did (cmux#52916).
+                        sub.name = name.map(str::to_owned).or(sub.name.take());
                         // Failed again: its new failure's update follows.
                         if let Some(f) = sub.failed.take().filter(|f| f.wait.is_some()) {
                             skipped.push((id.to_owned(), f, "superseded", "failed", false));
