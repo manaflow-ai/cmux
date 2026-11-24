@@ -46,7 +46,7 @@ impl Drop for MoveWatch {
 
 /// When the move in `dir` last heard from its client (`alive` holds the Unix time in ms), or None
 /// when it has no record of it.
-fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
+pub(in crate::hub) fn last_activity(dir: &Path) -> Option<std::time::SystemTime> {
     let ms: u64 = std::fs::read_to_string(dir.join("alive")).ok()?.trim().parse().ok()?;
     Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms))
 }
@@ -265,7 +265,7 @@ impl Hub {
     }
 
     /// Ends a move its client left; false when only the target could tell how, and did not.
-    async fn end_stalled_move(
+    pub(in crate::hub) async fn end_stalled_move(
         self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
