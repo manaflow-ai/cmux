@@ -1408,6 +1408,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-config",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-automations"
 version = "0.1.0"
 dependencies = [
@@ -2380,6 +2399,7 @@ name = "cmux-projection"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bincode",
  "cmux-egress",
  "cmux-file-lock",
@@ -2388,6 +2408,7 @@ dependencies = [
  "fuser",
  "ignore",
  "libc",
+ "nfsserve",
  "reqwest",
  "rustls",
  "serde",
@@ -2396,6 +2417,7 @@ dependencies = [
  "sha1collisiondetection",
  "sha2 0.10.9",
  "tempfile",
+ "tokio",
  "zstd",
 ]
 
@@ -6479,6 +6501,22 @@ dependencies = [
  "windows",
  "windows-result",
  "wmi",
+]
+
+[[package]]
+name = "nfsserve"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef1424b6d88c60a091931392970999ea3ceab132d968e6a5545c770fad5b97d7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "byteorder",
+ "filetime",
+ "num-derive",
+ "num-traits",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
