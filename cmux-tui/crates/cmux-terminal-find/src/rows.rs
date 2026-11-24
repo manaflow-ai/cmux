@@ -66,7 +66,7 @@ pub struct Page {
     /// Rows this page read.
     pub scanned_rows: u64,
     /// The rows changed under the find (`fetch` returned fewer rows than asked: the oldest
-    /// were dropped); the page stops at what it could read.
+    /// were dropped); the page stops at what it could read and the find is complete.
     pub interrupted: bool,
 }
 
@@ -122,7 +122,9 @@ pub fn scan_page(
         if !complete {
             page.interrupted = true;
             search_line(matcher, &pending, pending_top, &mut page.matches);
-            page.next_before = (pending_top > 0).then_some(pending_top);
+            // The rows above were evicted (eviction takes the oldest first), so nothing is left
+            // to search: a cursor here would read zero rows and come back forever.
+            page.next_before = None;
             return page;
         }
         cursor = start;
