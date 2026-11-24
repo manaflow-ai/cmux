@@ -214,7 +214,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::SessionHold { session, held, fleet, allow, reason, status } => {
+        Command::SessionHold { session, held, fleet, allow, set_allow, reason, status } => {
             let client = connect(true).await?;
             if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
                 return Err(crate::cli::errors::AppError::new(
@@ -226,33 +226,58 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .into());
             }
             if fleet {
-                let params = if status {
-                    json!({})
-                } else {
-                    let mut p = json!({"on": held, "allow": allow});
-                    if let Some(reason) = reason {
-                        cmux_json::JsonSet::set(&mut p, "reason", json!(reason));
+                fn allow_of(v: &Value) -> Vec<String> {
+                    v.pointer("/fleetHold/allow")
+                        .and_then(Value::as_array)
+                        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                        .unwrap_or_default()
+                }
+                fn shown(a: &[String]) -> String {
+                    if a.is_empty() { "none".to_owned() } else { a.join(", ") }
+                }
+                // Read first: `--allow` adds to what is there, and the change is printed.
+                let before = client.request(method::MUX_FLEET_HOLD, json!({})).await?;
+                if status {
+                    if json_out {
+                        print_json(&before);
+                    } else if before.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true)
+                    {
+                        println!("fleet hold on; allowed: {}", shown(&allow_of(&before)));
+                    } else {
+                        println!("fleet hold off");
                     }
-                    p
-                };
-                let v = client.request(method::MUX_FLEET_HOLD, params).await?;
+                    return Ok(());
+                }
+                let was = allow_of(&before);
+                let next = crate::hub::session_hold::next_allow(&was, set_allow.as_deref(), &allow);
+                let mut p = json!({"on": held, "allow": next});
+                let reason = reason.or_else(|| {
+                    held.then(|| before.pointer("/fleetHold/reason").and_then(Value::as_str))
+                        .flatten()
+                        .map(str::to_owned)
+                });
+                if let Some(reason) = reason {
+                    cmux_json::JsonSet::set(&mut p, "reason", json!(reason));
+                }
+                let v = client.request(method::MUX_FLEET_HOLD, p).await?;
                 if json_out {
                     print_json(&v);
                 } else if v.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true) {
-                    let allow = v
-                        .pointer("/fleetHold/allow")
-                        .and_then(Value::as_array)
-                        .map_or_else(String::new, |a| {
-                            a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
-                        });
+                    let now = allow_of(&v);
                     println!(
-                        "fleet hold on{}; allowed: {}",
+                        "fleet hold on{}",
                         v.get("held")
                             .and_then(Value::as_u64)
                             .map(|n| format!(", {n} sessions held"))
                             .unwrap_or_default(),
-                        if allow.is_empty() { "none".to_owned() } else { allow }
                     );
+                    println!("allowed before: {}", shown(&was));
+                    println!("allowed now:    {}", shown(&now));
+                    let dropped: Vec<_> =
+                        was.iter().filter(|a| !now.contains(a)).cloned().collect();
+                    if !dropped.is_empty() {
+                        println!("dropped (--set-allow): {}", dropped.join(", "));
+                    }
                 } else {
                     println!("fleet hold off");
                 }
@@ -885,6 +910,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    if let Some(line) = crate::session_budget::budget_line(&v["sessionBudgets"]) {
+                        println!("budget:   {line}");
+                    }
                     let login = match &v["loginSession"] {
                         Value::Bool(here) => Some(Some(*here)),
                         Value::String(s) if s == "unknown" => Some(None),
@@ -1189,6 +1217,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             crate::cli::command_host::VaultCmd::Drop { name } => {
                 crate::cli::host_vault::drop_cmd(name, json_out).await
+            }
+            crate::cli::command_host::VaultCmd::Audit => {
+                crate::cli::host_vault::audit_cmd(json_out)
             }
         },
         Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
