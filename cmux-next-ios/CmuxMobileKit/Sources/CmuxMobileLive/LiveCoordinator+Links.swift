@@ -1120,7 +1120,8 @@ extension LiveCoordinator {
         var status: [String: String] = [:]
         for session in sessions.values {
             guard let target = session.link.target,
-                  let line = session.link.phase.statusLine(macName: target.name, media: session.link.media) else { continue }
+                  let line = session.link.phase.statusLine(macName: target.name, media: session.link.media,
+                                                           block: session.link.networkBlock) else { continue }
             // Keep the section header actionable and calm. Raw acpmux/daemon
             // failures belong in diagnostics, never in the normal status line.
             status[target.macID] = session.outdated ? "\(line) · Update cmux on this Mac" : line
@@ -1134,7 +1135,8 @@ extension LiveCoordinator {
             if store.macLinkDiagnostics.removeValue(forKey: session.macID) != nil { return }
             return
         }
-        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
+        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media,
+                                                       block: session.link.networkBlock)]
         if let error = session.chatsError { parts.append("Chats: \(error)") }
         if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }
         let detail = parts.compactMap { $0 }.joined(separator: "\n")

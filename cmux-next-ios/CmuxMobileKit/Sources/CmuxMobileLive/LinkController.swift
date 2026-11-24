@@ -366,6 +366,9 @@ public final class LinkController {
                         return
                     }
                     if Self.authRefused(error) { self?.refreshTokenNextDial = true }
+                    if let block = Self.networkBlock(error) {
+                        self?.send(.networkBlocked(generation: generation, block))
+                    }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
@@ -768,6 +771,15 @@ public final class LinkController {
 
     /// A short, display-safe reason for a dial or link error.
     /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.
+    /// The record of a dial that found no way to the Mac (`network_blocked`).
+    nonisolated static func networkBlock(_ error: any Error) -> NetworkBlock? {
+        guard let error = error as? LinkError, error.code == LinkError.networkBlocked else { return nil }
+        return NetworkBlock(json: error.message)
+    }
+
+    /// What blocks the link on this network, while the quiet retries go on.
+    public var networkBlock: NetworkBlock? { machine.networkBlock }
+
     nonisolated static func reason(_ error: any Error) -> String {
         if let error = error as? LinkError { return error.displayReason }
         if error is LiveAPI.Failure { return "the cmux service refused the request" }
