@@ -350,7 +350,7 @@ fn record_file(paths: &RunPaths, asker: u32, ask: &VersionAsk) -> PathBuf {
         .join(format!("v{}.run.json", ask.version))
 }
 
-/// The only variable root's exec of `setpriv` gets.
+/// The only variable root's exec of `setpriv` gets for an unpack (a start gets the app's own).
 const ROOT_PATH: &str = "/usr/bin:/bin";
 
 /// `setpriv`'s arguments up to its `--`: `user`'s uid and gid, no other group, no new privileges.
@@ -371,9 +371,12 @@ fn as_user(user: &AppUser, program: &str) -> Command {
     command
 }
 
-/// What root executes to start a version: `setpriv` with an empty environment (only
-/// [`ROOT_PATH`]) from `/`; after the drop, `env -i` sets exactly the app's variables, and the
-/// shell changes into `src/<subdir>` as the app user before the setup and the command.
+/// What root executes to start a version: `setpriv` from `/` with its environment cleared and
+/// set to exactly the app's variables ([`spawn_env`]: allowed names only, so no loader
+/// variable), which `setpriv` keeps across the drop; the shell then changes into
+/// `src/<subdir>` as the app user before the setup and the command. No variable is passed as
+/// an argument: argv is world-readable in `/proc/<pid>/cmdline`, and the app's env holds its
+/// secrets.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartPlan {
     pub program: String,
@@ -386,9 +389,6 @@ pub fn start_plan(user: &AppUser, ask: &SpawnAsk, run: &Path) -> StartPlan {
     let src = run.join("src");
     let workdir = if ask.subdir.is_empty() { src } else { src.join(&ask.subdir) };
     let mut args = drop_args(user);
-    args.push("/usr/bin/env".to_owned());
-    args.push("-i".to_owned());
-    args.extend(spawn_env(&ask.env, run, ask.port).into_iter().map(|(k, v)| format!("{k}={v}")));
     args.push("/bin/sh".to_owned());
     args.push("-c".to_owned());
     let cd = "cd -- \"$1\" || { echo \"cmux: no directory $1\"; exit 96; }";
@@ -417,7 +417,7 @@ pub fn start_plan(user: &AppUser, ask: &SpawnAsk, run: &Path) -> StartPlan {
     StartPlan {
         program: SETPRIV.to_owned(),
         args,
-        root_env: vec![("PATH".to_owned(), ROOT_PATH.to_owned())],
+        root_env: spawn_env(&ask.env, run, ask.port),
         root_dir: PathBuf::from("/"),
     }
 }
