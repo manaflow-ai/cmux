@@ -4095,6 +4095,45 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            // A take-over start's ask for this daemon's listeners (`daemon/listener_handover.rs`):
+            // from the unix socket only, to a side socket in this home that the asking process
+            // listens on. Sent before the stop begins; a failure only means it binds as before.
+            #[cfg(unix)]
+            let handed: Vec<&'static str> = match (
+                params.get(crate::daemon::listener_handover::PARAM).and_then(Value::as_str),
+                conn.origin,
+                conn.socket_peer,
+            ) {
+                (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
+                    let side = std::path::PathBuf::from(side);
+                    let home = crate::config::home();
+                    match tokio::task::spawn_blocking(move || {
+                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                    })
+                    .await
+                    {
+                        Ok(Ok(kinds)) => {
+                            tracing::info!(
+                                asker,
+                                ?kinds,
+                                "handed the listeners to the take-over start"
+                            );
+                            kinds
+                        }
+                        Ok(Err(why)) => {
+                            tracing::warn!(asker, "listener handover refused: {why}");
+                            Vec::new()
+                        }
+                        Err(e) => {
+                            tracing::warn!("listener handover task: {e}");
+                            Vec::new()
+                        }
+                    }
+                }
+                _ => Vec::new(),
+            };
+            #[cfg(not(unix))]
+            let handed: Vec<&'static str> = Vec::new();
             crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
                 &shutdown_reason(&params),
                 params.get("restart").and_then(Value::as_bool) == Some(true),
@@ -4127,7 +4166,11 @@ async fn dispatch_request_with_identity(
             } else {
                 0
             };
-            Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
+            Ok(json!({
+                "endAgents": end_agents,
+                "keptSessions": kept,
+                "listenersHanded": handed,
+            }))
         }
         method::MUX_HANDOFF_PREPARE => {
             heap(|| hub.handoff_prepare(&params, conn.origin.web_class())).await
