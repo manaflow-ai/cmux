@@ -27,12 +27,16 @@ const CHAT = "0190a000-0000-7000-8000-0000000000f4";
 const START = Date.UTC(2026, 10, 24, 9, 0, 0);
 const STEER = "and keep the tests green";
 
-type Snapshot = { rows: { kind: string; text?: string }[]; queue: { id: string; prompt: string }[] };
+type Snapshot = { rows: { kind: string; text?: string; failed?: boolean }[]; queue: { id: string; prompt: string }[] };
+
+/// What follows the held steer: it steers in, a failed turn holds it, acpmux refuses it, or it is
+/// withdrawn.
+type Then = "steers" | "held" | "refused" | "withdrawn";
 
 /// A chat whose first prompt holds the turn and has not shown it. A steer sent now is queued with
 /// `steerOnStart` (or without it, `marked: false`, as an older acpmux sends it); `then` says what
 /// follows: the turn shows and the steer goes in, or the turn fails and the queue holds it.
-function daemon(then: "steers" | "held", marked = true) {
+function daemon(then: Then, marked = true) {
   let seq = 2;
   const history = [
     { kind: "user_message", msg: { text: "Fix the layout", promptId: "p-first", turnId: "turn-1" } },
@@ -78,7 +82,9 @@ function daemon(then: "steers" | "held", marked = true) {
       if (then === "steers") {
         event("user_message", { promptId, text: STEER, turnId: "turn-1", steer: true });
         reply(id, { stopReason: "steered" });
-      } else event("queue_paused", { turnId: "turn-1", held: [promptId], retrying: [] });
+      } else if (then === "held") event("queue_paused", { turnId: "turn-1", held: [promptId], retrying: [] });
+      else if (then === "refused") event("prompt_refused", { promptId, error: "the turn ended first" });
+      else event("queue_removed", { promptId });
     },
   };
   let pending: { promptId: string; id: unknown } | undefined;
@@ -123,7 +129,7 @@ const settle = async () => {
 };
 
 /// Sends the steer and returns every snapshot the pane published from then on.
-async function sendSteer(then: "steers" | "held", marked = true) {
+async function sendSteer(then: Then, marked = true) {
   const { AcpmuxDirectClient } = await import("../src/agent-session/acpmux/direct");
   const host = daemon(then, marked);
   const seen: Snapshot[] = [];
@@ -171,4 +177,20 @@ test("a queued record without steerOnStart (an older acpmux) is still the queued
   const { queued } = await sendSteer("steers", false);
   expect(queued.queue.map((entry) => entry.prompt)).toEqual([STEER]);
   expect(bubbles(queued)).toHaveLength(0);
+});
+
+// A held steer acpmux then refuses never runs: its bubble, the only place it shows, fails with
+// Retry instead of waiting as sent forever.
+test("a held steer acpmux refuses fails in its bubble", async () => {
+  const { last } = await sendSteer("refused");
+  expect(last.queue).toEqual([]);
+  expect(bubbles(last).map((row) => row.failed)).toEqual([true]);
+});
+
+// A held steer withdrawn (`queue_removed`) leaves no bubble that looks sent.
+test("a held steer withdrawn leaves the transcript", async () => {
+  const { queued, last } = await sendSteer("withdrawn");
+  expect(bubbles(queued)).toHaveLength(1);
+  expect(last.queue).toEqual([]);
+  expect(bubbles(last)).toHaveLength(0);
 });
