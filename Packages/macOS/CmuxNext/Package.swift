@@ -751,6 +751,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2135,6 +2136,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),

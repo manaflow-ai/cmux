@@ -189,7 +189,7 @@ let package = Package(
         ),
         // Live Chief calls and agent voice mode, portable part: the Realtime API's events and session
         // configs, the call's and voice mode's state machines, the speech filter and tools, the OpenAI key in the Keychain (Foundation and Security only).
-        .target(name: "CmuxMobileRealtime"),
+        .target(name: "CmuxMobileRealtime", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")]),
         // Screen Sharing (Settings → Screen Sharing): the account's Macs from the device hub,
         // the approval flow and the full-screen viewer (CmuxScreenKitUI) of a Mac's screen.
         .target(name: "CmuxMobileScreenSharing", dependencies: [

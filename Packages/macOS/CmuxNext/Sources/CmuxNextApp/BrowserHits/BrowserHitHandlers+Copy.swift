@@ -1,4 +1,5 @@
 import AppKit
+import CmuxEgress
 import CmuxNextActions
 import CmuxNextBrowser
 
@@ -62,7 +63,7 @@ extension BrowserHitHandlers {
 enum BrowserImageData {
     static let limit = 64 << 20
 
-    static func load(_ url: URL, session: URLSession = .shared) async throws -> Data {
+    static func load(_ url: URL, session: URLSession = CmuxEgress.shared(site: "CmuxNextApp.BrowserHitHandlersCopy")) async throws -> Data {
         guard ["http", "https", "data"].contains(url.scheme?.lowercased() ?? "") else { throw URLError(.unsupportedURL) }
         let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw URLError(.badServerResponse) }

@@ -10,7 +10,7 @@ public struct VoiceRoomWebSocketEvents: VoiceRoomEventSource {
     /// - Parameters:
     ///   - address: The room.
     ///   - session: The URL session.
-    public init(address: VoiceRoomAddress, session: URLSession = .shared) {
+    public init(address: VoiceRoomAddress, session: URLSession = CmuxEgress.shared(site: "CmuxNextDictation.VoiceRoomWebSocketEvents")) {
         self.address = address
         self.session = session
     }

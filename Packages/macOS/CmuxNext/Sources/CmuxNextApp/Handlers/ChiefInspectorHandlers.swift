@@ -1,4 +1,5 @@
 import AppKit
+import CmuxEgress
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
@@ -261,7 +262,7 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
     }
 
     /// The page's URL with a fresh one-time ticket (`GET /api/ticket` with the token).
-    func ticketURL(session: URLSession = .shared) async throws -> URL {
+    func ticketURL(session: URLSession = CmuxEgress.shared(site: "CmuxNextApp.ChiefInspectorHandlers")) async throws -> URL {
         var request = URLRequest(url: url.appendingPathComponent("api/ticket"))
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 5
