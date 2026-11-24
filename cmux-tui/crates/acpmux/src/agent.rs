@@ -2028,7 +2028,25 @@ impl ChildAgent {
                 }
             }
             on_written();
-            let answer = rx.await;
+            // A line whose write failed never reaches its agent, so no answer comes: a writer
+            // that panicked on it (#54378) answers it here, where before it waited forever.
+            let never_written = async {
+                match fence {
+                    Some(f) => {
+                        f.settled().await;
+                        if f.now() != Fence::FAILED {
+                            std::future::pending::<()>().await;
+                        }
+                    }
+                    None => std::future::pending().await,
+                }
+            };
+            let answer = tokio::select! {
+                answer = rx => answer,
+                () = never_written => {
+                    return Err(RpcError::internal("the agent's line was never written"));
+                }
+            };
             // No answer proves its line was written: an error may be this side's own "closed" or
             // made up by a translator once its harness's output ended, and a translator answers
             // prompts it gave up on too (Claude's `cancelled`). A direct agent's writer, a host's
