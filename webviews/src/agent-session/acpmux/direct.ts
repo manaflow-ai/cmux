@@ -8,6 +8,7 @@ import {
   type BrowserDeviceIdentity,
 } from "./browserDevice";
 import { pageAttention } from "./attention";
+import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
@@ -194,6 +195,8 @@ import {
 } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
+import { toolMentionContext, toolMentionsIn } from "./toolMentions";
+import { sentWords } from "./computerUse/computerUseState";
 import { promptContext } from "./composer/videoTranscript";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
@@ -1434,6 +1437,11 @@ export class AcpmuxDirectClient {
   }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// Asked at dispatch, after a send's files uploaded: a reason it may not go now (`@computer-use` while
+  /// Computer Use is not ready, CMUX-682), else undefined. The composer asked at the key press; the
+  /// state can change while files upload, so it is asked again here. Held, the prompt goes back to its
+  /// sender, as a refusal before acpmux took it does.
+  sendHold?: (text: string) => string | undefined;
   /// The host's store of prompts no agent has taken yet (unsentPrompts.ts), and what this page put
   /// there, by promptId. Never cleared by a chat switch: only an agent taking the prompt, Remove or
   /// Edit takes one out, so a relaunch draws every one again as its Not sent row.
@@ -5323,6 +5331,48 @@ export class AcpmuxDirectClient {
   /// Marks or unmarks the prompt logged at `seq`; acpmux answers with the session's marks.
   setBookmark(sessionId: string, seq: number, bookmarked: boolean): Promise<unknown> {
     return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
+  }
+
+  /// The saved prompts acpmux keeps and cmux-next.json names (`{prompts: [...]}`, savedPrompts.ts).
+  listPrompts(): Promise<unknown> {
+    return this.request("_acpmux/prompts_list", {});
+  }
+
+  /// Saves `text` as the prompt `name`, replacing one of that name; acpmux answers with the row.
+  savePrompt(name: string, text: string): Promise<unknown> {
+    return this.request("_acpmux/prompts_save", { name, text });
+  }
+
+  /// Deletes the saved prompt `name`.
+  deletePrompt(name: string): Promise<unknown> {
+    return this.request("_acpmux/prompts_delete", { name });
+  }
+
+  /// Chat `chat`'s stashed drafts, newest first, their chips without contents (`{drafts}`,
+  /// composer/draftStash.ts).
+  listStash(chat: string): Promise<unknown> {
+    return this.request("_acpmux/stash_list", { chat });
+  }
+
+  /// Stashes a draft on top of `chat`'s stack, in place of draft `replaces` when given; acpmux
+  /// answers with its row (`{draft}`).
+  pushStash(chat: string, text: string, attachments: readonly unknown[], replaces?: string): Promise<unknown> {
+    return this.request("_acpmux/stash_push", { chat, text, attachments, ...(replaces ? { replaces } : {}) });
+  }
+
+  /// Stashed draft `id` of `chat`, whole (`{draft}`).
+  getStash(chat: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/stash_get", { chat, id });
+  }
+
+  /// Drops stashed draft `id` of `chat`.
+  dropStash(chat: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/stash_drop", { chat, id });
+  }
+
+  /// Moves `chat`'s stashed drafts onto `to`'s stack in one write (a new chat's, once it has a session).
+  moveStash(chat: string, to: string): Promise<unknown> {
+    return this.request("_acpmux/stash_move", { chat, to });
   }
 
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
@@ -9373,9 +9423,16 @@ export class AcpmuxDirectClient {
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
           // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
-          // at the same size (imageEntries.ts withSentShapes).
+          // at the same size (imageEntries.ts withSentShapes). A prompt that waited in the queue has
+          // no row of its own: its attachments are the shape source.
           ...(promptImages(msg.images).length > 0 && {
-            images: withSentShapes(promptImages(msg.images), optimisticRow?.images),
+            images: withSentShapes(
+              promptImages(msg.images),
+              optimisticRow?.images ??
+                (fallbackPromptId
+                  ? attachedImages(this.optimisticPromptAttachments.get(fallbackPromptId) ?? [])
+                  : undefined),
+            ),
           }),
           ...(inlineParts?.length ? { inlineParts } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
@@ -9572,13 +9629,36 @@ export class AcpmuxDirectClient {
                 backgroundsWork: this.summary?.backgroundsWork,
               })
             : undefined;
-        if (event.kind === "turn_result")
-          this.rows.set(summaryId, {
-            id: summaryId,
+        // acpmux logs a named turn's `turn_end` and then its `turn_result`, with the turn's git
+        // stats read between them (hub/turns.rs `write_turn_result`). A pane that drew the end alone
+        // drew the turn's work as it came, then folded it under "Worked for" a frame or more later,
+        // after the turn's end fold had played: the reply jumped up by the fold's height. The end
+        // draws the turn as its result will, under the summary its result then fills in.
+        const endTurnId =
+          event.kind === "turn_end" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        if (endTurnId !== undefined && this.interrupting === undefined && !this.rows.has(`summary-${endTurnId}`)) {
+          const ending = `summary-${endTurnId}`;
+          this.rows.set(ending, {
+            id: ending,
             version: 1,
             at: event.at,
             kind: "turnSummary",
             ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
+            turnId: endTurnId,
+            ...this.turnTotals(event.at, endedTurnStartedAt),
+            status: msg.stopReason === "cancelled" ? "cancelled" : "completed",
+          });
+        }
+        // The summary the turn's end drew, if it drew one: the result takes its place and its start.
+        const endDrawn = event.kind === "turn_result" ? this.rows.get(summaryId) : undefined;
+        const resultStartedAtMs = turnStartedAtMs ?? endDrawn?.turnStartedAtMs;
+        if (event.kind === "turn_result")
+          this.rows.set(summaryId, {
+            id: summaryId,
+            version: (endDrawn?.version ?? 0) + 1,
+            at: event.at,
+            kind: "turnSummary",
+            ...(resultStartedAtMs !== undefined && { turnStartedAtMs: resultStartedAtMs }),
             // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
@@ -9658,7 +9738,8 @@ export class AcpmuxDirectClient {
       // acpmux ends a reply's segment where the pane cuts its row (hub/stream.rs `cuts_reply`): a
       // chunk of another segment starts its own row, even under the same messageId, so a page that
       // lacks the record the cut was at (a thought, a call) still draws the two rows.
-      const stamped = replySegment(event);
+      const stampedSegment = replySegment(event);
+      const stamped = stampedSegment === undefined ? undefined : replyRowKey(stampedSegment, messageId);
       const segment = this.streamingSegment;
       if (
         stamped !== undefined &&
@@ -11030,6 +11111,21 @@ export class AcpmuxDirectClient {
     return this.failedPrompts.size ? "composer.send-failed" : null;
   }
 
+  /// The words of the steers still waiting for the agent to read them: Send Now releases them too, so
+  /// its Computer Use hold reads them with the queued prompt (CMUX-682).
+  waitingSteerTexts(): string[] {
+    return this.waitingSteers.flatMap((waiting) => {
+      const row = this.rows.get(waiting.rowId);
+      return row && "text" in row && typeof row.text === "string" ? [row.text] : [];
+    });
+  }
+
+  /// The text a failed row's Retry would send again, or undefined: read, not taken, so the Retry
+  /// can be held first (`@computer-use` while Computer Use is not ready, CMUX-682).
+  failedPromptText(rowId: string): string | undefined {
+    return this.failedPrompts.get(rowId)?.input;
+  }
+
   private async sendNow(
     input: string,
     attachments: ComposerAttachment[],
@@ -11272,7 +11368,12 @@ export class AcpmuxDirectClient {
     const workspace = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
     if (workspace) this.contextInFlight = true;
     // Each attached video's speech, as the host heard it, goes beside it (composer/videoTranscript.ts).
-    const context = promptContext(workspace, carried);
+    // A prompt that names `@computer-use` or `@browser-use` tells the agent which cmux tool it means
+    // (toolMentions.ts), every time it names one.
+    // Only on this Mac's own connection: acpmux refuses client context from a web client, and writes the
+    // same fixed note itself on every route (tool_mentions.rs).
+    const tools = this.localOrigin ? toolMentionContext(toolMentionsIn(text)) : undefined;
+    const context = promptContext(workspace || tools ? `${workspace ?? ""}${tools ?? ""}` : undefined, carried);
     /// The sender (the composer) lets go of the prompt.
     const release = () => {
       if (released) return;
@@ -11387,6 +11488,10 @@ export class AcpmuxDirectClient {
       if (emptyContinuation && !emptyContinuation()) throw staleContinuation();
       const answer = await untilHostAnswers(
         () => {
+          // Asked before every try, a reconnect's too: Computer Use can stop while the host is away.
+          // Its own code, not `transport.*`: never retried, and the bubble says this reason.
+          const hold = this.sendHold?.(sentWords(text, attachments));
+          if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
           if (heldForHost) heldUntil = Date.now();
           heldForHost = false;
           // The perf watch's new-chat span: the first prompt since the handshake (perfReporter.ts).
@@ -11474,7 +11579,8 @@ export class AcpmuxDirectClient {
             ...(inline ? { inlineParts: inline.parts } : {}),
           });
       }
-      const refused = typeof code === "string" && code.startsWith("transport.");
+      // A dispatch hold (`sendHold`) never reached the wire either.
+      const refused = (typeof code === "string" && code.startsWith("transport.")) || code === COMPUTER_USE_HELD;
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
       // went, so it leaves no bubble, and the pane keeps it in (or puts it back in) the composer.
@@ -12403,16 +12509,23 @@ export class AcpmuxDirectClient {
     const sendable = capabilities?.image === false ? withoutFrames(audible) : audible;
     const carried = sendable.length ? fitPromptBudget(text, sendable, {}, promptBudgetFor(this.socket)) : sendable;
     const ticket = gesture ? await gesture.ticket : undefined;
-    await this.offerChildren.prompting(sessionId, () =>
-      this.request("session/prompt", {
+    await this.offerChildren.prompting(sessionId, () => {
+      // Asked right before the wire, after the ticket wait and the child attach (a `/side` prompt).
+      const hold = this.sendHold?.(sentWords(text, attachments));
+      if (hold) throw Object.assign(new Error(hold), { code: COMPUTER_USE_HELD });
+      return this.request("session/prompt", {
         sessionId,
         prompt: promptBlocks(text, carried),
         _meta: {
-          acpmux: { promptId: gesture?.promptId ?? crypto.randomUUID() },
+          acpmux: {
+            promptId: gesture?.promptId ?? crypto.randomUUID(),
+            // `@computer-use` / `@browser-use` say which cmux tool they mean, as a send's do (toolMentions.ts).
+            ...(toolMentionsIn(text).length ? { context: toolMentionContext(toolMentionsIn(text)) } : {}),
+          },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
-      }),
-    );
+      });
+    });
   }
   /// Binds the person's current gesture to `/side`'s prompt, held for its files: bound to no chat
   /// (the side chat it goes to does not exist yet), so the side chat's prompt redeems it by its
@@ -14480,6 +14593,21 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     return this.request("_acpmux/context", { sessionId });
   }
+  /// The instructions and memory files that follow the person to this machine, and the notes other
+  /// machines propose to add (`_acpmux/agent_home`): Session Info's Carried memory.
+  async agentHome(sessionId = this.actingSessionId): Promise<unknown> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/agent_home", { sessionId });
+  }
+  /// Accepts or drops proposals by id (`_acpmux/agent_home_resolve`). Sent on the click with no await
+  /// before it: acpmux takes it only from the person, like `_acpmux/memory_resolve`.
+  async resolveAgentHome(
+    change: { accept: string[]; drop: string[] },
+    sessionId = this.actingSessionId,
+  ): Promise<unknown> {
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    return this.request("_acpmux/agent_home_resolve", { sessionId, accept: change.accept, drop: change.drop });
+  }
   /// Saves (or with `text: null` removes) the guidance new chats get, for every chat (`user`) or
   /// this folder's (`project`), and answers with the inventory after it (`_acpmux/context_override`).
   /// Sent on the Save click with no await before it: the relay takes it only on a gesture.
@@ -14669,8 +14797,9 @@ export class AcpmuxDirectClient {
   /// The chat's every prompt older than its open page, read from acpmux's prompt index
   /// (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): each bounded reply is
   /// newest-first by page but oldest-first within it, so older pages prepend until `hasMore` ends.
-  /// Today's daemon returns the whole index with `hasMore: false`; a daemon without the index
-  /// reads the bounded `user_message` page the request also names, which covers what it holds.
+  /// The daemon bounds each page by `limit` and `maxBytes` (one older daemon returned the whole
+  /// index with `hasMore: false`); a daemon without the index reads the bounded `user_message`
+  /// page the request also names, which covers what it holds.
   private promptIndex?: PromptIndexRead;
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { heads: PromptHeads; before: number; list: PromptHeads; shed: number };
@@ -15922,6 +16051,9 @@ export class AcpmuxDirectClient {
 /// The newest chat-bound send tickets a client remembers (`boundSendTickets`); a send takes its own.
 /// A local dispatch fence proves this frame never reached the wire; held-send cleanup may
 /// therefore release its Cloud turn claim, unlike an ambiguous connection failure.
+/// A send `sendHold` kept back at dispatch (`@computer-use` while Computer Use is not ready, CMUX-682).
+const COMPUTER_USE_HELD = "computer_use_held";
+
 function staleContinuation(): Error & { code: string } {
   return Object.assign(new Error(translate("error.notOpen")), { code: "transport.continuation_changed" });
 }

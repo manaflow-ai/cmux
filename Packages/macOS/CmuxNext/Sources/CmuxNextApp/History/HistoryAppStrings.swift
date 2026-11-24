@@ -9,6 +9,7 @@ enum HistoryAppStrings {
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }
     static var nothingForward: String { t("history.refusal.nothingForward", "No later location to go forward to") }
     static var nothingLast: String { t("history.refusal.nothingLast", "No last location to go to") }
+    static var nothingSession: String { t("history.refusal.nothingSession", "No earlier agent session to go back to") }
     static var nothingClosed: String { t("history.refusal.nothingClosed", "No recently closed tab to reopen") }
     static var noSession: String { t("history.refusal.noSession", "No agent session with that ID") }
     static var noResume: String { t("history.refusal.noResume", "cmux does not know how to resume this agent") }
