@@ -1088,6 +1088,26 @@ fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
     fake.no_frame();
 }
 
+#[test]
+fn verbs_ignore_a_field_a_newer_client_adds() {
+    let fake = FakeAcpmux::start("xnewer");
+    let home = Home::new("newer");
+    let mux = transfer_mux(&fake, "atx-newer", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xnewer");
+    let read = client
+        .request(json!({"cmd":"agent-transfer-source","surface":surface,"future_field":{"v":2}}));
+    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    // Every verb answers as it would without the field, never a bad request.
+    for frame in every_verb(surface, &home.text("work/project")) {
+        let mut frame = frame;
+        frame.as_object_mut().unwrap().remove("id");
+        frame["future_field"] = json!(true);
+        let reply = client.request(frame.clone());
+        assert_ne!(reply["error_code"], json!("agent_transfer.bad_request"), "{frame}: {reply}");
+    }
+}
+
 // MARK: A landed chat in a tab of this machine
 
 /// `new-conversation-tab` of a `registry:` tab that already names `session`,
