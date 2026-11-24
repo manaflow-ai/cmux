@@ -1849,6 +1849,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// first prompt; older pages come with ``loadEarlierHistory()``). Each request is bounded, and none is sent once the
     /// attach is no longer `current` (the link dropped, another attach started, the chat went
     /// away): the hub's next connection is not its own.
+    /// Whether an attach page holds every record through the log's end: the Mac's `pageThrough`
+    /// reaches its `lastSeq`. An older Mac sends `pageThrough` short of it on a tail-first page,
+    /// or none, and still gets the read after the page.
+    static func pageReachesEnd(_ result: JSONValue) -> Bool {
+        guard let through = result["pageThrough"]?.numberValue, let last = result["lastSeq"]?.numberValue
+        else { return false }
+        return through >= last
+    }
+
     private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, early: AcpmuxHub.EarlyAttach? = nil,
                                   current: @escaping () -> Bool) async -> CatchUpPages {
         var out = CatchUpPages()
@@ -1890,11 +1899,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     // `hasMore`: older records after `afterSeq`); a Mac that ignores
                     // `beforeSeq` sent the oldest (`hasMore`: newer ones, written before its
                     // reply's `lastSeq`). One read after the page tells them apart, and is the
-                    // forward page either way.
-                    let next = try await request("_acpmux/events", [
-                        "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
-                        "limit": .number(Double(pageSize)), "kinds": kinds(hub),
-                    ])
+                    // forward page either way. A current Mac says its newest page reaches the
+                    // log's end (`pageThrough` at `lastSeq`, acpmux `page_reaches_end`): that read
+                    // would come back empty, so it is not made.
+                    let next: JSONValue = pageReachesEnd(out.result)
+                        ? .object(["events": .array([]), "hasMore": .bool(false)])
+                        : try await request("_acpmux/events", [
+                            "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
+                            "limit": .number(Double(pageSize)), "kinds": kinds(hub),
+                        ])
                     let events = next["events"]?.arrayValue ?? []
                     let nextMore = !events.isEmpty && next["hasMore"] == .bool(true)
                     if let after = events.first?["seq"]?.numberValue, Int(after) <= stateSeq(out.result) {

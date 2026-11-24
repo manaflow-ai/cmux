@@ -3682,8 +3682,11 @@ async fn dispatch_request_with_identity(
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
-            // with more to read, only to its own last record.
-            let through = if before.is_none() && (after.is_none() || !page.has_more) {
+            // with more to read, only to its own last record. A tail-first reattach (both
+            // cursors, `beforeSeq` past the log's end) is a newest page too: it says so, and the
+            // phone takes it as current with no `_acpmux/events` read after it (cmux-next-ios
+            // `AcpmuxHub.readPages`, `pageReachesEnd`).
+            let through = if page_reaches_end(after, before, last, page.has_more) {
                 last
             } else {
                 events::newest_seq(&page.events)
@@ -4623,4 +4626,44 @@ async fn agent_credentials_update(
     let env = params.get("env").cloned().unwrap_or(Value::Null);
     let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
     hub.update_credential(id, credential).await
+}
+
+/// An `_acpmux/attach` page holds every record (of the kinds asked) through `last`, the log's
+/// end read before it: a newest page (no `afterSeq`, or a `beforeSeq` past the end), or a
+/// forward page with nothing more to read. Its `pageThrough` is then `last`.
+pub(crate) fn page_reaches_end(
+    after: Option<u64>,
+    before: Option<u64>,
+    last: u64,
+    has_more: bool,
+) -> bool {
+    match before {
+        Some(before) if before <= last => false,
+        Some(_) => true,
+        None => after.is_none() || !has_more,
+    }
+}
+
+#[cfg(test)]
+mod page_reaches_end_tests {
+    use super::page_reaches_end;
+
+    #[test]
+    fn a_tail_first_reattach_page_reaches_the_end() {
+        // The phone's tail-first reattach: afterSeq and beforeSeq = 2^40, more before the page.
+        assert!(page_reaches_end(Some(10), Some(1 << 40), 500, true));
+        assert!(page_reaches_end(Some(10), Some(501), 500, true));
+        // The newest page of an open, and a forward page that read to the end.
+        assert!(page_reaches_end(None, None, 500, true));
+        assert!(page_reaches_end(Some(10), None, 500, false));
+    }
+
+    #[test]
+    fn older_and_unfinished_forward_pages_do_not() {
+        // An older page (beforeSeq at or inside the log) holds only to its own last record.
+        assert!(!page_reaches_end(None, Some(500), 500, false));
+        assert!(!page_reaches_end(Some(10), Some(200), 500, true));
+        // A forward page with more to read.
+        assert!(!page_reaches_end(Some(10), None, 500, true));
+    }
 }
