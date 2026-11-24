@@ -29,9 +29,10 @@ use cmux_remote::identity::{
     KnownDaemonAuth, MAX_INVITATION_URI_BYTES, credential_free_route_hint, default_state_dir,
 };
 use cmux_remote::provider::{
-    Dialer, IrohPathMode, MachinePipeDialer, ProviderError, ROUTING_DIRECT_ADDRS, ROUTING_NODE_ID,
-    ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider, SshProviderConfig,
-    SupportedClientAuthModes, WireGuardDialer, sanitized_route,
+    Dialer, IrohPathMode, MachinePipeDialer, NoTailnetHints, ProviderError, ROUTING_DIRECT_ADDRS,
+    ROUTING_NODE_ID, ROUTING_RELAY_URL, RelayCredentialSource, SocksDialer, SshProvider,
+    SshProviderConfig, SupportedClientAuthModes, TailnetCarrierMode, WireGuardDialer,
+    sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
@@ -44,13 +45,15 @@ use zeroize::Zeroizing;
 
 use crate::localization::catalog;
 #[cfg(test)]
+use crate::remote_runtime::client_provider_registry;
+#[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
     ClientRuntimeOptions, DaemonRuntimeOptions, DaemonShutdownStatus, RelayClientOptions,
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
-    acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
-    daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
-    load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    acknowledge_legacy_shutdown_state, client_provider_registry_with_tailnet,
+    complete_verified_daemon_stop, daemon_paths, inactive_daemon_needs_legacy_acknowledgement,
+    load_runtime_info, load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
     start_recovering_client_runtime,
 };
 use crate::session::{RemoteSession, Session};
@@ -64,6 +67,7 @@ mod remote_link_mux;
 mod self_install;
 mod spill;
 mod spill_cloud;
+mod ssh_bench;
 mod ssh_carrier;
 use daemon_lifecycle::*;
 use enroll::*;
@@ -895,12 +899,19 @@ fn start_connected_inner(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRun
         capture_stderr: false,
     };
     let relay_route_names = relay_routes.keys().cloned().collect::<Vec<_>>();
-    let providers = Arc::new(client_provider_registry(
+    let tailnet_mode = match cmux_tui_core::user_settings::tailnet_carrier() {
+        cmux_tui_core::user_settings::TailnetCarrier::Off => TailnetCarrierMode::Off,
+        cmux_tui_core::user_settings::TailnetCarrier::DirectOnly => TailnetCarrierMode::DirectOnly,
+        cmux_tui_core::user_settings::TailnetCarrier::On => TailnetCarrierMode::On,
+    };
+    let providers = Arc::new(client_provider_registry_with_tailnet(
         ssh.clone(),
         relay_routes,
         flags.iroh_path,
         direct_dialer,
         flags.carrier,
+        tailnet_mode,
+        Arc::new(NoTailnetHints),
     )?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
@@ -1519,6 +1530,13 @@ fn run_ssh(
     args: &[String],
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+    // RFD 0127's harness (`ssh_bench.rs`): `--bench` measures, `--bench-pipe` is its ProxyCommand.
+    if ssh_bench::wants_pipe(args) {
+        return ssh_bench::pipe(args);
+    }
+    if ssh_bench::wants(args) {
+        return ssh_bench::run(args);
+    }
     // The hub carrier first for one of this person's listed machines (`ssh_carrier.rs`).
     let (way, rest) = ssh_carrier::split_way(args)?;
     if way != ssh_carrier::Way::SshOnly
