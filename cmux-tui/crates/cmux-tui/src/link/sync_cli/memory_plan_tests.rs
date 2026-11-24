@@ -227,7 +227,7 @@ fn the_size_caps_hold_per_file_per_person_and_per_entry_count() {
         put(home, &format!(".claude/commands/{n}.md"), "0123456789");
     }
     let caps = Caps { total_bytes: 25, ..Caps::default() };
-    let by_bytes = plan(home, &none(), caps).unwrap();
+    let by_bytes = super::plan(home, &none(), caps).unwrap();
     assert_eq!(carried(&by_bytes), [".claude/commands/0.md", ".claude/commands/1.md"]);
     assert_eq!(by_bytes.total_bytes, 20);
     assert_eq!(
@@ -235,7 +235,7 @@ fn the_size_caps_hold_per_file_per_person_and_per_entry_count() {
         Some("over the person's cap (25 bytes)")
     );
     let caps = Caps { entries: 3, ..Caps::default() };
-    let by_count = plan(home, &none(), caps).unwrap();
+    let by_count = super::plan(home, &none(), caps).unwrap();
     assert_eq!(by_count.manifest.len(), 3);
     assert_eq!(reason(&by_count, ".claude/commands/4.md"), Some("over the entry cap (3)"));
 }
