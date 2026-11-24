@@ -2872,12 +2872,15 @@ jobs:
           if ! [[ -f "$reader" ]] || ! grep -q '"app-debug"' "$reader"; then
             no_verdict "the trusted compile result reader predates the app compile's own check"
           fi
+          # The reader's reason line (stderr) names why a red failed (the build fleet job and its first error).
           word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug \
-            --wait 2400 --no-record 300)" || word=none
+            --wait 2400 --no-record 300 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
+          cat "$RUNNER_TEMP/fleet-result.err" >&2 2>/dev/null || true
+          why="$(sed -n 's/^fleet compile result for [0-9a-f]*: [a-z]* (\(.*\))$/\1/p' "$RUNNER_TEMP/fleet-result.err" 2>/dev/null | tail -n 1)"
           how="Debug, swift.org toolchain"
           case "$word" in
             pass) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
-            fail) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in the build fleet job's log linked above." ;;
+            fail) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`: ${why:-no reason given}" ;;
             # pending: the controller holds this head's check but the fleet kept it queued or running past the wait. Like a
             # cmux-ci exit 75 (652 of 1030 red runs re-queued, 2026-11-23/24) it is a warning, and the
             # Release compile at land, plus the fallback where mac_release asks for it, still compile the head.
