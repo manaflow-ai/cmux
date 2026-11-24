@@ -1510,6 +1510,12 @@
    "denseStyle": "solid"
   },
   {
+   "name": "prompt.save",
+   "meaning": "Save a message as a prompt for the / menu",
+   "sf": "questionmark.square.dashed",
+   "family": "prompt"
+  },
+  {
    "name": "radio.off",
    "meaning": "Option not chosen, todo not done (an empty ring)",
    "sf": "circle",
