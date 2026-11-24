@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use cmux_cloud_api::auto_sessions::{OwnerSignIn, SignedIn};
 use cmux_cloud_client::backend::Backend;
+use cmux_cloud_environment::Environment;
 use tokio::sync::Mutex;
 
 /// How long the app may take to answer.
@@ -54,13 +55,23 @@ impl AppSignIn {
     }
 }
 
-/// The cmux API a token may go to: one of cmux's own, named by the token's issuer.
-fn api_of(issuer: &str) -> Option<&'static str> {
+/// The cmux API a token may go to: one of cmux's own, named by the token's issuer. A pull
+/// request's preview of the API (`cmux-api-preview-<n>`, which signs in as development does)
+/// is one of them: it is how a change to the store is tried before it lands. Nothing else is:
+/// not a loopback or tailnet address the app may be pointed at.
+fn api_of(issuer: &str) -> Option<String> {
     let issuer = issuer.trim().trim_end_matches('/');
-    [Backend::Production, Backend::Staging, Backend::Development]
+    let own = [Backend::Production, Backend::Staging, Backend::Development]
         .into_iter()
         .map(Backend::owner_api)
-        .find(|api| api.trim_end_matches('/') == issuer)
+        .find(|api| api.trim_end_matches('/') == issuer);
+    if let Some(api) = own {
+        return Some(api.to_owned());
+    }
+    match Environment::parse(issuer) {
+        Ok(preview @ Environment::Preview(_)) => Some(preview.configuration().api_origin),
+        _ => None,
+    }
 }
 
 /// The app's `auth.token` answer as the CLI prints it.
@@ -94,7 +105,7 @@ fn parse(stdout: &[u8], now: Instant) -> Held {
         .map_or(Duration::from_secs(600), |seconds| Duration::from_secs_f64(seconds.min(86_400.0)));
     let team = answer.team.filter(|team| !team.trim().is_empty());
     Held {
-        answer: Ok(SignedIn { api: api.to_owned(), credential: token, team }),
+        answer: Ok(SignedIn { api, credential: token, team }),
         until: now + lifetime.saturating_sub(REFRESH_EARLY),
     }
 }
@@ -171,6 +182,18 @@ mod tests {
 
         let elsewhere = r#"{"access_token":"tok","api_origin":"https://example.com"}"#;
         assert!(parse(elsewhere.as_bytes(), now).answer.is_err());
+        // A pull request's preview of the API is cmux's own; a look-alike host is not.
+        let preview = "https://cmux-api-preview-42.debussy.workers.dev";
+        let at_preview = format!(r#"{{"access_token":"tok","api_origin":"{preview}/"}}"#);
+        assert_eq!(parse(at_preview.as_bytes(), now).answer.unwrap().api, preview);
+        for other in [
+            "https://cmux-api-preview-42.debussy.workers.dev.example.com",
+            "https://cmux-api-preview-x.debussy.workers.dev",
+            "http://127.0.0.1:8787",
+        ] {
+            let json = format!(r#"{{"access_token":"tok","api_origin":"{other}"}}"#);
+            assert!(parse(json.as_bytes(), now).answer.is_err(), "{other}");
+        }
         let none = r#"{"access_token":"","api_origin":"x"}"#;
         assert!(parse(none.as_bytes(), now).answer.is_err());
         assert!(parse(b"not json", now).answer.is_err());
