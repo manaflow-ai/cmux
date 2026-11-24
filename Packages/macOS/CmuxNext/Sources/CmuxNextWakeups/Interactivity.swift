@@ -42,9 +42,10 @@ public enum Interactivity {
     /// The app's one event monitor: notes keys, scroll and drags (a divider or sidebar drag, a selection) of this
     /// app's windows, and returns each event untouched. A window edge live resize reaches the Rust policy through
     /// the daemon: the layout sizes the app sends while it runs are drag commands (`set-layout-sizes`).
-    /// The scheduler owns it; it removes the monitor when it goes.
+    /// The scheduler owns it for the app's life.
     @MainActor
     public final class EventMonitor {
+        /// Held for the app's life (the scheduler is never torn down); AppKit retains the monitor itself.
         private var token: Any?
 
         public init() {
@@ -57,8 +58,6 @@ public enum Interactivity {
                 return event
             }
         }
-
-        nonisolated deinit { token.map { t in MainActor.assumeIsolated { NSEvent.removeMonitor(t) } } }
     }
 }
 
