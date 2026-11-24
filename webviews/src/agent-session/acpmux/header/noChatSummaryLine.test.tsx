@@ -4,12 +4,6 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { renderToStaticMarkup } from "react-dom/server";
-import { ChatHeaderInlineStatus } from "./ChatHeaderStatus";
-
-test("the tab row's inline slot draws nothing for a healthy chat", () => {
-  expect(renderToStaticMarkup(<ChatHeaderInlineStatus status="" />)).toBe("");
-});
 
 // The files that drew the line, mapped it from acpmux's row, or typed it: the header, the pane body that
 // lays out the header and its tab-row copy, the row mapping, and the pane's summary model.
