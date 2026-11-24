@@ -98,7 +98,7 @@ fn a_rebuilt_tree_adopts_the_logs_list() {
 }
 
 /// What one `_acpmux/subagents` answer costs at the size of the coordinator chat Leo opened
-/// (e13016be, 2026-11-24: 3,805 subagents seen, 8 running): the list and its JSON, timed. Run with
+/// (a coordinator chat, 2026-11-24: 3,805 subagents seen, 8 running): the list and its JSON, timed. Run with
 /// `cargo test -p acpmux --release --lib listing_cost_at_a_coordinators_size -- --ignored --nocapture`
 /// (scripts/cmux-next/background-tasks-list-bench.py times the live call).
 #[test]
