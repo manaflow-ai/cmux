@@ -22,7 +22,6 @@ use cmux_terminal_host_protocol::terminal_host_protocol::{
     FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, FrameDecoder,
     HEADER_LEN, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, encode_frame, frame_payload_len,
 };
-use cmux_tui_core::resource::TerminalPublicId;
 #[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -1053,8 +1052,17 @@ impl DaemonServices {
 
 /// Validated `terminal-bytes-v1` open metadata.
 struct TerminalBytesRequest {
-    terminal: TerminalPublicId,
+    /// A terminal's public id (`term_` and 32 lowercase hex digits, cmux-tui-core's `TerminalPublicId`).
+    terminal: String,
     viewer_size_priority: bool,
+}
+
+/// cmux-tui-core's `TerminalPublicId::parse`, here so this crate builds without cmux-tui-core.
+fn terminal_public_id(value: &str) -> Option<&str> {
+    let payload = value.strip_prefix("term_")?;
+    (payload.len() == 32
+        && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+    .then_some(value)
 }
 
 fn terminal_bytes_metadata(
@@ -1074,15 +1082,12 @@ fn terminal_bytes_metadata(
             ));
         }
     };
-    let terminal = TerminalPublicId::parse(
-        metadata
-            .get("terminal")
-            .ok_or_else(|| {
-                ServicesError::Metadata("terminal byte stream requires terminal".into())
-            })?
-            .clone(),
-    )
-    .map_err(|_| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?;
+    let terminal =
+        terminal_public_id(metadata.get("terminal").ok_or_else(|| {
+            ServicesError::Metadata("terminal byte stream requires terminal".into())
+        })?)
+        .ok_or_else(|| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?
+        .to_owned();
     Ok(TerminalBytesRequest { terminal, viewer_size_priority })
 }
 
