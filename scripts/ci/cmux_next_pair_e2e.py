@@ -57,7 +57,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -1390,6 +1390,20 @@ def tree_pids(root_pid, mac_app):
     return sorted(pids)
 
 
+def outside_conns():
+    """This user's established non-loopback TCP connections (command, local port, remote): what could still keep the
+    Mac present at the service while the cut holds."""
+    out = subprocess.run(["lsof", "-nP", "-a", "-u", str(os.getuid()), "-iTCP", "-sTCP:ESTABLISHED"],
+                         capture_output=True, text=True, timeout=30).stdout
+    rows = []
+    for line in out.splitlines()[1:]:
+        m = NetCut.SOCK.search(line)
+        if not m or (m.group(3) or "").startswith(("127.", "[::1]", "localhost")):
+            continue
+        rows.append(f"{line.split()[0]} {m.group(2)}->{m.group(3)}:{m.group(4)}")
+    return sorted(set(rows))
+
+
 def describe_pids(pids):
     """pid, state and command of each pid (state T = stopped), for the evidence."""
     if not pids:
@@ -1786,6 +1800,10 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
                 log("netcut-failed", error=cut_err)
             ok1, t_off, tx_off = show(tag + "offline", lambda t, i: has(t, "is offline"), 240, shot_name=tag + "1-network-cut")
             seen = has(tx_off, "ast seen")
+            if not ok1:
+                live = outside_conns()
+                log("netcut-outside", conns=live, cut_ports=sorted(cut.ports))
+                note(f"  - non-loopback connections at the cut's end, uncut ({len(live)}): {live[:12]}")
             cut.stop()
             verdict(size_name, "1", ok1 and seen and nports > 0 and not cut_err,
                     f"{nports} sockets cut{(' (' + cut_err + ')') if cut_err else ''}; offline after {t_off:.0f} s; last-seen "
@@ -1794,13 +1812,13 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             back_with_rows(size_name, "4a", tag + "4a-network-back", base_rows, base_ok)
             # 1b. the Mac frozen: sockets stay open, nothing answers.
             frozen = tree_pids(app.pid, a.mac_app)
-            signal_all(frozen, 19)  # SIGSTOP
+            signal_all(frozen, signal.SIGSTOP)  # 17 on macOS: run 45499357310 sent Linux's 19 (macOS SIGCONT), so nothing froze
             time.sleep(0.5)
             frozen_desc = describe_pids(frozen)
             log("freeze", pids=len(frozen), procs=frozen_desc)
             note(f"  - frozen ({len(frozen)}): {frozen_desc[:20]}")
             ok1b, t_1b, tx_1b = show(tag + "frozen", lambda t, i: has(t, "isn't responding"), 180, shot_name=tag + "1b-frozen")
-            signal_all(frozen, 18)  # SIGCONT
+            signal_all(frozen, signal.SIGCONT)  # and Linux's 18 is macOS SIGTSTP, which left helpers stopped
             verdict(size_name, "1b", ok1b, f"isn't responding after {t_1b:.0f} s; texts {[t for t in tx_1b if 'respond' in t][:3]}",
                     tx_1b, base_ok)
             back_with_rows(size_name, "4b", tag + "4b-unfrozen", base_rows, base_ok)
