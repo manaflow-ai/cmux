@@ -453,9 +453,10 @@ async fn a_direct_hint_makes_a_path_that_is_offered_and_derp_is_not_in_direct_on
     derp.refresh_tailnet(Some(Duration::from_secs(2))).await;
     assert!(!derp.dial_order().contains(&Via::Tailnet));
 
+    // `on` races only a direct path too: a DERP path is never tried first, or at all.
     let relayed = tailnet_peer(Mode::On, &calls, PeerPath::Derp);
     relayed.refresh_tailnet(Some(Duration::from_secs(2))).await;
-    assert!(relayed.dial_order().contains(&Via::Tailnet), "on offers it, in the relayed class");
+    assert!(!relayed.dial_order().contains(&Via::Tailnet), "DERP is not raced under on");
 }
 
 #[tokio::test]

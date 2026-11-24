@@ -527,8 +527,8 @@ pub fn client_provider_registry(
 
 /// Build the client registry with an optional, cached Tailscale path hint
 /// source. The default registry above stays unchanged for callers that do not
-/// opt into the setting. A future LocalAPI adapter can be supplied here
-/// without changing route races or wire messages.
+/// opt into the setting. `cmux_remote::provider::hints_for_mode` supplies the
+/// LocalAPI adapter without changing route races or wire messages.
 pub fn client_provider_registry_with_tailnet(
     ssh: SshProviderConfig,
     relay_routes: BTreeMap<String, RelayClientOptions>,

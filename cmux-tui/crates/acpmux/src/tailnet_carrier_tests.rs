@@ -54,15 +54,11 @@ fn a_direct_hint_is_offered_in_every_mode_that_is_on() {
 }
 
 #[test]
-fn a_derp_or_peer_relay_hint_is_not_offered_in_direct_only_and_is_relayed_under_on() {
+fn a_derp_peer_relay_or_unknown_hint_is_never_offered() {
     for path in [PeerPath::Derp, PeerPath::PeerRelay, PeerPath::Unknown] {
         let s = status(vec![node("box", "100.64.0.2", path)]);
         assert_eq!(route_for(&s, "box", Mode::DirectOnly), None, "{path:?}");
-        let on = route_for(&s, "box", Mode::On);
-        if path == PeerPath::Unknown {
-            continue;
-        }
-        assert!(on.expect("offered under on").relayed(), "{path:?}");
+        assert_eq!(route_for(&s, "box", Mode::On), None, "{path:?}");
     }
 }
 
@@ -156,4 +152,74 @@ async fn the_gate_refuses_another_person() {
     let calls = Arc::new(AtomicUsize::new(0));
     let g = gate(status(vec![]), who(Some("eve@example.com")), &calls);
     assert!(!g.admits("100.64.0.9:5000".parse().unwrap()).await);
+}
+
+// ---- LocalAPI first, the CLI when it is unavailable (PathSource)
+
+fn local_view(cur_addr: &str, relay: &str) -> cmux_tailnet_local::TailnetView {
+    let json = format!(
+        r#"{{"BackendState":"Running","Self":{{"ID":"me","HostName":"mac","DNSName":"mac.tail1.ts.net.","TailscaleIPs":["100.64.0.1"]}},"Peer":{{"k":{{"ID":"box","HostName":"box","DNSName":"box.tail1.ts.net.","TailscaleIPs":["100.64.0.2"],"CurAddr":"{cur_addr}","PeerRelay":"{relay}","Relay":"sfo","Online":true,"Active":true}}}}}}"#
+    );
+    cmux_tailnet_local::parse_status(json.as_bytes(), cmux_tailnet_local::Source::Supplied).unwrap()
+}
+
+fn local_source(
+    read: crate::tailnet_carrier::LocalRead,
+    cli_calls: &Arc<AtomicUsize>,
+    cli_status: Status,
+) -> Arc<crate::tailnet_carrier::PathSource> {
+    crate::tailnet_carrier::PathSource::new(
+        Arc::new(move || read.clone()),
+        counting(cli_calls, cli_status),
+    )
+}
+
+#[tokio::test]
+async fn a_localapi_view_answers_and_the_cli_is_not_run() {
+    use crate::tailnet_carrier::{LocalRead, status_from_view};
+    let cli_calls = Arc::new(AtomicUsize::new(0));
+    let view = status_from_view(&local_view("192.0.2.10:41641", ""));
+    let source = local_source(LocalRead::View(view), &cli_calls, status(vec![]));
+    assert!(source.loaded());
+    let got = source.get(Duration::from_secs(1)).await.expect("LocalAPI view");
+    let route = route_for(&got, "box", Mode::DirectOnly).expect("direct is offered");
+    assert_eq!(route.ip, "100.64.0.2".parse::<IpAddr>().unwrap());
+    assert!(!route.relayed());
+    assert_eq!(cli_calls.load(Ordering::SeqCst), 0, "LocalAPI answered: no CLI");
+}
+
+#[tokio::test]
+async fn localapi_derp_and_peer_relay_paths_are_not_offered() {
+    use crate::tailnet_carrier::status_from_view;
+    for (cur, relay) in [("", ""), ("", "192.0.2.99:7777:vni:3")] {
+        let s = status_from_view(&local_view(cur, relay));
+        for mode in [Mode::DirectOnly, Mode::On] {
+            assert_eq!(route_for(&s, "box", mode), None, "{cur:?} {relay:?} {mode:?}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn with_the_localapi_unavailable_the_peer_path_falls_back_to_the_cli() {
+    use crate::tailnet_carrier::LocalRead;
+    let cli_calls = Arc::new(AtomicUsize::new(0));
+    let cli = status(vec![node("box", "100.64.0.2", PeerPath::Direct)]);
+    let source = local_source(LocalRead::Unavailable, &cli_calls, cli);
+    assert!(!source.loaded());
+    let got = source.get(Duration::from_secs(2)).await.expect("the CLI's status");
+    assert!(route_for(&got, "box", Mode::DirectOnly).is_some());
+    assert_eq!(cli_calls.load(Ordering::SeqCst), 1, "the CLI ran once");
+}
+
+#[tokio::test]
+async fn a_cold_localapi_read_is_awaited_briefly_and_never_runs_the_cli() {
+    use crate::tailnet_carrier::LocalRead;
+    let cli_calls = Arc::new(AtomicUsize::new(0));
+    let source = local_source(LocalRead::Pending, &cli_calls, status(vec![]));
+    assert!(!source.loaded());
+    assert!(source.get(Duration::ZERO).await.is_none());
+    let started = std::time::Instant::now();
+    assert!(source.get(Duration::from_millis(50)).await.is_none());
+    assert!(started.elapsed() >= Duration::from_millis(50));
+    assert_eq!(cli_calls.load(Ordering::SeqCst), 0);
 }
