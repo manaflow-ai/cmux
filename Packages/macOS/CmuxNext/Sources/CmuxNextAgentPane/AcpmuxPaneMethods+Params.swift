@@ -208,6 +208,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `ended`: how many ended subagents to list, at most 500.
+        "_acpmux/subagents": (["sessionId", "ended"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
         "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
