@@ -99,11 +99,31 @@ impl Hub {
         // A harness's own background process (a dev server, a watcher) ends with the harness:
         // never reap it for idleness. A task the daemon owns (`bg_tasks.rs`) is not in this
         // table and outlives the harness.
-        self.any_process_running(session)
-            // A background subagent, which the harness's exit would end too.
-            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+        self.any_process_running(session) || Self::work_below_but_shells(session)
+    }
+
+    /// [`Self::holds_work_below`] apart from the harness's own background shells.
+    fn work_below_but_shells(session: &Session) -> bool {
+        // A background subagent, which the harness's exit would end too.
+        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             // A sub-session or background subagent at work (`work_below.rs`).
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
+    }
+
+    /// Whether `session`'s harness may hibernate now, and the waits it hands the daemon first:
+    /// `Some(empty)` when [`Self::idle_eligible`]; under `adaptive-v1`, `Some(waits)` when only
+    /// its running background shells keep it up and each is a wait (`wait_handoff.rs`).
+    pub(super) fn idle_ready(
+        &self,
+        session: &Session,
+    ) -> Option<Vec<super::wait_handoff::Handoff>> {
+        if self.idle_eligible(session) {
+            return Some(Vec::new());
+        }
+        if !self.eligible(session, false) {
+            return None;
+        }
+        self.wait_handoffs(session)
     }
 
     /// [`Self::holds_work_below`] for a summary (the list's `workingBelow`): from the process
@@ -118,6 +138,11 @@ impl Hub {
     }
 
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
+        self.eligible(session, true)
+    }
+
+    /// [`Self::idle_eligible`]; `shells`: whether the harness's running background shells count.
+    fn eligible(&self, session: &Session, shells: bool) -> bool {
         // A chat its rate limit holds past its idle period sleeps through the hold, its queue
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
         // `sleeps_through_hold`).
@@ -130,7 +155,7 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && (session.queued() == 0 || sleeps_held)
             && session.pending_permissions().is_empty()
-            && !self.holds_work_below(session)
+            && !(if shells { self.holds_work_below(session) } else { Self::work_below_but_shells(session) })
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
@@ -343,7 +368,7 @@ impl Hub {
             self.confirm_claude_stored(&session).await;
         }
         // A recap the person will want is asked before the process goes (`away_recap.rs`).
-        if busy || !self.idle_eligible(&session) || self.recap_before_sleep(&session) {
+        if busy || self.idle_ready(&session).is_none() || self.recap_before_sleep(&session) {
             self.touch(&session);
             return;
         }
@@ -360,14 +385,16 @@ impl Hub {
             || using.is_err()
             || spawning.is_err()
             || !same
-            || !self.idle_eligible(&session)
+            || self.idle_ready(&session).is_none()
         {
             // In use at its deadline: a full idle period starts now.
             self.touch(&session);
             return;
         }
-        // Nothing it did not report may end with it (`idle_census.rs`).
-        let census = self.idle_census(child.pid, sidecars).await;
+        // Nothing it did not report may end with it (`idle_census.rs`); while it hands its waits
+        // to the daemon, their shells and wait programs under it are reported.
+        let handing = self.idle_ready(&session).is_some_and(|h| !h.is_empty());
+        let census = self.idle_census(child.pid, sidecars, handing).await;
         if !matches!(census, super::idle_census::Census::Clear) {
             self.note_refusal(&session, &census);
             // What keeps it up now would at every try: it waits for the normal period instead.
@@ -379,7 +406,7 @@ impl Hub {
         }
         // Anything that happened while the census ran moved the deadline.
         if session.last_active.load(Ordering::SeqCst).saturating_add(idle) > self.clock_now()
-            || !self.idle_eligible(&session)
+            || self.idle_ready(&session).is_none()
         {
             return;
         }
@@ -400,9 +427,10 @@ impl Hub {
         // Read before the agent ends: its end clears the mark (`settle_profile_respawn`).
         let quiet = session.respawn_when_quiet.load(Ordering::SeqCst);
         Self::drain_inbound(&session).await;
+        let ready = self.idle_ready(&session);
         if session.last_active.load(Ordering::SeqCst) != seen
             || seen.saturating_add(idle) > self.clock_now()
-            || !self.idle_eligible(&session)
+            || ready.is_none()
         {
             self.touch(&session);
             return;
@@ -410,6 +438,9 @@ impl Hub {
         if !self.hibernate_held(&session, link_lost, Some(seen)).await {
             return;
         }
+        // Its waits run on in the daemon, started once the harness is gone: their ends prompt the
+        // chat, which wakes it (`wait_handoff.rs`).
+        self.start_handoffs(&session, ready.unwrap_or_default()).await;
         if moving {
             self.host_move_settled(&session);
         }

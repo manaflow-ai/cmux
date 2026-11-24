@@ -155,6 +155,7 @@ mod host_level;
 pub(super) mod idle;
 mod idle_census;
 pub(super) mod residency;
+mod wait_handoff;
 pub use residency::IdlePolicyKind;
 mod paused_fs;
 mod person_prompt_at;

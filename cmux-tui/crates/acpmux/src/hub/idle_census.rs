@@ -6,10 +6,10 @@
 use super::*;
 pub(crate) use crate::sidecar_census::Census;
 pub(crate) use crate::sidecar_census::LaunchServers;
-#[cfg(unix)]
-use crate::sidecar_census::classify;
 use crate::sidecar_census::{CENSUS_BUDGET, Servers, from_json, launch_only, resolved};
 pub use crate::sidecar_census::{Sidecar, StoredLaunch};
+#[cfg(unix)]
+use crate::sidecar_census::{classify, unknowns};
 
 /// A refusal is logged at most this often per session.
 const REFUSAL_LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(600);
@@ -17,7 +17,14 @@ const REFUSAL_LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(60
 impl Hub {
     /// Lists what runs under `pid`, the session's harness, against `sidecars`, within
     /// [`CENSUS_BUDGET`].
-    pub(super) async fn idle_census(&self, pid: Option<u32>, sidecars: Option<Servers>) -> Census {
+    /// `handing`: the harness's running shells are waits handed to the daemon
+    /// (`wait_handoff.rs`): a process under it that can be part of one counts as reported.
+    pub(super) async fn idle_census(
+        &self,
+        pid: Option<u32>,
+        sidecars: Option<Servers>,
+        handing: bool,
+    ) -> Census {
         #[cfg(unix)]
         if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             // The listing, each candidate's argv and the match all run in the bounded task.
@@ -25,7 +32,15 @@ impl Hub {
                 // A reading shared with the pass's other censuses (`agent_host/proc_table.rs`).
                 let found = crate::agent_host::tree::under_shared(pid)?;
                 let (list, path) = (&sidecars.list, sidecars.path.as_deref());
-                Some(classify(&found, pid, list, path, crate::agent_host::tree::identity))
+                let identity = crate::agent_host::tree::identity;
+                if !handing {
+                    return Some(classify(&found, pid, list, path, identity));
+                }
+                let left = unknowns(&found, pid, list, path, identity);
+                Some(match left.into_iter().find(|p| !super::wait_handoff::covers(&p.args)) {
+                    Some(p) => Census::Busy { pid: p.pid, comm: p.args.chars().take(64).collect() },
+                    None => Census::Clear,
+                })
             });
             return match tokio::time::timeout(CENSUS_BUDGET, census).await {
                 Ok(Ok(Some(census))) => census,
@@ -34,7 +49,7 @@ impl Hub {
         }
         // Windows: no census, and closing the job ends everything under it.
         #[cfg(not(unix))]
-        let _ = (pid, sidecars);
+        let _ = (pid, sidecars, handing);
         Census::Unknown
     }
 
