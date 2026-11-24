@@ -42,7 +42,7 @@
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { QueuedVideo } from "./queuedImagesModel";
@@ -64,6 +64,7 @@ import { type QueuedEntry, shownText, heldReason } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { focusRoute } from "../../ui/focusRoute";
+import { noteUnpopOrigin } from "./conversation/unpopMorph";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -730,6 +731,8 @@ export const ComposerQueue = React.memo(function ComposerQueue({
       // A Save begun while the images were read (answered or not) changed what the row shows or
       // what its editor holds: the click is not carried out on the text it was made on.
       if (!now || theirs(now) || saveGeneration.current.get(entry.id) !== began) return;
+      // The un-pop: its words go back into the composer from where the row draws them (unpopMorph.ts).
+      noteUnpopOrigin(rowOf(list.current, entry.id));
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
