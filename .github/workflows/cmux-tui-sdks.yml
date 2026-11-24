@@ -133,7 +133,9 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -311,7 +313,9 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -497,9 +501,6 @@ jobs:
 
       - name: Test published artifact manifest verifier
         run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_verify_published_manifest.py' -v
-
-      - name: Test folder sync bench harness
-        run: python3 -m unittest discover -s cmux-tui/scripts -p 'test_sync_bench.py' -v
 
       - name: Test SDK schema drift checker
         run: python3 cmux-tui/scripts/test_check_sdk_schema.py

@@ -1378,6 +1378,14 @@ fn an_events_page_with_no_cursor_covers_only_what_it_holds() {
     hub.peer_snapshots.flush_now();
     let (head, seqs) = on_disk(&disk::path(&disk::root(&home), &key("m1")).unwrap(), "m1").unwrap();
     assert_eq!((head.last_seq, seqs), (3, vec![1, 2, 3]));
+    // The reader saw 8, but this machine has only 1..=3. A recap must not fill 4..=8.
+    let cutover = json!({"createdAt": 42, "events": recs(9..=10), "hasMore": false,
+                         "lastSeq": 10, "pageThrough": 10, "seenSeq": 8});
+    hub.capture_peer_page(on, ("m1", true), &json!({"sinceSeen": true}), &cutover);
+    hub.peer_snapshots.flush_now();
+    let path = disk::path(&disk::root(&home), &key("m1")).unwrap();
+    let (head, seqs) = on_disk(&path, "m1").unwrap();
+    assert_eq!((head.last_seq, seqs), (3, vec![1, 2, 3]));
     // A page whose peer says how far it holds (`pageThrough`) covers that far; `lastSeq` alone,
     // which an older peer reads after its page, never does.
     let rest = json!({"events": recs(4..=5), "hasMore": false, "lastSeq": 9});
