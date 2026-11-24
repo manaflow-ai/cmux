@@ -2346,7 +2346,8 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         // The Mac listed the lane once its port was bound: it listens.
-        let liveness = if liveness_agreed { open_liveness(&net, peer_ip, true, classes_agreed).await } else { None };
+        let liveness =
+            if liveness_agreed { open_liveness(&net, peer_ip, true, classes_agreed).await } else { None };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
         // The input lane: a second TCP stream to the same port, opened
