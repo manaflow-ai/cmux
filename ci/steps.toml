@@ -1231,6 +1231,9 @@ inputs = [
   "scripts/ci/ensure-system-chrome.sh",
   "scripts/ci/playwright-apt-deps.sh*",
   "scripts/ci/web_subareas.py",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "scripts/ci/r2-cache.sh",
+  "scripts/blacksmith-testbox-source-mtimes.py",
   "scripts/tests/test_pr_scoped_webviews_checks.py",
   "scripts/install-git-hooks.sh",
   "tests/test_install_git_hooks.py",
@@ -1244,7 +1247,9 @@ python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
 root="$PWD"
 (cd webviews && flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile)
 cd cmux-tui
-# One cold build a run: incremental state only fills the disk (No space left writing dep-graph.part.bin, #53426).
+# The last feat-cmux-next push's daemon-tests build (read only; a miss builds cold): its dependencies are acpmux's.
+../scripts/ci/cmux-tui-test-target.sh restore
+# No incremental state: it only fills the disk (No space left writing dep-graph.part.bin, #53426).
 CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
 # CARGO_TARGET_DIR (a fleet runner's shared target) moves the binary out of cmux-tui/target.
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
@@ -1294,7 +1299,8 @@ exit "$rc"
 # only the workspace members whose sources name cmux_next_, retried only on a recognized Cargo fetch failure.
 [step.cmux-next-daemon-tests]
 job = "linux"
-# 22 minutes of test compile cold, then the tests: the job's own 65-minute bound for this step.
+# 22 to 27 minutes of test compile cold (a few warm from the push's saved target), then the tests: the job's own
+# 65-minute bound for this step.
 alone = true
 timeout = 3900
 title = "cmux_next_ daemon tests"
@@ -1304,14 +1310,22 @@ inputs = [
   "cmux-tui/**",
   "scripts/ci/cmux-next-daemon-test-packages.sh",
   "scripts/cmux-next/cargo-locks.py",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "scripts/ci/r2-cache.sh",
+  "scripts/blacksmith-testbox-source-mtimes.py",
   "ghostty-next",
 ]
 run = '''
 cd cmux-tui
 channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
 rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+# The build env cmux-tui-artifacts.yml's feat-cmux-next push job tests with, so its saved target is fresh here: no
+# incremental state (it only fills the disk), the ghostty-next gitlink's sources, Zig from PATH.
 export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_HTTP_MULTIPLEXING=false TMPDIR=/tmp CMUX_GHOSTTY_SRC=""
-export GHOSTTY_ZIG_SOURCE=ghostty-next
+export GHOSTTY_ZIG_SOURCE=ghostty-next CARGO_INCREMENTAL=0
+unset CMUX_ZIG ZIG
+# The last feat-cmux-next push's build (read only; a miss builds cold): unchanged crates are not compiled again.
+../scripts/ci/cmux-tui-test-target.sh restore
 home="$(mktemp -d /tmp/acpmux-home.XXXXXX)"
 export ACPMUX_HOME="$home" ACPMUX_SOCKET=""
 log="$(mktemp /tmp/cmux-next-tests.XXXXXX.txt)"

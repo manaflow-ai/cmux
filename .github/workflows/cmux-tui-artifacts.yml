@@ -1952,6 +1952,10 @@ jobs:
     # (cmuxterm-hq#20161). 90 holds a cold compile; cargo test has its own bound
     # below, so a cut test step still leaves time to save what it compiled.
     timeout-minutes: 90
+    # A feat-cmux-next push saves this job's cargo build to the CI cache bucket for ci/steps.toml's
+    # cmux-next-daemon-tests and agent-pane-real-acpmux steps (scripts/ci/cmux-tui-test-target.sh); only
+    # next-cache-writer holds the write credentials, and its deployment branches are feat-cmux-next only.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     env:
       # Cargo's default registry retry is too small for a transient index DNS
       # outage. Keep the registry and git checkouts in the runner cache, then
@@ -1959,6 +1963,7 @@ jobs:
       CARGO_NET_RETRY: "10"
       CARGO_HTTP_TIMEOUT: "120"
       CARGO_HTTP_MULTIPLEXING: "false"
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     permissions:
       contents: read
       # The superseded re-check reads a pin's pull request and the key's
@@ -2165,6 +2170,14 @@ jobs:
           # (job 137459375926: a cut run saved nothing and the next ones compiled cold).
           cache-on-failure: true
 
+      # The last feat-cmux-next push's whole build, workspace crates too (read only; a miss or a
+      # GitHub cache hit above keeps what is there): scripts/ci/cmux-tui-test-target.sh.
+      - name: Restore the cargo build from the CI cache bucket
+        if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
+        continue-on-error: true
+        timeout-minutes: 8
+        run: scripts/ci/cmux-tui-test-target.sh restore
+
       - name: cargo test cmux_next_
         if: steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true'
         # Below the job's 90: setup (about 12 min) + this + the cache save (about 10 min).
@@ -2173,6 +2186,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The build env of ci/steps.toml's cmux-next-daemon-tests step, so the build this job saves
+          # is fresh there: ghostty-vt-sys reruns on CMUX_GHOSTTY_SRC, ZIG and CMUX_ZIG (zig stays on PATH).
+          export CARGO_INCREMENTAL=0 CMUX_GHOSTTY_SRC="" GHOSTTY_ZIG_SOURCE=ghostty-next
+          unset CMUX_ZIG ZIG
           # Only the members whose sources name cmux_next_ (the filter matches the
           # test path, so no other member can hold one): skips the test binaries of
           # every other member. Falls back to --workspace.
@@ -2227,6 +2244,19 @@ jobs:
           acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
           [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
+
+      # A feat-cmux-next push only, after a red test too (the compile is still good), before
+      # rust-cache's post step prunes the workspace crates: at most one save a 4-hour window.
+      - name: Save the cargo build to the CI cache bucket
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.current.outputs.stale != 'true' && steps.marked.outputs.marked != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 18
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        run: scripts/ci/cmux-tui-test-target.sh save
 
   # Failed feat-cmux-next and cmux-tui-pin-* push runs are retried by main's
   # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only
