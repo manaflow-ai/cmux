@@ -2312,6 +2312,7 @@ dependencies = [
  "sha1",
  "sha1collisiondetection",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]
