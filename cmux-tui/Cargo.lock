@@ -36,6 +36,7 @@ dependencies = [
  "cmux-command-class",
  "cmux-computer-use",
  "cmux-config",
+ "cmux-deadline",
  "cmux-device-kind",
  "cmux-egress",
  "cmux-embed",
