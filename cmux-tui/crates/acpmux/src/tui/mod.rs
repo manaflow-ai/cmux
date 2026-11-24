@@ -16,6 +16,9 @@ use cmux_json::JsonSet as _;
 
 pub mod actions;
 mod answering;
+mod composer_draft;
+#[cfg(all(test, unix))]
+mod composer_draft_tests;
 mod events;
 mod run;
 mod scheduler;
@@ -140,6 +143,8 @@ pub struct App {
     pub(super) history_in_flight: HashSet<String>,
     pub(super) history_more: HashMap<String, bool>,
     pub input: Editor,
+    /// The composer's tie to the chat's durable draft (`composer_draft.rs`).
+    pub draft_sync: composer_draft::DraftSync,
     pub input_images: Vec<PromptImage>,
     pub command: Editor,
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.
@@ -701,6 +706,7 @@ impl App {
             return;
         };
         self.input.take();
+        self.note_draft_sent();
         if let Some(id) = self.selected_id() {
             self.viewport.entry(id).or_default().to_bottom();
         }
