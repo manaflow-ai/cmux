@@ -547,16 +547,13 @@ process.stdout.write(JSON.stringify({{
 def test_scheduled_uploads_filter_for_ios_affecting_main_changes() -> None:
     text = workflow_text()
     triggers = trigger_block(text)
-    schedule = mapping_block(triggers, "schedule", indent=2)
     expected_workflow_paths = tuple(
         path.removesuffix("**") for path in IOS_PATHS
     )
 
-    assert mapping_keys(triggers, indent=2) == (
-        "schedule",
-        "workflow_dispatch",
-    )
-    assert sequence_mapping_values(schedule, "cron", indent=4) == IOS_SCHEDULES
+    # Manual dispatch only: GitHub fires schedule from main's copy, and main
+    # retired this file (#42751), so feat-cmux-next carries no cron (ci-v2 R13).
+    assert mapping_keys(triggers, indent=2) == ("workflow_dispatch",)
     assert (
         javascript_string_array(text, "iosRelevantPaths")
         == expected_workflow_paths

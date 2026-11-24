@@ -108,7 +108,26 @@ def table_steps(config: dict, files: list[str], table: Path | None = None) -> li
         routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
     except Exception:  # noqa: BLE001
         return None
-    return [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    steps = [step for job in config["table_jobs"] for step in routed.get(job, [])]
+    # A step whose inputs are `["**"]` replaced a job that ran on every change its workflow's shared docs-only
+    # filter let through (scripts/ci/docs_only_paths.py): a docs-only change alone does not start the pipeline for it.
+    if files and docs_only_paths.docs_only(files):
+        table = ci_steps.load(table or ci_steps.TABLE).steps
+        steps = [step for step in steps if table[step].inputs != ("**",)]
+    return steps
+
+
+def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None = None) -> list[str]:
+    """Which of the step table's jobs the change routes, for pr-pipeline.yml's job `if:`s: every `table_jobs` job
+    when the change or the table is unknown (the router routes more, never less)."""
+    jobs = [job for config in callees.values() for job in config.get("table_jobs", [])]
+    if files is None:
+        return jobs
+    try:
+        routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
+    except Exception:  # noqa: BLE001
+        return jobs
+    return [job for job in jobs if routed.get(job)]
 
 
 def route(event: dict, callees: dict, files: list[str] | None,
@@ -224,9 +243,11 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     return problems
 
 
-def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None) -> None:
+def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
+                  table: list[str] | None = None) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
+        out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -246,7 +267,7 @@ def main(argv: list[str]) -> int:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
         start, why = route(event, callees, files, decided=head_tier.decide("pull_request", event))
-        write_outputs(start, why, files)
+        write_outputs(start, why, files, table_jobs_routed(callees, files))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

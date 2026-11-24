@@ -123,3 +123,16 @@ fn the_newest_show_of_the_driver_log_is_the_start() {
     assert_eq!(call(c"cloud_hybrid_start", &json!({"session": "s/1"})).0, ERR_INVALID);
     let _ = std::fs::remove_dir_all(sessions.parent().unwrap());
 }
+
+#[test]
+fn the_keep_count_says_how_many_and_what_another_does() {
+    let plus = json!({"plan": "next_plus", "kept": 2, "on": false, "hoursUsed": 41.5});
+    let (code, reply) = call(c"cloud_hybrid_keep_count", &plus);
+    assert_eq!(code, OK);
+    assert_eq!((reply["kept"].clone(), reply["slots"].clone()), (json!(2), json!(3)));
+    assert_eq!(reply["hoursUsed"], 41);
+    assert_eq!(reply["next"], json!({"do": "keeps", "after": 3}));
+    let none = call(c"cloud_hybrid_keep_count", &json!({})).1;
+    assert_eq!(none["next"], json!({"do": "startsTrial", "slots": 1, "hours": 10}));
+    assert_eq!(call(c"cloud_hybrid_keep_count", &json!({"kept": "two"})).0, ERR_INVALID);
+}
