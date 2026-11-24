@@ -1337,7 +1337,7 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
+with CLAUDE_CODE_USE_VERTEX; AZURE_* but AZURE_OPENAI_API_KEY (Foundry's Entra ID sign-in) only with the person's own CLAUDE_CODE_USE_FOUNDRY (a profile's switch unlocks only AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_AUTHORITY_HOST, AZURE_CONFIG_DIR). Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
 Grok: XAI_API_KEY. DeepSeek Harness: DEEPSEEK_API_KEY.
 Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
 list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
