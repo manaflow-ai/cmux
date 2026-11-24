@@ -296,6 +296,7 @@ private struct CloudMachineChatsScreen: View {
     @State private var listError: String?
     /// Retry and pull to refresh read the list again.
     @State private var listRetry = 0
+    @State private var listRequest = 0
     /// nil until this account, team, Mac and machine have returned a valid page.
     @State private var page: CloudChatList.CachedPage?
 
@@ -432,18 +433,20 @@ private struct CloudMachineChatsScreen: View {
 
     /// Reads the first `shown` chats. A failed read keeps the last page visible and offers Retry.
     private func readList(_ hub: AcpmuxHub, settle: Bool) async {
+        listRequest += 1
+        let request = listRequest
         if settle { try? await Task.sleep(for: .milliseconds(250)) }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, request == listRequest, hub === relay?.hub else { return }
         do {
             let page = try await CloudChatList.newest(hub, shown: shown)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, request == listRequest, hub === relay?.hub else { return }
             let snapshot = CloudChatList.CachedPage(rows: page.sessions(in: hub).map(CloudChatList.CachedRow.init),
                                                     hasOlder: page.hasOlder)
             self.page = snapshot
             listError = nil
             cachedList?.save(snapshot)
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, request == listRequest, hub === relay?.hub else { return }
             listError = "Couldn't load chats. Try again."
         }
     }
