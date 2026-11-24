@@ -579,6 +579,9 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// Its agent's `session/fork` requests, whose new sessions' updates are never its own
+    /// (`fork_replay.rs`).
+    pub(super) fork_replay: super::fork_replay::ForkReplay,
     /// The other sessions' messages its Claude Code holds now, oldest first
     /// (`native_messaging.rs`): in memory only.
     pub(super) held_messages: StdMutex<std::collections::VecDeque<Value>>,
