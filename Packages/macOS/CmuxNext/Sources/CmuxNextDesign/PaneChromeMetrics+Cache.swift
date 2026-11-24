@@ -56,7 +56,10 @@ extension PaneChromeMetrics {
     /// ``current``: the cached value when the inputs match, else derived and kept.
     @MainActor static func cachedCurrent(derive: () -> PaneChromeMetrics) -> PaneChromeMetrics {
         let inputs = Inputs.read()
-        // RED: no cache yet; every read derives (the next commit serves equal inputs from `cached`).
+        if let cached, cached.inputs == inputs {
+            hits += 1
+            return cached.metrics
+        }
         let metrics = derive()
         derivations += 1
         cached = (inputs, metrics)
