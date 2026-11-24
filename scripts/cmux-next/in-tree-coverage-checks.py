@@ -1447,7 +1447,13 @@ try:
     ready = wait(lambda: (lambda r: r if r.get("value") is True else None)(page_eval("window.covReady === true")), 60, 0.5)
     page_tab = ready.get("tab") if ready else None
     if not page_tab:
-        row(False, "page", {"open": RAW["open"], "cef": rpc("debug.cef")})
+        cef = rpc("debug.cef") or {}
+        runtime = json.dumps({k: cef.get(k) for k in ("runtime", "fallback", "unavailable", "in_tree")}, default=str)
+        if any(w in runtime.lower() for w in ("unavailable", "download", "missing", "fallback", "503")):
+            # The step's app has no Chromium (the runtime download failed: no credentials, the store's 503): a rig limit.
+            row("INFO", "rig.no_chromium", {"note": "rig: the app has no Chromium runtime, no row can run", "cef": runtime[:600]})
+        else:
+            row(False, "page", {"open": RAW["open"], "cef": runtime[:600]})
         raise SystemExit
     RAW["split"] = action("splitRight")
     time.sleep(1.5)  # test harness: the new pane's terminal attaches
