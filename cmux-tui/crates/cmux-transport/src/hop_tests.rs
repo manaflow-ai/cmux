@@ -137,24 +137,40 @@ proptest! {
     #[test]
     fn decode_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..96)) {
         let _ = HopMsg::decode(&bytes);
-        let mut hop = bytes.clone();
+        let mut hop = bytes;
         hop.insert(0, HOP_MAGIC);
         if let Ok(message) = HopMsg::decode(&hop) {
             prop_assert_eq!(message.encode().unwrap(), hop);
         }
     }
 
-    /// Any loss pattern below 50% with NACK on delivers every record exactly once.
+    /// With NACK on, every record is delivered exactly once, whatever the loss
+    /// pattern, while each DATA gets through once in its 4 chances.
     #[test]
     fn nack_delivers_everything_once(seed in any::<u64>(), initial in any::<u32>()) {
         let mut pair = Pair::new(LegConfig::default(), initial);
         let mut rng = seed | 1;
-        let mut drop = move || { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; rng % 5 == 0 };
+        // 20% loss, but a DATA loses at most 3 of its 4 chances (the first
+        // send and `MAX_ASKS` resends): past that it is lost by design.
+        let mut drops = std::collections::HashMap::<Vec<u8>, u8>::new();
+        let mut drop = move |datagram: &[u8]| {
+            rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
+            let count = drops.entry(datagram[2..6].to_vec()).or_default();
+            let lose = rng % 5 == 0 && *count < 3;
+            *count += u8::from(lose);
+            lose
+        };
+        // DATA before the first one the receiver sees opens no gap it can
+        // NACK (head loss; the end-to-end layer retries it), so the leg is
+        // warm first.
+        pair.a.send(Record::new(HopClass::Input, vec![0xFF; 8]), pair.now).unwrap();
+        pair.run(ms(20), &mut |_: &[u8]| false);
+        pair.b_got.clear();
         for index in 0..60u32 {
             pair.a.send(Record::new(HopClass::Input, index.to_be_bytes().to_vec()), pair.now).unwrap();
             pair.run(ms(5), &mut drop);
         }
-        pair.run(ms(3000), &mut || false);
+        pair.run(ms(3000), &mut |_: &[u8]| false);
         let mut got: Vec<u32> = pair.b_got.iter().map(|r| u32::from_be_bytes(r.bytes[..4].try_into().unwrap())).collect();
         got.sort_unstable();
         prop_assert_eq!(got, (0..60).collect::<Vec<_>>());
@@ -190,12 +206,12 @@ impl Pair {
 
     /// Runs for `span` in 1 ms steps; `drop` decides the fate of each
     /// DATA from a to b.
-    fn run(&mut self, span: Duration, drop: &mut dyn FnMut() -> bool) {
+    fn run(&mut self, span: Duration, drop: &mut dyn FnMut(&[u8]) -> bool) {
         let end = self.now + span;
         while self.now < end {
             while let Some(datagram) = self.a.poll_transmit(self.now) {
                 let is_data = datagram[1] == TYPE_DATA;
-                if !(is_data && drop()) {
+                if !(is_data && drop(&datagram)) {
                     self.to_b.push((self.now + self.delay, datagram));
                 }
             }
@@ -227,7 +243,7 @@ fn take_due(queue: &mut Vec<(Instant, Vec<u8>)>, now: Instant) -> Vec<(Instant, 
 fn a_lost_data_is_nacked_and_resent() {
     let mut pair = Pair::new(LegConfig { fec: false, ..LegConfig::default() }, 0);
     let mut count = 0;
-    let mut drop_second = || {
+    let mut drop_second = |_: &[u8]| {
         count += 1;
         count == 2
     };
@@ -235,19 +251,40 @@ fn a_lost_data_is_nacked_and_resent() {
         pair.a.send(Record::new(HopClass::Input, vec![index; 8]), pair.now).unwrap();
         pair.run(ms(2), &mut drop_second);
     }
-    pair.run(ms(200), &mut || false);
+    pair.run(ms(200), &mut |_: &[u8]| false);
     assert_eq!(pair.b_got.len(), 3);
     assert_eq!(pair.b_repairs.iter().filter(|r| **r == Repair::Nack).count(), 1);
     assert_eq!(pair.b.stats().nacks_sent, 1);
-    assert_eq!(pair.a.stats().resent, 1);
+    // The NACKed resend, and one tail probe of the last DATA (a duplicate).
+    assert_eq!(pair.a.stats().resent, 2);
+    assert_eq!(pair.a.stats().tail_probes, 1);
+    assert_eq!(pair.b.stats().duplicates, 1);
     assert_eq!(pair.b.stats().repaired_by_nack, 1);
+}
+
+#[test]
+fn a_lost_last_data_is_recovered_by_the_tail_probe() {
+    let mut pair = Pair::new(LegConfig { fec: false, ..LegConfig::default() }, 0);
+    let mut count = 0;
+    let mut drop_last = |_: &[u8]| {
+        count += 1;
+        count == 3
+    };
+    for index in 0..3u8 {
+        pair.a.send(Record::new(HopClass::Input, vec![index; 8]), pair.now).unwrap();
+        pair.run(ms(2), &mut drop_last);
+    }
+    pair.run(ms(400), &mut |_: &[u8]| false);
+    assert_eq!(pair.b_got.len(), 3);
+    assert_eq!(pair.a.stats().tail_probes, 1);
+    assert_eq!(pair.b.stats().duplicates, 0);
 }
 
 #[test]
 fn without_nack_a_loss_stays_lost() {
     let mut pair = Pair::new(LegConfig { nack: false, fec: false, ..LegConfig::default() }, 0);
     let mut count = 0;
-    let mut drop_second = || {
+    let mut drop_second = |_: &[u8]| {
         count += 1;
         count == 2
     };
@@ -255,7 +292,7 @@ fn without_nack_a_loss_stays_lost() {
         pair.a.send(Record::new(HopClass::Input, vec![index; 8]), pair.now).unwrap();
         pair.run(ms(2), &mut drop_second);
     }
-    pair.run(ms(500), &mut || false);
+    pair.run(ms(500), &mut |_: &[u8]| false);
     assert_eq!(pair.b_got.len(), 2);
     assert_eq!(pair.b.stats().nacks_sent, 0);
 }
@@ -268,7 +305,7 @@ fn parity_recovers_one_lost_data_per_group() {
     pair.a.handle(&pong, pair.now);
     let mut count = 0;
     // Group 1 is DATA 1-4; lose DATA 6 (in group 2).
-    let mut drop_sixth = || {
+    let mut drop_sixth = |_: &[u8]| {
         count += 1;
         count == 6
     };
@@ -278,7 +315,7 @@ fn parity_recovers_one_lost_data_per_group() {
             .unwrap();
         pair.run(ms(1), &mut drop_sixth);
     }
-    pair.run(ms(100), &mut || false);
+    pair.run(ms(100), &mut |_: &[u8]| false);
     assert_eq!(pair.a.stats().parity_sent, 2);
     assert_eq!(pair.b_got.len(), 8);
     assert_eq!(pair.b.stats().repaired_by_fec, 1);
@@ -291,9 +328,9 @@ fn no_parity_on_a_clean_leg() {
     let mut pair = Pair::new(LegConfig::default(), 0);
     for index in 0..50u8 {
         pair.a.send(Record::new(HopClass::Input, vec![index; 8]), pair.now).unwrap();
-        pair.run(ms(3), &mut || false);
+        pair.run(ms(3), &mut |_: &[u8]| false);
     }
-    pair.run(ms(1500), &mut || false);
+    pair.run(ms(1500), &mut |_: &[u8]| false);
     assert_eq!(pair.a.stats().parity_sent, 0);
     assert_eq!(pair.b_got.len(), 50);
     assert!(pair.a.stats().srtt <= ms(21));
@@ -461,9 +498,9 @@ fn relay_forwards_records_with_their_tag() {
 
 #[test]
 fn fec_group_size_follows_loss() {
-    assert_eq!(super::leg::fec_group_size(1), 16);
-    assert_eq!(super::leg::fec_group_size(19), 16);
-    assert_eq!(super::leg::fec_group_size(20), 8);
-    assert_eq!(super::leg::fec_group_size(50), 4);
-    assert_eq!(super::leg::fec_group_size(900), 4);
+    assert_eq!(leg::fec_group_size(1), 16);
+    assert_eq!(leg::fec_group_size(19), 16);
+    assert_eq!(leg::fec_group_size(20), 8);
+    assert_eq!(leg::fec_group_size(50), 4);
+    assert_eq!(leg::fec_group_size(900), 4);
 }
