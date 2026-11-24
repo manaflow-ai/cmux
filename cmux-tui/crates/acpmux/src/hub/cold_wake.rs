@@ -154,7 +154,10 @@ impl Hub {
         tracing::info!(session = %session.id, window_ms = window, tokens, cold_ms = cold, "cold wake batch opened");
         if compact && compacts(tokens) {
             let (hub, s) = (self.clone(), session.clone());
-            tokio::spawn(async move { hub.cold_wake_compact(&s, tokens).await });
+            self.scope.spawn_named(
+                "cold-wake-compact",
+                Box::pin(async move { hub.cold_wake_compact(&s, tokens).await }),
+            );
         }
         Some(due)
     }
