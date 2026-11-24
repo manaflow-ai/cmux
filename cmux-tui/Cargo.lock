@@ -29,6 +29,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-environment",
+ "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
@@ -38,6 +39,7 @@ dependencies = [
  "cmux-device-kind",
  "cmux-embed",
  "cmux-fault",
+ "cmux-felt",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -62,11 +64,13 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-session-cloud",
+ "cmux-session-pack",
  "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-hooks",
@@ -79,6 +83,7 @@ dependencies = [
  "cmux-worktree-care",
  "crossterm",
  "dhat",
+ "diffy",
  "dirs",
  "flate2",
  "futures",
@@ -1365,8 +1370,10 @@ dependencies = [
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-process",
  "libc",
+ "png",
  "serde",
  "serde_json",
 ]
@@ -1501,6 +1508,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
+ "cmux-egress",
  "cmux-json",
  "reqwest",
  "rustls",
@@ -1653,6 +1661,13 @@ dependencies = [
 [[package]]
 name = "cmux-command-class"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-computer-use"
@@ -1837,6 +1852,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-egress"
+version = "1.0.0"
+dependencies = [
+ "reqwest",
+ "rustls",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-embed"
 version = "0.1.0"
 dependencies = [
@@ -1893,6 +1917,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -2262,6 +2293,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",
@@ -2534,6 +2566,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",
+ "cmux-session-pack",
  "getrandom 0.3.4",
  "hex",
  "reqwest",
@@ -2657,6 +2690,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tag-cache"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-tailnet"
 version = "0.1.0"
 dependencies = [
@@ -2714,6 +2751,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-find"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-terminal-iface"
 version = "0.1.0"
 dependencies = [
@@ -2723,6 +2769,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"
@@ -2798,6 +2847,7 @@ dependencies = [
  "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-conversation",
@@ -2977,6 +3027,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
+ "cmux-terminal-find",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
