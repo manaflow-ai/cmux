@@ -84,9 +84,10 @@ pub(crate) fn config_with(registry: Option<&Value>, env: Option<&str>) -> Option
     let secs = |k: &str| spec.and_then(|s| s.get(k)).and_then(Value::as_f64).filter(|n| *n >= 1.0);
     let wait =
         secs("wait_seconds").map_or(WAIT_DEFAULT, |s| Duration::from_secs(s as u64)).min(WAIT_MAX);
+    // One lane per machine wins over max_spills_per_host: an added host takes one.
     let per_host = match secs("max_spills_per_host") {
+        _ if solo => 1,
         Some(n) => n as u64,
-        None if solo => 1,
         None => PER_HOST_DEFAULT,
     };
     Some(Config { wait, per_host })
@@ -232,6 +233,9 @@ mod tests {
         // One lane per machine turns it on, one spill a host, unless the switch says off.
         let solo = json!({"lane_place": {"one_lane_per_host": true}, "lane_overflow": {}});
         assert_eq!(config_with(Some(&solo), None).map(|c| c.per_host), Some(1));
+        let solo_six = json!({"lane_place": {"one_lane_per_host": true},
+            "lane_overflow": {"spill": {"max_spills_per_host": 6}}});
+        assert_eq!(config_with(Some(&solo_six), None).map(|c| c.per_host), Some(1), "solo wins");
         let solo_off = json!({"lane_place": {"one_lane_per_host": true},
             "lane_overflow": {"spill": {"enabled": false}}});
         assert_eq!(config_with(Some(&solo_off), None), None);
