@@ -521,6 +521,7 @@ extension LinkPathKind {
         case .direct: "direct"
         case .turn: "relay (TURN)"
         case .turnTLS: "relay (TURN over TLS)"
+        case .httpsRelay: "relay (cmux, HTTPS)"
         case .noPath: "no path"
         }
     }
