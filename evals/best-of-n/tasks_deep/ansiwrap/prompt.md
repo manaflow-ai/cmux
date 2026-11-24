@@ -10,3 +10,7 @@ and fullwidth characters). No function may cut through an escape sequence or emi
 none drops an escape sequence of its input: shortening text removes visible characters only. Each function keeps its
 documented behavior (alignment, ellipsis, greedy wrapping, the `ValueError`) with widths measured this way; a result
 that is documented to fit `width` cells never takes more.
+
+`wrap` and `truncate` take time linear in the length of their input. A pasted log line of 370,000 characters (a
+240,000-character base64 blob with no spaces and a colour change every 40 characters, followed by 20,000 short
+words) wraps at width 120 and truncates to 100 cells in under 1 s.

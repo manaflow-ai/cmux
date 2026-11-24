@@ -160,3 +160,32 @@ def test_random_sequences_match_a_model():
                 assert got == want or abs(got - want) < 1e-9, where
             else:
                 assert abs(b.tokens - tokens) < 1e-9, where
+
+
+def test_clock_stepping_back_resumes_from_new_reading():
+    c = Clock(50.0)
+    b = TokenBucket(1, 5, clock=c)
+    assert b.try_acquire(5)
+    c.t = 40.0  # NTP stepped the clock back
+    assert close(b.tokens, 0.0)
+    assert close(b.wait_time(1), 1.0)
+    c.t = 43.0
+    assert close(b.tokens, 3.0)
+    assert b.try_acquire(3)
+    assert not b.try_acquire(1)
+
+
+def test_prune_drops_only_buckets_full_now():
+    c = Clock()
+    lim = Limiter(1, 2, clock=c)
+    assert lim.allow("a", 2)
+    assert lim.allow("b", 1)
+    lim.bucket("idle")
+    assert lim.prune() == 1  # only "idle" is full
+    c.t += 1
+    assert lim.prune() == 1  # "b" refilled
+    assert lim.allow("a", 1)
+    assert not lim.allow("a", 1)
+    c.t += 10
+    assert lim.prune() == 1
+    assert lim.allow("a", 2)

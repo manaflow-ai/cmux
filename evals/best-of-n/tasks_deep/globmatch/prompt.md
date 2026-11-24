@@ -9,3 +9,9 @@ features the module docstring lists, and those rules are precise as written ther
 only limits a pattern to directories and never by itself makes it relative to the root, and `/**/` also matches
 zero directories. `ignored(path, is_dir)` and `filter_paths` must agree on every path, for files and directories
 at any depth, whether or not the caller also asks about the path's parent directories.
+
+A second report: "The file watcher pegs a core and stalls when someone adds a pattern like `*a*a*a*a*a*b` or
+`**/a/**/a/**/b`." Matching must not backtrack exponentially: one `ignored` call costs at most a polynomial in the
+pattern and path lengths, so checking 200 paths about 60 characters long or 35 directories deep against such
+patterns finish in well under 1.5 s. Matching stays case-sensitive, a `*` in the middle of a segment (`a**b`) is
+an ordinary `*`, and `*` matches names that start with a dot.

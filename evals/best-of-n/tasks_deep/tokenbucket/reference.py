@@ -28,7 +28,7 @@ class TokenBucket:
         elapsed = now - self._last
         if elapsed > 0:
             self._tokens = min(self.burst, self._tokens + elapsed * self.rate)
-            self._last = now
+        self._last = now
 
     @property
     def tokens(self):
@@ -96,3 +96,13 @@ class Limiter:
 
     def allow(self, key, cost=1):
         return self.bucket(key).try_acquire(cost)
+
+    def prune(self):
+        """Drop the buckets that are full right now and return how many were dropped.
+
+        A full bucket is what a new key gets, so a dropped key behaves exactly as if its bucket had stayed.
+        """
+        full = [k for k, b in self._buckets.items() if b.tokens >= b.burst]
+        for k in full:
+            del self._buckets[k]
+        return len(full)

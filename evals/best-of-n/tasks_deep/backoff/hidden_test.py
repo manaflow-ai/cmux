@@ -102,3 +102,45 @@ def test_other_errors_propagate():
         raise KeyError("x")
 
     raises(KeyError, call_with_retries, fn, RetryPolicy(), lambda: 0.0, lambda d: None)
+
+
+def test_non_positive_retry_after_means_now():
+    p = RetryPolicy(base=1, max_attempts=5, rng=fixed(0.5))
+    assert p.next_delay(1, 0.0, retry_after=0) == 0.0
+    assert p.next_delay(1, 0.0, retry_after=-30) == 0.0
+    q = RetryPolicy(base=1, max_attempts=5, deadline=10, rng=fixed(0.5))
+    assert q.next_delay(2, 9.0, retry_after=-1) == 0.0
+
+
+def _model(p, failures, elapsed, retry_after, draw):
+    if failures >= p.max_attempts:
+        return None
+    remaining = None if p.deadline is None else p.deadline - elapsed
+    if remaining is not None and remaining <= 0:
+        return None
+    if retry_after is not None:
+        d = max(0.0, float(retry_after))
+        return None if remaining is not None and d > remaining else d
+    d = min(p.max_delay, p.base * p.factor ** (failures - 1))
+    if p.jitter:
+        d *= draw
+    return d if remaining is None else min(d, remaining)
+
+
+def test_random_policies_match_the_contract():
+    import random
+    rng = random.Random(11)
+    for trial in range(3000):
+        draw = rng.random()
+        p = RetryPolicy(base=rng.choice((0.1, 0.5, 1, 3)), factor=rng.choice((1, 1.5, 2, 3)),
+                        max_delay=rng.choice((1, 5, 30)), max_attempts=rng.randint(1, 6),
+                        deadline=rng.choice((None, None, 5, 20, 60)), jitter=rng.random() < 0.5,
+                        rng=fixed(draw))
+        failures = rng.randint(1, 7)
+        elapsed = rng.choice((0.0, 1.0, 4.5, 19.0, 30.0, 70.0))
+        ra = rng.choice((None, None, None, -2, 0, 3, 45))
+        want = _model(p, failures, elapsed, ra, draw)
+        got = p.next_delay(failures, elapsed, ra)
+        assert (got is None) == (want is None), (trial, failures, elapsed, ra, got, want)
+        if want is not None:
+            assert abs(got - want) < 1e-9, (trial, got, want)

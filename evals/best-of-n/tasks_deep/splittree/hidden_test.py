@@ -127,3 +127,65 @@ def test_heir_can_be_a_split():
     assert same(t.snapshot(), ("h", [(0.25, "a"), (0.75, ("v", [(0.5, "b"), (0.5, "c")]))]))
     t.close("a")                # a's share goes to the v split, which is now the root's only child
     assert same(t.snapshot(), ("v", [(0.5, "b"), (0.5, "c")]))
+
+
+def _shares(snap, scale=1.0, out=None):
+    out = {} if out is None else out
+    if isinstance(snap, str):
+        out[snap] = scale
+    else:
+        for r, c in snap[1]:
+            _shares(c, scale * r, out)
+    return out
+
+
+def _normalized(snap, parent=None):
+    if isinstance(snap, str):
+        return True
+    o, kids = snap
+    return (len(kids) >= 2 and o != parent and approx(sum(r for r, _ in kids), 1)
+            and all(r > 0 for r, _ in kids) and all(_normalized(c, o) for _, c in kids))
+
+
+def test_random_ops_keep_the_contract():
+    import random
+    rng = random.Random(5)
+    for trial in range(60):
+        t = SplitTree("p0")
+        order, focus, n = ["p0"], "p0", 1
+        for _ in range(40):
+            before = _shares(t.snapshot())
+            roll = rng.random()
+            if roll < 0.55 or len(order) == 1:
+                pane, o, new = rng.choice(order), rng.choice("hv"), f"p{n}"
+                n += 1
+                t.split(pane, o, new)
+                order.insert(order.index(pane) + 1, new)
+                focus = new
+                after = _shares(t.snapshot())
+                assert approx(after[pane], before[pane] / 2) and approx(after[new], before[pane] / 2)
+                assert all(approx(after[p], before[p]) for p in before if p != pane)
+            elif roll < 0.85:
+                pane = rng.choice(order)
+                i = order.index(pane)
+                t.close(pane)
+                order.pop(i)
+                if focus == pane:
+                    focus = order[min(i, len(order) - 1)]
+                after = _shares(t.snapshot())
+                changed = [k for k, p in enumerate(order) if not approx(after[p], before[p])]
+                assert changed and changed == list(range(changed[0], changed[-1] + 1))
+                assert changed[0] == i or changed[-1] == i - 1
+            else:
+                a, b = rng.choice(order), rng.choice(order)
+                t.swap(a, b)
+                ia, ib = order.index(a), order.index(b)
+                order[ia], order[ib] = b, a
+                after = _shares(t.snapshot())
+                assert approx(after[a], before[b]) and approx(after[b], before[a])
+            snap = t.snapshot()
+            assert _normalized(snap)
+            assert t.leaves() == order and t.focus == focus
+            assert approx(sum(_shares(snap).values()), 1)
+            rects = t.layout(997, 613)
+            assert sum(w * h for _, _, w, h in rects.values()) == 997 * 613

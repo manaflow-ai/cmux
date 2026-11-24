@@ -6,6 +6,9 @@ A sequence is chords separated by spaces: `Ctrl+K Ctrl+S`.
 Canonical text (what `format` writes): modifiers in the order Ctrl, Alt, Shift, Cmd, then the key; a letter key in
 upper case, a digit or symbol as itself, a named key in its spelling from NAMED_KEYS. Modifier names, key names
 and letters are case-insensitive on input, and the aliases below are accepted.
+
+A letter key means an ASCII letter, A-Z. Any other single printable character, even one Unicode calls a letter
+(`é`, `ß`, `Ж`), is a symbol key: it is kept exactly as written, so `Ctrl+é` and `Ctrl+É` are different chords.
 """
 from dataclasses import dataclass
 
@@ -36,7 +39,7 @@ class Chord:
 def normalize_key(key: str) -> str:
     """The canonical spelling of one key; ValueError for a key we do not know."""
     if len(key) == 1:
-        if key.isalpha():
+        if "a" <= key.lower() <= "z" and key.isascii():
             return key.upper()
         if key.isprintable() and not key.isspace():
             return key

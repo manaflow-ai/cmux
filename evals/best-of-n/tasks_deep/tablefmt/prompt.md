@@ -11,3 +11,6 @@ padded per its alignment. A cell wider than its column is shown as its longest p
 the column; if a wide character does not fit, the cell is padded to the column width like any short cell. Behavior
 that does not depend on how width is measured (alignment rules, None cells, the rule line, stripped trailing spaces,
 `max_width`) stays as it is.
+
+Rendering stays linear in the size of the input: a 30,000-row listing that also holds one 200,000-character cell
+renders with `max_width=24` in under 2.5 s.

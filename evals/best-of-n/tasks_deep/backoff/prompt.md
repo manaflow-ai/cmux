@@ -9,6 +9,7 @@ Contract for `RetryPolicy.next_delay(failures, elapsed, retry_after=None)` (and 
 - Without a server hint, the delay after the n-th failure is the nominal delay `min(max_delay, base * factor**(n-1))`;
   with `jitter` it is `rng() * nominal` instead, so it always lies in `[0, nominal)` (one `rng()` draw per delay).
 - A server's `retry_after` replaces that delay with exactly `retry_after` seconds: no jitter, no `max_delay` cap.
+  A `retry_after` of zero or less (clock skew between us and the server) means retry at once: a delay of 0.0.
 - With a `deadline`, no attempt may start more than `deadline` seconds after the first one started. A computed delay
   that would cross the deadline is shortened to end exactly at it; when no time remains, or a server's `retry_after`
   would cross the deadline, give up (`None`).

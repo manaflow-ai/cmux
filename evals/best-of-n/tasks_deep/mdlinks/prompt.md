@@ -9,3 +9,9 @@ code blocks), and nothing inside code is ever reported, counted or rewritten as 
 while everything outside code is handled as it is today. `code_ranges` returns exactly the code in a document
 under that definition, each span or block once, from its opening backticks or fence line through its closing
 backticks or fence line (or the end of the document).
+
+A second report: "Opening a long agent transcript freezes the chat pane." Each function must run in about
+O(n log n) for a document of n characters: on a 400 KB document with 10,000 code spans and 10,000 links,
+`find_links`, `all_urls`, `rewrite_links` and `code_ranges` together take well under 2 s. Fence indentation is
+exactly as the docstring says: an opening or closing fence line may be indented at most 3 spaces, and a line
+indented 4 or more is never a fence (its backticks are then ordinary text or code-span runs).

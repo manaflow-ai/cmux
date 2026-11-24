@@ -90,3 +90,97 @@ def test_status_line_with_colour_and_wide_text():
     assert display_width(out) == 20
     assert strip_ansi(out).endswith(" 12:04")
     assert strip_ansi(status_line("left", "right", 12)) == "left   right"
+
+
+W = {" ": 1, "a": 1, "b": 1, "é": 1, "漢": 2, "字": 2, "Ａ": 2}
+
+
+def model_take(chars, width):
+    used = 0
+    for i, ch in enumerate(chars):
+        if used + W[ch] > width:
+            return chars[:i], chars[i:]
+        used += W[ch]
+    return chars, ""
+
+
+def model_wrap(plain, width):
+    lines, line, line_w = [], "", 0
+    for word in plain.split():
+        w = sum(W[c] for c in word)
+        if line and line_w + 1 + w <= width:
+            line, line_w = line + " " + word, line_w + 1 + w
+            continue
+        if line:
+            lines.append(line)
+        while w > width:
+            head, word = model_take(word, width)
+            lines.append(head)
+            w = sum(W[c] for c in word)
+        line, line_w = word, w
+    if line:
+        lines.append(line)
+    return lines
+
+
+def model_truncate(plain, width):
+    if sum(W[c] for c in plain) <= width:
+        return plain
+    return model_take(plain, width - 1)[0] + "…"
+
+
+def random_text(rnd):
+    words = []
+    for _ in range(rnd.randint(0, 9)):
+        word = ""
+        for _ in range(rnd.randint(1, 9)):
+            if rnd.random() < 0.25:
+                word += rnd.choice(["\x1b[1m", "\x1b[0m", "\x1b[38;5;208m", "\x1b[K"])
+            word += rnd.choice(list(W)[1:])
+        if rnd.random() < 0.3:
+            word += "\x1b[0m"
+        words.append(word)
+    return "".join(w + rnd.choice([" ", "  ", " "]) for w in words).rstrip(" ") if words else ""
+
+
+def test_random_texts_wrap_and_truncate_like_plain_text():
+    import random
+    rnd = random.Random(21)
+    for _ in range(1500):
+        text = random_text(rnd)
+        plain = strip_ansi(text)
+        width = rnd.randint(2, 14)
+        lines = wrap(text, width)
+        assert [strip_ansi(x) for x in lines] == model_wrap(plain, width), (text, width)
+        assert "".join("".join(escapes(x)) for x in lines) == "".join(escapes(text)), (text, width)
+        cut = truncate(text, width)
+        assert strip_ansi(cut) == model_truncate(plain, width), (text, width)
+        assert escapes(cut) == escapes(text), (text, width)
+        assert display_width(fit(text, width)) == width
+
+
+def test_huge_unbroken_line_is_fast():
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    import ansiwrap
+    code = textwrap.dedent("""
+        import time
+        from ansiwrap import wrap, truncate, strip_ansi
+        blob = "".join("\\x1b[3%dm" % (i % 8) + "Q29sb3Vy" * 5 for i in range(6000))
+        text = "start " + blob + " end " + "word " * 20000
+        t = time.perf_counter()
+        lines = wrap(text, 120)
+        cut = truncate(text, 100)
+        el = time.perf_counter() - t
+        assert "".join(strip_ansi(x) for x in lines[1:2001]) == strip_ansi(blob)[:240000]
+        print(el)
+    """)
+    try:
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=8,
+                             cwd=os.path.dirname(os.path.abspath(ansiwrap.__file__)))
+    except subprocess.TimeoutExpired:
+        raise AssertionError("too slow")
+    assert out.returncode == 0, out.stderr[-400:]
+    assert float(out.stdout.split()[-1]) < 1.0, out.stdout

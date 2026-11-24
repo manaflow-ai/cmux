@@ -6,6 +6,7 @@ Finds inline links `[text](url)`, images `![alt](src)` and autolinks `<https://.
 block (a line of 3+ backticks or 3+ tildes indented at most 3 spaces, up to a line of the same character at least
 as long with nothing else on it, or to the end of the document). Code is returned and rewritten as it is.
 """
+import bisect
 import re
 
 LINK_RE = re.compile(r"(?<!\!)\[([^\[\]]*)\]\(([^()\s]*)(?:\s+\"([^\"]*)\")?\)")
@@ -47,18 +48,20 @@ def code_ranges(md: str) -> list[tuple[int, int]]:
 
 
 def _span_ranges(md: str, start: int, end: int) -> list[tuple[int, int]]:
-    out = []
     runs = [(m.start(), m.end()) for m in re.finditer(r"`+", md[start:end])]
+    by_len = {}
+    for idx, (a, b) in enumerate(runs):
+        by_len.setdefault(b - a, []).append(idx)
+    out = []
     i = 0
     while i < len(runs):
         a, b = runs[i]
-        n = b - a
-        for j in range(i + 1, len(runs)):
-            c, d = runs[j]
-            if d - c == n:
-                out.append((start + a, start + d))
-                i = j + 1
-                break
+        same = by_len[b - a]
+        k = bisect.bisect_right(same, i)
+        if k < len(same):
+            j = same[k]
+            out.append((start + a, start + runs[j][1]))
+            i = j + 1
         else:
             i += 1
     return out
@@ -66,8 +69,18 @@ def _span_ranges(md: str, start: int, end: int) -> list[tuple[int, int]]:
 
 def _outside_code(md: str, regex: re.Pattern):
     ranges = code_ranges(md)
+    starts = [s for s, _ in ranges]
+
+    def touches(lo, hi):
+        # same test as `s <= start < e or s < end <= e` for any range, using the sorted, disjoint ranges
+        k = bisect.bisect_right(starts, lo) - 1
+        if k >= 0 and lo < ranges[k][1]:
+            return True
+        k = bisect.bisect_left(starts, hi) - 1
+        return k >= 0 and hi <= ranges[k][1] and ranges[k][0] < hi
+
     for m in regex.finditer(md):
-        if not any(s <= m.start() < e or s < m.end() <= e for s, e in ranges):
+        if not touches(m.start(), m.end()):
             yield m
 
 

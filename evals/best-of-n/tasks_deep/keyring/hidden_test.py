@@ -92,3 +92,73 @@ def test_get_returns_copies_and_inputs_untouched():
     assert ws == {"keys": [{"id": "split", "chord": None}], "terminal": {"font": {"size": None}}}
     assert DEFAULTS["keys"][0] == {"id": "split", "chord": "cmd+d", "when": {"focus": "pane"}}
     assert s.get("missing.key", 7) == 7
+
+
+def test_nulls_inside_plain_lists():
+    s = Settings({"paths": ["/usr/bin"]}, {"paths": ["/a", None], "servers": [{"host": "h", "port": None}, 3]})
+    assert s.get("paths") == ["/a", None]
+    assert s.get("servers") == [{"host": "h"}, 3]
+
+
+def test_env_converts_against_value_below_a_null():
+    s = Settings(DEFAULTS, {"terminal": {"font": {"size": None}}}, {"terminal": None},
+                 {"CMUX_TERMINAL__FONT__SIZE": "16", "CMUX_TERMINAL__BELL": "YES"})
+    assert s.get("terminal.font.size") == 16 and s.get("terminal.bell") is True
+
+
+def _model(layers):
+    """Reference resolver for random trees: dict merge, keyed lists merge by id, nulls unset."""
+    def clean(v):
+        if isinstance(v, dict):
+            return {k: clean(x) for k, x in v.items() if x is not None}
+        if isinstance(v, list):
+            return [clean(x) for x in v]
+        return v
+
+    def keyed(v):
+        return isinstance(v, list) and v and all(isinstance(x, dict) and "id" in x for x in v)
+
+    def over(lo, hi):
+        if isinstance(lo, dict) and isinstance(hi, dict):
+            out = dict(lo)
+            for k, v in hi.items():
+                if v is not None:
+                    out[k] = over(out[k], v) if k in out else clean(v)
+            return out
+        if keyed(lo) and keyed(hi):
+            out = list(lo)
+            for item in hi:
+                ids = [x["id"] for x in out]
+                if item["id"] in ids:
+                    i = ids.index(item["id"])
+                    out[i] = over(out[i], item)
+                else:
+                    out.append(clean(item))
+            return out
+        return clean(hi)
+
+    acc = {}
+    for layer in layers:
+        acc = over(acc, layer)
+    return acc
+
+
+def test_random_layers_match_model():
+    import random
+    rng = random.Random(3)
+
+    def value(depth):
+        roll = rng.random()
+        if depth > 2 or roll < 0.3:
+            return rng.choice([None, None, 1, "s", True, 2.5])
+        if roll < 0.7:
+            return {k: value(depth + 1) for k in rng.sample("abcd", rng.randint(1, 3))}
+        if roll < 0.85:
+            return [dict({"id": i}, **{k: value(depth + 2) for k in rng.sample("xy", rng.randint(0, 2))})
+                    for i in rng.sample(range(4), rng.randint(1, 3))]
+        return [rng.choice([1, None, "z"]) for _ in range(rng.randint(0, 3))]
+
+    for _ in range(300):
+        layers = [{k: value(1) for k in rng.sample("pqr", rng.randint(0, 3))} for _ in range(3)]
+        s = Settings(*layers)
+        assert s.as_dict() == _model(layers), layers

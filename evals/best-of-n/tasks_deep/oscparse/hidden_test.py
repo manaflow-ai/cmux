@@ -97,3 +97,34 @@ def test_clipboard_query_and_bad_base64():
 def test_other_escapes_pass_through_as_text():
     assert run(b"a\x1b[2Jb\x1bMc") == [Text("a\x1b[2Jb\x1bMc")]
     assert run(b"a\x1b", b"[2Jb") == [Text("a\x1b[2Jb")]
+
+
+ABORTS = b"x\x1b]7;file://h/a\x1b]133;A\x07y\x1b]8;;u\x1b[0mz\x1b]52;c;?\x1b\x1b]133;B" + ST + b"w"
+
+
+def test_esc_inside_osc_aborts_it():
+    assert run(b"\x1b]7;x\x1b]133;A\x07") == [Prompt("A")]
+    assert run(ABORTS) == [Text("x"), Prompt("A"), Text("y\x1b[0mz\x1b"), Prompt("B"), Text("w")]
+
+
+def test_esc_abort_any_cut():
+    whole = run(ABORTS)
+    for i in range(1, len(ABORTS)):
+        assert run(ABORTS[:i], ABORTS[i:]) == whole, i
+    assert run(*[ABORTS[i:i + 1] for i in range(len(ABORTS))]) == whole
+
+
+def test_big_output_is_fast():
+    import time
+    unit = ("\x1b[1;31mwarn\x1b[0m: cmux ✓ " + "x" * 200 + "\n").encode()
+    data = (unit * (8 * 1024 * 1024 // len(unit)))
+    data = data[:4_000_000] + b"\x1b]133;D;0\x07" + data[4_000_000:]
+    p = OscParser()
+    start = time.perf_counter()
+    events = []
+    for k in range(0, len(data), 65536):
+        events.extend(p.feed(data[k:k + 65536]))
+        assert time.perf_counter() - start < 0.4, "too slow"
+    got = norm(events)
+    assert Prompt("D", 0) in got
+    assert sum(len(e.text) for e in got if isinstance(e, Text)) == len(data.decode()) - len("\x1b]133;D;0\x07")

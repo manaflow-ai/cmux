@@ -106,6 +106,33 @@ class IntervalSet:
             gaps._iv.append((prev, hi))
         return gaps
 
+    def intersection(self, other):
+        """The integers in both sets, as a new IntervalSet."""
+        out = IntervalSet()
+        a, b = self._iv, list(other)
+        i = j = 0
+        while i < len(a) and j < len(b):
+            lo, hi = max(a[i][0], b[j][0]), min(a[i][1], b[j][1])
+            if lo < hi:
+                out._iv.append((lo, hi))
+            if a[i][1] < b[j][1]:
+                i += 1
+            else:
+                j += 1
+        return out
+
+    def first_fit(self, length, lo, hi):
+        """The smallest start x >= lo with [x, x + length) entirely outside the set and x + length <= hi, or None.
+
+        The scheduler books a `length`-minute slot in the first free time of the day [lo, hi).
+        """
+        if length <= 0:
+            raise ValueError("length must be positive")
+        for s, e in self.complement(lo, hi):
+            if e - s >= length:
+                return s
+        return None
+
     def union(self, other):
         out = IntervalSet(self._iv)
         for s, e in other:

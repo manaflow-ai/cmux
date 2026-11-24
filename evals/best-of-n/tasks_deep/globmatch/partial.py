@@ -5,7 +5,8 @@ a directory. The rules follow gitignore(5): blank lines and `#` comments are ski
 matches directories only, a pattern with a `/` at its start or in its middle is relative to the root (otherwise
 it matches a name at any depth), `*` `?` `[...]` never match `/`, a leading `**/` matches in all directories, a
 trailing `/**` matches everything inside, `/**/` matches zero or more directories, and the last rule that matches
-decides. A path inside an ignored directory is ignored, and no `!` rule can re-include it.
+decides. A path inside an ignored directory is ignored, and no `!` rule can re-include it. Matching is
+case-sensitive; `**` that is not a whole segment acts like `*`; `*` matches a leading dot.
 """
 import re
 from dataclasses import dataclass

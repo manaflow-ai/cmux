@@ -7,9 +7,10 @@ we have.
 Contract: every interval in this module, whether stored, passed in or returned, is half-open: `(start, end)` means
 the integers `x` with `start <= x < end`, and is empty when `start >= end`. Every method answers exactly as if the
 set were the plain set of integers it covers: `contains`, `overlaps`, `covers`, `add`, `remove`, `complement`,
-`union` and `total` are membership, intersection, subset, union, difference, the difference `[lo, hi)` minus the set,
-union and size. What iteration yields is always the canonical form of that integer set: sorted, disjoint, non-empty
+`intersection`, `union` and `total` are membership, intersection, subset, union, difference, the difference
+`[lo, hi)` minus the set, intersection, union and size; `first_fit` is the smallest qualifying start its docstring
+describes. What iteration yields is always the canonical form of that integer set: sorted, disjoint, non-empty
 intervals with adjacent ones merged (`(0, 5)` and `(5, 9)` are stored as `(0, 9)`). Keep the public API as it is.
 
 The scheduler keeps a year of bookings in one set: building a set from 50,000 `add` calls in random order, then
-running 50,000 mixed `contains`, `overlaps`, `covers` and `remove` calls on it, must take under one second.
+running 50,000 mixed `contains`, `overlaps`, `covers` and `remove` calls on it, must take under one second, and intersecting two sets of 3,000 intervals each must take well under one second.

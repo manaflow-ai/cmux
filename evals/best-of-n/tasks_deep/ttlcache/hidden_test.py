@@ -185,3 +185,56 @@ def test_random_ops_match_a_model():
             else:
                 assert cache.delete(k) == (k in live()), where
                 model.pop(k, None)
+
+
+def test_pop_treats_expired_as_missing():
+    from pytest_shim import raises
+    clock, cache = make()
+    cache.set("a", 1, ttl=2)
+    cache.set("b", 2)
+    clock.t += 2
+    raises(KeyError, cache.pop, "a")
+    assert cache.pop("a", "d") == "d"
+    assert cache.pop("b") == 2
+    assert "b" not in cache
+    raises(KeyError, cache.pop, "b")
+
+
+def test_get_or_load_reloads_after_expiry():
+    clock, cache = make()
+    calls = []
+
+    def loader(k):
+        calls.append(k)
+        return k.upper()
+
+    assert cache.get_or_load("x", loader, ttl=3) == "X"
+    assert cache.get_or_load("x", loader) == "X"
+    assert calls == ["x"]
+    assert (cache.hits, cache.misses) == (1, 1)
+    clock.t += 3
+    assert cache.get_or_load("x", loader) == "X"
+    assert calls == ["x", "x"]
+    assert (cache.hits, cache.misses) == (1, 2)
+    assert cache.ttl_remaining("x") == 10
+
+
+def test_get_or_load_none_and_errors():
+    from pytest_shim import raises
+    clock, cache = make()
+    calls = []
+
+    def none_loader(k):
+        calls.append(k)
+        return None
+
+    assert cache.get_or_load("n", none_loader) is None
+    assert cache.get_or_load("n", none_loader) is None
+    assert calls == ["n"]
+
+    def boom(k):
+        raise RuntimeError("down")
+
+    raises(RuntimeError, cache.get_or_load, "z", boom)
+    assert "z" not in cache
+    assert len(cache) == 1

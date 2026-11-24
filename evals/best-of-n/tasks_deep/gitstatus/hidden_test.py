@@ -69,3 +69,52 @@ def test_rename_without_source_path_is_an_error():
             pass
         else:
             raise AssertionError(data)
+
+
+def test_non_utf8_path_bytes_round_trip():
+    entries = parse(b" M caf\xe9.txt\0R  n\xff\0o\xfe\0")
+    assert entries[0].path.encode("utf-8", "surrogateescape") == b"caf\xe9.txt"
+    assert entries[1].orig_path.encode("utf-8", "surrogateescape") == b"o\xfe"
+
+
+CODES = [" M", "M ", "MM", "A ", "AM", "D ", " D", "T ", " T", "R ", "RM", "C ", "CD", " R", " C", "??", "!!",
+         "DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+
+
+def _random_status(rng, n):
+    rows, want = [], []
+    for i in range(n):
+        xy = rng.choice(CODES)
+        path = rng.choice(["a", "b c", "-> d", "e\nf", "日本"]) + str(i)
+        orig = ("old " + path) if ("R" in xy or "C" in xy) else None
+        rows.append(f"{xy} {path}\0" + (f"{orig}\0" if orig else ""))
+        want.append((xy[0], xy[1], path, orig))
+    return "".join(rows), want
+
+
+def test_random_status_round_trip_and_counts():
+    import random
+    rng = random.Random(9)
+    for _ in range(200):
+        data, want = _random_status(rng, rng.randint(0, 12))
+        entries, s = status(data.encode())
+        assert [(e.x, e.y, e.path, e.orig_path) for e in entries] == want
+        conflicted = [w for w in want if w[0] + w[1] in {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}]
+        rest = [w for w in want if w not in conflicted and w[0] + w[1] not in ("??", "!!")]
+        assert s.conflicted == len(conflicted)
+        assert s.staged == sum(w[0] != " " for w in rest)
+        assert s.unstaged == sum(w[1] != " " for w in rest)
+        assert s.renamed == sum(w[3] is not None for w in want)
+        assert s.untracked == sum(w[0] + w[1] == "??" for w in want)
+        assert s.ignored == sum(w[0] + w[1] == "!!" for w in want)
+
+
+def test_huge_repo_parses_fast():
+    import random
+    import time
+    data, want = _random_status(random.Random(1), 100000)
+    raw = data.encode()
+    start = time.perf_counter()
+    entries, s = status(raw)
+    assert time.perf_counter() - start < 1.5
+    assert len(entries) == len(want) and entries[-1].path == want[-1][2]

@@ -70,3 +70,56 @@ def test_round_trip():
         c = parse(text)
         assert parse(format(c)) == c
         assert format(parse(format(c))) == format(c)
+
+
+def test_only_ascii_letters_fold_case():
+    assert format(parse("ctrl+é")) == "Ctrl+é"
+    assert parse("ctrl+é") != parse("Ctrl+É")
+    assert format(parse("Alt+ß")) == "Alt+ß"
+    assert canonical("cmd+Ж cmd+ж") == "Cmd+Ж Cmd+ж"
+    assert parse("ctrl+q") == parse("CTRL+Q")
+    km = Keymap()
+    km.bind("ctrl+é", "lower")
+    km.bind("ctrl+É", "upper")
+    assert km.lookup("Control+é") == "lower" and km.lookup("ctl+É") == "upper"
+    assert km.bindings() == {"Ctrl+é": "lower", "Ctrl+É": "upper"}
+
+
+MOD_SPELL = {"Ctrl": ["ctrl", "Control", "CTL"], "Alt": ["alt", "Option", "opt", "META"], "Shift": ["shift", "SHIFT"],
+             "Cmd": ["cmd", "Command", "super", "Win"]}
+KEY_SPELL = {"K": ["k", "K"], "S": ["s", "S"], "Escape": ["esc", "Escape", "ESCAPE", "Esc"],
+             "PageDown": ["pgdn", "PageDown", "pagedn", "PAGEDOWN"], "+": ["+", "plus", "Plus"], "-": ["-", "minus"],
+             "F5": ["f5", "F5"], "Up": ["up", "ArrowUp", "UP"], "é": ["é"], "É": ["É"], "1": ["1"]}
+ORDER = ["Ctrl", "Alt", "Shift", "Cmd"]
+
+
+def test_long_random_keymap_sessions_match_model():
+    import random
+    rnd = random.Random(21)
+    for _ in range(150):
+        km = Keymap()
+        model = {}
+        for _ in range(40):
+            seq = []
+            spelled = []
+            for _ in range(rnd.choice([1, 1, 2])):
+                mods = [m for m in ORDER if rnd.random() < 0.4]
+                key = rnd.choice(list(KEY_SPELL))
+                seq.append("+".join(mods + [key]))
+                words = [rnd.choice(MOD_SPELL[m]) for m in mods]
+                rnd.shuffle(words)
+                spelled.append("+".join(words + [rnd.choice(KEY_SPELL[key])]))
+            canon = " ".join(seq)
+            text = (" " * rnd.randint(1, 3)).join(spelled)
+            roll = rnd.random()
+            if roll < 0.45:
+                action = rnd.choice(["a", "b", "c"])
+                km.bind(text, action)
+                model[canon] = action
+            elif roll < 0.65:
+                km.unbind(text)
+                model.pop(canon, None)
+            else:
+                assert km.lookup(text) == model.get(canon), (text, canon)
+            assert canonical(text) == canon
+            assert km.bindings() == model

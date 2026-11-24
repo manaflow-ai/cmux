@@ -10,6 +10,11 @@ is a list of lines (str); a log is a list of segments. Segments are rotated by
 size, uploaded, and later fetched back from the object store, which does not
 promise to list them in the order they were written.
 
+A record is a tombstone only when "deleted" is the JSON value true; a record
+with any other "deleted" value (false, 1, "yes") is an ordinary write of its
+"value". Records may carry other fields (a "ts", a writer id); compaction keeps
+each surviving record whole.
+
 Lines that are blank, are not valid JSON (a torn write at the end of a
 segment after a crash), or lack an integer "seq" or a string "key", are
 ignored by every reader here.
@@ -101,3 +106,19 @@ def append(segment, seq, key, value=None, deleted=False):
     line = json.dumps(rec, sort_keys=True)
     segment.append(line)
     return line
+
+
+def obsolete(segments):
+    """Indexes into `segments` of the segments a compaction made unnecessary, ascending.
+
+    A segment is obsolete when none of its valid records decides its key (so a
+    segment of only ignored lines is obsolete too).
+    """
+    best = {}
+    for i, segment in enumerate(segments):
+        for rec in _records([segment]):
+            prev = best.get(rec["key"])
+            if prev is None or rec["seq"] >= prev[0]:
+                best[rec["key"]] = (rec["seq"], i)
+    needed = {i for _, i in best.values()}
+    return [i for i in range(len(segments)) if i not in needed]

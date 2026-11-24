@@ -9,3 +9,8 @@ into chunks: feeding it in any pieces yields the same events, in the same order,
 that the text may be divided among `Text` events differently (adjacent `Text` events concatenate to the same
 string). Nothing is decided before the bytes that decide it have arrived. Everything else (which sequences become
 which events, what counts as text) stays as the module docstring and `decode_osc` define it.
+
+Two more rules. An ESC inside an OSC body that does not begin ST ends that OSC with no event (the OSC is dropped),
+and the ESC then starts whatever follows it as it would anywhere else, so `ESC ] 7;x ESC ] 133;A BEL` yields only
+`Prompt("A")`. And panes stream fast: parsing stays linear and cheap: 8 MB of ordinary output (text with color
+escapes) fed in 64 KiB reads parses in under 0.4 s, so it cannot inspect every byte in Python.

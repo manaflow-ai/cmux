@@ -68,3 +68,46 @@ def test_filter_paths_walk():
     entries = ["src/", "src/main.rs", "src/a.tmp", "important.tmp", "build/", "build/x.o",
                "pkg/build/", "pkg/build/y.o", "pkg/build/important.tmp", "dist/", "dist/app.js", "pkg/dist/"]
     assert r.filter_paths(entries) == ["src/", "src/main.rs", "important.tmp", "pkg/dist/"]
+
+
+def test_star_runs_and_case_regressions():
+    r = rules("a**b")
+    assert r.ignored("ab") and r.ignored("axyb") and r.ignored("d/axb")
+    assert not r.ignored("a/b") and not r.ignored("ax/yb")
+    r = rules("**.log")
+    assert r.ignored("x/y.log") and r.ignored(".log") and not r.ignored("y.log.z")
+    r = rules("*")
+    assert r.ignored(".hidden") and r.ignored("a/.b")
+    r = rules("Makefile", "*.TXT")
+    assert not r.ignored("makefile") and not r.ignored("a.txt") and r.ignored("d/Makefile") and r.ignored("b.TXT")
+
+
+def test_hostile_patterns_are_fast():
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    import globmatch
+    code = textwrap.dedent("""
+        import time
+        from globmatch import IgnoreRules
+        rules = IgnoreRules(["*a*a*a*a*a*a*a*a*a*b", "**/a/**/a/**/a/**/a/**/a/**/b", "x*y*z*w*v/", "!*a?a?a?a?c"])
+        paths = []
+        for k in range(50):
+            paths.append("src/" + "a" * (40 + k % 20) + ".c")
+            paths.append("/".join(["a"] * (20 + k % 15)) + "/c")
+            paths.append("x" + "yzwv" * 12 + "q/f")
+        t = time.perf_counter()
+        hits = sum(rules.ignored(p) for p in paths)
+        hits += len(rules.filter_paths(p + "/" for p in paths[:50]))
+        el = time.perf_counter() - t
+        assert hits == 50, hits
+        print(el)
+    """)
+    try:
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=8,
+                             cwd=os.path.dirname(os.path.abspath(globmatch.__file__)))
+    except subprocess.TimeoutExpired:
+        raise AssertionError("too slow")
+    assert out.returncode == 0, out.stderr[-400:]
+    assert float(out.stdout.split()[-1]) < 1.5, out.stdout

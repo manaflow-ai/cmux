@@ -119,3 +119,53 @@ def test_argument_checks():
     raises(ValueError, paginate, [], 1, "!!not-a-cursor!!")
     empty = paginate([], 5)
     assert empty.items == [] and empty.next_cursor is None and empty.prev_cursor is None
+
+
+def test_other_sort_field():
+    records = [{"seq": 2, "id": "b"}, {"seq": 1, "id": "z"}, {"seq": 2, "id": "a"}]
+    p1 = paginate(records, 2, field="seq")
+    assert ids(p1) == ["z", "a"]
+    p2 = paginate(records, 2, after=p1.next_cursor, field="seq")
+    assert ids(p2) == ["b"]
+    assert p2.next_cursor is None
+    back = paginate(records, 5, before=p2.prev_cursor, field="seq")
+    assert ids(back) == ["z", "a"]
+
+
+def test_random_walks_with_churn_between_pages():
+    import random
+    rng = random.Random(2024)
+    for trial in range(150):
+        next_id = [0]
+
+        def new(ts):
+            next_id[0] += 1
+            return rec(ts, next_id[0])
+
+        records = [new(rng.randint(0, 5)) for _ in range(rng.randint(0, 25))]
+        original = {r["id"] for r in records}
+        removed = set()
+        seen = []
+        limit = rng.randint(1, 5)
+        cursor = None
+        for _ in range(200):
+            page = paginate(records, limit, after=cursor)
+            seen += [(r["ts"], r["id"]) for r in page.items]
+            assert len(page.items) <= limit
+            later = [r for r in records if page.items and (r["ts"], r["id"]) > (page.items[-1]["ts"], page.items[-1]["id"])]
+            assert (page.next_cursor is None) == (not later or not page.items), trial
+            if page.next_cursor is None:
+                break
+            cursor = page.next_cursor
+            for _ in range(rng.randint(0, 3)):
+                if records and rng.random() < 0.5:
+                    gone = records.pop(rng.randrange(len(records)))
+                    removed.add(gone["id"])
+                else:
+                    records.append(new(rng.randint(0, 5)))
+        else:
+            raise AssertionError("walk did not end")
+        assert seen == sorted(seen), trial
+        assert len({i for _, i in seen}) == len(seen), trial
+        got = {i for _, i in seen}
+        assert original - removed <= got, trial

@@ -130,6 +130,28 @@ class TTLCache:
         now = self._clock()
         return [(k, e.value) for k, e in self._data.items() if not self._expired(e, now)]
 
+    def pop(self, key, default=_MISSING):
+        """Remove `key` and return its live value; without a default, a missing key raises KeyError."""
+        entry = self._data.pop(key, None)
+        if entry is None or self._expired(entry, self._clock()):
+            if default is _MISSING:
+                raise KeyError(key)
+            return default
+        return entry.value
+
+    def get_or_load(self, key, loader, ttl=None):
+        """The live value for `key`; on a miss, call loader(key), cache what it returns (with `ttl`) and return it.
+
+        Counts one hit or one miss exactly like get(). A cached value of None is a hit like any other. If
+        loader raises, nothing is cached and the error propagates.
+        """
+        value = self.get(key, _MISSING)
+        if value is not _MISSING:
+            return value
+        value = loader(key)
+        self.set(key, value, ttl)
+        return value
+
     def ttl_remaining(self, key):
         """Seconds until `key` expires, or None if it is not live."""
         entry = self._data.get(key)

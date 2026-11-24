@@ -152,3 +152,60 @@ def test_large_set_is_fast():
             check_budget()
     check_budget()
     assert len(s) >= 50000
+
+
+def test_intersection_drops_touching_pairs():
+    a = IntervalSet([(0, 5), (10, 15)])
+    b = IntervalSet([(5, 10), (14, 20)])
+    assert list(a.intersection(b)) == [(14, 15)]
+    assert list(a.intersection(IntervalSet())) == []
+    assert list(a.intersection(a)) == [(0, 5), (10, 15)]
+
+
+def test_first_fit_takes_an_exact_gap():
+    busy = IntervalSet([(540, 600), (630, 700)])
+    assert busy.first_fit(30, 540, 720) == 600
+    assert busy.first_fit(31, 540, 720) is None
+    assert busy.first_fit(20, 540, 720) == 600
+    assert busy.first_fit(20, 690, 720) == 700
+    assert busy.first_fit(60, 480, 720) == 480
+    assert busy.first_fit(10, 595, 605) is None
+
+
+def test_random_intersection_and_first_fit_match_sets():
+    import random
+    rng = random.Random(3)
+    for trial in range(200):
+        a, b = IntervalSet(), IntervalSet()
+        ca, cb = set(), set()
+        for _ in range(rng.randint(0, 6)):
+            x = rng.randint(0, 30)
+            y = x + rng.randint(1, 6)
+            a.add(x, y); ca |= set(range(x, y))
+            x = rng.randint(0, 30)
+            y = x + rng.randint(1, 6)
+            b.add(x, y); cb |= set(range(x, y))
+        assert list(a.intersection(b)) == _model_ivs(ca & cb), trial
+        length = rng.randint(1, 6)
+        lo = rng.randint(0, 20)
+        hi = lo + rng.randint(0, 20)
+        want = next((x for x in range(lo, hi - length + 1)
+                     if not (set(range(x, x + length)) & ca)), None)
+        assert a.first_fit(length, lo, hi) == want, (trial, length, lo, hi)
+
+
+def test_large_intersection_is_fast():
+    import time as _t
+    n = 3000
+    a = IntervalSet()
+    b = IntervalSet()
+    for i in range(n):
+        a.add(i * 10, i * 10 + 6)
+        b.add(i * 10 + 3, i * 10 + 9)
+    small = a.intersection(IntervalSet([(0, 50)]))
+    assert list(small) == [(0, 6), (10, 16), (20, 26), (30, 36), (40, 46)]
+    t0 = _t.perf_counter()
+    big = a.intersection(b)
+    assert _t.perf_counter() - t0 < 1.0
+    assert len(big) == n
+    assert list(big)[:2] == [(3, 6), (13, 16)]

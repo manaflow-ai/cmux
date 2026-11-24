@@ -59,3 +59,44 @@ def test_regressions_outside_code():
     assert find_autolinks(md) == ["mailto:x@y.z"]
     assert rewrite_links("[a](b) [c](d)", lambda u: u.upper()) == "[a](B) [c](D)"
     assert find_links("unmatched ` tick [a](b)") == [("a", "b")]
+
+
+def test_fence_indentation_rules():
+    assert find_links("    ```\n[a](b)\n") == [("a", "b")]
+    assert find_links("   ```\n[a](b)\n") == []
+    assert find_links("```\nx\n    ```\n[a](b)\n") == []
+    assert find_links("```\nx\n   ```   \n[a](b)\n") == [("a", "b")]
+    md = "  ~~~~\n[in](x)\n ~~~~~~\n[out](y)"
+    assert find_links(md) == [("out", "y")]
+    assert [md[s:e] for s, e in code_ranges(md)] == ["  ~~~~\n[in](x)\n ~~~~~~\n"]
+
+
+def test_big_transcript_is_fast():
+    import os
+    import subprocess
+    import sys
+    import textwrap
+    import mdlinks
+    code = textwrap.dedent("""
+        import time
+        from mdlinks import all_urls, code_ranges, find_links, rewrite_links
+        head = "an ``` aside, a ```` one\\n"
+        body = "".join("see `cfg%d` and [doc%d](d/%d.md) " % (i, i, i) for i in range(10000))
+        md = head + "\\n" + body + "\\n~~~\\n[no](x)\\n~~~\\n"
+        t = time.perf_counter()
+        links = find_links(md)
+        urls = all_urls(md)
+        out = rewrite_links(md, lambda u: "/" + u)
+        n = len(code_ranges(md))
+        el = time.perf_counter() - t
+        assert len(links) == 10000 and len(urls) == 10000 and n == 10001, (len(links), len(urls), n)
+        assert out.count("](/d/") == 10000
+        print(el)
+    """)
+    try:
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=10,
+                             cwd=os.path.dirname(os.path.abspath(mdlinks.__file__)))
+    except subprocess.TimeoutExpired:
+        raise AssertionError("too slow")
+    assert out.returncode == 0, out.stderr[-400:]
+    assert float(out.stdout.split()[-1]) < 2.0, out.stdout

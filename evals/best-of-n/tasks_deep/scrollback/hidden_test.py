@@ -105,3 +105,56 @@ def test_long_session_stays_fast():
             assert time.perf_counter() - start < 1.0, f"too slow at line {i}"
     assert sb.lines()[0] == ("line %d " % 57000) * (57000 % 13)
     assert time.perf_counter() - start < 1.0
+
+
+def test_random_ops_match_a_list_of_lines():
+    import random
+    rng = random.Random(7)
+    for trial in range(40):
+        width, cap = rng.randint(1, 9), rng.randint(1, 12)
+        sb = Scrollback(width, cap)
+        model = []
+        for _ in range(120):
+            roll = rng.random()
+            if roll < 0.6:
+                line = "".join(rng.choice("ab ") for _ in range(rng.randint(0, 25)))
+                sb.append(line)
+                model.append(line)
+            elif roll < 0.8:
+                parts = ["".join(rng.choice("ab") for _ in range(rng.randint(0, 12))) for _ in range(rng.randint(1, 4))]
+                text = "\n".join(parts) + ("\n" if rng.random() < 0.5 else "")
+                sb.write(text)
+                lines = text.split("\n")
+                if lines[-1] == "":
+                    lines.pop()
+                model.extend(lines)
+            else:
+                width = rng.randint(1, 9)
+                sb.resize(width)
+            model = model[-cap:]
+            assert sb.lines() == model
+            assert sb.line_count() == len(model)
+            rows = [line[i:i + width] for line in model for i in range(0, max(len(line), 1), width)]
+            assert sb.rows() == rows and sb.row_count() == len(rows)
+            needle = rng.choice(["a", "ab", "ba b", "bb", "a a"])
+            want = [(n, c) for n, line in enumerate(model) for c in range(len(line)) if line.startswith(needle, c)]
+            assert sb.search(needle) == want
+
+
+def test_bad_widths_are_refused_and_change_nothing():
+    for args in ((0, 5), (5, 0)):
+        try:
+            Scrollback(*args)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(args)
+    sb = Scrollback(3, 5)
+    sb.write("abcdef\nxy\n")
+    try:
+        sb.resize(0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("resize(0)")
+    assert sb.lines() == ["abcdef", "xy"] and sb.rows() == ["abc", "def", "xy"]

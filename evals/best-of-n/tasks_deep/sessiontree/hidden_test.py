@@ -136,3 +136,84 @@ def test_cost_does_not_grow_with_sibling_count():
     t.create("s4999", top)
     assert len(t.close(top)) == n + 1
     assert time.perf_counter() - start < 0.6
+
+
+def test_random_ops_match_a_simple_model():
+    import random
+    rng = random.Random(11)
+    names = ["a", "A", "b", "B", "c", "x"]
+    for trial in range(30):
+        t = SessionTree()
+        model = {}  # sid -> [name, parent]
+
+        def kids(p):
+            return [s for s, (n, q) in model.items() if q == p]
+
+        def clash(p, name, ignore=None):
+            return any(model[s][0].casefold() == name.casefold() for s in kids(p) if s != ignore)
+
+        def ancestors_or_self(s):
+            out = set()
+            while s is not None:
+                out.add(s)
+                s = model[s][1]
+            return out
+
+        def path(s):
+            parts = []
+            while s is not None:
+                parts.append(model[s][0])
+                s = model[s][1]
+            return "/".join(reversed(parts))
+
+        for _ in range(80):
+            ids = list(model)
+            roll = rng.random()
+            name = rng.choice(names)
+            if roll < 0.4 or not ids:
+                p = rng.choice(ids + [None])
+                if clash(p, name):
+                    assert raises(t.create, name, p)
+                else:
+                    model[t.create(name, p)] = [name, p]
+            elif roll < 0.6:
+                s = rng.choice(ids)
+                if clash(model[s][1], name, ignore=s):
+                    assert raises(t.rename, s, name)
+                else:
+                    t.rename(s, name)
+                    model[s][0] = name
+            elif roll < 0.85:
+                s, p = rng.choice(ids), rng.choice(ids + [None])
+                if p == model[s][1]:
+                    t.move(s, p)
+                elif (p is not None and s in ancestors_or_self(p)) or clash(p, model[s][0]):
+                    assert raises(t.move, s, p)
+                else:
+                    t.move(s, p)
+                    model[s][1] = p
+            else:
+                s = rng.choice(ids)
+                gone = {x for x in model if s in ancestors_or_self(x)}
+                assert set(t.close(s)) == gone
+                for x in gone:
+                    del model[x]
+            assert len(t) == len(model)
+            for s in model:
+                assert t.path(s) == path(s)
+                assert t.find(path(s).swapcase()) == s
+                assert sorted(t.children(s)) == sorted(kids(s))
+
+
+def test_casefold_not_lower_and_name_rules():
+    t = SessionTree()
+    top = t.create("top")
+    s = t.create("STRASSE", top)
+    assert raises(t.create, "straße", top)
+    other = t.create("straße")
+    assert raises(t.move, other, top)
+    assert t.find("TOP/Straße") == s
+    for bad in (" x", "x ", "a/b", ""):
+        assert raises(t.rename, s, bad)
+        assert raises(t.create, bad, top)
+    assert t.name(s) == "STRASSE"

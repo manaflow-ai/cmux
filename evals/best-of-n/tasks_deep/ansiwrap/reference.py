@@ -63,6 +63,23 @@ def _take(text: str, width: int) -> tuple[str, str]:
     return "".join(head), ""
 
 
+def _pieces(text: str, width: int) -> list[str]:
+    """`text` cut into consecutive heads as repeated `_take(rest, width)` would cut it, in one pass."""
+    out = []
+    head = []
+    used = 0
+    for piece, esc in tokens(text):
+        if not esc:
+            w = char_width(piece)
+            if used + w > width:
+                out.append("".join(head))
+                head, used = [], 0
+            used += w
+        head.append(piece)
+    out.append("".join(head))
+    return out
+
+
 def pad(text: str, width: int, align: str = "left") -> str:
     """`text` padded with spaces to `width` cells. Text already that wide or wider is returned unchanged.
     `align` is "left", "right" or "center" (an odd leftover space goes on the right)."""
@@ -111,9 +128,10 @@ def wrap(text: str, width: int) -> list[str]:
         if line:
             lines.append(line)
             line, line_w = "", 0
-        while w > width:
-            head, word = _take(word, width)
-            lines.append(head)
+        if w > width:
+            pieces = _pieces(word, width)
+            lines.extend(pieces[:-1])
+            word = pieces[-1]
             w = display_width(word)
         line, line_w = word, w
     if line:

@@ -13,3 +13,7 @@ Contract:
   `acquire` raises `ValueError`.
 - `refund` gives tokens back, but never raises the bucket above `burst`.
 - Keep the public API as it is.
+
+The clock is the host's monotonic clock in production but a wall clock in some deployments, where NTP can step it
+backwards. A backwards step must never create tokens or leave the bucket stuck: the bucket keeps what it had and
+accrues from the new reading onward.

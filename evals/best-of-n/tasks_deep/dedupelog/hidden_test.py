@@ -1,7 +1,7 @@
 import json
 import random
 
-from dedupelog import append, compact, get, next_seq, replay
+from dedupelog import append, compact, get, next_seq, obsolete, replay
 
 
 def put(seg, seq, key, value):
@@ -135,3 +135,58 @@ def test_random_logs_match_the_model():
         assert sorted(r["key"] for r in kept) == sorted({json.loads(l)["key"] for s in segments for l in s})
         top = max([json.loads(l)["seq"] for s in segments for l in s], default=0)
         assert next_seq(segments) == top + 1
+
+
+def test_only_boolean_true_deleted_is_a_tombstone():
+    seg = put([], 1, "a", "keep")
+    seg.append('{"seq": 2, "key": "a", "deleted": 1, "value": "one"}')
+    seg.append('{"seq": 3, "key": "b", "deleted": false, "value": "bee"}')
+    seg.append('{"seq": 4, "key": "c", "value": "see"}')
+    seg.append('{"seq": 5, "key": "c", "deleted": "yes", "value": "sea"}')
+    assert replay([seg]) == {"a": "one", "b": "bee", "c": "sea"}
+    assert get([seg], "a") == "one"
+    assert [r["key"] for r in parsed(compact([seg]))] == ["a", "b", "c"]
+
+
+def test_compaction_keeps_extra_fields():
+    seg = ['{"seq": 1, "key": "k", "value": 1, "ts": "2026-01-01", "by": "w1"}',
+           '{"seq": 2, "key": "k", "value": 2, "ts": "2026-01-02", "by": "w2"}']
+    out = parsed(compact([seg]))
+    assert out == [{"seq": 2, "key": "k", "value": 2, "ts": "2026-01-02", "by": "w2"}]
+
+
+def test_obsolete_segments_ignore_listing_order():
+    seg9 = put([], 5, "theme", "dark")
+    seg10 = tomb([], 9, "theme")
+    junk = ["", "{torn"]
+    assert obsolete([seg10, seg9]) == [1]
+    assert obsolete([seg9, seg10]) == [0]
+    mixed = put(put([], 1, "a", 1), 2, "b", 2)
+    newer_a = put([], 7, "a", 3)
+    assert obsolete([newer_a, mixed, junk]) == [2]
+    assert obsolete([put([], 4, "z", 1), put([], 4, "z", 2)]) == [0]
+    assert obsolete([]) == []
+
+
+def test_random_obsolete_matches_the_model():
+    rng = random.Random(77)
+    for trial in range(200):
+        seq = 0
+        segments = [[] for _ in range(rng.randint(1, 5))]
+        for _ in range(rng.randint(0, 20)):
+            seq += rng.choice((0, 1, 1, 2))
+            seg = rng.choice(segments)
+            key = rng.choice("abcd")
+            if rng.random() < 0.3:
+                tomb(seg, seq, key)
+            else:
+                put(seg, seq, key, rng.randint(0, 9))
+        rng.shuffle(segments)
+        best = {}
+        for i, s in enumerate(segments):
+            for line in s:
+                r = json.loads(line)
+                if r["key"] not in best or r["seq"] >= best[r["key"]][0]:
+                    best[r["key"]] = (r["seq"], i)
+        needed = {i for _, i in best.values()}
+        assert obsolete(segments) == [i for i in range(len(segments)) if i not in needed], trial

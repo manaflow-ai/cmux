@@ -105,33 +105,49 @@ class OscParser:
                 if decoded:
                     events.append(Text(decoded))
 
-        for b in data:
-            if self._in_osc:
-                if self._esc:
-                    self._esc = False
-                    if b == BACKSLASH:
-                        self._finish(events)
-                        continue
-                    self._body.append(ESC)
-                if b == BEL:
-                    self._finish(events)
-                elif b == ESC:
-                    self._esc = True
-                else:
-                    self._body.append(b)
-                continue
+        i, n = 0, len(data)
+        while i < n:
             if self._esc:
                 self._esc = False
+                b = data[i]
+                if self._in_osc:
+                    if b == BACKSLASH:
+                        self._finish(events)
+                        i += 1
+                        continue
+                    # An ESC that does not start ST aborts the OSC and starts what follows it.
+                    self._in_osc = False
+                    self._body.clear()
                 if b == RBRACKET:
                     flush_text()
                     self._in_osc = True
                     self._body.clear()
+                    i += 1
                     continue
                 text.append(ESC)
-            if b == ESC:
-                self._esc = True
-            else:
-                text.append(b)
+                continue
+            if self._in_osc:
+                bel = data.find(BEL, i)
+                esc = data.find(ESC, i)
+                stops = [p for p in (bel, esc) if p != -1]
+                if not stops:
+                    self._body += data[i:]
+                    break
+                stop = min(stops)
+                self._body += data[i:stop]
+                if stop == bel:
+                    self._finish(events)
+                else:
+                    self._esc = True
+                i = stop + 1
+                continue
+            esc = data.find(ESC, i)
+            if esc == -1:
+                text += data[i:]
+                break
+            text += data[i:esc]
+            self._esc = True
+            i = esc + 1
         flush_text()
         return events
 
