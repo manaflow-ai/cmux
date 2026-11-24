@@ -69,10 +69,6 @@ async fn an_agent_that_dies_mid_turn_is_restarted_on_its_conversation_and_its_qu
     assert_eq!(summary["status"], "ready", "{summary}");
 }
 
-/// The person's messages steered into a turn whose agent process then died before it read them
-/// reach the agent after the crash, each once: the continuation carries them. Claude Code holds
-/// a steer until its next tool step, so a crash before that step took it with the process, and
-/// the resumed conversation never had it. Three crashes in a row, eight steers into each.
 /// Leo, 2026-11-21: "i dont think 429 should just cause a process to just exit on its own, this
 /// is pretty weird". An agent that prints its account's 429 and quits between turns, with no
 /// Stop, close or idle exit asking, is logged `exited` with why (`rate_limit` and the line), never
@@ -110,6 +106,10 @@ async fn an_agent_that_quits_on_a_429_between_turns_is_exited_with_why_and_resum
     assert_eq!(status(&hub, &id), "ready");
 }
 
+/// The person's messages steered into a turn whose agent process then died before it read them
+/// reach the agent after the crash, each once: the continuation carries them. Claude Code holds
+/// a steer until its next tool step, so a crash before that step took it with the process, and
+/// the resumed conversation never had it. Three crashes in a row, eight steers into each.
 #[tokio::test]
 async fn steers_an_agent_died_before_reading_reach_it_after_the_crash() {
     const ROUNDS: usize = 3;

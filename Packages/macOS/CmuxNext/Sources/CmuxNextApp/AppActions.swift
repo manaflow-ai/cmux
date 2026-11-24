@@ -102,7 +102,6 @@ enum AppActions {
         ChiefUsagePageTab.bind(into: registry, context: context)
         ChiefViewsPageTab.bind(into: registry, context: context)
         PhoneHandlers.bind(into: registry, context: context)
-        MobilePairingPageService.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
         DiffHandlers.bind(into: registry, context: context)
         FilePageHandlers.bind(into: registry, context: context)
