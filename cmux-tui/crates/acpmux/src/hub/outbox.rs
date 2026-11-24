@@ -349,7 +349,9 @@ impl Outbox {
         let key = format!("outbox:{:p}", Arc::as_ptr(&self.0));
         crate::disk_writer::run_later(&key, move || {
             if let Some(state) = state.upgrade() {
-                state.save(state.save_wanted.load(std::sync::atomic::Ordering::Relaxed));
+                let wanted = state.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
+                state.save(wanted);
+                state.save_tried.fetch_max(wanted, std::sync::atomic::Ordering::Relaxed);
             }
         });
     }
@@ -359,8 +361,10 @@ impl Outbox {
 /// goes (a restart, a test's reopen) leaves nothing of its own on the writer's queue.
 impl Drop for Outbox {
     fn drop(&mut self) {
+        // Only a save the writer has not tried: one that ran and failed is not made again here,
+        // as a change's failed save never was. One running now ends first (the disk lock).
         let wanted = self.0.save_wanted.load(std::sync::atomic::Ordering::Relaxed);
-        if wanted > 0 {
+        if wanted > self.0.save_tried.load(std::sync::atomic::Ordering::Relaxed) {
             self.0.save(wanted);
         }
     }
@@ -371,6 +375,8 @@ impl Drop for Outbox {
 pub struct OutboxState {
     /// The newest change [`Outbox::update`] asked the disk writer to save.
     save_wanted: std::sync::atomic::AtomicU64,
+    /// The newest change the disk writer's save tried to write.
+    save_tried: std::sync::atomic::AtomicU64,
     deliveries: crate::worker_lock::Mutex<Book>,
     path: StdMutex<Option<PathBuf>>,
     /// What is on disk, held while a write runs.
