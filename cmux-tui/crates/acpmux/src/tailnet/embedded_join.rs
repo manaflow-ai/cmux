@@ -39,6 +39,9 @@ pub struct JoinParams {
     pub ephemeral: bool,
     /// Join even though the node is signed in to a tailnet now (it signs out of that one first).
     pub switch: bool,
+    /// The person allowed a plain `http://` login server for this join (the key crosses the
+    /// network unencrypted). Never inferred from the address.
+    pub allow_http: bool,
 }
 
 /// What a join keeps on disk, beside the node's own state: the server, name and tags the node
@@ -92,6 +95,7 @@ impl JoinParams {
             ephemeral: self.ephemeral,
             serve: Vec::new(),
             switch_from_other_tailnet: self.switch,
+            allow_http: self.allow_http,
         }
         .check()
         .map_err(|invalid| invalid.0)?;
@@ -144,9 +148,8 @@ pub(crate) fn has_saved_login(state_dir: &Path) -> bool {
 
 /// The refusal for a node that is signed in to a tailnet and a join without `switch`.
 pub(crate) fn other_tailnet_refusal(current: Option<&JoinProfile>) -> String {
-    let server = current
-        .and_then(|p| p.control_url.clone())
-        .unwrap_or_else(|| "Tailscale".to_owned());
+    let server =
+        current.and_then(|p| p.control_url.clone()).unwrap_or_else(|| "Tailscale".to_owned());
     format!(
         "this Mac's cmux node is already signed in to a tailnet on {server}: leave it first, or join with switch (--switch) to sign out of it and join the new one"
     )

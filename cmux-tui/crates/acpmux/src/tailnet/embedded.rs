@@ -170,7 +170,7 @@ enum LifecycleState {
 }
 
 #[cfg(test)]
-type NodeFactory = Box<dyn FnOnce() -> Result<Arc<Node>, String> + Send>;
+pub(crate) type NodeFactory = Box<dyn FnOnce() -> Result<Arc<Node>, String> + Send>;
 
 struct Inner {
     snapshot: Snapshot,
@@ -213,7 +213,10 @@ pub struct Controller {
     /// outlast the fence's bound.
     close_admission: Arc<Mutex<()>>,
     #[cfg(test)]
-    node_factory: Mutex<Option<NodeFactory>>,
+    pub(crate) node_factory: Mutex<Option<NodeFactory>>,
+    /// The configuration the last start built (tests read what reached the node).
+    #[cfg(test)]
+    pub(crate) seen_config: Arc<Mutex<Option<NodeConfig>>>,
     #[cfg(test)]
     before_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     #[cfg(test)]
@@ -248,6 +251,8 @@ impl Controller {
             close_admission: Arc::new(Mutex::new(())),
             #[cfg(test)]
             node_factory: Mutex::new(None),
+            #[cfg(test)]
+            seen_config: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             before_close: Mutex::new(None),
             #[cfg(test)]
@@ -680,6 +685,8 @@ impl Controller {
         let auth_key = self.pending_key.lock().unwrap_or_else(PoisonError::into_inner).take();
         #[cfg(test)]
         let factory = self.node_factory.lock().unwrap_or_else(PoisonError::into_inner).take();
+        #[cfg(test)]
+        let seen_config = Arc::clone(&self.seen_config);
         let profile_slot = tokio::task::spawn_blocking({
             let state_dir = state_dir.clone();
             move || super::embedded_join::read_profile(&state_dir)
@@ -697,11 +704,14 @@ impl Controller {
             // relaunch can retry. Logout clears it under these same gates.
             crate::config::write_atomic(&state_dir.join("enabled"), b"1\n")
                 .map_err(|e| e.to_string())?;
-            #[cfg(test)]
-            if let Some(factory) = factory {
-                return factory();
-            }
             let config = node_config(state_dir, hostname, profile_slot.as_ref(), auth_key);
+            #[cfg(test)]
+            {
+                *seen_config.lock().unwrap_or_else(PoisonError::into_inner) = Some(config.clone());
+                if let Some(factory) = factory {
+                    return factory();
+                }
+            }
             let node = Node::new(&config).map_err(|error| error.0)?;
             drop(config); // the key's last copy on this side
             node.start().map_err(|error| error.0)?;
@@ -1503,7 +1513,7 @@ fn open_logout_directory(state_dir: &Path) -> Result<Option<std::fs::File>, Stri
     Ok(Some(directory))
 }
 
-fn clear_saved_login(directory: Option<std::fs::File>) -> Result<(), String> {
+pub(crate) fn clear_saved_login(directory: Option<std::fs::File>) -> Result<(), String> {
     unlink_saved_file(directory.as_ref(), "tailscaled.state")?;
     unlink_saved_file(directory.as_ref(), super::embedded_join::PROFILE_FILE)
 }

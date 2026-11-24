@@ -1476,6 +1476,7 @@ async fn dispatch_request_with_identity(
                         method::MUX_TAILNET_LOGIN,
                         method::MUX_TAILNET_STATE,
                         method::MUX_TAILNET_LOGOUT,
+                        method::MUX_TAILNET_JOIN,
                     ]
                     .map(Value::from),
                 );
@@ -2671,7 +2672,8 @@ async fn dispatch_request_with_identity(
         method::MUX_TAILNET_START
         | method::MUX_TAILNET_LOGIN
         | method::MUX_TAILNET_STATE
-        | method::MUX_TAILNET_LOGOUT => {
+        | method::MUX_TAILNET_LOGOUT
+        | method::MUX_TAILNET_JOIN => {
             if conn.origin.web_class() || !conn.is_person() {
                 return Err(crate::hub::person::person_required(
                     "controlling this daemon's embedded tailnet",
@@ -2681,6 +2683,13 @@ async fn dispatch_request_with_identity(
             {
                 let controller = hub.tailnet_controller();
                 let snapshot = match m {
+                    // The params carry the key: parsed here, never logged or echoed.
+                    method::MUX_TAILNET_JOIN => {
+                        let plan = crate::tailnet::embedded_join::JoinParams::from_value(&params)
+                            .and_then(crate::tailnet::embedded_join::JoinParams::plan)
+                            .map_err(RpcError::invalid_params)?;
+                        controller.join(plan).await
+                    }
                     method::MUX_TAILNET_START => controller.start().await,
                     method::MUX_TAILNET_LOGIN => controller.login().await,
                     method::MUX_TAILNET_LOGOUT => controller.logout().await,
@@ -2688,7 +2697,12 @@ async fn dispatch_request_with_identity(
                     _ => Ok(controller.snapshot()),
                 }
                 .map_err(RpcError::internal)?;
-                Ok(snapshot.to_json(true))
+                let mut reply = snapshot.to_json(true);
+                // Which tailnet the node joined (`join`, no secret); absent for the default sign-in.
+                if let Some(profile) = controller.join_profile() {
+                    reply["join"] = profile.to_json();
+                }
+                Ok(reply)
             }
             #[cfg(not(all(unix, feature = "tailnet")))]
             {
