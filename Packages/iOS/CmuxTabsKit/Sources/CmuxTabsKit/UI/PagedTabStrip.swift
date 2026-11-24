@@ -177,8 +177,8 @@ struct PagedTabStrip: View {
         }
         .buttonStyle(GlassContentButtonStyle())
         // A drag moves the row, not one chip: only a press at rest lights the chip's glass.
-        .glassEffect(moving ? .regular : .regular.interactive(), in: .capsule)
-        // At rest a neighbor's capsule is gone and its title dim; it fills in as the row moves.
+        // At rest a neighbor has no capsule, only its dim title (Conductor); it gains one as the row moves.
+        .glassEffect(isActive && !moving ? .regular.interactive() : moving ? .regular : .identity, in: .capsule)
         .opacity(isActive || moving ? 1 : 0.38 + 0.62 * Double(emphasis))
         .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: m.stripChipMaxWidth)
