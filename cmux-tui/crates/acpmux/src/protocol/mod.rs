@@ -318,6 +318,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
+        untyped(method::MUX_SURGERY, Request),
         untyped(method::MUX_TASK_LIST_SET, Request),
         untyped(method::MUX_TASK_LIST_GET, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
