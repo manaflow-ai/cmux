@@ -121,6 +121,120 @@
           ]
         },
         {
+          "key": "appearance.statusIndicator.iconSet",
+          "title": {
+            "key": "settings.statusIndicator.iconSet",
+            "text": "Status Icons"
+          },
+          "help": {
+            "key": "settings.statusIndicator.iconSet.help",
+            "text": "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "StatusIconSet",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "codex",
+              "title": {
+                "key": "statusIconSet.codex",
+                "text": "Codex-like"
+              }
+            },
+            {
+              "value": "current",
+              "title": {
+                "key": "statusIconSet.current",
+                "text": "Dots (original)"
+              }
+            },
+            {
+              "value": "still",
+              "title": {
+                "key": "statusIconSet.still",
+                "text": "Static"
+              }
+            },
+            {
+              "value": "symbols",
+              "title": {
+                "key": "statusIconSet.symbols",
+                "text": "Symbols"
+              }
+            },
+            {
+              "value": "symbolsOutline",
+              "title": {
+                "key": "statusIconSet.symbolsOutline",
+                "text": "Outlined Symbols"
+              }
+            },
+            {
+              "value": "pips",
+              "title": {
+                "key": "statusIconSet.pips",
+                "text": "Minimal Pips"
+              }
+            },
+            {
+              "value": "rings",
+              "title": {
+                "key": "statusIconSet.rings",
+                "text": "Rings"
+              }
+            },
+            {
+              "value": "badges",
+              "title": {
+                "key": "statusIconSet.badges",
+                "text": "Badges"
+              }
+            },
+            {
+              "value": "signs",
+              "title": {
+                "key": "statusIconSet.signs",
+                "text": "Signs"
+              }
+            },
+            {
+              "value": "shapes",
+              "title": {
+                "key": "statusIconSet.shapes",
+                "text": "Shapes"
+              }
+            },
+            {
+              "value": "bars",
+              "title": {
+                "key": "statusIconSet.bars",
+                "text": "Pulse Bars"
+              }
+            },
+            {
+              "value": "letters",
+              "title": {
+                "key": "statusIconSet.letters",
+                "text": "Letters"
+              }
+            }
+          ],
+          "default": "codex",
+          "keywords": [
+            "icons",
+            "glyphs",
+            "status",
+            "working",
+            "blocked",
+            "done",
+            "error",
+            "spinner"
+          ]
+        },
+        {
           "key": "appearance.statusIndicator.size",
           "name": "size",
           "title": {
