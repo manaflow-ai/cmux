@@ -39,10 +39,6 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
     /// The bar's toggles: Match Case and Full Words are the system bar's own options; Regular
     /// Expression is added to its options menu.
     private var options = TerminalFindOptions()
-    /// Watches the host scroll view, so the highlights follow every offset, size and bounds change
-    /// (not only the ones a caller remembers to report).
-    private var hostObservers: [NSKeyValueObservation] = []
-    private weak var observedHost: UIView?
     /// The daemon's pages are streaming in.
     private var streamTask: Task<Void, Never>?
     /// A selected match older than the mirror: reveal it when its history arrives.
@@ -264,43 +260,12 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         redraw()
     }
 
-    /// The highlighted cells' rects in the host's coordinates (what is on screen now).
-    var highlightedRects: [CGRect] {
-        highlight.isHidden ? [] : highlight.rects.map { $0.0.offsetBy(dx: highlight.frame.minX, dy: highlight.frame.minY) }
-    }
-
-    /// The rows the highlights were last laid over.
-    private var laidRows: Range<Int> = 0..<0
-
-    /// Follows the host: the highlights are laid again whenever its scroll offset, content size or
-    /// bounds change and the rows to draw are no longer the ones laid. A highlight that only a
-    /// caller repositioned floated whenever a change was not reported (a scroll that moved the
-    /// frame without a redraw, a zoom, a pan).
-    private func follow(_ host: UIView) {
-        guard observedHost !== host else { return }
-        observedHost = host
-        hostObservers = []
-        let moved = MainActionBox { [weak self] in
-            guard let self, self.isActive || !self.results.matches.isEmpty else { return }
-            if self.drawnRows() != self.laidRows { self.redraw() }
-        }
-        let resized = MainActionBox { [weak self] in self?.redraw() }
-        if let scroll = host as? UIScrollView {
-            hostObservers.append(scroll.observe(\.contentOffset, options: [.new]) { _, _ in moved.run() })
-            hostObservers.append(scroll.observe(\.contentSize, options: [.new]) { _, _ in resized.run() })
-        }
-        hostObservers.append(host.observe(\.bounds, options: [.new]) { _, _ in resized.run() })
-    }
-
     /// Lays the highlights over the drawn rows again (the page moved, the document changed).
-    /// The host's own changes call it too (``follow(_:)``).
     func redraw() {
         guard let host = highlightHost() else {
             highlight.isHidden = true
             return
         }
-        follow(host)
-        laidRows = drawnRows()
         guard !results.matches.isEmpty else {
             highlight.isHidden = true
             return
@@ -308,7 +273,7 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         if highlight.superview !== host { host.addSubview(highlight) }
         let selected = results.selected
         var rects: [(CGRect, Bool)] = []
-        for (index, match) in results.matches(in: laidRows) {
+        for (index, match) in results.matches(in: drawnRows()) {
             for segment in match.segments {
                 let first = rectFor(TerminalCellPoint(row: segment.row, column: segment.start))
                 let last = rectFor(TerminalCellPoint(row: segment.row, column: segment.end))
@@ -406,13 +371,6 @@ private final class TerminalFindHighlightView: UIView {
             }
         }
     }
-}
-
-/// A main-actor action a KVO callback runs (UIKit posts them on the main thread).
-private final class MainActionBox: @unchecked Sendable {
-    private let action: @MainActor () -> Void
-    init(_ action: @escaping @MainActor () -> Void) { self.action = action }
-    func run() { MainActor.assumeIsolated { action() } }
 }
 
 /// What the find bar needs of the daemon's `terminal-find` for the terminal on screen.

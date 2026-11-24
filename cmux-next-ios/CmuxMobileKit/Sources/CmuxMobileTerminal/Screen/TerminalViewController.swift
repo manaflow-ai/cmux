@@ -137,19 +137,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// bottom, so the cursor's row stays on screen (`TerminalGridSizing.keyboardLift`).
     private var tuiKeyboardLift: CGFloat = 0
     private var gridColumns = 0
-    private var cell = CGSize.zero {
-        // The find highlights are laid out in cells: a new cell size moves every one of them.
-        didSet { if cell != oldValue, finder.isActive { finder.redraw() } }
-    }
+    private var cell = CGSize.zero
     /// The Mac's grid when it is not the phone's (PROTOCOL.md "Terminal
     /// sizing policy"): the mirror takes its columns, the page pans sideways
     /// and a full-screen app is letterboxed or shifted (`TerminalHostGridLayout`).
-    private var tuiPanX: CGFloat = 0 {
-        didSet { if tuiPanX != oldValue, finder.isActive { finder.redraw() } }
-    }
-    private var tuiRowShift = 0 {
-        didSet { if tuiRowShift != oldValue, finder.isActive { finder.redraw() } }
-    }
+    private var tuiPanX: CGFloat = 0
+    private var tuiRowShift = 0
     /// The mirror width the last layout gave the surface, for `syncHostGrid`.
     private var mirrorWidth: CGFloat = 0
     /// The Mac's grid when it differs from the phone's (docs/shared-terminal-sizing.md
@@ -3963,14 +3956,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         finder.drawnRows = { [weak self] in
             guard let self else { return 0..<0 }
             if model.isTUI { return 0..<max(0, surface.grid.rows) }
-            // The rows on the page (a screen of margin each side), not the frame Ghostty has
-            // drawn: the highlights are the page's own layer, so a scroll that has not presented a
-            // new frame yet still has them.
-            guard let document, cell.height > 0 else { return presentedTop..<(presentedTop + max(surface.grid.rows, surfaceRows)) }
-            let top = scrollView.contentOffset.y, height = max(scrollView.bounds.height, cell.height)
-            let first = document.row(atContentY: top - height, cellHeight: cell.height)
-            let last = document.row(atContentY: top + 2 * height, cellHeight: cell.height)
-            return first..<max(first, min(document.endRow, last + 1))
+            return presentedTop..<(presentedTop + max(surface.grid.rows, surfaceRows))
         }
         finder.daemon = { [weak self] in
             guard let self, !model.isTUI, model.session.findMirror != nil else { return nil }
