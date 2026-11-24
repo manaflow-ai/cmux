@@ -84,7 +84,7 @@ export interface Options {
 const NOT_BUILT = /unknown (verb|option|command|action|scope)|unrecognized|unsupported|not supported|no workspace|workspaces need a link|not built|no such (verb|command)|usage:/i
 const TERMINAL = /\bin a terminal\b|\bssh [-\w@.]+|cmux (machine add|pair)\b|curl [^|]*\|\s*(ba)?sh|run .* (in|on) the (other|new) machine/i
 export const classify = (r: Exec): { kind: "ok" | "not-built" | "terminal" | "error"; text: string } => {
-  const text = `${r.stdout}\n${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 200)
+  const text = `${r.stdout}\n${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, r.code === 0 ? 200 : 1200)
   if (TERMINAL.test(r.stderr) || (r.code !== 0 && TERMINAL.test(r.stdout))) return { kind: "terminal", text }
   if (r.code !== 0 && NOT_BUILT.test(`${r.stdout}\n${r.stderr}`)) return { kind: "not-built", text }
   return r.code === 0 ? { kind: "ok", text } : { kind: "error", text }

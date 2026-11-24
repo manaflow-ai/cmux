@@ -65,6 +65,23 @@ def acpmux_evidence(app, tag, out, label):
     r.save_redacted(out, f"acpmux-{label}.txt", "\n".join(parts), 3000)
 
 
+def bundle_of(app):
+    return plistlib.load(open(os.path.join(app, "Contents/Info.plist"), "rb")).get("CFBundleIdentifier", "")
+
+
+def acpmux_home_of(bundle):
+    """The acpmux home the tagged app `bundle` runs (`~/.acpmux/builds/<bundle id>` under the account's
+    home, where the app's join lives), or None when there is none yet."""
+    if not bundle:
+        return None
+    account = pwd.getpwuid(os.getuid()).pw_dir
+    for home in (account, os.path.expanduser("~")):
+        d = os.path.join(home, ".acpmux", "builds", bundle)
+        if os.path.isfile(os.path.join(d, "machine-credential.json")):
+            return d
+    return None
+
+
 def launch(app, label, work, out, account):
     bundle, tag, ls_env = r.step_tag(app)
     r.no_data_protection_keychain(app)
@@ -141,6 +158,13 @@ def main():
         sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip() or "unknown"
         b_name = enroll_name(tag_b)
         print(f"B's sign-in join name: {b_name}", flush=True)
+        # The CLI reaches A's own acpmux, the one A joined with. A's app keeps it under the account's
+        # home (NSHomeDirectory), not this step's HOME, where `cmux acp` would start a second, unjoined
+        # daemon (run 45376956910: `acp host ls` there listed no hub, so the start on B failed).
+        a_home = acpmux_home_of(bundle_of(a.app_a))
+        if a_home:
+            env["ACPMUX_HOME"] = a_home
+        print(f"A's acpmux home: {a_home or 'not found under the account home; the CLI picks one'}", flush=True)
         res = subprocess.run(["bun", "scripts/cmux-next/machine-join-e2e.ts", "--scenario", "own-machine-parity", "--a-socket", sock_a,
                               "--b-name", b_name, "--folder", os.path.realpath(folder), "--runs", "3",
                               "--report", os.path.join(os.path.realpath(a.out), "own-machine-parity.json"), "--sha", sha], env=env)
