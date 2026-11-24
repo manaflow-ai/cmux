@@ -70,9 +70,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("coderouter-release.yml", "build-linux"): "release build: keeps its runner as main does for release jobs",
     ("fast-checks.yml", "checks"): (
         "credentialed: the generator leaves it on the ephemeral pool (tests/test_ci_runner_set.py EPHEMERAL_POOL_JOBS)"),
-    ("cmux-next-guards.yml", "signing-runner-variables"): (
-        "the signing-runner guard: its own literal Blacksmith runner, so a variable at a missing label still goes "
-        "red (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py, check_runs_on_pools.py)"),
 }
 
 
