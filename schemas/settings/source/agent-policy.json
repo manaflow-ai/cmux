@@ -23,6 +23,7 @@
       "agent": "settable",
       "keys": [
         "agentPane.links.openCitationsInEditor",
+        "cloud.autoCloud",
         "window.titlebar"
       ]
     },
@@ -100,6 +101,7 @@
         "sidebar.side",
         "sidebar.look",
         "sidebar.style",
+        "sidebar.drawnMenus",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
         "tabs.newTabTemplate"
@@ -520,6 +522,7 @@
         "experiments.glassToolbarGroups",
         "experiments.composerV2",
         "experiments.hoverLook",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
@@ -827,6 +830,8 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.environmentCard",
+        "agentPane.display.changesPill",
         "agentPane.display.finishSound",
         "agentPane.display.sendPop",
         "agentPane.display.trayTucked",
