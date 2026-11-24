@@ -316,8 +316,10 @@ fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
 }
 
 /// Relay only with a TURN server: WireGuard offers only its relayed address
-/// and never sends plain UDP, so the link runs through TURN over UDP (UDP
-/// is not blocked, so no TLS connection is ever opened).
+/// and never sends plain UDP, so the link runs through TURN over UDP. UDP is
+/// not blocked, so the link never rides TLS: the phone's dial opens its one
+/// TLS attempt beside UDP (relay first, #52476) and drops it when UDP wins,
+/// and the Mac, answering, opens none.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_relay_only_uses_turn() {
     let turn = TestTurn::start().await;
@@ -326,7 +328,11 @@ async fn wireguard_relay_only_uses_turn() {
     assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
-    assert_eq!(turn.stream_connections(), 0, "a TLS connection was opened with UDP working");
+    assert!(
+        turn.stream_connections() <= 1,
+        "{} TLS connections with UDP working: more than the dial's one relay-first attempt",
+        turn.stream_connections()
+    );
     assert_eq!(run.binary, 0);
 }
 
