@@ -313,7 +313,7 @@ struct EventInspectorList: View {
                     }
                 } header: {
                     // Its own view: a filter starting redraws the header, not the list.
-                    EventInspectorCount(memo: memo, shown: rows.count, total: total, dropped: journal.dropped)
+                    EventInspectorCount(memo: memo, shown: memo.matchingCount(journal), total: total, dropped: journal.dropped)
                 }
             }
             .overlay {

@@ -342,6 +342,8 @@ final class EventInspectorRows {
     @ObservationIgnored private var stubHead = 0
     /// Rows turned into stubs while holding (tests: a body is let go when its record drops).
     @ObservationIgnored private(set) var stubbed = 0
+    /// Stubs in the rows now (dropped records a held list still shows; not counted as kept).
+    @ObservationIgnored private var stubsShown = 0
     /// Bumped when a hold ends: the screen draws the held records.
     private var released = 0
     /// Bumped when a query's rows land (at once, or when its off-main filter does): the one
@@ -396,6 +398,7 @@ final class EventInspectorRows {
         held = []
         heldHead = 0
         arrivedWhileHeld = 0
+        stubsShown = 0
         released &+= 1
     }
 
@@ -433,6 +436,7 @@ final class EventInspectorRows {
         held = []
         heldHead = 0
         arrivedWhileHeld = 0
+        stubsShown = 0
         stubHead = 0
     }
 
@@ -527,6 +531,13 @@ final class EventInspectorRows {
         return matched[head...]
     }
 
+    /// The kept records that match the shown query, whether shown or held behind the pill (the
+    /// header's count: holding still never reads as a filter). Read after `rows`.
+    func matchingCount(_ journal: AgentEventJournal) -> Int {
+        if shownQuery.isEmpty { return journal.count }
+        return max(0, matched.count - head - stubsShown) + heldCount
+    }
+
     /// Returns once no filter is running.
     func settled() async {
         while let filtering { await filtering.value }
@@ -550,6 +561,7 @@ final class EventInspectorRows {
                 matched[stubHead] = matched[stubHead].stub
                 stubHead += 1
                 stubbed += 1
+                stubsShown += 1
             }
             // The records themselves came through the tap (`arrived`), as they were kept.
             nextID = journal.nextID

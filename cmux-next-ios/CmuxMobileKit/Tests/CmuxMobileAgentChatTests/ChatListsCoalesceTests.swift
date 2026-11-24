@@ -656,6 +656,30 @@ import Testing
         #expect(rows.rows(journal).map(\.id) == brute(journal, ""))
     }
 
+    /// The header's count never reads a hold as a filter: with no filter it is the journal's
+    /// count while held (the held records are counted, the dropped stubs are not); with one it is
+    /// every kept match, shown or held. (EventInspectorEdgeUITests offline case at ce9d4f88, step
+    /// ab8afa88: the held header said "58 of 71 events" with no filter.)
+    @Test(arguments: ["", "tool_call"])
+    func whileHeldTheHeaderCountsEveryKeptMatch(_ query: String) {
+        let journal = journal()
+        let rows = EventInspectorRows(offMainAbove: .max)
+        for n in 0..<(AgentEventJournal.limit - 20) { journal.record(Self.record(n)) }
+        rows.setQuery(query, journal: journal)
+        _ = rows.rows(journal)
+        rows.setHolding(true, journal: journal)
+        // 60 more: 40 of the oldest drop (stubs in the held rows), 60 wait behind the pill.
+        for n in 1000..<1060 { journal.record(Self.record(n)) }
+        _ = rows.rows(journal)
+        #expect(rows.matchingCount(journal) == brute(journal, query).count,
+                "held: header counts \(rows.matchingCount(journal)), the journal has \(brute(journal, query).count) matches")
+        if query.isEmpty { #expect(rows.matchingCount(journal) == journal.count) }
+        rows.setHolding(false, journal: journal)
+        _ = rows.rows(journal)
+        #expect(rows.matchingCount(journal) == brute(journal, query).count)
+        #expect(rows.rows(journal).count == brute(journal, query).count, "after the hold the rows are the count")
+    }
+
     /// The pill reads its limit from the journal's one constant: another limit moves the "+".
     @Test func thePillsLimitIsTheJournals() {
         #expect(NewEventsPill(arrived: 1).cap == AgentEventJournal.limit)
