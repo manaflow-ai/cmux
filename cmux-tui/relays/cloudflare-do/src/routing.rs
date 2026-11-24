@@ -2,7 +2,7 @@ use cmux_remote_protocol::{RelayPermission, RelayRole, RelayTicketClaims};
 use worker::{Date, Env, Method, Request, Response, Result};
 
 use crate::auth::{DEFAULT_TICKET_ISSUER, MAX_TICKET_BYTES, verify_ticket_claims};
-use crate::placement::{REGION_HEADER, is_region, location_hint_for};
+use crate::placement::{REGION_HEADER, hint_of, is_region};
 use crate::wire::{valid_circuit_id, valid_opaque_identifier, websocket_upgrade};
 
 const MAX_SLOT_ID_BYTES: usize = 128;
@@ -57,14 +57,21 @@ pub(crate) async fn route(mut request: Request, env: Env) -> Result<Response> {
         AdmissionRoute::DaemonControl { slot } | AdmissionRoute::ClientControl { slot } => {
             // The caller's place (the viewer's on a connect, the daemon's on a control socket) goes to the
             // slot beside the request, never from the caller: what it sent is dropped.
-            let viewer = viewer_region(&request);
+            let caller = hint_of(&request);
             let headers = request.headers_mut()?;
             headers.delete(REGION_HEADER)?;
-            if let Some(region) = viewer {
+            if let Some(region) = caller {
                 headers.set(REGION_HEADER, region)?;
             }
             let namespace = env.durable_object("RELAY_SLOTS")?;
-            let stub = namespace.id_from_name(slot)?.get_stub()?;
+            let id = namespace.id_from_name(slot)?;
+            // A slot the daemon creates is placed near the daemon (`crate::placement`).
+            let stub = match (admission, caller) {
+                (AdmissionRoute::DaemonControl { .. }, Some(hint)) => {
+                    id.get_stub_with_location_hint(hint)?
+                }
+                _ => id.get_stub()?,
+            };
             stub.fetch_with_request(request).await
         }
         AdmissionRoute::Circuit { circuit } => {
@@ -89,13 +96,6 @@ fn version_body(revision: Option<&str>) -> serde_json::Value {
 
 fn is_commit_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-}
-
-/// The location hint for the caller of `request`, read from the `cf` Cloudflare attaches to it.
-fn viewer_region(request: &Request) -> Option<&'static str> {
-    let cf = request.cf()?;
-    let longitude = cf.coordinates().map(|(_, longitude)| f64::from(longitude));
-    location_hint_for(cf.continent().as_deref(), longitude, cf.country().as_deref())
 }
 
 fn authorized_at_edge(

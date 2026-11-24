@@ -308,6 +308,13 @@ pub struct Session {
     /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
     /// changed` until a start runs the new profile.
     pub(super) profile_respawn: AtomicBool,
+    /// Its agent restarts once nothing runs in it (`idle.rs` `quiet_respawn`): its host runs a
+    /// binary an update replaced (`stale_host_respawn.rs`), or its profile changed while a
+    /// background process or subagent was at work in it (`profile_respawn.rs`). The idle
+    /// pass ends it as it ends an idle agent (every gate and the census), after a short quiet
+    /// period instead of the idle one; its next prompt starts it on what is installed then.
+    /// Cleared with `profile_respawn`, when its agent ends or starts.
+    pub(super) respawn_when_quiet: AtomicBool,
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     /// True while the chat is closed: its inbound loop hands `inbound_rx` back and ends once

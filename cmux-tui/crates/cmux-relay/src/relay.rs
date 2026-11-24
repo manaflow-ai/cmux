@@ -1741,7 +1741,6 @@ mod tests {
                 generation,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )
@@ -1827,7 +1826,6 @@ mod tests {
                 generation: 7,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )
@@ -2093,7 +2091,6 @@ mod tests {
                 generation,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )
@@ -2296,7 +2293,6 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )
@@ -2329,7 +2325,6 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )
@@ -2363,7 +2358,6 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )
@@ -2406,7 +2400,6 @@ mod tests {
                 generation: 1,
                 accepts_parked: false,
                 grant: None,
-                region: None,
                 inline: false,
             },
         )

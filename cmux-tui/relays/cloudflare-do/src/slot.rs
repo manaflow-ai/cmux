@@ -108,13 +108,18 @@ impl RelaySlot {
     /// inline circuit carries its frames in this slot's object, which sits by the daemon, so only a classic
     /// circuit, created in the viewer's region by its join ticket, can move the data path.
     fn far_viewer_takes_classic(&self, client: &WebSocket, daemon: Option<&WebSocket>) -> bool {
-        let enabled = self.env.var(VIEWER_CIRCUITS_VAR).is_ok_and(|value| value.to_string() == "1");
-        if !enabled {
+        if !self.viewer_circuits() {
             return false;
         }
         let viewer = self.socket_region(client);
         let daemon = daemon.and_then(|daemon| self.socket_region(daemon));
         matches!((viewer, daemon), (Some(viewer), Some(daemon)) if viewer != daemon)
+    }
+
+    /// Whether `CMUX_RELAY_VIEWER_CIRCUITS` is "1". Off, no ticket names a region and every circuit is
+    /// placed near the slot, as before this switch.
+    fn viewer_circuits(&self) -> bool {
+        self.env.var(VIEWER_CIRCUITS_VAR).is_ok_and(|value| value.to_string() == "1")
     }
 
     /// The location hint the router tagged `socket` with from its caller's `cf` (`crate::placement`).
@@ -1043,7 +1048,8 @@ impl RelaySlot {
         let now = now_ms / 1_000;
         let namespace = self.env.durable_object("RELAY_CIRCUITS")?;
         let circuit = CircuitId(namespace.unique_id()?.to_string());
-        let region = self.socket_region(socket);
+        // The viewer's region rides in both join tickets only with the switch on (`crate::placement`).
+        let region = self.viewer_circuits().then(|| self.socket_region(socket)).flatten();
         let join_expires_at = now
             .saturating_add(JOIN_TICKET_TTL_SECONDS)
             .min(client_expires_at)
@@ -1109,7 +1115,35 @@ impl RelaySlot {
             close(socket, 1011, "circuit allocation failed");
             return Ok(Allocation::DaemonFailed);
         }
+        self.place_circuit(&circuit, region.as_deref());
         Ok(Allocation::Sent)
+    }
+
+    /// Create `circuit` before either side's Join reaches it (`crate::placement`): in `region`, the
+    /// viewer's its tickets name, or else near this slot, and so near the daemon. Off the answer's
+    /// path; a Join that comes first places it with the same hint.
+    fn place_circuit(&self, circuit: &CircuitId, region: Option<&str>) {
+        let env = self.env.clone();
+        let circuit = circuit.0.clone();
+        let region = region.filter(|region| is_region(region)).map(str::to_owned);
+        self.state.wait_until(async move {
+            let placed = async {
+                let namespace = env.durable_object("RELAY_CIRCUITS")?;
+                let id = namespace.id_from_string(&circuit)?;
+                let stub = match region.as_deref() {
+                    Some(region) => id.get_stub_with_location_hint(region)?,
+                    None => id.get_stub()?,
+                };
+                let request = Request::new(
+                    &format!("https://relay.internal{}", crate::placement::PLACE_PATH),
+                    Method::Post,
+                )?;
+                stub.fetch_with_request(request).await.map(|_| ())
+            };
+            if let Err(error) = placed.await {
+                worker::console_error!("RelaySlot circuit placement error: {error}");
+            }
+        });
     }
 
     async fn handle_message(
