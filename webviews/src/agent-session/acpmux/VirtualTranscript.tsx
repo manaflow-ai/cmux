@@ -1109,6 +1109,8 @@ function TranscriptView({
   const workingRef = useRef(working);
   workingRef.current = working;
   const transcriptMounted = useRef(true);
+  /// The offset and follow state the last commit drew at (written as it lays out).
+  const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   /// The scroller height the last commit drew the followed view at, at its layout's end (`projectedTop`,
   /// which reads no offset); undefined when it drew it anywhere else.
@@ -1157,6 +1159,13 @@ function TranscriptView({
       return;
     }
     if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
+    // A frame that brings the offset the last commit drew, following as it drew, changes nothing
+    // that commit shows: a followed reply's growth pins the view to its new end, and the render that
+    // measured the growth already drew there (`projectedTop`). Its scroll event then drew the whole
+    // transcript again for no change, about one pass in four of a streamed reply
+    // (test/agent-pane-stream-renders.test.ts).
+    const drew = drewScroll.current;
+    if (drew && Math.abs(frame.top - drew.top) <= 0.5 && drew.following === followingRef.current) return;
     // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
     acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
@@ -3950,6 +3959,10 @@ function TranscriptView({
     drewFollowedEnd.current = followedEnd ? height : undefined;
   });
   const renderFollowing = sessionSwitched || followingRef.current;
+  // What this commit draws at, for the scroll pacer (`pacedScroll`).
+  useLayoutEffect(() => {
+    drewScroll.current = { top: renderScroll.top, following: renderFollowing };
+  });
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
   const shownTop = renderScroll.top - lift - origin;
