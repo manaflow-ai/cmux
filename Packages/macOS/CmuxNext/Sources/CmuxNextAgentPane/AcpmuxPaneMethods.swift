@@ -163,6 +163,9 @@ nonisolated enum AcpmuxPaneMethods {
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
         "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
+        // Every subagent of a chat in the pane's scope, running and latest ended, for the
+        // Background tasks panel (direct.ts listSubagents; acpmux hub/subagent_list.rs). Read only.
+        "_acpmux/subagents",
         // Page a chat's older turns in from its Claude Code transcript, past the newest page its log
         // was seeded with (direct.ts fetchNativeOlder; acpmux hub/native_history.rs). A read of the
         // pane's own chat: `before` is a byte cursor acpmux gave, never a path.
@@ -359,7 +362,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/turn_shots", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/subagents", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
