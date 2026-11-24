@@ -4387,7 +4387,26 @@ esac
         # Blacksmith macOS, in the same attempt, and that run is the verdict.
         jobs = self.jobs()
         client, tier = jobs["fast-tier-fleet"], jobs["fast-tier"]
-        self.assertIn("--queue-timeout 1200 ", client["steps"][0]["run"])
+        self.assertIn('--queue-timeout "$QUEUE_WAIT" ', client["steps"][0]["run"])
+        wait_env = client["steps"][0]["env"]
+        for event, switch, wait, defer in (("push", "", "1200", ""), ("pull_request", "1", "120", "1"),
+                                           ("pull_request", "0", "1200", "")):
+            with self.subTest(event=event, defer=switch):
+                context = {"github.event_name": event, "vars.CI_FAST_TIER_PR_DEFER": switch}
+                self.assertEqual(evaluate(wait_env["QUEUE_WAIT"], context), wait)
+                self.assertEqual(evaluate(wait_env["DEFER_ON_QUEUE"], context), defer)
+        # A pull request's queued step is deferred to the batched tier: the tier passes with a warning and
+        # no Mac hand-back is placed (run 45352123728: 21 min of client wait, then 62 min on a stalled Mac).
+        status, output, log = self.run_client({"FAKE_HOME": "queued", "FAKE_NEXT": "pass",
+                                               "QUEUE_WAIT": "120", "DEFER_ON_QUEUE": "1"})
+        self.assertEqual((status, self.verdict(output)), (0, "deferred"), log)
+        self.assertIn("deferred to the batched tier", log)
+        placed = {"github.repository_owner": "manaflow-ai", "vars.CI_PR_POOL_OWNED": "1",
+                  "needs.fast-tier-fleet.outputs.verdict": "deferred"}
+        self.assertFalse(evaluate(jobs["fast-tier-handback-placement"]["if"], placed))
+        tier_ctx = {"needs.fast-tier-fleet.result": "success", "needs.fast-tier-fleet.outputs.verdict": "deferred"}
+        self.assertEqual(evaluate(job_env(tier)["CMUX_FAST_TIER_FLEET"], tier_ctx), "report")
+        self.assertEqual(evaluate(tier["timeout-minutes"], tier_ctx), 5)
         self.assertGreaterEqual(client["timeout-minutes"] * 60, 1200 + 1500 + 300)
         status, output, log = self.run_client({"FAKE_HOME": "queued", "FAKE_NEXT": "pass"})
         self.assertEqual((status, self.verdict(output)), (0, "queued"), log)

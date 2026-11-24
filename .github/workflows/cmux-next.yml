@@ -3096,12 +3096,16 @@ jobs:
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
           CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,AgentSubagentPanesFocusTests,HandlerCoverageTests,AcpmuxClientTests
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-543
+          QUEUE_WAIT: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_DEFER != '0' && '120' || '1200' }}
+          DEFER_ON_QUEUE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_DEFER != '0' && '1' || '' }}
         run: |
           set -uo pipefail
           verdict=pass
           reasons=()
           # Why: docs/ci/cmux-next-workflow-notes.md#note-538
           finish() {
+            if [[ "$1" == queued && "$DEFER_ON_QUEUE" == 1 ]]; then set -- deferred; fi
             echo "verdict=$1" >> "$GITHUB_OUTPUT"
             {
               echo "### cmux-next fast tier on the build fleet: $1"
@@ -3110,6 +3114,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             case "$1" in
               pass) exit 0 ;;
+              deferred) echo "::warning title=Fast tier on the build fleet: deferred to the batched tier::no fleet worker took the Swift suites within ${QUEUE_WAIT}s, so this pull request does not wait on them; the push run on feat-cmux-next runs them: ${reasons[*]}"; exit 0 ;;
               queued) echo "::warning title=Fast tier on the build fleet: still queued::no verdict yet for $REF, so cmux-next fast tier runs the Swift suites itself: ${reasons[*]}"; exit 0 ;;
               fail) echo "::error title=Fast tier on the build fleet::a suite failed at $REF: ${reasons[*]}"; exit 1 ;;
               *) echo "::error title=Fast tier on the build fleet: no verdict::no verdict for $REF, which is never a pass: ${reasons[*]}"; exit 1 ;;
@@ -3133,7 +3138,7 @@ jobs:
             "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$REF" \
               --arg=suite --arg="$2" --arg="$3" --no-supersede \
               --env=CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS=60 \
-              --timeout 1500 --queue-timeout 1200 > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
+              --timeout 1500 --queue-timeout "$QUEUE_WAIT" > "$RUNNER_TEMP/fast-tier-fleet-$1.log" 2>&1 || status=$?
             echo "$status" > "$RUNNER_TEMP/fast-tier-fleet-$1.exit"
           }
           if [[ "$FFI_REPIN" == true ]]; then
@@ -3356,6 +3361,11 @@ jobs:
           if [[ $VERDICT == pass && $RESULT == success ]]; then
             echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
             printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ $VERDICT == deferred && $RESULT == success ]]; then
+            echo "::warning title=cmux-next fast tier deferred::no fleet worker took the Swift suites within the pull request's short queue wait; the push run on feat-cmux-next runs them (cmux-next fast tier (build fleet))"
+            printf '### cmux-next fast tier\n\nDeferred to the batched tier: the build fleet had no free worker within the pull request queue wait, so the Swift suites run on the feat-cmux-next push run instead of holding this verdict.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [[ $VERDICT == fail || $RESULT == failure ]]; then

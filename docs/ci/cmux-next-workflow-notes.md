@@ -5002,3 +5002,14 @@ fleet_gateway() still keeps the job only with an idle gateway runner of its own,
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
 no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
 spill off; unset or any other value leaves it on.
+
+## note-543
+
+Above `QUEUE_WAIT:` in `.github/workflows/cmux-next.yml`.
+
+On a pull request the client waits 120 s for a fleet worker, not the push run's 1200 s, and a step still queued
+then is `deferred`, not `queued`: no Mac hand-back, and the fast tier reports a warning and passes. Run 45352123728
+(PR 51565): the fleet client waited 21.1 min and said `queued`, then the hand-back sat 62 min on a stalled
+glaeda-side Mac. The step keeps its place in the fleet, and the feat-cmux-next push run (1200 s wait, Mac
+hand-back) is the batched tier that runs the Swift suites. vars.CI_FAST_TIER_PR_DEFER = 0 restores the 1200 s
+wait and the hand-back on pull requests.
