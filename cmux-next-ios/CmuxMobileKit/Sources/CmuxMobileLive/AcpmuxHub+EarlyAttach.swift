@@ -40,6 +40,7 @@ extension AcpmuxHub {
                                                           alsoKinds: AcpmuxSessionSource.elevationKinds)
             guard let id = try? await connection.submit("_acpmux/attach", .object(params), timeout: timeout) else { break }
             written[read.sessionID] = EarlyAttach(read: read, connection: connection, id: id)
+            source.holdForEarlyAttach()
         }
         guard self.connection === connection else {
             for early in written.values { Self.drop(early) }

@@ -23,7 +23,8 @@ import Testing
     }
 
     /// A Mac's acpmux whose `initialize` lists `capabilities`; `folds` says it takes `alsoKinds`.
-    nonisolated static func mac(_ wire: Wire, capabilities: [String]) -> MockMacLink {
+    /// `live`: a turn the agent finishes right after the first attach's page, streamed on it.
+    nonisolated static func mac(_ wire: Wire, capabilities: [String], live: Bool = false) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -38,7 +39,10 @@ import Testing
                 return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
             case "_acpmux/attach":
                 let history = (0..<Chat.turns).flatMap(Chat.turnRecords).joined(separator: ",")
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[\#(history)]}"#)]
+                let page = reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[\#(history)]}"#)
+                guard live, wire.attaches.count == 1 else { return [page] }
+                let stream = Chat.turnRecords(Chat.turns).map { Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":\#($0)}"#.utf8) }
+                return [page] + stream
             default:
                 return [reply("{}")]
             }
@@ -48,12 +52,12 @@ import Testing
     /// Opens chat s1 cold: the chat is on screen before the link is up, and the pairing passes
     /// only once the Mac read an attach (or after 5 s, which the old order needed: its attach
     /// waited for `initialize`'s answer, held behind the pairing).
-    static func coldOpen(capabilities: [String]) async throws -> (Wire, AgentChatStore, AcpmuxHub, attachBeforePairing: Bool) {
+    static func coldOpen(capabilities: [String], live: Bool = false, turns: Int = Chat.turns) async throws -> (Wire, AgentChatStore, AcpmuxHub, attachBeforePairing: Bool) {
         let wire = Wire()
         let hub = AcpmuxHub()
         let source = hub.source(sessionID: "s1", summary: Chat.summary)
         let store = AgentChatStore(source: source)
-        let channel = try await Self.mac(wire, capabilities: capabilities).openChannel(service: "acpmux", args: [:])
+        let channel = try await Self.mac(wire, capabilities: capabilities, live: live).openChannel(service: "acpmux", args: [:])
         let before = SawAttach()
         await hub.bind(channel, until: {
             var end = AwakeDeadline(.seconds(5))
@@ -63,7 +67,7 @@ import Testing
             before.saw = wire.methods.contains("_acpmux/attach")
             return true
         })
-        await Chat.waitUntil { store.turns.count == Chat.turns }
+        await Chat.waitUntil { store.turns.count == turns }
         return (wire, store, hub, before.saw)
     }
 
@@ -96,6 +100,16 @@ import Testing
         #expect(again["alsoKinds"] == nil)
         #expect((again["kinds"] as? [String])?.suffix(2) == ["elevation_request", "elevation_decision"])
         #expect(store.turns.count == Chat.turns)
+    }
+
+    /// A turn the agent streams after the early page, before the pairing passed, is shown: the
+    /// chat holds it until the page is applied, as it does during any attach.
+    @Test func aTurnStreamedBeforeTheLinkIsReadyIsKept() async throws {
+        let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation, Self.folds], live: true, turns: Chat.turns + 1)
+        defer { withExtendedLifetime(hub) {} }
+        #expect(early)
+        #expect(wire.attaches.count == 1)
+        #expect(store.turns.count == Chat.turns + 1)
     }
 
     /// A Mac from before both: the early page reads what a later attach would, and is used.
