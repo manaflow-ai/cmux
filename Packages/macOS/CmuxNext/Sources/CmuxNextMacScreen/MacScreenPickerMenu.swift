@@ -18,9 +18,10 @@ struct MacScreenPickerMenu {
     static let action: ActionID = "macScreen.open"
 
     /// The submenu for a Screen Sharing row on `target`; nil (the plain row, the Screen Sharing page) while
-    /// signed out, while no machine is listed, or in a menu scoped to another machine.
+    /// signed out, while no machine is listed, or in a menu scoped to another machine. This Mac's own panes
+    /// pass their daemon's id, `local` (``DaemonService/isLocal``), so `local` counts as this Mac.
     func menu(target: ActionTargetRef?, machineID: String?) -> NSMenu? {
-        guard machineID == nil, let hub = pages.hub else { return nil }
+        guard Self.isThisMac(machineID), let hub = pages.hub else { return nil }
         let connected = hub.connection == .connected
         let machines = MacScreenHomeSnapshot.listed(hub.otherDevices).map { device in
             ScreenPicker.Machine(device, onlineKnown: connected,
@@ -78,6 +79,11 @@ struct MacScreenPickerMenu {
         case .notAllowed: L.t("macScreen.home.blockedShort", "Not allowed")
         case .offline: L.t("macScreen.picker.offline", "Offline")
         }
+    }
+
+    /// Whether a menu scoped to `machineID` is this Mac's: no machine, or the local daemon's `local`.
+    static func isThisMac(_ machineID: String?) -> Bool {
+        machineID == nil || machineID == "local"
     }
 
     static var allDevices: String { L.t("macScreen.picker.allDevices", "All Devices…") }

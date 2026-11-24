@@ -37,7 +37,10 @@ public struct ScreenPicker: Sendable, Equatable {
         public init(_ device: HubDevice, onlineKnown: Bool, allowsRequests: Bool) {
             id = device.id
             name = device.name
-            platform = device.platform?.rawValue
+            // A platform this app cannot decode (Windows, a newer one) reads as nil here; it goes to Rust as
+            // "unknown", which it does not list, as Settings > Devices offers no screen for it
+            // (``HubDevice/hostsScreenThisMacViews``). Rust's absent-is-macOS rule is for older callers.
+            platform = device.platform?.rawValue ?? "unknown"
             online = device.online
             self.onlineKnown = onlineKnown
             macScreenShared = device.macScreenShared

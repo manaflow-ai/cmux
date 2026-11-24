@@ -154,6 +154,7 @@ extension ActionRegistry {
                 items.append(item)
             case .choices(let id):
                 guard let descriptor = descriptor(for: id), isAvailable(descriptor.id, in: context),
+                      !ActionTargetVisibility.isHidden(id, invocation: ActionInvocation(target: target, arguments: arguments), in: self),
                       let item = makeChoicesItem(for: descriptor, target: target, in: context, arguments: arguments)
                 else { continue }
                 if let machineID { scope(item, toMachine: machineID) }

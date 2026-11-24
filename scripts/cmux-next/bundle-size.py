@@ -593,7 +593,8 @@ def category_of(rel: str, is_macho: bool) -> str:
     if rel.startswith(CEF_FRAMEWORK + "/") or (rel.startswith("Contents/Frameworks/")
                                               and (" Helper" in rel.split("/")[2] or "cef" in rel.split("/")[2].lower())):
         return "cef"
-    if rel == "Contents/Resources/bin/cmux":
+    # Its function names, which the release strip moves out of it (strip-release-bundle.sh).
+    if rel in ("Contents/Resources/bin/cmux", "Contents/Resources/cmux-tui-symbols.bin"):
         return "cmux_tui"
     if rel.startswith(("Contents/MacOS/", APP_CODE_FRAMEWORK + "/")):
         return "swift_app"
