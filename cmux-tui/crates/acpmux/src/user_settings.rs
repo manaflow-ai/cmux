@@ -48,14 +48,22 @@ fn paths_from(
 /// The settings file as it is now.
 pub fn read() -> Settings {
     let read_one = |path: &std::path::Path| match std::fs::read_to_string(path) {
-        Ok(text) => Some(match document(&text) {
+        // This build's cmux tools answer and Computer Use permissions over the shared file.
+        Ok(text) => Some(match document(&cmux_config::build_scope::overlay_text(text)) {
             Some(doc) => Settings::Parsed(doc),
             None => Settings::Unreadable(format!("{}: not valid JSONC", path.display())),
         }),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => Some(Settings::Unreadable(format!("{}: {e}", path.display()))),
     };
-    paths().iter().find_map(|path| read_one(path)).unwrap_or(Settings::Missing)
+    paths().iter().find_map(|path| read_one(path)).unwrap_or_else(|| {
+        // No shared file yet, but this build may already keep its own permission values.
+        match cmux_config::build_scope::build_file().filter(|file| file.exists()) {
+            Some(_) => document(&cmux_config::build_scope::overlay_text(String::new()))
+                .map_or(Settings::Missing, Settings::Parsed),
+            None => Settings::Missing,
+        }
+    })
 }
 
 /// The settings file `read` reads: the first of [`paths`] that exists, else

@@ -171,6 +171,18 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// (`ClassicPreferenceImport`): a DEV build never derives its settings from another build's.
     public var importsOtherBuildsPreferences: Bool { !ownsState }
 
+    /// This build's own cmux tools answer and Computer Use permissions (cmux-config `build_scope`), beside the shared
+    /// settings file: `~/Library/Application Support/cmux-next/builds/<key>/build-settings.json`, the key the bundle id
+    /// (and a shipped tag it does not end in). NIGHTLY, Release, RC and cmux NEXT share `~/.config/cmux/cmux-next.json`;
+    /// without this one build's grant or answer applied to the others. Nil for a build on its own settings file (a DEV
+    /// build, a launch under a state root), whose file is already its own.
+    public var buildSettingsFile: URL? {
+        guard !ownsState else { return nil }
+        return NextSupport(applicationSupport: applicationSupport).folder
+            .appendingPathComponent("builds/\(build.key)", isDirectory: true)
+            .appendingPathComponent("build-settings.json", isDirectory: false)
+    }
+
     // MARK: - Children
 
     /// The settings file (cmux-config `CONFIG_OVERRIDE`, acpmux, cmux-tui-util).
@@ -203,8 +215,11 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// owner (cmux-config `BUILD_DEFAULTS_ENV`): set by the launch for every build that has any, not only a DEV build.
     public static let settingsBuildDefaultsKey = "CMUX_NEXT_SETTINGS_BUILD_DEFAULTS"
 
+    /// The build's file of build-scoped settings (cmux-config `build_scope::BUILD_SETTINGS_ENV`).
+    public static let buildSettingsFileKey = "CMUX_NEXT_BUILD_SETTINGS_FILE"
+
     /// Every variable ``environment`` may set: the daemon's and acpmux's allow-listed environments pass these on.
-    public static let environmentKeys = [settingsFileKey, cloudSecretsFileKey, cloudSecretsServiceKey, keysAuditFileKey,
+    public static let environmentKeys = [settingsFileKey, buildSettingsFileKey, cloudSecretsFileKey, cloudSecretsServiceKey, keysAuditFileKey,
                                          hostBudgetFileKey, automationsDirectoryKey, customizeDirectoryKey, agentSkillsDirectoryKey,
                                          agentCommandsDirectoryKey, vmConfigFileKey, mcpUpstreamsCacheKey, muxPluginsDirectoryKey, classicImportDirectoryKey]
 
@@ -213,9 +228,10 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     public static let childEnvironmentKeys = environmentKeys + [settingsBuildDefaultsKey, NextSupport.stateRootKey]
 
     /// What this build's children read its files from: every ``environmentKeys`` entry for a DEV
-    /// build or a launch under a state root, nothing for every other (they keep reading the shared defaults).
+    /// build or a launch under a state root; for every other only its ``buildSettingsFile`` (they keep reading the
+    /// shared settings file, with their own cmux tools answer and Computer Use permissions over it).
     public var environment: [String: String] {
-        guard ownsState else { return [:] }
+        guard ownsState else { return buildSettingsFile.map { [Self.buildSettingsFileKey: $0.path] } ?? [:] }
         var environment = [Self.settingsFileKey: settingsFile.path, Self.cloudSecretsFileKey: cloudSecretsIndex.path,
                            Self.cloudSecretsServiceKey: cloudSecretsService, Self.keysAuditFileKey: keysAuditFile.path,
                            Self.hostBudgetFileKey: hostBudgetFile.path, Self.automationsDirectoryKey: automationsDirectory.path,

@@ -161,3 +161,70 @@ fn claude_in_a_terminal_tells_its_own_servers_the_answer() {
         assert_eq!(fs::read_to_string(&received).unwrap(), expected, "{file}");
     }
 }
+
+/// NIGHTLY and Release share `~/.config/cmux/cmux-next.json`; each keeps its own cmux tools answer
+/// in its build file (`CMUX_NEXT_BUILD_SETTINGS_FILE`, cmux_config::build_scope). A `claude` in one
+/// build's terminal follows that build's answer, never the other build's, and the server it gets
+/// names the build's file, so the server reads the same build's Computer Use permissions.
+#[test]
+fn claude_follows_its_own_builds_answer_not_the_shared_file() {
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("home");
+    let bin = root.path().join("bin");
+    for dir in [&home, &bin] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let shared = home.join(".config/cmux/cmux-next.json");
+    fs::create_dir_all(shared.parent().unwrap()).unwrap();
+    // Another build (Release) turned cmux's tools off in the shared file's copy.
+    fs::write(&shared, r#"{"agents": {"cmuxMcp": "off"}, "appearance": {"density": "compact"}}"#)
+        .unwrap();
+    let nightly = root.path().join("builds/com.cmuxterm.app.nightly/build-settings.json");
+    fs::create_dir_all(nightly.parent().unwrap()).unwrap();
+    fs::write(&nightly, r#"{"agents": {"cmuxMcp": "on"}}"#).unwrap();
+    let received = root.path().join("claude-args");
+    let claude = bin.join("claude");
+    fs::write(&claude, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", received.display()))
+        .unwrap();
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+    let socket = root.path().join("mux.sock");
+    let _listener = UnixListener::bind(&socket).unwrap();
+    let launch = |build_file: &std::path::Path| {
+        let _ = fs::remove_file(&received);
+        let status = Command::new(CMUX)
+            .args(["agent", "claude-wrapper", "hi"])
+            .current_dir(root.path())
+            .env_clear()
+            .env("HOME", &home)
+            .env("PATH", &bin)
+            .env("CMUX_TUI_SOCKET", &socket)
+            .env("CMUX_TUI_TERMINAL_ID", "term_1")
+            .env("CMUX_NEXT_BUILD_SETTINGS_FILE", build_file)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::read_to_string(&received).unwrap()
+    };
+    // NIGHTLY's own answer is on: its claude gets the server, which names NIGHTLY's file.
+    let args = launch(&nightly);
+    let lines: Vec<&str> = args.lines().collect();
+    let at = lines
+        .iter()
+        .position(|arg| *arg == "--mcp-config")
+        .unwrap_or_else(|| panic!("NIGHTLY's claude followed the shared file's off: {args}"));
+    let config: Value = serde_json::from_str(lines[at + 1]).unwrap();
+    assert_eq!(
+        config["mcpServers"]["cmux"]["env"]["CMUX_NEXT_BUILD_SETTINGS_FILE"],
+        nightly.to_str().unwrap(),
+        "{config}"
+    );
+    // Release has no file yet: its first read keeps what the shared file said (off), in its own file.
+    let release = root.path().join("builds/com.cmuxterm.app/build-settings.json");
+    let args = launch(&release);
+    assert!(!args.lines().any(|arg| arg == "--mcp-config"), "{args}");
+    let migrated: Value = serde_json::from_str(&fs::read_to_string(&release).unwrap()).unwrap();
+    assert_eq!(migrated, json!({"agents": {"cmuxMcp": "off"}}));
+    // Release's answer never reaches NIGHTLY, and NIGHTLY's never reaches Release.
+    assert!(launch(&nightly).lines().any(|arg| arg == "--mcp-config"));
+    assert!(!launch(&release).lines().any(|arg| arg == "--mcp-config"));
+}

@@ -21,7 +21,7 @@ use std::time::Duration;
 use super::{EXIT_WITH_PID_ARG, EnsureWebSocket, ExitWith, OwnerSpec};
 
 /// The environment keys of the detached owner's launch contract.
-const CARRIED_ENV: [&str; 5] = [
+const CARRIED_ENV: [&str; 6] = [
     "CMUX_TUI_CHIEF_TOOLS_SOCKET",
     cmux_tui_core::chief_brains::ENV,
     cmux_tui_core::first_party_dir::ENV,
@@ -30,6 +30,9 @@ const CARRIED_ENV: [&str; 5] = [
     // without the variable must not move the settings owner to the default
     // file (settings.snapshot `path`, plans/cmux-next/settings-react.md).
     cmux_config::CONFIG_OVERRIDE,
+    // This build's own cmux tools answer and Computer Use permissions
+    // (cmux_config::build_scope): a restart keeps the owner on its build's file.
+    cmux_config::build_scope::BUILD_SETTINGS_ENV,
 ];
 
 /// The settings file this client names for the owner it spawns: its own

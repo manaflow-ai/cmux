@@ -78,6 +78,8 @@ public final class SettingsController {
     @ObservationIgnored let themeFonts = ThemeFonts()
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
+    /// Watches this build's file of build-scoped settings (``BuildScopedSettings``), when it has one.
+    @ObservationIgnored private var buildWatcher: ConfigFileWatcher?
     /// Watches the active theme file and the themes folder (`ThemeFileSetting`).
     @ObservationIgnored private var themeWatchers: (name: String?, watchers: [ConfigFileWatcher])?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
@@ -112,6 +114,8 @@ public final class SettingsController {
         let source: String
         let managed: ManagedPreferences
         let team: TeamPolicyLayer
+        /// This build's own cmux tools answer and Computer Use permissions (``BuildScopedSettings``).
+        var buildSource: String?
         /// The active theme file's name and text (nil text: missing or unreadable).
         var themeFile: ThemeFileInput?
     }
@@ -162,6 +166,15 @@ public final class SettingsController {
         }
         self.watcher = watcher
         watcher.start()
+        // This build's file of build-scoped settings: the daemon writes a Computer Use or cmux tools
+        // change there, not to the shared file.
+        if let buildFile = BuildScopedSettings.file() {
+            let buildWatcher = ConfigFileWatcher(url: buildFile) { [weak self] in
+                Task { @MainActor in self?.requestReload() }
+            }
+            self.buildWatcher = buildWatcher
+            buildWatcher.start(reportInitialChange: false)
+        }
         startManagedWatchers()
         watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
         let freshInstall = launchRead?.createdEmptyFile == true // loadNow lets the launch read go
@@ -192,6 +205,8 @@ public final class SettingsController {
     public func stop() {
         watcher?.stop()
         watcher = nil
+        buildWatcher?.stop()
+        buildWatcher = nil
         themeWatchers?.watchers.forEach { $0.stop() }
         themeWatchers = nil
         stopManagedWatchers()
@@ -446,10 +461,15 @@ public final class SettingsController {
         var source = ""
         var problem: String?
         var root = lastGood
+        let buildSource = BuildScopedSettings.text(of: BuildScopedSettings.file())
         do {
             source = try read.get()
             let parsed = try JSONC.parse(source)
-            if case .object = parsed { root = parsed } else { problem = "root is not an object" }
+            if case .object = parsed {
+                root = BuildScopedSettings.overlay(parsed, buildText: buildSource)
+            } else {
+                problem = "root is not an object"
+            }
         } catch {
             problem = JSONC.problem(error, in: source)
         }
@@ -471,6 +491,7 @@ public final class SettingsController {
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
         snapshot.diagnostics += effective.diagnostics + themes.diagnostics
         var inputs = LoadInputs(source: source, managed: managed, team: team)
+        inputs.buildSource = buildSource
         inputs.themeFile = themes.overlay.map { ThemeFileInput(name: $0.name, source: themes.activeSource) }
         return (inputs, effective, snapshot, themes)
     }

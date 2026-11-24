@@ -154,7 +154,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
                                         "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE",
                                         "CLOUD_SECRETS_FILE", "CLOUD_SECRETS_SERVICE", "KEYS_AUDIT_FILE",
-                                        "MCP_UPSTREAMS_DIR", "MUX_PLUGINS_DIR", "CLASSIC_IMPORT_DIR",
+                                        "MCP_UPSTREAMS_DIR", "MUX_PLUGINS_DIR", "CLASSIC_IMPORT_DIR", "BUILD_SETTINGS_FILE",
                                         "SETTINGS_BUILD_DEFAULTS",
                                         "CLOUD_ENV", "CLOUD_BACKEND", "CLOUD_RUNTIME"].map { "CMUX_NEXT_" + $0 }
 

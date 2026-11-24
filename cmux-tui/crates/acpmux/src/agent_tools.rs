@@ -344,6 +344,16 @@ pub fn cmux_server(cmux: &Path, all_tools: bool, settings_file: &Path) -> McpSer
         ),
         (crate::desktop_link::GUEST_ENV.to_owned(), String::new()),
     ];
+    let mut env = env;
+    // This build's own cmux tools answer and Computer Use permissions (cmux_config::build_scope),
+    // when it keeps them beside the shared settings file: the server reads this build's, never
+    // another build's.
+    if let Some(build_file) = cmux_config::build_scope::build_file() {
+        env.push((
+            cmux_config::build_scope::BUILD_SETTINGS_ENV.to_owned(),
+            build_file.to_string_lossy().into_owned(),
+        ));
+    }
     McpServer { name: CMUX_SERVER.into(), command: cmux.to_path_buf(), args, env }
 }
 

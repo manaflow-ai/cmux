@@ -40,7 +40,8 @@ import Testing
         for (name, url) in paths.all {
             #expect(url.path.hasPrefix(root.path + "/Library/"), "\(name) is outside the root: \(url.path)")
         }
-        #expect(Set(paths.environment.keys) == Set(BuildStatePaths.environmentKeys))
+        // Its settings file is the root's own, so no build-scoped file beside a shared one.
+        #expect(Set(paths.environment.keys) == Set(BuildStatePaths.environmentKeys).subtracting([BuildStatePaths.buildSettingsFileKey]))
         #expect(BuildStatePaths.childEnvironmentKeys.contains(NextSupport.stateRootKey))
     }
 }

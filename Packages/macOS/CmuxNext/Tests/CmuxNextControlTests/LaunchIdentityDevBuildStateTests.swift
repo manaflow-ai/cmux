@@ -11,7 +11,11 @@ import Testing
                                     userHome: URL(fileURLWithPath: "/Users/me"),
                                     applicationSupport: URL(fileURLWithPath: "/Users/me/Library/Application Support"),
                                     caches: URL(fileURLWithPath: "/Users/me/Library/Caches"))
-        let inherited = other.environment.merging(["CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.other"]) { $1 }
+        // A shipped build's own file of build-scoped settings (its Computer Use permissions) is stripped too.
+        let inherited = other.environment.merging([
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.other",
+            BuildStatePaths.buildSettingsFileKey: "/Users/me/Library/Application Support/cmux-next/builds/com.cmuxterm.app/build-settings.json",
+        ]) { $1 }
         let stripped = Set(LaunchIdentity.inheritedKeys(processEnvironment: inherited, bundledEnvironment: [:]))
         for key in BuildStatePaths.environmentKeys {
             #expect(stripped.contains(key), "\(key) from another build's terminal survived the launch")

@@ -383,7 +383,7 @@ impl AgentsCmuxMcp {
 
     /// The value in the settings file at `path`; `On` without one.
     pub fn from_config_file(path: &Path) -> Self {
-        match std::fs::read_to_string(path) {
+        match read_scoped(path) {
             Ok(text) => Self::from_config_text(&text),
             Err(_) => Self::applied(None),
         }
@@ -427,9 +427,7 @@ impl AgentsCmuxMcp {
 
     /// [`Self::from_config_text_for`] over the settings file at `path`.
     pub fn from_config_file_for(path: &Path, agent: &str) -> Self {
-        std::fs::read_to_string(path)
-            .map(|text| Self::from_config_text_for(&text, agent))
-            .unwrap_or_default()
+        read_scoped(path).map(|text| Self::from_config_text_for(&text, agent)).unwrap_or_default()
     }
 
     /// [`Self::current`] for one agent (the `claude` and `codex` shims).
@@ -450,6 +448,13 @@ impl AgentsCmuxMcp {
             Self::Off => "off",
         }
     }
+}
+
+/// The settings file at `path` as this build reads its build-scoped keys (`agents.cmuxMcp*`,
+/// `computerUse.*`): with this build's own values over the shared file
+/// (`cmux_config::build_scope`), so one build's answer never decides another's.
+pub fn read_scoped(path: &Path) -> std::io::Result<String> {
+    cmux_config::build_scope::effective_text(path)
 }
 
 /// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,

@@ -60,26 +60,20 @@ fn shared_shim_dir() -> Option<PathBuf> {
 /// Swift `cmux` that has no `agent` wrappers). `CMUX_TUI_CLI` comes first for
 /// any newer terminal that reaches the folder. Every build writes the same
 /// bytes, so the last writer no longer decides which build's wrapper a
-/// terminal runs. Without either it runs the executable the older shim
-/// named (`writer`, the quoted path its writer put there, kept verbatim so a
-/// rewrite reproduces the same bytes) while it still exists: a classic app's
-/// or npm install's `cmux-tui` at a fixed path keeps adding the hooks it
-/// added before. Without any it runs the agent itself, as the per-build shims
-/// do when their build is gone.
+/// terminal runs. Without either it runs the agent itself, with no cmux
+/// server, as the per-build shims do when their build is gone: it never runs
+/// the executable an older shim named, because that is whichever build wrote
+/// the folder last, not the terminal's own, and its `cmux mcp serve` would
+/// act on this terminal's socket with that other build's code and Computer
+/// Use permissions (each build's cmux MCP server and grants are its own).
 fn shared_shim_script(
     name: &str,
     marker: &str,
     verb: &str,
     agent: &str,
     dir: &Path,
-    writer: Option<&str>,
 ) -> Option<String> {
     let dir = agent_hook_install::shell_quote(dir.to_str()?);
-    let writer = writer
-        .map(|target| {
-            format!("if [ -x {target} ]; then\n  exec {target} agent {verb} \"$@\"\nfi\n")
-        })
-        .unwrap_or_default();
     Some(format!(
         "#!/bin/sh\n\
          {marker}\n\
@@ -94,7 +88,6 @@ fn shared_shim_script(
                ;;\n  \
            esac\n\
          done\n\
-         {writer}\
          set -f\n\
          IFS=:\n\
          kept=\n\
@@ -105,17 +98,6 @@ fn shared_shim_script(
          export PATH\n\
          exec {name} \"$@\"\n"
     ))
-}
-
-/// The quoted executable an older shim (or a rewritten one) execs for
-/// `verb`: the token of its `exec '<path>' agent <verb> "$@"` line, as
-/// written. `exec "$cli" ...` lines of a rewritten shim are not one.
-fn shim_writer_target<'a>(existing: &'a str, verb: &str) -> Option<&'a str> {
-    let tail = format!(" agent {verb} \"$@\"");
-    existing.lines().find_map(|line| {
-        let token = line.trim().strip_prefix("exec ")?.strip_suffix(tail.as_str())?;
-        (token.len() > 2 && token.starts_with('\'') && token.ends_with('\'')).then_some(token)
-    })
 }
 
 /// Rewrites the `claude` and `codex` shims an older build left in the
@@ -136,9 +118,7 @@ fn refresh_shared_shims_in(dir: &Path) {
         if !is_ours {
             continue;
         }
-        let text = String::from_utf8_lossy(&existing);
-        let writer = shim_writer_target(&text, verb);
-        let Some(script) = shared_shim_script(name, marker, verb, agent, dir, writer) else {
+        let Some(script) = shared_shim_script(name, marker, verb, agent, dir) else {
             continue;
         };
         if existing != script.as_bytes() {

@@ -36,6 +36,9 @@ pub struct ConfigStore {
     seed_path: Option<PathBuf>,
     state_dir: Option<PathBuf>,
     reader: Box<dyn ManagedReader>,
+    /// This build's file of build-scoped settings (`build_scope`): read over the shared file,
+    /// and where writes of those keys go. None for a build on its own settings file.
+    build_file: Option<PathBuf>,
 }
 
 impl ConfigStore {
@@ -52,10 +55,27 @@ impl ConfigStore {
         state_dir: Option<PathBuf>,
         reader: Box<dyn ManagedReader>,
     ) -> ConfigStore {
+        // Only the shared settings file has build-scoped values beside it: a store opened on any
+        // other file is that file alone.
+        let build_file = crate::build_scope::build_file().filter(|_| {
+            standardized(&config_path) == standardized(&crate::location::config_path())
+        });
+        Self::open_with_build_file(config_path, seed_path, state_dir, reader, build_file)
+    }
+
+    /// [`ConfigStore::open`] with this build's file of build-scoped settings named
+    /// (`build_scope`; `open` takes it from the environment).
+    pub fn open_with_build_file(
+        config_path: PathBuf,
+        seed_path: Option<PathBuf>,
+        state_dir: Option<PathBuf>,
+        reader: Box<dyn ManagedReader>,
+        build_file: Option<PathBuf>,
+    ) -> ConfigStore {
         let config_path = std::path::absolute(&config_path).unwrap_or(config_path);
         let schema = Schema::embedded();
         let cached = state_dir.as_deref().and_then(read_cache);
-        let file = read_settings(&config_path, seed_path.as_deref());
+        let file = read_with_build(&config_path, seed_path.as_deref(), build_file.as_deref());
         let team =
             state_dir.as_deref().and_then(|dir| read_team_policy(dir, schema)).unwrap_or_default();
         let revision = cached.as_ref().map_or(0, |(revision, _)| *revision);
@@ -75,7 +95,8 @@ impl ConfigStore {
         {
             state = state.with_revision(revision + 1);
         }
-        let mut store = ConfigStore { state, config_path, seed_path, state_dir, reader };
+        let mut store =
+            ConfigStore { state, config_path, seed_path, state_dir, reader, build_file };
         store.migrate_once();
         store.write_cache();
         store
@@ -169,16 +190,14 @@ impl ConfigStore {
         }
         let result = match store::apply(&self.state, op) {
             Err(refusal) => Err(refusal),
-            Ok(applied) => {
-                match applied.write.as_deref().map(|text| publish(&self.config_path, text)) {
-                    Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
-                    _ => {
-                        self.state = applied.state;
-                        changes.extend(applied.changes);
-                        Ok(applied.outcome)
-                    }
+            Ok(applied) => match applied.write.as_deref().map(|text| self.publish(text)) {
+                Some(Err(error)) => Err(Refusal::Io { message: error.to_string() }),
+                _ => {
+                    self.state = applied.state;
+                    changes.extend(applied.changes);
+                    Ok(applied.outcome)
                 }
-            }
+            },
         };
         // A write that picks another theme file: read that file now.
         if self.state.theme_wanted().is_some_and(|(_, stale)| stale)
@@ -211,7 +230,35 @@ impl ConfigStore {
     }
 
     fn read_file(&self) -> FileRead {
-        read_settings(&self.config_path, self.seed_path.as_deref())
+        read_with_build(&self.config_path, self.seed_path.as_deref(), self.build_file.as_deref())
+    }
+
+    /// Publishes the text a write left. A build with a file of its own sends the build-scoped
+    /// values there, and the rest to the shared file, whose own build-scoped values stay as they
+    /// are on disk (the shared file is not written when only build-scoped values changed).
+    fn publish(&self, text: &str) -> std::io::Result<()> {
+        let Some(build_file) = &self.build_file else { return publish(&self.config_path, text) };
+        if crate::build_scope::build_file_is_broken(build_file) {
+            return Err(std::io::Error::other(format!(
+                "{} is not valid JSON; fix or remove it before changing settings",
+                build_file.display()
+            )));
+        }
+        let disk = match read_settings(&self.config_path, self.seed_path.as_deref()) {
+            FileRead::Text(disk) => disk,
+            FileRead::Unreadable(message) => return Err(std::io::Error::other(message)),
+        };
+        let Some((values, shared)) = crate::build_scope::split(text, &disk) else {
+            return Err(std::io::Error::other("the settings text does not parse"));
+        };
+        let rendered = crate::build_scope::render(&values);
+        if std::fs::read_to_string(build_file).ok().as_deref() != Some(rendered.as_str()) {
+            write_private(build_file, &rendered)?;
+        }
+        match shared {
+            Some(shared) => publish(&self.config_path, &shared),
+            None => Ok(()),
+        }
     }
 
     /// The folder of the settings file, where `themes/` is.
@@ -230,6 +277,7 @@ impl ConfigStore {
     /// symlink target), the managed reader's files and the active theme file.
     pub fn watch_paths(&self) -> Vec<PathBuf> {
         let mut paths = vec![self.config_path.clone()];
+        paths.extend(self.build_file.clone());
         paths.extend(self.theme_watch_path());
         let resolved = resolve_symlinks(&self.config_path);
         if resolved != self.config_path {
@@ -287,6 +335,34 @@ fn read_settings(config_path: &Path, seed_path: Option<&Path>) -> FileRead {
         }
         _ => read_source(config_path),
     }
+}
+
+/// [`read_settings`], with this build's values over it when it has a file of its own.
+fn read_with_build(
+    config_path: &Path,
+    seed_path: Option<&Path>,
+    build_file: Option<&Path>,
+) -> FileRead {
+    match (read_settings(config_path, seed_path), build_file) {
+        (FileRead::Text(text), Some(build_file)) => {
+            let values = crate::build_scope::build_values(build_file, &text);
+            FileRead::Text(crate::build_scope::overlaid_source(&text, &values))
+        }
+        (read, _) => read,
+    }
+}
+
+/// Atomic write, 0600 for a new file (the build's permission state is the person's own).
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if std::fs::symlink_metadata(path).is_err() {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        use std::os::unix::fs::OpenOptionsExt as _;
+        let _ = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path);
+    }
+    write_atomic(path, text.as_bytes())
 }
 
 /// `path` made absolute with `.` and `..` folded, without reading the disk.

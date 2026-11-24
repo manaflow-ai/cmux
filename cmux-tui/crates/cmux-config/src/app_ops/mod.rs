@@ -13,6 +13,10 @@
 //! - `jsonc.strip` `{source}` answers `{text}` or `{problem}`.
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
+//! - `build_scope.source` `{source, buildFile}` answers `{source}`: the shared settings file's
+//!   text with this build's own cmux tools answer and Computer Use permissions over it
+//!   ([`crate::build_scope`]; the build's file is made from `source` on its first read). Without
+//!   `buildFile` (a build on its own settings file) `source` comes back as it is.
 //! - The areas: [`theme`], [`effective`], [`looks`].
 
 pub mod effective;
@@ -37,11 +41,27 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         "jsonc.parse" => jsonc::parse(request),
         "jsonc.strip" => jsonc::strip(request),
         "jsonc.position" => jsonc::position_of(request),
+        "build_scope.source" => build_scope_source(request),
         _ => theme::call(op, request)
             .or_else(|| effective::call(op, request))
             .or_else(|| looks::call(op, request))
             .unwrap_or(Err(OpError::Unknown)),
     }
+}
+
+fn build_scope_source(request: &Value) -> Result<Value, OpError> {
+    let source = string(request, "source")?;
+    let source = match request.get("buildFile").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+        Some(file) => {
+            let file = std::path::Path::new(file);
+            crate::build_scope::overlaid_source(
+                source,
+                &crate::build_scope::build_values(file, source),
+            )
+        }
+        None => source.to_string(),
+    };
+    Ok(serde_json::json!({ "source": source }))
 }
 
 /// The string member `key` of `request`.

@@ -42,9 +42,14 @@ fn shared_shims_are_rewritten_only_where_an_older_build_left_them() {
     for script in &first {
         assert!(script.contains("CMUX_BUNDLED_CLI_PATH"), "{script}");
     }
-    // The older shim's own target stays as a checked fallback, and a
-    // second start reproduces the same bytes.
-    assert!(first[0].contains("if [ -x '/old build/cmux-tui' ]"), "{}", first[0]);
+    // Neither the older shim's own target nor the writer survives: a
+    // terminal with no cmux of its own never runs another build's cmux (its
+    // MCP server would act on this terminal's socket with that build's code
+    // and Computer Use permissions). A second start reproduces the same bytes.
+    for script in &first {
+        assert!(!script.contains("/old build/cmux-tui"), "{script}");
+        assert!(!script.contains("/gone/cmux"), "{script}");
+    }
     refresh_shared_shims_in(&shared);
     for (name, script) in ["claude", "codex"].iter().zip(&first) {
         assert_eq!(&fs::read_to_string(shared.join(name)).unwrap(), script, "{name}");
