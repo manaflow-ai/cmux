@@ -1115,6 +1115,8 @@ impl Worker {
         match result {
             BindResult::Bound(bound, first_ticket) => {
                 self.bind_backoff.reset();
+                // The compiler cache settings the bind kept, for acpmux (`sccache_env.rs`).
+                crate::sccache_env::publish(&self.paths);
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
