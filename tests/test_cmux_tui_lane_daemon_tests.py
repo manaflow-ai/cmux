@@ -212,6 +212,16 @@ def main():
     preflight = all_jobs["tree-preflight"]
     _check(preflight["outputs"].get("daemon_tests") == "${{ steps.daemon-policy.outputs.daemon_tests }}",
            "tree-preflight exports daemon_tests")
+    _check(preflight["outputs"].get("reuse_key") == "${{ steps.reuse-key.outputs.key }}",
+           "tree-preflight exports the same-input reuse key")
+    _check(preflight["outputs"].get("reuse_hit") == "${{ steps.reuse.outputs.hit }}",
+           "tree-preflight exports the same-input reuse hit")
+    reuse_steps = {step.get("id"): step for step in preflight["steps"]}
+    _check({"reuse-key", "reuse"} <= set(reuse_steps),
+           "tree-preflight fingerprints and looks up the same-input pass")
+    for name in ("build-linux", "build-machine-channel", "build", "build-windows", "build-darwin-fallback", "cmux-next-daemon-tests"):
+        _check("needs.tree-preflight.outputs.reuse_hit != 'true'" in str(all_jobs[name].get("if", "")),
+               f"{name} skips all work when the same-input pass is reused")
 
     daemon_if = str(all_jobs["cmux-next-daemon-tests"]["if"])
     _check(daemon_if.count("needs.tree-preflight.outputs.daemon_tests == 'true'") >= 2,

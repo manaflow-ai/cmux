@@ -59,6 +59,9 @@ REGISTRY = """{"entries": [
 
 FILES = {
     ".github/workflows/cmux-next.yml": WORKFLOW,
+    ".github/workflows/cmux-tui-artifacts.yml": "name: cmux-tui artifacts\n",
+    "scripts/cmux-next/cmux-tui-tree-inputs.txt": "tree cmux-tui\n",
+    "cmux-tui/Cargo.lock": "# lock\n",
     "scripts/cmux-next/fast-tier.json": REGISTRY,
     "scripts/cmux-next/fast-tier.py": "print('tier')\n",
     "scripts/cmux-next/quarantine.json": '{"entries": []}\n',
@@ -96,6 +99,7 @@ TOOLCHAIN = {
     },
 }
 JOBS = tuple(TOOLCHAIN)
+ARTIFACT_TOOLCHAIN = {"daemon_tests": "false", "include_windows": "false", "macos_runner": ""}
 
 
 def git(repo: Path, *args: str) -> str:
@@ -149,12 +153,18 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertTrue(key.startswith(f"job-pass-{job}-"), stderr[-2000:])
         return key
 
+    def artifact_key(self, **flags: str) -> str:
+        key, stderr = self.repo.key("cmux-tui-artifacts", **{**ARTIFACT_TOOLCHAIN, **flags})
+        self.assertTrue(key.startswith("job-pass-cmux-tui-artifacts-"), stderr[-2000:])
+        return key
+
     def changes(self, job: str, name: str, text: str | None = None) -> bool:
         """Whether one edit to `name` (appending a line, or `text`) changes the job's key."""
-        before = self.key(job)
+        before = self.artifact_key() if job == "cmux-tui-artifacts" else self.key(job)
         self.repo.write(name, text if text is not None else (self.repo.root / name).read_text() + "// changed\n")
         self.repo.commit()
-        return before != self.key(job)
+        after = self.artifact_key() if job == "cmux-tui-artifacts" else self.key(job)
+        return before != after
 
     def test_the_same_inputs_give_the_same_key(self):
         for job in JOBS:
@@ -212,6 +222,14 @@ class JobInputFingerprint(unittest.TestCase):
     def test_a_handler_only_pass_cannot_stand_in_for_every_swift_suite(self):
         self.assertNotEqual(self.key("fast-tier", suite_scope="handlers"),
                             self.key("fast-tier", suite_scope="all"))
+
+    def test_cmux_tui_artifact_pass_keys_tree_and_mode_inputs(self):
+        base = self.artifact_key()
+        self.assertEqual(base, self.artifact_key())
+        self.assertNotEqual(base, self.artifact_key(daemon_tests="true"))
+        self.assertNotEqual(base, self.artifact_key(include_windows="true"))
+        self.assertNotEqual(base, self.artifact_key(macos_runner="macos-15"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", "cmux-tui/Cargo.lock"))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.
