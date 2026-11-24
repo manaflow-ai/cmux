@@ -63,6 +63,11 @@ export function workCommand(): string {
   return `echo "work=$(sha256sum ${WORK} 2>/dev/null | cut -d' ' -f1)"`;
 }
 
+/** cmux-platform's answer for a machine it does not know (yet). */
+export function notFound(status: number, body: any): boolean {
+  return status === 404 && (body?.code === "machine.not_found" || body?._tag === "MachineNotFound");
+}
+
 /** Whether the checkpoint held: the parent lost the work and the copy kept it. */
 export function checkpointKept(before: string | undefined, parent: string | undefined, copy: string | undefined) {
   return { parent_lost_work: !!before && !parent, copy_kept_work: !!before && copy === before };
@@ -82,6 +87,8 @@ export type RunRow = {
   agent: string;
   error: string | null;
   cleanup: string[];
+  /** How many times the fork answered 404 machine.not_found before it answered for good. */
+  fork_not_found_retries?: number;
   /** --risky only: the step's exit on the parent and whether the copy kept what it dropped. */
   risky?: { step_exit: number; parent_lost_work: boolean; copy_kept_work: boolean } | null;
 };
@@ -233,9 +240,21 @@ async function main(): Promise<number> {
         work = facts(dirty.stdout).work;
         if (!work) throw new Error(`no uncommitted work on the parent: exit ${dirty.code}`);
       }
-      const f0 = Date.now();
       const clientKey = risky ? `risky-${tag}-${run}` : `${tag}-fork-${run}`;
-      const forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey }, platformHeaders(), 180_000, true);
+      // cmux-platform answered 404 machine.not_found for a parent the API had just reported running, on runs
+      // 1, 3 and 5 of run 45456177673: it had not learned the machine yet. Ask again with the same clientKey
+      // (idempotent) for up to 60 s; fork_call_ms times the call that answered, fork_not_found_retries counts.
+      let forked: Awaited<ReturnType<typeof http>>;
+      let f0 = Date.now();
+      const deadline = Date.now() + 60_000;
+      row.fork_not_found_retries = 0;
+      for (;;) {
+        f0 = Date.now();
+        forked = await http("POST", `${platform}/v1/machines/${encodeURIComponent(row.parent)}/fork`, { clientKey }, platformHeaders(), 180_000, true);
+        if (!notFound(forked.status, forked.body) || Date.now() > deadline) break;
+        row.fork_not_found_retries++;
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
       row.fork_call_ms = Date.now() - f0;
       row.fork_status = forked.status;
       if (forked.status !== 200 || typeof forked.body?.id !== "string") throw new Error(`fork: HTTP ${forked.status} ${JSON.stringify(forked.body).slice(0, 300)}`);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RISKY_STEP, checkpointKept, dirtyCommand, facts, parity, parityCommand, setupCommand, verdict, workCommand, type RunRow } from "./cloud-fork-placement.ts";
+import { RISKY_STEP, checkpointKept, notFound, dirtyCommand, facts, parity, parityCommand, setupCommand, verdict, workCommand, type RunRow } from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
   run: 1, parent: "vm_p", child: "vm_c", parent_ready_ms: 1, fork_call_ms: 6000, fork_status: 200,
@@ -45,5 +45,11 @@ describe("cloud fork placement", () => {
     expect(RISKY_STEP).toContain("git reset -q --hard");
     expect(dirtyCommand("n1")).toContain("work-n1");
     expect(workCommand()).toContain("sha256sum");
+  });
+
+  test("a fork that answers machine.not_found is asked again; other errors are not", () => {
+    expect(notFound(404, { _tag: "MachineNotFound", code: "machine.not_found" })).toBe(true);
+    expect(notFound(404, { code: "route.not_found" })).toBe(false);
+    expect(notFound(401, { code: "machine.not_found" })).toBe(false);
   });
 });
