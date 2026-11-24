@@ -1869,24 +1869,6 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/chat_place",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/chat_place_set",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
-      "name": "_acpmux/scorecard",
-      "params": true,
-      "result": true
-    },
-    {
-      "kind": "request",
       "name": "_acpmux/transfer_abort",
       "params": true,
       "result": true
@@ -2464,6 +2446,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_overload",
       "params": true,
       "result": true
     },
