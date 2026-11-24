@@ -68,6 +68,10 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
           return false;
         });
       });
+      // A section switch (a hash change: the old section's title still matches the wait above) slides the
+      // new page in from 4 px down (layout.css settings-enter): measure at rest, or a slow machine reads
+      // the title 4 px off the search field.
+      await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => {})));
     });
   };
 
