@@ -135,6 +135,21 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
       return next;
     });
   };
+  // An entry edit (By Kind, By Agent) applies to the owner's current map, not the one this page
+  // last drew: re-read first, so an entry another writer saved meanwhile (the CLI, a hand edit) is
+  // kept, and removing the last entry this page showed never resets a map that has gained one.
+  // Edits run one after another, each on the map the one before it wrote.
+  const entries = useRef<Promise<void>>(Promise.resolve());
+  const writeEntry = (key: LayoutKey, id: string, layout: Layout | null) => {
+    entries.current = entries.current
+      .then(async () => {
+        await store.refresh();
+        const next = writeMap(valueOf(store.getSnapshot(), key), id, layout);
+        // The last entry gone removes the setting, so nothing is left behind.
+        await write(key, Object.keys(next).length === 0 ? null : next);
+      })
+      .catch(() => {});
+  };
   // The layout a new override starts from: the All Rows layout when there is one, else today's row.
   const startLayout = (): Layout =>
     readLayout(states[LINES_KEY].value) ?? layoutFromSwitches((key) => valueOf(store.getSnapshot(), key));
@@ -175,6 +190,7 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
               inherited={readLayout(states[LINES_KEY].value) !== null}
               {...panel(BY_KIND_KEY)}
               onWrite={(value) => void write(BY_KIND_KEY, value)}
+              onEntry={(id, layout) => writeEntry(BY_KIND_KEY, id, layout)}
               start={startLayout}
             />
           </TabsContent>
@@ -183,6 +199,7 @@ export function RowLayoutEditor({ row, disabled, labelId }: EditorProps) {
               value={states[BY_AGENT_KEY].value}
               {...panel(BY_AGENT_KEY)}
               onWrite={(value) => void write(BY_AGENT_KEY, value)}
+              onEntry={(id, layout) => writeEntry(BY_AGENT_KEY, id, layout)}
               start={startLayout}
             />
           </TabsContent>
@@ -201,6 +218,11 @@ type PanelProps = {
   /** Writes the setting's whole value; null resets it (the override goes, the default applies). */
   onWrite(value: unknown): void;
   start(): Layout;
+};
+
+type MapPanelProps = PanelProps & {
+  /** Sets one entry (null removes it), applied to the owner's current map: other entries stay. */
+  onEntry(id: string, layout: Layout | null): void;
 };
 
 /** All Rows (`lines`): one layout, or none (the element switches draw the row). */
@@ -255,15 +277,12 @@ function KindsPanel({
   refusal,
   error,
   onWrite,
+  onEntry,
   start,
-}: PanelProps & { inherited: boolean }) {
+}: MapPanelProps & { inherited: boolean }) {
   const entries = useMemo(() => readMap(value), [value]);
   const of = new Map(entries);
-  const set = (kind: Kind, layout: Layout | null) => {
-    const next = writeMap(value, kind, layout);
-    // The last entry gone removes the setting, so nothing is left behind.
-    onWrite(Object.keys(next).length === 0 ? null : next);
-  };
+  const set = (kind: Kind, layout: Layout | null) => onEntry(kind, layout);
   return (
     <>
       {KINDS.map((kind) => {
@@ -333,14 +352,11 @@ function KindsPanel({
 }
 
 /** By Agent (`linesByAgent`): a layout per agent id the person adds. */
-function AgentsPanel({ value, disabled, refusal, error, onWrite, start }: PanelProps) {
+function AgentsPanel({ value, disabled, refusal, error, onWrite, onEntry, start }: MapPanelProps) {
   const entries = useMemo(() => readMap(value), [value]);
   const [draft, setDraft] = useState("");
   const fieldId = useId();
-  const set = (id: string, layout: Layout | null) => {
-    const next = writeMap(value, id, layout);
-    onWrite(Object.keys(next).length === 0 ? null : next);
-  };
+  const set = (id: string, layout: Layout | null) => onEntry(id, layout);
   const id = agentId(draft);
   const taken = id !== null && entries.some(([key]) => key === id);
   const full = entries.length >= MAX_AGENTS;
