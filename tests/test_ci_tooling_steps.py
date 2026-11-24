@@ -417,7 +417,7 @@ class RealWorkflow(unittest.TestCase):
         # No routing job of its own: tooling-tests waits on coalesce and on the base-red check (#52891).
         self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
-        self.assertTrue(self.job["if"].startswith("${{ (!cancelled()"))
+        self.assertTrue(self.job["if"].startswith("${{ ((!cancelled()"))  # the land tier wraps it (test_head_tier.py)
 
 
 if __name__ == "__main__":

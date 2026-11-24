@@ -49,7 +49,10 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertFalse(push.get("paths"))
         job = workflow["jobs"]["release-notary"]
         # base-coalesce.yml: a push runs it once per 30-minute window on the tip (needs.coalesce.outputs.run).
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}")
+        # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
+        self.assertTrue(job["if"].startswith(
+            "${{ (!cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request')) && "),
+            job["if"])
         self.assertEqual(job["timeout-minutes"], 15)
         script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
         call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
@@ -105,7 +108,8 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
+        self.assertTrue(jobs["nightly-guards"]["if"].startswith(
+            "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "), jobs["nightly-guards"]["if"])
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
         self.assertEqual(group["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
