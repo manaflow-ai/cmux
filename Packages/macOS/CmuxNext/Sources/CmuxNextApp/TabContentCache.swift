@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextMacScreen
+import CmuxNextMobileHost
 import CmuxNextRemote
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -25,9 +26,10 @@ final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] {
-        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key) } } } // a page that left takes its Switch to Tab row
+        didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged(); pageInstalls.bump(Set(browsers.keys).symmetricDifference(oldValue.keys), installed: false); for key in oldValue.keys where browsers[key] == nil { openTabFeed.stop(key); phonePictures?.stopFavicon(tab: key) } } } // a page that left takes its Switch to Tab row
     }
     let openTabFeed = OmniboxOpenTabFeed() // the omnibar engines' open-tab indexes, kept as pages open, navigate and close
+    var phonePictures: PhoneTabPictures? // browser tabs' thumbnails and favicons for the phones' tab overview; nil: none
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     var withdrawnBy: [String: WeakPresenter] = [:] // the pane that last withdrew each tab (`release`)
@@ -55,7 +57,7 @@ final class TabContentCache {
     /// each, with the page version each shows (`BrowserTabState.pictureVersion`): a page is captured again only when
     /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
-    var pageThumbnailVersions: [String: Int] = [:]
+    var pageThumbnailVersions: [String: Int] = [:], pageThumbnailURLs: [String: String] = [:] // URLs: hibernation's (none for a blank one)
     var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
@@ -350,6 +352,13 @@ final class TabContentCache {
         return blank
     }
 
+    /// The surface the phones know tab `key` by (``PhoneTabPictures``): a tab of this Mac's daemon showing a page that is not incognito.
+    func phoneSurface(_ key: String) -> UInt64? {
+        guard let page = browsers[key]?.tab, !cef.stores.offTheRecord.isOffTheRecord(page.profileID),
+              let tab = tabModel(key), browserTabs.daemon(for: tab).isLocal else { return nil }
+        return tab.surface.rawValue
+    }
+
     /// The tab with durable id `key` on any machine.
     func tabModel(_ key: String) -> TabModel? {
         browserTabs.tabModel(key) ?? findTab?(key)
@@ -443,6 +452,7 @@ final class TabContentCache {
         pageRequests.siteEngines.follow(entry.state, page: page) // browser.siteEngines for the pages it reaches (#45018)
         browsers[key] = entry
         openTabFeed.follow(page, key: key) { [weak self] page in self?.suggestionEngine(forPage: page) }
+        phonePictures?.followFavicon(tab: key) { [weak page] in page?.favicon }
         (page as? CEFTab)?.onReadyForKeys = { [weak self] in self?.onBrowserReady?(key) } // the page is ready for keys (a restored one: its document loaded)
         pageInstalls.bump([key])
         // Pages are kept by hibernation, never by the terminal warm set.
@@ -495,6 +505,7 @@ final class TabContentCache {
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         if displacing, terminals[key] != nil, browsers[key] == nil, ((presenter(of: key) ?? withdrawnBy[key]?.value) as? PaneController)?.holdsRelease(of: key, { [weak self] in self?.release(key) }) == true { return } // F1: every release of a closing pane's terminal waits for its landing (its presenter first, else the pane that owned and withdrew it: Cmd-W withdraws first); a page goes now
         withdrawnBy[key] = nil
+        phonePictures?.forget(tab: key)
         onRelease?(key)
         // A closed tab is mirrored nowhere any more (`TabMirrors`); a stand-in moving to its daemon tab keeps nothing to drop.
         if displacing { pageRequests.services?.tabMirrors.remove(key) }
@@ -510,7 +521,7 @@ final class TabContentCache {
         browserTabs.untrack(key)
         previews.remove(key); if displacing { lastFrames.remove(key) } // a closed tab's last frame goes with it (#32315)
         pageThumbnails.remove(key)
-        pageThumbnailVersions[key] = nil
+        pageThumbnailVersions[key] = nil; pageThumbnailURLs[key] = nil
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
     }

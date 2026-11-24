@@ -358,20 +358,120 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
 /// an interruption.
 fn claude_prompt(content: &Value) -> Option<Step> {
     let text = text_of(content)?;
-    let start = text.trim_start();
-    let echo = ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-        .iter()
-        .any(|prefix| start.starts_with(prefix));
+    let echo = ECHOES.iter().any(|prefix| text.trim_start().starts_with(prefix));
     (!echo).then_some(Step::Prompt(text))
+}
+
+/// What a Claude Code user line starts with when it echoes a command or a hook or marks an
+/// interruption.
+const ECHOES: [&str; 4] = ["<command-", "<local-command-", "<bash-", "[Request interrupted"];
+
+/// What Claude Code queues by itself, not typed by the person: a finished background task or
+/// subagent, another session's message.
+const HARNESS_QUEUED: [&str; 3] =
+    ["<task-notification>", "<agent-message", "<cross-session-message"];
+
+/// What a person types for a slash command or a shell line: it runs as command echoes, never as
+/// a prompt line.
+const COMMANDS: [&str; 2] = ["/", "!"];
+
+/// Whether the text of a Claude Code `queue-operation` `enqueue` line is a prompt the person
+/// typed. The line carries no `origin` (`from_person`), so its text says: Claude Code queues
+/// task notifications and other sessions' messages too, and those are no prompt of the person's.
+/// A slash command or a shell line is not one either: no prompt line takes it out of the queue
+/// (one that was a prompt after all shows when its line runs).
+pub(crate) fn queued_by_person(text: &str) -> bool {
+    let start = text.trim_start();
+    !ECHOES
+        .iter()
+        .chain(HARNESS_QUEUED.iter())
+        .chain(COMMANDS.iter())
+        .any(|prefix| start.starts_with(prefix))
 }
 
 /// Whether a Claude Code line came from the person: it has no `origin`, or its `origin.kind` is
 /// `human`. Claude Code also writes user lines itself (`task-notification` when a background task
 /// or subagent finishes, `peer` for another session's `<cross-session-message>`).
 pub(crate) fn from_person(record: &Value) -> bool {
+    line_origin(record) == LineOrigin::Person
+}
+
+/// Who a Claude Code user line is from, decided by its `origin.kind` and never by its text. The one
+/// classification the transcript model shares: a line from the harness (a task notification: a
+/// subagent or background command ended; a peer's message) is a tool-call-like event of the turn it
+/// came in, folded with the turn's work, not a message the person typed (Leo, 2026-11-24: "we can
+/// indeed treat them as tool calls, even though they're bursted at the end/start of turns").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LineOrigin {
+    /// No origin, or `human`: the person's own words, a fixed point that never folds.
+    Person,
+    /// `task-notification`: a subagent or background task ended; work of the turn.
+    TaskNotification,
+    /// `peer`: another session's `<cross-session-message>`.
+    Peer,
+    /// An origin this build does not know: never the person's.
+    Other,
+}
+
+impl LineOrigin {
+    /// Whether the line is harness-injected work the transcript folds like a tool call.
+    pub(crate) fn is_tool_like(self) -> bool {
+        matches!(self, LineOrigin::TaskNotification | LineOrigin::Peer)
+    }
+}
+
+/// The origin of a Claude Code user line (`origin.kind`).
+pub(crate) fn line_origin(record: &Value) -> LineOrigin {
     match record.pointer("/origin/kind") {
-        None | Some(Value::Null) => true,
-        Some(kind) => kind.as_str() == Some("human"),
+        None | Some(Value::Null) => LineOrigin::Person,
+        Some(kind) => match kind.as_str() {
+            Some("human") => LineOrigin::Person,
+            Some("task-notification") => LineOrigin::TaskNotification,
+            Some("peer") => LineOrigin::Peer,
+            _ => LineOrigin::Other,
+        },
+    }
+}
+
+#[cfg(test)]
+mod line_origin_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn of(record: Value) -> LineOrigin {
+        line_origin(&record)
+    }
+
+    #[test]
+    fn origin_decides_never_the_text() {
+        // A notification's text on a human line is the person's; a person's words under a
+        // task-notification origin are the harness's.
+        let text =
+            "<task-notification><summary>Subagent disconnected</summary></task-notification>";
+        assert_eq!(of(json!({"message": {"content": text}})), LineOrigin::Person);
+        assert_eq!(
+            of(json!({"origin": {"kind": "human"}, "message": {"content": text}})),
+            LineOrigin::Person
+        );
+        assert_eq!(
+            of(json!({"origin": {"kind": "task-notification"}, "message": {"content": "fix it"}})),
+            LineOrigin::TaskNotification
+        );
+        assert_eq!(of(json!({"origin": {"kind": "peer"}})), LineOrigin::Peer);
+        assert_eq!(of(json!({"origin": {"kind": "channel"}})), LineOrigin::Other);
+        assert_eq!(of(json!({"origin": null})), LineOrigin::Person);
+    }
+
+    #[test]
+    fn harness_lines_are_tool_like_and_never_the_person() {
+        for kind in ["task-notification", "peer"] {
+            let record = json!({"origin": {"kind": kind}});
+            assert!(line_origin(&record).is_tool_like());
+            assert!(!from_person(&record));
+        }
+        assert!(!LineOrigin::Person.is_tool_like());
+        assert!(!LineOrigin::Other.is_tool_like());
+        assert!(!from_person(&json!({"origin": {"kind": "channel"}})));
     }
 }
 
@@ -459,7 +559,7 @@ const CODEX_CONTEXT: [&str; 4] = [
 ];
 
 /// The text of a message's content: a string, or the `text` of its text blocks.
-fn text_of(content: &Value) -> Option<String> {
+pub(crate) fn text_of(content: &Value) -> Option<String> {
     let text = match content {
         Value::String(s) => s.clone(),
         Value::Array(blocks) => blocks

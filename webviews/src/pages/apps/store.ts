@@ -125,6 +125,9 @@ export class AppsStore {
    * timeout never installs or toggles twice. Success, a refusal or a declined sheet ends it.
    */
   private readonly pendingKeys = new Map<string, string>();
+  // A mutation already waiting on its native confirmation: a second click on Install (or on any
+  // other mutation) while the first sheet loads joins that call instead of asking again.
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -697,7 +700,23 @@ export class AppsStore {
     );
   }
 
-  private async intent(
+  private intent(
+    op: string,
+    params: Record<string, unknown>,
+    options: { reread?: boolean; mutation?: boolean } = {},
+  ): Promise<void> {
+    if (options.mutation === false) return this.run(op, params, options);
+    const action = `${op}\u0000${JSON.stringify(params)}`;
+    const pending = this.inFlight.get(action);
+    if (pending) return pending;
+    const call = this.run(op, params, options).finally(() => {
+      if (this.inFlight.get(action) === call) this.inFlight.delete(action);
+    });
+    this.inFlight.set(action, call);
+    return call;
+  }
+
+  private async run(
     op: string,
     params: Record<string, unknown>,
     { reread = true, mutation = true }: { reread?: boolean; mutation?: boolean } = {},

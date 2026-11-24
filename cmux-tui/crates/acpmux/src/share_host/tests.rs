@@ -435,11 +435,11 @@ fn helper_bundle(app: &Path, name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
+fn helpers_are_found_in_order_and_staged_at_the_fixed_path() {
     let root = tempfile::tempdir().unwrap();
     let own = root.path().join("cmux DEV.app");
     let nightly = root.path().join("cmux NIGHTLY.app");
-    let own_helper = helper_bundle(&own, "cmux DEV Screen Sharing.app");
+    let own_helper = helper_bundle(&own, "cmux DEV Helper.app");
     let nightly_helper = helper_bundle(&nightly, "cmux NIGHTLY Screen Sharing.app");
     // Not a helper: another bundle in the same folder.
     std::fs::create_dir_all(nightly.join("Contents/Library/cmux Remote.app")).unwrap();
@@ -462,9 +462,18 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     assert_eq!(
         helper::staging_root(Path::new("/Users/p"), "com.cmuxterm.app.nightly.screen-sharing"),
         Path::new(
-            "/Users/p/Library/Application Support/cmux-next/screen-sharing/com.cmuxterm.app.nightly.screen-sharing/daemon"
+            "/Users/p/Library/Application Support/cmux-next/helper/com.cmuxterm.app.nightly.screen-sharing"
         )
     );
+    // The old per-digest slot it removes once, and nothing above Application Support/cmux-next.
+    let (legacy, stop) = helper::legacy_root(Path::new("/Users/p"), "x.screen-sharing");
+    assert_eq!(
+        legacy,
+        Path::new(
+            "/Users/p/Library/Application Support/cmux-next/screen-sharing/x.screen-sharing/daemon"
+        )
+    );
+    assert_eq!(stop, Path::new("/Users/p/Library/Application Support/cmux-next"));
     assert_eq!(
         helper::app_of(Path::new("/Applications/cmux.app/Contents/Resources/bin/acpmux")),
         Some("/Applications/cmux.app".into())
@@ -473,6 +482,35 @@ fn helpers_are_found_in_order_and_staged_beside_the_apps_slot() {
     assert!(helper::is_helper_bundle_id("com.cmuxterm.app.nightly.screen-sharing"));
     assert!(!helper::is_helper_bundle_id("com.example.screen-sharing"));
     assert!(!helper::is_helper_bundle_id("com.cmuxterm.app.x/../y.screen-sharing"));
+}
+
+#[test]
+fn the_helpers_own_grant_reading_is_kept_with_the_item_it_is_listed_as() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    assert_eq!(helper::status_json(home.path())["permissions"], Value::Null, "not read yet");
+    let macos = home.path().join("cmux NIGHTLY Screen Sharing.app/Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    let exe = macos.join(helper::EXECUTABLE);
+    std::fs::write(
+        &exe,
+        b"#!/bin/sh\n[ \"$1\" = permissions ] || exit 2\necho '{\"screen_recording\":false,\"accessibility\":true}'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    helper::read_grants(home.path(), &exe);
+    let kept = &helper::status_json(home.path())["permissions"];
+    assert_eq!(kept["screen_recording"], false);
+    assert_eq!(kept["accessibility"], true);
+    assert_eq!(kept["listed_as"], "cmux NIGHTLY Screen Sharing");
+    assert!(kept["at"].as_u64().is_some());
+
+    // A helper too old to answer leaves the last reading.
+    std::fs::write(&exe, b"#!/bin/sh\nexit 2\n").unwrap();
+    helper::read_grants(home.path(), &exe);
+    assert_eq!(helper::status_json(home.path())["permissions"]["screen_recording"], false);
+    assert_eq!(helper::grants_record(&exe, "not json", 1), None);
+    assert_eq!(helper::listed_as(Path::new("/opt/cmux-rd")), "cmux Computer Use");
 }
 
 #[test]
@@ -634,7 +672,11 @@ fn a_helper_that_exits_early_ends_only_its_own_share() {
     assert!(records::read(&dir, "s-live").is_some_and(|r| r.alive()));
     stop_live.store(true, Ordering::SeqCst);
     let ended = live.join().unwrap();
-    assert_eq!(ended.reason, "stopped");
+    // Stopped before a viewer connected: the reason says how far it got (the helper had the offer).
+    assert_eq!(
+        ended.reason,
+        "stopped before the viewer connected: the screen host had not answered the viewer's offer"
+    );
     assert_eq!(ended.tell_hub, None);
     assert_eq!(ends.lock().unwrap().len(), 1);
     assert!(!dir.join("s-live.json").exists());
@@ -781,6 +823,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
         &args,
         &acpmux_home,
         &env,
+        &[],
         Duration::from_secs(30),
         &AtomicBool::new(false),
     );
@@ -797,6 +840,7 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         ),
@@ -811,12 +855,58 @@ fn the_enable_runs_cmux_rd_with_the_daemons_home() {
             &args,
             &acpmux_home,
             &[],
+            &[],
             Duration::from_secs(30),
             &AtomicBool::new(false)
         )
         .state(),
         "enable_failed"
     );
+}
+
+/// The join puts cmux's own virtual display in the user environment (DISPLAY=:99); a cmux-rd
+/// before 0.2.8 read it as a desktop and installed a host unit that never starts. The enable runs
+/// without it, so the next daemon start heals that host; a real desktop's DISPLAY stays.
+#[test]
+fn the_enable_runs_without_the_virtual_display_cmux_owns() {
+    use super::linux;
+    let dir = tempfile::tempdir().unwrap();
+    let units = dir.path().join("systemd/user");
+    std::fs::create_dir_all(&units).unwrap();
+    assert_eq!(linux::own_virtual_display(dir.path()), None);
+    std::fs::write(
+        units.join("cmux-screen-display.service"),
+        "[Service]\nExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp\n",
+    )
+    .unwrap();
+    let own = linux::own_virtual_display(dir.path());
+    assert_eq!(own, Some(99));
+    let os = |s: &str| std::ffi::OsString::from(s);
+    assert_eq!(linux::enable_unset(Some(&os(":99")), own), ["DISPLAY"]);
+    assert_eq!(linux::enable_unset(Some(&os(":99.0")), own), ["DISPLAY"]);
+    assert_eq!(linux::enable_unset(Some(&os("unix:99")), own), ["DISPLAY"]);
+    assert!(linux::enable_unset(Some(&os(":0")), own).is_empty());
+    assert!(linux::enable_unset(Some(&os(":99")), None).is_empty());
+    assert!(linux::enable_unset(None, own).is_empty());
+
+    // The cmux-rd it runs does not see the unset DISPLAY.
+    let rd = fake_cmux_rd(
+        dir.path(),
+        &format!("printf '%s\\n' \"${{DISPLAY-unset}}\" > '{}/display'", dir.path().display()),
+    );
+    // SAFETY: this test only sets a variable no other test in the crate reads.
+    unsafe { std::env::set_var("DISPLAY", ":99") };
+    let _ = linux::run_enable(
+        &rd,
+        &linux::enable_args("https://hub.example"),
+        dir.path(),
+        &[],
+        &["DISPLAY"],
+        Duration::from_secs(30),
+        &AtomicBool::new(false),
+    );
+    let seen = std::fs::read_to_string(dir.path().join("display")).unwrap();
+    assert_eq!(seen.trim_end(), "unset");
 }
 
 #[test]
@@ -831,6 +921,7 @@ fn an_enable_past_its_wait_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_millis(500),
         &AtomicBool::new(false),
@@ -867,6 +958,7 @@ fn a_cancelled_enable_is_stopped_with_everything_it_started() {
         &rd,
         &linux::enable_args("https://hub.example"),
         dir.path(),
+        &[],
         &[],
         Duration::from_secs(60),
         &cancel,
@@ -1093,13 +1185,29 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
         )
         .unwrap();
     };
-    assert!(!rd_signed_in_for(&dir, &mark), "no record: a person's sign-in, or none");
+    let home = std::path::Path::new("/acpmux-home");
+    assert!(!rd_signed_in_for(&dir, &mark, home), "no record: a person's sign-in, or none");
     write("m-b", 2);
-    assert!(rd_signed_in_for(&dir, &mark));
+    assert!(rd_signed_in_for(&dir, &mark, home));
     write("m-b", 1);
-    assert!(!rd_signed_in_for(&dir, &mark));
+    assert!(!rd_signed_in_for(&dir, &mark, home));
     write("m-a", 2);
-    assert!(!rd_signed_in_for(&dir, &mark));
+    assert!(!rd_signed_in_for(&dir, &mark, home));
+    // A cmux-rd from before joins were named in its record wrote only the acpmux home: that
+    // home's join, never another's (hq docs/findings/2026-11-23-screen-host-restart-loop.md).
+    let write_unnamed = |acpmux_home: &str| {
+        cmux_hub_host::identity::write_private(
+            &dir.join("joined.json"),
+            json!({"acpmux_home": acpmux_home}).to_string().as_bytes(),
+        )
+        .unwrap();
+    };
+    write_unnamed("/acpmux-home");
+    assert!(rd_signed_in_for(&dir, &mark, home), "an unnamed record of this home");
+    write_unnamed("/another-home");
+    assert!(!rd_signed_in_for(&dir, &mark, home), "an unnamed record of another home");
+    write("", 0);
+    assert!(rd_signed_in_for(&dir, &mark, home), "an empty machine id names no join");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1122,11 +1230,13 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     ]}));
     assert_eq!(
         shared.device_hub_of("lane-1"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": true}))
+        Some(json!({"listed": true, "id": "d1", "platform": "linux", "online": true,
+            "screenShared": true}))
     );
     assert_eq!(
         shared.device_hub_of("lane-2"),
-        Some(json!({"listed": true, "platform": "linux", "screenShared": false}))
+        Some(json!({"listed": true, "id": "d3", "platform": "linux", "online": true,
+            "screenShared": false}))
     );
     assert_eq!(shared.device_hub_of("lane-3"), Some(json!({"listed": false})));
     // This device's own record is never another machine's.
