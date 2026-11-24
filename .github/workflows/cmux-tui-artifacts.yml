@@ -5401,6 +5401,15 @@ jobs:
           else
             echo "The Mac live update file of $GITHUB_SHA carries no Screen Sharing helper."
           fi
+          # The commit's tree key (computed here: tree-preflight is skipped for a push whose inputs are unchanged):
+          # the payload names it, so a Team-signed NIGHTLY's daemon updater takes cmux-tui/tree/<key>/team-signed/,
+          # never the ad-hoc bytes. Without one the file still goes out and Team-signed apps wait for the next.
+          if tree_key="$(timeout 120 python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)" \
+             && [[ "$tree_key" =~ ^[0-9a-f]{40}$ ]]; then
+            helper+=(--tree-key "$tree_key")
+          else
+            echo "::warning::no tree key for $GITHUB_SHA; its Mac live update file names none"
+          fi
           export ml GITHUB_SHA GITHUB_RUN_ID only
           timeout 900 bash -euo pipefail -c '
                  curl -fsS --retry 3 --max-time 60 -o "$ml/manifest.json" "https://files.cmux.com/cmux-tui/$GITHUB_SHA/manifest.json?mac-live=$GITHUB_RUN_ID"
