@@ -68,7 +68,10 @@ type Case = {
 };
 
 const DRAFT = "Check the retry policy";
-const WRAP = " and say whether the client waits longer before each retry, with random jitter";
+/// Well past one line at 900 px on any runner's fonts (103 characters wrapped on one CI run and not
+/// the next).
+const WRAP =
+  " and say whether the client waits longer before each retry, with random jitter, and how many times it tries before it gives up";
 /// Past PASTE_CHIP_CHARS (pastedText.ts): the paste lands as a text attachment, not in the field.
 const LONG_PASTE = Array.from({ length: 900 }, (_, n) => `Line ${n + 1} of the pasted notes`).join("\n");
 
