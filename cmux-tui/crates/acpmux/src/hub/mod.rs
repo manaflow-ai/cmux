@@ -226,6 +226,7 @@ pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
 mod retention;
+mod store_pressure;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
