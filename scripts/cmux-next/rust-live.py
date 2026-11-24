@@ -575,6 +575,9 @@ class Swapper:
         # The owner's socket once an identify on it named the same pid `server status` did: the handoff's
         # waits then ask the daemon itself (a millisecond) instead of starting a CLI per poll.
         self.owner_sock: str | None = None
+        # Where the last app handoff's time went, as monotonic marks (`handoff_trace`): the owner lookup,
+        # the links, the SIGTERM, the old owner's exit, the app's drop, its ensure, the new owner's answer.
+        self.marks: dict[str, float] = {}
         # An app's daemon file and the copy of what it held before the first swap. Kept in the state
         # folder, one marker per session/socket, so a watcher that died never takes a swapped file for
         # the app's, and a watcher on another session never restores this one's.
@@ -684,7 +687,9 @@ class Swapper:
         self.place(new, staged)
         staged.chmod(0o755)
         os.replace(staged, target)  # the running owner keeps the file it mapped
+        self.marks["linked"] = time.monotonic()
         self.terminate_owner(new, pid)
+        self.marks["sigterm"] = time.monotonic()
         if self.wait_for_new_owner(new, pid) is None:
             os.replace(before, target)  # the app's next ensure runs the build that ran before
             late = self.owner(target, timeout=10)
@@ -716,11 +721,20 @@ class Swapper:
         # APP_OWNER_SECS bounds only a no-show: the wait ends the moment the next owner answers.
         deadline = time.monotonic() + APP_OWNER_SECS
         while time.monotonic() < deadline:
+            if "old_exited" not in self.marks and not Path(f"/proc/{old}").exists() and Path("/proc/self").exists():
+                self.marks["old_exited"] = time.monotonic()
             pid = self.owner_pid(cli, timeout=deadline - time.monotonic())
             if pid is not None and pid != old:
+                self.marks["new_answered"] = time.monotonic()
                 return pid
             time.sleep(0.01)
         return None
+
+    def handoff_trace(self) -> dict:
+        """Seconds between the last handoff's marks, in the order they happened (a mark a host cannot
+        see, such as the old owner's exit without /proc, is left out)."""
+        marks = sorted(self.marks.items(), key=lambda kv: kv[1])
+        return {f"{a}->{b}": round(tb - ta, 4) for (a, ta), (b, tb) in zip(marks, marks[1:])}
 
     def restore_app(self) -> str | None:
         """Puts the app's own daemon file back and hands the daemon back to it (`stop`)."""
@@ -750,15 +764,18 @@ class Swapper:
         if "cmux-tui" in built:
             new = built["cmux-tui"]
             t0 = time.monotonic()
+            self.marks = {"start": t0}
             # `server status` from the build that already ran (warm pages; macOS assessed it once), not the new one.
             owner = self.owner(self.previous if self.previous and self.previous.is_file() else new)
             target = self.app_file(owner[1]) if owner else None
+            self.marks["owner_found"] = time.monotonic()
             if self.previous is None:
                 self.previous = owner[1] if owner else None
             if owner and target:
                 self.app_handoff(new, owner[0], target)
                 steps["cmux-tui"] = "app handoff"
                 steps["cmux-tui_secs"] = round(time.monotonic() - t0, 3)
+                steps["trace"] = self.handoff_trace()
                 self.previous = new
                 return self.swap_acpmux(built, steps)
             restart = self.cli(new, "server", "restart")
@@ -1192,9 +1209,12 @@ class MeasureApp:
             if self.stopped.is_set():
                 return
             self.conn = None
+            self.swapper.marks.setdefault("app_dropped", time.monotonic())
             delay = 0.05
             while not self.stopped.wait(delay):
+                self.swapper.marks.setdefault("app_ensure", time.monotonic())
                 ensure = self.swapper.cli(self.file, "server", "ensure", timeout=30)
+                self.swapper.marks["app_ensured" if ensure.returncode == 0 else "app_ensure_failed"] = time.monotonic()
                 if ensure.returncode == 0:
                     try:
                         self.connect()
@@ -1410,6 +1430,14 @@ def command_measure(args) -> int:
                 report[key.replace("_secs", "")] = {
                     "p50": round(statistics.median(values), 3), "p95": round(percentile(values, 0.95), 3),
                     "min": round(min(values), 3), "max": round(max(values), 3)}
+        # The app handoff's phases (Swapper.handoff_trace), p50/p95 over the runs that have each.
+        phases: dict[str, list[float]] = {}
+        for r in good:
+            for k, v in ((r.get("swap") or {}).get("trace") or {}).items():
+                phases.setdefault(k, []).append(v)
+        if phases:
+            report["handoff_phases"] = {k: {"p50": round(statistics.median(v), 4), "p95": round(percentile(v, 0.95), 4),
+                                            "n": len(v)} for k, v in phases.items()}
     report["passed"] = bool(report["runs"]) and "error" not in report and len(good) == args.runs and all(
         r.get("terminals_survived") for r in good)
     (out / "result.json").write_text(json.dumps(report, indent=2) + "\n")
