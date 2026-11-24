@@ -237,7 +237,12 @@ impl Peer {
                 return;
             }
         }
+        let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
+            crate::gauges::bump(&crate::gauges::links().link_dials);
+            if immediate_redial {
+                crate::gauges::bump(&crate::gauges::links().link_redials);
+            }
             let outcome = self.connect_once(&mut out_rx).await;
             let restarting = matches!(&outcome, Ok(LinkEnd::Restarting | LinkEnd::Switching));
             let was_ready = self.link().is_ready();
@@ -280,6 +285,7 @@ impl Peer {
             }
             // One immediate attempt for this Close 1012. If that attempt fails, it follows
             // the unchanged real-failure backoff; restarting is not a persistent retry mode.
+            immediate_redial = redial_now || (was_ready && restarting);
             let Some(delay) = delay else {
                 continue;
             };
@@ -544,6 +550,8 @@ impl Peer {
         }
         *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = opened.presented;
         self.carried_by(via.carrier().wire());
+        // Held while this link's connection is: `gauges.links.linksOpen`.
+        let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
         let heard = Some(opened.heard);
