@@ -830,10 +830,15 @@ pub enum Command {
     #[command(hide = true)]
     SessionHold {
         session: Option<String>,
+        #[arg(long)]
         held: bool,
+        #[arg(long)]
         fleet: bool,
+        #[arg(long, value_delimiter = ',')]
         allow: Vec<String>,
+        #[arg(long)]
         reason: Option<String>,
+        #[arg(long)]
         status: bool,
     },
     #[command(hide = true)]
