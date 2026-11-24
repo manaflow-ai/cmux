@@ -80,6 +80,7 @@ class BaseRedSkip(unittest.TestCase):
         wired = {
             "cmux-next-guards.yml": "tooling-tests",
             "cloud-journey-pr.yml": "journey-staging",
+            "cmux-next.yml": "cmux-next generated files",
         }
         for name, job in wired.items():
             with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as fh:
