@@ -4,6 +4,11 @@ use super::*;
 use crate::heap_future::heap;
 use crate::no_panic::{JsonExt, LockExt};
 
+mod also_kinds;
+pub use also_kinds::CAPABILITY as ATTACH_ALSO_KINDS;
+#[cfg(test)]
+#[path = "requests/also_kinds_tests.rs"]
+mod also_kinds_tests;
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
@@ -971,6 +976,10 @@ pub(super) async fn handle_request(
     }
     if m == method::MUX_V2 {
         return Err(RpcError::method_not_found(method::MUX_V2));
+    }
+    // Before anything reads `kinds`, here or on a peer (`requests/also_kinds.rs`).
+    if m == method::MUX_ATTACH {
+        also_kinds::fold(&mut params);
     }
     if matches!(
         m,

@@ -7,7 +7,8 @@
 //!
 //! The requests mirror cmux-next-ios `AcpmuxHub.swift`: `initialize` and `_acpmux/watch
 //! {enabled, limit: 100}` pipelined, then `_acpmux/attach {sessionId, limit: 400, kinds,
-//! eventStream, maxBytes: 128 KiB, toolOutputMaxBytes: 64 KiB}`; a prompt is `session/prompt`
+//! eventStream, maxBytes: 128 KiB, toolOutputMaxBytes: 64 KiB}`; a cold open writes that attach
+//! with them, its sudo-card kinds in `alsoKinds` (`AcpmuxHub+EarlyAttach.swift`); a prompt is `session/prompt`
 //! with a `promptId`, shown as sent when its `user_message` record comes back; a reconnect
 //! re-attaches with `afterSeq`. The app's link gives up after 20 s with no inbound frame
 //! (keepalive pings every 15 s) and redials at once on a path change.
@@ -75,6 +76,9 @@ const CHAT_KINDS: &[&str] = &[
     "bookmarks",
 ];
 const ELEVATION_CAPABILITY: &str = "elevation-cards-v1";
+const ELEVATION_KINDS: &[&str] = &["elevation_request", "elevation_decision"];
+/// acpmux folds `alsoKinds` into an attach's `kinds` (`server/requests/also_kinds.rs`).
+const ALSO_KINDS_CAPABILITY: &str = "attach-also-kinds-v1";
 /// The link's keepalive: a ping every 15 s, given up after 20 s with nothing inbound.
 const PING_EVERY: Duration = Duration::from_secs(15);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(20);
@@ -308,6 +312,81 @@ impl Link {
         Ok(link)
     }
 
+    /// The answers to `ids`, in that order, however acpmux ordered them; notifications on the way
+    /// wait in `pending`.
+    async fn answers(
+        &mut self,
+        ids: &[i64],
+        deadline: Instant,
+    ) -> Result<Vec<(Instant, Value)>, String> {
+        let mut got: std::collections::HashMap<i64, (Instant, Value)> = Default::default();
+        while got.len() < ids.len() {
+            match self.frame(deadline).await {
+                Next::Frame(at, v) if v.get("method").is_some() => self.pending.push_back((at, v)),
+                Next::Frame(at, v) => {
+                    let Some(id) =
+                        v.get("id").and_then(Value::as_i64).filter(|id| ids.contains(id))
+                    else {
+                        continue;
+                    };
+                    if let Some(e) = v.get("error") {
+                        return Err(format!("request {id}: {e}"));
+                    }
+                    got.insert(id, (at, v["result"].clone()));
+                }
+                Next::Silent => return Err(format!("no answer to requests {ids:?} in time")),
+                Next::Closed => return Err(format!("closed before the answers to {ids:?}")),
+            }
+        }
+        Ok(ids.iter().filter_map(|id| got.remove(id)).collect())
+    }
+
+    /// The app's cold chat open (cmux-next-ios `AcpmuxHub+EarlyAttach.swift`): `initialize`, the
+    /// first watch page and the chat's first attach written together, the attach's sudo-card
+    /// kinds in `alsoKinds`. A daemon that serves those kinds but does not fold `alsoKinds` gets
+    /// the attach again with them, as the app does. Returns the link and the used attach's reply.
+    async fn open_attached(
+        addr: std::net::SocketAddr,
+        token: &str,
+        deadline: Instant,
+        session: &str,
+    ) -> Result<(Self, Instant, Value), String> {
+        let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": {"localAppToken": token}}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let attach = link
+            .post(
+                "_acpmux/attach",
+                json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": CHAT_KINDS,
+                       "alsoKinds": ELEVATION_KINDS, "eventStream": true,
+                       "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES}),
+            )
+            .await?;
+        let mut got = link.answers(&[init, watch, attach], deadline).await?.into_iter();
+        let (_, init) = got.next().ok_or("no initialize answer")?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        let (at, reply) = got.nth(1).ok_or("no attach answer")?;
+        let has = |id: &str| link.capabilities.iter().any(|c| c == id);
+        if has(ELEVATION_CAPABILITY) && !has(ALSO_KINDS_CAPABILITY) {
+            let (at, reply) = link.attach(session, None, deadline).await?;
+            return Ok((link, at, reply));
+        }
+        Ok((link, at, reply))
+    }
+
     /// The chat's attach; `after` for a reattach. Returns the reply's arrival and the reply.
     async fn attach(
         &mut self,
@@ -466,30 +545,24 @@ async fn cold_and_warm(
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = match Link::open(shaper.addr(), token, deadline).await {
-        Ok(l) => l,
-        Err(e) => {
-            for m in ["first_content_ms", "interactive_ms"] {
-                emit(&k, m, None);
-                emit_error(&k, m, &e);
+    // The chat is on screen as the link comes up: its attach rides with `initialize`.
+    let (mut link, at, reply) =
+        match Link::open_attached(shaper.addr(), token, deadline, session).await {
+            Ok(opened) => opened,
+            Err(e) => {
+                for m in ["first_content_ms", "interactive_ms"] {
+                    emit(&k, m, None);
+                    emit_error(&k, m, &e);
+                }
+                return None;
             }
-            return None;
-        }
-    };
-    match link.attach(session, None, deadline).await {
-        Ok((at, reply)) if !rows(&reply).is_empty() => {
-            emit(&k, "first_content_ms", Some(ms(at - start)));
-            emit_bytes(&k, shaper);
-        }
-        Ok(_) => {
-            emit(&k, "first_content_ms", None);
-            emit_error(&k, "first_content_ms", "the attach reply carried no rows");
-        }
-        Err(e) => {
-            emit(&k, "first_content_ms", None);
-            emit_error(&k, "first_content_ms", &e);
-            return None;
-        }
+        };
+    if rows(&reply).is_empty() {
+        emit(&k, "first_content_ms", None);
+        emit_error(&k, "first_content_ms", "the attach reply carried no rows");
+    } else {
+        emit(&k, "first_content_ms", Some(ms(at - start)));
+        emit_bytes(&k, shaper);
     }
     // The prompt is shown as sent when its user_message record comes back.
     let prompt_id = format!("netcond-{profile}-{scale}-{run}");

@@ -45,6 +45,8 @@ public final class AcpmuxHub {
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: [WeakSource]] = [:]
+    /// Open chats' first reads, written behind `initialize` on this connection (`AcpmuxHub+EarlyAttach.swift`).
+    @ObservationIgnored var earlyAttaches: [String: EarlyAttach] = [:]
     /// Sessions this phone started (New Task, New Agent Chat), newest last: their chat's
     /// loading state says "Starting <agent>…" until its first records, not "Loading chat…".
     @ObservationIgnored private(set) var startedHere: [String] = []
@@ -147,7 +149,7 @@ public final class AcpmuxHub {
     private struct WeakSource { weak var source: AcpmuxSessionSource? }
     /// A chat with an expired replay cache may still have an open reader. Keep routing
     /// to it while a new reader loads its own complete snapshot from the Mac.
-    private var liveSources: [AcpmuxSessionSource] {
+    var liveSources: [AcpmuxSessionSource] {
         sources.values.flatMap { $0.compactMap(\.source) }
     }
 
@@ -167,6 +169,7 @@ public final class AcpmuxHub {
         purgedSinceWatch = []
         droppedSinceWatch = false
         listWhole = false
+        dropEarlyAttaches()
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
@@ -206,7 +209,11 @@ public final class AcpmuxHub {
                 "clientCapabilities": .object([:]),
             ]), timeout: requestTimeout)
             let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
+            // Each open chat's read goes right behind them, so its page comes in the same round
+            // trip, not one after `initialize` answered (`AcpmuxHub+EarlyAttach.swift`).
+            await submitEarlyAttaches(on: connection, timeout: requestTimeout)
             if let gate, !(await gate()) {
+                dropEarlyAttaches()
                 // The pairing failed: nothing this Mac sent is applied, and nothing is said here
                 // (the pairing says why).
                 if self.connection === connection { self.connection = nil }
@@ -235,6 +242,8 @@ public final class AcpmuxHub {
                 "capabilities": .number(Double(capabilities.count)),
             ], detail: capabilities.sorted().joined(separator: ","))
             for source in liveSources { source.linkUp() }
+            // A chat that did not take its early page (it closed, or its read moved on) lets it go.
+            dropEarlyAttaches()
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
             if let cursor = first.cursor {
                 restOfList = Task { [weak self] in
@@ -247,6 +256,7 @@ public final class AcpmuxHub {
             try Task.checkCancellation()
         } catch {
             guard self.connection === connection else { return }
+            dropEarlyAttaches()
             self.connection = nil
             isReady = false
             fullAccess = false
@@ -638,8 +648,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The sudo card's records (acpmux `hub/elevation.rs`), asked for only from a Mac whose acpmux
     /// serves `elevation-cards-v1`: an older one refuses an attach with more than 8 kinds.
     static let elevationCapability = "elevation-cards-v1"
-    static let chatKindsWithElevation: JSONValue = .array(
-        (chatKinds.arrayValue ?? []) + [.string("elevation_request"), .string("elevation_decision")])
+    static let elevationKinds: [JSONValue] = [.string("elevation_request"), .string("elevation_decision")]
+    static let chatKindsWithElevation: JSONValue = .array((chatKinds.arrayValue ?? []) + elevationKinds)
 
     /// The kinds this chat's reads ask the Mac for.
     static func kinds(_ hub: AcpmuxHub) -> JSONValue {
@@ -1656,9 +1666,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let generation = generation
         // The task holds the source only between its requests, never across one: a chat
         // nobody keeps goes away while a page is read, and its deinit cancels the read.
+        // The page written behind `initialize` on this connection, when there is one.
+        let firstEarly = hub.takeEarlyAttach(sessionID)
         attachTask = Task { [weak self] in
+            var early = firstEarly
             while let read = self?.nextRead(generation) {
-                let pages = await Self.readPages(hub, read) { [weak self] in self?.generation == generation }
+                let pages = await Self.readPages(hub, read, early: early) { [weak self] in self?.generation == generation }
+                early = nil
                 guard self?.caughtUp(pages, read, generation) == true else { return }
             }
         }
@@ -1692,7 +1706,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     /// One catch-up's start: from the last record applied (none: a first attach).
-    struct CatchUpRead {
+    struct CatchUpRead: Equatable, Sendable {
         let sessionID: String
         let after: Int
         /// A reattach may read the newest records first and leave a gap before them: none
@@ -1733,8 +1747,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func nextRead(_ generation: Int) -> CatchUpRead? {
         guard generation == self.generation else { return nil }
         refillPending = false
-        return CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
-                           fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+        return comingRead
+    }
+
+    /// The read the next ``linkUp()`` makes, as things stand.
+    private var comingRead: CatchUpRead {
+        CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
+                    fromKept: keptRestored, timeBreakdownVersion: timeBreakdownVersion)
+    }
+
+    /// The read the next ``linkUp()`` makes, for the hub to write behind `initialize` before the
+    /// connection is ready (`AcpmuxHub+EarlyAttach.swift`); nil while an attach runs or kept
+    /// records are still being read (``linkUp()`` would not read now).
+    func earlyRead() -> CatchUpRead? {
+        guard !attaching, !restoring else { return nil }
+        return comingRead
     }
 
     /// The `beforeSeq` of a tail-first reattach: past any seq, so the page is the newest
@@ -1762,47 +1789,61 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         record["kind"]?.stringValue == "user_message" && record["msg"]?["steer"] != .bool(true)
     }
 
+    /// The first `_acpmux/attach` of `read`, asking for `kinds`; `alsoKinds` for a Mac that
+    /// serves them (cmux-tui acpmux `server/requests/also_kinds.rs`; another ignores it).
+    static func attachParams(_ read: CatchUpRead, kinds: JSONValue, alsoKinds: [JSONValue]? = nil) -> [String: JSONValue] {
+        var params: [String: JSONValue] = [
+            "sessionId": .string(read.sessionID),
+            "limit": .number(Double(pageSize)),
+            "kinds": kinds,
+            "eventStream": .bool(true),
+        ]
+        if let alsoKinds { params["alsoKinds"] = .array(alsoKinds) }
+        if let version = read.timeBreakdownVersion {
+            params["timeBreakdownVersion"] = .string(version)
+            // The phone draws no breakdown: once the daemon has named a version (it knows the
+            // field), ask it to leave the breakdown out even after new turns changed it.
+            params["omitTimeBreakdown"] = .bool(true)
+        }
+        if read.firstAttach {
+            params["maxBytes"] = .number(Double(openBytes))
+            params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
+        } else {
+            params["afterSeq"] = .number(Double(read.after))
+            if read.allowGap, !read.fromKept {
+                // Tail-first: with both cursors acpmux reads the newest `limit` records
+                // between them (`_acpmux/attach`, cmux-tui acpmux server/requests.rs),
+                // capped as an open is, so a reattach after hours away reads what an
+                // open reads, not every record it missed.
+                params["beforeSeq"] = .number(tailBeforeSeq)
+                params["maxBytes"] = .number(Double(openBytes))
+                params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
+            }
+            // From kept records the read stays forward: a gap past one page drops the kept
+            // copy (`keptTooOld`) instead of filling in behind it.
+        }
+        return params
+    }
+
     /// Reads from `read.after` to the log's end (a first attach: the newest page only, from its
     /// first prompt; older pages come with ``loadEarlierHistory()``). Each request is bounded, and none is sent once the
     /// attach is no longer `current` (the link dropped, another attach started, the chat went
     /// away): the hub's next connection is not its own.
-    private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, current: @escaping () -> Bool) async -> CatchUpPages {
+    private static func readPages(_ hub: AcpmuxHub, _ read: CatchUpRead, early: AcpmuxHub.EarlyAttach? = nil,
+                                  current: @escaping () -> Bool) async -> CatchUpPages {
         var out = CatchUpPages()
         func request(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
             guard current(), !Task.isCancelled else { throw CancellationError() }
             return try await hub.request(method, .object(params), timeout: pageTimeout)
         }
         do {
-            var params: [String: JSONValue] = [
-                "sessionId": .string(read.sessionID),
-                "limit": .number(Double(pageSize)),
-                "kinds": kinds(hub),
-                "eventStream": .bool(true),
-            ]
-            if let version = read.timeBreakdownVersion {
-                params["timeBreakdownVersion"] = .string(version)
-                // The phone draws no breakdown: once the daemon has named a version (it knows the
-                // field), ask it to leave the breakdown out even after new turns changed it.
-                params["omitTimeBreakdown"] = .bool(true)
-            }
-            if read.firstAttach {
-                params["maxBytes"] = .number(Double(openBytes))
-                params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
+            let params = attachParams(read, kinds: kinds(hub))
+            if let reply = await hub.earlyReply(early, for: read, timeout: pageTimeout), current() {
+                // Written behind `initialize`: the page came in the connection's first round trip.
+                out.result = reply
             } else {
-                params["afterSeq"] = .number(Double(read.after))
-                if read.allowGap, !read.fromKept {
-                    // Tail-first: with both cursors acpmux reads the newest `limit` records
-                    // between them (`_acpmux/attach`, cmux-tui acpmux server/requests.rs),
-                    // capped as an open is, so a reattach after hours away reads what an
-                    // open reads, not every record it missed.
-                    params["beforeSeq"] = .number(tailBeforeSeq)
-                    params["maxBytes"] = .number(Double(openBytes))
-                    params["toolOutputMaxBytes"] = .number(Double(toolOutputMaxBytes))
-                }
-                // From kept records the read stays forward: a gap past one page drops the kept
-                // copy (`keptTooOld`) instead of filling in behind it.
+                out.result = try await request("_acpmux/attach", params)
             }
-            out.result = try await request("_acpmux/attach", params)
             let page = out.result["events"]?.arrayValue ?? []
             // A reattach (the link came back, or the Mac said this connection lagged) needs
             // every record after the last one applied, in order. Otherwise the next live record

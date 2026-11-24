@@ -2885,7 +2885,7 @@ pub(crate) use peer_forward::strip_asks as strip_peer_asks;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
-pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+pub use requests::{ATTACH_ALSO_KINDS, DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
 mod account_sign_in;
 mod accounts;
 #[cfg(test)]

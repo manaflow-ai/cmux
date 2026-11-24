@@ -201,6 +201,9 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
     Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability { id: HOLD_ATTACH, wire: &[method::MUX_ATTACH] },
+    // `_acpmux/attach` `alsoKinds`: the phone's first attach goes out beside `initialize`, before
+    // it knows this daemon's capabilities (`server/requests/also_kinds.rs`).
+    Capability { id: crate::server::ATTACH_ALSO_KINDS, wire: &[method::MUX_ATTACH] },
     Capability {
         id: TRIGGER_CHAT,
         wire: &[

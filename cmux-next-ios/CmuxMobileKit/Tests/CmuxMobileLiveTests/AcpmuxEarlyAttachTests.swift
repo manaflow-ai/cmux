@@ -1,0 +1,122 @@
+import CmuxMobileAgentChat
+import CmuxMobileTransport
+import Foundation
+import Testing
+@testable import CmuxMobileLive
+
+/// A chat open when the link comes up writes its `_acpmux/attach` right behind `initialize` and
+/// the first watch page, before either answered (`AcpmuxHub+EarlyAttach.swift`), and opens
+/// correctly on every Mac: one that folds `alsoKinds` in, one from before it that serves the sudo
+/// card's kinds (its early page is not used, the chat attaches again as before), and one that
+/// serves neither.
+@MainActor
+@Suite(.timeLimit(.minutes(2))) struct AcpmuxEarlyAttachTests {
+    typealias Chat = ChatOpenSnapshotLiveTests
+
+    /// Every request's method and params, in the order the Mac read them.
+    final class Wire: @unchecked Sendable {
+        private let lock = NSLock()
+        private var seen: [(String, [String: Any])] = []
+        func append(_ method: String, _ params: [String: Any]) { lock.withLock { seen.append((method, params)) } }
+        var methods: [String] { lock.withLock { seen.map(\.0) } }
+        var attaches: [[String: Any]] { lock.withLock { seen.filter { $0.0 == "_acpmux/attach" }.map(\.1) } }
+    }
+
+    /// A Mac's acpmux whose `initialize` lists `capabilities`; `folds` says it takes `alsoKinds`.
+    nonisolated static func mac(_ wire: Wire, capabilities: [String]) -> MockMacLink {
+        MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            wire.append(method, object["params"] as? [String: Any] ?? [:])
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            switch method {
+            case "initialize":
+                let caps = capabilities.map { #""\#($0)""# }.joined(separator: ",")
+                return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"capabilities":[\#(caps)]}}}"#)]
+            case "_acpmux/watch":
+                return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+            case "_acpmux/attach":
+                let history = (0..<Chat.turns).flatMap(Chat.turnRecords).joined(separator: ",")
+                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"lastSeq":\#(Chat.turns * 5),"events":[\#(history)]}"#)]
+            default:
+                return [reply("{}")]
+            }
+        }
+    }
+
+    /// Opens chat s1 cold: the chat is on screen before the link is up, and the pairing passes
+    /// only once the Mac read an attach (or after 5 s, which the old order needed: its attach
+    /// waited for `initialize`'s answer, held behind the pairing).
+    static func coldOpen(capabilities: [String]) async throws -> (Wire, AgentChatStore, AcpmuxHub, attachBeforePairing: Bool) {
+        let wire = Wire()
+        let hub = AcpmuxHub()
+        let source = hub.source(sessionID: "s1", summary: Chat.summary)
+        let store = AgentChatStore(source: source)
+        let channel = try await Self.mac(wire, capabilities: capabilities).openChannel(service: "acpmux", args: [:])
+        let before = SawAttach()
+        await hub.bind(channel, until: {
+            var end = AwakeDeadline(.seconds(5))
+            while !wire.methods.contains("_acpmux/attach"), end.hasTimeLeft() {
+                try? await Task.sleep(for: .milliseconds(2)) // test: the pairing passes once the Mac read the attach
+            }
+            before.saw = wire.methods.contains("_acpmux/attach")
+            return true
+        })
+        await Chat.waitUntil { store.turns.count == Chat.turns }
+        return (wire, store, hub, before.saw)
+    }
+
+    final class SawAttach: @unchecked Sendable { var saw = false }
+
+    static let elevation = AcpmuxSessionSource.elevationCapability
+    static let folds = AcpmuxHub.alsoKindsCapability
+
+    /// A new Mac: one attach, written behind `initialize` and the watch, its page the chat's.
+    @Test func aNewMacOpensTheChatInTheFirstRoundTrip() async throws {
+        let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation, Self.folds])
+        defer { withExtendedLifetime(hub) {} }
+        #expect(early, "the attach waited for initialize's answer")
+        #expect(Array(wire.methods.prefix(3)) == ["initialize", "_acpmux/watch", "_acpmux/attach"])
+        #expect(wire.attaches.count == 1)
+        #expect((wire.attaches.first?["alsoKinds"] as? [String]) == ["elevation_request", "elevation_decision"])
+        #expect((wire.attaches.first?["kinds"] as? [Any])?.count == AcpmuxSessionSource.chatKinds.arrayValue?.count)
+        #expect(store.turns.count == Chat.turns)
+    }
+
+    /// A Mac from before `alsoKinds` that serves the sudo card: its early page left those kinds
+    /// out, so the chat attaches again with them, as it always did, and opens.
+    @Test func anOlderMacWithSudoCardsAttachesAgainWithItsKinds() async throws {
+        let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation])
+        defer { withExtendedLifetime(hub) {} }
+        #expect(early)
+        await Chat.waitUntil { wire.attaches.count == 2 }
+        #expect(wire.attaches.count == 2)
+        let again = try #require(wire.attaches.last)
+        #expect(again["alsoKinds"] == nil)
+        #expect((again["kinds"] as? [String])?.suffix(2) == ["elevation_request", "elevation_decision"])
+        #expect(store.turns.count == Chat.turns)
+    }
+
+    /// A Mac from before both: the early page reads what a later attach would, and is used.
+    @Test func anOlderMacWithoutSudoCardsUsesTheEarlyPage() async throws {
+        let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [])
+        defer { withExtendedLifetime(hub) {} }
+        #expect(early)
+        #expect(wire.attaches.count == 1)
+        #expect(store.turns.count == Chat.turns)
+    }
+
+    /// A chat opened after the list is up attaches as before: nothing is written early.
+    @Test func aChatOpenedOnceReadyAttachesAsBefore() async throws {
+        let wire = Wire()
+        let hub = AcpmuxHub()
+        await hub.bind(try await Self.mac(wire, capabilities: [Self.elevation, Self.folds]).openChannel(service: "acpmux", args: [:]))
+        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Chat.summary))
+        await Chat.waitUntil { store.turns.count == Chat.turns }
+        #expect(wire.attaches.count == 1)
+        #expect(wire.attaches.first?["alsoKinds"] == nil)
+        #expect((wire.attaches.first?["kinds"] as? [String])?.suffix(2) == ["elevation_request", "elevation_decision"])
+        #expect(hub.earlyAttaches.isEmpty)
+    }
+}
