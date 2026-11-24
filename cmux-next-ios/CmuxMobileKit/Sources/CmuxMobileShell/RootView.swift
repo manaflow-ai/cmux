@@ -710,6 +710,10 @@ struct ShellView: View {
         }
         .onAppear {
             LaunchMarks.shared.markNextFrame("shell_frame")
+            #if DEBUG
+            // For the capture suites (the board is on only for UI tests): the first state, once still.
+            if LaunchMarksBoard.shared != nil { LaunchMarks.shared.markWhenStill("shell_still") }
+            #endif
             // The terminal engine starts when the main thread first idles, not in the first terminal tap.
             TerminalEngineWarmup.shared.schedule()
             NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
@@ -728,7 +732,11 @@ struct ShellView: View {
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
-            if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            if let demo = options.demo {
+                await DemoDriver(shell: shell).run(demo)
+                // The demo's last step is on screen and still: capture suites wait on this, not a fixed pause.
+                LaunchMarks.shared.markWhenStill("demo_done")
+            }
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
@@ -884,6 +892,18 @@ private struct LiveCallHost: ViewModifier {
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
                 ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
+            }
+            .task(id: shell.live.map(ObjectIdentifier.init)) {
+                // The call's Mac link never parks, in front or not: the Chief
+                // call runs on the focused Mac's link, voice mode on its chat's.
+                guard let live = shell.live else { return }
+                for await mac in Observations({ [call, voice] in
+                    if let session = call.session, !session.hasEnded { return live.focusedMacID }
+                    return voice.macID
+                }) {
+                    live.setCallMac(mac)
+                }
+                live.setCallMac(nil)
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
