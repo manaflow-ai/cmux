@@ -539,7 +539,10 @@ async fn claude_subagent_folds_move(way: Way) {
         Way::Cli => "mxsc",
         Way::Gui => "mxsg",
     };
-    let env = json!({"FAMILY": "claude", "FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"});
+    // A guarded receive (the app's move) takes only a plain agent session id of 8 or more
+    // characters (`transfer_guard.rs`), which `fake-1` is not.
+    let env = json!({"FAMILY": "claude", "FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude",
+                     "FAKE_SESSION_PREFIX": "fake-sess-"});
     let target = Daemon::with_env(&format!("{tag}-t"), None, env.clone(), &[], "ask").await;
     let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), env, &[], "ask").await;
     let mut cells = Cells { harness: "claude-subagents", red: Vec::new() };
@@ -565,7 +568,7 @@ async fn claude_subagent_folds_move(way: Way) {
     assert!(!folds_before.is_empty(), "the source logged no subagent: {log}");
 
     // Claude's own transcript of it, with its `Task` child, under the source's ~/.claude.
-    let agent_id = "fake-1";
+    let agent_id = "fake-sess-1";
     let project = |folder: &Path| {
         let dir: String = folder
             .to_string_lossy()
