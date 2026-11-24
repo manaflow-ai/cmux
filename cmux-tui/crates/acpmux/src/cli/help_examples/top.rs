@@ -107,6 +107,23 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "board",
+        &[
+            ("Show this machine's local branch board", "acpmux board"),
+            ("The same as JSON", "acpmux board --json"),
+        ],
+    ),
+    (
+        "whoami",
+        &[
+            (
+                "Show this session's name, handle, tags and the send that reaches it",
+                "acpmux whoami",
+            ),
+            ("The same as JSON, for a hook or a script", "acpmux whoami --json"),
+        ],
+    ),
+    (
         "new",
         &[
             (

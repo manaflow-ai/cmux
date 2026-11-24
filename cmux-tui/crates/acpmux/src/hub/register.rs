@@ -99,7 +99,7 @@ fn mark_registered(id: &str) -> anyhow::Result<()> {
 
 /// Marks chat `id` registered for this process only (tests, which must not write the home).
 #[cfg(test)]
-pub(super) fn mark_registered_for_test(id: &str) {
+pub(crate) fn mark_registered_for_test(id: &str) {
     with_registered(|set| set.insert(id.to_owned()));
 }
 
@@ -108,6 +108,14 @@ pub(super) fn mark_registered_for_test(id: &str) {
 /// creation), so neither adding nor removing one changes what is registered.
 pub(crate) fn is_registered(session: &Session) -> bool {
     with_registered(|set| set.contains(&session.id))
+}
+
+/// Whether `session`'s name is a live address only `acpmux register` moves: a registered chat that
+/// is not closed. A closed one's address leads nowhere, so it is renamed like any session and a
+/// revived session takes the name back (interim-coord, 2026-11-21: "The name "interim-coord"
+/// couldn't be moved over").
+pub(crate) fn holds_address(session: &Session) -> bool {
+    is_registered(session) && session.status() != crate::store::SessionStatus::Closed
 }
 
 /// What `acpmux register` sends (`_acpmux/register`).

@@ -184,3 +184,57 @@ async fn spoken_handles_refuse_a_duplicate_peer_handle() {
     let found = call(&hub, method::MUX_INFO, json!({"sessionId": "local/Mango"})).await;
     assert_eq!(found["result"]["sessionId"], "lane-a", "{found}");
 }
+
+/// A hub with these local sessions (id, name, status) and no peer.
+fn setup_statuses(local: &[(&str, &str, &str)]) -> Arc<Hub> {
+    let mut config: Config = serde_json::from_value(json!({})).unwrap();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    for (id, name, status) in local {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name,
+            "harness": "fake", "cwd": "/tmp", "status": status, "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
+    Hub::new(config, store)
+}
+
+/// Repro (interim-coord, 2026-11-21: "The name "interim-coord" couldn't be moved over"): a closed
+/// registered chat kept a coordinator's call name, and no rename moved it. A live registered chat
+/// still refuses; a closed one is renamed, and its name is free for the revived session.
+#[tokio::test]
+async fn a_closed_registered_chat_gives_its_name_back() {
+    let hub = setup_statuses(&[
+        ("old-coord", "interim-coord", "closed"),
+        ("live-chat", "desktop-leo", "idle"),
+        ("new-coord", "interim-coord-2", "idle"),
+    ]);
+    crate::hub::register::mark_registered_for_test("old-coord");
+    crate::hub::register::mark_registered_for_test("live-chat");
+    let live =
+        call(&hub, method::MUX_RENAME, json!({"sessionId": "live-chat", "newName": "x"})).await;
+    assert_eq!(live["error"]["data"]["reason"], "rename.registered", "{live}");
+    let taken = call(
+        &hub,
+        method::MUX_RENAME,
+        json!({"sessionId": "new-coord", "newName": "interim-coord"}),
+    )
+    .await;
+    assert!(taken.get("error").is_some(), "{taken}");
+    let moved = call(
+        &hub,
+        method::MUX_RENAME,
+        json!({"sessionId": "old-coord", "newName": "interim-coord-retired"}),
+    )
+    .await;
+    assert_eq!(moved["result"]["name"], "interim-coord-retired", "{moved}");
+    let back = call(
+        &hub,
+        method::MUX_RENAME,
+        json!({"sessionId": "new-coord", "newName": "interim-coord"}),
+    )
+    .await;
+    assert_eq!(back["result"]["name"], "interim-coord", "{back}");
+}

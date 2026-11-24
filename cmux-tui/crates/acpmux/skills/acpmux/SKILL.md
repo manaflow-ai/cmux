@@ -253,8 +253,17 @@ one by being started with acpmux):
 
 ```bash
 cmux agent register desktop-zoe            # in its Bash tool; then run the --code line it receives
+cmux agent register --auto desktop-zoe     # the same from a UserPromptSubmit hook: silent once registered
+cmux agent register --renew                # a SessionStart/Stop hook: a registered chat stays reachable after a --resume restart
 cmux agent send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
+cmux agent whoami                          # this shell's name, handle, tags, and the send that reaches it
 ```
+
+`whoami` answers from the daemon's record, never from the shell's own claim: an
+acpmux session's, a registered or bridged chat's (by `CLAUDE_CODE_SESSION_ID` or
+`CODEX_THREAD_ID`), and `STALE` with the command that fixes it when a restart
+left the registration behind. Give a peer its `reach` line, not the `sending as`
+label, which is a claim no `send` takes.
 
 An `cmux agent send` from such a chat before it registers starts this itself
 (macOS): nothing can reply to it until it has a name, so the send also delivers

@@ -142,6 +142,7 @@ pub(super) mod aliases {
 
     root_aliases! {
         RESOLVE => ["find"],
+        WHOAMI => ["who-am-i", "me"],
         WHO_ELSE => ["whoelse", "overlap"],
         LEDGER => ["cost", "spend"],
         NEW => ["new-session", "run", "exec"],
@@ -220,6 +221,11 @@ pub enum Command {
         /// The link, an id, `HOST/NAME`, a name, a spoken handle, a bead id, or `@` for this session.
         query: String,
     },
+    /// This session's own acpmux identity, as peers see it: its name, spoken handle, machine,
+    /// tags, whether its address works now, and the exact `acpmux send` that reaches it. Works in
+    /// an acpmux session's shell and in a Claude Code or Codex chat acpmux did not start.
+    #[command(aliases = aliases::WHOAMI)]
+    Whoami,
     /// Who else works on these files: the other live and recent sessions, here and on peers, that
     /// read or edited them, share this worktree or branch, or work on the same topic. With no
     /// files, what the session this shell runs in edited lately.
@@ -908,12 +914,20 @@ pub enum Command {
     /// `acpmux send` takes the first step itself, as claude-desktop-<first 8 of its session id>,
     /// so a chat that messages an agent gets the code without asking
     #[command(
-        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'\n  # In a Claude Code SessionStart and Stop hook: reachable again after a restart\n  acpmux register --renew"
+        after_help = "Examples:\n  # From the desktop chat's Bash tool\n  acpmux register desktop-zoe\n  # Then, as the message it receives says\n  acpmux register desktop-zoe --code CODE\n  # From another machine\n  acpmux send --no-wait cosmic-gray/desktop-zoe 'Merged #812'\n  # From a UserPromptSubmit hook: registers after a restart, silent once registered\n  acpmux register --auto desktop-zoe\n  # In a Claude Code SessionStart and Stop hook: reachable again after a restart\n  acpmux register --renew"
     )]
     Register {
-        /// The name, e.g. desktop-zoe.
-        #[arg(required_unless_present = "renew")]
+        /// The name, e.g. desktop-zoe. With --auto it may be left out: the chat keeps the name it
+        /// has, else takes claude-desktop-<first 8 of its session id>. --renew takes none.
+        #[arg(required_unless_present_any = ["auto", "renew"])]
         name: Option<String>,
+        /// The first step only when it is needed, for a hook to run on every prompt: nothing when
+        /// the chat is registered with this process already, the new token handed over as
+        /// --renew does when it was registered before a restart with `--resume`, else the code as
+        /// `register NAME` sends it. A NAME another session has falls back to the session-id
+        /// name. Prints only what the chat must do.
+        #[arg(long, conflicts_with_all = ["code", "renew"])]
+        auto: bool,
         /// The one-time code acpmux delivered into this session's inbox after a first
         /// `acpmux register NAME`: the second step, run by the session that received it.
         #[arg(long, conflicts_with = "renew")]
@@ -2148,5 +2162,33 @@ mod deadline_defaults_tests {
             Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
             _ => panic!("expected send command"),
         }
+    }
+}
+
+#[cfg(test)]
+mod register_flags_tests {
+    use super::Cli;
+    use clap::Parser;
+
+    fn parses(args: &[&str]) -> bool {
+        Cli::try_parse_from(std::iter::once("acpmux").chain(args.iter().copied())).is_ok()
+    }
+
+    #[test]
+    fn register_needs_a_name_unless_auto_or_renew() {
+        assert!(parses(&["register", "desktop-zoe"]));
+        assert!(parses(&["register", "desktop-zoe", "--code", "c0de"]));
+        assert!(parses(&["register", "--auto"]));
+        assert!(parses(&["register", "--auto", "desktop-zoe"]));
+        assert!(parses(&["register", "--renew"]));
+        assert!(!parses(&["register"]));
+        assert!(!parses(&["register", "--code", "c0de"]));
+    }
+
+    #[test]
+    fn code_auto_and_renew_exclude_each_other() {
+        assert!(!parses(&["register", "desktop-zoe", "--auto", "--code", "c0de"]));
+        assert!(!parses(&["register", "desktop-zoe", "--renew", "--code", "c0de"]));
+        assert!(!parses(&["register", "--auto", "--renew"]));
     }
 }

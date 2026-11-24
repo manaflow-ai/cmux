@@ -98,19 +98,58 @@ pub async fn start(
 ) {
     let lists = client.daemon_lists(crate::hub::register::AUTO_FEATURE);
     let Some(wait) = wait_for(lists, deadline, tokio::time::Instant::now()) else { return };
+    let outcome = ask(client, want, wait).await;
+    if let Some(line) = line(&want.name, &crate::host_pressure::host_name(), outcome) {
+        eprintln!("{line}");
+    }
+}
+
+/// The automatic first step for `want` on `client`, waiting at most `wait` for the daemon.
+pub(crate) async fn ask(
+    client: &crate::client::Client,
+    want: &AutoRegister,
+    wait: Duration,
+) -> Outcome {
     let params = json!({
         "name": want.name, "socket": want.socket, "token": want.token, "auto": true,
     });
     let answer =
         tokio::time::timeout(wait, client.request(crate::rpc::method::MUX_REGISTER, params));
-    let outcome = match answer.await {
+    match answer.await {
         Ok(Ok(v)) => Outcome::Answer(v),
         Ok(Err(e)) => Outcome::Refused(e.to_string()),
         Err(_) => Outcome::NoAnswer,
-    };
-    if let Some(line) = line(&want.name, &crate::host_pressure::host_name(), outcome) {
-        eprintln!("{line}");
     }
+}
+
+/// `acpmux register --auto [NAME]` (a hook's, run on every prompt): the first step under `name`
+/// when one is given, falling back to the session-id name when another session has it, and the
+/// line the chat must act on (`None`: it has an address, nothing to do). `None` too outside a
+/// Claude Code chat acpmux did not start, which has an address already or never gets one here.
+pub(crate) async fn register_auto(
+    client: &crate::client::Client,
+    name: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let Some(mut want) = of_this_process(false) else { return Ok(None) };
+    if !client.daemon_lists(crate::hub::register::AUTO_FEATURE) {
+        anyhow::bail!("this daemon does not take `register --auto`: restart it on a newer build");
+    }
+    let fallback = want.name.clone();
+    if let Some(name) = name {
+        crate::session_name::validate(name).map_err(|e| anyhow::anyhow!(e))?;
+        want.name = name.to_owned();
+    }
+    let mut outcome = ask(client, &want, WAIT).await;
+    if want.name != fallback && taken(&outcome) {
+        want.name = fallback;
+        outcome = ask(client, &want, WAIT).await;
+    }
+    Ok(line(&want.name, &crate::host_pressure::host_name(), outcome))
+}
+
+/// The daemon refused the name as another session's (`register.name_taken`).
+fn taken(outcome: &Outcome) -> bool {
+    matches!(outcome, Outcome::Refused(why) if why.contains("is taken"))
 }
 
 /// How long `acpmux register --renew` waits for the daemon: a hook runs it at every session's
@@ -150,7 +189,7 @@ async fn renew_at(path: &std::path::Path, want: AutoRegister, wait: Duration) ->
 
 /// What the daemon did with the first step.
 #[derive(Debug)]
-enum Outcome {
+pub(crate) enum Outcome {
     Answer(Value),
     /// It refused it, saying why: no code went.
     Refused(String),

@@ -779,6 +779,8 @@ agent history SESSION [-n COUNT]
 agent search QUERY... [-n COUNT]
 agent resolve NAME|ID|LINK
 agent register NAME [--code CODE]
+agent register --auto [NAME]
+agent whoami [--json]
 agent open SESSION_ID
 agent open-tab SESSION_ID [--target PANE_OR_TAB]
 agent bg start [--cwd DIR] [--description TEXT] COMMAND
