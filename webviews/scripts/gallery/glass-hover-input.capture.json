@@ -1,0 +1,54 @@
+{
+  "shots": [
+    {
+      "name": "glass-hover-input",
+      "entry": "ui.glass-system",
+      "variant": "hover-input",
+      "width": 680,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": "",
+        "clearer": ":root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:62%;--ds-glass-menu-tint:70%;--ds-transient-web-tint:70%;}@media (prefers-color-scheme: dark){:root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:70%;--ds-glass-menu-tint:64%;--ds-transient-web-tint:64%;}}",
+        "edge": ":root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-edge-top:80%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}@media (prefers-color-scheme: dark){:root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-edge-top:40%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}}",
+        "clearer-edge": ":root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:62%;--ds-glass-menu-tint:70%;--ds-transient-web-tint:70%;--ds-glass-edge-top:80%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}@media (prefers-color-scheme: dark){:root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:70%;--ds-glass-menu-tint:64%;--ds-transient-web-tint:64%;--ds-glass-edge-top:40%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}}"
+      }
+    },
+    {
+      "name": "glass-hover-input-1280",
+      "entry": "ui.glass-system",
+      "variant": "hover-input",
+      "width": 1280,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": "",
+        "clearer-edge": ":root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:62%;--ds-glass-menu-tint:70%;--ds-transient-web-tint:70%;--ds-glass-edge-top:80%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}@media (prefers-color-scheme: dark){:root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:70%;--ds-glass-menu-tint:64%;--ds-transient-web-tint:64%;--ds-glass-edge-top:40%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}}"
+      }
+    },
+    {
+      "name": "glass-hover-input-420",
+      "entry": "ui.glass-system",
+      "variant": "hover-input",
+      "width": 420,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": "",
+        "clearer-edge": ":root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:62%;--ds-glass-menu-tint:70%;--ds-transient-web-tint:70%;--ds-glass-edge-top:80%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}@media (prefers-color-scheme: dark){:root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:70%;--ds-glass-menu-tint:64%;--ds-transient-web-tint:64%;--ds-glass-edge-top:40%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}}"
+      }
+    },
+    {
+      "name": "glass-hover-input-reduce",
+      "entry": "ui.glass-system",
+      "variant": "hover-input-reduce",
+      "width": 680,
+      "height": 420,
+      "deviceScaleFactor": 2,
+      "arms": {
+        "now": "",
+        "clearer-edge": ":root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:62%;--ds-glass-menu-tint:70%;--ds-transient-web-tint:70%;--ds-glass-edge-top:80%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}@media (prefers-color-scheme: dark){:root:root:not([data-glass=\"off\"], [data-reduce-transparency]){--ds-glass-popover-tint:70%;--ds-glass-menu-tint:64%;--ds-transient-web-tint:64%;--ds-glass-edge-top:40%;--ds-glass-popover-blur:blur(24px) saturate(1.9);--ds-transient-web-saturation:1.9;--glass-material-saturate:1.9;}}"
+      }
+    }
+  ]
+}
