@@ -130,7 +130,15 @@ async fn a_peer_link_that_asks_gets_patches_of_the_masked_row_and_a_resync() {
     assert_eq!(whole["params"]["rowSeq"], last + 1, "the next number, not a restart");
     assert!(!whole.to_string().contains(&token), "the whole row is masked too");
     // The patch made the row the peer would have sent whole.
-    assert_eq!(held, whole["params"]["session"]);
+    let differ: Vec<String> = held
+        .as_object()
+        .unwrap()
+        .keys()
+        .chain(whole["params"]["session"].as_object().unwrap().keys())
+        .filter(|k| held.get(k.as_str()) != whole["params"]["session"].get(k.as_str()))
+        .map(|k| format!("{k}: {} vs {}", held[k.as_str()], whole["params"]["session"][k.as_str()]))
+        .collect();
+    assert!(differ.is_empty(), "the patched row differs from the resync's: {differ:?}");
     let reply = next(&mut link_out, |line| line["id"] == 20).await;
     assert_eq!(reply["result"]["sent"], true, "{reply}");
 
