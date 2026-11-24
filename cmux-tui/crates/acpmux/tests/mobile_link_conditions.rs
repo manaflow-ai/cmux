@@ -36,6 +36,10 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_BW_TURNS",
     "NETCOND_BW_SECS",
     "NETCOND_BW_APPS",
+    "NETCOND_AWAY",
+    "NETCOND_LOADS",
+    "NETCOND_CHAT_MAX_TURNS",
+    "NETCOND_DEBUG",
 ]);
 
 #[path = "support/app_ws.rs"]
@@ -283,7 +287,8 @@ impl Link {
         app: App,
         delta: bool,
     ) -> Result<Self, String> {
-        let mut meta = json!({"localAppToken": token});
+        // The phone draws no time breakdown (`AcpmuxHub.swift` `bind`).
+        let mut meta = json!({"localAppToken": token, "omitTimeBreakdown": true});
         if app == App::IosCompact {
             meta["chunkDeltas"] = json!(true);
         }
@@ -1308,5 +1313,241 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
     if let Some(spans) = last_old.pointer("/timeBreakdown/spans").and_then(Value::as_array) {
         let held_spans = row.pointer("/timeBreakdown/spans").and_then(Value::as_array);
         assert_eq!(held_spans.map(Vec::len), Some(spans.len()), "timeBreakdown spans");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Background: the time-away table (Leo, 2026-11-24: "the syncing can arguably happen in the
+// background too, so deltas can be sipped and maintained"; cmux-next-ios/design/
+// background-delta-sync.md). The phone holds the chat at its newest record and its link closes;
+// acpmux gets what a span of time away brings (simulated: the turns are made at once), then the
+// link reopens through the shaper and the chat catches up.
+//
+// Loads: idle, no turns; busy, one agent streaming a turn of ~1 KB (the open bench's turn) every
+// BG_BUSY_TURN_EVERY_S, about one record a second. acpmux keeps every record of a chat (its
+// journal), so nothing is capped by the host; NETCOND_CHAT_MAX_TURNS caps what one span makes
+// (default: none).
+//
+// Phone forms, phase:
+// - before (the phone today, AcpmuxHub.readPages with a gap allowed): initialize and the watch
+//   on the new link, then `_acpmux/attach {afterSeq, beforeSeq, maxBytes}` (tail-first); on a
+//   gap with `hasMore`, the `_acpmux/events` read after the newest page that tells the two Mac
+//   kinds apart, then forward pages while `hasMore`.
+// - after (the cursor form, newest page first): the same attach; the chat is current once the
+//   page reaches the host's `lastSeq` (`pageThrough`), with no confirming read.
+// `catch_up_ms` from the dial to the phone holding the host's newest record.
+// Rows: surface `chat`, scale `<away>-<load>`.
+
+const BG_BUSY_TURN_EVERY_S: u64 = 2;
+/// AcpmuxHub.tailBeforeSeq.
+const TAIL_BEFORE_SEQ: u64 = 1_099_511_627_776;
+
+fn bg_away_secs(label: &str) -> u64 {
+    let (number, unit) = label.split_at(label.len() - 1);
+    let n: u64 = number.parse().unwrap_or_else(|_| panic!("time away {label}: 30s, 10m or 8h"));
+    match unit {
+        "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        _ => panic!("time away {label}: 30s, 10m or 8h"),
+    }
+}
+
+fn page_seqs(reply: &Value) -> Option<u64> {
+    let newest = rows(reply).into_iter().max();
+    let through = reply["pageThrough"].as_u64();
+    newest.max(through)
+}
+
+/// NETCOND_DEBUG=1: each read's page on stderr.
+fn bg_debug(phase: &str, read: &str, reply: &Value) {
+    if std::env::var_os("NETCOND_DEBUG").is_none() {
+        return;
+    }
+    let page = rows(reply);
+    eprintln!(
+        "netcond-debug {phase} {read}: {} rows {:?}..{:?} hasMore {} pageThrough {} lastSeq {} bytes {}",
+        page.len(),
+        page.first(),
+        page.last(),
+        reply["hasMore"],
+        reply["pageThrough"],
+        reply["lastSeq"],
+        reply.to_string().len()
+    );
+}
+
+/// The chat's catch-up from `after` on a fresh link through `shaper`.
+async fn bg_chat_once(
+    shaper: &Shaper,
+    token: &str,
+    session: &str,
+    after: u64,
+    phase: &str,
+) -> Result<(Duration, u64, bool), String> {
+    shaper.reset_counters();
+    let start = Instant::now();
+    let deadline = start + BOUND;
+    let mut link = Link::open(shaper.addr(), token, deadline).await?;
+    let params = json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": link.kinds(),
+        "eventStream": true, "afterSeq": after, "beforeSeq": TAIL_BEFORE_SEQ,
+        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES});
+    let id = link.post("_acpmux/attach", params).await?;
+    let (_, reply) = link.answer(id, deadline).await?;
+    let last = reply["lastSeq"].as_u64().ok_or(format!("attach has no lastSeq: {reply}"))?;
+    let page = rows(&reply);
+    bg_debug(phase, "attach", &reply);
+    let mut held = page_seqs(&reply).unwrap_or(0).max(after);
+    let mut more = reply["hasMore"] == json!(true);
+    let gap = more && page.first().is_some_and(|first| *first > after + 1);
+    let hit = !more;
+    let mut cursor = page.last().copied();
+    if phase == "before" && gap {
+        // The read that tells a tail-first Mac from a forward-only one.
+        let newest = page.last().copied().unwrap_or(after);
+        let id = link
+            .post(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": newest,
+                "limit": PAGE_SIZE, "kinds": link.kinds()}),
+            )
+            .await?;
+        let (_, next) = link.answer(id, deadline).await?;
+        bg_debug(phase, "confirm", &next);
+        let events = rows(&next);
+        more = !events.is_empty() && next["hasMore"] == json!(true);
+        held = held.max(page_seqs(&next).unwrap_or(0));
+        cursor = events.last().copied().or(cursor);
+    } else if gap {
+        // Tail-first: the newest page reaches the host's last record; the rest fills behind.
+        more = held < last;
+    }
+    while more && held < last {
+        let Some(from) = cursor else { break };
+        let id = link
+            .post(
+                "_acpmux/events",
+                json!({"sessionId": session, "afterSeq": from,
+                "limit": PAGE_SIZE, "kinds": link.kinds()}),
+            )
+            .await?;
+        let (_, next) = link.answer(id, deadline).await?;
+        bg_debug(phase, "forward", &next);
+        let events = rows(&next);
+        more = !events.is_empty() && next["hasMore"] == json!(true);
+        held = held.max(page_seqs(&next).unwrap_or(0));
+        cursor = events.last().copied();
+    }
+    let took = start.elapsed();
+    if held < last {
+        return Err(format!("the phone holds {held}, the host {last}"));
+    }
+    Ok((took, last.saturating_sub(after), hit))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the time-away bench: scripts/measure/ios-network-conditions.sh mode=background runs it"]
+async fn chat_background_catch_up_after_time_away() {
+    let scratch = daemon_env::Scratch::new("netcond-bg");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let profiles: Vec<LinkProfile> = env_list("NETCOND_PROFILES", &["good-wifi", "lte", "lossy-3"])
+        .iter()
+        .map(|n| file.get(n).unwrap_or_else(|| panic!("no link profile {n}")).clone())
+        .collect();
+    let aways = env_list("NETCOND_AWAY", &["1m", "10m", "1h", "8h"]);
+    let loads = env_list("NETCOND_LOADS", &["idle", "busy"]);
+    let runs = env_u64("NETCOND_RUNS", 5);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let max_turns = env_u64("NETCOND_CHAT_MAX_TURNS", u64::MAX);
+
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let made = control
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "netcond-bg"}}}),
+        )
+        .await;
+    let session =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    // A chat with history before anything is measured (the open bench's 1x).
+    control.seed(&session, 0, BASE_TURNS).await;
+    let mut turns = BASE_TURNS;
+    println!(
+        "NETCOND-FIXTURE background chat: busy = a ~1 KB turn every {BG_BUSY_TURN_EVERY_S} s; \
+         idle = none; turns per span capped at {}",
+        if max_turns == u64::MAX { "none".to_owned() } else { max_turns.to_string() }
+    );
+    let trace = Trace::new();
+    for load in &loads {
+        let busy = load == "busy";
+        for away in &aways {
+            let secs = bg_away_secs(away);
+            let scale = format!("{away}-{load}");
+            let span_turns = if busy { (secs / BG_BUSY_TURN_EVERY_S).min(max_turns) } else { 0 };
+            for run in 0..runs {
+                let seed = seed_base + run;
+                // The phone's cursor: the newest record when it left.
+                let after = {
+                    let deadline = Instant::now() + BOUND;
+                    let probe = async {
+                        let mut link = Link::open(upstream, &listener.token, deadline).await?;
+                        let (_, reply) = link.attach(&session, None, deadline).await?;
+                        reply["lastSeq"].as_u64().ok_or(format!("no lastSeq: {reply}"))
+                    };
+                    match probe.await {
+                        Ok(after) => after,
+                        Err(why) => {
+                            println!("NETCOND-ERROR chat {scale} run {run}: cursor: {why}");
+                            continue;
+                        }
+                    }
+                };
+                let made = Instant::now();
+                control.seed(&session, turns, turns + span_turns).await;
+                turns += span_turns;
+                eprintln!(
+                    "netcond: chat {scale} run {run}: {span_turns} turns in {:?}",
+                    made.elapsed()
+                );
+                for profile in &profiles {
+                    let name = profile.label(None);
+                    let (shaper, _hop) =
+                        match Shaper::start_through(upstream, profile.clone(), None, seed, &trace)
+                            .await
+                        {
+                            Ok(s) => s,
+                            Err(e) => {
+                                println!("NETCOND-ERROR chat {name} {scale}: shaper: {e}");
+                                continue;
+                            }
+                        };
+                    for phase in ["before", "after"] {
+                        let k = Key { profile: &name, phase, scale: &scale, run, seed };
+                        emit(&k, "stale_s", Some(secs as f64));
+                        match bg_chat_once(&shaper, &listener.token, &session, after, phase).await {
+                            Ok((took, behind, hit)) => {
+                                emit(&k, "events_behind", Some(behind as f64));
+                                emit(&k, "catch_up_ms", Some(ms(took)));
+                                emit_bytes(&k, &shaper);
+                                emit(&k, "cursor_hit", Some(f64::from(u8::from(hit))));
+                            }
+                            Err(why) => {
+                                emit(&k, "catch_up_ms", None);
+                                emit_error(&k, "catch_up_ms", &why);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

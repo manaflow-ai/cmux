@@ -98,6 +98,7 @@ pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
 pub mod disk_usage;
+pub(crate) mod disk_writer;
 pub mod folder_instructions;
 pub mod fork_place;
 #[cfg(all(test, unix))]
@@ -192,6 +193,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
 /// (`machine_call_service.rs`).
 #[cfg(feature = "hub-carrier")]
@@ -376,6 +378,7 @@ pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
+pub mod tailnet_carrier;
 pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
