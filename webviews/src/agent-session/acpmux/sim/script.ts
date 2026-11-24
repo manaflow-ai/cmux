@@ -116,7 +116,7 @@ export class SimBuilder {
   }
 
   /** The person's prompt, and the turn it starts. */
-  prompt(value: string, after = 1_000): this {
+  prompt(value: string, after = 1_000, extra: Record<string, unknown> = {}): this {
     this.newTurn();
     this.record(
       "mux",
@@ -127,6 +127,7 @@ export class SimBuilder {
         turnId: this.turnId,
         client: "pane",
         _meta: { origin: { actor: "person" } },
+        ...extra,
       },
       after,
       `prompt: ${value.slice(0, 40)}`,
@@ -303,7 +304,10 @@ export class SimBuilder {
 
   /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later
    *  (`false`: the agent has not read it yet). */
-  steer(value: string, { readMs = 600, after = 300 }: { readMs?: number | false; after?: number } = {}): this {
+  steer(
+    value: string,
+    { readMs = 600, after = 300, extra = {} }: { readMs?: number | false; after?: number; extra?: Record<string, unknown> } = {},
+  ): this {
     const promptId = `steer-${this.seq + 1}`;
     this.record(
       "mux",
@@ -315,6 +319,7 @@ export class SimBuilder {
         steer: true,
         client: "pane",
         _meta: { origin: { actor: "person" } },
+        ...extra,
       },
       after,
       `steer: ${value.slice(0, 40)}`,
