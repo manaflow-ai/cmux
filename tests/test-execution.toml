@@ -2420,3 +2420,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_select_ios_simulator.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_check_names_literal.py"
+lane = "linux-guard"

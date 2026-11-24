@@ -1059,6 +1059,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
 
+      - name: Validate required checks have literal job names
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_check_names_literal.py
+
       - name: Validate the CI quota hold gate stays on optional workflows only
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_quota_hold_gate.py
