@@ -17,14 +17,23 @@ use super::Type;
 use super::{EEXIST, EIO, ENOENT, ENOTDIR, Entry, Inner, Kind, Node, Overlay, Path, PoisonError};
 use super::{fs, join};
 
+// `renameat2`'s flags on Linux; macOS's `renamex_np` has the same two as `RENAME_EXCL` and
+// `RENAME_SWAP`, so the overlay swaps the same way under the macOS NFS serve (#51365).
+#[cfg(target_os = "linux")]
 const RENAME_NOREPLACE: u32 = 1;
+#[cfg(target_os = "linux")]
 const RENAME_EXCHANGE: u32 = 2;
+#[cfg(target_os = "macos")]
+const RENAME_NOREPLACE: u32 = libc::RENAME_EXCL;
+#[cfg(target_os = "macos")]
+const RENAME_EXCHANGE: u32 = libc::RENAME_SWAP;
 
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
     // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    #[cfg(target_os = "linux")]
     let done = unsafe {
         libc::syscall(
             libc::SYS_renameat2,
@@ -35,6 +44,9 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
             flags,
         )
     };
+    // SAFETY: two valid C strings (absolute paths).
+    #[cfg(target_os = "macos")]
+    let done = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), flags) };
     if done < 0 {
         Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
     } else {
