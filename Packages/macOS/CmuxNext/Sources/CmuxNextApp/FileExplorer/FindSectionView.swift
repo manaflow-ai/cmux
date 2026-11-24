@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFilesUI
-import CmuxVisibleRows
 
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return
@@ -161,17 +160,6 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     func numberOfRows(in tableView: NSTableView) -> Int { results.count }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let id = NSUserInterfaceItemIdentifier("find.row")
-        let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FindResultCell ?? FindResultCell(identifier: id)
-        cell.show(results.configure(row))
-        if cell.onLayout == nil { cell.onLayout = { [results] in results.laidOut() } }
-        return cell
+        results.cell(row, in: tableView, id: "find.row", as: FindResultCell.self)
     }
-}
-
-/// The Find results under the visible-rows contract (`VisibleRowsContract`), counted as the Files tree's are.
-extension FindSectionView: VisibleRowsList {
-    var listWork: ListWorkMeter { results.listWork }
-    /// The table's row views, shown and kept for reuse.
-    var rowViewsAlive: Int { table.subviews.reduce(0) { $0 + ($1 is NSTableRowView ? 1 : 0) } }
 }

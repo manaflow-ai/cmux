@@ -91,7 +91,9 @@ struct FileExplorerVisibleRowsTests {
     let lister: Lister
     let git: Git
     let model: FileExplorerModel
-    let list: FileExplorerSectionView
+    let section: FileExplorerSectionView
+    /// The section's table rows, which carry the contract (`TableRows: VisibleRowsList`).
+    var list: TableRows<FileExplorerRow, URL> { section.rows }
     let window: NSWindow
 
     init(rows: Int) async throws {
@@ -101,26 +103,26 @@ struct FileExplorerVisibleRowsTests {
         git = Git(top: root.path)
         model = FileExplorerModel(lister: lister, git: git, watcher: NoWatch(), isProtected: { _ in false })
         await model.setRoot(root)
-        list = FileExplorerSectionView(model: model, rootFolder: { nil }, perform: { _ in }, rowMenu: { _ in nil })
-        window = makeWindow(list)
+        section = FileExplorerSectionView(model: model, rootFolder: { nil }, perform: { _ in }, rowMenu: { _ in nil })
+        window = makeWindow(section)
         // The view lists its root again when it shows; let that land.
         for _ in 0..<400 where lister.lists < 2 { try? await Task.sleep(for: .milliseconds(5)) }
         for _ in 0..<20 { await Task.yield() }
-        list.render()
+        section.render()
         drawFrame(window)
     }
 
-    var viewportRows: Int { list.table.rows(in: list.table.visibleRect).length }
+    var viewportRows: Int { section.table.rows(in: section.table.visibleRect).length }
 
     /// A shown file turns untracked (an editor saved a new file): its git letter changes.
     func changeOneItem() async throws {
         git.status = "?? f000003.txt\0"
         await model.reload()
-        list.render()
+        section.render()
         drawFrame(window)
     }
 
-    func scrollOneRow() async throws -> Bool { scrollTableOneRow(list.table, list, window) }
+    func scrollOneRow() async throws -> Bool { scrollTableOneRow(section.table, list, window) }
 
     /// One live-resize step of the window: 8 pt narrower.
     func resizeOneStep() async throws -> Bool {
@@ -147,7 +149,9 @@ struct FileExplorerVisibleRowsTests {
 
     let answer: Answer
     let model: FindSectionModel
-    let list: FindSectionView
+    let section: FindSectionView
+    /// The section's table rows, which carry the contract (`TableRows: VisibleRowsList`).
+    var list: TableRows<RipgrepMatch, RipgrepMatch.ID> { section.results }
     let window: NSWindow
 
     init(rows: Int) async throws {
@@ -156,24 +160,24 @@ struct FileExplorerVisibleRowsTests {
         })
         self.answer = answer
         model = FindSectionModel(search: { _, _ in .matches(answer.matches, limited: false) })
-        list = FindSectionView(model: model, rootFolder: { URL(fileURLWithPath: "/r") }, effects: NullFileExplorerEffects())
-        window = makeWindow(list)
+        section = FindSectionView(model: model, rootFolder: { URL(fileURLWithPath: "/r") }, effects: NullFileExplorerEffects())
+        window = makeWindow(section)
         await model.search("x")
-        list.render()
+        section.render()
         drawFrame(window)
     }
 
-    var viewportRows: Int { list.table.rows(in: list.table.visibleRect).length }
+    var viewportRows: Int { section.table.rows(in: section.table.visibleRect).length }
 
     /// The file under a shown match changed: the same search answers that match with a new line.
     func changeOneItem() async throws {
         answer.matches[2] = RipgrepMatch(path: "/r/f3.swift", relativePath: "f3.swift", line: 3, column: 1, preview: "x changed")
         await model.search("x")
-        list.render()
+        section.render()
         drawFrame(window)
     }
 
-    func scrollOneRow() async throws -> Bool { scrollTableOneRow(list.table, list, window) }
+    func scrollOneRow() async throws -> Bool { scrollTableOneRow(section.table, list, window) }
 
     /// One live-resize step of the window: 8 pt narrower.
     func resizeOneStep() async throws -> Bool {

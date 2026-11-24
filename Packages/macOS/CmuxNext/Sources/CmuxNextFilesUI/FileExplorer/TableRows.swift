@@ -19,6 +19,8 @@ package final class TableRows<Row: Equatable, ID: Hashable> {
     /// (``laidOut()``), and the rows each ``show(_:in:)`` compares.
     package let listWork = ListWorkMeter()
     private let id: (Row) -> ID
+    /// The table ``show(_:in:)`` last filled, for ``rowViewsAlive``.
+    private weak var table: NSTableView?
 
     // A generic main-actor class: an isolated deinit crashes the Release optimizer (#23050).
     nonisolated deinit {}
@@ -40,8 +42,20 @@ package final class TableRows<Row: Equatable, ID: Hashable> {
     /// One cell of this table laid out (a width change, a reload).
     package func laidOut() { listWork.laidOut() }
 
+    /// The cell for row `index` of `table`: a reused one or a new `Cell`, showing the row (a counted configure), with
+    /// its layouts counted (``laidOut()``). The table's `viewFor` answer.
+    package func cell<Cell: TableRowCell>(_ index: Int, in table: NSTableView, id: String, as _: Cell.Type) -> Cell
+    where Cell.Row == Row {
+        let identifier = NSUserInterfaceItemIdentifier(id)
+        let cell = table.makeView(withIdentifier: identifier, owner: nil) as? Cell ?? Cell(identifier: identifier)
+        cell.show(configure(index))
+        if cell.onLayout == nil { cell.onLayout = { [weak self] in self?.laidOut() } }
+        return cell
+    }
+
     /// Shows `new` in `table`, whose data source answers from these rows.
     package func show(_ new: [Row], in table: NSTableView) {
+        self.table = table
         let old = all
         all = new
         // Every row is compared: the model hands over a whole new list (FileExplorerModel.rebuild).
@@ -62,3 +76,22 @@ package final class TableRows<Row: Equatable, ID: Hashable> {
         }
     }
 }
+
+/// The table's rows under the visible-rows contract (`VisibleRowsContract`): each configure, each cell layout and the
+/// rows each ``TableRows/show(_:in:)`` compares count on `listWork`. The Files tree and Find results register this way.
+extension TableRows: VisibleRowsList {
+    /// The table's row views, shown and kept for reuse.
+    package var rowViewsAlive: Int { table?.subviews.reduce(0) { $0 + ($1 is NSTableRowView ? 1 : 0) } ?? 0 }
+}
+
+/// A cell ``TableRows/cell(_:in:id:as:)`` makes and fills: it shows one row and reports each layout pass.
+@MainActor
+package protocol TableRowCell: NSTableCellView {
+    associatedtype Row
+    init(identifier: NSUserInterfaceItemIdentifier)
+    var onLayout: (@MainActor () -> Void)? { get set }
+    func show(_ row: Row)
+}
+
+extension FileExplorerCell: TableRowCell {}
+extension FindResultCell: TableRowCell {}
