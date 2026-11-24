@@ -61,6 +61,11 @@ jobs:
       # nothing restores a hosted seed (Leo, 2026-10-27: "THE GITHUB HOSTED MACS / ARE
       # THE SLOWEST THINGS"; tests/test_ci_no_github_hosted_macos.py). That pool's seeds
       # were 21 hosted jobs and 891 hosted minutes a day (2026-10-27).
+      # blacksmith-root2 builds the same seed at the owned minis' second seed root
+      # (owned_spm_scratch.SECOND_SEED_WORKSPACE): SwiftPM's build records absolute paths, so a seed
+      # restores warm only at the path it was built at. Its job mirrors the checkout there
+      # ("Mirror the checkout to the pool's workspace"). vars.CI_FAST_TIER_SECOND_SEED_ROOT "0"
+      # drops it, as it drops the root on the minis.
       SEED_POOLS: >-
         [{"pool": "blacksmith", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux/cmux", "timeout": 30},
         {"pool": "blacksmith-root2", "runner": "blacksmith-6vcpu-macos-26", "workspace": "/Users/runner/_work/cmux-2/cmux", "timeout": 30}]
@@ -246,8 +251,9 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # The due job judged this pool by its workspace path, so the build runs at
-      # that path. The second pool is an APFS clone beside the checkout.
+      # The due job judged this pool by its workspace path's seeds, so the build runs
+      # at that path: the checkout itself, or (blacksmith-root2) an APFS clone of it
+      # beside it, at the second seed root's path. Every step below runs there.
       - name: Mirror the checkout to the pool's workspace
         env:
           POOL_WORKSPACE: ${{ matrix.workspace }}

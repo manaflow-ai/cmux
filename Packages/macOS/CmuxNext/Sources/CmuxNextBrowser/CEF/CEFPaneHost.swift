@@ -63,6 +63,8 @@ final class CEFPaneHost {
             guard let self else { return false }
             return self.visibleTab?.pendingFocus == true || CEFLayerHosting.pageWindowIsKey(over: self.hostView)
         }
+        // A first-frame hold that a window change began ends with the grant of the tab shown then (as `holdFirstFrameIfAppeared`).
+        hostView.layerHosting.heldGrant = { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -435,10 +437,20 @@ final class CEFPaneHost {
             window = .none
             hostView.layerHosting.stop()
             hostView.removeFromSuperview()
-            if holdsOwnTab || isOwnTabHost, runtime.hosts[key] === self { runtime.hosts[key] = nil }
+            if runtime.hosts[key] === self, holdsOwnTab || isOwnTabHost || isDroppable { runtime.hosts[key] = nil }
         }
         // A lent tab closed while its window was still being made: the placeholder goes too.
         if isAgentHost { retireIfUnused() }
+    }
+
+    /// A pane host with no tabs left holds no window either (`removed`), so the runtime lets it go: a pane
+    /// whose pages all hibernated keeps no `CEFHostView` (and its layers) per pane, and its next page makes a
+    /// fresh host and window as this one would have. It stays while it is the spare, a placeholder's, an
+    /// extension popup's, still creating a page or a window (`pendingWindows`), or home to a tab an agent drives
+    /// (`hasLentTabs`).
+    private var isDroppable: Bool {
+        placeholder == nil && popupWindow == nil && deferredCreations.isEmpty && !isSpare && !hasLentTabs
+            && !runtime.pendingWindows.values.contains { $0 === self }
     }
 
     func refreshExtensionActions() {

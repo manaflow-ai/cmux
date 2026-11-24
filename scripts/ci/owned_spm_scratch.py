@@ -802,10 +802,13 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 # shared roots above were warm on 3% of fast-tier jobs in 48 h to 2026-11-18 (cmux#44271): the light
 # 228 GiB minis rest at 32-48 GiB free and the lease's reserve never admitted a root there.
 SEED_WORKSPACE = Path("/Users/runner/_work/cmux/cmux")
-# SwiftPM's build records absolute paths, so the second root has its own seed at
-# the same path. It is used only when the first root is held by another job.
+# The second seed root, tried only while another fast-tier job holds the first: of 15 fast-tier jobs that
+# started cold and hit the 60-minute cap in 6 h to 01Z 2026-11-23, 7 found the one seed root held by another
+# fast-tier job, which came free 12 to 60 minutes later (controller timing records, ci-three-pushes-per-pr).
+# SwiftPM's build records absolute paths, so it has its own seed: cmux-next-fast-tier-seed.yml builds one at
+# this path too (its blacksmith-root2 pool). vars.CI_FAST_TIER_SECOND_SEED_ROOT "0" turns it off.
 SECOND_SEED_WORKSPACE = Path("/Users/runner/_work/cmux-2/cmux")
-SECOND_SEED_SETTING = "CMUX_FAST_TIER_SECOND_SEED_ROOT"
+SECOND_SEED_SETTING = "CMUX_FAST_TIER_SECOND_SEED_ROOT"  # "0" from cmux-next.yml when the variable is "0"
 SEED_LOCK = ".cmux-seed-root.lock"
 # Provisioning writes this in the seed root's parent. The nightly-next builder's runner works in
 # /Users/runner/_work/cmux/cmux too, so the directory alone does not make the path ours.
@@ -891,7 +894,8 @@ def seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footpri
 
 
 def second_seed_fits(free: int, kept: int, floor_gib: float, growth_gib: float, footprint: int) -> bool:
-    """A second seed stays on disk beside the first and needs room for the next job's growth."""
+    """Whether a mini has the disk for a second seed root: its build stays after the job, beside the first
+    root's, so it needs room above glaeda's floor for itself and still for the next job's growth."""
     return free + kept >= int((floor_gib + growth_gib) * 1024**3) + footprint
 
 
@@ -946,7 +950,8 @@ def seed_lease(workspace: Path, seed_workspace: Path, runner: str,
 
 
 def seed_roots(environ: Mapping[str, str] = os.environ) -> list[tuple[Path, object]]:
-    """The seed roots a fast-tier job tries, in order. Tests may name one root."""
+    """The seed roots a fast-tier job tries, in order, each with its room check. CMUX_FAST_TIER_SEED_WORKSPACE
+    names one root alone (tests)."""
     named = environ.get("CMUX_FAST_TIER_SEED_WORKSPACE")
     if named:
         return [(Path(named), seed_fits)]
