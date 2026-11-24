@@ -56,6 +56,16 @@ function tooLargeText(attachments: readonly ComposerAttachment[]): string {
     : translate("prompt.failure.tooLarge");
 }
 
+/// The pane's connection to the agent was closed when it sent: the browser's own words ("WebSocket is
+/// not open: readyState 3 (CLOSED)") or the bridge's `transport.closed`, which read as "The app refused
+/// this request". Both say the connection is not open, and Retry is the way on (new-user journeys, F4).
+const CLOSED_WORDS = /WebSocket is (?:not open|closed)|readyState \d|\bsocket (?:is )?closed\b/i;
+function connectionClosed(error: unknown, fields: { code?: unknown } | undefined): boolean {
+  if (text(fields?.code) === "transport.closed") return true;
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : undefined;
+  return message !== undefined && CLOSED_WORDS.test(message);
+}
+
 /// The failed prompt's one sentence. `retried`: a Retry that was refused again says "Still"
 /// (hq#2569 item 5), so the click visibly did something. `attachments`: the prompt's, so a prompt
 /// too large to send names the one to take out.
@@ -94,7 +104,9 @@ export function failedSendText(
       ? translate("prompt.gestureReason")
       : peer
         ? peerLinkLine(peer, translate)
-        : withoutCode(errorMessage(error), text(fields?.reason) ?? text(fields?.code));
+        : connectionClosed(error, fields)
+          ? translate("error.notOpen")
+          : withoutCode(errorMessage(error), text(fields?.reason) ?? text(fields?.code));
   return translate(retried ? "prompt.stillNotSent" : "prompt.notSent", {
     reason: reason || translate("transport.refused"),
   });
