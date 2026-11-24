@@ -703,7 +703,7 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             // The person's own `gh` login; `CMUX_EXT_GH` names another program (tests).
             let gh =
                 std::env::var_os("CMUX_EXT_GH").map_or_else(|| PathBuf::from("gh"), PathBuf::from);
-            match share::share(&share::ShareOptions { dir: dir.clone(), name, private, gh }) {
+            match share_repo::share(&share_repo::ShareOptions { dir: dir.clone(), name, private, gh }) {
                 Ok(shared) => {
                     if json_out {
                         println!("{}", shared.to_json(&dir));
@@ -711,8 +711,8 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
                         print!("{}", shared.text(&dir));
                     }
                     match shared {
-                        share::Shared::Published { .. } => exit::OK,
-                        share::Shared::NotConnected { .. } => exit::NOT_CONNECTED,
+                        share_repo::Shared::Published { .. } => exit::OK,
+                        share_repo::Shared::NotConnected { .. } => exit::NOT_CONNECTED,
                     }
                 }
                 Err(message) => {
