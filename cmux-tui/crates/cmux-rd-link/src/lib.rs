@@ -582,13 +582,7 @@ impl Link {
     /// Moves a due handshake retry on without sending it or checking the timeout: an
     /// endpoint with no route yet has nowhere to send it, and its first route gets the
     /// queued message at once.
-    ///
-    /// It waits the same gap as a sent retry ([`handshake_retry_us`]) and counts as one, so
-    /// [`Link::next_deadline_us`] moves past `now_us`: with the old fixed 250 ms test against a
-    /// 50 ms first gap, the deadline stayed in the past and the caller polled in a busy loop
-    /// until a route came.
     pub(crate) fn defer_handshake_retry(&mut self, now_us: u64) {
-        let gap = handshake_retry_us(self.handshake_resends);
         // The same gap and count as a sent retry (`poll_handshake_timers`), so the deadline
         // `next_deadline_us` reports is the one this moves to.
         let gap = handshake_retry_us(self.handshake_resends);
