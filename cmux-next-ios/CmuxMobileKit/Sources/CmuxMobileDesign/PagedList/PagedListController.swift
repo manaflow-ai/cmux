@@ -99,6 +99,9 @@ public final class PagedListProbe {
     /// rows' drawn move NOT less what the scroll or the list explains, judged against the frames on
     /// both sides; 0 when that frame was smooth. Frames with a finger on the list are not judged.
     public var pushShift: ((_ size: CGFloat, _ detail: String?) -> Void)?
+    /// The same measure on frames with a finger down (DEBUG): recorded, not asserted, until the drag
+    /// threshold is set from these records.
+    public var dragPush: ((_ size: CGFloat) -> Void)?
     /// A frame that shifted more than half a point, with what the list was doing (the lab keeps the
     /// worst one, so a failing stress case names its cause).
     public var shiftDetail: ((_ shift: CGFloat, _ detail: String) -> Void)?
@@ -399,7 +402,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private var drawnHeights: [CellID: CGFloat] = [:]
     /// The push measure's last two frames: the followed row's raw drawn move and whether a finger
     /// was on the list (the older first).
-    private var pushMoves: [(move: CGFloat, tracking: Bool)] = []
+    private var pushMoves: [PagedListPush.Frame] = []
+    /// The person asked for the jump the next committed frame shows (``jumpToNewest`` with no motion).
+    private var deliberateJump = false
     private var drawnReading: CellID?
     /// What the scroll explains since the last sample, and the corrections UIKit still owes.
     private var ledger = PagedListShiftLedger()
@@ -893,6 +898,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         // A fling still running would drive the offset too: stop it where it is.
         if collectionView.isDecelerating { collectionView.setContentOffset(collectionView.contentOffset, animated: false) }
         if UIAccessibility.isReduceMotionEnabled || !animatesNewest {
+            // The person asked for this jump: the push measure does not count it.
+            deliberateJump = true
             scrollToNewest()
         } else {
             spring.run(from: collectionView.contentOffset.y)
@@ -1174,15 +1181,22 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                                                   reading: drawnReading) else { return }
         let shift = (followed.now - followed.was) + explained
         if let push = probe?.pushShift {
-            pushMoves.append((followed.now - followed.was, collectionView.isTracking))
+            pushMoves.append(.init(move: followed.now - followed.was, tracking: collectionView.isTracking, deliberate: deliberateJump))
+            deliberateJump = false
             if pushMoves.count > 3 { pushMoves.removeFirst() }
-            if pushMoves.count == 3, !pushMoves[1].tracking {
-                let size = PagedListPush.size(before: pushMoves[0].move, move: pushMoves[1].move, after: pushMoves[2].move)
-                push(size, size > 0 && probe?.shiftDetail != nil
-                    ? String(format: "push moves=%.1f,%.1f,%.1f explained=%.1f row=%@ follows=%d spring=%d",
-                             pushMoves[0].move, pushMoves[1].move, pushMoves[2].move, explained,
-                             String(describing: followed.id), followsNewest ? 1 : 0, spring.isRunning ? 1 : 0)
-                    : nil)
+            if pushMoves.count == 3 {
+                switch PagedListPush.verdict(before: pushMoves[0], middle: pushMoves[1], after: pushMoves[2]) {
+                case .none:
+                    push(0, nil)
+                case .push(let size):
+                    push(size, probe?.shiftDetail != nil
+                        ? String(format: "push moves=%.1f,%.1f,%.1f explained=%.1f row=%@ follows=%d spring=%d",
+                                 pushMoves[0].move, pushMoves[1].move, pushMoves[2].move, explained,
+                                 String(describing: followed.id), followsNewest ? 1 : 0, spring.isRunning ? 1 : 0)
+                        : nil)
+                case .drag(let size):
+                    probe?.dragPush?(size)
+                }
             }
         }
         let detail = abs(shift) > 0.5 && probe?.shiftDetail != nil

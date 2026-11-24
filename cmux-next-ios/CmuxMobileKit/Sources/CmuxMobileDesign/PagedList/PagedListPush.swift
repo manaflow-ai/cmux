@@ -20,5 +20,34 @@ enum PagedListPush {
         let nearer = min(abs(move - before), abs(move - after))
         return nearer > threshold ? nearer : 0
     }
+
+    /// One committed frame as the push measure sees it.
+    struct Frame {
+        /// The followed row's raw drawn move in this frame (pt).
+        var move: CGFloat
+        /// A finger was on the list.
+        var tracking = false
+        /// The person asked for this jump (the newest-rows indicator's jump with motion off, a jump to
+        /// the newest row): the list moves everything at once on purpose.
+        var deliberate = false
+    }
+
+    enum Verdict: Equatable {
+        /// Smooth, or a jump the person asked for.
+        case none
+        /// Everything drawn jumped in one frame, with no finger down (asserted).
+        case push(CGFloat)
+        /// The same under a finger: recorded, not asserted, until the drag threshold is known (the
+        /// test driver's synthetic drags move in steps; their size comes from these records).
+        case drag(CGFloat)
+    }
+
+    /// The middle frame's verdict, judged against the frames on both sides.
+    static func verdict(before: Frame, middle: Frame, after: Frame) -> Verdict {
+        guard !middle.deliberate else { return .none }
+        let size = size(before: before.move, move: middle.move, after: after.move)
+        guard size > 0 else { return .none }
+        return middle.tracking ? .drag(size) : .push(size)
+    }
 }
 #endif

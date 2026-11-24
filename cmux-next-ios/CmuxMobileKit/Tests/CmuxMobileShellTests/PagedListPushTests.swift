@@ -5,6 +5,30 @@ import Testing
 
 /// The push measure (``PagedListPush``), as plain data: the rows' drawn move per frame, explained or not.
 struct PagedListPushTests {
+    typealias Frame = PagedListPush.Frame
+
+    /// The person's jump to the newest row (the indicator, motion off) moves everything at once on
+    /// purpose: not a push.
+    @Test func aJumpThePersonAskedForIsNotAPush() {
+        #expect(PagedListPush.verdict(before: Frame(move: -4), middle: Frame(move: 1800, deliberate: true), after: Frame(move: 0)) == .none)
+    }
+
+    /// The same jump made by the list on its own (no request): a push.
+    @Test func aJumpTheListMadeOnItsOwnIsAPush() {
+        #expect(PagedListPush.verdict(before: Frame(move: -4), middle: Frame(move: 1800), after: Frame(move: 0)) == .push(1800))
+    }
+
+    /// Under a finger the size is recorded as drag data, not asserted.
+    @Test func aJumpUnderAFingerIsRecordedAsDragData() {
+        #expect(PagedListPush.verdict(before: Frame(move: -6, tracking: true), middle: Frame(move: -60, tracking: true),
+                                      after: Frame(move: -5, tracking: true)) == .drag(54))
+    }
+
+    /// A fling, under no finger: smooth, no push.
+    @Test func aFlingFrameIsNoPush() {
+        #expect(PagedListPush.verdict(before: Frame(move: 120), middle: Frame(move: 108), after: Frame(move: 97)) == .none)
+    }
+
     /// A slide's steps: smooth, no push.
     @Test func aSmoothSlideIsNoPush() {
         #expect(PagedListPush.size(before: -16, move: -20, after: -24) == 0)
