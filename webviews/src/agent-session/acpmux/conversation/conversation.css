@@ -3406,8 +3406,8 @@ body {
    fade-out. it needs to be more graceful"): while a roll plays, the row that clips it feathers its top
    and bottom, so the old words fade as they rise out and the new fade in as they rise into place,
    every word at full ink in the middle of the line, never two texts over each other and never a blank
-   line. The feather opens with the roll and closes on the same step and curve, so at rest it is gone
-   and nothing clips the words. Its width is a registered property, so it interpolates (on the main
+   line (status-swap-frames.test.ts). The feather opens with the roll and closes on the same step, so
+   at rest it is gone and nothing fades the words. Its width is a registered property, so it interpolates (on the main
    thread; a missed frame budget turns the chat's motion to 0, composerStates.css MINIMAL-MOTION); the
    two keyframe names swap each change, as the roll's do, to restart it. With the
    live line's dwell (liveDwell.ts) each roll ends before the next begins. Any `data-live-swap` look
@@ -3428,10 +3428,10 @@ body {
     );
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row:has(> .cv-roll-out) {
-    animation: cv-roll-feather-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-feather-odd var(--agent-motion-arrive, 80ms) linear both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-shimmer__row:has(> .cv-roll-out) {
-    animation: cv-roll-feather-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-feather-even var(--agent-motion-arrive, 80ms) linear both;
   }
   /* Every other hand-over look draws its own edges. */
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap] .cv-worked--live[data-roll] > .cv-shimmer__row:has(> .cv-roll-out) {
@@ -3439,20 +3439,26 @@ body {
     animation: none;
   }
 }
+/* 0 at both ends, so the first frame draws the old words whole and the last the new; at its peak the
+   feather stays in the line's leading, above and below the glyphs at rest. */
 @keyframes cv-roll-feather-odd {
-  from {
-    --cv-roll-feather: 45%;
-  }
-  to {
+  0%,
+  100% {
     --cv-roll-feather: 0%;
+  }
+  25%,
+  70% {
+    --cv-roll-feather: 24%;
   }
 }
 @keyframes cv-roll-feather-even {
-  from {
-    --cv-roll-feather: 45%;
-  }
-  to {
+  0%,
+  100% {
     --cv-roll-feather: 0%;
+  }
+  25%,
+  70% {
+    --cv-roll-feather: 24%;
   }
 }
 

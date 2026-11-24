@@ -9,7 +9,9 @@
 // started, and how many were cut off by the next before they ended.
 //
 // Usage: bun scripts/gallery/live-line-burst-capture.ts OUT_DIR [--looks a,b] [--busy MS]
-// `--busy MS` blocks the main thread MS of every 16 ms frame, as a loaded pane does.
+// `--busy MS` blocks the main thread MS of every 16 ms frame, as a loaded pane does. `--rate R` plays
+// the page's CSS animations at R (0.25 is a quarter speed) to show a roll's shape on video; the dwell's
+// timers keep real time, so its counts are read at rate 1 only.
 // Writes OUT_DIR/<look>/*.webm and OUT_DIR/report.json, and prints one JSON line per look.
 import fs from "node:fs";
 import path from "node:path";
@@ -28,6 +30,7 @@ const outRoot = path.resolve(
 );
 const LOOKS = (flag("--looks") ?? "before,dwell-roll,feather,cross,reduced").split(",");
 const busy = Number(flag("--busy") ?? 0);
+const rate = Number(flag("--rate") ?? 1);
 fs.mkdirSync(outRoot, { recursive: true });
 
 /// One loop of the stage (LiveLineBurstStage BURST_LOOP_MS), and the burst inside it.
@@ -46,7 +49,7 @@ const base = `http://127.0.0.1:${port}`;
 const browser = await chromium.launch({ headless: true, channel: "chrome" });
 await warmGalleryFrame(gallery, ENTRY, { browser, params: { variant: LOOKS[0] } });
 
-const report: Record<string, unknown> = { entry: ENTRY, busyMs: busy, looks: {} };
+const report: Record<string, unknown> = { entry: ENTRY, busyMs: busy, rate, looks: {} };
 try {
   for (const look of LOOKS) {
     const dir = path.join(outRoot, look);
@@ -61,6 +64,11 @@ try {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     try {
+      if (rate !== 1) {
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("Animation.enable");
+        await cdp.send("Animation.setPlaybackRate", { playbackRate: rate });
+      }
       await page.goto(`${base}${galleryFrame(ENTRY, { variant: look })}`);
       await page.waitForFunction(
         () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
@@ -143,7 +151,10 @@ try {
     for (const file of fs.readdirSync(dir).filter((name) => name.endsWith(".webm")))
       fs.renameSync(
         path.join(dir, file),
-        path.join(outRoot, `live-line-burst-${look}${busy ? `-busy${busy}` : ""}.webm`),
+        path.join(
+          outRoot,
+          `live-line-burst-${look}${busy ? `-busy${busy}` : ""}${rate !== 1 ? `-rate${rate}` : ""}.webm`,
+        ),
       );
   }
 } finally {
