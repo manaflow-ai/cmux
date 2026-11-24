@@ -7,6 +7,7 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
   useInsertionEffect,
   useLayoutEffect,
@@ -14,7 +15,6 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -31,8 +31,8 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  inlineTokenSpans,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -70,12 +70,12 @@ import {
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
-  mentionPath,
   mentionSelection,
-  mentionWantsFiles,
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
+  mentionPath,
+  mentionWantsFiles,
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
@@ -126,6 +126,7 @@ import {
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
+  restoredPrompt,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -181,6 +182,7 @@ import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
+import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { MachineLinkStatus } from "./MachineLinkStatus";
@@ -478,6 +480,13 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A GitHub repository picked for a new chat on this Mac (ComposerContext `onGitHubHere`).
   onGitHubHere?(repo: string, candidates: string[]): void;
+  onCloneRepository?(url: string): Promise<string>;
+  onNoProject?(): void;
+  onCloudFolderWaiting?(waiting: boolean): void;
+  onNewProject?(): void;
+  noProject?: boolean;
+  sourceRepository?: { cwd: string; name: string };
+  cloningRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -758,6 +767,13 @@ function ComposerFrame({
   extraFolders,
   onNewWorktree,
   onGitHubHere,
+  onCloneRepository,
+  onNoProject,
+  onCloudFolderWaiting,
+  onNewProject,
+  noProject,
+  sourceRepository,
+  cloningRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -1277,12 +1293,14 @@ function ComposerFrame({
     // goes after what is there (prompts a folder's trust held, sent after one already given
     // back: trustHeld.ts).
     const typed = field.current?.value() ?? "";
-    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    const next = restoredPrompt(typed, restoredText, behind);
     // A field whose editor is still starting (the chat composer that mounts as a New Tab page
     // leaves) takes it as its value, which becomes the editor's first content.
     if (!field.current?.type(next)) {
       writeText(next, next.length);
     }
+    // A queued prompt taken back moves into the field it is in now (unpopMorph.ts).
+    playUnpop(composerBox.current);
     if (restoredAttachments.length)
       setAttachments((current) => {
         const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
@@ -2726,6 +2744,13 @@ function ComposerFrame({
       {...(extraFolders ? { extraFolders } : {})}
       onNewWorktree={onNewWorktree}
       {...(onGitHubHere ? { onGitHubHere } : {})}
+      onCloneRepository={onCloneRepository}
+      onNoProject={onNoProject}
+      onCloudFolderWaiting={onCloudFolderWaiting}
+      onNewProject={onNewProject}
+      noProject={noProject}
+      sourceRepository={sourceRepository}
+      cloningRepository={cloningRepository}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}

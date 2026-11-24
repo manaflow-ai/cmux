@@ -36,7 +36,14 @@ import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace }
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
-import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
+import {
+  webURL,
+  mediaOpenRequest,
+  formatDuration,
+  loadPlayableMedia,
+  webGranted,
+  watchPlaybackStall,
+} from "./replyMediaModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useScrimClose } from "../../../ui/scrimClose";
 import { CompareViewer, PlaybackBar, onPlaybackKeyDown, type CompareItem } from "./VideoPlayback";
@@ -479,6 +486,17 @@ export function VideoThumbnail({
       void element.play()?.catch(() => {});
     });
   };
+  // A play that never gets data fails, as an error does: its owner says so (a sent tile: Quick Look,
+  // then "Can't play here"; a reply: its name and Load), never a native spinner turning forever.
+  const failRef = useRef(onError);
+  useLayoutEffect(() => {
+    failRef.current = onError;
+  });
+  useEffect(() => {
+    const element = video.current;
+    if (!started || !element) return;
+    return watchPlaybackStall(element, () => failRef.current());
+  }, [started]);
   // Mount-only: the ▶ that swapped this player in was the click.
   const autoPlayed = useRef(false);
   useEffect(() => {
