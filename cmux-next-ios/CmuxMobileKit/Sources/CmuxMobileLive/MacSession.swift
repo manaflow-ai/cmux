@@ -27,6 +27,13 @@ final class MacSession {
 
     /// The last tree this Mac sent.
     var tree: DaemonTree?
+    /// The acpmux sessions' open asks go to the workspace rows at the next display frame
+    /// (`LiveCoordinator.wire`): one mapping of every session per frame, not per watch event.
+    var pendingSyncScheduled = false
+    /// Runs the pending sync at the next display frame (tests run it by hand).
+    var nextFrame: @MainActor (@escaping @MainActor () -> Void) -> Void = NextDisplayFrame.schedule
+    /// Pending syncs run (tests: one a frame, however many watch events the frame brought).
+    private(set) var pendingSyncs = 0
     /// The link to this Mac (identity: a newer link replaces it).
     var currentLink: (any MacLink)?
     /// `currentLink` once its `auth` channel opened (at once without pairing keys): what
@@ -74,6 +81,22 @@ final class MacSession {
         feed.hub = acpmux
         feed.terminal = terminalFeed
         creation.attach(acpmux: acpmux)
+    }
+
+    /// Maps every session's asks and titles into the workspace rows at the next display frame,
+    /// once however many watch events the frame brought (each one mapped them all, on the main
+    /// thread, while a busy Mac's agents streamed).
+    func schedulePendingSync() {
+        guard !pendingSyncScheduled else { return }
+        pendingSyncScheduled = true
+        nextFrame { [weak self] in
+            guard let self else { return }
+            pendingSyncScheduled = false
+            pendingSyncs += 1
+            workspaces.setPending(acpmux.sessions.mapValues { $0.pendingPermissions > 0 },
+                                  waitingFor: feed.waitingFor,
+                                  chatTitles: acpmux.sessions.compactMapValues(\.title))
+        }
     }
 
     /// Where an acpmux session of this Mac lives (workspace and tab).

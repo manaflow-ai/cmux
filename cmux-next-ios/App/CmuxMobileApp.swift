@@ -70,6 +70,8 @@ struct CmuxMobileApp: App {
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
         #if DEBUG
+        // `-cmux-mobile-no-restore` (UI tests, rigs): open the lists on All Macs, no grouping.
+        ShellLaunchOptions.clearListViewStateIfNotRestoring()
         // The fleet simulator step's reducemotion=1 proof (scripts/ci/cmux-next-ios-sim.sh reads
         // this line back from the simulator's log): what UIKit tells this process at launch.
         Logger(subsystem: "dev.cmux.mobile", category: "accessibility")

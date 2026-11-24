@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat", "retry-feed-empty", "retry-feed-filtered-empty", "retry-feed-connecting", "retry-feed-offline", "retry-first-launch-handoff"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -67,11 +67,51 @@ struct DemoDriver {
         case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
+        // The first-load hand-off (#48907, #48947; WorkspacesLaunchStatesUITests): the team loads,
+        // then the Macs are known and their lists still on the way, then the rows arrive, 2.5 s
+        // each, so the placeholder rows must stay on screen from the first phase to the rows.
+        case "retry-first-launch-handoff":
+            shell.tab = .workspaces
+            let store = shell.store
+            let teams = store.teams, rows = store.workspaces
+            store.workspaces = []
+            store.teams = teams.map { var team = $0; team.macs = []; return team }
+            store.isOffline = false
+            store.teamDataState = .loading
+            try? await Task.sleep(for: .seconds(2.5))
+            let macIDs = teams.flatMap(\.macs).map(\.id)
+            store.accountMacCount = macIDs.count
+            for id in macIDs {
+                var machine = MacDataMachine()
+                machine.handle(.connecting)
+                store.macData[id] = machine
+            }
+            store.tracksMacData = true
+            store.teams = teams
+            store.teamDataState = .loaded
+            try? await Task.sleep(for: .seconds(2.5))
+            store.workspaces = rows
+            for id in macIDs {
+                store.macData[id]?.handle(.received(count: rows.filter { $0.macID == id }.count))
+            }
         case "retry-feed":
             shell.tab = .feed
             // A failed real refresh is the fixture; no private connection is used.
             FeedStore.shared.actions = nil
             FeedStore.shared.setRefreshErrorForDemo()
+        // The Feed's other states, each from one launch argument (a shots step renders them
+        // without reaching them live): nothing yet, nothing for the filter, waiting for the Mac,
+        // and the phone offline with the events it kept.
+        case "retry-feed-empty", "retry-feed-filtered-empty", "retry-feed-connecting":
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            FeedStore.shared.replaceAll([])
+            if name == "retry-feed-filtered-empty" { FeedStore.shared.filter = .errors }
+            FeedStore.shared.syncState = name == "retry-feed-connecting" ? .connecting : .live
+        case "retry-feed-offline":
+            shell.tab = .feed
+            FeedStore.shared.actions = nil
+            shell.store.isOffline = true
         case "retry-home-offline":
             // CMUX-489: Home's Mac is not connected; the rows this phone kept show under the
             // top bar (no link is dialed: the mock store marks the Mac's link failed).

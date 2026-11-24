@@ -71,6 +71,41 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         attach(app, "refresh-failed")
     }
 
+    /// The first-load hand-off (#48907, #48947): the team loads, then the Macs' lists load, then
+    /// the rows arrive (DemoDriver `retry-first-launch-handoff`, 2.5 s a phase). From the first
+    /// placeholder row to the first workspace row, something is always on screen: a sample with
+    /// neither is the blink those fixes removed. The step's video shows the same frames.
+    @MainActor
+    func testFirstLoadHandOffKeepsThePlaceholderRowsUntilTheRows() {
+        let app = launch("retry-first-launch-handoff")
+        defer { app.terminate() }
+        let loading = app.descendants(matching: .any)["workspaces.loading"]
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "workspace.row."))
+        XCTAssertTrue(loading.waitForExistence(timeout: 30), "first-load placeholders\n\(app.debugDescription)")
+        attach(app, "handoff-first-load")
+        let start = Date()
+        var timeline: [String] = []
+        var gaps: [String] = []
+        var sawListPhase = false
+        while Date().timeIntervalSince(start) < 20 {
+            let t = Date().timeIntervalSince(start)
+            let shown = loading.exists
+            let listed = rows.firstMatch.exists
+            timeline.append(String(format: "%.2f placeholder=%d rows=%d", t, shown ? 1 : 0, listed ? 1 : 0))
+            if listed { break }
+            if !shown { gaps.append(String(format: "%.2f s: no placeholder and no rows", t)) }
+            if t > 3, !sawListPhase { sawListPhase = true; attach(app, "handoff-lists-loading") }
+        }
+        attach(app, "handoff-rows")
+        let note = XCTAttachment(string: timeline.joined(separator: "\n"))
+        note.name = "handoff-timeline"
+        note.lifetime = .keepAlways
+        add(note)
+        XCTAssertTrue(rows.firstMatch.exists, "the rows arrived\n\(timeline.joined(separator: "\n"))")
+        XCTAssertGreaterThan(timeline.count, 10, "too few samples to see a blink")
+        XCTAssertTrue(gaps.isEmpty, "the placeholder rows blinked out:\n\(gaps.joined(separator: "\n"))")
+    }
+
     private func attach(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name

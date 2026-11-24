@@ -11,7 +11,24 @@ final class BuiltOncePerInput<Input: Equatable, Value> {
 
     /// The value for `input`: the last one when `input` equals the last input, else `build()`.
     func value(_ input: Input, build: () -> Value) -> Value {
+        value(input, patch: { _, _ in false }, build: build)
+    }
+
+    /// Updates made from the last value by `patch` (tests).
+    private(set) var patches = 0
+
+    /// As `value(_:build:)`, but a changed input first tries `patch`: it gets the last input and
+    /// a copy of the last value to update, and returns false to build the value whole instead.
+    func value(_ input: Input, patch: (_ last: Input, _ value: inout Value) -> Bool, build: () -> Value) -> Value {
         if let last, last.input == input { return last.value }
+        if let last {
+            var value = last.value
+            if patch(last.input, &value) {
+                patches += 1
+                self.last = (input, value)
+                return value
+            }
+        }
         let value = build()
         builds += 1
         last = (input, value)

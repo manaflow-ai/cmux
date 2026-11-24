@@ -138,10 +138,20 @@ public struct WorkspacesList: View {
     /// Memoized: the body reads it for the rows, the subtitle, the refresh
     /// state and the animations, and it is built once per change.
     var inbox: WorkspaceInbox {
-        inboxMemo.inbox(WorkspaceInbox.Memo.Input(scope: scope, macs: macs, workspaces: store.workspaces,
-                                                  workspacesRevision: store.workspacesRevision, query: query,
-                                                  context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
-                                                                                  phases: phases)))
+        // Rows a busy Mac changed in place since the last inbox: the memo updates those alone.
+        let changed = inboxMemo.revision.flatMap { since in store.rowsChanged(since: since).map { (since, $0) } }
+        #if DEBUG
+        let (whole, patches) = (inboxMemo.wholeBuilds, inboxMemo.patches)
+        defer {
+            ListApplyProbe.shared.count("ws.inbox.whole", inboxMemo.wholeBuilds - whole)
+            ListApplyProbe.shared.count("ws.inbox.patch", inboxMemo.patches - patches)
+        }
+        #endif
+        return inboxMemo.inbox(WorkspaceInbox.Memo.Input(scope: scope, macs: macs, workspaces: store.workspaces,
+                                                         workspacesRevision: store.workspacesRevision, query: query,
+                                                         context: WorkspaceInbox.Context(pending: store.pendingWorkspaceIDs, seenAt: store.seenAt,
+                                                                                         phases: phases),
+                                                         changedRows: changed))
     }
 
     /// The Macs with rows on screen whose list is live, for the connect timeline.
@@ -161,53 +171,35 @@ public struct WorkspacesList: View {
     }
 
     /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
-    private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
+    private func isRefreshing(_ inbox: WorkspaceInbox?) -> Bool { store.teamDataState == .loading || inbox?.isUpdating == true }
 
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
         WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
-                                      hasWorkspaces: !store.activeWorkspaces.isEmpty, isOffline: store.isOffline)
+                                      hasWorkspaces: store.hasActiveWorkspaces, isOffline: store.isOffline)
     }
 
     /// The list's own placeholder rows fill the page (Macs known, no rows yet).
-    private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
-
-    /// The page shows placeholder rows over everything: the team's first load, or no Mac line yet.
-    private var pageShowsPlaceholder: Bool {
-        if case .firstLoad = launchState { return true }
-        return listShowsPlaceholder
-    }
+    private func listShowsPlaceholder(_ inbox: WorkspaceInbox?) -> Bool { inbox.map { $0.isLoading && $0.folds.isEmpty } ?? false }
 
     public var body: some View {
+        #if DEBUG
+        let _ = ListApplyProbe.shared.count("ws.list.body")
+        #endif
         groupDialogs(page)
     }
 
     private var page: some View {
+        // The page reads no workspace: the rows, the subtitle and the toolbar's recent folders
+        // are their own views (`WorkspacesListRows`, `WorkspacesToolbarHost`), so a Mac update re-runs
+        // those, not this body with its dialogs, sheets and toolbar host.
         content
             .navigationTitle("Workspaces")
-            .navigationSubtitle(subtitle)
-            // The toolbar from plain values in a view of its own: SwiftUI skips it
-            // when they did not change, so a workspace update does not rebuild
-            // the bar's items (it did, at about 10 ms, on every Mac tree update).
-            .background { toolbarHost }
+            .background { WorkspacesToolbarHost(host: self) }
             // The chosen Mac is the linked Mac: on a choice, on launch with a
             // remembered choice, and when the chosen Mac comes online.
             .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
                 if let id { linking?.link(id) }
-            }
-            // Set when the page's placeholders show; kept while this load lasts, so the list's
-            // own placeholder rows that replace them (a Mac line arrived) skip their show delay.
-            .onChange(of: pageShowsPlaceholder || inbox.isLoading, initial: true) { _, loading in
-                placeholdersShown = loading && (placeholdersShown || pageShowsPlaceholder)
-            }
-            .task(id: isRefreshing) {
-                // Say "Updating…" only when a refresh is slow, not on every one.
-                guard isRefreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
             }
             .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in
                 Button("OK", role: .cancel) {}
@@ -287,7 +279,7 @@ public struct WorkspacesList: View {
 
     /// Filtered: the Mac and its presence. Else "Updating…" for a slow
     /// refresh, "2 need you", or with several Macs how many are online.
-    private var subtitle: String {
+    func subtitle(_ inbox: WorkspaceInbox?) -> String {
         if let mac = scopedMac {
             let now = MinuteClock.shared.now
             let reach = store.macReachability(mac)
@@ -300,12 +292,12 @@ public struct WorkspacesList: View {
         }
         let state = launchState
         // One loading indicator at a time: over the placeholder rows the page already says it loads.
-        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        if showsUpdating && isRefreshing(inbox) && state.allowsUpdatingSubtitle && !listShowsPlaceholder(inbox) { return "Updating…" }
         // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
-        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+        if case .content(refreshFailed: true) = state, let inbox, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
             return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
         }
-        let waiting = inbox.needsYouCount
+        let waiting = inbox?.needsYouCount ?? 0
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
         return ""
@@ -375,18 +367,35 @@ public struct WorkspacesList: View {
     /// lists load (`listShowsPlaceholder`). Both phases draw this one view in one place, so the
     /// hand-off between them keeps it: two copies were two views, and the second started
     /// hidden for its show delay, so the rows blinked out for a quarter second mid-load.
-    private var showsSkeleton: Bool {
+    /// The skeleton is its own view (`WorkspacesSkeletonHost`): whether it shows reads the
+    /// inbox, and the page reads no workspace.
+    private var content: some View {
+        ZStack {
+            launchContent
+            WorkspacesSkeletonHost(host: self)
+        }
+    }
+
+    /// Whether the page's skeleton shows (`WorkspacesSkeletonHost`'s body).
+    func showsSkeleton(_ inbox: WorkspaceInbox?) -> Bool {
         switch launchState {
         case .firstLoad: true
-        case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder
+        case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder(inbox)
         case .failed: false
         }
     }
 
-    private var content: some View {
-        ZStack {
-            launchContent
-            if showsSkeleton { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
+    /// The skeleton and the load flag the list's own placeholder rows read: set when the page's
+    /// placeholders show, kept while this load lasts, so the list's rows that replace them (a
+    /// Mac line arrived) skip their show delay.
+    func skeletonHost() -> some View {
+        let inbox: WorkspaceInbox? = if case .firstLoad = launchState { nil } else { self.inbox }
+        let shows = showsSkeleton(inbox)
+        return Group {
+            if shows { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
+        }
+        .onChange(of: shows || inbox?.isLoading == true, initial: true) { _, loading in
+            placeholdersShown = loading && (placeholdersShown || shows)
         }
     }
 
@@ -394,6 +403,7 @@ public struct WorkspacesList: View {
         switch launchState {
         case .firstLoad:
             Color.clear
+                .navigationSubtitle(subtitle(nil))
         case .failed(let offline):
             EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
                        message: offline ? "This iPhone is offline. Workspaces load when it's back online."
@@ -401,6 +411,7 @@ public struct WorkspacesList: View {
                        // The offline pill is status only: Retry stays here (the one on screen).
                        retry: retryLoad == nil ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
+                .navigationSubtitle(subtitle(nil))
         case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
@@ -411,8 +422,9 @@ public struct WorkspacesList: View {
                     noMacsForAccount: store.accountMacCount == 0,
                     openAccount: openAccount
                 )
+                .navigationSubtitle(subtitle(nil))
             } else {
-                list(inbox)
+                WorkspacesListRows(host: self)
             }
         }
     }
@@ -428,6 +440,24 @@ public struct WorkspacesList: View {
     /// diffable data source (`WorkspacesCollection`), fed plain values. The
     /// empty states, the placeholders and the close popover's anchor stay
     /// SwiftUI over it.
+    /// The rows and what follows them (the subtitle, the slow-refresh timer): `WorkspacesListRows`'s
+    /// body, so the workspaces it reads re-run it alone.
+    func rows() -> some View {
+        let inbox = inbox
+        let refreshing = isRefreshing(inbox)
+        return list(inbox)
+            .navigationSubtitle(subtitle(inbox))
+            .task(id: refreshing) {
+                // Say "Updating…" only when a refresh is slow, not on every one.
+                guard refreshing else {
+                    showsUpdating = false
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1.5))
+                if !Task.isCancelled { showsUpdating = true }
+            }
+    }
+
     private func list(_ inbox: WorkspaceInbox) -> some View {
         WorkspacesCollection(model: listModel(inbox), actions: collectionActions, control: listControl,
                              membershipKey: inboxMemo.workspaceIDsKey &* 31 &+ inboxMemo.needsYouKey)
@@ -502,7 +532,70 @@ public struct WorkspacesList: View {
                                    recoveryMacID: scopedMac.flatMap { showsRecovery($0) ? $0.id : nil },
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
                                    groupsRevision: creator.groupsRevision, macGroups: macGroups)
-        return listMemo.value(input) { buildListModel(inbox, input) }
+        let patch = inboxMemo.lastPatch
+        let version = inboxMemo.builds
+        return listMemo.value(input, patch: { last, model in
+            // The inbox changed rows in place, or moved rows within their lists (an active workspace
+            // jumping to the top), and nothing else the model reads changed: those rows' items and
+            // places alone. Group by Folder buckets rows by their folders, so it builds whole.
+            guard let patch, input.grouping == .none, !inbox.isMacOrder, last.inboxBuild == input.inboxBuild - 1 else { return false }
+            var same = last
+            same.inboxBuild = input.inboxBuild
+            guard same == input else { return false }
+            var moved: Set<String> = []
+            if patch.moved {
+                for (section, list) in [("needs", inbox.needsYou), ("pinned", inbox.pinned), ("recent", inbox.recent)] {
+                    guard list.contains(where: { patch.rows.contains($0.id) }) else { continue }
+                    guard let s = model.sections.firstIndex(where: { $0.id == section }) else { return false }
+                    guard Self.move(rows: patch.rows, in: &model.sections[s], to: list, moved: &moved) else { return false }
+                }
+            }
+            var items: Set<String> = []
+            for id in patch.rows.union(patch.runEnds) {
+                let key = WorkspacesListModel.rowID(id)
+                guard case .row? = model.items[key], let ws = inbox.workspace(id) else { continue }
+                model.items[key] = .row(rowModel(ws, inbox, input.names, rights: input.rights[ws.macID] ?? .none,
+                                                 pending: input.pending, tracks: input.tracks))
+                items.insert(key)
+            }
+            model.patchedFrom = model.version
+            model.version = version
+            model.patchedItems = items
+            model.patchedMoves = moved
+            #if DEBUG
+            ListApplyProbe.shared.count("ws.model.patch")
+            #endif
+            return true
+        }) {
+            #if DEBUG
+            ListApplyProbe.shared.count("ws.model.whole")
+            #endif
+            var model = buildListModel(inbox, input)
+            model.version = version
+            return model
+        }
+    }
+
+    /// Puts `rows` of `section` (the list's rows after any title) where they are in `list`, the
+    /// inbox's new order: each moved row taken out and put back at its place (O(rows moved) edits,
+    /// with a scan of the ids to find each). False when the section is not the list's rows.
+    static func move(rows: Set<String>, in section: inout ListSectionIDs, to list: [Workspace], moved: inout Set<String>) -> Bool {
+        let offset = section.items.first?.hasPrefix("title.") == true ? 1 : 0
+        guard section.items.count == list.count + offset else { return false }
+        var targets: [(index: Int, key: String, was: Int)] = []
+        for (index, ws) in list.enumerated() where rows.contains(ws.id) {
+            let key = WorkspacesListModel.rowID(ws.id)
+            guard let was = section.items.firstIndex(of: key) else { return false }
+            targets.append((index + offset, key, was))
+        }
+        for target in targets.sorted(by: { $0.was > $1.was }) { section.items.remove(at: target.was) }
+        for target in targets.sorted(by: { $0.index < $1.index }) {
+            section.items.insert(target.key, at: target.index)
+            if target.index != target.was { moved.insert(target.key) }
+        }
+        // The result must be the list's order (a row of another section never moves in here).
+        for target in targets where section.items[target.index] != target.key { return false }
+        return true
     }
 
     /// Sections and items for the collection, in the SwiftUI list's order:
@@ -1049,7 +1142,7 @@ public struct WorkspacesList: View {
         }
     }
 
-    private var toolbarHost: some View {
+    func toolbarHost() -> some View {
         let target = target
         let macs = macs
         let entries = macs.count > 1 ? macText.entries(MacFilterMemo.Input(macs: macs, accountMacs: accountMacs, connection: store.macConnection,
@@ -1078,6 +1171,34 @@ public struct WorkspacesList: View {
     func retry() async {
         await retryLoad?()
     }
+}
+
+/// The Workspaces rows and the subtitle over them: the part of the page that reads the
+/// workspaces, so a busy Mac's updates re-run this view, not the page with its dialogs.
+struct WorkspacesListRows: View {
+    let host: WorkspacesList
+
+    var body: some View {
+        #if DEBUG
+        let _ = ListApplyProbe.shared.count("ws.rows.body")
+        #endif
+        host.rows()
+    }
+}
+
+/// The toolbar's model (its New Workspace menu lists recent folders by the Mac's activity): its
+/// own view, so reading the workspaces for it does not re-run the page.
+/// The page's one skeleton: whether it shows reads the inbox, so it is its own view.
+struct WorkspacesSkeletonHost: View {
+    let host: WorkspacesList
+
+    var body: some View { host.skeletonHost() }
+}
+
+struct WorkspacesToolbarHost: View {
+    let host: WorkspacesList
+
+    var body: some View { host.toolbarHost() }
 }
 
 /// A row's inputs as plain values: SwiftUI compares them and skips the row
@@ -1111,6 +1232,9 @@ struct WorkspaceListRow: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
 
     var body: some View {
+        #if DEBUG
+        let _ = ListApplyProbe.shared.count("ws.row.body")
+        #endif
         let ws = model.workspace
         let host = host
         Button {

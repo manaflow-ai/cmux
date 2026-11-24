@@ -278,6 +278,9 @@ public final class LiveCoordinator {
         // Events past the Feed's window wait on disk while the app runs, not in memory.
         feedStore.useSpill(.inCaches("feed", scope: userID))
         feedStore.replaceAll(archive.load())
+        // Every Feed write of a display frame (ledger reads, tree changes, Needs You sets from
+        // each Mac, answers) shares one derived pass: a busy Mac sends many a frame.
+        feedStore.derivedScheduler = NextDisplayFrame.schedule
         feedStore.onItemsChange = { [weak self] items in
             self?.scheduleFeedSave(archive)
             for session in self?.sessions.values ?? [:].values { session.terminalFeed.itemsChanged(items) }

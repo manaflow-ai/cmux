@@ -426,18 +426,21 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     }
     #endif
 }
-/// The Filter menu: its own view, so the Mac's workspace list (which changes
-/// with every tree update while an agent works: titles, status) re-renders
-/// this menu only, never the Feed's list and its layout.
-private struct FeedFilterMenu: View {
+/// The Filter menu. It reads neither the Feed's items nor the workspaces itself: the
+/// sections that do are their own views, built when the menu shows them, so a busy Mac's
+/// tree updates (titles, status, several a second) and new Feed items never rebuild the
+/// navigation bar's menu, or a toggle per workspace, while the Feed scrolls.
+struct FeedFilterMenu: View {
     @Bindable var store: FeedStore
     /// Why Clear All Notifications failed (the screen's alert).
     @Binding var clearFailure: String?
     /// Why Mark All Notifications as Read failed (the screen's alert).
     @Binding var markFailure: String?
-    @Environment(AppStore.self) private var appStore
 
     var body: some View {
+        #if DEBUG
+        let _ = FeedMenuProbe.shared.menuBodies += 1
+        #endif
         Menu {
             Picker("Show", selection: $store.filter) {
                 ForEach(FeedFilter.allCases, id: \.self) { Text($0.rawValue) }
@@ -446,17 +449,7 @@ private struct FeedFilterMenu: View {
             // The Mac's Mark All Notifications as Read (NotificationActionCatalog): every Feed
             // event here, and every tab each linked Mac shows unread (`ack-tab-notifications`).
             Section {
-                Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
-                    store.markAllRead()
-                    guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
-                    Task {
-                        do { _ = try await mark() } catch {
-                            markFailure = UserFacingError.message(error)
-                        }
-                    }
-                }
-                .disabled(store.items.allSatisfy(\.isRead) && FeedRouting.shared.markAllNotificationsRead == nil)
-                .accessibilityIdentifier("feed.markAllRead")
+                FeedMarkAllReadButton(store: store, markFailure: $markFailure)
             }
             if let clear = FeedRouting.shared.clearAllNotifications {
                 // The Mac's Clear All Notifications: its notification ledger, as its panel's Clear All.
@@ -472,14 +465,7 @@ private struct FeedFilterMenu: View {
                 }
             }
             Section("Workspaces") {
-                ForEach(appStore.workspaces) { workspace in
-                    Toggle(workspace.title, isOn: Binding(
-                        get: { !store.mutedWorkspaces.contains(workspace.id) },
-                        set: { on in
-                            if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
-                        }
-                    ))
-                }
+                FeedWorkspaceToggles(store: store)
             }
         } label: {
             Label("Filter", systemImage: "line.3.horizontal.decrease")
@@ -488,7 +474,58 @@ private struct FeedFilterMenu: View {
     }
 }
 
+/// Mark All Notifications as Read, disabled with nothing unread: its own view, reading the
+/// store's `hasUnread` flag (kept with the derived lists), never a scan of every event.
+struct FeedMarkAllReadButton: View {
+    let store: FeedStore
+    @Binding var markFailure: String?
+
+    var body: some View {
+        #if DEBUG
+        let _ = FeedMenuProbe.shared.markAllBodies += 1
+        #endif
+        Button("Mark All Notifications as Read", systemImage: "checkmark.circle") {
+            store.markAllRead()
+            guard let mark = FeedRouting.shared.markAllNotificationsRead else { return }
+            Task {
+                do { _ = try await mark() } catch {
+                    markFailure = UserFacingError.message(error)
+                }
+            }
+        }
+        .disabled(!store.hasUnread && FeedRouting.shared.markAllNotificationsRead == nil)
+        .accessibilityIdentifier("feed.markAllRead")
+    }
+}
+
+/// One toggle per workspace (mute its events): its own view, so only the open menu reads
+/// the workspaces, which change on every Mac tree update.
+private struct FeedWorkspaceToggles: View {
+    let store: FeedStore
+    @Environment(AppStore.self) private var appStore
+
+    var body: some View {
+        ForEach(appStore.workspaces) { workspace in
+            Toggle(workspace.title, isOn: Binding(
+                get: { !store.mutedWorkspaces.contains(workspace.id) },
+                set: { on in
+                    if on { store.mutedWorkspaces.remove(workspace.id) } else { store.mutedWorkspaces.insert(workspace.id) }
+                }
+            ))
+        }
+    }
+}
+
 #if DEBUG
+/// How often the Feed's filter menu and its Mark All Read button built their bodies (tests: a
+/// Feed change that moves neither the filter, the mutes nor the unread flag builds neither).
+@MainActor
+final class FeedMenuProbe {
+    static let shared = FeedMenuProbe()
+    var menuBodies = 0
+    var markAllBodies = 0
+}
+
 @MainActor
 enum FeedScreenRig {
     static let scroller = FeedAutoScroller(config: FeedStressRig.shared.config)

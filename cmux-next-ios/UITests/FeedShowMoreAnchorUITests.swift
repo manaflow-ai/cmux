@@ -23,6 +23,10 @@ final class FeedShowMoreAnchorUITests: XCTestCase {
         let bar = app.navigationBars["Feed"]
         XCTAssertTrue(list.waitForExistence(timeout: 10))
         let tabBarTop = app.tabBars.firstMatch.exists ? app.tabBars.firstMatch.frame.minY : list.frame.maxY
+        // The floating New Task button sits at the bottom trailing corner, above the tab bar: the
+        // list's usable bottom is its top, and a drag that starts on it opens the task composer.
+        let newTask = app.buttons["workspaces.newTask"].firstMatch
+        let listBottom = newTask.exists ? min(tabBarTop, newTask.frame.minY) : tabBarTop
 
         // A row with a Show more whose top can sit just under the bar with its Show more still on
         // screen: one snapshot of the table per look (frames for every cell in one query).
@@ -44,7 +48,7 @@ final class FeedShowMoreAnchorUITests: XCTestCase {
         // jumped (the list kept the row after it, so the growing row pushed its own top up).
         let under: CGFloat = 30
         func pick() -> (id: String, top: CGFloat)? {
-            rows().first { $0.top > barBottom + 20 && $0.top - under + $0.more < tabBarTop - 40 }.map { ($0.id, $0.top) }
+            rows().first { $0.top > barBottom + 20 && $0.top - under + $0.more < listBottom - 40 }.map { ($0.id, $0.top) }
         }
         var found = pick()
         for _ in 0..<15 where found == nil {
@@ -57,7 +61,7 @@ final class FeedShowMoreAnchorUITests: XCTestCase {
         for _ in 0..<3 {
             let drag = row.frame.minY - (barBottom - under)
             if abs(drag) < 3 { break }
-            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0)).withOffset(CGVector(dx: 0, dy: tabBarTop - 60))
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0)).withOffset(CGVector(dx: 0, dy: listBottom - 60))
             start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -drag)), withVelocity: .slow,
                         thenHoldForDuration: 0.6)
             settle(row)
