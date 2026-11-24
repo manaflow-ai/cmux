@@ -1373,6 +1373,11 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `page-tabs-v1` | cmux-tui daemon | Declared in `set-client-info`: page tabs read as `conversation` with their `page` (a phone tab is a simulator tab). |
 | `agent-session-tabs-v1` | cmux-tui daemon | Declared in `set-client-info` on a `cloud-acpmux` carrier: agent session tabs read with their session source. |
 | `send-expect-agent-v1` | cmux-tui daemon | In `identify`: a notification reply to an agent types text and Return only while that agent waits at its prompt (#24205). |
+| `agent-cli-hybrid-v1` | cmux-tui daemon | Declared by the phone's terminal in `set-client-info` (the lean stream): an agent CLI's terminal as `agent-cli-frame` cell deltas. |
+| `agent-cli-hybrid-v2` | cmux-tui daemon | With `agent-cli-hybrid-v1`: the same deltas packed as `agent-cli-lean`. |
+| `terminal-shell-lines-v1` | cmux-tui daemon | With the hybrid pair: a plain shell's terminal as lean frames too, PTY bytes while it runs a full-screen program. |
+| `attach-output-coalesce-v1` | cmux-tui daemon | `output` at most once per display frame for a terminal that stays on PTY bytes (#43373). |
+| `terminal-full-screen-frames-v1` | cmux-tui daemon | With `terminal-shell-lines-v1`: a full-screen program as lean frames as well (its modes as bytes), one display frame apart, instead of its PTY repaints (#51565). |
 <!-- link-names:capabilities:end -->
 
 ## Pairing (`auth` service and the Mac app's control lines)
