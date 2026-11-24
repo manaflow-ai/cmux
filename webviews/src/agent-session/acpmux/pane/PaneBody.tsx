@@ -22,10 +22,10 @@ import { holdComposerPlace } from "../composer/composerHandover";
 import { hasNativeHost } from "../native";
 import { CloudEnvironmentEditor } from "../CloudEnvironmentEditor";
 import { knownRefusalText } from "../transportErrors";
-import { NewTabPage } from "../NewTabPage";
 import { FOCUS_LOCATION_EVENT, type NewTabHost, type NewTabChat } from "../newTabModel";
-import { NewTabScreen, type NewTabScreenActions } from "../newtab/NewTabScreen";
 import type { NewTabStartFailure } from "../newtab/StartFailure";
+import type { NewTabScreenActions } from "../newtab/NewTabScreen";
+import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
 import { HistoryScreen } from "../newtab/HistoryScreen";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
@@ -824,7 +824,7 @@ export function drawPaneBody({
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
-                <NewTabScreen
+                <LazyNewTabScreen
                   // `@computer-use` held on the send's own gesture, before the page waits or starts anything (CMUX-682).
                   // A page whose chats start on another machine (an inherited remote workspace: the client starts
                   // them on the first send) is that machine's, whatever the screen's own pick says.
@@ -1143,7 +1143,7 @@ export function drawPaneBody({
                 : {})}
             />
           ) : showNewTab ? (
-            <NewTabPage
+            <LazyNewTabPage
               holdsSend={(text, late) =>
                 holdsForComputerUseSetup(
                   text,

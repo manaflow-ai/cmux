@@ -39,6 +39,7 @@ pub use prompt_coach::CoachRewriter;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+pub(crate) mod ask_choices;
 mod asks_below;
 mod atomic_json;
 pub use crate::build_info::{build, install_build, version_line};
@@ -128,6 +129,7 @@ pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
+pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -759,6 +761,9 @@ pub struct PromptOptions {
     /// it can only refuse a prompt, never admit one.
     #[doc(hidden)]
     pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
+    /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
+    #[doc(hidden)]
+    pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -1286,6 +1291,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a prompt before it reaches queue admission.
+    #[cfg(test)]
+    pub(super) prompt_admission_seam: full_access_bound::WriteSeam,
     /// Tests only: pause a prompt whose turn shows, before its last check and its acceptance.
     #[cfg(test)]
     pub(super) turn_shown_seam: full_access_bound::WriteSeam,
@@ -1717,6 +1725,8 @@ impl Hub {
             queue_approval_off: AtomicBool::new(false),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            prompt_admission_seam: Default::default(),
             #[cfg(test)]
             turn_shown_seam: Default::default(),
             #[cfg(test)]
@@ -2183,6 +2193,7 @@ impl Hub {
             releasing: AtomicBool::new(false),
             turn_claimed: AtomicBool::new(false),
             admit: StdMutex::new(()),
+            prompt_admission: Arc::new(tokio::sync::Mutex::new(())),
             restoring: AtomicBool::new(false),
             restore_done: tokio::sync::Notify::new(),
             recovery_pending: AtomicBool::new(false),
@@ -2298,6 +2309,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            unclosed_tools: StdMutex::new(Default::default()),
             loop_detector: StdMutex::new(Default::default()),
             harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
