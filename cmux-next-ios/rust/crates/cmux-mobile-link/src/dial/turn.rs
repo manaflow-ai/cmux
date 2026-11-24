@@ -1546,8 +1546,13 @@ mod tests {
         let queue = Arc::new(ClassQueue::default());
         let (_permits, permit_requests) = mpsc::unbounded_channel();
         let duplicates = Arc::new(Duplicates::default());
-        let task =
-            tokio::spawn(sender_loop(relay.clone(), Arc::clone(&queue), early, permit_requests, Arc::clone(&duplicates)));
+        let task = tokio::spawn(sender_loop(
+            relay.clone(),
+            Arc::clone(&queue),
+            early,
+            permit_requests,
+            Arc::clone(&duplicates),
+        ));
         let key = |n: u64| Queued { datagram: Bytes::from(wg_data(n)), to: peer };
         let settle = || tokio::time::sleep(Duration::from_millis(50));
 
