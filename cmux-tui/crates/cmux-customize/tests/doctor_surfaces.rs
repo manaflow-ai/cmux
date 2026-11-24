@@ -102,6 +102,23 @@ fn a_misspelled_sidebar_key_is_named_and_a_sidebar_file_that_does_not_parse_is_b
     assert_eq!(broken.level, cmux_customize::library::doctor::Level::Warning);
 }
 
+#[test]
+fn a_settings_file_that_does_not_parse_is_restored_even_when_every_saved_one_skips_a_menu_entry() {
+    // The broken file's Restore is offered from any saved version that loads, so applying it
+    // must not demand menus that all load too.
+    let home = Home::new();
+    let skips = "{\n  \"actions\": { \"a\": \"x\" }\n}\n";
+    home.write("cmux-next.json", skips);
+    let customize = home.customize();
+    customize.ensure_baseline(NOW - 10).unwrap();
+    home.write("cmux-next.json", "{\n  \"actions\": \n}\n");
+    let report = customize.doctor(&at(NOW));
+    let broken = find(&report, "broken:settings.json");
+    assert_eq!(broken.fixes[0].kind, FixKind::Restore, "{broken:#?}");
+    customize.doctor_fix(&broken.id, FixKind::Restore, &at(NOW), "cli").unwrap();
+    assert_eq!(fs::read_to_string(home.config("cmux-next.json")).unwrap(), skips);
+}
+
 // Menus -----------------------------------------------------------------
 
 const GOOD_MENUS: &str = r#"{

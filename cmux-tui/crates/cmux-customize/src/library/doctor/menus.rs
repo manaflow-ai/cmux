@@ -279,7 +279,11 @@ fn group_menu_problems(path: &str, rows: &Value, names: &[String], out: &mut Vec
             continue;
         };
         let own = action.strip_prefix("cmuxConfig.").unwrap_or(action);
-        if cmux_action_catalog::find(action).is_none() && !names.iter().any(|name| name == own) {
+        // `newWorkspace` is the group's own row (`workspaceGroup.newWorkspace` in the app).
+        if action != "newWorkspace"
+            && cmux_action_catalog::find(action).is_none()
+            && !names.iter().any(|name| name == own)
+        {
             push(
                 out,
                 at,
@@ -324,9 +328,14 @@ impl Customize {
     /// Menu entries the settings file holds that cmux skips; each is put back with the file's
     /// newest version that loads and has none of them.
     pub(super) fn menu_findings(&self, text: &str, root: &Value, out: &mut Found) {
+        // History is read only when something needs a way back: a clean file reads none.
+        let found = problems(root);
+        if found.is_empty() {
+            return;
+        }
         let file = &self.roots().settings_file;
         let restore = self.last_good_settings().is_some();
-        for problem in problems(root) {
+        for problem in found {
             let line = problem.line(text);
             out.push(
                 FindingKind::Ignored,
@@ -374,7 +383,8 @@ mod tests {
                 "hidden": ["workspace.copyPath"]
             }}},
             "workspaceGroups": {"byCwd": {"~/src/*": {"contextMenu": [
-                {"action": "renameWorkspace"}, {"action": "cmuxConfig.build"}, {"action": "codex"}
+                {"action": "renameWorkspace"}, {"action": "cmuxConfig.build"}, {"action": "codex"},
+                {"action": "newWorkspace"}
             ]}}}
         });
         assert_eq!(problems(&root), Vec::new());

@@ -310,7 +310,7 @@ impl Customize {
             }
             // A menu entry cmux skips: the settings file's newest version whose menus all load.
             (FixKind::Restore, "ignored") if subject.starts_with("menu:") => {
-                let (_, said) = self.restore_file(SETTINGS, expiry.now_ms)?;
+                let (_, said) = self.restore_settings_menus(expiry.now_ms)?;
                 Ok(Fixed { id: finding.id, kind, kept: None, said })
             }
             _ => Err(Error::Library(format!("{id} has no {} fix", kind_word(kind)))),

@@ -185,9 +185,29 @@ impl Customize {
     /// Writes `path`'s last good version back; the broken text is copied aside first. The file
     /// is written in place (through a link: a file in a dotfiles repo stays linked), so it is
     /// never missing, even if cmux stops between the copy and the write.
+    /// The settings file prefers a version whose menus all load, and falls back to any version
+    /// that loads, so a readable file is still offered when every saved one skips a menu entry.
     pub(super) fn restore_file(&self, path: &str, now_ms: u64) -> Result<(u32, String), Error> {
-        let good =
-            if path == SETTINGS { self.last_good_settings() } else { self.last_good_version(path) };
+        let good = if path == SETTINGS {
+            self.last_good_settings().or_else(|| self.last_good_version(path))
+        } else {
+            self.last_good_version(path)
+        };
+        self.write_back(path, good, now_ms)
+    }
+
+    /// Puts back the newest settings file whose menus all load (a menu finding's Restore: the
+    /// same rule that offered it).
+    pub(super) fn restore_settings_menus(&self, now_ms: u64) -> Result<(u32, String), Error> {
+        self.write_back(SETTINGS, self.last_good_settings(), now_ms)
+    }
+
+    fn write_back(
+        &self,
+        path: &str,
+        good: Option<(u32, Vec<u8>)>,
+        now_ms: u64,
+    ) -> Result<(u32, String), Error> {
         let (n, bytes) = good.ok_or_else(|| {
             Error::Library(format!("no generation holds a version of {path} that loads"))
         })?;
