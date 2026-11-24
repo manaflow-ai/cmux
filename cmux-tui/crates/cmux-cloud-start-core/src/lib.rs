@@ -10,6 +10,7 @@ pub mod capability;
 pub mod hybrid;
 pub mod hybrid_show;
 pub mod hybrid_tools;
+pub mod keep_count;
 pub mod list_wait;
 pub mod machine_bootstrap;
 pub mod machine_config;
