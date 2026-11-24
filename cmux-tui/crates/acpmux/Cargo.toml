@@ -137,6 +137,8 @@ cmux-file-lock.workspace = true
 # Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
 cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
+# The bound of a Stopping continuation mark (`hub/auto_resume.rs`).
+cmux-deadline.workspace = true
 cmux-git.workspace = true
 # The trusted session-flag hook a Codex start at a repository head gets (src/codex_repo_gate.rs).
 cmux-tui-hooks.workspace = true
