@@ -249,6 +249,10 @@ async fn main() -> Result<()> {
         )
         .with_writer(std::io::stderr)
         .init();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if cmux_mobile_host::dial_mailbox::wanted(&argv) {
+        return cmux_mobile_host::dial_mailbox::main(&argv).await;
+    }
     let args = parse()?;
     let mut failed = false;
     for kind in args.transports.clone() {
