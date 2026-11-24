@@ -255,13 +255,35 @@ fn announce_says_each_finding_once_and_again_when_it_changes() {
     home.write("themes/night.json", "{ \"appearance\": }\n");
     let customize = home.customize();
     let first = customize.doctor_announce(&at(NOW)).unwrap();
-    assert_eq!(first.announce.as_deref(), Some("Customization: themes/night.json does not load"));
+    assert_eq!(first.announce.as_deref(), Some("A customization couldn’t load"));
     let again = customize.doctor_announce(&at(NOW)).unwrap();
     assert_eq!(again.announce, None, "nothing new");
     assert!(again.line.is_some(), "still listed");
     home.write("themes/night.json", "{\n\n  \"appearance\": }\n");
     let changed = customize.doctor_announce(&at(NOW)).unwrap();
     assert!(changed.announce.is_some(), "a different problem is new: {:?}", changed.findings);
+}
+
+#[test]
+fn the_notice_only_interrupts_for_unapplied_customizations() {
+    let home = Home::new();
+    let customize = home.customize();
+    install(&customize, 1);
+    customize.library_use_code(layer(7, 1), vec![], "cli", NOW - 3 * 3_600_000).unwrap();
+    let notes = customize.doctor_announce(&at(NOW)).unwrap();
+    find(&notes, "layer-on:pr-7");
+    assert!(notes.announce.is_none());
+
+    home.write("cmux-next.json", r#"{ "appearance": { "acent": "blue", "dnesty": "compact" } }"#);
+    let errors = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(errors.announce.as_deref(), Some("Some settings weren’t applied"));
+    find(&errors, "unknown-key:appearance.acent");
+    find(&errors, "unknown-key:appearance.dnesty");
+    assert!(customize.doctor_announce(&at(NOW)).unwrap().announce.is_none());
+
+    home.write("theme.css", ":root {}");
+    let misplaced = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(misplaced.announce.as_deref(), Some("A customization is in the wrong folder"));
 }
 
 #[test]

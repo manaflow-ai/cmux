@@ -148,7 +148,7 @@ pub struct Report {
     /// `2 customization problems: pr-45206 is still on; ...`; `None` when
     /// nothing that is not dismissed is left.
     pub line: Option<String>,
-    /// With `announce`: the line for the findings not announced before.
+    /// With `announce`: a short notice for a new error that prevented a customization from applying.
     pub announce: Option<String>,
     /// Back to a setup that loads, in one step ([`Customize::doctor_recover`]);
     /// `None` when there is nothing to recover from.
@@ -197,9 +197,14 @@ impl Customize {
     pub fn doctor_announce(&self, expiry: &Expiry) -> Result<Report, Error> {
         let mut report = self.doctor(expiry);
         let mut state = self.read_doctor_state();
-        report.announce = line_of(report.findings.iter().filter(|finding| {
-            !finding.dismissed && state.announced.get(&finding.id) != Some(&finding.fingerprint)
-        }));
+        report.announce = report
+            .findings
+            .iter()
+            .filter(|finding| {
+                !finding.dismissed && state.announced.get(&finding.id) != Some(&finding.fingerprint)
+            })
+            .find_map(announcement)
+            .map(str::to_owned);
         let announced: BTreeMap<String, String> = report
             .findings
             .iter()
@@ -684,7 +689,7 @@ impl Customize {
         }) {
             out.push(
                 FindingKind::Ignored,
-                Level::Info,
+                Level::Warning,
                 &format!("{logical}#{}", diagnostic.path),
                 format!("{logical} sets {} and cmux skips it", diagnostic.path),
                 format!("{}. The rest of the theme still applies.", sentence(&diagnostic.message)),
@@ -885,6 +890,19 @@ pub fn fix_kind(word: &str) -> Option<FixKind> {
         "remove" | "rm" => Some(FixKind::Remove),
         "restore" => Some(FixKind::Restore),
         "default" | "follow-default" => Some(FixKind::FollowDefault),
+        _ => None,
+    }
+}
+
+/// The native notice describes the effect. Review opens the findings with their paths and fixes.
+fn announcement(finding: &Finding) -> Option<&'static str> {
+    match finding.kind {
+        FindingKind::Broken => Some("A customization couldn’t load"),
+        FindingKind::UnknownKey => Some("Some settings weren’t applied"),
+        FindingKind::WrongFolder => Some("A customization is in the wrong folder"),
+        FindingKind::Ignored if finding.level == Level::Warning => {
+            Some("Some theme settings weren’t applied")
+        }
         _ => None,
     }
 }
