@@ -26,6 +26,8 @@
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
 //!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
+//! - store: what a chat keeps in acpmux's own store (its event log and background output),
+//!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
 //!
 //! [`status`] is the `sessionBudgets` object of `daemon status` ([`VERSION`]).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -34,7 +36,8 @@ use serde_json::{Value, json};
 
 /// The `sessionBudgets` shape's version in `daemon status`. A reader takes the fields it knows
 /// from any version (`budget_line`), so a newer daemon's additions never break an older CLI.
-pub(crate) const VERSION: u64 = 1;
+/// 2 added `store`, the per-session store budget (`session_store.rs`).
+pub(crate) const VERSION: u64 = 2;
 
 /// How many lanes' worth of RAM one session may use: a lane is a coordinator and its helpers,
 /// and one of them bursts (a link) while the others idle.
@@ -297,8 +300,15 @@ pub(crate) fn home_disk() -> Option<(u64, u64)> {
 /// `daemon status`'s `sessionBudgets`: the version, the per-scope budget (a session's harness
 /// scope; `perTaskScope` for agent host and background task scopes), what it was sized
 /// from, whether the disk watcher runs, and each measured scope's use (`use`, from
-/// `hub/session_budget_watch.rs`).
-pub(crate) fn status(budget: &Budget, task: &Budget, host: &Host, watch: Value) -> Value {
+/// `hub/session_budget_watch.rs`); `store` is the per-session store budget and its readings
+/// (`session_store::Watch::json`, version 2).
+pub(crate) fn status(
+    budget: &Budget,
+    task: &Budget,
+    host: &Host,
+    watch: Value,
+    store: Value,
+) -> Value {
     json!({
         "version": VERSION,
         "perScope": budget.json(),
@@ -310,6 +320,7 @@ pub(crate) fn status(budget: &Budget, task: &Budget, host: &Host, watch: Value) 
             "diskBytes": host.disk_total,
         },
         "watch": watch,
+        "store": store,
     })
 }
 
@@ -342,6 +353,15 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
     }
     if over > 0 {
         line.push_str(&format!(", {over} scope(s) over"));
+    }
+    // Version 2: the store budget, when it is on (an older daemon has no `store`).
+    let store = v.get("store").filter(|s| s.get("on") == Some(&Value::Bool(true)));
+    if let Some(bytes) = store.and_then(|s| s.get("budgetBytes")).and_then(Value::as_u64) {
+        line.push_str(&format!(", store {:.1}G a chat", bytes as f64 / GIB as f64));
+        let over = store.and_then(|s| s.get("over")).and_then(Value::as_u64).unwrap_or(0);
+        if over > 0 {
+            line.push_str(&format!(" ({over} chat(s) over)"));
+        }
     }
     Some(line)
 }

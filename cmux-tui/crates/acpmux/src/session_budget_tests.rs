@@ -167,7 +167,7 @@ fn lanes_are_found_by_a_full_or_short_host_name() {
 fn status_carries_its_version_and_what_it_was_sized_from() {
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
-    let v = status(&b, &b, &host, serde_json::json!({"enabled": true, "use": []}));
+    let v = status(&b, &b, &host, serde_json::json!({"enabled": true, "use": []}), Value::Null);
     assert_eq!(v["version"], VERSION);
     assert_eq!(v["perScope"]["cpuQuotaPercent"], 1200);
     assert_eq!(v["perScope"]["diskBytes"], 8 * GIB);
@@ -182,19 +182,42 @@ fn the_budget_line_reads_old_this_and_newer_daemons() {
     assert_eq!(budget_line(&Value::Null), None);
     assert_eq!(budget_line(&serde_json::json!({"version": 1})), None);
 
-    // This version.
+    // Version 1 (#54137): no `store`; the line is as it read then.
     let host = lane_host();
     let b = Budget::read(&reader(&[]), &host);
     let watch =
         serde_json::json!({"use": [{"state": "ok"}, {"state": "over"}, {"state": "stopped"}]});
+    let mut v1 = status(&b, &b, &host, watch.clone(), Value::Null);
+    v1["version"] = 1.into();
+    v1.as_object_mut().unwrap().remove("store");
     assert_eq!(
-        budget_line(&status(&b, &b, &host, watch)).unwrap(),
+        budget_line(&v1).unwrap(),
         "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes, 2 scope(s) over"
     );
 
+    // This version: the store budget, on, with a chat over it.
+    let mut store = crate::session_store::Watch {
+        budget: crate::session_store::store_default(b.disk),
+        compress: true,
+        ..Default::default()
+    };
+    store.apply(vec![("a".into(), 2 * GIB, false), ("b".into(), 1, false)]);
+    let v2 = status(&b, &b, &host, watch.clone(), store.json(true));
+    assert_eq!(v2["version"], 2);
+    assert_eq!(v2["store"]["budgetBytes"], GIB);
+    assert_eq!(
+        budget_line(&v2).unwrap(),
+        "mem 20.0G (high 18.0G), cpu 1200% weight 50, disk 8.0G, sized for 6 lanes, 2 scope(s) \
+         over, store 1.0G a chat (1 chat(s) over)"
+    );
+    // Store off: no store part.
+    let off = status(&b, &b, &host, watch, crate::session_store::Watch::default().json(true));
+    assert!(!budget_line(&off).unwrap().contains("store"));
+
     // A newer daemon: fields this CLI does not know, and some it knows missing.
     let newer = serde_json::json!({
-        "version": 2,
+        "version": 3,
+        "store": {"on": true, "budgetBytes": "a shape this CLI does not know"},
         "perScope": {"memoryMaxBytes": 0, "cpuWeight": 30, "netWeight": 9, "diskBytes": GIB},
         "aggregate": {"slice": "acpmuxlanes.slice"},
         "watch": {"use": "a shape this CLI does not know"},
