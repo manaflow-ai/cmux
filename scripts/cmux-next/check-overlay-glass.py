@@ -201,7 +201,6 @@ ALLOWED: dict[str, dict[str, str]] = {
         "popup-surface": "the .opaque material (Reduce Transparency), and fillWithPopupSurface's definition",
         "card-material": "the opt-in card fill's path; only makeOverlayPanel(cardFill: true) reaches it",
     },
-    P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
     # Not a floating surface: content and in-pane chrome that sits on its own page.
     P + "CmuxNextTerminal/TerminalCopyModeBadge.swift": {"elevated-fill": "an in-pane badge over terminal text that must stay readable"},
