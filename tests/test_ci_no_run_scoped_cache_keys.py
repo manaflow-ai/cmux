@@ -70,8 +70,6 @@ ALLOWED: dict[str, str] = {
     "cmux-tui-spec.yml: Save the base's last test log":
         "a few hundred kB gzipped log per feat-cmux-next push of the acpmux tests; pull requests restore the newest by prefix "
         "so their reds need no rebuild of the merge parent",
-    "seed-derived-data.yml: Save seed":
-        "the DerivedData seed in the R2 store (not the GitHub store), restored by prefix",
 }
 
 
