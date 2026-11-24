@@ -1763,20 +1763,20 @@ fn a_joined_machine_is_reached_by_the_name_it_joined_with_not_its_host_name() {
 /// its `joined:ID`) starts on B by the name it joined with, never on the host name A shares.
 #[test]
 fn a_machine_the_apps_list_shows_joined_is_a_chat_target_by_the_name_it_joined_with() {
-    let joined = |id: &str, name: &str, state: &str| {
+    let row_of = |id: &str, name: &str, state: &str| {
         json!({"id": format!("joined:{id}"), "kind": "joined", "name": name, "online": true,
                "linkState": "connected",
                "joined": {"id": id, "name": name, "hostname": "mac-1795", "state": state,
                           "platform": "macos"}})
     };
-    let listed = json!({"machines": [
+    let app_list = json!({"machines": [
         {"id": "local", "kind": "local", "name": "This Mac", "joined": null},
         {"id": "vm_1", "kind": "cloud", "name": "cmux-vm", "joined": null},
-        joined("m_a", "mac-1795-iospair-90001", "online"),
-        joined("m_b", "mac-1795-iospair-90002", "online"),
-        joined("m_old", "mac-0001-iospair-90002", "offline"),
+        row_of("m_a", "mac-1795-iospair-90001", "online"),
+        row_of("m_b", "mac-1795-iospair-90002", "online"),
+        row_of("m_old", "mac-0001-iospair-90002", "offline"),
     ]});
-    let rows = joined::rows_from_app_list(&listed);
+    let rows = joined::rows_from_app_list(&app_list);
     assert_eq!(rows.len(), 3, "only the joined rows, as account rows: {rows:?}");
     assert!(rows.iter().all(|row| row["kind"] == "joined"));
     let on = |on: &str| {
@@ -1793,7 +1793,7 @@ fn a_machine_the_apps_list_shows_joined_is_a_chat_target_by_the_name_it_joined_w
                     },
                 )
             },
-            Sources { hub: Vec::new, rows: || Ok(joined::rows_from_app_list(&listed)) },
+            Sources { hub: Vec::new, rows: || Ok(joined::rows_from_app_list(&app_list)) },
         )
     };
     let b = joined_at(Some("m_b"), "mac-1795-iospair-90002", "mac-1795-iospair-90002");
