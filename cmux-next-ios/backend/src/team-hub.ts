@@ -64,6 +64,8 @@ const LINK_STAT_MARKS = new Set([
   "first_pong"
 ])
 const LINK_STAT_MAX_MS = 600_000
+/** The most slow keys a `link_stat` carries (`cmux-mobile-link` `key_echo::MAX_SPIKES`). */
+const LINK_STAT_MAX_SPIKES = 6
 const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
 
 /**
@@ -109,6 +111,34 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
+  for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
+    const k = f[field]
+    if (typeof k !== "object" || k === null || Array.isArray(k)) continue
+    const r = k as Record<string, unknown>
+    const n = num(r.n, 100_000)
+    const p50 = num(r.p50, LINK_STAT_MAX_MS)
+    const p95 = num(r.p95, LINK_STAT_MAX_MS)
+    const p99 = num(r.p99, LINK_STAT_MAX_MS)
+    const max = num(r.max, LINK_STAT_MAX_MS)
+    if (n && p50 !== undefined && p95 !== undefined && p99 !== undefined && max !== undefined) {
+      Object.assign(line, { [`${prefix}N`]: n, [`${prefix}P50`]: p50, [`${prefix}P95`]: p95, [`${prefix}P99`]: p99, [`${prefix}Max`]: max })
+    }
+  }
+  const spikeCount = num(f.spikeCount, 100_000)
+  if (spikeCount) line.spikeCount = spikeCount
+  if (Array.isArray(f.spikes)) {
+    // [seconds since up, ack ms (-1: none yet), echo ms], at most LINK_STAT_MAX_SPIKES.
+    const spikes: number[][] = []
+    for (const s of f.spikes.slice(0, LINK_STAT_MAX_SPIKES)) {
+      if (!Array.isArray(s) || s.length !== 3) continue
+      const at = num(s[0], 30 * 86_400)
+      const ack = s[1] === -1 ? -1 : num(s[1], LINK_STAT_MAX_MS)
+      const echo = num(s[2], LINK_STAT_MAX_MS)
+      if (at !== undefined && ack !== undefined && echo !== undefined) spikes.push([at, ack, echo])
+    }
+    if (spikes.length) line.spikes = spikes
+  }
   Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
   return line
 }

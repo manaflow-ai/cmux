@@ -22,7 +22,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -65,6 +65,8 @@ pub(super) struct Opened {
     pub presented: Option<String>,
     /// ssh's stderr, read for why an ssh link ended.
     pub ssh_errors: Option<ssh_errors::Capture>,
+    /// The id of the `initialize` that left with the upgrade request (`Peer::early_initialize`).
+    pub early_id: Option<i64>,
 }
 
 /// Which direct path this machine has for a peer: acpmux's own WireGuard transport runs only
@@ -567,18 +569,6 @@ impl Peer {
         let (token, peer_token) = self
             .direct_credentials(ssh_tokens)
             .ok_or_else(|| "no token for the peer yet".to_owned())?;
-        let heard = Heard::default();
-        let opening = async {
-            let (stream, url) = self.direct_stream(via).await?;
-            let req = self.ws_request(&url, Some(&token), peer_token.as_deref())?;
-            tokio_tungstenite::client_async_with_config(
-                req,
-                heard.wrap(stream),
-                Some(crate::server::ws_config()),
-            )
-            .await
-            .map_err(|e| DialError::ws(&e))
-        };
         let deadline = if self.linked_once.load(Ordering::SeqCst)
             && matches!(via, Via::Wireguard | Via::Link)
         {
@@ -586,15 +576,50 @@ impl Peer {
         } else {
             self.timings.connect
         };
-        let (ws, _) = tokio::time::timeout(deadline, opening)
-            .await
-            .map_err(|_| DialError::timeout(connect_timed_out(deadline)))??;
-        Ok(Opened {
-            ws: OpenedWs::Boxed(Box::new(ws)),
-            heard,
-            presented: peer_token,
-            ssh_errors: None,
-        })
+        // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
+        // listener predates that refuses the upgrade ("junk after client request"), which is
+        // remembered (`early_refused`) and dialed again without it.
+        let mut use_early = !self.early_refused.load(Ordering::SeqCst);
+        loop {
+            let heard = Heard::default();
+            let early = use_early.then(|| self.early_initialize()).flatten();
+            let early_id = early.as_ref().map(|(id, _)| *id);
+            let opening = async {
+                let (stream, url) = self.direct_stream(via).await.map_err(|e| (false, e))?;
+                let req = self
+                    .ws_request(&url, Some(&token), peer_token.as_deref())
+                    .map_err(|e| (false, DialError::from(e)))?;
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    match early {
+                        Some((_, frame)) => heard.wrap_early(stream, frame),
+                        None => heard.wrap(stream),
+                    },
+                    Some(crate::server::ws_config()),
+                )
+                .await
+                // Only an answer that is not the token's refusal may be the early frame's.
+                .map_err(|e| (!tokens::refused(&e), DialError::ws(&e)))
+            };
+            match tokio::time::timeout(deadline, opening).await {
+                Ok(Ok((ws, _))) => {
+                    return Ok(Opened {
+                        ws: OpenedWs::Boxed(Box::new(ws)),
+                        heard,
+                        presented: peer_token,
+                        ssh_errors: None,
+                        early_id,
+                    });
+                }
+                Ok(Err((maybe_early, _))) if maybe_early && early_id.is_some() => {
+                    self.early_refused.store(true, Ordering::SeqCst);
+                    tracing::debug!(peer = %self.name, "the peer refused an upgrade with a first request behind it; dialing without");
+                    use_early = false;
+                }
+                Ok(Err((_, error))) => return Err(error),
+                Err(_) => return Err(DialError::timeout(connect_timed_out(deadline))),
+            }
+        }
     }
 
     /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
@@ -611,6 +636,12 @@ impl Peer {
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
+        // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
+        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
+            .then(|| self.early_initialize())
+            .flatten();
+        let early_id = early.as_ref().map(|(id, _)| *id);
+        let token_said_no = AtomicBool::new(false);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
         let connect = async {
             let host = req.uri().host().ok_or_else(|| "the peer URL has no host".to_owned())?;
@@ -622,22 +653,39 @@ impl Peer {
             // A peer forwards the pane's prompts and their images: the listener's limits.
             tokio_tungstenite::client_async_tls_with_config(
                 req,
-                heard.wrap(tcp),
+                match early {
+                    Some((_, frame)) => heard.wrap_early(tcp, frame),
+                    None => heard.wrap(tcp),
+                },
                 Some(crate::server::ws_config()),
                 None,
             )
             .await
             .map_err(|e| {
                 if tokens::refused(&e) {
+                    token_said_no.store(true, Ordering::SeqCst);
                     self.token_refused();
                 }
                 DialError::ws(&e)
             })
         };
-        let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
-            .await
-            .map_err(|_| DialError::timeout(connect_timed_out(self.timings.connect)))??;
-        Ok(Opened { ws: OpenedWs::Url(Box::new(ws)), heard, presented: None, ssh_errors: None })
+        let (ws, _) = match tokio::time::timeout(self.timings.connect, connect).await {
+            Ok(Ok(opened)) => opened,
+            // A listener that predates the early request refuses the upgrade: dial without.
+            Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
+                self.early_refused.store(true, Ordering::SeqCst);
+                return Box::pin(self.open_url()).await;
+            }
+            Ok(Err(error)) => return Err(error),
+            Err(_) => return Err(DialError::timeout(connect_timed_out(self.timings.connect))),
+        };
+        Ok(Opened {
+            ws: OpenedWs::Url(Box::new(ws)),
+            heard,
+            presented: None,
+            ssh_errors: None,
+            early_id,
+        })
     }
 
     /// Open the peer's WebSocket over `ssh -W`, reading its tokens over ssh as needed.
@@ -725,6 +773,7 @@ impl Peer {
                         heard,
                         presented: peer_token,
                         ssh_errors: Some(errors),
+                        early_id: None,
                     });
                 }
                 Err(error) => error,
