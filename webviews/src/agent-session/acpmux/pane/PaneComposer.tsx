@@ -161,7 +161,8 @@ export type PaneComposerDeps = {
   onAutoArrivalDismiss: () => void;
   /// Auto picked: the daemon decides where the Send goes first (App.tsx `autoSendGate`).
   autoSendGate: {
-    holds: (text: string) => boolean;
+    holds: () => boolean;
+    cloudStart: () => { autoLanding?: AutoLanding };
     once: <A extends unknown[], R>(send: (...args: A) => R) => (...args: A) => R;
   };
   cloudHint: CloudChatHintState;
@@ -1022,7 +1023,7 @@ export function drawPaneComposer({
               if (authBlock || cloningGitHub) return false;
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
-              if (autoSendGate.holds(text)) return false;
+              if (autoSendGate.holds()) return false;
               // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
               // the message (CMUX-682). Asked first in `holdsSend`; again here for a send that waited.
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
@@ -1047,6 +1048,7 @@ export function drawPaneComposer({
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
                     ...folder,
+                    ...autoSendGate.cloudStart(),
                     // The agent and model the composer shows, as the New Tab page's Cloud send names them
                     // (cloudSendAgent): a pick held by a switch, else the chat's, else the picker's face. Before,
                     // only a switch's pick went, so a page showing GPT-6.1 Sol started Claude on the machine.
