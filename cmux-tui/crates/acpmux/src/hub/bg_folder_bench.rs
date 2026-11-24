@@ -39,7 +39,7 @@ fn hub() -> Arc<Hub> {
 }
 
 /// A chat's folder of `tasks` ended tasks and two running ones; the running ones' locks.
-fn fill(dir: &std::path::Path, chat: &str, tasks: usize) -> Vec<std::fs::File> {
+fn fill(dir: &std::path::Path, chat: &str, tasks: usize) -> Vec<cmux_file_lock::FileLock> {
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(dir.join(".generation"), "g").unwrap();
     let output = "a line of a background task's output, as a CI wait prints\n".repeat(36);
@@ -70,10 +70,9 @@ fn fill(dir: &std::path::Path, chat: &str, tasks: usize) -> Vec<std::fs::File> {
             .open(crate::bg_run::lock_path(dir, &id))
             .unwrap();
         if running {
-            use std::os::fd::AsRawFd;
-            // SAFETY: flock on a descriptor this function owns.
-            assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
-            held.push(lock);
+            held.push(
+                cmux_file_lock::FileLock::try_take(lock, cmux_file_lock::Kind::Exclusive).unwrap(),
+            );
         } else {
             std::fs::write(crate::bg_run::notified_path(dir, &id), b"").unwrap();
         }
