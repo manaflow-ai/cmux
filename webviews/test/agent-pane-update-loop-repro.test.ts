@@ -380,6 +380,7 @@ await requireBrowserLane("agent-pane-update-loop-repro.test.ts", async () => {
         await running.click();
         await page.locator(".acpmux-bg__transcript").waitFor({ timeout: 10_000 });
         await scrollTranscript();
+        // fixed-wait: asserts an absence (no update loop) while a running helper's drill-in shows.
         await page.waitForTimeout(2_000);
         await check(page, errors, "c) running drill-in");
         await page.locator(".acpmux-bg__head button").first().click();
