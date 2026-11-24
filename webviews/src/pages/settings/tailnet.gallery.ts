@@ -55,7 +55,7 @@ export default settingsPageEntry({
     "cloud-off": {
       section: "devices",
       tailnet: { state: "stopped" },
-      steps: [shown],
+      steps: [shown, { selector: '[data-tailnet-action="start"]', action: "focus" }],
       note: "Tailscale for Cloud machines off (the default): only this Mac's own tailnet card, no Join.",
     },
     "cloud-ready": {
@@ -64,7 +64,7 @@ export default settingsPageEntry({
         values: { "tailnet.join.enabled": true, "tailnet.join.tags": ["tag:cmux"], "tailnet.join.ssh": true },
       },
       host: cloudHost,
-      steps: [cloudShown],
+      steps: [cloudShown, { selector: "[data-tailnet-vm-join]", action: "focus" }],
       note: "Tailscale is enabled for Cloud machines. Join opens a sheet that asks for a key only for this operation.",
     },
     "cloud-join-sheet": {
@@ -82,6 +82,7 @@ export default settingsPageEntry({
         ...openSheet,
         ...fill("tskey-auth-kSINGLEUSE"),
         { selector: "[data-tailnet-join-submit]", action: "click" },
+        { selector: "[data-tailnet-vm-leave]", action: "focus" },
       ],
       note: "Joined: the machine's MagicDNS name, online, its tailnet address and tags, and Leave.",
     },

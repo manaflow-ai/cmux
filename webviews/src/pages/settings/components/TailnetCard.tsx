@@ -13,6 +13,7 @@ import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
 import { useSettingsState, useRowState, useStore } from "../context";
 import type { TailnetVMReply } from "../ops";
 import { TAILNET_KEY, tailnetQuery } from "../sectionQueries";
+import "../tailnetJoin.css";
 import { t } from "../strings";
 import { TAILNET_SETTLE_WAITS_MS, tailnetSettling, tailnetView, tailnetWaits, type TailnetView } from "../tailnet";
 import { ActionRow } from "./ActionRow";
@@ -352,7 +353,7 @@ function TailnetJoinDialog({
       className="tailnet-join-sheet"
     >
       <form
-        className="accounts-form tailnet-join-content"
+        className="tailnet-join-content"
         onSubmit={(event) => {
           event.preventDefault();
           void submit();
@@ -360,7 +361,7 @@ function TailnetJoinDialog({
       >
         <DialogTitle>{t("settingsPage.tailnet.join")}</DialogTitle>
         <DialogDescription>{t("settingsPage.tailnet.cloudHelp")}</DialogDescription>
-        <label>
+        <label className="tailnet-join-field">
           {t("settingsPage.tailnet.machine")}
           <input
             list="tailnet-machines"
@@ -377,7 +378,7 @@ function TailnetJoinDialog({
             ))}
           </datalist>
         </label>
-        <label>
+        <label className="tailnet-join-field">
           {t("settingsPage.tailnet.credential")}
           <input
             type="password"
@@ -388,32 +389,32 @@ function TailnetJoinDialog({
             spellCheck={false}
           />
         </label>
-        <div className="row-help">{t("settingsPage.tailnet.keyHelp")}</div>
+        <p>{t("settingsPage.tailnet.keyHelp")}</p>
         {reusable && (
-          <div className="row-help" role="alert" data-tailnet-key-reusable="">
+          <p className="tailnet-join-warning" role="alert" data-tailnet-key-reusable="">
             {t("settingsPage.tailnet.reusableWarning")}
-          </div>
+          </p>
         )}
         {plainHttp && (
-          <label data-tailnet-allow-http="">
-            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />{" "}
-            {t("settingsPage.tailnet.allowHttp", loginServer)}
+          <label className="tailnet-join-check" data-tailnet-allow-http="">
+            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
           </label>
         )}
-        <label>
-          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />{" "}
-          {t("settingsPage.tailnet.oauthMode")}
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.oauthMode")}</span>
         </label>
-        <label>
-          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />{" "}
-          {t("settingsPage.tailnet.switch")}
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.switch")}</span>
         </label>
         {error && (
-          <div className="row-help" role="alert">
+          <p className="tailnet-join-error" role="alert">
             {t("settingsPage.tailnet.joinError", error)}
-          </div>
+          </p>
         )}
-        {error?.includes("another tailnet") && <div className="row-help">{t("settingsPage.tailnet.switchHelp")}</div>}
+        {error?.includes("another tailnet") && <p>{t("settingsPage.tailnet.switchHelp")}</p>}
         <div className="accounts-buttons">
           <Button type="button" className="button" onClick={onClose}>
             {t("settingsPage.cancel")}

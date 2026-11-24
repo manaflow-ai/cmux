@@ -23,7 +23,7 @@
           "title": { "key": "settings.tailnet.join.loginServer", "text": "Login Server" },
           "help": { "key": "settings.tailnet.join.loginServer.help", "text": "Leave empty for Tailscale, or enter your Headscale control server URL." },
           "summary": { "key": "settings.tailnet.join.loginServer.summary", "text": "Tailscale or Headscale control server" },
-          "kind": "string",
+          "kind": "text",
           "default": "",
           "placeholder": { "key": null, "text": "https://headscale.example.com" },
           "keywords": ["tailscale", "headscale", "login", "server", "control", "url"]
@@ -33,7 +33,7 @@
           "title": { "key": "settings.tailnet.join.hostname", "text": "Hostname Template" },
           "help": { "key": "settings.tailnet.join.hostname.help", "text": "Optional device name template. Use {vm} for the Cloud machine name." },
           "summary": { "key": "settings.tailnet.join.hostname.summary", "text": "Name new tailnet devices" },
-          "kind": "string",
+          "kind": "text",
           "default": "{vm}",
           "placeholder": { "key": null, "text": "{vm}" },
           "keywords": ["tailscale", "tailnet", "hostname", "device", "name", "template"]
