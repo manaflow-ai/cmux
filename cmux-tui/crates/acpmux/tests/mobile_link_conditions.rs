@@ -1248,3 +1248,352 @@ async fn session_changed_on_a_long_chat_is_a_small_patch_only_for_a_client_that_
         assert_eq!(held_spans.map(Vec::len), Some(spans.len()), "timeBreakdown spans");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Send: tap to "visible as sent", with the phone's retry, and what the host applied
+//
+// Leo, 2026-11-24 (relayed, ask-1124-0818): "i think we can maybe be more optimistic sometimes.
+// it is a bit slow on ios." Item 1, the BEFORE: today the app draws a sent bubble when the Mac's
+// `user_message` record for that `promptId` reaches the phone (`AgentChatStore.applyEvent`), so
+// tap to visible is a full round trip. One send is: tap (the request is written), then the first
+// of the record in the event stream or in a re-attach's rows. A send whose connection goes quiet
+// (20 s with no inbound frame, pings every 15 s) redials, re-attaches with `afterSeq` and, when
+// the record is not there, sends the prompt again with the SAME `promptId` and `resend: true`, as
+// `AcpmuxSessionSource.promptFailed` does. After a row the host's own log says what it applied:
+// a `promptId` with two `user_message` records is a double send, with none a lost send.
+//
+// Rows (phase `send`, scale = the row): idle (no shaper), lte, lossy-3, duress (lte, a long chat,
+// a second chat streaming, every core spinning), link-down (lte; at each tap the link drops for
+// `NETCOND_SEND_BLACKOUT_MS`, default 3000, and comes back). Metrics: `send_visible_ms` (null: not
+// visible within the send's bound), `sends`, `double_sends`, `lost_sends`, `retries`.
+// Env: `NETCOND_SENDS` (25 per row), `NETCOND_SEND_ROWS` (idle,lte,lossy-3,link-down,duress),
+// `NETCOND_SEND_BLACKOUT_MS`, `NETCOND_SEND_BOUND_S` (45), `NETCOND_SEED_BASE`.
+
+/// The longest a send may take to show before it counts as not visible (a miss).
+fn send_bound() -> Duration {
+    Duration::from_secs(env_u64("NETCOND_SEND_BOUND_S", 45))
+}
+
+/// Threads that keep every core busy until dropped: the Mac under load.
+struct Spin {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl Spin {
+    fn start() -> Self {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cores = std::thread::available_parallelism().map_or(4, usize::from);
+        let threads = (0..cores)
+            .map(|_| {
+                let stop = stop.clone();
+                std::thread::spawn(move || {
+                    let mut x = 1u64;
+                    while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                        for _ in 0..100_000 {
+                            x = x
+                                .wrapping_mul(6364136223846793005)
+                                .wrapping_add(1442695040888963407);
+                        }
+                        std::hint::black_box(x);
+                    }
+                })
+            })
+            .collect();
+        Self { stop, threads }
+    }
+}
+
+impl Drop for Spin {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn is_echo(v: &Value, prompt_id: &str) -> bool {
+    if v["method"] != method::MUX_EVENT {
+        return false;
+    }
+    let p = v["params"].to_string();
+    p.contains("user_message") && p.contains(prompt_id)
+}
+
+fn reply_has_echo(reply: &Value, prompt_id: &str) -> bool {
+    reply["events"].as_array().is_some_and(|events| {
+        events.iter().any(|e| {
+            let s = e.to_string();
+            s.contains("user_message") && s.contains(prompt_id)
+        })
+    })
+}
+
+fn prompt_params(session: &str, text: &str, prompt_id: &str, resend: bool) -> Value {
+    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+           "_meta": {"acpmux": {"promptId": prompt_id, "steer": false, "resend": resend}}})
+}
+
+/// One send as the phone does it. Returns (visible_ms, retries); the link may be replaced.
+#[allow(clippy::too_many_arguments)]
+async fn chat_send_once(
+    link: &mut Link,
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    prompt_id: &str,
+    last: &mut u64,
+    tap: Instant,
+) -> (Option<f64>, u64) {
+    let deadline = tap + send_bound();
+    let mut retries = 0;
+    let mut request = match link
+        .post(method::SESSION_PROMPT, prompt_params(session, "ping", prompt_id, false))
+        .await
+    {
+        Ok(id) => Some(id),
+        Err(_) => None,
+    };
+    let mut last_ping = Instant::now();
+    loop {
+        if request.is_some() {
+            let give_up = link.last_inbound + GIVE_UP_AFTER;
+            let ping_at = last_ping + PING_EVERY;
+            let wake = give_up.min(ping_at).min(deadline);
+            match link.notification(wake).await {
+                Next::Frame(at, v) => {
+                    if let Some(seq) = event_seq(&v) {
+                        *last = (*last).max(seq);
+                    }
+                    if is_echo(&v, prompt_id) {
+                        return (Some(ms(at - tap)), retries);
+                    }
+                    continue;
+                }
+                Next::Closed => {}
+                Next::Silent => {
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return (None, retries);
+                    }
+                    if now < give_up {
+                        if now >= ping_at {
+                            link.ping().await;
+                            last_ping = now;
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        // The link is gone (closed, or 20 s of nothing): redial, re-attach after what was seen,
+        // and send the prompt again under its id when its record is not there.
+        let mut redialed = None;
+        while Instant::now() < deadline {
+            let attempt = (Instant::now() + Duration::from_secs(30)).min(deadline);
+            let Ok(mut fresh) = Link::open(addr, token, attempt).await else {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            };
+            match fresh.attach(session, Some(*last), attempt).await {
+                Ok((at, reply)) => {
+                    for seq in rows(&reply) {
+                        *last = (*last).max(seq);
+                    }
+                    if reply_has_echo(&reply, prompt_id) {
+                        *link = fresh;
+                        return (Some(ms(at - tap)), retries);
+                    }
+                    redialed = Some(fresh);
+                    break;
+                }
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    continue;
+                }
+            }
+        }
+        let Some(fresh) = redialed else { return (None, retries) };
+        *link = fresh;
+        retries += 1;
+        request = link
+            .post(method::SESSION_PROMPT, prompt_params(session, "ping", prompt_id, true))
+            .await
+            .ok();
+        last_ping = Instant::now();
+    }
+}
+
+/// What the host applied: `user_message` records per promptId after `after`.
+async fn applied_prompts(
+    addr: std::net::SocketAddr,
+    token: &str,
+    session: &str,
+    after: u64,
+    ids: &[String],
+) -> Option<Vec<usize>> {
+    let deadline = Instant::now() + BOUND;
+    let mut link = Link::open(addr, token, deadline).await.ok()?;
+    let mut params = json!({"sessionId": session, "limit": 2000, "kinds": ["user_message"],
+                            "afterSeq": after});
+    params["eventStream"] = json!(false);
+    let id = link.post("_acpmux/attach", params).await.ok()?;
+    let (_, reply) = link.answer(id, deadline).await.ok()?;
+    let events = reply["events"].as_array()?;
+    if events.len() >= 2000 {
+        return None;
+    }
+    Some(
+        ids.iter()
+            .map(|pid| {
+                events
+                    .iter()
+                    .filter(|e| {
+                        let s = e.to_string();
+                        s.contains("user_message") && s.contains(pid.as_str())
+                    })
+                    .count()
+            })
+            .collect(),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "the send bench: scripts/measure/ios-network-conditions.sh mode=send runs it"]
+async fn chat_send_under_link_conditions() {
+    let scratch = daemon_env::Scratch::new("netcond-send");
+    let hub = hub(&scratch.path().join("home"));
+    let listener = app_ws::listen(&hub).await;
+    let upstream: std::net::SocketAddr =
+        listener.url.trim_start_matches("ws://").trim_end_matches('/').parse().unwrap();
+    let file = match std::env::var("NETCOND_PROFILES_FILE") {
+        Ok(p) if !p.is_empty() => ProfileFile::load(Path::new(&p)).unwrap(),
+        _ => ProfileFile::builtin(),
+    };
+    let sends = env_u64("NETCOND_SENDS", 25);
+    let seed_base = env_u64("NETCOND_SEED_BASE", 0);
+    let blackout = Duration::from_millis(env_u64("NETCOND_SEND_BLACKOUT_MS", 3000));
+    let rows_wanted =
+        env_list("NETCOND_SEND_ROWS", &["idle", "lte", "lossy-3", "link-down", "duress"]);
+    let mut control = Control::new(&hub);
+    let cwd = scratch.path().join("work");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let trace = Trace::new();
+    for row in &rows_wanted {
+        let (profile, loaded, down) = match row.as_str() {
+            "idle" => (None, false, false),
+            "lte" => (file.get("lte"), false, false),
+            "lossy-3" => (file.get("lossy-3"), false, false),
+            "duress" => (file.get("lte"), true, false),
+            "link-down" => (file.get("lte"), false, true),
+            other => panic!("NETCOND_SEND_ROWS: no row {other}"),
+        };
+        let profile = profile.cloned();
+        let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
+        let made = control
+            .call(
+                method::SESSION_NEW,
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": format!("send-{row}")}}}),
+            )
+            .await;
+        let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
+        // A loaded Mac: a long chat, a second chat streaming 50 words a second into the watch,
+        // every core spinning.
+        let (_spin, streaming) = if loaded {
+            control.seed(&session, 0, 100).await;
+            let other = control
+                .call(
+                    method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "send-stream"}}}),
+                )
+                .await;
+            let other = other["result"]["sessionId"].as_str().unwrap().to_owned();
+            let turn = control.prompt(&other, "ticking:6000:20").await;
+            (Some(Spin::start()), Some(turn))
+        } else {
+            control.seed(&session, 0, BASE_TURNS).await;
+            (None, None)
+        };
+        let _ = streaming;
+        let shaper = match &profile {
+            Some(p) => match Shaper::start(upstream, p.clone(), seed_base, &trace).await {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    let k =
+                        Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+                    emit_error(&k, "send_visible_ms", &format!("shaper: {e}"));
+                    continue;
+                }
+            },
+            None => None,
+        };
+        let addr = shaper.as_ref().map_or(upstream, Shaper::addr);
+        let opened = Instant::now() + BOUND;
+        let Ok(mut link) = Link::open(addr, &listener.token, opened).await else {
+            let k = Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+            emit_error(&k, "send_visible_ms", "the phone's first connect failed");
+            continue;
+        };
+        let mut last = 0;
+        match link.attach(&session, None, opened).await {
+            Ok((_, reply)) => {
+                for seq in rows(&reply) {
+                    last = last.max(seq);
+                }
+            }
+            Err(e) => {
+                let k = Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+                emit_error(&k, "send_visible_ms", &e);
+                continue;
+            }
+        }
+        let start_seq = last;
+        let tag = std::process::id();
+        let mut ids = Vec::new();
+        let mut retries_total = 0;
+        for i in 0..sends {
+            let prompt_id = format!("send-{row}-{tag}-{i}");
+            let k = Key { profile: &label, phase: "send", scale: row, run: i, seed: seed_base + i };
+            let tap = Instant::now();
+            if down {
+                if let Some(s) = &shaper {
+                    s.blackout(blackout);
+                }
+            }
+            let (visible, retries) = chat_send_once(
+                &mut link,
+                addr,
+                &listener.token,
+                &session,
+                &prompt_id,
+                &mut last,
+                tap,
+            )
+            .await;
+            retries_total += retries;
+            emit(&k, "send_visible_ms", visible);
+            if visible.is_none() {
+                emit_error(&k, "send_visible_ms", "the prompt's user_message did not show in time");
+            }
+            ids.push(prompt_id);
+            // The turn ends (the fake agent echoes) before the next tap: a prompt sent into a
+            // running turn queues and its record waits for it.
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
+        }
+        // What the host holds, read on an unshaped link.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let k = Key { profile: &label, phase: "send", scale: row, run: 0, seed: seed_base };
+        match applied_prompts(upstream, &listener.token, &session, start_seq, &ids).await {
+            Some(counts) => {
+                emit(&k, "sends", Some(sends as f64));
+                emit(&k, "double_sends", Some(counts.iter().filter(|c| **c > 1).count() as f64));
+                emit(&k, "lost_sends", Some(counts.iter().filter(|c| **c == 0).count() as f64));
+                emit(&k, "retries", Some(retries_total as f64));
+            }
+            None => emit_error(&k, "double_sends", "the host's log could not be read"),
+        }
+        drop(link);
+    }
+}
