@@ -71,7 +71,7 @@ test("the smoke command reads all three and ends with a marker", () => {
 
 // The image's own sources never add a block route (`ip route add unreachable ...`, a networkd Type=unreachable), RFD 0067 item 5.
 test("no image source adds a block route over public IPv6", () => {
-  const roots = [path.resolve(import.meta.dir, "../scripts/cmux-vm-image"), path.resolve(import.meta.dir, "../../images/cmux-vm")];
+  const roots = [path.resolve(import.meta.dirname, "../scripts/cmux-vm-image"), path.resolve(import.meta.dirname, "../../images/cmux-vm")];
   const offenders: string[] = [];
   const walk = (dir: string) => {
     for (const name of readdirSync(dir)) {
