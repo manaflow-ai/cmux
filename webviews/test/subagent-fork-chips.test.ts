@@ -17,6 +17,8 @@ import { AcpmuxDirectClient, forkedSubagentName } from "../src/agent-session/acp
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { subagentChipFacts } from "../src/agent-session/acpmux/subagents/subagentForkChipsModel";
+import { experimentArm } from "../src/experiments/experiment";
+import { subagentForkChipsLook } from "../src/agent-session/acpmux/subagents/subagentForkChips.experiment";
 import { settleReact } from "./support/domTeardown";
 
 const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof translate>[1]) => translate(key, values);
@@ -284,4 +286,10 @@ test("chat-sim: a chat forked from a subagent draws its Forked from line once, b
   const last = result.traces.at(-1)!;
   const forked = (last.rows ?? []).filter((row) => row.id.startsWith("forked-from-"));
   expect(forked.length).toBe(1);
+});
+
+test("the default arm is off, which is the pane as it was: no chips on a subagent's composer", () => {
+  expect(subagentForkChipsLook.defaultArm).toBe("off");
+  expect(experimentArm(subagentForkChipsLook)).toBe("off");
+  expect(Object.keys(subagentForkChipsLook.arms)).toEqual(["off", "chips", "takeover", "hover"]);
 });

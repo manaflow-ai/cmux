@@ -8,7 +8,8 @@
 // A running subagent's model is fixed at its start; a Claude subagent's permissions follow its chat's
 // live mode, a Codex one's were copied at its start. So the chips can only tell the truth, and the one
 // honest way to run it otherwise is to fork its context into a chat of the person's own. Three looks:
-// - `chips` (A, the pick, shipped): the chat's chips greyed, the hover says why, a click opens
+// - `off` (the default, as before): no chips;
+// - `chips` (A, the pick): the chat's chips greyed, the hover says why, a click opens
 //   Fork with <model>… / Fork with <mode>…;
 // - `takeover` (B): one Take over in new chat… button whose menu picks a model and a mode, then forks;
 // - `hover` (C): A's chips, shown only while the pointer or focus is on the composer.
@@ -114,6 +115,10 @@ async function openSubagent(ctx: PlayContext) {
 /** The look's chips, drawn in the relayed composer, never the chat's pickers. */
 const shows = (arm: Arm) => async (ctx: PlayContext) => {
   await openSubagent(ctx);
+  if (arm === "off") {
+    if (ctx.document.querySelector("[data-subagent-chips]")) throw new Error("the off arm drew subagent chips");
+    return;
+  }
   await ctx.waitFor(() => ctx.document.querySelector(`[data-subagent-chips="${arm}"]`));
   if (ctx.document.querySelector("[data-composer-relay] .acpmux-access-trigger"))
     throw new Error("the subagent's composer drew the chat's mode picker");
@@ -156,6 +161,13 @@ export default agentPaneEntry({
     script: [{ name: "the subagent's pane", run: (ctx) => shows(subagentForkChipsLook.defaultArm)(ctx) }],
   },
   variants: {
+    "off-claude-running": variant(
+      "off",
+      "claude",
+      "running",
+      "Off (the default, as before): no chips on the subagent's composer.",
+    ),
+    "off-codex-done": variant("off", "codex", "completed", "Off, Codex, finished: no chips."),
     "a-claude-running": variant(
       "chips",
       "claude",

@@ -462,6 +462,8 @@ import { SubagentForkChips, type SubagentForkTarget } from "./subagents/Subagent
 import { openInOwnTab } from "./conversation/openFork";
 import { subagentChipFacts } from "./subagents/subagentForkChipsModel";
 import { sessionModels } from "./modelCatalog";
+import { subagentForkChipsLook } from "./subagents/subagentForkChips.experiment";
+import { useExperimentArm } from "../../experiments/useExperimentArm";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
 import type { LocalCommand } from "./localCommands";
 import {
@@ -9682,9 +9684,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [notices],
   );
   // One component per set of facts: the composer draws it as its chips (ComposerRelay `chips`).
+  // Off by default (subagentForkChips.experiment.ts `off`): the row has no chips, as before.
+  const subagentForkArm = useExperimentArm(subagentForkChipsLook);
   const subagentChips = useMemo(
     () =>
-      subagentFacts
+      subagentFacts && subagentForkArm !== "off"
         ? function SubagentChips() {
             return (
               <SubagentForkChips
@@ -9694,7 +9698,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             );
           }
         : undefined,
-    [subagentFacts, forkSubagent],
+    [subagentFacts, subagentForkArm, forkSubagent],
   );
   const subagentRelay: ComposerRelay | undefined = readOnlySubagent
     ? {

@@ -38,6 +38,7 @@ type Props = {
 /// permission situation and then the HOVER shows that?").
 export function SubagentForkChips({ facts, onFork, look: pinned }: Props) {
   const [arm] = useState(() => pinned ?? experimentArm(subagentForkChipsLook));
+  if (arm === "off") return null;
   if (arm === "takeover") return <TakeOver facts={facts} onFork={onFork} />;
   return (
     <div

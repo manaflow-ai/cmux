@@ -14,6 +14,11 @@ export const subagentForkChipsLook = defineExperiment({
   description:
     "What a subagent's composer shows of the model and permission mode it runs on, and how a person forks it into a chat of their own on another model or mode.",
   arms: {
+    off: {
+      label: "Off (as before)",
+      description:
+        "No chips on a subagent's composer, as before: the row has no model or mode and no way to fork the subagent.",
+    },
     chips: {
       label: "Read-only chips + fork menu",
       description:
@@ -30,5 +35,5 @@ export const subagentForkChipsLook = defineExperiment({
         "The read-only chips show only while the pointer or focus is on the composer; the rest of the time the row is empty. Same fork menu.",
     },
   },
-  defaultArm: "chips",
+  defaultArm: "off",
 });
