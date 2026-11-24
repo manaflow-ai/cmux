@@ -2090,6 +2090,11 @@ mark {
   background: transparent;
 }
 
+/* The selected tab keeps its short label whole; the tab after it is the one that gives up width. */
+.density-tab[data-on] {
+  flex: none;
+}
+
 .density-list {
   padding: var(--ds-space-1) var(--density-inset);
 }
