@@ -246,6 +246,7 @@ export function NoticeStack({
   now = systemNow,
   arm = systemTimer,
   look: lookOverride,
+  hostGlass = true,
 }: {
   queue: NoticeQueue;
   /** The ×'s accessible name ("Dismiss"). */
@@ -268,6 +269,8 @@ export function NoticeStack({
   arm?: ArmTimer;
   /** The toasts-v2 arm; default the experiment's (read once per mount, not per toast). */
   look?: ToastLook;
+  /** Each card on the App's toast glass (Notice `hostGlass`); false keeps the page's floating material. */
+  hostGlass?: boolean;
 }) {
   const [experimentLook] = useState(() => experimentArm(toastsV2));
   // Settings > Advanced > Experiments > Toasts v2 (`experiments.toastsV2`) turns on the recommended arm;
@@ -346,6 +349,7 @@ export function NoticeStack({
       id={spec.id}
       count={count}
       look={look}
+      hostGlass={hostGlass}
       actions={spec.actions?.map((action) => ({
         ...action,
         onSelect: () => {
