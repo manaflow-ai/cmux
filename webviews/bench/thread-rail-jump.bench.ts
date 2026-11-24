@@ -16,10 +16,7 @@ import { perfRow, TARGET_MS } from "./perfRow";
 import { sharedPaneDir } from "./support/sharedBuilds";
 
 const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]!;
-const distribution = (values: number[]) => ({
-  p50: pct(values, 0.5),
-  p95: pct(values, 0.95),
-});
+const distribution = (values: number[]) => ({ p50: pct(values, 0.5), p95: pct(values, 0.95) });
 async function idle(page: Page) {
   await page.evaluate(
     () =>
@@ -60,11 +57,7 @@ type SchemaCase = {
   p50: number | null;
   p95: number | null;
   max: number | null;
-  longTasks: {
-    count: number | null;
-    totalMs: number | null;
-    maxMs: number | null;
-  };
+  longTasks: { count: number | null; totalMs: number | null; maxMs: number | null };
   reactCommits: number | null;
   frames: { count: number | null; dropped: number | null };
   breakdown: {
@@ -117,10 +110,7 @@ async function withTrace<T>(cdp: CDPSession, directory: string, name: string, ru
     cdp.off("Tracing.dataCollected", onData);
     cdp.off("Tracing.tracingComplete", onComplete);
     if (started) {
-      const trace = JSON.stringify({
-        complete: traceComplete,
-        traceEvents: events,
-      });
+      const trace = JSON.stringify({ complete: traceComplete, traceEvents: events });
       const tracePath = path.join(directory, `${name}.trace.json`);
       fs.writeFileSync(tracePath, trace);
       if (process.env.RAIL_BENCH_EXPORT === "1")
@@ -304,11 +294,7 @@ export async function measureTickJumps(
       () =>
         (
           window as unknown as {
-            railJump: {
-              firstPaintMs: number;
-              timeout: boolean;
-              dropped: number;
-            };
+            railJump: { firstPaintMs: number; timeout: boolean; dropped: number };
           }
         ).railJump,
     );
@@ -341,12 +327,7 @@ export async function measureUnloadedTickJumps(
   /// How long the pointer is on the rail before the click: 0 clicks at once, as a script does; a person
   /// reaches the rail and aims at a tick first (a few hundred ms).
   aimMs = 0,
-): Promise<{
-  firstPaint: number[];
-  settled: number[];
-  movedPx: number[];
-  samples: unknown[];
-}> {
+): Promise<{ firstPaint: number[]; settled: number[]; movedPx: number[]; samples: unknown[] }> {
   const all = [];
   for (let sample = 0; sample < samples; sample++) {
     const page = await open();
@@ -441,12 +422,7 @@ export async function measureUnloadedTickJumps(
         () =>
           (
             window as unknown as {
-              railJump: {
-                firstPaintMs?: number;
-                settledMs: number;
-                movedPx: number;
-                timeout: boolean;
-              };
+              railJump: { firstPaintMs?: number; settledMs: number; movedPx: number; timeout: boolean };
             }
           ).railJump,
       );
@@ -534,26 +510,14 @@ export async function measureRailScroll(
   page: Page,
   cdp: CDPSession,
   frameMs: number,
-): Promise<
-  RailScenarioResult & {
-    frames: number;
-    elapsedMs: number;
-    taskMsPerFrame: number;
-    gaps: number;
-  }
-> {
+): Promise<RailScenarioResult & { frames: number; elapsedMs: number; taskMsPerFrame: number; gaps: number }> {
   const rail = page.locator(".acpmux-minimap__list");
   const { metrics, costs } = renderer(cdp);
   // Rail-only scroll work, separately from vsync wall time. Check each exposed center tick.
   const before = await metrics();
   const scroll = await rail.evaluate(
     (node) =>
-      new Promise<{
-        elapsedMs: number;
-        frames: number;
-        gaps: number;
-        intervals: number[];
-      }>((resolve, reject) => {
+      new Promise<{ elapsedMs: number; frames: number; gaps: number; intervals: number[] }>((resolve, reject) => {
         const start = performance.now();
         const intervals: number[] = [];
         let previous: number | undefined;
@@ -571,12 +535,7 @@ export async function measureRailScroll(
               return false;
             }
             if (frames < 120) return true;
-            resolve({
-              elapsedMs: performance.now() - start,
-              frames,
-              gaps,
-              intervals,
-            });
+            resolve({ elapsedMs: performance.now() - start, frames, gaps, intervals });
             return false;
           },
           () => {
@@ -610,10 +569,7 @@ export async function measureRailScroll(
 /// which moves every held tick); both should be 0.
 export async function measureFirstFrame(page: Page, url: string, turns: number, eventReads: () => number) {
   await page.addInitScript(() => {
-    const probe = window as unknown as {
-      railFrames: unknown[];
-      railStop?: boolean;
-    };
+    const probe = window as unknown as { railFrames: unknown[]; railStop?: boolean };
     probe.railFrames = [];
     const start = performance.now();
     window.cmuxAfterPaint(() => {
@@ -621,12 +577,7 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
       if (nav && nav.getBoundingClientRect().height > 0) {
         const box = nav.getBoundingClientRect();
         const prompts = Number(nav.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
-        probe.railFrames.push({
-          at: performance.now() - start,
-          top: box.top,
-          height: box.height,
-          prompts,
-        });
+        probe.railFrames.push({ at: performance.now() - start, top: box.top, height: box.height, prompts });
       }
       return !probe.railStop && performance.now() - start < 60_000;
     });
@@ -676,12 +627,7 @@ export async function measureFirstFrame(page: Page, url: string, turns: number, 
   await page.waitForTimeout(300);
   const frames = await page.evaluate(() => {
     const probe = window as unknown as {
-      railFrames: {
-        at: number;
-        top: number;
-        height: number;
-        prompts: number;
-      }[];
+      railFrames: { at: number; top: number; height: number; prompts: number }[];
       railStop?: boolean;
     };
     probe.railStop = true;
@@ -729,9 +675,7 @@ async function main() {
       case "initialize":
         return {
           protocolVersion: 1,
-          _meta: {
-            acpmux: { origin: "local", extensions: [], operations: [] },
-          },
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
         };
       case "_acpmux/watch":
         return { sessions: [session] };
@@ -764,20 +708,14 @@ async function main() {
     // `?paged=1` pages this connection's history; `indexDelayMs` holds the prompt index's answer.
     fetch: (request, server) => {
       const query = new URL(request.url).searchParams;
-      const data = {
-        paged: query.get("paged") === "1" || paged,
-        indexDelayMs: Number(query.get("indexDelayMs") ?? 0),
-      };
+      const data = { paged: query.get("paged") === "1" || paged, indexDelayMs: Number(query.get("indexDelayMs") ?? 0) };
       // The server is untyped for its sockets' data; this bench's sockets carry only this.
       return server.upgrade(request, { data } as never) ? undefined : new Response("WebSocket", { status: 426 });
     },
     websocket: {
       message(ws, raw) {
         const msg = JSON.parse(String(raw));
-        const { paged: connectionPaged, indexDelayMs } = ws.data as unknown as {
-          paged: boolean;
-          indexDelayMs: number;
-        };
+        const { paged: connectionPaged, indexDelayMs } = ws.data as unknown as { paged: boolean; indexDelayMs: number };
         if (msg.id === undefined) return;
         const reply = () =>
           ws.send(
@@ -824,9 +762,7 @@ async function main() {
     };
     for (const arm of (process.env.RAIL_BENCH_ARMS ?? "base").split(",").filter(Boolean)) {
       if (!(arm in arms)) throw new Error(`Unknown benchmark arm ${arm}`);
-      const page = await browser.newPage({
-        viewport: { width: 1280, height: 900 },
-      });
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);
       const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
@@ -878,9 +814,7 @@ async function main() {
               let seen = 0;
               const walk = (list: CSSRuleList) => {
                 for (let i = list.length - 1; i >= 0; i--) {
-                  const rule = list[i] as CSSStyleRule & {
-                    cssRules?: CSSRuleList;
-                  };
+                  const rule = list[i] as CSSStyleRule & { cssRules?: CSSRuleList };
                   const has = !!rule.selectorText?.includes(":has(");
                   const ordinal = has ? seen++ : -1;
                   if (
@@ -917,12 +851,7 @@ async function main() {
           else await tick.click();
           await page.waitForTimeout(400);
           const trace = JSON.parse((await browser.stopTracing()).toString()) as {
-            traceEvents: {
-              name: string;
-              ph: string;
-              cat: string;
-              args?: Record<string, any>;
-            }[];
+            traceEvents: { name: string; ph: string; cat: string; args?: Record<string, any> }[];
           };
           const reasons = new Map<string, number>();
           const recalcs: number[] = [];
@@ -943,12 +872,7 @@ async function main() {
           }
           console.log(
             "RAIL_RESTYLE",
-            JSON.stringify({
-              arm,
-              phase,
-              elements: recalcs.reduce((sum, n) => sum + n, 0),
-              recalcs,
-            }),
+            JSON.stringify({ arm, phase, elements: recalcs.reduce((sum, n) => sum + n, 0), recalcs }),
           );
           for (const [key, times] of [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20))
             console.log("RAIL_RESTYLE", phase, times, key);
@@ -1026,16 +950,7 @@ async function main() {
             : null,
           rawSamples: `${arm}${paged ? "-paged" : ""}-raw-samples.json`,
         };
-        const raw = {
-          turns,
-          samples,
-          frameMs,
-          arm,
-          paged,
-          jump,
-          railReveal,
-          railScroll,
-        };
+        const raw = { turns, samples, frameMs, arm, paged, jump, railReveal, railScroll };
         if (out) {
           fs.writeFileSync(path.join(out, schema.rawSamples), JSON.stringify(raw, null, 2));
           fs.writeFileSync(
@@ -1074,9 +989,7 @@ async function main() {
     }
     // The cold open of the same chat, paged, with the prompt index answering 150 ms after it asks.
     if (!process.env.RAIL_BENCH_RESTYLE && process.env.RAIL_BENCH_FIRST_FRAME !== "0") {
-      const page = await browser.newPage({
-        viewport: { width: 1280, height: 900 },
-      });
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);
       const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
@@ -1089,16 +1002,8 @@ async function main() {
       );
       console.log("RAIL_BENCH_FIRST_FRAME " + JSON.stringify(first));
       // Pixels, not ms; lower is better and the target is 0 (the first frame is the final frame).
-      perfRow({
-        name: `thread_rail.first_paint.length_gap_px.paged_${turns}`,
-        p95: first.lengthGapPx,
-        unit: "px",
-      });
-      perfRow({
-        name: `thread_rail.history_load.shift_px.paged_${turns}`,
-        p95: first.shiftPx,
-        unit: "px",
-      });
+      perfRow({ name: `thread_rail.first_paint.length_gap_px.paged_${turns}`, p95: first.lengthGapPx, unit: "px" });
+      perfRow({ name: `thread_rail.history_load.shift_px.paged_${turns}`, p95: first.shiftPx, unit: "px" });
       if (out) fs.writeFileSync(path.join(out, "first-frame.json"), JSON.stringify(first, null, 2));
       await page.close();
     }
@@ -1111,9 +1016,7 @@ async function main() {
       const aim = aimMs > 0 ? `_aim${aimMs}` : "";
       const unloaded = await measureUnloadedTickJumps(
         async () => {
-          const page = await browser.newPage({
-            viewport: { width: 1280, height: 900 },
-          });
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
           page.on("pageerror", (error) => console.error(error));
           await installPaintedFrames(page);
           await page.goto(url);

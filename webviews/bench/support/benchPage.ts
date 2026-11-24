@@ -19,7 +19,7 @@ import path from "node:path";
 import type { Frame, Page } from "playwright";
 import { build, createServer } from "vite";
 import { warmViteServer } from "../../test/support/warmDevServer";
-import { SHARED_BUILD_DONE, sharedBuildDir, sharedPageKey } from "./sharedBuilds";
+import { SHARED_BUILD_DONE, SHARED_BUILD_ENV, sharedPageKey } from "./sharedBuilds";
 
 const webviews = path.resolve(import.meta.dir, "..", "..");
 
@@ -115,9 +115,7 @@ export async function buildBenchPage(
   // Where the build put the page. Vite names an emitted HTML file itself (an input outside the root's
   // usual pages, a flattening plugin), so asking for the source path can 404 and read as a page that
   // never installed its hooks: a 30 s `waitForFunction` timeout with nothing to point at.
-  const outputs = (Array.isArray(built) ? built : [built]) as Array<{
-    output?: Array<{ fileName?: string }>;
-  }>;
+  const outputs = (Array.isArray(built) ? built : [built]) as Array<{ output?: Array<{ fileName?: string }> }>;
   const html = outputs
     .flatMap((one) => one.output ?? [])
     .map((asset) => asset.fileName)
@@ -171,17 +169,14 @@ export async function serveBenchPage(
     await server.listen();
     await warmViteServer(server, `${pagePath}${query}`);
     const { port } = server.httpServer!.address() as { port: number };
-    return {
-      url: `http://127.0.0.1:${port}${pagePath}${query}`,
-      dev: true,
-      close: () => server.close(),
-    };
+    return { url: `http://127.0.0.1:${port}${pagePath}${query}`, dev: true, close: () => server.close() };
   }
   // Built to a temporary directory and served statically, as the benches that already measure a
   // build do (bench/chat-100k-flat.bench.ts and its neighbours), unless bench/web-ui-suite.ts built
   // this page once for its run already (bench/support/sharedBuilds.ts): the same build, outside
   // this bench's timeout.
-  const shared = unminified ? undefined : sharedBuildDir("pages");
+  // The pages directory holds one directory per page, each with its own done marker.
+  const shared = unminified ? undefined : process.env[SHARED_BUILD_ENV.pages];
   const sharedDir = shared && path.join(shared, sharedPageKey(config, pagePath));
   const prebuilt =
     sharedDir && fs.existsSync(path.join(sharedDir, SHARED_BUILD_DONE)) ? readBuiltPage(sharedDir) : undefined;
@@ -306,12 +301,7 @@ export async function reactBuildOfPage(page: Page, waitMs: number = REACT_WAIT_M
   return page.evaluate(
     async ([markers, wait]: [Record<string, string>, number]) => {
       const here = location.origin;
-      const seen = {
-        development: false,
-        production: false,
-        profiling: false,
-        reactDom: false,
-      };
+      const seen = { development: false, production: false, profiling: false, reactDom: false };
       const done = new Set<string>();
       const deadline = Date.now() + wait;
       for (;;) {

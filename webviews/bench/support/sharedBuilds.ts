@@ -21,7 +21,7 @@ export const SHARED_BUILD_ENV = {
   pane: "CMUX_BENCH_PANE_DIR",
   /// The static gallery (vite.config.gallery.ts after gen-strings), as bench/ui-stability.bench.ts builds it.
   gallery: "CMUX_BENCH_GALLERY_DIR",
-  /// A directory of serveBenchPage builds, one per page (bench/support/benchPage.ts sharedPageDir).
+  /// A directory of serveBenchPage builds, one directory per page (sharedPageKey), each with its own done marker.
   pages: "CMUX_BENCH_PAGES_DIR",
 } as const;
 export type SharedBuildKind = keyof typeof SHARED_BUILD_ENV;

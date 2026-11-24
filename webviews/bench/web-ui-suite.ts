@@ -66,20 +66,8 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 30_000,
   },
   // chat-open takes about 36 s on the perf runner (2026-11-12).
-  {
-    name: "chat-open",
-    file: "chat-open.bench.ts",
-    args: ["3", "300"],
-    timeoutMs: 105_000,
-    builds: ["pane"],
-  },
-  {
-    name: "chat-switch",
-    file: "chat-switch.bench.ts",
-    args: ["3", "300"],
-    timeoutMs: 255_000,
-    builds: ["pane"],
-  },
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000, builds: ["pane"] },
+  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000, builds: ["pane"] },
   // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
   // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
   // part so it never pushes the suite past its cap.
@@ -116,13 +104,7 @@ export const BENCHES: readonly Bench[] = [
     builds: ["pane"],
   },
   // ui-stability takes 130 to 134 s on a fast-checks runner (about 225 s on the perf runner) once its Chromium launches.
-  {
-    name: "ui-stability",
-    file: "ui-stability.bench.ts",
-    args: ["2"],
-    timeoutMs: 360_000,
-    builds: ["gallery"],
-  },
+  { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 360_000, builds: ["gallery"] },
   // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
   {
     name: "transcript-turn-end-shift",
@@ -524,9 +506,7 @@ async function sharedBuilds(selected: readonly Bench[]): Promise<SharedBuilds> {
     out.builds[build] = { exit: result.exit, seconds: result.seconds };
     const done = page
       ? sharedBuildDir("pages", { [SHARED_BUILD_ENV.pages]: dir })
-      : sharedBuildDir(build as "pane" | "gallery", {
-          [SHARED_BUILD_ENV[build as "pane" | "gallery"]]: dir,
-        });
+      : sharedBuildDir(build as "pane" | "gallery", { [SHARED_BUILD_ENV[build as "pane" | "gallery"]]: dir });
     if (result.exit === 0 && done) {
       out.dirs.set(build, dir);
       console.log(`web-ui-suite: shared ${build} build in ${result.seconds} s`);
@@ -587,12 +567,7 @@ async function main() {
     // The bench's own human output stays readable in the log.
     for (const line of result.stdout.split("\n"))
       if (line && !line.startsWith(PERF_ROW_MARK)) console.log(`  ${bench.name}| ${line}`);
-    benches[bench.name] = {
-      exit: result.exit,
-      seconds: result.seconds,
-      rows: got.length,
-      load,
-    };
+    benches[bench.name] = { exit: result.exit, seconds: result.seconds, rows: got.length, load };
     const why = result.timedOut
       ? `timed out after ${timeoutMs / 1000} s`
       : result.exit !== 0

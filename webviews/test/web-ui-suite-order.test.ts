@@ -92,14 +92,10 @@ describe("web-ui-suite shared builds", () => {
     const bench = BENCHES.find((each) => each.name === "transcript-scroll-frame")!;
     const pane = BENCHES.find((each) => each.name === "chat-open")!;
     const dirs = new Map([["pane", "/tmp/pane"]] as const);
-    expect(sharedEnv(pane, { dirs })).toEqual({
-      CMUX_BENCH_PANE_DIR: "/tmp/pane",
-    });
+    expect(sharedEnv(pane, { dirs })).toEqual({ CMUX_BENCH_PANE_DIR: "/tmp/pane" });
     expect(sharedEnv(bench, { dirs })).toEqual({});
     const withPage = new Map<never, string>([["page:/test/browser/transcript-fling.html" as never, "/tmp/p/x"]]);
-    expect(sharedEnv(bench, { dirs: withPage, pagesDir: "/tmp/p" })).toEqual({
-      CMUX_BENCH_PAGES_DIR: "/tmp/p",
-    });
+    expect(sharedEnv(bench, { dirs: withPage, pagesDir: "/tmp/p" })).toEqual({ CMUX_BENCH_PAGES_DIR: "/tmp/p" });
   });
 });
 
@@ -111,9 +107,7 @@ describe("web-ui-suite --timeout-s", () => {
       ["--timeout-s", "5"],
       ["--only", "edit-turns-stream", "--timeout-s", "0"],
     ]) {
-      const got = Bun.spawnSync(["bun", suite, ...args], {
-        cwd: path.join(import.meta.dir, ".."),
-      });
+      const got = Bun.spawnSync(["bun", suite, ...args], { cwd: path.join(import.meta.dir, "..") });
       expect(got.exitCode).toBe(2);
       expect(got.stderr.toString()).toContain("--timeout-s");
     }

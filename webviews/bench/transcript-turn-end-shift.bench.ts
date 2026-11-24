@@ -70,11 +70,7 @@ const update = (body: Record<string, unknown>) => ({
   method: "session/update",
   params: { sessionId: "agent-1", update: body },
 });
-const chunk = (text: string) =>
-  update({
-    sessionUpdate: "agent_message_chunk",
-    content: { type: "text", text },
-  });
+const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
 const ran = (id: string, state = "completed") =>
   update({
     sessionUpdate: "tool_call",
@@ -84,32 +80,15 @@ const ran = (id: string, state = "completed") =>
     status: state,
     rawInput: { command: `rg retry ${id}` },
   });
-type Event = {
-  sessionId: string;
-  seq: number;
-  at: number;
-  dir: string;
-  kind: string;
-  msg: Record<string, unknown>;
-};
+type Event = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
 const events: Event[] = [];
 const record = (dir: string, kind: string, msg: Record<string, unknown>): Event => {
-  const event = {
-    sessionId: SESSION,
-    seq: events.length + 1,
-    at: Date.now(),
-    dir,
-    kind,
-    msg,
-  };
+  const event = { sessionId: SESSION, seq: events.length + 1, at: Date.now(), dir, kind, msg };
   events.push(event);
   return event;
 };
 for (let turn = 0; turn < 8; turn++) {
-  record("mux", "user_message", {
-    text: `Check step ${turn + 1} of the retry plan`,
-    promptId: `p-${turn}`,
-  });
+  record("mux", "user_message", { text: `Check step ${turn + 1} of the retry plan`, promptId: `p-${turn}` });
   record("mux", "turn_started", {});
   record(
     "in",
@@ -121,10 +100,7 @@ for (let turn = 0; turn < 8; turn++) {
   );
   record("mux", "turn_result", { status: "completed" });
 }
-record("mux", "user_message", {
-  text: "Find every retry loop and fix the cap",
-  promptId: "p-live",
-});
+record("mux", "user_message", { text: "Find every retry loop and fix the cap", promptId: "p-live" });
 record("mux", "turn_started", {});
 for (let step = 0; step < 14; step++) {
   record(
@@ -150,18 +126,11 @@ const REPLY = [
 function answer(method: string): unknown {
   switch (method) {
     case "initialize":
-      return {
-        protocolVersion: 1,
-        _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
-      };
+      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     case "_acpmux/watch":
       return { sessions: [summary()] };
     case "_acpmux/attach":
-      return {
-        session: summary(),
-        lastSeq: opened,
-        events: events.slice(0, opened),
-      };
+      return { session: summary(), lastSeq: opened, events: events.slice(0, opened) };
     case "_acpmux/events":
       return { events: [], hasMore: false, lastSeq: events.length };
     default:
@@ -170,24 +139,13 @@ function answer(method: string): unknown {
 }
 let socket: { send(data: string): void } | undefined;
 const emit = (dir: string, kind: string, msg: Record<string, unknown>) =>
-  socket?.send(
-    JSON.stringify({
-      jsonrpc: "2.0",
-      method: "_acpmux/event",
-      params: record(dir, kind, msg),
-    }),
-  );
+  socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: record(dir, kind, msg) }));
 const changed = () =>
   socket?.send(
     JSON.stringify({
       jsonrpc: "2.0",
       method: "_acpmux/session_changed",
-      params: {
-        sessionId: SESSION,
-        session: summary(),
-        kind: "status",
-        seq: events.length,
-      },
+      params: { sessionId: SESSION, session: summary(), kind: "status", seq: events.length },
     }),
   );
 // ---------- the page side ----------
@@ -250,21 +208,12 @@ const paint = (page: Page, frames: number) =>
     for (let frame = 0; frame < count; frame++) await window.cmuxPaintFrame();
   }, frames);
 
-type Sample = {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
+type Sample = { id: string; x: number; y: number; width: number; height: number };
 /// Samples every row box in the transcript's view once per painted frame, in the view's coordinates; returns the
 /// window's start (performance.now()).
 const startSampling = (page: Page) =>
   page.evaluate(() => {
-    const w = window as unknown as {
-      __rowFrames: Sample[][];
-      __stopRows: () => void;
-    };
+    const w = window as unknown as { __rowFrames: Sample[][]; __stopRows: () => void };
     w.__rowFrames = [];
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const read = () => {
@@ -294,12 +243,7 @@ const stopSampling = (page: Page, since: number) =>
     const w = window as unknown as {
       __rowFrames: Sample[][];
       __stopRows: () => void;
-      __shifts?: {
-        at: number;
-        value: number;
-        input: boolean;
-        sources: string[];
-      }[];
+      __shifts?: { at: number; value: number; input: boolean; sources: string[] }[];
     };
     w.__stopRows();
     const box = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
@@ -310,14 +254,7 @@ const stopSampling = (page: Page, since: number) =>
     };
   }, since);
 
-type Round = {
-  cls: number;
-  boxCls: number;
-  drift: number;
-  lost: string[];
-  anchor: string;
-  notes: string[];
-};
+type Round = { cls: number; boxCls: number; drift: number; lost: string[]; anchor: string; notes: string[] };
 
 /// The window's numbers (pure).
 export function measure(
@@ -405,11 +342,7 @@ async function round(browser: Browser, url: string): Promise<Round> {
       emit(
         "in",
         "tool_call_update",
-        update({
-          sessionUpdate: "tool_call_update",
-          toolCallId: `t${step}`,
-          status: "completed",
-        }),
+        update({ sessionUpdate: "tool_call_update", toolCallId: `t${step}`, status: "completed" }),
       );
       await paint(page, 3);
     }
@@ -455,19 +388,10 @@ if (import.meta.main) {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as {
-            id?: number;
-            method: string;
-          };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string };
           if (message.method === "_acpmux/attach") socket = ws;
           if (message.id !== undefined)
-            ws.send(
-              JSON.stringify({
-                jsonrpc: "2.0",
-                id: message.id,
-                result: answer(message.method),
-              }),
-            );
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
       },
     });
@@ -548,27 +472,9 @@ if (import.meta.main) {
         );
       for (const note of rounds.at(-1)!.notes.slice(0, 12)) console.log(`  ${note}`);
       const name = `ui.transcript.turn_end${isChromium ? "" : ".webkit"}`;
-      perfRow({
-        name: `${name}.cls`,
-        ...cls,
-        unit: "score",
-        target: TARGET.cls,
-        floor: 0.001,
-      });
-      perfRow({
-        name: `${name}.anchor_drift_px`,
-        ...drift,
-        unit: "px",
-        target: TARGET.drift,
-        floor: 1,
-      });
-      perfRow({
-        name: `${name}.rows_lost`,
-        ...lost,
-        unit: "count",
-        target: TARGET.lost,
-        floor: 0.5,
-      });
+      perfRow({ name: `${name}.cls`, ...cls, unit: "score", target: TARGET.cls, floor: 0.001 });
+      perfRow({ name: `${name}.anchor_drift_px`, ...drift, unit: "px", target: TARGET.drift, floor: 1 });
+      perfRow({ name: `${name}.rows_lost`, ...lost, unit: "count", target: TARGET.lost, floor: 0.5 });
     }
     if (failed) process.exitCode = 1;
   } finally {

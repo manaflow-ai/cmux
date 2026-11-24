@@ -124,15 +124,7 @@ const chatAt = (scale: Scale): Chat => {
       ? godChat(PAPERCUT_CHAT, remoteFields)
       : papercutEvents({ turns: TURNS, running: false, session: remoteFields });
   const latest = scale === "god" ? LATEST_TEXT : `Answer ${TURNS}:`;
-  return {
-    scale,
-    events,
-    session,
-    latest,
-    perfRow: scaledPerfRow(printRow, scale),
-    attachBytes: 0,
-    attachEvents: 0,
-  };
+  return { scale, events, session, latest, perfRow: scaledPerfRow(printRow, scale), attachBytes: 0, attachEvents: 0 };
 };
 /// The chats this run opens: FIXTURE's, or with PAIRED=1 the small chat and the god one. The stand-in serves `current`,
 /// one load at a time, so both share its port and the page's URL.
@@ -184,12 +176,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      const result = {
-        session,
-        lastSeq: events.at(-1)?.seq ?? 0,
-        events: page,
-        hasMore,
-      };
+      const result = { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
       current.attachBytes = JSON.stringify(result).length;
       current.attachEvents = page.length;
       return result;
@@ -205,11 +192,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
             ...event,
             msg: { text: String((event.msg as { text?: string }).text ?? "") },
           }));
-        return {
-          events: prompts,
-          hasMore: false,
-          lastSeq: events.at(-1)?.seq ?? 0,
-        };
+        return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
         const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
@@ -301,9 +284,7 @@ try {
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
       if (pathname === CALIBRATION_PATH)
-        return new Response(CALIBRATION_HTML, {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
+        return new Response(CALIBRATION_HTML, { headers: { "content-type": "text/html; charset=utf-8" } });
       const file = Bun.file(path.join(out, pathname === "/" ? "index.html" : pathname));
       return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
@@ -394,11 +375,7 @@ try {
     await page.addInitScript(
       ([latestText, instrument, hostLatency, remoteTail, diskSnapshot]) => {
         if (hostLatency > 0)
-          (
-            window as unknown as {
-              cmuxAcpmuxActions: Record<string, () => Promise<unknown>>;
-            }
-          ).cmuxAcpmuxActions = {
+          (window as unknown as { cmuxAcpmuxActions: Record<string, () => Promise<unknown>> }).cmuxAcpmuxActions = {
             // fixed-wait: the stand-in host's answer latency is what this run measures.
             "chat.scrollAnchor.get": () => new Promise((resolve) => setTimeout(() => resolve(null), hostLatency)),
           };
@@ -443,10 +420,7 @@ try {
             }
             override send(data: Parameters<WebSocket["send"]>[0]): void {
               if (typeof data === "string") {
-                const request = JSON.parse(data) as {
-                  id?: string | number;
-                  method?: string;
-                };
+                const request = JSON.parse(data) as { id?: string | number; method?: string };
                 if (request.method === "_acpmux/attach" && request.id !== undefined) this.attaches.add(request.id);
               }
               super.send(data);
@@ -547,18 +521,9 @@ try {
             sibling: Fiber | null;
             memoizedState: unknown;
           };
-          type Hook = {
-            memoizedState: unknown;
-            queue: unknown;
-            next: Hook | null;
-          };
+          type Hook = { memoizedState: unknown; queue: unknown; next: Hook | null };
           const nameOf = (fiber: Fiber): string => {
-            let type = fiber.type as {
-              displayName?: string;
-              name?: string;
-              type?: unknown;
-              render?: unknown;
-            } | null;
+            let type = fiber.type as { displayName?: string; name?: string; type?: unknown; render?: unknown } | null;
             if (type && typeof type === "object" && "type" in type) type = type.type as typeof type;
             if (type && typeof type === "object" && "render" in type) type = type.render as typeof type;
             return (type && (type.displayName || type.name)) || "?";
@@ -729,9 +694,7 @@ try {
     // COMPOSER=1: the letter goes in as soon as the field exists, while the page still loads.
     const typed = COMPOSER
       ? page.goto(url, { waitUntil: "commit" }).then(async () => {
-          const field = await page.waitForSelector(COMPOSER_FIELD, {
-            timeout: 120_000,
-          });
+          const field = await page.waitForSelector(COMPOSER_FIELD, { timeout: 120_000 });
           await field.focus();
           await page.keyboard.type(COMPOSER_KEY);
           await page.waitForFunction(
@@ -788,11 +751,7 @@ try {
         origin: performance.timeOrigin,
         forced,
         dcl: nav.domContentLoadedEventEnd,
-        composer: (
-          window as unknown as {
-            __composer?: { ready: number; interactive: number };
-          }
-        ).__composer ?? {
+        composer: (window as unknown as { __composer?: { ready: number; interactive: number } }).__composer ?? {
           ready: 0,
           interactive: 0,
         },
@@ -835,11 +794,9 @@ try {
             let activity = started;
             try {
               // The page's bridge (App.tsx declares it on Window); this file doesn't import App.
-              (
-                window as unknown as {
-                  cmuxAcpmuxBridge: { revealTurn(id: string): void };
-                }
-              ).cmuxAcpmuxBridge.revealTurn(`message:${message}`);
+              (window as unknown as { cmuxAcpmuxBridge: { revealTurn(id: string): void } }).cmuxAcpmuxBridge.revealTurn(
+                `message:${message}`,
+              );
               await new Promise<void>((resolve, reject) => {
                 const tick = () => {
                   const now = performance.now();
@@ -879,9 +836,9 @@ try {
         )
       : { first: 0, settled: 0, drift: 0, driftPx: 0, centers: 0, scans: 0 };
     if (REVEAL && process.env.FAST_CHECKS_OUT)
-      await page.locator(".acpmux-scroll").screenshot({
-        path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`),
-      });
+      await page
+        .locator(".acpmux-scroll")
+        .screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `reveal-${rail}.png`) });
     await page.close();
     const attach = attachedAt ? attachedAt - got.origin : 0;
     if (process.env.TRACE === "1") {
@@ -919,9 +876,7 @@ try {
   };
 
   if (process.env.PROFILE === "1") {
-    const page = await browser.newPage({
-      viewport: { width: 1200, height: 800 },
-    });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Profiler.enable");
     await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
@@ -1028,12 +983,7 @@ try {
       // Each idle stretch of 2 ms or more, as start+length from the attach: where the page waited.
       const gaps: string[] = [];
       let gapFrom = -1;
-      const runs: {
-        task: string;
-        at: number;
-        ms: number;
-        parts: Map<string, number>;
-      }[] = [];
+      const runs: { task: string; at: number; ms: number; parts: Map<string, number> }[] = [];
       const byOuter = new Map<string, number>();
       const byFileSelf = new Map<string, number>();
       profile.samples.forEach((id, index) => {
@@ -1121,9 +1071,7 @@ try {
   // The fixed calibration page (bench/runnerCalibration.ts), cold as each chat load is: ms from navigation start to
   // the paint after its workload.
   const calibrate = async (): Promise<number> => {
-    const page = await browser.newPage({
-      viewport: { width: 1200, height: 800 },
-    });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
     await page.goto(`http://127.0.0.1:${statics.port}${CALIBRATION_PATH}`);
     await page.waitForFunction(
       () => ((window as unknown as { __calibrated?: number }).__calibrated ?? 0) > 0,
@@ -1346,25 +1294,13 @@ try {
           version: 3,
         });
         if (Number.isFinite(perDcl))
-          perfRow({
-            name: `chat_open_paired.${arm}.attach_per_dcl`,
-            p50: perDcl,
-            p95: perDcl,
-            unit: "x",
-            version: 1,
-          });
+          perfRow({ name: `chat_open_paired.${arm}.attach_per_dcl`, p50: perDcl, p95: perDcl, unit: "x", version: 1 });
       }
       // The script the page downloaded and parsed by the time the chat settled (decoded KiB): the open's
       // cost that grows with every eager import, so the perf cron names the week it grows (it grew 29%,
       // 8302 to 10722 KiB, from 2026-11-02 to 11-09 with no row to say so).
       const scriptKiB = Math.round(median((r) => r.scriptKiB));
-      perfRow({
-        name: `chat_open.${arm}.script_kib`,
-        p50: scriptKiB,
-        p95: scriptKiB,
-        unit: "KiB",
-        clock: "cpu",
-      });
+      perfRow({ name: `chat_open.${arm}.script_kib`, p50: scriptKiB, p95: scriptKiB, unit: "KiB", clock: "cpu" });
     }
 } finally {
   await release();

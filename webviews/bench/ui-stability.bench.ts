@@ -32,84 +32,22 @@ if (!Number.isInteger(ROUNDS) || ROUNDS < 1) {
   process.exit(2);
 }
 
-type Surface = {
-  name: string;
-  entry: string;
-  variant: string;
-  kind: "open" | "play";
-  width?: number;
-};
+type Surface = { name: string; entry: string; variant: string; kind: "open" | "play"; width?: number };
 /// One stage per surface Leo holds to the rail's bar (transcript, composer, menus, picker, rail, Session Info,
 /// Home, New Tab). Chat switch and the transcript's cold open in the production pane are chat-switch.bench.ts's.
 const SURFACES: readonly Surface[] = [
-  {
-    name: "transcript",
-    entry: "agent-pane.transcript",
-    variant: "conversation",
-    kind: "open",
-  },
-  {
-    name: "composer",
-    entry: "agent-pane.composer",
-    variant: "new-chat",
-    kind: "open",
-  },
-  {
-    name: "thread_rail",
-    entry: "agent-pane.thread-minimap",
-    variant: "first-paint",
-    kind: "open",
-  },
-  {
-    name: "thread_rail_preview",
-    entry: "agent-pane.thread-minimap",
-    variant: "card-metadata",
-    kind: "play",
-  },
-  {
-    name: "chat_rail",
-    entry: "agent-pane.chat-minimap",
-    variant: "at-rest",
-    kind: "open",
-  },
-  {
-    name: "new_tab",
-    entry: "agent-pane.new-tab-page",
-    variant: "idle",
-    kind: "open",
-  },
-  {
-    name: "home",
-    entry: "pages.home-channels",
-    variant: "normal",
-    kind: "open",
-  },
+  { name: "transcript", entry: "agent-pane.transcript", variant: "conversation", kind: "open" },
+  { name: "composer", entry: "agent-pane.composer", variant: "new-chat", kind: "open" },
+  { name: "thread_rail", entry: "agent-pane.thread-minimap", variant: "first-paint", kind: "open" },
+  { name: "thread_rail_preview", entry: "agent-pane.thread-minimap", variant: "card-metadata", kind: "play" },
+  { name: "chat_rail", entry: "agent-pane.chat-minimap", variant: "at-rest", kind: "open" },
+  { name: "new_tab", entry: "agent-pane.new-tab-page", variant: "idle", kind: "open" },
+  { name: "home", entry: "pages.home-channels", variant: "normal", kind: "open" },
   // At 528 px the pane is too narrow to keep Session Info open beside the chat, so its play clicks the toggle.
-  {
-    name: "session_info",
-    entry: "agent-pane.session-info-narrow-pane",
-    variant: "opened",
-    kind: "play",
-    width: 528,
-  },
-  {
-    name: "model_picker",
-    entry: "agent-pane.model-picker",
-    variant: "idle",
-    kind: "play",
-  },
-  {
-    name: "quick_model_menu",
-    entry: "new-tab.quick-model-menu",
-    variant: "in-chat",
-    kind: "play",
-  },
-  {
-    name: "options_menu",
-    entry: "agent-pane.options-menu",
-    variant: "one-open",
-    kind: "play",
-  },
+  { name: "session_info", entry: "agent-pane.session-info-narrow-pane", variant: "opened", kind: "play", width: 528 },
+  { name: "model_picker", entry: "agent-pane.model-picker", variant: "idle", kind: "play" },
+  { name: "quick_model_menu", entry: "new-tab.quick-model-menu", variant: "in-chat", kind: "play" },
+  { name: "options_menu", entry: "agent-pane.options-menu", variant: "one-open", kind: "play" },
 ];
 const unknown = only?.filter((name) => !SURFACES.some((surface) => surface.name === name)) ?? [];
 if (unknown.length) {
@@ -118,28 +56,14 @@ if (unknown.length) {
 }
 const surfaces = SURFACES.filter((surface) => !only || only.includes(surface.name));
 
-type Step = {
-  action: string;
-  settleMs: number;
-  layoutShift: number;
-  boxShift?: number;
-};
+type Step = { action: string; settleMs: number; layoutShift: number; boxShift?: number };
 type Reports = {
   ready: string | undefined;
-  load?: {
-    layoutShift: number;
-    boxShift: number;
-    shifts: { value: number; sources: string[] }[];
-  };
+  load?: { layoutShift: number; boxShift: number; shifts: { value: number; sources: string[] }[] };
   play?: { status: string; steps: Step[]; error?: string };
 };
 /** settled from navigation (open) or the last step's start (play); afterPaint from the stage's first paint (open). */
-type Round = {
-  settled: number;
-  afterPaint?: number;
-  cls: number;
-  shifted: string[];
-};
+type Round = { settled: number; afterPaint?: number; cls: number; shifted: string[] };
 
 const webviews = path.resolve(import.meta.dir, "..");
 const releases: (() => unknown)[] = [];
@@ -241,18 +165,11 @@ try {
     releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
     const builtAt = performance.now();
     // `gallery:build` (package.json): the generated strings, then the static gallery.
-    const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], {
-      cwd: webviews,
-      stdout: "ignore",
-    });
+    const strings = Bun.spawnSync(["node", "scripts/pages/gen-strings.mjs"], { cwd: webviews, stdout: "ignore" });
     if (strings.exitCode !== 0) throw new Error(`gen-strings exited ${strings.exitCode}: ${strings.stderr.toString()}`);
     process.env.CMUX_GALLERY_OUT_DIR = out;
     const { build } = await import("vite");
-    await build({
-      root: webviews,
-      configFile: path.join(webviews, "vite.config.gallery.ts"),
-      logLevel: "error",
-    });
+    await build({ root: webviews, configFile: path.join(webviews, "vite.config.gallery.ts"), logLevel: "error" });
     console.log(`ui-stability: gallery built in ${((performance.now() - builtAt) / 1000).toFixed(0)} s`);
   }
   const statics = Bun.serve({
@@ -276,12 +193,7 @@ try {
     const browser = await type.launch({ headless: true });
     releases.push(() => browser.close());
     const suffix = isChromium ? "" : ".webkit";
-    const kept: {
-      surface: Surface;
-      page: Page;
-      cdp: CDPSession | null;
-      rounds: Round[];
-    }[] = [];
+    const kept: { surface: Surface; page: Page; cdp: CDPSession | null; rounds: Round[] }[] = [];
     for (const surface of surfaces) {
       const rounds: Round[] = [];
       try {
@@ -321,23 +233,10 @@ try {
         // First paint to settled: 0 when the first frame is the final frame; the target allows that one frame.
         const afterPaint = median(rounds.map((r) => r.afterPaint ?? 0));
         console.log(`  first paint to settled: ${afterPaint.toFixed(0)} ms`);
-        perfRow({
-          name: `${name}.settle_after_paint`,
-          p50: afterPaint,
-          p95: afterPaint,
-          target: 17,
-          floor: 17,
-        });
+        perfRow({ name: `${name}.settle_after_paint`, p50: afterPaint, p95: afterPaint, target: 17, floor: 17 });
       }
       // A target of zero: a still page shifts nothing and wakes nothing. The floor keeps a rounding-sized change noise.
-      perfRow({
-        name: `${name}.cls`,
-        p50: cls,
-        p95: cls,
-        unit: "score",
-        target: 0,
-        floor: 0.001,
-      });
+      perfRow({ name: `${name}.cls`, p50: cls, p95: cls, unit: "score", target: 0, floor: 0.001 });
       perfRow({
         name: `${name}.idle_wakeups`,
         p50: quiet.wakeups,
