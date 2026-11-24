@@ -544,7 +544,11 @@ export function strayTable(results: Result[], looks: string[]) {
 
 /** Each seed's detector counts for one look: what the CI ratchet (transcript-motion-baseline.json) holds. */
 export function seedFlags(results: Result[], look: string) {
-  const flags: Record<string, ReturnType<typeof countFlags>> = {};
+  // The ratchet holds the four motion kinds it began with; the start kinds have their own detector.
+  const flags: Record<
+    string,
+    Pick<ReturnType<typeof countFlags>, "move" | "scroll-step" | "resize" | "off-curve">
+  > = {};
   for (const r of results) {
     if (r.look !== look || !ok(r.numbers) || !(r.numbers as Ok).motion) continue;
     const v = (r.numbers as Ok).motion!;
