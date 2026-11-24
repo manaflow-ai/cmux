@@ -336,7 +336,7 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
 
 STRACE_CALL = re.compile(r'^(\d+)\s+(?:<\.\.\. )?(\w+)\((.*)\)\s+=\s+(-?\d+(?: \w+)?|\?)')
 # `strace -y` prints a dirfd with its path (`openat(5</tmp/x>, "a", ...)`): a relative path is read from there.
-DIRFD = re.compile(r'^(?:AT_FDCWD|\d+<([^>]*)>),')
+DIRFD = re.compile(r'^\d+(?:<([^>]*)>)?,')
 STRACE_PATH = re.compile(r'"((?:[^"\\]|\\.)*)"')
 PATH_CALLS = {"open", "openat", "openat2", "stat", "lstat", "newfstatat", "statx", "access", "faccessat", "faccessat2",
               "execve", "readlink", "readlinkat"}
@@ -457,7 +457,9 @@ def parse_trace(repo: Repo, lines: list[str]) -> Trace:
             if not paths[0]:
                 continue  # an fstat of an open fd (AT_EMPTY_PATH): its open was read already
             dirfd = DIRFD.match(args)
-            base = cwd if not dirfd or dirfd.group(1) is None else dirfd.group(1)
+            if dirfd and not dirfd.group(1) and not paths[0].startswith("/"):
+                continue  # relative to an fd whose folder strace did not print: not a read of the checkout
+            base = dirfd.group(1) if dirfd and dirfd.group(1) else cwd
             rel = repo.rel(os.path.normpath(os.path.join(base, paths[0])))
             if not rel or rel == ".git" or rel.startswith(".git/"):
                 continue
@@ -506,12 +508,16 @@ def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = No
             if not ran:
                 problems.append(f"{key}: read {path}, outside its declared inputs and its resolved inputs")
         for folder in sorted(trace.dirs):
+            if any(f.endswith(".py") and f.rsplit("/", 1)[0] == folder for f in trace.files):
+                continue  # Python lists a folder on sys.path when it imports a module from it: the module's read counts
             probe = folder + "/__tooling_steps_probe__"
             if not declared_hit(globs, {probe}):
                 ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs)
                 if not ran:
                     problems.append(f"{key}: listed folder {folder}/, which its declared inputs do not cover")
-        for path in sorted(trace.probes):
+        ignored = set(subprocess.run(["git", "-C", str(repo.root), "check-ignore", "--stdin"], input="\n".join(
+            sorted(trace.probes)), capture_output=True, text=True).stdout.split()) if trace.probes else set()
+        for path in sorted(trace.probes - ignored):  # a git-ignored path (.build/) is no pull request's change
             if not declared_hit(globs, {path}) and not any(path.startswith(d + "/") for d in trace.dirs) \
                     and not judge_step(repo, walker, step, env, "", {path}, globs)[0]:
                 problems.append(f"{key}: looked for {path} (not there), outside its declared inputs")
