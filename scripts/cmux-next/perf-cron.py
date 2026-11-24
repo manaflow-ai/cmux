@@ -349,6 +349,12 @@ PARTS = [
     # under idle, a focused stream, ten streaming documents and a focused 100k-row stream; keydown to paint p95/p99
     # (webui.composer_typing.*) against report-only 16/33 ms targets. Its own part, under the 30-minute run cap.
     {"name": "web-ui-typing", "where": "linux", "kind": "webui", "needs": "web-ui-typing"},
+    # A local prompt's Return to the agent's first token painted (webviews/bench/first-token.bench.ts, goal
+    # startup-every-path; Leo 2026-11-24: "percieved time and percieved interactive time ... for any and every path we
+    # have"): ten cold loads of the production pane against a stand-in acpmux whose scripted agent answers at once, so
+    # the number is the app's, not a model's (webui.chat.first_token.<rail>.*). Report-only (REPORT_ONLY_ROW_RE) until
+    # its rounds on the perf runner show how much it moves; its rows carry their 100 ms response target.
+    {"name": "web-ui-first-token", "where": "linux", "kind": "webui", "needs": "web-ui-first-token"},
     # A fast fling and clicks along the prompt rail in a long chat with 200, 500 and 1,000 listed sessions
     # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
     # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
@@ -421,6 +427,7 @@ ROW_PARTS = [
     (r"^webui\.sim_fidelity\.", "web-ui-fidelity"),
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
+    (r"^webui\.chat\.first_token\.", "web-ui-first-token"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.chat_disk\.", "chat-disk"),
@@ -446,7 +453,7 @@ REPORT_ONLY_ROW_RE = re.compile(r"^(terminal\.throughput\.|memory\.app_agents\.b
                                 r"|acp\.[^.]+\.typing\.(to_listener|to_work)$|launch\.wake_proxy\.awake_echo_ms$"
                                 r"|webui\.chat_open_paired\.(god\.)?[a-z0-9_]+\.attach_to_latest$"
                                 r"|power\.idle\.terminal\.(ghostty_mw|vs_ghostty)$"
-                                r"|webui\.chat_search\.(fill|scan_keystroke)\b)")
+                                r"|webui\.chat_search\.(fill|scan_keystroke)\b|webui\.chat\.first_token\.)")
 # The diff-viewer budgets of scripts/benchmark-diff-viewer.sh (its env defaults), as rows where lower is better.
 DIFF_BUDGETS = {"diff.sidecar.manifest_decode_p95": 1000.0, "diff.sidecar.read_ms_per_gib": 1024 * 1000 / 500.0,
                 "diff.stream.p95": 250.0}
@@ -1258,6 +1265,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-first-token":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "first-token"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
         # The release builds first, in a run of their own (each run has its own 30-minute cap), then 300 s of load.
         script = os.path.join(root, COORD_SIM)
@@ -2442,6 +2451,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
         elif need == "web-ui-typing":
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
+        elif need == "web-ui-first-token":
+            ok = has_path(sha, f"{FIRST_TOKEN_BENCH}")
         elif need == "web-ui-million":
             ok = has_path(sha, f"{MILLION_EVENT_BENCH}")
         elif need == "web-ui-memory":
@@ -2545,6 +2556,7 @@ SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
+FIRST_TOKEN_BENCH = "webviews/bench/first-token.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"
