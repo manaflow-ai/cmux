@@ -21,6 +21,8 @@ mod auto_background;
 pub use auto_background::AUTO_BACKGROUND_ENV;
 pub(crate) mod additional_dirs;
 pub(crate) mod admission;
+// A create with no room here starts on the peer placement picks.
+pub(crate) mod admission_redirect;
 // A create over the cap with nowhere to go asks the fleet for a machine.
 pub(crate) mod admission_scale_up;
 mod adopted_fences;
@@ -88,6 +90,8 @@ mod cursor_ext;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
+/// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
+pub use file_uploads::window as file_put_window;
 mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
@@ -513,6 +517,7 @@ mod translator_queue_tests;
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
+mod turn_cost;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
