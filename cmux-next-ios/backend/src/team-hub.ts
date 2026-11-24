@@ -31,6 +31,11 @@ export interface Ingress {
   colo: string | null
   country: string | null
   continent: string | null
+  /** Cloudflare's geolocation of the client, rounded to 0.1 degree (about 11 km); relay placement only. */
+  lat?: number | null
+  lon?: number | null
+  /** The client's own netcheck, round-trip ms per Durable Object region (`placement.ts` parseNetcheck). */
+  rtt?: Partial<Record<string, number>>
 }
 
 /** The most a `link_stat` frame may be (PROTOCOL.md "Link stats"; the phone's are under 768 bytes). */
@@ -59,6 +64,8 @@ const LINK_STAT_MARKS = new Set([
   "first_pong"
 ])
 const LINK_STAT_MAX_MS = 600_000
+/** The most slow keys a `link_stat` carries (`cmux-mobile-link` `key_echo::MAX_SPIKES`). */
+const LINK_STAT_MAX_SPIKES = 6
 const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
 
 /**
@@ -104,6 +111,34 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
+  for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
+    const k = f[field]
+    if (typeof k !== "object" || k === null || Array.isArray(k)) continue
+    const r = k as Record<string, unknown>
+    const n = num(r.n, 100_000)
+    const p50 = num(r.p50, LINK_STAT_MAX_MS)
+    const p95 = num(r.p95, LINK_STAT_MAX_MS)
+    const p99 = num(r.p99, LINK_STAT_MAX_MS)
+    const max = num(r.max, LINK_STAT_MAX_MS)
+    if (n && p50 !== undefined && p95 !== undefined && p99 !== undefined && max !== undefined) {
+      Object.assign(line, { [`${prefix}N`]: n, [`${prefix}P50`]: p50, [`${prefix}P95`]: p95, [`${prefix}P99`]: p99, [`${prefix}Max`]: max })
+    }
+  }
+  const spikeCount = num(f.spikeCount, 100_000)
+  if (spikeCount) line.spikeCount = spikeCount
+  if (Array.isArray(f.spikes)) {
+    // [seconds since up, ack ms (-1: none yet), echo ms], at most LINK_STAT_MAX_SPIKES.
+    const spikes: number[][] = []
+    for (const s of f.spikes.slice(0, LINK_STAT_MAX_SPIKES)) {
+      if (!Array.isArray(s) || s.length !== 3) continue
+      const at = num(s[0], 30 * 86_400)
+      const ack = s[1] === -1 ? -1 : num(s[1], LINK_STAT_MAX_MS)
+      const echo = num(s[2], LINK_STAT_MAX_MS)
+      if (at !== undefined && ack !== undefined && echo !== undefined) spikes.push([at, ack, echo])
+    }
+    if (spikes.length) line.spikes = spikes
+  }
   Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
   return line
 }
@@ -530,21 +565,23 @@ export class TeamHub extends DurableObject<Env> {
     return { closed }
   }
 
-  /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   /**
    * The other party of link session `sessionId` when `deviceId` is one of its two (PROTOCOL.md "WebSocket relay"):
    * the devices its first admitted signal bound, while the session lives (24 h, or until `bye` or the device's
    * removal ends it). Null for anyone else, so only the phone and the Mac of one session can join its relay.
    */
-  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<string | null> {
+  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string): Promise<{ peer: string; ingress: Ingress | null } | null> {
     this.bind(owner)
     const s = this.session(sessionId)
     if (!s) return null
-    if (s.initiator === deviceId) return s.responder
-    if (s.responder === deviceId) return s.initiator
-    return null
+    const peer = s.initiator === deviceId ? s.responder : s.responder === deviceId ? s.initiator : null
+    if (!peer) return null
+    // Where the peer's signal socket entered Cloudflare (and its netcheck): the relay's other end, for placement.
+    const sock = this.ctx.getWebSockets(peer).find((ws) => !this.attach(ws)?.replaced)
+    return { peer, ingress: (sock && this.attach(sock)?.ingress) ?? null }
   }
 
+  /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   async placement(owner: HubOwner): Promise<{ colo: string | null }> {
     this.bind(owner)
     return { colo: await this.hubColo() }
