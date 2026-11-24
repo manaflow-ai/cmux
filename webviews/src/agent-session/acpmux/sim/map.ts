@@ -216,6 +216,14 @@ export const MAP: MapEntry[] = [
     scenario: "subagent",
   },
   {
+    id: "subagent-fork",
+    when: "A chat forked from a subagent (Fork with <model>… on its composer chips) opens on the subagent's history.",
+    wrong: "The Forked from line could land inside the history's turn, or the fork's own turn fold into it.",
+    expected:
+      "Rules a, b, c: the subagent's history keeps its turn, the Forked from line stands between it and the fork's own turn, which folds only when it ends.",
+    scenario: "subagent-fork",
+  },
+  {
     id: "compaction-mid-turn",
     when: "The agent compacts its context halfway through a turn.",
     wrong: "The compaction line split the run around it and closed it early.",

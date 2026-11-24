@@ -458,6 +458,7 @@ import {
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
 import { SubagentForkChips, type SubagentForkTarget } from "./subagents/SubagentForkChips";
+import { openInOwnTab } from "./conversation/openFork";
 import { subagentChipFacts } from "./subagents/subagentForkChipsModel";
 import { sessionModels } from "./modelCatalog";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
@@ -9584,7 +9585,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!client || !subagentId) return;
       client
         .forkSubagent({ subagentId, ...target })
-        .then((forked) => callNative("chat.openTab", { sessionId: forked, placement: "tab" }))
+        // Opened as every fork opens (openFork.ts): this chat's tail handed over first, so the tab
+        // draws on its first frame.
+        .then((forked) => openInOwnTab(client, callNative, forked, "tab"))
         .catch((error: unknown) => {
           const reason = knownRefusalText(error);
           if (!reason) console.warn("agent pane: subagent fork failed", error);
