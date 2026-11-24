@@ -75,6 +75,15 @@ nothing of its own (mark-tree-commits signs it): from the tree's verified releas
 tree_key must be the one the caller computed for the commit (--tree-key), the same channel, tree_key and targets,
 this commit and its commit time, and a fresh sequence, version, published_at and expires_at.
 
+With --purpose mac-app it makes the payload of cmux-tui/<commit>/mac-app.json, the full Mac app build `cmux app try`
+installs in place with no GitHub token (reload-build.yml publish-mac-app), written once and never a channel pointer.
+It names the app zip reload-build made (--zip, its sha256 and size) at its URL (--url, which must be
+https://files.cmux.com/cmux-tui/<commit>/mac-app-release.zip) and the run (--run-id). Nothing is downloaded and
+no time field is signed, so two signings of one build are the same bytes:
+
+  {"schema": 1, "purpose": "cmux-mac-app-build", "commit": "<sha>", "configuration": "release", "arch": "arm64",
+   "app": {"url", "sha256", "size"}, "run_id": "<github run id>"}
+
 An installer holds the channel pointer to expires_at; the per-commit file carries the same field,
 but an installer that asks for a version by name does not enforce it.
 
@@ -82,6 +91,7 @@ Usage:
   cmux-machine-channel.py payload (--manifest M | --binaries-dir B [--machine-path]) --commit SHA
       --committed-at T --download-dir D --out P [--purpose linux-release --channel C [--cargo-version V] [--min-sequence N]]
       [--tree-key K] [--purpose mac-live --live-from F [--screen-sharing-helper R]]
+  cmux-machine-channel.py payload --purpose mac-app --commit SHA --zip APP.ZIP --url URL --run-id ID --out P
   cmux-machine-channel.py alias --tree-release R --keys KEYS --tree-key K --channel C --commit SHA
       --committed-at T --out P [--min-sequence N]
 """
@@ -133,6 +143,9 @@ MAC_LIVE_TARGET = "aarch64-apple-darwin"
 MAC_LIVE_NAMES = ("cmux-tui", "cmux-tui-app-host", "cmux-tui-cloud-server", "cmux-tui-browser-host",
                   "cmux-tui-host", "cmux-tui-holder", "cmux-tui-agent-screen-detection")
 MAC_LIVE_FROM_MAX = 400
+# The full Mac app build `cmux app try` installs in place (try_cmd, reload-build.yml publish-mac-app).
+MAC_APP_PURPOSE = "cmux-mac-app-build"
+MAC_APP_ZIP = "mac-app-release.zip"
 # The top-level key of the signed Screen Sharing helper (try_cmd/helper.rs KEY).
 MAC_LIVE_HELPER_KEY = "screen_sharing_helper"
 
@@ -264,9 +277,36 @@ def screen_sharing_helper(args):
             "team": record["team"], "designated_requirement": record["designated_requirement"]}
 
 
+def mac_app(args):
+    """The Mac app build payload of --zip: reload-build's app.zip, published at the commit's own URL."""
+    if not (args.zip and args.url and args.run_id):
+        fail("--purpose mac-app needs --zip, --url and --run-id")
+    if (args.manifest or args.binaries_dir or args.live_from or args.screen_sharing_helper or args.machine_path
+            or args.channel or args.cargo_version or args.min_sequence or args.tree_key):
+        fail("--purpose mac-app takes --commit, --zip, --url, --run-id and --out only")
+    if not re.fullmatch(r"[0-9]{1,20}", args.run_id):
+        fail(f"bad run id {args.run_id!r}")
+    url = f"{FILES}/{args.commit}/{MAC_APP_ZIP}"
+    if args.url != url:
+        fail(f"--url must be {url}")
+    if not os.path.isfile(args.zip):
+        fail(f"{args.zip} is not a file")
+    return {"schema": SCHEMA, "purpose": MAC_APP_PURPOSE, "commit": args.commit, "configuration": "release",
+            "arch": "arm64", "app": {"url": url, "sha256": sha256_file(args.zip), "size": os.path.getsize(args.zip)},
+            "run_id": args.run_id}
+
+
 def payload(args):
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         fail(f"bad commit {args.commit!r}")
+    if args.purpose == "mac-app":
+        with open(args.out, "wb") as out:
+            out.write(json.dumps(mac_app(args), sort_keys=True, separators=(",", ":")).encode())
+        return
+    if args.zip or args.url or args.run_id:
+        fail("--zip, --url and --run-id are for --purpose mac-app")
+    if not (args.manifest or args.binaries_dir) or not args.committed_at or not args.download_dir:
+        fail("payload needs --manifest or --binaries-dir, --committed-at and --download-dir")
     if args.purpose == "mac-live":
         value = mac_live(args)
         with open(args.out, "wb") as out:
@@ -380,12 +420,17 @@ def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("payload")
-    source = p.add_mutually_exclusive_group(required=True)
+    source = p.add_mutually_exclusive_group()
     source.add_argument("--manifest")
     source.add_argument("--binaries-dir")
-    for name in ("--commit", "--committed-at", "--download-dir", "--out"):
+    for name in ("--commit", "--out"):
         p.add_argument(name, required=True)
-    p.add_argument("--purpose", choices=("cloud-machine", "linux-release", "mac-live"), default="cloud-machine")
+    for name in ("--committed-at", "--download-dir"):
+        p.add_argument(name, help="every purpose but mac-app")
+    p.add_argument("--purpose", choices=("cloud-machine", "linux-release", "mac-live", "mac-app"), default="cloud-machine")
+    p.add_argument("--zip", help="--purpose mac-app: reload-build's app.zip")
+    p.add_argument("--url", help="--purpose mac-app: where the zip is published")
+    p.add_argument("--run-id", help="--purpose mac-app: the GitHub run that built it")
     p.add_argument("--live-from", help="--purpose mac-live: `hot-apply.py live-from SHA`'s JSON")
     p.add_argument("--screen-sharing-helper",
                    help="--purpose mac-live: the commit's signed helper record (screen_sharing_helper_release.py)")
