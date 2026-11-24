@@ -2,7 +2,7 @@
 // A recorded acpmux chat as `_acpmux/events` returns it: one turn that reads a file, runs the
 // tests, edits the file and runs them again, with the wall-clock gaps a real turn has
 // (and one long pause, which replay shortens).
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 
 export const REPLAY_SESSION = "replay-fixture";
 const START = Date.UTC(2026, 9, 10, 16, 20, 0);

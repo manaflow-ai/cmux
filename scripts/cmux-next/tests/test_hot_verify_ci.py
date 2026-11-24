@@ -11,6 +11,8 @@ import base64
 import importlib.util
 import io
 import os
+import re
+import shutil
 import json
 import sys
 import subprocess
@@ -227,6 +229,18 @@ class Result(unittest.TestCase):
         self.assertIn("cmux17", str(refused.exception))
         self.assertIn("timed out after 300 seconds", str(refused.exception))
         self.assertIn("plan 300", str(refused.exception))
+        self.assertIsInstance(refused.exception, hv.NoReceipt)
+
+    def test_a_tar_with_no_receipt_exits_3_so_the_workflow_looks_again(self) -> None:
+        # Run 44455465520 (#45972): the worker's GitHub read ran out of quota, its out.tar had a step.json and no
+        # receipt, and `post the look` failed hard. Exit 3 is the retryable result; a bad marker stays exit 1.
+        out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "worker": "mini", "error": "rate limit"}).encode()})
+        argv = ["stage", str(out), "--pr", "43000", "--head", HEAD, "--stage", str(self.tmp / "m"),
+                "--text", str(self.tmp / "t.txt")]
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(hv.main(argv), 3)
+            bad = self.unpacked(look_files(marker="<!-- something else -->"))
+            self.assertEqual(hv.main(["stage", str(bad)] + argv[2:]), 1)
 
     def test_needs_build_stages_nothing(self) -> None:
         out = self.unpacked({"out/step.json": json.dumps({"head": HEAD, "needs_build": True}).encode()})
@@ -543,7 +557,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("inputs.look_result != ''", "\n".join(block))
         step = block.index("      - name: Dispatch one more look")
         self.assertEqual(block[step + 1].strip(), "if: ${{ steps.check.outputs.ok == 'true' && "
-                                                  "steps.result.outputs.tar == 'false' && inputs.attempt != '1' }}")
+                                                  "(steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && "
+                                                  "inputs.attempt != '1' }}")
         self.assertIn("attempt:", WORKFLOW.read_text().split("jobs:", 1)[0])
         again = "Dispatch one more look"
         done, _, argv = self.run_block("publish", "", {"PR": "7", "HEAD_SHA": HEAD, "LAYERS": "web,rust",
@@ -557,6 +572,19 @@ class Workflow(unittest.TestCase):
                                                         "KIND": "merge"}, again)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("kind=merge", argv)
+
+    def test_a_tar_with_no_receipt_marks_the_publish_job_to_look_again_once(self) -> None:
+        # Run 44455465520 (#45972): stage exits 3 for an out.tar with no receipt; the stage step turns that into
+        # again=true (the dispatch step above runs on it) on the first look, and fails on the retry (attempt 1).
+        block = self.job_block("publish")
+        stage = block.index("      - name: Unpack and stage")
+        dispatch = block.index("      - name: Dispatch one more look")
+        self.assertLess(stage, dispatch, "the dispatch step reads steps.stage.outputs.again, so it runs after stage")
+        script = "\n".join(block[stage:dispatch])
+        self.assertIn('if [[ "$rc" == 3 && "${ATTEMPT:-}" != 1 ]]; then', script)
+        self.assertIn('echo "again=true" >> "$GITHUB_OUTPUT"', script)
+        self.assertIn('[[ "$rc" == 0 ]] || exit "$rc"', script)
+        self.assertIn("ATTEMPT: ${{ inputs.attempt }}", script)
 
     def test_a_merged_pr_with_no_receipt_is_looked_at_at_its_merge_commit(self) -> None:
         # A look at the PR head that needs the change's own Rust (8 of 90 looks, 2026-11-15/16) cannot run on the
@@ -615,6 +643,38 @@ class Workflow(unittest.TestCase):
                 else:
                     self.assertIn("reached-git", said, (done.stderr, said))
                     self.assertFalse(out.exists() and "eligible=false" in out.read_text())
+
+    def test_the_rust_layer_names_only_a_tree_something_will_publish(self) -> None:
+        # tree= makes the controller wait up to 50 min for the tree's completion.json. A pull request head's push
+        # builds no tree (ci-min-per-pr-30) and the dispatch below is off (#53824), so a named unpublished tree was a
+        # 50 min wait for nothing before the fleet step built the head's daemon itself (builds_head_daemon).
+        # Cases: curl exit, CMUX_TUI_BRANCH_ON_REQUEST, CMUX_TUI_LOOK_DISPATCH, the head's Cmux-Daemon-Tests value.
+        real_git = shutil.which("git")
+        cases = ((0, "1", "", "", True), (22, "1", "", "", False), (22, "0", "", "", True),
+                 (22, "1", "", " Run\n", True), (22, "1", "", "skip\n", False), (22, "1", "1", "", True))
+        for answer, on_request, dispatch, trailer, named in cases:
+            with self.subTest(curl_exit=answer, on_request=on_request, dispatch=dispatch, trailer=trailer):
+                fake = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="hot-verify-tree-")))
+                (fake / "curl").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$*\" >> {fake}/asked\nexit {answer}\n")
+                (fake / "curl").chmod(0o755)
+                # git log answers the trailer; the tree key's own git reads go to the real git.
+                (fake / "git").write_text(f'#!/bin/bash\nif [[ "$1" == log ]]; then printf "{trailer}"; exit 0; fi\n'
+                                          f'exec {real_git} "$@"\n')
+                (fake / "git").chmod(0o755)
+                done, out, calls = self.run_block("rust", "", {"HEAD_SHA": HEAD, "GITHUB_RUN_ID": "1",
+                                                               "BRANCH_ON_REQUEST": on_request, "LOOK_DISPATCH": dispatch,
+                                                               "PATH": f"{fake}:{os.environ['PATH']}"},
+                                                  step="The head's cmux-tui tree key")
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(calls, [])
+                self.assertRegex((fake / "asked").read_text(),
+                                 r"https://files\.cmux\.com/cmux-tui/tree/[0-9a-f]{40,64}/completion\.json")
+                written = out.read_text()
+                self.assertRegex(written, r"(?m)^key=[0-9a-f]{40,64}$")  # the dispatch step still reads it
+                self.assertEqual(bool(re.search(r"(?m)^tree=[0-9a-f]{40,64}$", written)), named, written)
+        block = "\n".join(self.job_block("rust"))
+        self.assertIn("key: ${{ steps.key.outputs.tree }}", block)
+        self.assertIn("BRANCH_ON_REQUEST: ${{ vars.CMUX_TUI_BRANCH_ON_REQUEST || '1' }}", block)
 
     def test_the_request_job_name_is_the_controllers_request(self) -> None:
         # The build fleet controller (cmuxterm-hq build-fleet/cmd/controller/hot_verify_look.go hotLookJobName) reads

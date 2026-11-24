@@ -18,6 +18,9 @@ import React, {
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
+import { githubFolder, githubFolderRepo } from "../githubRepos";
+import { useSendAfterCheckout } from "../sendAfterCheckout";
+import { cloudRepositoryPick } from "../sourcePickerModel";
 import type { CloudMachine } from "../cloudMachines";
 import { CloudChatHint } from "../CloudChatHint";
 import { isActive, type Dictation, type DictationField } from "../dictation";
@@ -50,8 +53,7 @@ import {
 } from "./newProject";
 import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
-import { type BrowseRequest } from "../AddProjectPanel";
-import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../browseProject";
 import { errorMessage, isStartCancelled, knownRefusalText, startErrorMessage } from "../transportErrors";
 import { logStartFailure, startFailureCause, startFailureCode } from "../startFailure";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
@@ -255,7 +257,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
-  onNewWorktree?(cwd: string): Promise<string | undefined>;
+  onNewWorktree?(cwd: string, github?: { repo: string; candidates: string[] }): Promise<string | undefined>;
+  onCloneRepository?(url: string): Promise<string>;
   /// With `environments`, the host's saved environments (`environment.list/save/remove`): the
   /// environment picker lists them and Create environment makes one.
   savedEnvironments?: SavedEnvironmentHost;
@@ -356,6 +359,7 @@ type Props = NewTabScreenActions & {
   /// New Project (newProject.ts): acpmux makes folder `name` with an empty git repository; resolves
   /// with the folder it made.
   onNewProject?(name: string): Promise<string>;
+  initialNewProject?: boolean;
   /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
   extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
@@ -472,7 +476,9 @@ export function NewTabScreen(props: Props) {
   const [text, setText] = useState(carried?.text || untouchedText);
   // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
   // the person typed; until then it is the prompt's (projectNameFrom).
-  const [newProject, setNewProject] = useState<{ name?: string }>();
+  const [newProject, setNewProject] = useState<{ name?: string } | undefined>(() =>
+    props.initialNewProject ? {} : undefined,
+  );
   const [newProjectError, setNewProjectError] = useState<{ reason?: string }>();
   const newProjectPending = useRef(false);
   const newProjectMade = useRef<{ name: string; folder: string }>(undefined);
@@ -513,6 +519,13 @@ export function NewTabScreen(props: Props) {
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
+  const [cloudFolderWaiting, setCloudFolderWaiting] = useState(false);
+  const [localGitHubPick, setLocalGitHubPick] = useState<{ name: string; cwd?: string }>();
+  // A GitHub repository picked with This Mac picked is only the chip's choice until Return: its checkout here
+  // (cloned first when there is none) starts then, never at the pick (cmux#53226). `deferredGitHub` keeps the
+  // folders here whose remote names it, and `sendAfterCheckout` sends the prompt once the checkout lands.
+  const deferredGitHub = useRef<{ repo: string; candidates: string[] }>(undefined);
+  const [sendAfterCheckout, setSendAfterCheckout] = useState(false);
   /// A place was picked on this page (a machine, a folder, New project, a run mode): the last pick's
   /// machine (`startMachine`) no longer replaces it, even when acpmux lists that machine only later.
   const placePicked = useRef(false);
@@ -811,11 +824,20 @@ export function NewTabScreen(props: Props) {
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
   // Before the host's handshake names the start folder, a tab that inherits a project names that
   // project (the handshake starts its chat there), so the first frame shows it.
-  const askFolder = none
+  const localAskFolder = none
     ? undefined
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  const cloudMode = props.runMode?.mode === "cloud";
+  const cloudFolder = cloudRepositoryPick(
+    localAskFolder,
+    (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
+      props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
+  );
+  const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
+  // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
+  const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
   // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
   // pick, else the folder the chip names. Never the tab's inherited folder by itself: with No folder
   // on the chip, a fresh workspace's `~` made a Codex pick start in the home folder, which the pane
@@ -837,24 +859,28 @@ export function NewTabScreen(props: Props) {
   useEffect(() => acpmuxPerf.noteStartState(`newTab:${startShown}`));
   // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
   const projectChoice = useRef(0);
-  // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
-  // machine picked before, so the folder it sends is the one the chip names.
+  // A GitHub repository can carry over to Cloud. A folder path on This Mac cannot.
   const pickRunMode = (mode: RunMode): void => {
     placePicked.current = true;
+    if (mode !== props.runMode?.mode) {
+      projectChoice.current += 1;
+      setCloudFolderWaiting(false);
+      setLocalGitHubPick(undefined);
+    }
     // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
     if (mode !== "persistent") {
-      // A folder still on its way, or made for a start that failed, is no longer this draft's.
-      projectChoice.current += 1;
       setNewProject(undefined);
       newProjectMade.current = undefined;
     }
-    if (mode === "cloud") {
+    if (mode === "cloud" || (cloudMode && githubFolderRepo(localAskFolder))) {
+      const next = mode === "cloud" ? cloudFolder : undefined;
       saved.pick(undefined);
       setMachine(undefined);
-      // The chip's folder may be a recent project nobody clicked (`recent ?? seeded`): picking
-      // Cloud is the person's pick of it too, so the host grants it (workspace.useFolder) and the
-      // Cloud start may copy it. Without this the host refused it as outside the tab's folders.
-      if (askFolder) props.onProjectPicked?.(askFolder);
+      setPicked(true);
+      setNone(!next);
+      setProject(next);
+    } else if (cloudMode) {
+      setMachine(undefined);
     }
     props.runMode?.onMode(mode);
   };
@@ -979,15 +1005,20 @@ export function NewTabScreen(props: Props) {
       return false;
     }
     if (command.intercept(prompt, agent, attachments.length)) return false;
-    if (props.runMode?.mode === "cloud" && props.onCloud) {
-      // No project picked: no folder goes (`envFolder` is none), so the start copies nothing and the
-      // chat opens in the machine's own folder (cloudRun.ts cloudStartFolder, `home`), never the
-      // tab's inherited folder the person just said not to work in.
-      // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
-      // inherited home with a start folder elsewhere shows and copies the start folder.
-      // The folder the chip shows (askFolder): with none shown, none goes. The environment card's
-      // fallback to the tab's inherited folder (envFolder) once went as a Cloud copy of a folder the
-      // chip read as "No folder" (cmux#45946).
+    if (cloudFolderWaiting || (localGitHubPick && !localGitHubPick.cwd)) return false;
+    // A GitHub repository on the chip with This Mac picked: Return checks it out here first, then sends.
+    const checkoutRepo =
+      !cloudMode && props.runMode?.mode !== "sandboxed" && !machine && !environment
+        ? githubFolderRepo(localAskFolder)
+        : undefined;
+    if (checkoutRepo && localAskFolder) {
+      const github =
+        deferredGitHub.current?.repo === checkoutRepo ? deferredGitHub.current : { repo: checkoutRepo, candidates: [] };
+      setSendAfterCheckout(true);
+      newWorktreeHere(localAskFolder, github);
+      return false;
+    }
+    if (cloudMode && !machine && props.onCloud) {
       const started = props.onCloud(agent, sent.text, askFolder, model, sentAttachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
@@ -1054,7 +1085,7 @@ export function NewTabScreen(props: Props) {
   assignRef(pastedChips.opens, inline.expand);
   const parentSignIn = useSignIn();
   const offMachine =
-    (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
+    (cloudMode && !machine && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
   // Auth must follow the same target precedence as askChat: a saved environment wins over a
   // previously picked machine, so an old machine verdict cannot block this environment's prompt.
   const targetHost = environment
@@ -1794,6 +1825,11 @@ export function NewTabScreen(props: Props) {
     if (command) props.onShell(command);
   };
   const sendRef = useRef(send);
+  // Return checked a GitHub repository out here first (askChat): the prompt goes once its folder is the pick.
+  useSendAfterCheckout(sendAfterCheckout && Boolean(localGitHubPick?.cwd), () => {
+    setSendAfterCheckout(false);
+    sendRef.current();
+  });
   /// A Cloud start is out (`cloudStarting`): dictation writes nothing then, as typing doesn't.
   const cloudStartingRef = useRef(false);
   const { dictationField } = props;
@@ -2033,6 +2069,7 @@ export function NewTabScreen(props: Props) {
   const [browseError, setBrowseError] = useState<string>();
   const chooseNewProject = () => {
     placePicked.current = true;
+    setLocalGitHubPick(undefined);
     // A new folder is this Mac's: the next new chat starts on This Mac too (lastNewChatPlace.ts).
     if (machine) rememberNewChatPlace({ kind: "local" });
     projectChoice.current += 1;
@@ -2050,8 +2087,9 @@ export function NewTabScreen(props: Props) {
     setNewProject((before) => before ?? {});
     requestAnimationFrame(() => field.current?.focus());
   };
-  const pickProject = (cwd?: string) => {
+  const pickProject = (cwd?: string, repository?: string) => {
     placePicked.current = true;
+    setLocalGitHubPick(cwd && repository ? { cwd, name: repository } : undefined);
     // A folder here moves the chat off another machine onto This Mac, for the next new chat too.
     if (machine) rememberNewChatPlace({ kind: "local" });
     projectChoice.current += 1;
@@ -2070,7 +2108,8 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
-    if (cwd) props.onProjectPicked?.(cwd);
+    if (cwd && !cloudMode && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
+    if (!cwd) setCloudFolderWaiting(false);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
     // so Return sends instead of reopening the menu.
@@ -2080,6 +2119,7 @@ export function NewTabScreen(props: Props) {
   // back, as after a folder pick (the picker returns no focus itself).
   const pickMachine = (next?: { peer: string; folder?: string }) => {
     placePicked.current = true;
+    setLocalGitHubPick(undefined);
     // The next new chat, here or in a new workspace, starts on this machine too (cmux#46019).
     rememberNewChatPlace(next ? { kind: "machine", peer: next.peer } : { kind: "local" });
     // A newer choice than any worktree still on its way (`projectChoice`).
@@ -2190,18 +2230,33 @@ export function NewTabScreen(props: Props) {
       },
     );
   }
-  const newWorktreeHere = (cwd: string): void => {
+  const newWorktreeHere = (cwd: string, github?: { repo: string; candidates: string[] }): void => {
     const onNewWorktree = props.onNewWorktree;
     if (!onNewWorktree) return;
     setWorktreeError(undefined);
     const choice = ++projectChoice.current;
-    void onNewWorktree(cwd).then(
+    if (github) setLocalGitHubPick({ name: github.repo });
+    // A later choice replaced this checkout: its pick that still waits for a folder goes too, so Send never stays
+    // held behind a checkout nobody wants (a saved environment chosen meanwhile).
+    const dropReplaced = () => {
+      setSendAfterCheckout(false);
+      setLocalGitHubPick((pick) => (pick && !pick.cwd && pick.name === github?.repo ? undefined : pick));
+    };
+    void onNewWorktree(cwd, github).then(
       (folder) => {
-        if (folder && choice === projectChoice.current) pickProject(folder);
+        if (choice !== projectChoice.current) return dropReplaced();
+        if (folder) pickProject(folder, github?.repo);
+        else {
+          setSendAfterCheckout(false);
+          setLocalGitHubPick(undefined);
+        }
       },
       (error: unknown) => {
         console.warn("agent pane: New Worktree failed", error);
-        if (choice === projectChoice.current) setWorktreeError({ retry: () => newWorktreeHere(cwd) });
+        if (choice !== projectChoice.current) return dropReplaced();
+        setSendAfterCheckout(false);
+        setLocalGitHubPick(undefined);
+        setWorktreeError({ retry: () => newWorktreeHere(cwd, github) });
       },
     );
   };
@@ -2298,7 +2353,9 @@ export function NewTabScreen(props: Props) {
             ? { peer: machine.peer, cwd: machine.folder }
             : askFolder && !newProject
               ? { cwd: askFolder }
-              : { cwd: undefined }),
+              : pendingGitHubFolder && !newProject
+                ? { cwd: pendingGitHubFolder }
+                : { cwd: undefined }),
         }}
         // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
         // starts the chat there (screenActions onAsk with its `peer`).
@@ -2316,6 +2373,20 @@ export function NewTabScreen(props: Props) {
         projectChoices={props.projects ?? NO_PROJECTS}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
+        onCloudFolderWaiting={setCloudFolderWaiting}
+        sourceRepository={localGitHubPick?.cwd ? { name: localGitHubPick.name, cwd: localGitHubPick.cwd } : undefined}
+        cloningRepository={localGitHubPick?.cwd ? undefined : localGitHubPick?.name}
+        {...(props.environments && props.onNewWorktree
+          ? {
+              // The pick is the chip's choice only; Return checks it out (askChat), never the pick.
+              onGitHubHere: (repo: string, candidates: string[]) => {
+                deferredGitHub.current = { repo, candidates };
+                pickProject(githubFolder(repo));
+              },
+              onNewWorktree: newWorktreeHere,
+            }
+          : {})}
+        onCloneRepository={props.onCloneRepository}
         noProject={none && !newProject}
         {...(props.onNewProject
           ? {
@@ -2333,7 +2404,6 @@ export function NewTabScreen(props: Props) {
           : {})}
         {...(props.onBrowseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
-        {...(props.environments && props.onNewWorktree ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && props.runMode ? { runMode: { ...props.runMode, onMode: pickRunMode } } : {})}
         {...(props.extraFolders ? { extraFolders: props.extraFolders } : {})}
@@ -2345,6 +2415,8 @@ export function NewTabScreen(props: Props) {
                 onPick: (id: string) => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  // The environment replaces a GitHub checkout still on its way.
+                  setLocalGitHubPick(undefined);
                   // An environment is where the chat starts: New project's folder is no longer it.
                   setNewProject(undefined);
                   newProjectMade.current = undefined;
@@ -2359,6 +2431,7 @@ export function NewTabScreen(props: Props) {
                 onClear: () => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  setLocalGitHubPick(undefined);
                   props.onCloudMachinePicked?.(undefined);
                   saved.pick(undefined);
                 },
@@ -2647,6 +2720,32 @@ export function NewTabScreen(props: Props) {
               </ComposerListLayer>
             </ComposerListAnchor>
           )}
+          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it: inside
+            the top of the box (Leo 2026-11-23, ask-525a5e502a: attachments sit within the top part of
+            the composer, no shift). The field gives up the strip's band from its max height
+            (screen.css), so a capped draft keeps the box's height and edges as they come and go. */}
+          <AttachmentStrip
+            attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
+            pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
+            {...(command.error || attachError || heldForHost
+              ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
+              : {})}
+            codex={harness === "codex"}
+            // A strip chip's × takes its node out of the text too (the strip view shows placed ones
+            // here), so the inline view brings back none and the prompt sends none.
+            onRemove={(id) => {
+              inline.remove(id);
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              inline.cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            onExpand={inline.expand}
+            originalFailures={originalFailures}
+            onReorder={inline.reorder}
+          />
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -2771,34 +2870,9 @@ export function NewTabScreen(props: Props) {
               )}
             </div>
           )}
-          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
-            the field: the box's top is where the page anchors it, so the strip grows away from the
-            text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
-          <AttachmentStrip
-            attachments={attachmentView === "inline" ? attachments.filter((item) => !placed.has(item.id)) : attachments}
-            pending={attachmentView === "inline" ? reading.filter((item) => !placed.has(item.id)) : reading}
-            {...(command.error || attachError || heldForHost
-              ? { error: command.error ?? attachError ?? t("composer.sendingWhenReady") }
-              : {})}
-            codex={harness === "codex"}
-            // A strip chip's × takes its node out of the text too (the strip view shows placed ones
-            // here), so the inline view brings back none and the prompt sends none.
-            onRemove={(id) => {
-              inline.remove(id);
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              inline.cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            onExpand={inline.expand}
-            originalFailures={originalFailures}
-            onReorder={inline.reorder}
-          />
           {command.input}
           {!pill && !split && pickers}
         </div>
@@ -2830,15 +2904,17 @@ export function NewTabScreen(props: Props) {
   // The stage's cards: the project card and the suggested actions, side by side in one column.
   const stageCards = (
     <div className="nt-stage-cards">
-      <EnvironmentCard
-        projects={props.projects ?? []}
-        {...(envFolder ? { current: envFolder } : {})}
-        noProject={none}
-        {...(props.machineName ? { machineName: props.machineName } : {})}
-        onPick={(cwd) => pickProject(cwd)}
-        onNoProject={() => pickProject(undefined)}
-        {...(props.onBrowseProject ? { onBrowse: browseProject } : {})}
-      />
+      {!cloudMode && (
+        <EnvironmentCard
+          projects={props.projects ?? []}
+          {...(envFolder ? { current: envFolder } : {})}
+          noProject={none}
+          {...(props.machineName ? { machineName: props.machineName } : {})}
+          onPick={(cwd) => pickProject(cwd)}
+          onNoProject={() => pickProject(undefined)}
+          {...(props.onBrowseProject ? { onBrowse: browseProject } : {})}
+        />
+      )}
       <SuggestionsCard attention={needsYou} onOpen={openCard} />
     </div>
   );

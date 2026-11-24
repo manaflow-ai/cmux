@@ -26,6 +26,14 @@
 # renamed into place, src/Package/Fetch.zig), so another job's archive is never
 # partial under its final name, and a temp file has no archive suffix and stays.
 #
+# A second stall in a row sets the whole p/ aside (to p.set-aside/, one copy,
+# replaced each time) and the next attempt seeds every package from the mirror
+# again. Every attempt on fsr runners from 2026-11-24 16:19Z stalled with no output
+# on a restored p/ (38 of 38 already here, jobs 138593249107, 138711282886),
+# while a fresh seed on the same runners fetched in 2 minutes (job 138749208890)
+# and the same restored key fetched in seconds on other runners (cmux#54715). A
+# stalled attempt also prints what its processes were waiting on, first.
+#
 # usage: fetch-ghostty-zig-packages.sh [ghostty source dir]
 # CMUX_ZIG_FETCH_ATTEMPTS (default 4), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
 # without progress, default 180), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds an
@@ -145,6 +153,33 @@ clear_scratch() {
   done
 }
 
+# What a stalled attempt's processes are doing, before they are stopped: each
+# one's state, the kernel wait it sleeps in, and (Linux) the files it holds, so
+# the next stall names its cause in the log. Best effort, bounded, never fails.
+describe_group() {
+  local pgid=$1 pid
+  echo "the stalled attempt's processes (pid, state, wait channel, command):" >&2
+  for pid in $(pgrep -g "$pgid" 2>/dev/null | head -20); do
+    ps -o pid=,stat=,wchan=,args= -p "$pid" 2>/dev/null | cut -c1-200 >&2 || true
+    if [[ -d "/proc/$pid/fd" ]]; then
+      find "/proc/$pid/fd" -mindepth 1 -maxdepth 1 -printf '  fd %f -> %l\n' 2>/dev/null | head -20 >&2 || true
+    fi
+  done
+}
+
+# p/ as it came (a restore, or an earlier job) moves aside whole, so the next
+# seed downloads every package fresh from the mirror. One copy is kept.
+set_aside_cache() {
+  [[ -n "$cache" && -d "$cache/p" ]] || return 0
+  rm -rf "$cache/p.set-aside"
+  if mv "$cache/p" "$cache/p.set-aside" 2>/dev/null; then
+    mkdir -p "$cache/p"
+    echo "two attempts in a row stalled on this cache's packages: set $cache/p aside to $cache/p.set-aside; the next attempt seeds every package from the mirror" >&2
+  else
+    echo "warning: could not set $cache/p aside after two stalls" >&2
+  fi
+}
+
 # Signal the attempt's process group: TERM, up to 5 s to exit, then KILL.
 stop_group() {
   local pgid=$1
@@ -198,6 +233,7 @@ fetch_once() {
         echo "ran past its ${attempt_timeout}s limit" > "$marker"
       fi
       if [[ -s "$marker" ]]; then
+        describe_group "$pid"
         stop_group "$pid"
         exit 0
       fi
@@ -240,7 +276,7 @@ seed() {
   seed_pid=""
 }
 
-attempt=1
+attempt=1 stalls=0
 while :; do
   seed
   status=0
@@ -255,6 +291,8 @@ while :; do
     why="failed (exit $status)"
   fi
   clear_scratch
+  if (( status == 124 )); then stalls=$((stalls + 1)); else stalls=0; fi
+  if (( stalls == 2 && attempt < attempts )); then set_aside_cache; fi
   if (( attempt >= attempts )); then
     echo "error: could not fetch the Zig packages of $source_dir: attempt $attempt of $attempts $why; giving up" >&2
     if [[ "$mirror_only" == 1 ]]; then
