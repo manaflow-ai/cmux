@@ -10,23 +10,20 @@
 //! manifest's tree below it, as an open folder renamed away on a disk does: the old number is
 //! [`Inner::retired`], never handed out again.
 
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt as _;
 
 use super::Type;
 use super::{EEXIST, EIO, ENOENT, ENOTDIR, Entry, Inner, Kind, Node, Overlay, Path, PoisonError};
 use super::{fs, join};
 
-const RENAME_NOREPLACE: u32 = 1;
-const RENAME_EXCHANGE: u32 = 2;
+use crate::upper::{RENAME_EXCHANGE, RENAME_NOREPLACE};
 
+/// `renameat2` on Linux (the raw syscall, as `Upper::rename` makes it: musl has no wrapper).
 #[cfg(target_os = "linux")]
 fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
     let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
-    // The raw syscall, as `Upper::rename` makes it (musl has no `renameat2` wrapper).
     // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
     let done = unsafe {
         libc::syscall(
@@ -45,10 +42,30 @@ fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
     }
 }
 
-/// `renameat2` is Linux's: the Mac build (its tests) has no such call, so a swap there refuses.
+/// `renameatx_np` on macOS, Linux's flags turned into its own, as `Upper::rename` does.
 #[cfg(not(target_os = "linux"))]
-fn rename2(_from: &Path, _to: &Path, _flags: u32) -> Result<(), i32> {
-    Err(libc::ENOTSUP)
+fn rename2(from: &Path, to: &Path, flags: u32) -> Result<(), i32> {
+    if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 {
+        return Err(super::EINVAL);
+    }
+    let mut own = 0;
+    if flags & RENAME_NOREPLACE != 0 {
+        own |= libc::RENAME_EXCL;
+    }
+    if flags & RENAME_EXCHANGE != 0 {
+        own |= libc::RENAME_SWAP;
+    }
+    let from = CString::new(from.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    let to = CString::new(to.as_os_str().as_bytes()).map_err(|_| EIO)?;
+    // SAFETY: two valid C strings and `AT_FDCWD` for both (absolute paths).
+    let done = unsafe {
+        libc::renameatx_np(libc::AT_FDCWD, from.as_ptr(), libc::AT_FDCWD, to.as_ptr(), own)
+    };
+    if done < 0 {
+        Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(EIO))
+    } else {
+        Ok(())
+    }
 }
 
 impl Overlay {

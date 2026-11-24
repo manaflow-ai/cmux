@@ -116,7 +116,7 @@ test("Dismiss names the card, and the chat keeps it across a reload", async () =
   const container = await render(
     <PendingAsks asks={[asked]} onAnswer={() => Promise.resolve()} onDismiss={(key) => dismissed.push(key)} />,
   );
-  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask__dismiss")!;
+  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
   await act(async () => dismiss.click());
   expect(dismissed).toEqual([askKey(asked)]);
   dismissAsk("s1", askKey(asked));
@@ -211,6 +211,51 @@ test("a send that fails brings the card back with its buttons", async () => {
   await act(async () => named(container, "Red").click());
   expect(container.querySelectorAll(".acpmux-next-step__answer")).toHaveLength(2);
   expect(answeredAsks().has(askKey(failing))).toBe(false);
+});
+
+// The pinned copy leaves while its answer goes, so a typed answer that fails comes back with its words.
+test("a typed answer that fails comes back with its words", async () => {
+  let reject: (error: Error) => void = () => undefined;
+  const container = await render(
+    <PendingAsks
+      asks={[asked]}
+      onAnswer={() => new Promise((_, fail) => (reject = fail))}
+      onDismiss={() => undefined}
+    />,
+  );
+  const field = () => container.querySelector<HTMLInputElement>(".acpmux-next-step__other input")!;
+  const window = dom!.window;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(field(), "Both");
+    field().dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    field().dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(container.querySelector(".acpmux-next-step__other")).toBeNull();
+  await act(async () => reject(new Error("refused")));
+  expect(field().value).toBe("Both");
+  expect(container.querySelector("output")).not.toBeNull();
+});
+
+// A pane that cannot send (View Only) still shows the pinned card: the same card read only, with its
+// answers, the reason, and its close.
+test("a pinned card in a pane that cannot send is the same card read only, and keeps its close", async () => {
+  const dismissed: string[] = [];
+  const container = await render(
+    <PendingAsks asks={[asked]} blocked="watching" onDismiss={(key) => dismissed.push(key)} />,
+  );
+  expect([...container.querySelectorAll("li.acpmux-next-step__answer")].map((row) => row.textContent)).toEqual([
+    "1Box",
+    "2Inline",
+  ]);
+  expect(container.querySelector(".acpmux-next-step__reason")?.textContent).toBe("Take over to answer");
+  expect(container.querySelector("input")).toBeNull();
+  // The close is the card's only button.
+  expect(container.querySelectorAll(".acpmux-pending-ask button")).toHaveLength(1);
+  const dismiss = container.querySelector<HTMLButtonElement>(".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss")!;
+  await act(async () => dismiss.click());
+  expect(dismissed).toEqual([askKey(asked)]);
 });
 
 test("the pinned copy's ask is one object per ask, without its recap, so the card's memo holds", () => {
