@@ -7,7 +7,9 @@ PR-branch pushes were 343 runs and 29.8k runner-min a day of cmux-tui artifacts 
 25.8 per merged PR), three ~28-min target builds a head. unreviewed_verdict now supersedes a current head
 of a non-trunk branch unless its commit has the Cmux-Daemon-Tests: run trailer or a cmux-next dispatch
 asked for it (a dispatch of the artifacts workflow itself is never superseded). The hot verify rust layer
-dispatches it for the head it looks at. CMUX_TUI_BRANCH_ON_REQUEST=0 restores the open-PR-head rule.
+sends no such dispatch: on a non-trunk branch it builds but never publishes (publish-ref-notice), 14,308
+runner-min for no tree on 11-24 05:10-10:00Z; the look's fleet step builds the head's daemon instead.
+CMUX_TUI_BRANCH_ON_REQUEST=0 restores the open-PR-head rule.
 
 Run: python3 tests/test_cmux_tui_branch_on_request.py
 """
@@ -79,11 +81,26 @@ class BranchOnRequest(unittest.TestCase):
             for ref in ("refs/heads/main", "refs/heads/feat-cmux-next"):
                 self.assertFalse(sup.verdict("push", ref, SHA, "", "")[0])
 
-    def test_workflow_passes_the_switch_to_every_gate_and_hot_verify_asks(self) -> None:
+    def test_workflow_passes_the_switch_to_every_gate(self) -> None:
         wf = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
         self.assertEqual(wf.count("CMUX_TUI_BRANCH_ON_REQUEST:"), wf.count("cmux_tui_superseded_push.py --event"))
+
+    def test_hot_verify_asks_for_no_build_that_cannot_publish(self) -> None:
+        # publish (and so publish-tree) admits a dispatch only from main or feat-cmux-next: a dispatch on a pull
+        # request's branch is build-only. Runs 45380669987 and 45380861639 (11-24) built both musl targets and
+        # aarch64-apple-darwin and ran the daemon tests, then "publish skipped (branch not allowed)".
+        wf = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
+        publish_if = next(line for line in wf.splitlines() if line.startswith("    if: ${{ !cancelled() && needs.build-linux.result == 'success'"))
+        self.assertIn("(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || "
+                      "(github.event_name == 'push' && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')))", publish_if)
         hv = (ROOT / ".github/workflows/cmux-next-hot-verify.yml").read_text()
-        self.assertIn("gh workflow run cmux-tui-artifacts.yml", hv)
+        self.assertNotIn("gh workflow run cmux-tui-artifacts.yml", hv)
+        self.assertNotIn("actions: write", hv.split("\n  rust:\n", 1)[1].split("\n  request:\n", 1)[0])
+        # The skip's own advice names only routes that publish.
+        (stale, reason), _ = self.run_verdict({"CMUX_TUI_BRANCH_ON_REQUEST": "1"})
+        self.assertTrue(stale)
+        self.assertIn("builds but does not publish", reason)
+        self.assertNotIn("dispatches this workflow on the branch", reason)
 
 
 if __name__ == "__main__":

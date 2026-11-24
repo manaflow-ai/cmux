@@ -69,10 +69,13 @@ on:
   #
   # Every non-lane branch of this repository publishes its tree on request only
   # (ci-min-per-pr-30; a pull request head's push was 29.8k runner-min a day,
-  # 25.8 per merged PR, 11-22 21Z..11-23 21Z): a dispatch of this workflow on
-  # the branch (the hot verify rust look sends one), a cmux-next dispatch, or
-  # the Cmux-Daemon-Tests: run trailer asks for it, so a same-repository branch
+  # 25.8 per merged PR, 11-22 21Z..11-23 21Z): a cmux-next dispatch or the
+  # Cmux-Daemon-Tests: run trailer asks for it, so a same-repository branch
   # can still repair its own tree without a hand-pushed cmux-tui-pin-* ref.
+  # A dispatch of this workflow on such a branch builds but never publishes
+  # (publish-ref-notice), so the hot verify rust look sends none: it builds the
+  # head's daemon on its fleet worker (ci-runner-min-per-day-500k: 339 such
+  # dispatches spent 14,308 runner-min on 11-24 05:10-10:00Z for no tree).
   # vars.CMUX_TUI_BRANCH_ON_REQUEST=0 restores "any open pull request head"
   # (cx-r2is). tree-preflight's superseded step skips the rest before any build
   # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
