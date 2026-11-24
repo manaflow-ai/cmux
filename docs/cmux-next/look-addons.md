@@ -28,6 +28,7 @@ change often, so a look sets only these custom properties, on `:root`
 | Token | What it paints |
 | --- | --- |
 | `--cv-text`, `--cv-text-muted`, `--cv-text-dim` | body, secondary and quietest transcript text |
+| `--cv-activity-text` | tool rows and "Worked for"; unset, the theme's text at 58%, which reads under 4.5:1 on an off-white paper, so a light look sets it (the example looks use their `--cv-text-muted`) |
 | `--cv-link`, `--agent-link` | links in replies, and in the rest of the pane |
 | `--cv-card-fill`, `--cv-card-ring` | the card level and its hairline: tool output, edit, error and permission cards, plans, the subagent card (code blocks keep their own fill); unset, the theme's text at 4% and 10% |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
