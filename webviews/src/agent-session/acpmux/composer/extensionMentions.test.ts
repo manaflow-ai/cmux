@@ -57,28 +57,28 @@ describe("extension @ mentions (cmux.composer.mention/1)", () => {
     expect(client.mentionAsks).toEqual([{ prefix: "pr", query: "450" }]);
   });
 
-  test("the @ menu lists extension rows after the chats, first when the word names their prefix", () => {
-    const base = { query: "pr", files: [], sessions: [], extension: [PR] };
+  test("the @ menu lists extension rows after the plugins, first when the word names their prefix", () => {
+    const base = { query: "pr", files: [], extension: [PR] };
     expect(mentionItems(base).map((item) => item.kind)).toEqual(["extension"]);
     expect(mentionItems({ ...base, extensionFirst: true })[0]?.kind).toBe("extension");
   });
 
   test("while files are on their way, Return prefers a row that is not an extension's unless the word named its provider", () => {
-    const after = mentionItems({ query: "app", files: [], sessions: [], extension: [PR] });
+    const after = mentionItems({ query: "app", files: [], extension: [PR] });
     // A listed row is always chosen (#47787): with only the extension's row, it is the one.
     expect(mentionSelection(after, undefined, true)).toBe(0);
     const harness: MentionItem = { kind: "harness", key: "harness:codex", harnessId: "codex", name: [] };
     expect(mentionSelection([after[0]!, harness], undefined, true)).toBe(1);
     expect(mentionSelection([after[0]!, harness], undefined, true, true)).toBe(0);
-    const first = mentionItems({ query: "pr", files: [], sessions: [], extension: [PR], extensionFirst: true });
+    const first = mentionItems({ query: "pr", files: [], extension: [PR], extensionFirst: true });
     expect(mentionSelection(first, undefined, true, true)).toBe(0);
   });
 
   test("an insert that starts like a Markdown block is escaped at the start of a line", () => {
     const quote = { ...PR, insert: "> quoted" };
     const numbered = { ...PR, insert: "1. first" };
-    const [q] = mentionItems({ query: "pr", files: [], sessions: [], extension: [quote] });
-    const [n] = mentionItems({ query: "pr", files: [], sessions: [], extension: [numbered] });
+    const [q] = mentionItems({ query: "pr", files: [], extension: [quote] });
+    const [n] = mentionItems({ query: "pr", files: [], extension: [numbered] });
     expect(mentionInsert(q!).markdown).toBe("\\> quoted ");
     expect(mentionInsert(n!).markdown).toBe("1\\. first ");
   });
@@ -106,7 +106,7 @@ describe("extension @ mentions (cmux.composer.mention/1)", () => {
   });
 
   test("picking an extension row writes its insert text, not an @ path", () => {
-    const [row] = mentionItems({ query: "pr", files: [], sessions: [], extension: [PR] });
+    const [row] = mentionItems({ query: "pr", files: [], extension: [PR] });
     expect(mentionInsert(row!)).toEqual({
       shown: "PR #441 (https://github.com/o/r/pull/441) ",
       markdown: "PR #441 (https://github.com/o/r/pull/441) ",
