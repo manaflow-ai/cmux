@@ -294,10 +294,10 @@ final class CEFInTreeHosting {
     /// is a resize of the window itself.
     private var windowSizeAtLastResize: CGSize?
 
-    /// The host view took a new size in this turn: the page's compositor resized in that layout. When the window itself
-    /// took a new size (its edge dragged, a zoom), the page joins the window's resize fence for this turn, so the render
-    /// server shows the window's commit with the page's first frame at the new size, up to about one frame. The main
-    /// thread waits for nothing; a miss shows the last frame, pinned top-left and clipped by the container.
+    /// The host view took a new size in this turn: the page's compositor resized in that layout, and the page joins the
+    /// window's resize fence for this turn with the wait ``fenceTimeoutMs(windowResized:fullScreenTransition:refreshMs:)``
+    /// gives, so the render server shows the window's commit with the page's first frame at the new size. The main thread
+    /// waits for nothing; a miss shows the last frame, pinned top-left and clipped by the container.
     ///
     /// Chrome's rule (`NativeWidgetNSWindowBridge::ShouldWaitInPreCommit`): its window's commit waits for a compositor
     /// frame only while the window's content size differs from its last frame's, and never in a full screen transition
@@ -312,20 +312,32 @@ final class CEFInTreeHosting {
         let windowSize = window.frame.size
         let windowResized = windowSizeAtLastResize.map { $0 != windowSize } ?? false
         windowSizeAtLastResize = windowSize
-        guard Self.joinsFence(windowResized: windowResized || window.inLiveResize,
-                              fullScreenTransition: Motion.isFullScreenTransitioning(window)) else { return }
         let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
-        let timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs
-            : Int32(max(8, refreshMs.rounded(.up)))
+        guard let wait = Self.fenceTimeoutMs(windowResized: windowResized || window.inLiveResize,
+                                             fullScreenTransition: Motion.isFullScreenTransitioning(window),
+                                             refreshMs: refreshMs) else { return }
+        let timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs : wait
         resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
             fence(browser, port, timeout, done)
         }
     }
 
-    /// Whether a page resize holds the window's commit for the page's frame (``pageViewResized()``): only a resize of
-    /// the window itself, outside a full screen transition.
-    nonisolated static func joinsFence(windowResized: Bool, fullScreenTransition: Bool) -> Bool {
-        windowResized && !fullScreenTransition
+    /// How long a page resize holds the window's commit for the page's frame (``pageViewResized()``), in ms; nil holds
+    /// nothing.
+    /// - A full screen transition holds nothing: AppKit animates a snapshot, and Chrome's window waits for no frame in
+    ///   it either (`ShouldWaitInPreCommit`, crbug.com/875707).
+    /// - A resize of the window itself waits up to one display frame (at least 8 ms), as before: the window and the page
+    ///   take the new size in one frame.
+    /// - A resize inside the window (a divider drag, a pane spring) waits at most half a display frame
+    ///   (``CEFResizeSyncDeadline/frameShare``, the layer-hosted pages' cap): a page that draws in time shows with its
+    ///   pane, and a slow one shows its last frame, pinned top-left and clipped, instead of making the window miss its
+    ///   frame. Measured on the other Mac (c76917cb, 120 fps recorder): no wait, 189 of 504 divider-drag frames a frame
+    ///   stale; the full wait, 10 of 503 at the same frame count, but the user's heavy page dropped to about 28 of 60
+    ///   frames a second with it (defects.md 8).
+    nonisolated static func fenceTimeoutMs(windowResized: Bool, fullScreenTransition: Bool, refreshMs: Double) -> Int32? {
+        if fullScreenTransition { return nil }
+        if windowResized { return Int32(max(8, refreshMs.rounded(.up))) }
+        return Int32(max(1, (refreshMs * CEFResizeSyncDeadline.frameShare).rounded(.down)))
     }
 
     /// Gives the page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of the

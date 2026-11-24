@@ -135,13 +135,21 @@ struct BrowserChromeTabSwitch {
 
     func bind(_ tab: any BrowserTab, _ state: BrowserChromeTabState) {
         state.loads.follow(tab)
+        // A new tab's wait ends (`awaitNewTab`): the leaving tab's state is saved already, its page hidden.
+        let awaited = chrome.isAwaitingTab
+        if awaited { chrome.isAwaitingTab = false }
         guard state !== chrome.boundState else {
+            if awaited {
+                // The same tab again (the new tab went before its page came): what it showed comes back.
+                restore(from: state)
+                BrowserPageArea(container: chrome.contentContainer).show(chrome.tab.contentView)
+            }
             if tab !== chrome.tab { chrome.tab = tab }
             return
         }
         let leaving = chrome.tab, parks = chrome.boundState != nil
         if let previous = chrome.boundState {
-            save(into: previous)
+            if !awaited { save(into: previous) }
             previous.chrome = nil
         }
         // The tab moved here from another pane: that chrome hands over what it shows for it (a cookie import offer it

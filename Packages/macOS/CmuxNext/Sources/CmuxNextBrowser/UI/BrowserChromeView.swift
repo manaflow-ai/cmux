@@ -105,6 +105,8 @@ public final class BrowserChromeView: NSView {
     private var observation: ObservationLoop?
     var boundState: BrowserChromeTabState?  // the tab state shown now (`bind(_:state:)`); nil: one page only
     var parksLeavingPage = false  // while `bind(_:state:)` switches: the leaving page stays, hidden
+    /// A new tab of the pane waits for its page (`awaitNewTab()`): the bound tab's state is saved and its page hidden.
+    public internal(set) var isAwaitingTab = false
     /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
     /// bar, and a new prompt does not re-run the rest of the chrome.
     private var promptObservation: ObservationLoop?

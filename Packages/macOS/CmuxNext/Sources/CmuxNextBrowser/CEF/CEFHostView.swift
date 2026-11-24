@@ -324,6 +324,15 @@ final class CEFHostView: NSView {
     /// `geometryOnly`: a layout motion frame that changed no clip shape (`browserPagesGeometryOnlyKey`); a page whose
     /// ``PlacementKey`` is the one the fork last read works out no geometry then (O(moved pages) builds per frame).
     func pagesNeedUpdate(force: Bool, geometryOnly: Bool = false) { // perf-hot: 0.05ms cef-geometry (every page, every motion frame)
+        // In tree the page is this view's own subview: the fork's update of it (`-updateDetached`) reads no occlusion or
+        // clip, and it already runs on every frame notice of this view and its ancestors and on the window's move,
+        // resize and screen notices, which the fork observes itself. A post here only repeated that update (a headless
+        // window frame and a Views layout of the hidden Browser view) once more per page per motion frame. A show
+        // (`CEFPaneHost.showBrowser`) and a spring's landing (`paneMotionSettled`) still post.
+        if inTree.isInTree, !force {
+            Self.trackerStats.inTreeGeometrySkips += 1
+            return
+        }
         let key = PlacementKey(of: self)
         if geometryOnly, !force, readGeometry != nil, key == readPlacement {
             Self.trackerStats.geometrySkips += 1
