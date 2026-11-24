@@ -151,6 +151,13 @@ public struct CmuxEgress {
         }
     }
 
+    /// ``shared(site:)`` for a URL the person picked in the moment (an image they copy, a link they open): its host
+    /// is let through as ``allowNamed(_:)`` would. Never call it with a URL from the code or a server's answer.
+    public static func named(_ url: URL, site: String) -> URLSession {
+        allowNamed(url)
+        return shared(site: site)
+    }
+
     // MARK: WebSocket
 
     private static let refusedURL = URL(string: "ws://127.0.0.1:1/egress-refused") ?? URL(fileURLWithPath: "/")

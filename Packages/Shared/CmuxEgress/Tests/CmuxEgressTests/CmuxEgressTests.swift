@@ -25,6 +25,14 @@ struct CmuxEgressTests {
         #expect(CmuxEgress.verdict("git.my-company.dev") == .named)
     }
 
+    /// A URL the person picked (Copy Image) passes through the session that fetches it.
+    @Test func aPickedURLsHostPasses() throws {
+        let url = try #require(URL(string: "https://images.picked-egress-test.org/a.png"))
+        #expect(CmuxEgress.verdict("images.picked-egress-test.org") == .unlisted)
+        _ = CmuxEgress.named(url, site: "CmuxEgressTests.picked")
+        #expect(CmuxEgress.verdict("images.picked-egress-test.org") == .named)
+    }
+
     @Test func hostParsing() {
         #expect(CmuxEgress.hostOf("https://User@Example.ORG.:8080/a?b#c") == "example.org")
         #expect(CmuxEgress.hostOf("[::1]:9") == "::1")

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxEgress
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
@@ -8,7 +7,7 @@ import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextWindowRules
 import typealias CmuxNextBridge.StripTabID
-import Foundation
+import CmuxEgress
 import Observation
 
 /// "Chief: Open Memory Inspector" (palette, `cmux chief memory`, MCP, and the
@@ -263,9 +262,8 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
 
     /// The page's URL with a fresh one-time ticket (`GET /api/ticket` with the token).
     func ticketURL(session: URLSession = CmuxEgress.shared(site: "CmuxNextApp.ChiefInspectorHandlers")) async throws -> URL {
-        var request = URLRequest(url: url.appendingPathComponent("api/ticket"))
+        var request = URLRequest(url: url.appendingPathComponent("api/ticket"), timeoutInterval: 5)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = 5
         let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.userAuthenticationRequired) }
         let ticket = try JSONDecoder().decode(Ticket.self, from: data).ticket
