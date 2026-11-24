@@ -81,8 +81,9 @@ class SupersededGateTest(unittest.TestCase):
         self.assertEqual(gate.get("continue-on-error"), "true", "a failed gate must not fail the run")
         mine, theirs = step(gate, "stale"), step(preflight, "stale")
         self.assertIn(SCRIPT, mine["run"])
-        self.assertEqual(mine["run"], theirs["run"])
-        self.assertEqual(mine["env"], theirs["env"])
+        # tree-preflight's step adds the coalescing-window arguments (#51879); the gate asks the same question.
+        self.assertTrue(theirs["run"].startswith(mine["run"]), (mine["run"], theirs["run"]))
+        self.assertEqual({k: v for k, v in theirs["env"].items() if k in mine["env"]}, mine["env"])
         self.assertTrue(all("secrets." not in str(v) for v in mine["env"].values()))
         checkout = gate["steps"][0]["with"]
         self.assertIn(SCRIPT, checkout["sparse-checkout"])
