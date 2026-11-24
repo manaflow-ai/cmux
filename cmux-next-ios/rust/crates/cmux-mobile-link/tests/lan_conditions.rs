@@ -250,6 +250,7 @@ async fn dial_relayed_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option
             LinkConfig::default(),
         )
         .await
+        .map_err(|error| eprintln!("COLDDIALERR {error:?}"))
         .ok()?;
         Some(Up { connected, _signaling: Some(phone) })
     };
