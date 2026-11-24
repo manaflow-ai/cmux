@@ -46,18 +46,18 @@ public final class PanePictures {
     public let capacity: Int
     private var slots: [String: Slot] = [:]
     private var order: [String] = []
-    private let makeSchedule: (Kind) -> (any PanePictureScheduling)?
-    private let now: () -> UInt64
-    private let sleep: (UInt64) async -> Void
+    private let makeSchedule: @MainActor (Kind) -> (any PanePictureScheduling)?
+    private let now: @MainActor () -> UInt64
+    private let sleep: @MainActor (UInt64) async -> Void
 
     /// - Parameters:
     ///   - makeSchedule: a tab's new schedule; nil leaves it unscheduled (captured on every ask).
     ///   - now: monotonic milliseconds.
     ///   - sleep: waits that many milliseconds.
     public init(capacity: Int = 48,
-                makeSchedule: @escaping (Kind) -> (any PanePictureScheduling)? = PanePictures.rustSchedule,
-                now: @escaping () -> UInt64 = PanePictures.monotonicMs,
-                sleep: @escaping (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0 * 1_000_000) }) {
+                makeSchedule: @escaping @MainActor (Kind) -> (any PanePictureScheduling)? = PanePictures.rustSchedule,
+                now: @escaping @MainActor () -> UInt64 = PanePictures.monotonicMs,
+                sleep: @escaping @MainActor (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0 * 1_000_000) }) {
         self.capacity = capacity
         self.makeSchedule = makeSchedule
         self.now = now
