@@ -128,7 +128,9 @@ pub fn add_candidates(
             }
         }
     }
-    out.extend(addresses.iter().copied().filter(|address| !out.contains(address)));
+    let remaining =
+        addresses.iter().copied().filter(|address| !out.contains(address)).collect::<Vec<_>>();
+    out.extend(remaining);
     out
 }
 
