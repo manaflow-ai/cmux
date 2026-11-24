@@ -43,6 +43,23 @@ use futures::StreamExt as _;
 /// How many due harnesses one idle pass ends at once (`stop_idle_children`).
 const IDLE_EXITS_AT_ONCE: usize = 16;
 
+/// How long an agent marked to restart when quiet (`Session::respawn_when_quiet`) logs nothing
+/// before the idle pass ends it. While it is at work each pass that finds it busy starts the
+/// period again, so a marked agent costs at most one gate check (and census) per period.
+const QUIET_RESPAWN: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// [`QUIET_RESPAWN`]; debug builds read `ACPMUX_TEST_QUIET_RESPAWN_MS` (the integration tests'
+/// seam). Release builds have no seam.
+pub(super) fn quiet_respawn() -> std::time::Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_QUIET_RESPAWN_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        return std::time::Duration::from_millis(ms);
+    }
+    QUIET_RESPAWN
+}
+
 /// One agent request on its way to its answer (`Session::agent_requests`): counted from when the
 /// inbound loop reads it until its task ends.
 pub(super) struct AgentRequest(Arc<Session>);
@@ -157,6 +174,15 @@ impl Hub {
         // Reads of peer chats ahead of an open end too, before the last flush (`peer_snapshot/warm.rs`).
         self.peer_snapshots.stop_warming();
         self.idle_wake.notify_one();
+    }
+
+    /// The agent of `session` restarts once nothing runs in it (`Session::respawn_when_quiet`):
+    /// its host moves as a host below this build's level does (`host_level.rs` `host_moves`),
+    /// after [`quiet_respawn`] with nothing logged, under every gate an idle exit has, the census
+    /// of what runs under it included, and its next prompt starts it again.
+    pub(super) fn respawn_when_quiet(self: &Arc<Self>, session: &Session) {
+        session.respawn_when_quiet.store(true, Ordering::SeqCst);
+        self.wake_idle_reaper();
     }
 
     /// A child was published: make sure the reaper runs and sees it.
@@ -321,6 +347,8 @@ impl Hub {
         // every gate read again. An exit the drain handles is no hibernation's (the mark is
         // set after it).
         let seen = session.last_active.load(Ordering::SeqCst);
+        // Read before the agent ends: its end clears the mark (`settle_profile_respawn`).
+        let quiet = session.respawn_when_quiet.load(Ordering::SeqCst);
         Self::drain_inbound(&session).await;
         if session.last_active.load(Ordering::SeqCst) != seen
             || seen.saturating_add(idle) > self.clock_now()
@@ -338,7 +366,13 @@ impl Hub {
         drop((turn, using, spawning));
         tracing::info!(
             session = %session.id,
-            cause = if moving { "host-level" } else { "idle" },
+            cause = if !moving {
+                "idle"
+            } else if quiet {
+                "restart-when-quiet"
+            } else {
+                "host-level"
+            },
             idle_secs = idle_for / 1_000_000_000,
             exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
             "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
