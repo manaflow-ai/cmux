@@ -114,9 +114,12 @@ fn exited_within(child: &mut Child, budget: Duration) -> Option<std::process::Ex
 #[test]
 fn a_take_over_refuses_no_connect_and_drops_no_request() {
     let dir = daemon_env::Scratch::new("amx-lho");
-    let home = dir.join("home");
+    // The home and the socket sit in a short directory whatever $TMPDIR is: the side socket the
+    // handover uses is made in the home, and a home too long for a socket path binds instead.
+    let short = cmux_unix_socket::short_test_dir("amx-lho");
+    let home = short.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
-    let socket = dir.join("a.sock");
+    let socket = short.path().join("a.sock");
     let mut current = start(&dir, &home, &socket);
 
     let tally = Arc::new(Tally::default());
