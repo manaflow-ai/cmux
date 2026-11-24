@@ -346,10 +346,10 @@ impl Policy for ByClass {
         if ctx.pending {
             return f64::INFINITY;
         }
-        if let Some(a) = &mut self.with_history {
-            if a.hist.len() >= a.min_history {
-                return a.timeout(ctx);
-            }
+        if let Some(a) = &mut self.with_history
+            && a.hist.len() >= a.min_history
+        {
+            return a.timeout(ctx);
         }
         let t = &self.table[self.fold];
         *t.get(ctx.last_tool).or_else(|| t.get("*")).unwrap_or(&TODAY_SECONDS)
@@ -448,7 +448,7 @@ fn pct(v: &mut [f64], p: f64) -> f64 {
     if v.is_empty() {
         return 0.0;
     }
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v.sort_by(f64::total_cmp);
     v[(((v.len() - 1) as f64) * p).round() as usize]
 }
 
@@ -489,7 +489,7 @@ impl Report {
 /// The static frontier's awake seconds at a given resume count (linear between grid points).
 fn static_awake_at(statics: &[Score], resumes: usize) -> Option<f64> {
     let mut pts: Vec<(f64, f64)> = statics.iter().map(|s| (s.resumes as f64, s.awake_s)).collect();
-    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
     let r = resumes as f64;
     pts.windows(2).find(|w| w[0].0 <= r && r <= w[1].0).map(|w| {
         if w[1].0 == w[0].0 {
@@ -504,7 +504,9 @@ fn run(sessions: &[Session], cost: &ResumeCost, lambda: f64, mode: Mode) -> Stri
     let static_grid = [0.0, 2.0, 5.0, 10.0, 15.0, 30.0, 45.0, 60.0, 120.0, 300.0, 600.0, 900.0];
     let statics: Vec<Score> =
         static_grid.iter().map(|&t| replay(sessions, &mut Fixed(t), cost, 7, mode)).collect();
-    let base = statics.iter().find(|s| s.name == "static 15 min").unwrap().clone();
+    let Some(base) = statics.iter().find(|s| s.name == "static 15 min").cloned() else {
+        return "no static 15 min row\n".to_string();
+    };
 
     let mut dynamics: Vec<Score> = vec![];
     for &l in &[10.0, 30.0, 120.0] {
@@ -562,10 +564,12 @@ fn run(sessions: &[Session], cost: &ResumeCost, lambda: f64, mode: Mode) -> Stri
     );
     let report = Report { rows: statics.iter().chain(dynamics.iter()).cloned().collect() };
     out += &report.table(&base, lambda);
-    let sbest =
-        statics.iter().min_by(|a, b| a.objective(lambda).total_cmp(&b.objective(lambda))).unwrap();
-    let dbest =
-        dynamics.iter().min_by(|a, b| a.objective(lambda).total_cmp(&b.objective(lambda))).unwrap();
+    let by_objective = |a: &&Score, b: &&Score| a.objective(lambda).total_cmp(&b.objective(lambda));
+    let (Some(sbest), Some(dbest)) =
+        (statics.iter().min_by(by_objective), dynamics.iter().min_by(by_objective))
+    else {
+        return out;
+    };
     out += &format!(
         "\nobjective λ={}: static best `{}` {:.1} h; dynamic best `{}` {:.1} h; gap {:.1} h ({:.1}% of static best)\n",
         fmt_secs(lambda),
@@ -598,11 +602,21 @@ fn run(sessions: &[Session], cost: &ResumeCost, lambda: f64, mode: Mode) -> Stri
     out
 }
 
-fn main() {
+const USAGE: &str = "usage: pause-replay TIMELINES.json [--lambda SECONDS] [--only main|sub] [--pause-waits] [--no-tail]";
+
+fn main() -> std::process::ExitCode {
+    match real_main() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("pause-replay: {e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn real_main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let path = args
-        .next()
-        .expect("usage: pause-replay TIMELINES.json [--lambda SECONDS] [--only main|sub] [--pause-waits] [--no-tail]");
+    let path = args.next().ok_or(USAGE)?;
     let mut lambda = 30.0;
     let mut only: Option<String> = None;
     let mut mode = Mode::default();
@@ -611,14 +625,14 @@ fn main() {
             "--pause-waits" => mode.pause_waits = true,
             "--no-tail" => mode.no_tail = true,
             "--lambda" => {
-                lambda = args.next().and_then(|v| v.parse().ok()).expect("--lambda SECONDS")
+                lambda = args.next().and_then(|v| v.parse().ok()).ok_or("--lambda SECONDS")?
             }
             "--only" => only = args.next(),
-            other => panic!("unknown argument {other}"),
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
         }
     }
-    let input: Input = serde_json::from_slice(&std::fs::read(&path).expect("read timelines"))
-        .expect("parse timelines");
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let input: Input = serde_json::from_slice(&bytes).map_err(|e| format!("parse {path}: {e}"))?;
     let sessions: Vec<Session> = input
         .sessions
         .iter()
@@ -639,6 +653,7 @@ fn main() {
         println!("## Resume cost: {label}\n");
         println!("{}", run(&sessions, cost, lambda, mode));
     }
+    Ok(())
 }
 
 #[cfg(test)]
