@@ -124,6 +124,7 @@ extension AgentTabStore {
             guard let services else { throw DaemonError.notConnected }
             return try await services.daemon.cloudRepositoryLocal()
         }
+        tabs.projectPalette = { [weak services] in services?.palette }
         tabs.imessage = { [weak services] action, view in
             guard let services else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
             return await services.imessage.respond(action, view: view)
