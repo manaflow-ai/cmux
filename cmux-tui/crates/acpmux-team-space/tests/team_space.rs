@@ -202,6 +202,8 @@ fn digest_text_is_cut_with_a_marker() {
         author: FakeClient::agent_author("agent-a", "@team/builder", "person-a", None, None),
         text: long,
         to: vec!["@team/reviewer".to_owned()],
+        dedupe: None,
+        areas: Vec::new(),
     };
     let item = classify(&event, &me, WakePolicy::AskFirst).item().cloned().unwrap();
     assert!(item.text.ends_with(" [cut 20]"), "{}", item.text);

@@ -37,6 +37,8 @@ impl WorkThread {
             text: text.to_owned(),
             to: to.iter().map(|s| (*s).to_owned()).collect(),
             idempotency_key: format!("{}:{prompt_id}", me.id),
+            dedupe: None,
+            areas: Vec::new(),
             reported_session: me.session.clone(),
             reported_host: me.host.clone(),
         })
