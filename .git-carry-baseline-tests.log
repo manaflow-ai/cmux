@@ -1,0 +1,787 @@
+$ bash ../scripts/ci/run-webviews-tests.sh src/pages/settings/devices.test.tsx src/pages/settings/editors.test.tsx src/pages/settings/layout.test.ts src/pages/settings/lazyCards.test.ts src/pages/settings/mockProvider.test.ts src/pages/settings/rowSummary.test.tsx src/pages/settings/sidebarSections.test.tsx src/pages/settings/sidebarSymbolsPaint.test.tsx src/pages/settings/themePane.test.tsx
+running 9 webviews test files, 12 at a time, beside 0 browser files 4 at a time (0 dev server files after, 4 at a time), 120s each
+START src/pages/settings/editors.test.tsx (hard limit 120s)
+START src/pages/settings/mockProvider.test.ts (hard limit 120s)
+START src/pages/settings/themePane.test.tsx (hard limit 120s)
+START src/pages/settings/layout.test.ts (hard limit 120s)
+START src/pages/settings/devices.test.tsx (hard limit 120s)
+START src/pages/settings/rowSummary.test.tsx (hard limit 360s)
+START src/pages/settings/sidebarSections.test.tsx (hard limit 120s)
+START src/pages/settings/sidebarSymbolsPaint.test.tsx (hard limit 120s)
+START src/pages/settings/lazyCards.test.ts (hard limit 120s)
+FAIL src/pages/settings/mockProvider.test.ts (raw log retained for the final bounded summary)
+FAIL src/pages/settings/lazyCards.test.ts (raw log retained for the final bounded summary)
+PASS src/pages/settings/sidebarSymbolsPaint.test.tsx (raw log retained for the final bounded summary)
+FAIL src/pages/settings/sidebarSections.test.tsx (raw log retained for the final bounded summary)
+FAIL src/pages/settings/devices.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/settings/layout.test.ts (raw log retained for the final bounded summary)
+FAIL src/pages/settings/themePane.test.tsx (raw log retained for the final bounded summary)
+FAIL src/pages/settings/editors.test.tsx (raw log retained for the final bounded summary)
+FAIL src/pages/settings/rowSummary.test.tsx (raw log retained for the final bounded summary)
+RETRY src/pages/settings/mockProvider.test.ts (remaining budget 120s, hard limit 120s)
+START src/pages/settings/mockProvider.test.ts (hard limit 120s)
+FAIL src/pages/settings/mockProvider.test.ts (raw log retained for the final bounded summary)
+RETRY src/pages/settings/lazyCards.test.ts (remaining budget 119s, hard limit 119s)
+START src/pages/settings/lazyCards.test.ts (hard limit 119s)
+FAIL src/pages/settings/lazyCards.test.ts (raw log retained for the final bounded summary)
+RETRY src/pages/settings/sidebarSections.test.tsx (remaining budget 118s, hard limit 118s)
+START src/pages/settings/sidebarSections.test.tsx (hard limit 118s)
+FAIL src/pages/settings/sidebarSections.test.tsx (raw log retained for the final bounded summary)
+RETRY src/pages/settings/devices.test.tsx (remaining budget 116s, hard limit 116s)
+START src/pages/settings/devices.test.tsx (hard limit 116s)
+FAIL src/pages/settings/devices.test.tsx (raw log retained for the final bounded summary)
+RETRY src/pages/settings/themePane.test.tsx (remaining budget 114s, hard limit 114s)
+START src/pages/settings/themePane.test.tsx (hard limit 114s)
+FAIL src/pages/settings/themePane.test.tsx (raw log retained for the final bounded summary)
+RETRY src/pages/settings/editors.test.tsx (remaining budget 108s, hard limit 108s)
+START src/pages/settings/editors.test.tsx (hard limit 108s)
+PASS src/pages/settings/editors.test.tsx (raw log retained for the final bounded summary)
+RETRY src/pages/settings/rowSummary.test.tsx (remaining budget 100s, hard limit 100s)
+START src/pages/settings/rowSummary.test.tsx (hard limit 100s)
+FAIL src/pages/settings/rowSummary.test.tsx (raw log retained for the final bounded summary)
+::group::FAIL src/pages/settings/devices.test.tsx
+--- first run: FAIL ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/devices.test.tsx:
+344 |   const page = await open();
+345 |   const self = card(page.container).querySelector<HTMLElement>(
+346 |     '[data-devices-group="this"] [data-device="dev-mac-studio"]',
+347 |   )!;
+348 |   const full = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809";
+349 |   expect(self.querySelector("[data-device-fingerprint] code")!.getAttribute("title")).toBe(full);
+                                                                                            ^
+error: expect(received).toBe(expected)
+
+Expected: "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+Received: null
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/devices.test.tsx:349:87)
+(fail) a fingerprint shows the whole key on hover and Copy writes it [68.57ms]
+357 |   const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
+358 |   expect(table.classList.contains("devices-history-fixed")).toBe(true);
+359 |   expect(table.querySelectorAll("colgroup col").length).toBe(7);
+360 |   const first = table.querySelector("tbody tr")!;
+361 |   for (const cell of first.querySelectorAll("td.devices-wrap"))
+362 |     expect(cell.getAttribute("title")).toBe(cell.textContent);
+                                             ^
+error: expect(received).toBe(expected)
+
+Expected: "Aziz's iPhone"
+Received: null
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/devices.test.tsx:362:40)
+(fail) history fits its card: fixed columns, names wrap at word boundaries, full text on hover [100.86ms]
+
+ 18 pass
+ 2 fail
+ 97 expect() calls
+Ran 20 tests across 1 file. [6.81s]
+--- retry, alone ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/devices.test.tsx:
+344 |   const page = await open();
+345 |   const self = card(page.container).querySelector<HTMLElement>(
+346 |     '[data-devices-group="this"] [data-device="dev-mac-studio"]',
+347 |   )!;
+348 |   const full = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809";
+349 |   expect(self.querySelector("[data-device-fingerprint] code")!.getAttribute("title")).toBe(full);
+                                                                                            ^
+error: expect(received).toBe(expected)
+
+Expected: "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+Received: null
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/devices.test.tsx:349:87)
+(fail) a fingerprint shows the whole key on hover and Copy writes it [62.22ms]
+357 |   const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
+358 |   expect(table.classList.contains("devices-history-fixed")).toBe(true);
+359 |   expect(table.querySelectorAll("colgroup col").length).toBe(7);
+360 |   const first = table.querySelector("tbody tr")!;
+361 |   for (const cell of first.querySelectorAll("td.devices-wrap"))
+362 |     expect(cell.getAttribute("title")).toBe(cell.textContent);
+                                             ^
+error: expect(received).toBe(expected)
+
+Expected: "Aziz's iPhone"
+Received: null
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/devices.test.tsx:362:40)
+(fail) history fits its card: fixed columns, names wrap at word boundaries, full text on hover [56.31ms]
+
+ 18 pass
+ 2 fail
+ 97 expect() calls
+Ran 20 tests across 1 file. [2.79s]
+::endgroup::
+::group::FAIL src/pages/settings/lazyCards.test.ts
+--- first run: FAIL ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/lazyCards.test.ts:
+45 | test("the page's startup script carries no card, no Chief character art and no mock fixture", () => {
+46 |   const closure = [...staticClosure(path.join(here, "main.tsx"))].map((file) => path.relative(here, file));
+47 |   const cardModules = readFileSync(path.join(here, "components/cardModules.tsx"), "utf8");
+48 |   const cards = [...cardModules.matchAll(/import\("\.\/([A-Za-z]+)"\)/g)].map((match) => `components/${match[1]}.tsx`);
+49 |   expect(cards.length).toBeGreaterThan(30);
+50 |   expect(closure.filter((file) => cards.includes(file))).toEqual([]);
+                                                              ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "components/CustomizeDoctorCard.tsx",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/lazyCards.test.ts:50:58)
+(fail) the page's startup script carries no card, no Chief character art and no mock fixture [455.74ms]
+
+ 1 pass
+ 1 fail
+ 7 expect() calls
+Ran 2 tests across 1 file. [4.15s]
+--- retry, alone ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/lazyCards.test.ts:
+45 | test("the page's startup script carries no card, no Chief character art and no mock fixture", () => {
+46 |   const closure = [...staticClosure(path.join(here, "main.tsx"))].map((file) => path.relative(here, file));
+47 |   const cardModules = readFileSync(path.join(here, "components/cardModules.tsx"), "utf8");
+48 |   const cards = [...cardModules.matchAll(/import\("\.\/([A-Za-z]+)"\)/g)].map((match) => `components/${match[1]}.tsx`);
+49 |   expect(cards.length).toBeGreaterThan(30);
+50 |   expect(closure.filter((file) => cards.includes(file))).toEqual([]);
+                                                              ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "components/CustomizeDoctorCard.tsx",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/lazyCards.test.ts:50:58)
+(fail) the page's startup script carries no card, no Chief character art and no mock fixture [28.23ms]
+
+ 1 pass
+ 1 fail
+ 7 expect() calls
+Ran 2 tests across 1 file. [952.00ms]
+::endgroup::
+::group::FAIL src/pages/settings/mockProvider.test.ts
+--- first run: FAIL ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/mockProvider.test.ts:
+21 |       );
+22 |       if (code !== "cmux.settings.invalid") failures.push(`${row.key} accepted ${JSON.stringify(value)}`);
+23 |     }
+24 |   }
+25 |   close();
+26 |   expect(failures).toEqual([]);
+                        ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "appearance.backgroundRecents accepted ["daily","daily"]",
++   "appearance.backgroundRecents accepted ["folder:/"]",
++   "appearance.backgroundRecents accepted ["folder:relative"]",
++   "appearance.backgroundRecents accepted ["__not_a_backdrop__"]",
++   "appearance.backgroundRecents accepted ["file:/a.png","file:/b.png","file:/c.png","file:/d.png","file:/e.png","file:/f.png","file:/g.png","file:/h.png","file:/i.png"]",
++ ]
+
+- Expected  - 1
++ Received  + 7
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/mockProvider.test.ts:26:20)
+(fail) the mock validates every row like the schema's accept/refuse samples [176.25ms]
+
+ 3 pass
+ 1 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [3.11s]
+--- retry, alone ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/mockProvider.test.ts:
+21 |       );
+22 |       if (code !== "cmux.settings.invalid") failures.push(`${row.key} accepted ${JSON.stringify(value)}`);
+23 |     }
+24 |   }
+25 |   close();
+26 |   expect(failures).toEqual([]);
+                        ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "appearance.backgroundRecents accepted ["daily","daily"]",
++   "appearance.backgroundRecents accepted ["folder:/"]",
++   "appearance.backgroundRecents accepted ["folder:relative"]",
++   "appearance.backgroundRecents accepted ["__not_a_backdrop__"]",
++   "appearance.backgroundRecents accepted ["file:/a.png","file:/b.png","file:/c.png","file:/d.png","file:/e.png","file:/f.png","file:/g.png","file:/h.png","file:/i.png"]",
++ ]
+
+- Expected  - 1
++ Received  + 7
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/mockProvider.test.ts:26:20)
+(fail) the mock validates every row like the schema's accept/refuse samples [37.68ms]
+
+ 3 pass
+ 1 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [730.00ms]
+::endgroup::
+::group::FAIL src/pages/settings/rowSummary.test.tsx
+--- first run: FAIL ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/rowSummary.test.tsx:
+109 |       }
+110 |       page.unmount();
+111 |       page = null;
+112 |     }
+113 |   }
+114 |   expect([...long]).toEqual([]);
+                          ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "en devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "en devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ar devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ar devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "bs agents (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "bs devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "bs computer use off unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use off cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use unavailable unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use unavailable cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use starting unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use starting cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use ready unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use ready cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use version_mismatch unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use version_mismatch cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "da devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "da devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "de appearance (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert",
++   "de devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "de devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "de theme light/dark (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert",
++   "es appearance (61): Avisarme cuando un archivo o una capa cambie mi configuración",
++   "es devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "es devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "es theme light/dark (61): Avisarme cuando un archivo o una capa cambie mi configuración",
++   "fr appearance (67): Me prévenir quand un fichier ou une couche modifie ma configuration",
++   "fr agents (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr mobile (67): Les nouveaux téléphones de votre compte se connectent sans demander",
++   "fr devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "fr devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "fr theme light/dark (67): Me prévenir quand un fichier ou une couche modifie ma configuration",
++   "fr computer use off unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use off cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use unavailable unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use unavailable cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use starting unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use starting cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use ready unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use ready cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use version_mismatch unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use version_mismatch cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "it appearance (67): Avvisami quando un file o un livello modifica la mia configurazione",
++   "it tabs (61): Un secondo tono per la barra laterale e la barra delle schede",
++   "it devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "it devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "it theme light/dark (67): Avvisami quando un file o un livello modifica la mia configurazione",
++   "ja devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ja devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "km devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "km devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ko devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ko devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "nb devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "nb devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "pl devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "pl devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "pt-BR devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "pt-BR devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ru agents (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ru devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ru computer use off unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use off cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use unavailable unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use unavailable cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use starting unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use starting cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use ready unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use ready cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use version_mismatch unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use version_mismatch cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "th devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "th devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "tr appearance (61): Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver",
++   "tr agents (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr agents (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "tr devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "tr theme light/dark (61): Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver",
++   "tr computer use off unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use off unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use off cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use off cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use unavailable unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use unavailable unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use unavailable cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use unavailable cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use starting unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use starting unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use starting cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use starting cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use ready unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use ready unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use ready cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use ready cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use version_mismatch unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use version_mismatch unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use version_mismatch cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use version_mismatch cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "uk agents (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk agents (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk mobile (63): Нові телефони вашого облікового запису підключаються без запиту",
++   "uk devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "uk devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "uk computer use off unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use off unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use off cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use off cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use unavailable unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use unavailable unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use unavailable cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use unavailable cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use starting unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use starting unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use starting cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use starting cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use ready unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use ready unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use ready cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use ready cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use version_mismatch unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use version_mismatch unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use version_mismatch cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use version_mismatch cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "vi agents (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "vi devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "vi computer use off unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use off cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use unavailable unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use unavailable cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use starting unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use starting cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use ready unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use ready cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use version_mismatch unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use version_mismatch cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "zh-Hans devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "zh-Hans devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "zh-Hant devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "zh-Hant devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++ ]
+
+- Expected  - 1
++ Received  + 145
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/rowSummary.test.tsx:114:21)
+(fail) no description line on any Settings page is over 60 characters, in any language [60245.41ms]
+127 |       const value = localizations[locale]?.stringUnit?.value;
+128 |       if (value === undefined) long.push(`${key} ${locale}: missing`);
+129 |       else if (characters(value) > LIMIT) long.push(`${key} ${locale} (${characters(value)}): ${value}`);
+130 |     }
+131 |   }
+132 |   expect(long).toEqual([]);
+                     ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "settings.mobile.autoApprovePhones.summary fr (67): Les nouveaux téléphones de votre compte se connectent sans demander",
++   "settings.mobile.autoApprovePhones.summary uk (63): Нові телефони вашого облікового запису підключаються без запиту",
++   "settings.customize.doctorNotice.summary de (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert",
++   "settings.customize.doctorNotice.summary es (61): Avisarme cuando un archivo o una capa cambie mi configuración",
++   "settings.customize.doctorNotice.summary fr (67): Me prévenir quand un fichier ou une couche modifie ma configuration",
++   "settings.customize.doctorNotice.summary it (67): Avvisami quando un file o un livello modifica la mia configurazione",
++   "settings.customize.doctorNotice.summary tr (61): Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver",
++   "settings.appearance.twoTone.summary it (61): Un secondo tono per la barra laterale e la barra delle schede",
++   "settings.agents.appControl.summary bs (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "settings.agents.appControl.summary tr (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "settings.agents.appControl.summary uk (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "settings.agents.appControl.summary vi (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "settings.remote.screenSharingProfile.summary fr (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "settings.remote.screenSharingProfile.summary ru (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "settings.remote.screenSharingProfile.summary tr (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "settings.remote.screenSharingProfile.summary uk (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++ ]
+
+- Expected  - 1
++ Received  + 18
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/rowSummary.test.tsx:132:16)
+(fail) every schema summary fits 60 characters in every language [91.66ms]
+
+ 1 pass
+ 2 fail
+ 5 expect() calls
+Ran 3 tests across 1 file. [64.95s]
+--- retry, alone ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/rowSummary.test.tsx:
+109 |       }
+110 |       page.unmount();
+111 |       page = null;
+112 |     }
+113 |   }
+114 |   expect([...long]).toEqual([]);
+                          ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "en devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "en devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ar devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ar devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "bs agents (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "bs devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "bs computer use off unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use off cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use unavailable unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use unavailable cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use starting unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use starting cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use ready unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use ready cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use version_mismatch unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "bs computer use version_mismatch cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "da devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "da devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "de appearance (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert",
++   "de devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "de devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "de theme light/dark (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert",
++   "es appearance (61): Avisarme cuando un archivo o una capa cambie mi configuración",
++   "es devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "es devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "es theme light/dark (61): Avisarme cuando un archivo o una capa cambie mi configuración",
++   "fr appearance (67): Me prévenir quand un fichier ou une couche modifie ma configuration",
++   "fr agents (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr mobile (67): Les nouveaux téléphones de votre compte se connectent sans demander",
++   "fr devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "fr devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "fr theme light/dark (67): Me prévenir quand un fichier ou une couche modifie ma configuration",
++   "fr computer use off unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use off cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use unavailable unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use unavailable cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use starting unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use starting cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use ready unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use ready cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use version_mismatch unsigned (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "fr computer use version_mismatch cmux Computer Use (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "it appearance (67): Avvisami quando un file o un livello modifica la mia configurazione",
++   "it tabs (61): Un secondo tono per la barra laterale e la barra delle schede",
++   "it devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "it devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "it theme light/dark (67): Avvisami quando un file o un livello modifica la mia configurazione",
++   "ja devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ja devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "km devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "km devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ko devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ko devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "nb devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "nb devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "pl devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "pl devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "pt-BR devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "pt-BR devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ru agents (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "ru devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "ru computer use off unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use off cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use unavailable unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use unavailable cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use starting unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use starting cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use ready unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use ready cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use version_mismatch unsigned (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "ru computer use version_mismatch cmux Computer Use (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "th devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "th devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "tr appearance (61): Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver",
++   "tr agents (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr agents (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "tr devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "tr theme light/dark (61): Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver",
++   "tr computer use off unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use off unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use off cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use off cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use unavailable unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use unavailable unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use unavailable cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use unavailable cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use starting unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use starting unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use starting cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use starting cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use ready unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use ready unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use ready cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use ready cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use version_mismatch unsigned (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use version_mismatch unsigned (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "tr computer use version_mismatch cmux Computer Use (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "tr computer use version_mismatch cmux Computer Use (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "uk agents (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk agents (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk mobile (63): Нові телефони вашого облікового запису підключаються без запиту",
++   "uk devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "uk devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "uk computer use off unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use off unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use off cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use off cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use unavailable unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use unavailable unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use unavailable cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use unavailable cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use starting unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use starting unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use starting cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use starting cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use ready unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use ready unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use ready cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use ready cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use version_mismatch unsigned (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use version_mismatch unsigned (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "uk computer use version_mismatch cmux Computer Use (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++   "uk computer use version_mismatch cmux Computer Use (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "vi agents (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "vi devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "vi computer use off unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use off cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use unavailable unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use unavailable cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use starting unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use starting cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use ready unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use ready cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use version_mismatch unsigned (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "vi computer use version_mismatch cmux Computer Use (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "zh-Hans devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "zh-Hans devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++   "zh-Hant devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy",
++   "zh-Hant devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy",
++ ]
+
+- Expected  - 1
++ Received  + 145
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/rowSummary.test.tsx:114:21)
+(fail) no description line on any Settings page is over 60 characters, in any language [55686.08ms]
+127 |       const value = localizations[locale]?.stringUnit?.value;
+128 |       if (value === undefined) long.push(`${key} ${locale}: missing`);
+129 |       else if (characters(value) > LIMIT) long.push(`${key} ${locale} (${characters(value)}): ${value}`);
+130 |     }
+131 |   }
+132 |   expect(long).toEqual([]);
+                     ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "settings.mobile.autoApprovePhones.summary fr (67): Les nouveaux téléphones de votre compte se connectent sans demander",
++   "settings.mobile.autoApprovePhones.summary uk (63): Нові телефони вашого облікового запису підключаються без запиту",
++   "settings.customize.doctorNotice.summary de (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung ändert",
++   "settings.customize.doctorNotice.summary es (61): Avisarme cuando un archivo o una capa cambie mi configuración",
++   "settings.customize.doctorNotice.summary fr (67): Me prévenir quand un fichier ou une couche modifie ma configuration",
++   "settings.customize.doctorNotice.summary it (67): Avvisami quando un file o un livello modifica la mia configurazione",
++   "settings.customize.doctorNotice.summary tr (61): Bir dosya veya katman düzenimi değiştirdiğinde bana haber ver",
++   "settings.appearance.twoTone.summary it (61): Un secondo tono per la barra laterale e la barra delle schede",
++   "settings.agents.appControl.summary bs (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je",
++   "settings.agents.appControl.summary tr (75): cmux içindeki ajanların uygulamayı yönetip değiştirebilip değiştiremeyeceği",
++   "settings.agents.appControl.summary uk (61): Чи можуть агенти в cmux керувати застосунком і змінювати його",
++   "settings.agents.appControl.summary vi (69): Tác nhân trong cmux có được điều khiển và thay đổi ứng dụng hay không",
++   "settings.remote.screenSharingProfile.summary fr (66): Qualité d’image et bande passante quand vous regardez un autre Mac",
++   "settings.remote.screenSharingProfile.summary ru (71): Качество изображения и пропускная способность при просмотре другого Mac",
++   "settings.remote.screenSharingProfile.summary tr (64): Başka bir Mac'i görüntülerken görüntü kalitesi ve bant genişliği",
++   "settings.remote.screenSharingProfile.summary uk (68): Якість зображення і пропускна здатність під час перегляду іншого Mac",
++ ]
+
+- Expected  - 1
++ Received  + 18
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/rowSummary.test.tsx:132:16)
+(fail) every schema summary fits 60 characters in every language [49.52ms]
+
+ 1 pass
+ 2 fail
+ 5 expect() calls
+Ran 3 tests across 1 file. [57.14s]
+::endgroup::
+::group::FAIL src/pages/settings/sidebarSections.test.tsx
+--- first run: FAIL ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/sidebarSections.test.tsx:
+36 | 
+37 | test("no card holds more than 16 rows", () => {
+38 |   const long = categories.flatMap((category) =>
+39 |     category.groups.filter((group) => group.rows.length > 16).map((group) => `${category.id}/${group.key}`),
+40 |   );
+41 |   expect(long).toEqual([]);
+                    ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "appearance/settings.group.windowBackground",
++   "sidebar/settings.group.sidebar",
++   "sidebar/sidebar.2",
++   "chat/chat.1",
++ ]
+
+- Expected  - 1
++ Received  + 6
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/sidebarSections.test.tsx:41:16)
+(fail) no card holds more than 16 rows [0.36ms]
+
+ 4 pass
+ 1 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [5.24s]
+--- retry, alone ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/sidebarSections.test.tsx:
+36 | 
+37 | test("no card holds more than 16 rows", () => {
+38 |   const long = categories.flatMap((category) =>
+39 |     category.groups.filter((group) => group.rows.length > 16).map((group) => `${category.id}/${group.key}`),
+40 |   );
+41 |   expect(long).toEqual([]);
+                    ^
+error: expect(received).toEqual(expected)
+
+- []
++ [
++   "appearance/settings.group.windowBackground",
++   "sidebar/settings.group.sidebar",
++   "sidebar/sidebar.2",
++   "chat/chat.1",
++ ]
+
+- Expected  - 1
++ Received  + 6
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/sidebarSections.test.tsx:41:16)
+(fail) no card holds more than 16 rows [0.28ms]
+
+ 4 pass
+ 1 fail
+ 17 expect() calls
+Ran 5 tests across 1 file. [1376.00ms]
+::endgroup::
+::group::FAIL src/pages/settings/themePane.test.tsx
+--- first run: FAIL ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/themePane.test.tsx:
+23 | const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
+24 | 
+25 | test("the Theme page draws each theme key once, in one card, with no second App Theme group", async () => {
+26 |   page = await renderPage({ path: "/settings/theme" });
+27 |   const titles = [...page.container.querySelectorAll(".group-title")].map((title) => title.textContent);
+28 |   expect(titles).not.toContain("App Theme");
+                          ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "App Theme"
+Received: [ "Wallpaper", "Density", "Density and Motion", "Window Background", "Loading Indicator",
+  "App Theme", "Customization Library"
+]
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/themePane.test.tsx:28:22)
+(fail) the Theme page draws each theme key once, in one card, with no second App Theme group [715.20ms]
+
+ 15 pass
+ 1 fail
+ 79 expect() calls
+Ran 16 tests across 1 file. [11.22s]
+--- retry, alone ---
+bun test v1.4.4 (38afee6c8)
+
+src/pages/settings/themePane.test.tsx:
+23 | const STUDIO_KEYS = ["appearance.theme", "appearance.appTheme", "appearance.accent", "appearance.themeFile"];
+24 | 
+25 | test("the Theme page draws each theme key once, in one card, with no second App Theme group", async () => {
+26 |   page = await renderPage({ path: "/settings/theme" });
+27 |   const titles = [...page.container.querySelectorAll(".group-title")].map((title) => title.textContent);
+28 |   expect(titles).not.toContain("App Theme");
+                          ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "App Theme"
+Received: [ "Wallpaper", "Density", "Density and Motion", "Window Background", "Loading Indicator",
+  "App Theme", "Customization Library"
+]
+
+      at <anonymous> (/home/cmux/.wt/checkouts/cmux/lane--replay-intro-base-check/webviews/src/pages/settings/themePane.test.tsx:28:22)
+(fail) the Theme page draws each theme key once, in one card, with no second App Theme group [314.64ms]
+
+ 15 pass
+ 1 fail
+ 79 expect() calls
+Ran 16 tests across 1 file. [5.18s]
+::endgroup::
+::group::TAP final named results
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/mockProvider.test.ts","test":"src/pages/settings/mockProvider.test.ts > the mock validates every row like the schema's accept/refuse samples","outcome":"fail","signature":"expect(received).toEqual(expected) / - [] / + [ / + \"appearance.backgroundRecents accepted [\"daily\",\"daily\"]\", / + \"appearance.backgroundRecents accepted [\"folder:/\"]\", / + \"appearance.backgroundRecents accepted [\"folder:relative\"]\", / + \"appearance.backgroundRecents accepted [\"__not_a_backdrop__\"]\", / + \"appearance.backgroundRecents accepted [\"file:/a.png\",\"file:/b.png\",\"file:/c.png\",\"file:/d.png\",\"file:/e.png\",\"file:/f.png\",\"file:/g.png\",\"file:/h.png\",\"file:/i.png\"]\", / + ] / - Expected - 1 / + Received + 7 at src/pages/settings/mockProvider.test.ts:26"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/lazyCards.test.ts","test":"src/pages/settings/lazyCards.test.ts > the page's startup script carries no card, no Chief character art and no mock fixture","outcome":"fail","signature":"expect(received).toEqual(expected) / - [] / + [ / + \"components/CustomizeDoctorCard.tsx\", / + ] / - Expected - 1 / + Received + 3 at src/pages/settings/lazyCards.test.ts:50"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/sidebarSections.test.tsx","test":"src/pages/settings/sidebarSections.test.tsx > no card holds more than 16 rows","outcome":"fail","signature":"expect(received).toEqual(expected) / - [] / + [ / + \"appearance/settings.group.windowBackground\", / + \"sidebar/settings.group.sidebar\", / + \"sidebar/sidebar.2\", / + \"chat/chat.1\", / + ] / - Expected - 1 / + Received + 6 at src/pages/settings/sidebarSections.test.tsx:41"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/devices.test.tsx","test":"src/pages/settings/devices.test.tsx > a fingerprint shows the whole key on hover and Copy writes it","outcome":"fail","signature":"expect(received).toBe(expected) / Expected: \"1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809\" / Received: null at src/pages/settings/devices.test.tsx:349"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/devices.test.tsx","test":"src/pages/settings/devices.test.tsx > history fits its card: fixed columns, names wrap at word boundaries, full text on hover","outcome":"fail","signature":"expect(received).toBe(expected) / Expected: \"Aziz's iPhone\" / Received: null at src/pages/settings/devices.test.tsx:362"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/themePane.test.tsx","test":"src/pages/settings/themePane.test.tsx > the Theme page draws each theme key once, in one card, with no second App Theme group","outcome":"fail","signature":"expect(received).not.toContain(expected) / Expected to not contain: \"App Theme\" / Received: [ \"Wallpaper\", \"Density\", \"Density and Motion\", \"Window Background\", \"Loading Indicator\", / \"App Theme\", \"Customization Library\" / ] at src/pages/settings/themePane.test.tsx:28"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/rowSummary.test.tsx","test":"src/pages/settings/rowSummary.test.tsx > every schema summary fits 60 characters in every language","outcome":"fail","signature":"expect(received).toEqual(expected) / - [] / + [ / + \"settings.mobile.autoApprovePhones.summary fr (67): Les nouveaux t\u00e9l\u00e9phones de votre compte se connectent sans demander\", / + \"settings.mobile.autoApprovePhones.summary uk (63): \u041d\u043e\u0432\u0456 \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0438 \u0432\u0430\u0448\u043e\u0433\u043e \u043e\u0431\u043b\u0456\u043a\u043e\u0432\u043e\u0433\u043e \u0437\u0430\u043f\u0438\u0441\u0443 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0430\u044e\u0442\u044c\u0441\u044f \u0431\u0435\u0437 \u0437\u0430\u043f\u0438\u0442\u0443\", / + \"settings.customize.doctorNotice.summary de (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung \u00e4ndert\", / + \"settings.customize.doctorNotice.summary es (61): Avisarme cuando un archivo o una capa cambie mi configuraci\u00f3n\", / + \"settings.customize.doctorNotice.summary fr (67): Me pr\u00e9venir quand un fichier ou une couche modifie ma configuration\", / + \"settings.customize.doctorNotice.summary it (67): Avvisami quando un file o un livello modifica la mia configurazione\", / + \"settings.customize.doctorNotice.summary tr (61): Bir dosya veya katman d\u00fczenimi de\u011fi\u015ftirdi\u011finde bana haber ver\", / + \"settings.appearance.twoTone.summary it (61): Un secondo tono per la barra laterale e la barra delle schede\", / + \"settings.agents.appControl.summary bs (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"settings.agents.appControl.summary tr (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"settings.agents.appControl.summary uk (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"settings.agents.appControl.summary vi (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"settings.remote.screenSharingProfile.summary fr (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"settings.remote.screenSharingProfile.summary ru (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"settings.remote.screenSharingProfile.summary tr (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"settings.remote.screenSharingProfile.summary uk (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + ] / - Expected - 1 / + Received + 18 at src/pages/settings/rowSummary.test.tsx:132"}
+tap-test/v1 {"schema":"tap-test/v1","file":"src/pages/settings/rowSummary.test.tsx","test":"src/pages/settings/rowSummary.test.tsx > no description line on any Settings page is over 60 characters, in any language","outcome":"fail","signature":"expect(received).toEqual(expected) / - [] / + [ / + \"en devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"en devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"ar devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"ar devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"bs agents (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"bs devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"bs computer use off unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use off cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use unavailable unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use unavailable cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use starting unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use starting cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use ready unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use ready cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use version_mismatch unsigned (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"bs computer use version_mismatch cmux Computer Use (64): Da li agenti u cmuxu smiju upravljati aplikacijom i mijenjati je\", / + \"da devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"da devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"de appearance (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung \u00e4ndert\", / + \"de devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"de devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"de theme light/dark (69): Mich informieren, wenn eine Datei oder Ebene meine Einrichtung \u00e4ndert\", / + \"es appearance (61): Avisarme cuando un archivo o una capa cambie mi configuraci\u00f3n\", / + \"es devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"es devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"es theme light/dark (61): Avisarme cuando un archivo o una capa cambie mi configuraci\u00f3n\", / + \"fr appearance (67): Me pr\u00e9venir quand un fichier ou une couche modifie ma configuration\", / + \"fr agents (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr mobile (67): Les nouveaux t\u00e9l\u00e9phones de votre compte se connectent sans demander\", / + \"fr devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"fr devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"fr theme light/dark (67): Me pr\u00e9venir quand un fichier ou une couche modifie ma configuration\", / + \"fr computer use off unsigned (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use off cmux Computer Use (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use unavailable unsigned (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use unavailable cmux Computer Use (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use starting unsigned (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use starting cmux Computer Use (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use ready unsigned (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use ready cmux Computer Use (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use version_mismatch unsigned (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"fr computer use version_mismatch cmux Computer Use (66): Qualit\u00e9 d\u2019image et bande passante quand vous regardez un autre Mac\", / + \"it appearance (67): Avvisami quando un file o un livello modifica la mia configurazione\", / + \"it tabs (61): Un secondo tono per la barra laterale e la barra delle schede\", / + \"it devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"it devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"it theme light/dark (67): Avvisami quando un file o un livello modifica la mia configurazione\", / + \"ja devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"ja devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"km devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"km devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"ko devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"ko devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"nb devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"nb devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"pl devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"pl devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"pt-BR devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"pt-BR devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"ru agents (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"ru devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"ru computer use off unsigned (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use off cmux Computer Use (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use unavailable unsigned (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use unavailable cmux Computer Use (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use starting unsigned (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use starting cmux Computer Use (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use ready unsigned (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use ready cmux Computer Use (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use version_mismatch unsigned (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"ru computer use version_mismatch cmux Computer Use (71): \u041a\u0430\u0447\u0435\u0441\u0442\u0432\u043e \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u044f \u0438 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430\u044f \u0441\u043f\u043e\u0441\u043e\u0431\u043d\u043e\u0441\u0442\u044c \u043f\u0440\u0438 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0435 \u0434\u0440\u0443\u0433\u043e\u0433\u043e Mac\", / + \"th devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"th devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"tr appearance (61): Bir dosya veya katman d\u00fczenimi de\u011fi\u015ftirdi\u011finde bana haber ver\", / + \"tr agents (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr agents (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"tr devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"tr theme light/dark (61): Bir dosya veya katman d\u00fczenimi de\u011fi\u015ftirdi\u011finde bana haber ver\", / + \"tr computer use off unsigned (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use off unsigned (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use off cmux Computer Use (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use off cmux Computer Use (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use unavailable unsigned (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use unavailable unsigned (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use unavailable cmux Computer Use (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use unavailable cmux Computer Use (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use starting unsigned (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use starting unsigned (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use starting cmux Computer Use (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use starting cmux Computer Use (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use ready unsigned (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use ready unsigned (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use ready cmux Computer Use (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use ready cmux Computer Use (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use version_mismatch unsigned (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use version_mismatch unsigned (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"tr computer use version_mismatch cmux Computer Use (64): Ba\u015fka bir Mac'i g\u00f6r\u00fcnt\u00fclerken g\u00f6r\u00fcnt\u00fc kalitesi ve bant geni\u015fli\u011fi\", / + \"tr computer use version_mismatch cmux Computer Use (75): cmux i\u00e7indeki ajanlar\u0131n uygulamay\u0131 y\u00f6netip de\u011fi\u015ftirebilip de\u011fi\u015ftiremeyece\u011fi\", / + \"uk agents (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk agents (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk mobile (63): \u041d\u043e\u0432\u0456 \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0438 \u0432\u0430\u0448\u043e\u0433\u043e \u043e\u0431\u043b\u0456\u043a\u043e\u0432\u043e\u0433\u043e \u0437\u0430\u043f\u0438\u0441\u0443 \u043f\u0456\u0434\u043a\u043b\u044e\u0447\u0430\u044e\u0442\u044c\u0441\u044f \u0431\u0435\u0437 \u0437\u0430\u043f\u0438\u0442\u0443\", / + \"uk devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"uk devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"uk computer use off unsigned (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use off unsigned (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use off cmux Computer Use (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use off cmux Computer Use (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use unavailable unsigned (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use unavailable unsigned (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use unavailable cmux Computer Use (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use unavailable cmux Computer Use (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use starting unsigned (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use starting unsigned (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use starting cmux Computer Use (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use starting cmux Computer Use (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use ready unsigned (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use ready unsigned (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use ready cmux Computer Use (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use ready cmux Computer Use (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use version_mismatch unsigned (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use version_mismatch unsigned (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"uk computer use version_mismatch cmux Computer Use (68): \u042f\u043a\u0456\u0441\u0442\u044c \u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u043d\u044f \u0456 \u043f\u0440\u043e\u043f\u0443\u0441\u043a\u043d\u0430 \u0437\u0434\u0430\u0442\u043d\u0456\u0441\u0442\u044c \u043f\u0456\u0434 \u0447\u0430\u0441 \u043f\u0435\u0440\u0435\u0433\u043b\u044f\u0434\u0443 \u0456\u043d\u0448\u043e\u0433\u043e Mac\", / + \"uk computer use version_mismatch cmux Computer Use (61): \u0427\u0438 \u043c\u043e\u0436\u0443\u0442\u044c \u0430\u0433\u0435\u043d\u0442\u0438 \u0432 cmux \u043a\u0435\u0440\u0443\u0432\u0430\u0442\u0438 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u043e\u043c \u0456 \u0437\u043c\u0456\u043d\u044e\u0432\u0430\u0442\u0438 \u0439\u043e\u0433\u043e\", / + \"vi agents (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"vi devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"vi computer use off unsigned (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use off cmux Computer Use (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use unavailable unsigned (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use unavailable cmux Computer Use (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use starting unsigned (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use starting cmux Computer Use (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use ready unsigned (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use ready cmux Computer Use (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use version_mismatch unsigned (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"vi computer use version_mismatch cmux Computer Use (69): T\u00e1c nh\u00e2n trong cmux c\u00f3 \u0111\u01b0\u1ee3c \u0111i\u1ec1u khi\u1ec3n v\u00e0 thay \u0111\u1ed5i \u1ee9ng d\u1ee5ng hay kh\u00f4ng\", / + \"zh-Hans devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"zh-Hans devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + \"zh-Hant devices (110): Fingerprint 1A2B 3C4D 5E6F 7081 92A3 B4C51a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809 Copy\", / + \"zh-Hant devices (110): Fingerprint 9F8E 7D6C 5B4A 3928 1706 F5E49f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0 Copy\", / + ] / - Expected - 1 / + Received + 145 at src/pages/settings/rowSummary.test.tsx:114"}
+::endgroup::
+### webviews tests: 9 files, 6 failed or timed out (7 retried alone, 1 passed alone)
+passed only when run alone (failed or timed out beside other files):
+  src/pages/settings/editors.test.tsx (first run: FAIL)
+FAIL src/pages/settings/devices.test.tsx (limit 120s)
+FAIL src/pages/settings/lazyCards.test.ts (limit 120s)
+FAIL src/pages/settings/mockProvider.test.ts (limit 120s)
+FAIL src/pages/settings/rowSummary.test.tsx (limit 360s)
+FAIL src/pages/settings/sidebarSections.test.tsx (limit 120s)
+FAIL src/pages/settings/themePane.test.tsx (limit 120s)
+error: script "test" exited with code 1
