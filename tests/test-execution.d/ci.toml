@@ -14,6 +14,10 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_advisory_idle_step.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_affected_jobs.py"
 lane = "linux-guard"
 
@@ -240,6 +244,11 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_gh_attestation_has_gh.py yourself after changing the workflow or script it reads."
 
 [[test]]
+path = "tests/test_ci_ghosttykit_digest_routing.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ghosttykit_digest_routing.py"
+
+[[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 
@@ -258,11 +267,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_guard_tests_emit_no_workflow_commands.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_ghosttykit_digest_routing.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ghosttykit_digest_routing.py"
 
 [[test]]
 path = "tests/test_ci_guard_workflow_structure.py"
@@ -509,6 +513,10 @@ path = "tests/test_ci_package_result_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_paid_queue_pin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
@@ -752,6 +760,10 @@ path = "tests/test_ci_rust_targets_installed_first.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_same_repo_linux_owned_first.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
 lane = "linux-guard"
 
@@ -889,6 +901,11 @@ lane = "linux-guard"
 path = "tests/test_ci_tooling_steps.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18); linux-guard needs a workflow step that runs the file, and none does. Pins scripts/ci/tooling_steps.py's per-step selection and that every tooling-tests run step in cmux-next-guards.yml is a setup step or carries its tt- id and selection if:; run python3 -m unittest tests/test_ci_tooling_steps.py yourself after changing tooling_steps.py, workflow_paths_cover_inputs.py or a tooling-tests step (about 5 s, no build)."
+
+[[test]]
+path = "tests/test_ci_traced_inputs.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_traced_inputs.py"
 
 [[test]]
 path = "tests/test_ci_tree_result.py"
