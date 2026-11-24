@@ -169,6 +169,11 @@ public final class SettingsStore {
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
     public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
+    /// Read by the terminal composer, which also toggles it from its + menu
+    /// (`CmuxMobilePreferences.terminalComposerAutocorrect`).
+    public var terminalComposerAutocorrect: Bool {
+        didSet { save(terminalComposerAutocorrect, "terminalComposerAutocorrect") }
+    }
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
@@ -194,6 +199,10 @@ public final class SettingsStore {
     /// Workspaces shows one line per workspace (the Mac's Compact Workspace List); read by the
     /// list through `CmuxMobilePreferences.Key.compactWorkspaceList`.
     public var compactWorkspaceList: Bool { didSet { save(compactWorkspaceList, "compactWorkspaceList") } }
+    /// Needs You Look (the Mac's `notifications.attention.mark`): a waiting workspace row's dot, or a
+    /// glow until it is opened. Badge by default; read by the list through
+    /// `CmuxMobilePreferences.Key.attentionMark`.
+    public var attentionMark: AttentionMarkLook { didSet { save(attentionMark.rawValue, "attentionMark") } }
 
     /// The terminal's key row zooms by writing the font size directly.
     @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
@@ -227,6 +236,8 @@ public final class SettingsStore {
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
+        terminalComposerAutocorrect = defaults.object(forKey: "cmuxMobile.settings.terminalComposerAutocorrect") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalComposerAutocorrect")
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
@@ -249,6 +260,7 @@ public final class SettingsStore {
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
+        attentionMark = AttentionMarkLook(stored: string("attentionMark"))
         #if canImport(Darwin)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
