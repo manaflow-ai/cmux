@@ -1147,7 +1147,7 @@ impl Hub {
             reported
         };
         if let Some(target) = p.target.take() {
-            let _ = target.send(session.inbound_tx.clone());
+            let _ = target.send(session.inbound_tx().clone());
         }
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
