@@ -581,6 +581,29 @@ fn is_allocate_success(datagram: &[u8]) -> bool {
     datagram.len() >= 20 && datagram[..2] == [0x01, 0x03]
 }
 
+/// How long the loopback TURN server's UDP answers to requests (Allocate,
+/// Refresh, CreatePermission, ChannelBind) take to leave it, in
+/// milliseconds: a TURN server a real round trip away, for the client's
+/// control transactions only (data is shaped by `impair_inbound`). 0, the
+/// default, answers at once.
+static TURN_ANSWER_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Sets [`TURN_ANSWER_DELAY_MS`] for every [`TestTurn`] in this process.
+pub fn set_turn_answer_delay(delay: std::time::Duration) {
+    TURN_ANSWER_DELAY_MS
+        .store(u64::try_from(delay.as_millis()).unwrap_or(u64::MAX), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A STUN success or error response (not an indication, not ChannelData).
+fn is_stun_response(datagram: &[u8]) -> bool {
+    if datagram.len() < 20 || datagram[0] & 0xc0 != 0 || datagram[4..8] != [0x21, 0x12, 0xa4, 0x42] {
+        return false;
+    }
+    let kind = u16::from_be_bytes([datagram[0], datagram[1]]);
+    let class = ((kind >> 7) & 0x2) | ((kind >> 4) & 0x1);
+    class >= 2
+}
+
 /// The TURN server's UDP socket, which drops everything while `block` is on.
 struct BlockableUdp {
     socket: Arc<tokio::net::UdpSocket>,
@@ -634,6 +657,10 @@ impl webrtc::util::Conn for BlockableUdp {
             && std::time::Instant::now() < until
         {
             late += by;
+        }
+        let answer_delay = TURN_ANSWER_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+        if answer_delay > 0 && is_stun_response(buf) {
+            late += std::time::Duration::from_millis(answer_delay);
         }
         if self.block.shaped.load(std::sync::atomic::Ordering::Relaxed) && is_stun(buf) {
             // The request's leg and the answer's, each its own draw.
