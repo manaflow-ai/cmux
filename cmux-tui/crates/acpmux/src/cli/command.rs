@@ -152,6 +152,11 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Block until a pull request's checks finish (or it merges), sharing one GitHub poller with
+    /// every other waiter on this machine. Exit 0 green or merged, 1 failing or closed, 3
+    /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
+    #[command(name = "pr-wait")]
+    PrWait(crate::cli::pr_wait::PrWaitArgs),
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -609,7 +614,8 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// Bridge Claude Desktop and Codex Desktop to each other and to cmux sessions: connect, send, inbox.
+    /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
+    /// connect, send, inbox.
     #[command(subcommand)]
     Bridge(crate::cli::bridge::BridgeCmd),
     /// Wake a session with one message when others are done or blocked: add, ls, rm.
@@ -647,6 +653,10 @@ pub enum Command {
     /// archives.
     #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
+    /// GitHub CI: wait for a workflow run (or a pull request's checks) with conditional reads
+    /// that cost no quota while nothing changes (`cli/ci_wait.rs`).
+    #[command(subcommand)]
+    Ci(crate::cli::ci_wait::CiCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
@@ -882,7 +892,12 @@ pub enum Command {
     #[command(hide = true)]
     Set { session: String, assignment: String },
     #[command(hide = true)]
-    Allow { session: String, option: Option<String> },
+    Allow {
+        session: String,
+        option: Option<String>,
+        #[arg(long)]
+        standing_grant: bool,
+    },
     #[command(hide = true)]
     Deny { session: String },
     #[command(hide = true)]
@@ -1361,9 +1376,16 @@ pub enum SessionCmd {
         team_address: Option<String>,
     },
     /// Answer a pending permission request. The daemon accepts an allow
-    /// only from the cmux app (approve it on the Mac app); a deny option
-    /// works from here.
-    Allow { session: String, option: Option<String> },
+    /// only from the cmux app (approve it on the Mac app), or signed with this
+    /// machine's standing grant (--standing-grant); a deny option works from here.
+    Allow {
+        session: String,
+        option: Option<String>,
+        /// Sign the one-time allow with the standing grant
+        /// (`acpmux machine approvals grant` records it).
+        #[arg(long)]
+        standing_grant: bool,
+    },
     /// Reject a pending permission request.
     Deny { session: String },
     /// Answer a pending agent question: one --answer per question, keyed by
@@ -1846,7 +1868,9 @@ pub fn flatten(c: Command) -> Command {
                     .or_else(|| team_address.map(|address| format!("team-address={address}")))
                     .unwrap_or_default(),
             },
-            SessionCmd::Allow { session, option } => Command::Allow { session, option },
+            SessionCmd::Allow { session, option, standing_grant } => {
+                Command::Allow { session, option, standing_grant }
+            }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },

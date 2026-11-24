@@ -40,8 +40,17 @@ pub const INFO_ROWS: &str = "info-rows-v1";
 /// `_acpmux/session_changed`, as before.
 pub const PEER_ROW_BATCHES: &str = "peer-row-batches-v1";
 
+/// A client that sends `initialize` with `_meta.acpmux.chunkDeltas: true` hears a text chunk on
+/// its event stream as `_acpmux/chunk`, a delta of the chat's last chunk event, which carries
+/// `chunkRef` (`server/chunk_deltas.rs`). Every other client hears each chunk's `_acpmux/event`,
+/// as before.
+pub const CHUNK_DELTAS: &str = "chunk-deltas-v1";
+
 /// Session summaries carry `hasDraft` and `workingBelow` (absent means false only with this id).
 pub const SESSION_IDLE_FACTS: &str = "session-idle-facts-v1";
+
+/// `_acpmux/process/census` answers the census `acpmux ps --json` prints (`server/processes.rs`).
+pub const PROCESS_CENSUS: &str = "process-census-v1";
 
 /// Pre-copy for a chat move (`hub/transfer_precopy.rs`).
 pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
@@ -140,6 +149,17 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability {
         id: PEER_ROW_BATCHES,
         wire: &[method::INITIALIZE, method::MUX_WATCH, method::MUX_PEER_ROWS_CHANGED],
+    },
+    Capability {
+        id: CHUNK_DELTAS,
+        wire: &[method::INITIALIZE, method::MUX_ATTACH, method::MUX_EVENT, method::MUX_CHUNK],
+    },
+    // A client that sends `initialize` with `_meta.acpmux.sessionChangedDelta: true` hears each
+    // chat's row change after the first as `_acpmux/session_patch`, only what changed
+    // (`server/session_patch.rs`); every other client hears the whole row in `session_changed`.
+    Capability {
+        id: crate::server::session_patch::CAPABILITY,
+        wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
     },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
@@ -257,6 +277,10 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_PROCESS_UPDATE,
         ],
     },
+    // Every process and lock acpmux owns on this machine, with acpmux's own judgment of each
+    // (`_acpmux/process/census`, what `acpmux ps --json` prints). Read-only; this machine's
+    // clients only. Without it, a client asks `acpmux ps --json`, never guesses from argv.
+    Capability { id: PROCESS_CENSUS, wire: &[method::MUX_PROCESS_CENSUS] },
     // Agent CLI health (`hub/health_view.rs`).
     Capability { id: "harness-health-v1", wire: &[method::MUX_HARNESS_HEALTH] },
     // The mode a new chat starts in, and its changes (`hub/start_mode.rs`).
@@ -348,6 +372,22 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's saved prompts, with the read-only ones the settings file names (`prompts.rs`).
+    Capability {
+        id: "prompt-library-v1",
+        wire: &[method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE],
+    },
+    // The composer's stashed drafts, kept here so they outlive the pane's page (`stash.rs`).
+    Capability {
+        id: "draft-stash-v1",
+        wire: &[
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
+        ],
+    },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
@@ -381,6 +421,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // A turn's before and after picture of the chat's page, for its edited-files card
     // (`hub/turn_shots.rs`).
     Capability { id: "turn-shots-v1", wire: &[method::MUX_TURN_SHOTS] },
+    // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
+    // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
+    Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

@@ -2,6 +2,10 @@
 
 Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so multiple agents and the user's normal app do not collide.
 
+First: a web or daemon change needs no build. `cmux app try .` copies the installed NIGHTLY and swaps your code
+into the copy ([the loop](../../../CLAUDE.md#the-loop-use-it-first-then-test)); a tagged build is for a change
+`scripts/cmux-next/hot-verify.py plan` says needs one (Swift signatures, resources, FFI Rust).
+
 ```bash
 ./scripts/reload.sh --tag <tag>
 ./scripts/reload.sh --tag <tag> --launch

@@ -192,6 +192,8 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The chats attached here that moved to a peer, or are being moved (`follow.rs`).
+    follows: follow::Follows,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
     /// Server-derived mailbox identities for this connection's local attachments.
@@ -209,6 +211,12 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
+    chunk_deltas: chunk_deltas::ChunkDeltas,
+    /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
+    /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
+    session_delta: AtomicBool,
+    sent_rows: StdMutex<session_patch::SentRows>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -1873,6 +1881,7 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        follows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
         controls: Default::default(),
@@ -1881,6 +1890,9 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        chunk_deltas: Default::default(),
+        session_delta: AtomicBool::new(false),
+        sent_rows: StdMutex::default(),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2409,11 +2421,13 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
-            let session = if attached || conn.watch_tools.load(Ordering::SeqCst) {
-                hub.session_summary(&s)
-            } else {
-                hub.session_list_summary(&s)
-            };
+            let full = attached || conn.watch_tools.load(Ordering::SeqCst);
+            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
+            // A patch names the row it builds on, so it is never replaced in the queue.
+            if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
+                return;
+            }
             let msg = Message::notification(
                 method::MUX_SESSION_CHANGED,
                 json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
@@ -2431,6 +2445,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // row has here (`qualifiedSessionId`), so clients key live transcripts and prompts by the
     // same route as their session rows. A peer daemon's link names it by its own route.
     let routed = |mut params: Value| {
+        // A chat that moved to a peer keeps the shape its records had here (`follow.rs`).
+        if ev.remote.is_some() && conn.follows.following(&ev.session_id) {
+            return params;
+        }
         if conn.origin != Origin::Peer
             && let Some(remote) = &ev.remote
         {
@@ -2470,10 +2488,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             // Sent by the replay.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
-                conn.send(&Message::notification(
-                    method::MUX_EVENT,
-                    routed(event_value(&ev.session_id, rec)),
-                ));
+                let params = routed(event_value(&ev.session_id, rec));
+                conn.send(&conn.chunk_deltas.frame(&ev.session_id, params));
             }
         } else {
             // Agent -> client updates as standard ACP notifications.
@@ -2575,12 +2591,21 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
                 let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                let qualified = remote.qualified_id(&ev.session_id);
+                if rec.kind == "purged" {
+                    session_patch::forget(conn, &qualified);
+                } else if session.is_object() {
+                    let notice = json!({"sessionId": sid, "qualifiedSessionId": qualified, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq});
+                    if session_patch::send_row(conn, &qualified, tools, &session, notice) {
+                        return;
+                    }
+                }
                 let row =
                     if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
                 conn.send_row(
                     &Message::notification(
                         method::MUX_SESSION_CHANGED,
-                        json!({"sessionId": sid, "qualifiedSessionId": remote.qualified_id(&ev.session_id), "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
+                        json!({"sessionId": sid, "qualifiedSessionId": qualified, "session": session, "kind": rec.kind, "recordKind": rec.kind, "seq": rec.seq, "peer": remote.peer, "listSeq": ev.list_seq}),
                     ),
                     row,
                 );
@@ -2588,6 +2613,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            session_patch::forget(conn, &ev.session_id);
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2616,14 +2642,18 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
         });
         if let Some(summary) = summary {
-            let row = if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
-            conn.send_row(
-                &Message::notification(
-                    method::MUX_SESSION_CHANGED,
-                    json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
-                ),
-                row,
-            );
+            let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
+            if !session_patch::send_row(conn, &ev.session_id, full, &summary, notice) {
+                let row =
+                    if attached { outbound::Row::None } else { outbound::Row::Latest(row_key()) };
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_SESSION_CHANGED,
+                        json!({"sessionId": ev.session_id, "session": *summary, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq}),
+                    ),
+                    row,
+                );
+            }
         }
         // A watcher that is not attached still learns a permission is waiting, after the row
         // that recorded it.
@@ -2673,6 +2703,7 @@ pub(crate) mod computer_use_relay;
 mod connection_token_tests;
 pub(crate) mod controls;
 mod in_flight;
+mod keys_relay;
 #[cfg(test)]
 #[path = "latency_gauges_tests.rs"]
 mod latency_gauges_tests;
@@ -2688,6 +2719,8 @@ pub(crate) use crate::clock_text::{civil_from_days, iso};
 pub(crate) use change_kind::session_change_kind;
 mod change_kind;
 mod chat_windows;
+mod chunk_deltas;
+pub(crate) mod session_patch;
 pub use chat_windows::live_tasks as live_chat_window_tasks;
 pub mod carrier;
 mod chats;
@@ -2697,6 +2730,7 @@ mod durable_gate;
 mod ephemeral;
 mod fanout;
 mod fix_from_link;
+mod follow;
 mod forum;
 mod media_forward;
 mod mesh_control_send;
@@ -2723,6 +2757,7 @@ mod github_prs;
 mod goal;
 pub mod local_app;
 pub(crate) mod machine_enroll;
+mod machine_files_relay;
 pub(crate) mod machine_health;
 mod machine_join_ssh;
 #[cfg(feature = "hub-carrier")]

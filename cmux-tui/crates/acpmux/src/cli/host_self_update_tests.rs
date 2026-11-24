@@ -5,8 +5,8 @@
 //! timer units' install.
 
 use super::super::host_self_update::{
-    Channel, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Step, apply, channel_url,
-    prepare,
+    Channel, Controller, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Source, Step,
+    apply, channel_url, prepare,
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
@@ -104,7 +104,7 @@ fn once_free<T>(mut f: impl FnMut() -> Option<T>) -> Option<T> {
 /// [`prepare`] once the lock this test dropped is free ([`once_free`]).
 async fn prepared(peer: &FakePeer, files: &Files) -> Prepared {
     for _ in 0..100 {
-        match prepare(&paths(peer), files, CHANNEL).await.unwrap() {
+        match prepare(&paths(peer), files, None, CHANNEL).await.unwrap() {
             Prepared::Locked => std::thread::sleep(std::time::Duration::from_millis(20)),
             other => return other,
         }
@@ -122,7 +122,7 @@ async fn ready(peer: &FakePeer, files: &Files) -> Plan {
 }
 
 async fn refused(peer: &FakePeer, files: &Files) -> String {
-    match prepare(&paths(peer), files, CHANNEL).await {
+    match prepare(&paths(peer), files, None, CHANNEL).await {
         Err(e) => format!("{e:#}"),
         Ok(_) => panic!("the self-update went ahead"),
     }
@@ -302,6 +302,248 @@ async fn a_channel_without_this_hosts_target_is_refused() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+const CONTROLLER: &str = "http://100.64.0.1:18765";
+const MARKER_COMMIT: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+fn marker_url() -> String {
+    format!("{CONTROLLER}/v1/channels/{CHANNEL}")
+}
+
+fn artifact_url(sha: &str) -> String {
+    format!("{CONTROLLER}/v1/artifacts/sha256:{sha}/url")
+}
+
+fn presigned(sha: &str) -> String {
+    format!("https://r2.example/artifacts/{sha}?X-Amz-Signature=x")
+}
+
+/// The build controller's marker (schema ci-channel/v1) naming `sha` for
+/// `target`, in `mode`.
+fn marker_json(mode: &str, target: &str, sha: &str) -> Vec<u8> {
+    json!({
+        "schema": "ci-channel/v1",
+        "channel": CHANNEL,
+        "commit": MARKER_COMMIT,
+        "binaries": {"acpmux": {target: format!("sha256:{sha}")}},
+        "step_id": 7,
+        "step_key": "acpmux-musl",
+        "worker": "w1",
+        "run_s": 312,
+        "at": "2026-11-23T14:00:00Z",
+        "mode": mode,
+        "key_id": null,
+        "sig": null,
+        "unsigned": true,
+    })
+    .to_string()
+    .into_bytes()
+}
+
+/// `files` with the controller's marker for `binary` in `mode`, its artifact
+/// lookup and the presigned download.
+fn with_marker(mut files: Files, mode: &str, binary: &str) -> Files {
+    let sha = sha_of(binary);
+    files.bodies.insert(marker_url(), marker_json(mode, TARGET, &sha));
+    let answer = json!({"url": presigned(&sha), "sha256": format!("sha256:{sha}")});
+    files.bodies.insert(artifact_url(&sha), answer.to_string().into_bytes());
+    files.bodies.insert(presigned(&sha), binary.as_bytes().to_vec());
+    files
+}
+
+/// [`prepare`] asking the controller first, once the lock is free.
+async fn from_controller(peer: &FakePeer, files: &Files) -> anyhow::Result<Prepared> {
+    let ctl = Controller { url: CONTROLLER.to_owned(), fetch: files };
+    for _ in 0..100 {
+        match prepare(&paths(peer), files, Some(&ctl), CHANNEL).await? {
+            Prepared::Locked => std::thread::sleep(std::time::Duration::from_millis(20)),
+            other => return Ok(other),
+        }
+    }
+    Ok(Prepared::Locked)
+}
+
+async fn ready_from_controller(peer: &FakePeer, files: &Files) -> Plan {
+    match from_controller(peer, files).await.unwrap() {
+        Prepared::Ready(plan) => plan,
+        _ => panic!("the self-update did not go ahead"),
+    }
+}
+
+#[tokio::test]
+async fn a_marker_that_is_on_decides_acpmuxs_build_over_the_r2_channel() {
+    let peer = FakePeer::new("self-marker-on");
+    let r2s = fake_acpmux(STALE, Some(STALE));
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = with_marker(serving(&r2s), "on", &new);
+    let plan = ready_from_controller(&peer, &files).await;
+    assert_eq!(plan.picked.source, Source::Controller);
+    assert_eq!(plan.picked.source.name(), "controller");
+    assert_eq!(plan.picked.marker_skipped, None);
+    assert_eq!(
+        (plan.commit.as_str(), plan.sha256.as_str()),
+        (MARKER_COMMIT, sha_of(&new).as_str())
+    );
+    let asked = files.asked();
+    assert_eq!(asked[0], channel_url(CHANNEL).unwrap(), "the R2 channel is still read first");
+    assert!(asked.contains(&artifact_url(&sha_of(&new))), "{asked:?}");
+    assert!(asked.contains(&presigned(&sha_of(&new))), "{asked:?}");
+    assert!(!asked.contains(&binary_url()), "the R2 binary is not downloaded: {asked:?}");
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+    drop(plan);
+
+    // The next run finds the marker's build installed: nothing is downloaded.
+    let files = with_marker(serving(&r2s), "on", &new);
+    let plan = ready_from_controller(&peer, &files).await;
+    assert!(matches!(&plan.step, Step::Current(Some(build)) if build == NEW));
+    assert!(!files.asked().iter().any(|u| u.contains("/v1/artifacts/")));
+}
+
+#[tokio::test]
+async fn an_r2_that_cannot_be_read_does_not_stop_the_controllers_marker() {
+    let peer = FakePeer::new("self-marker-r2-down");
+    let new = fake_acpmux(NEW, Some(NEW));
+    // No R2 channel file: R2 answers 404, the controller serves the marker.
+    let files = with_marker(Files::default(), "on", &new);
+    let plan = ready_from_controller(&peer, &files).await;
+    assert_eq!(plan.picked.source, Source::Controller);
+    assert_eq!(plan.sha256, sha_of(&new));
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
+    drop(plan);
+
+    // With the marker off too, the update fails and names both reasons.
+    let files = with_marker(Files::default(), "off", &new);
+    let err = match from_controller(&peer, &files).await {
+        Err(e) => format!("{e:#}"),
+        Ok(_) => panic!("an update with neither source went ahead"),
+    };
+    assert!(err.contains("channel") && err.contains("controller's marker"), "{err}");
+}
+
+#[tokio::test]
+async fn a_marker_that_is_not_on_or_cannot_be_used_leaves_the_r2_channel_deciding() {
+    let new = fake_acpmux(NEW, Some(NEW));
+    let theirs = fake_acpmux(STALE, Some(STALE));
+    let reported = with_marker(serving(&new), "report", &theirs);
+    let mut absent = serving(&new);
+    absent.bodies.remove(&marker_url());
+    let mut unreadable = serving(&new);
+    unreadable.bodies.insert(marker_url(), b"<html>bad gateway</html>".to_vec());
+    let mut no_target = serving(&new);
+    let sha = sha_of(&theirs);
+    let other = marker_json("on", "riscv64gc-unknown-linux-musl", &sha);
+    no_target.bodies.insert(marker_url(), other);
+    let mut no_artifact = with_marker(serving(&new), "on", &theirs);
+    no_artifact.bodies.remove(&artifact_url(&sha));
+    let no_build = format!("no acpmux build for {TARGET}");
+    let cases = [
+        ("report", reported, "\"report\""),
+        ("absent", absent, "404"),
+        ("unreadable", unreadable, "not a marker"),
+        ("no-target", no_target, no_build.as_str()),
+        ("no-artifact", no_artifact, "asking the controller for the binary"),
+    ];
+    for (name, files, why) in cases {
+        let peer = FakePeer::new(&format!("self-marker-{name}"));
+        let plan = ready_from_controller(&peer, &files).await;
+        assert_eq!(plan.picked.source, Source::R2, "{name}");
+        let skipped = plan.picked.marker_skipped.clone().unwrap_or_default();
+        assert!(skipped.contains(why), "{name}: {skipped}");
+        assert_eq!((plan.commit.as_str(), plan.sha256.as_str()), (COMMIT, sha_of(&new).as_str()));
+        let up = apply(&peer, &plan, TARGET, true);
+        assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{name}");
+        assert!(!files.asked().contains(&presigned(&sha)), "{name}: the marker's is not fetched");
+    }
+
+    // No controller configured: R2, saying so.
+    let peer = FakePeer::new("self-marker-none");
+    let plan = ready(&peer, &serving(&new)).await;
+    assert_eq!(plan.picked.source, Source::R2);
+    let skipped = plan.picked.marker_skipped.clone().unwrap_or_default();
+    assert!(skipped.contains("no build controller"), "{skipped}");
+}
+
+#[tokio::test]
+async fn a_marker_download_that_does_not_match_is_never_installed() {
+    let peer = FakePeer::new("self-marker-bad-sha");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let mut files = with_marker(serving(&fake_acpmux(STALE, Some(STALE))), "on", &new);
+    files.bodies.insert(presigned(&sha_of(&new)), b"#!/bin/sh\necho tampered\n".to_vec());
+    let why = match from_controller(&peer, &files).await {
+        Err(e) => format!("{e:#}"),
+        Ok(_) => panic!("the self-update went ahead"),
+    };
+    assert!(why.contains("sha256") && why.contains("not installed"), "{why}");
+    assert!(why.contains("controller's marker"), "{why}");
+    assert!(!peer.exists(&format!(".acpmux/update/{}", sha_of(&new))), "nothing is kept");
+    assert!(!files.asked().contains(&binary_url()), "a mismatch does not fall back to R2");
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+/// The controller's build of a commit has another sha256 than R2's build of
+/// it (another profile). Once the marker installed it, a run the controller
+/// is down (R2 decides) keeps it instead of swapping in R2's build of the same
+/// commit, whether the channel's commit or the one R2's binary carries says
+/// so; a build of unknown commit, or `--allow-downgrade`, takes R2's.
+#[tokio::test]
+#[cfg(unix)]
+async fn an_r2_fallback_keeps_the_controllers_build_of_the_same_commit() {
+    // The channel's commit (COMMIT) is in the build id; then one that only
+    // R2's binary carries (an older commit of the same tree).
+    for (name, build) in [("channel", "89abcdef0 2026-10-22"), ("tree", "13579bdf1 2026-10-19")] {
+        let peer = FakePeer::new(&format!("self-same-commit-{name}"));
+        let r2s = fake_acpmux(build, Some(build));
+        let controllers = format!("{r2s}# the controller's profile\n");
+        peer.exe(".local/bin/acpmux", &controllers);
+        peer.write("daemon", build);
+        let files = serving(&r2s);
+        let plan = ready(&peer, &files).await;
+        assert_eq!(plan.picked.source, Source::R2, "{name}");
+        let why = plan.picked.kept_installed.clone().unwrap_or_default();
+        assert!(why.contains("so it is kept"), "{name}: {why}");
+        assert!(matches!(&plan.step, Step::Current(Some(b)) if b == build), "{name}");
+        assert_eq!(plan.sha256, sha_of(&controllers), "{name}");
+        let downloaded = files.asked().contains(&binary_url());
+        assert_eq!(downloaded, name == "tree", "{name}: R2's binary is read only to compare");
+        let up = apply(&peer, &plan, TARGET, true);
+        assert_eq!(up.outcome, Outcome::Current, "{name}: {up:?}");
+        assert_eq!(peer.read(".local/bin/acpmux"), controllers, "{name}");
+        let calls = peer.take_calls();
+        assert!(!calls.iter().any(|c| c.contains("restart acpmux.service")), "{name}: {calls:?}");
+        drop(plan);
+        // The next run keeps it too, with nothing downloaded again.
+        let files = serving(&r2s);
+        let plan = ready(&peer, &files).await;
+        assert!(plan.picked.kept_installed.is_some(), "{name}");
+        assert!(files.asked().len() <= 2, "{name}: {:?}", files.asked());
+    }
+
+    // An installed build whose commit is unknown takes R2's.
+    let peer = FakePeer::new("self-same-commit-unknown");
+    let build = "89abcdef0 2026-10-22";
+    peer.exe(".local/bin/acpmux", "#!/bin/sh\necho no build id here\n");
+    let r2s = fake_acpmux(build, Some(build));
+    let plan = ready(&peer, &serving(&r2s)).await;
+    assert_eq!(plan.picked.kept_installed, None);
+    assert!(matches!(&plan.step, Step::Install(_)));
+    drop(plan);
+
+    // `--allow-downgrade` takes R2's build of the same commit.
+    let peer = FakePeer::new("self-same-commit-downgrade");
+    let controllers = format!("{r2s}# the controller's profile\n");
+    peer.exe(".local/bin/acpmux", &controllers);
+    peer.write("daemon", build);
+    let mut back = paths(&peer);
+    back.allow_downgrade = true;
+    let Prepared::Ready(plan) = prepare(&back, &serving(&r2s), None, CHANNEL).await.unwrap() else {
+        panic!("the self-update did not go ahead");
+    };
+    assert_eq!(plan.picked.kept_installed, None);
+    assert!(matches!(&plan.step, Step::Install(_)));
+}
+
 /// Lane hosts, 2026-11-23: several held b45cad3d8 (a lane branch's build, newer
 /// than the channel's head 7d439038 and containing the fix the channel lacked)
 /// while the timer kept trying to put the older channel build back, each try a
@@ -342,7 +584,8 @@ async fn a_host_on_a_newer_commit_than_the_channels_keeps_it_unless_told_to_go_b
     // `--allow-downgrade`: a bad channel build is pulled back on purpose.
     let mut back = paths(&peer);
     back.allow_downgrade = true;
-    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), CHANNEL).await.unwrap() else {
+    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), None, CHANNEL).await.unwrap()
+    else {
         panic!("the self-update did not go ahead");
     };
     let up = apply(&peer, &plan, TARGET, true);
@@ -376,7 +619,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // The next run leaves that build alone: no download, no restart.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the daemon is not restarted again");
     assert_eq!(files.asked().len(), 1);
 
@@ -396,7 +639,7 @@ async fn a_build_whose_daemon_does_not_come_back_is_rolled_back_and_not_tried_ag
     // channel that moved back to the bad build installed it again.
     let files = serving(&bad);
     let again = prepared(&peer, &files).await;
-    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _) if commit == COMMIT));
+    assert!(matches!(&again, Prepared::RolledBackBefore(commit, _, _) if commit == COMMIT));
     assert!(peer.take_calls().is_empty(), "the healthy daemon is not restarted");
     assert_eq!(files.asked().len(), 1, "the bad build is not downloaded again");
     assert_eq!(peer.daemon(), newer);
@@ -483,14 +726,14 @@ async fn one_self_update_runs_at_a_time_and_the_opt_out_stops_them() {
     let peer = FakePeer::new("self-lock");
     let files = serving(&fake_acpmux(OLD, Some(OLD)));
     let held = ready(&peer, &files).await;
-    let second = prepare(&paths(&peer), &files, CHANNEL).await.unwrap();
+    let second = prepare(&paths(&peer), &files, None, CHANNEL).await.unwrap();
     assert!(matches!(second, Prepared::Locked));
     drop(held);
     drop(ready(&peer, &files).await);
 
     peer.write(&format!(".acpmux/{NO_AUTO_UPDATE}"), "");
     let asked = files.asked().len();
-    assert!(matches!(prepare(&paths(&peer), &files, CHANNEL).await.unwrap(), Prepared::Off));
+    assert!(matches!(prepare(&paths(&peer), &files, None, CHANNEL).await.unwrap(), Prepared::Off));
     assert_eq!(files.asked().len(), asked, "nothing is read");
 }
 
@@ -564,7 +807,10 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     // An update from another machine holds it: the timer leaves the host
     // alone, and so does a second update.
     let lock = once_free(|| lock_updates(&peer).unwrap()).expect("the lock is free");
-    assert!(matches!(prepare(&paths(&peer), &files, CHANNEL).await.unwrap(), Prepared::Locked));
+    assert!(matches!(
+        prepare(&paths(&peer), &files, None, CHANNEL).await.unwrap(),
+        Prepared::Locked
+    ));
     assert!(lock_updates(&peer).unwrap().is_none());
     assert_eq!(update_locked(&peer, &opts).reason.as_deref(), Some("updateRunning"));
     drop(lock);
