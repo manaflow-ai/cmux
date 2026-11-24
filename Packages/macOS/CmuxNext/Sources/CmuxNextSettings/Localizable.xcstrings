@@ -244750,6 +244750,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "工具提示和懸停卡片的玻璃更清晰，邊緣更銳利，陰影更柔和。"}}
       }
     },
+    "settings.experiments.typeGrid": {
+      "comment": "Settings > Experiments: the Grid Line Heights design prototype row (design C1)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Grid Line Heights"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ارتفاعات أسطر الشبكة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Visine redova po mreži"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Linjehøjder på gitteret"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Zeilenhöhen im Raster"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Altura de línea en cuadrícula"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Hauteurs de ligne sur la grille"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Interlinea sulla griglia"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "グリッドに揃えた行の高さ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "កម្ពស់បន្ទាត់តាមក្រឡា"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "그리드 줄 높이"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Linjehøyder på rutenettet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysokość wierszy w siatce"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Altura de linha na grade"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Высота строк по сетке"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ความสูงบรรทัดตามกริด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Izgaraya oturan satır yükseklikleri"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Висота рядків за сіткою"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chiều cao dòng theo lưới"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "网格行高"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "網格行高"}}
+      }
+    },
+    "settings.experiments.typeGrid.help": {
+      "comment": "Settings > Experiments: the Grid Line Heights design prototype row (design C1)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Interface text gets line heights on the 4-point grid: 13-point text sits on 20 points instead of 18."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يحصل نص الواجهة على ارتفاعات أسطر على شبكة من 4 نقاط: يجلس النص بحجم 13 نقطة على 20 نقطة بدلاً من 18."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Tekst sučelja dobija visine redova na mreži od 4 tačke: tekst od 13 tačaka stoji na 20 tačaka umjesto 18."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Grænsefladetekst får linjehøjder på et gitter på 4 punkter: tekst på 13 punkter står på 20 punkter i stedet for 18."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Oberflächentext erhält Zeilenhöhen im 4-Punkt-Raster: 13-Punkt-Text steht auf 20 statt 18 Punkten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El texto de la interfaz usa alturas de línea en la cuadrícula de 4 puntos: el texto de 13 puntos ocupa 20 puntos en lugar de 18."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le texte de l'interface prend des hauteurs de ligne sur la grille de 4 points : un texte de 13 points occupe 20 points au lieu de 18."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Il testo dell'interfaccia usa interlinee sulla griglia da 4 punti: il testo a 13 punti occupa 20 punti invece di 18."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "インターフェイスの文字の行の高さを4ポイントのグリッドに揃えます。13ポイントの文字は18ではなく20ポイントの行になります。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "អក្សរ​ចំណុចប្រទាក់​ទទួលបាន​កម្ពស់​បន្ទាត់​លើ​ក្រឡា 4 ពិន្ទុ៖ អក្សរ 13 ពិន្ទុ​ស្ថិតលើ 20 ពិន្ទុ​ជំនួស​ឲ្យ 18។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "인터페이스 텍스트의 줄 높이가 4포인트 그리드에 맞춰집니다. 13포인트 텍스트는 18 대신 20포인트 줄에 놓입니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Grensesnitttekst får linjehøyder på et rutenett på 4 punkter: tekst på 13 punkter står på 20 punkter i stedet for 18."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Tekst interfejsu dostaje wysokości wierszy w siatce 4 punktów: tekst 13-punktowy zajmuje 20 punktów zamiast 18."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "O texto da interface ganha alturas de linha na grade de 4 pontos: texto de 13 pontos ocupa 20 pontos em vez de 18."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Текст интерфейса получает высоту строк по сетке в 4 пункта: текст размером 13 пунктов занимает 20 пунктов вместо 18."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ข้อความในอินเทอร์เฟซจะมีความสูงบรรทัดตามกริด 4 พอยต์: ข้อความ 13 พอยต์จะอยู่บนบรรทัด 20 พอยต์แทน 18"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Arayüz metni 4 puntoluk ızgaraya oturan satır yükseklikleri alır: 13 puntoluk metin 18 yerine 20 puntoluk satırda durur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Текст інтерфейсу отримує висоту рядків за сіткою в 4 пункти: текст розміром 13 пунктів займає 20 пунктів замість 18."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chữ giao diện có chiều cao dòng theo lưới 4 điểm: chữ 13 điểm nằm trên dòng 20 điểm thay vì 18."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "界面文字的行高对齐 4 点网格：13 点文字的行高为 20 点，而不是 18 点。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "介面文字的行高對齊 4 點網格：13 點文字的行高為 20 點，而不是 18 點。"}}
+      }
+    },
     "settings.experiments.agentBadges": {
       "comment": "Settings > Advanced > Experiments: the title of the Agent Badges switch (taste prototype, off by default)",
       "extractionState": "manual",
