@@ -263,6 +263,9 @@ public final class UpdaterService {
     @ObservationIgnored var dismissAvailable: () -> Void = {}
     /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
     @ObservationIgnored var downloadsFoundUpdates = false
+    /// A pushed build's automatic download waits for its deltas (``TipUpdateCheck/holdDownload``): the
+    /// found update is offered, a click still downloads it at once.
+    @ObservationIgnored var downloadHeldForDeltas = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
