@@ -460,7 +460,8 @@ impl Hub {
                         ("CODEX_HOME".to_owned(), codex_home),
                         ("HOME".to_owned(), home.to_string_lossy().into_owned()),
                     ]);
-                    if crate::codex_signed_out::says_not_logged_in(&p.argv[0], &probe_env).await {
+                    let program = p.argv.first().map(String::as_str).unwrap_or("codex");
+                    if crate::codex_signed_out::says_not_logged_in(program, &probe_env).await {
                         let host = crate::hand::pair::hostname();
                         tracing::warn!(session = %meta.id, %host, code = "codex.no_sign_in", "codex has no sign-in, key or provider on this machine");
                         return Err(RpcError::invalid_params(crate::codex_signed_out::refusal(
