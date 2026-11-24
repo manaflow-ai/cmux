@@ -1288,6 +1288,8 @@ jobs:
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-24
           FLEET_CLIENT_JOBS: fast-tier
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+          CI_FAST_TIER_FLEET_SPILL: ${{ vars.CI_FAST_TIER_FLEET_SPILL }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-122
           GATEWAY_JOBS: >-
             ${{ format('{0} {1}',
@@ -3696,10 +3698,66 @@ jobs:
           echo "::notice title=cmux-next fast tier (cargo) planner reuse::$RUN_URL passed on the trusted feat-cmux-next push (${SHA:0:12})"
           echo "Planner reused $RUN_URL: it passed on \`${SHA:0:12}\` with the measured input closure (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
+      # A persistent pool runner keeps this job's whole target between its jobs and gives each source
+      # whose bytes are unchanged its recorded mtime back, so cargo rebuilds only the crates a change
+      # reaches and their dependents (scripts/ci/pool-warm-target.sh); on Blacksmith a sticky disk holds it.
+      # The warm target's own test, where cargo is: unchanged bytes stay fresh, a changed crate and its
+      # dependents rebuild, an unrecorded job leaves nothing to trust (a three-crate workspace, ~5 s).
+      - name: Test the warm cargo target
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        run: bash scripts/ci/tests/pool-warm-target.test.sh
+
+      # On Blacksmith (RUNNER_POOLS sends the job there when the pool is down or overflowing) the same
+      # tree lives on a sticky disk, as cmux-tui-spec.yml's warm clippy target: feat-cmux-next pushes
+      # commit it, every other run mounts a clone and never writes it back. Keys are literal
+      # (tests/test_ci_testbox_broker_guard.py).
+      - name: Mount the warm cargo target (feat-cmux-next push, commits)
+        id: warm-next
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && startsWith(runner.name, 'blacksmith') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-next-fast-tier-cargo-warm-v1
+          path: /home/runner/cmux-next-fast-tier-cargo-warm
+          commit: on-change
+
+      - name: Mount the warm cargo target (other runs, read-only)
+        id: warm-read
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && startsWith(runner.name, 'blacksmith') && !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-next-fast-tier-cargo-warm-v1
+          path: /home/runner/cmux-next-fast-tier-cargo-warm
+          commit: "false"
+
+      # A run that never writes the disk links it only when a feat-cmux-next run recorded a tree there;
+      # an empty disk would be a cold build where rust-cache holds the third-party crates.
+      - name: Link this runner's warm cargo target
+        id: warm
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          DISK_MOUNTED: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }}
+          WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          disk=()
+          if [[ "$DISK_MOUNTED" == true ]]; then
+            d=/home/runner/cmux-next-fast-tier-cargo-warm
+            if [[ "$WARM_WRITES" == true ]] || compgen -G "$d/fast-tier-cargo/*/rust-*/.cmux-testbox-source-mtimes.tsv" > /dev/null; then
+              disk=("$d")
+            else
+              echo "pool warm target: miss (no feat-cmux-next tree on the sticky disk yet); rust-cache restore instead"
+            fi
+          fi
+          bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo "${disk[@]}"
+
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
+      # Skipped when the warm target above is linked.
       # Why: docs/ci/cmux-next-workflow-notes.md#note-210
       - name: Cache cargo build
-        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -3712,9 +3770,11 @@ jobs:
 
       # Off Blacksmith the GitHub store above always misses (it is full and churns in minutes), so the
       # compiled dependencies come from R2 instead. Why: docs/ci/cmux-next-workflow-notes.md#note-210b
+      # Skipped, with its restores and saves, when the warm target above is linked: cargo then builds in
+      # that tree (CARGO_TARGET_DIR), which keeps the dependencies, and cmux-tui/target stays empty.
       - name: Key the cargo build in R2
         id: r2-cargo-key
-        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -3765,6 +3825,13 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-513
           FIXIT_COMPILE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+
+      # After every cargo step, pass or fail, never on cancel: the source manifest the next job on this
+      # runner restores mtimes from. A job that ends before it leaves none (restore consumed it).
+      - name: Record this runner's warm cargo target
+        if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked == 'true' }}
+        continue-on-error: true
+        run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo /home/runner/cmux-next-fast-tier-cargo-warm
 
       # A feat-cmux-next push off Blacksmith whose inputs R2 lacks saves them: dependencies only, as
       # rust-cache keeps (scripts/ci/cargo_target_strip.py). Why: docs/ci/cmux-next-workflow-notes.md#note-210b
