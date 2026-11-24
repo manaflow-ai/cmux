@@ -2383,6 +2383,268 @@
         }
       }
     },
+    "settings.agents.claudeCodeInboxRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Message Relay to Claude Code"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة مُرحِّل الرسائل إلى Claude Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj relej poruka u Claude Code"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj beskedrelæ til Claude Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachrichten-Relay zu Claude Code hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir relé de mensajes a Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter le relais de messages à Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi relay dei messaggi a Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code にメッセージリレーを追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមកម្មវិធីបញ្ជូនសារទៅ Claude Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code에 메시지 릴레이 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til meldingsrelé i Claude Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj przekaźnik wiadomości do Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar retransmissor de mensagens ao Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить ретранслятор сообщений в Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มตัวส่งต่อข้อความให้ Claude Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code'a mesaj aktarıcısı ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати ретранслятор повідомлень до Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm bộ chuyển tiếp tin nhắn vào Claude Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "为 Claude Code 添加消息中继"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "為 Claude Code 新增訊息中繼"
+          }
+        }
+      }
+    },
+    "settings.agents.claudeCodeInboxRelay.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يضيف خادمًا صغيرًا إلى إعدادات Claude Code كي تصل رسائل الوكلاء الآخرين دون أن تُحتجز. ينطبق على محادثات Claude Code التي تبدأ بعد ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaje mali server u postavke Claude Codea kako bi poruke drugih agenata stizale bez zadržavanja. Važi za Claude Code razgovore pokrenute nakon toga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføjer en lille server til Claude Codes indstillinger, så beskeder fra andre agenter kommer frem uden at blive holdt tilbage. Gælder Claude Code-chats, der startes bagefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fügt den Einstellungen von Claude Code einen kleinen Server hinzu, damit Nachrichten anderer Agenten ankommen, ohne zurückgehalten zu werden. Gilt für danach gestartete Claude-Code-Chats."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añade un pequeño servidor a los ajustes de Claude Code para que los mensajes de otros agentes lleguen sin quedar retenidos. Se aplica a los chats de Claude Code iniciados después."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajoute un petit serveur aux réglages de Claude Code pour que les messages des autres agents arrivent sans être retenus. S'applique aux discussions Claude Code lancées ensuite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiunge un piccolo server alle impostazioni di Claude Code così i messaggi degli altri agenti arrivano senza essere trattenuti. Vale per le chat di Claude Code avviate dopo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code の設定に小さなサーバーを追加し、他のエージェントからのメッセージが保留されずに届くようにします。この後に開始した Claude Code チャットに適用されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែមម៉ាស៊ីនមេតូចមួយទៅការកំណត់របស់ Claude Code ដើម្បីឱ្យសារពីភ្នាក់ងារផ្សេងទៀតមកដល់ដោយមិនត្រូវបានរក្សាទុក។ អនុវត្តចំពោះការជជែក Claude Code ដែលចាប់ផ្ដើមបន្ទាប់ពីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code 설정에 작은 서버를 추가해 다른 에이전트의 메시지가 보류되지 않고 도착하게 합니다. 이후에 시작한 Claude Code 채팅에 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legger til en liten server i Claude Codes innstillinger slik at meldinger fra andre agenter kommer frem uten å bli holdt tilbake. Gjelder Claude Code-chatter som startes etterpå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaje mały serwer do ustawień Claude Code, aby wiadomości od innych agentów docierały bez wstrzymywania. Dotyczy czatów Claude Code uruchomionych później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adiciona um pequeno servidor às configurações do Claude Code para que mensagens de outros agentes cheguem sem ficar retidas. Vale para chats do Claude Code iniciados depois."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавляет небольшой сервер в настройки Claude Code, чтобы сообщения от других агентов приходили без задержки. Действует для чатов Claude Code, начатых после этого."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่มเซิร์ฟเวอร์ขนาดเล็กในการตั้งค่าของ Claude Code เพื่อให้ข้อความจากเอเจนต์อื่นมาถึงโดยไม่ถูกพักไว้ ใช้กับแชต Claude Code ที่เริ่มหลังจากนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code ayarlarına küçük bir sunucu ekler; böylece diğer ajanlardan gelen mesajlar bekletilmeden ulaşır. Sonradan başlatılan Claude Code sohbetlerine uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додає невеликий сервер до налаштувань Claude Code, щоб повідомлення від інших агентів надходили без затримання. Діє для чатів Claude Code, розпочатих після цього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm một máy chủ nhỏ vào cài đặt của Claude Code để tin nhắn từ các tác tử khác đến mà không bị giữ lại. Áp dụng cho các cuộc trò chuyện Claude Code bắt đầu sau đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Claude Code 的设置中添加一个小型服务器，使其他智能体的消息不再被搁置。适用于之后开始的 Claude Code 对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 Claude Code 的設定中新增一個小型伺服器，讓其他代理的訊息不再被擱置。適用於之後開始的 Claude Code 對話。"
+          }
+        }
+      }
+    },
     "settings.choice.promptCacheOneHour": {
       "extractionState": "manual",
       "localizations": {
