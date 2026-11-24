@@ -17,6 +17,6 @@ extension FilePageService {
     }
 
     static var resetColumnWidthsTitle: String {
-        String(localized: "filePages.markdown.resetColumnWidths", defaultValue: "Reset Column Widths", table: "FilePages", bundle: .module)
+        String(localized: "filePages.markdown.resetColumnWidths", defaultValue: "Reset Column Widths", table: "FilePages", bundle: .module.inAppLanguage)
     }
 }

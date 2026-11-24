@@ -34,13 +34,20 @@ export function clockSizer(text: string): string {
   return "00s";
 }
 
+/// The widest text a clock that ticks on through its units can show: minutes from its first second,
+/// so "59s" turning "1m 0s" keeps its width; hours as `clockSizer` reads them, past the first hour.
+export function clockSizerAcrossUnits(text: string): string {
+  const shape = clockSizer(text);
+  return shape === "00s" ? "00m 00s" : shape;
+}
+
 /// A ticking duration ("41s", "5m 41s", "1h 3m") in tabular figures inside a box as wide as the
-/// widest text of its shape (`clockSizer`). One element holding only its text, so a range over it
-/// measures the time alone; the text keeps the parent's alignment within the box, so a right-aligned
-/// column still ends on the same edge.
-export function Clock({ text, className }: { text: string; className?: string }): ReactNode {
+/// widest text of its shape (`clockSizer`), or of `size` when given. One element holding only its
+/// text, so a range over it measures the time alone; the text keeps the parent's alignment within the
+/// box, so a right-aligned column still ends on the same edge.
+export function Clock({ text, className, size }: { text: string; className?: string; size?: string }): ReactNode {
   return (
-    <span className={className ? `ui-clock ${className}` : "ui-clock"} data-clock-size={clockSizer(text)}>
+    <span className={className ? `ui-clock ${className}` : "ui-clock"} data-clock-size={size ?? clockSizer(text)}>
       {text}
     </span>
   );

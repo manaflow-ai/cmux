@@ -7,7 +7,8 @@ public import CmuxNextDesign
 /// (showing, arrived), `addMachine` (pick, running, failed). Any other card takes them away. Each card's panel keeps
 /// its fixture until it hides (no state is kept here).
 @MainActor
-public enum ServerCardsDebug {
+public struct ServerCardsDebug {
+    public init() {}
     static let identifiers: Set<String> = ["cmux.addServer", "cmux.pairInvite", "cmux.addMachine"]
 
     /// - Parameter qr: The QR of a payload as PNG data (the app's ``PairingQRCode``).
