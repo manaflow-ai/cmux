@@ -98,7 +98,9 @@ pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
 pub mod disk_usage;
+pub(crate) mod disk_writer;
 pub mod folder_instructions;
+pub mod fork_place;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -160,6 +162,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
 pub mod hub;
@@ -190,6 +193,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
 /// (`machine_call_service.rs`).
 #[cfg(feature = "hub-carrier")]
@@ -323,6 +327,7 @@ pub mod session_search;
 #[cfg(feature = "hub-carrier")]
 pub mod session_service;
 pub mod session_status;
+mod session_store;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
@@ -394,10 +399,8 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
-/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
-/// binary turns it on). Its entry for the CLI is `tui_entry`.
-#[cfg(feature = "tui")]
-pub mod tui;
+/// Where the CLI opens a session in a terminal UI: one the process installed (acpmux-tui, in the
+/// `cmux` binary), else a handoff to `cmux` (acpmux itself is headless).
 pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;
