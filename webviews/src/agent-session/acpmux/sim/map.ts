@@ -652,7 +652,7 @@ export const MAP: MapEntry[] = [
       for (const step of run.traces.slice(sent).filter((each) => each.rows)) {
         const settledLine = heading(step, 1).map((row) => row.fold);
         if (settledLine.join(" ") !== "closed")
-          out.push(`${step.label}: the settled turn's heading reads [${settledLine}]`);
+          out.push(`${step.label}: the settled turn's heading reads [${settledLine.join(" ")}]`);
         if (step.working && step.turn === 2 && heading(step, 2).length !== 1)
           out.push(`${step.label}: the new turn draws ${heading(step, 2).length} headings`);
       }
