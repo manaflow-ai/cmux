@@ -19,17 +19,16 @@ import { warmViteServer } from "./support/warmDevServer";
 type Box = { height: number; top: number; bottom: number };
 type ImageWindow = Window & { __images?: File[] };
 
-const TEMPLATES = {
-  screen: { box: ".nt-box", field: ".nt-field.acpmux-md-field", editor: ".nt-field [contenteditable=true]" },
-  classic: {
-    box: ".acpmux-newtab-box",
-    field: ".acpmux-newtab-field.acpmux-md-field",
-    editor: ".acpmux-newtab-field [contenteditable=true]",
-  },
-} as const;
-type Template = keyof typeof TEMPLATES;
-
 await requireBrowserLane("new-tab-attachments-inside-cap.test.ts", async () => {
+  const TEMPLATES = {
+    screen: { box: ".nt-box", field: ".nt-field.acpmux-md-field", editor: ".nt-field [contenteditable=true]" },
+    classic: {
+      box: ".acpmux-newtab-box",
+      field: ".acpmux-newtab-field.acpmux-md-field",
+      editor: ".acpmux-newtab-field [contenteditable=true]",
+    },
+  } as const;
+  type Template = keyof typeof TEMPLATES;
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true, timeout: 30_000 })).close();

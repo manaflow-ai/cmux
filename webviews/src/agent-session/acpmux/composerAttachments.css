@@ -104,9 +104,10 @@
 }
 /* The New Tab card (NewTabPage.tsx) holds its strip the same way: inside its top, the strip's band
    taken out of the prompt's max height (styles.css .acpmux-newtab-field), so a capped draft keeps the
-   card's height when attachments land (ask-525a5e502a). */
+   card's height when attachments land (ask-525a5e502a). Its side inset is the row's 18 px text inset
+   (styles.css .acpmux-newtab-row). */
 .acpmux-newtab-box > .acpmux-attachments {
-  padding-inline: 18px;
+  --acpmux-attach-inset: 18px;
 }
 .acpmux-newtab-box > .acpmux-attachments ~ .acpmux-newtab-row .acpmux-newtab-field.acpmux-md-field {
   --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
