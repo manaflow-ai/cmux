@@ -1406,6 +1406,12 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
+     * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+     * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+     */
+    func progressed(nowMs: UInt64) 
+    
+    /**
      * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
      * when this `promptId` is already here.
      */
@@ -1443,6 +1449,11 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
      * with its other uploads to cancel.
      */
     func uploadFailed(uploadId: String, reason: String)  -> ChatPromptDone?
+    
+    /**
+     * The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+     */
+    func uploadProgressed(uploadId: String, nowMs: UInt64) 
     
     /**
      * The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.
@@ -1500,7 +1511,7 @@ open class ChatPromptOutbox: ChatPromptOutboxProtocol, @unchecked Sendable {
         return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_chatpromptoutbox(self.handle, $0) }
     }
     /**
-     * `hold_ms`: how long a prompt waits for the link before it comes back. `seed`: the retry
+     * `hold_ms`: how long a prompt may go with no progress (see `progressed`) before it comes back. `seed`: the retry
      * jitter's (any value; a random one per source).
      */
 public convenience init(holdMs: UInt64, seed: UInt64) {
@@ -1709,6 +1720,18 @@ open func pending() -> UInt32  {
 }
     
     /**
+     * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+     * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+     */
+open func progressed(nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
+}
+    
+    /**
      * A tap on Send with its attachments' upload ids (started at pick time). Never waits. False
      * when this `promptId` is already here.
      */
@@ -1807,6 +1830,18 @@ open func uploadFailed(uploadId: String, reason: String) -> ChatPromptDone?  {
         FfiConverterString.lower(reason),$0
     )
 })
+}
+    
+    /**
+     * The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+     */
+open func uploadProgressed(uploadId: String, nowMs: UInt64)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_upload_progressed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(uploadId),
+        FfiConverterUInt64.lower(nowMs),$0
+    )
+}
 }
     
     /**
@@ -9710,6 +9745,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
+    typealias SwiftType = [Data]
+
+    public static func write(_ value: [Data], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterData.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Data] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Data]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeChatAttachment: FfiConverterRustBuffer {
     typealias SwiftType = [ChatAttachment]
 
@@ -9802,31 +9862,6 @@ fileprivate struct FfiConverterSequenceTypeChatUploadedAttachment: FfiConverterR
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeChatUploadedAttachment.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
-    typealias SwiftType = [Data]
-
-    public static func write(_ value: [Data], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterData.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Data] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [Data]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterData.read(from: &buf))
         }
         return seq
     }
@@ -10917,6 +10952,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_progressed() != 31423) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_push() != 17318) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10939,6 +10977,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_failed() != 33281) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_upload_progressed() != 53726) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_uploaded() != 45828) {
@@ -11163,7 +11204,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 32253) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_chatpromptoutbox_new() != 37424) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_composeroutbox_new() != 19978) {
