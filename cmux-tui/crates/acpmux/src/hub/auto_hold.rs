@@ -90,6 +90,10 @@ impl Hub {
         }
     }
 
+    /// Says this daemon runs Auto mode, so its saved Auto chats are frozen from the moment they
+    /// exist.
+    pub(crate) fn expect_auto(&self) {}
+
     /// Whether Auto froze the chat.
     pub(crate) fn auto_held(&self, session: &Session) -> bool {
         session.moving().as_deref() == Some(AUTO_AWAY)
