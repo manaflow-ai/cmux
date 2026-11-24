@@ -36,11 +36,17 @@ def get(url: str, timeout: float = 60) -> bytes:
 
 
 def github_dmg(repo: str, pattern: str) -> tuple[str, str]:
-    release = json.loads(get(f"https://api.github.com/repos/{repo}/releases/latest"))
-    for asset in release.get("assets", []):
-        if re.search(pattern, asset["name"]):
-            return release["tag_name"], asset["browser_download_url"]
-    raise RuntimeError(f"{repo} {release.get('tag_name')}: no asset matching {pattern}")
+    """(tag, URL) of the newest release's asset matching PATTERN, read from github.com's release pages, not the REST
+    API: a bench Mac shares one address with the fleet, and the API's 60/h anonymous limit refused two of them
+    (HTTP 403, cmux-ci step ae86578f9527fb43dc8ffcb2)."""
+    request = urllib.request.Request(f"https://github.com/{repo}/releases/latest", headers=UA)
+    with urllib.request.urlopen(request, timeout=60) as response:
+        tag = response.geturl().rstrip("/").rsplit("/", 1)[-1]
+    page = get(f"https://github.com/{repo}/releases/expanded_assets/{tag}").decode("utf-8", "replace")
+    for path in re.findall(r'href="(/[^"]+/releases/download/[^"]+)"', page):
+        if re.search(pattern, path.rsplit("/", 1)[-1]):
+            return tag, "https://github.com" + path
+    raise RuntimeError(f"{repo} {tag}: no asset matching {pattern}")
 
 
 def source(name: str) -> tuple[str, str]:
