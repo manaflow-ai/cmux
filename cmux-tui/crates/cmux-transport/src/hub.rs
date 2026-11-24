@@ -162,7 +162,7 @@ impl HubHeader {
             },
         };
         Ok(Self {
-            session: head[1..17].try_into().expect("16 bytes"),
+            session: take::<16>(head, 1),
             pos: HubPos::new(be_u64(&head[17..25]), be_u64(&head[25..33])),
             source,
             to,
@@ -170,8 +170,15 @@ impl HubHeader {
     }
 }
 
+/// `N` bytes of `bytes` at `at`; callers checked the length first.
+fn take<const N: usize>(bytes: &[u8], at: usize) -> [u8; N] {
+    let mut out = [0u8; N];
+    out.copy_from_slice(&bytes[at..at + N]);
+    out
+}
+
 fn be_u64(bytes: &[u8]) -> u64 {
-    u64::from_be_bytes(bytes.try_into().expect("8 bytes"))
+    u64::from_be_bytes(take::<8>(bytes, 0))
 }
 
 /// The session's hub key, held by its sources and viewers and never by a
@@ -222,6 +229,8 @@ fn inner(header: &HubHeader) -> [u8; HUB_INNER_LEN] {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HubSealError {
     TooLarge(usize),
+    /// The AEAD refused (it does not for any length that fits a frame).
+    Seal,
 }
 
 /// The hub payload of one event: the clear header, then the body sealed to
@@ -237,7 +246,7 @@ pub fn seal(key: &HubKey, header: &HubHeader, event: &[u8]) -> Result<Vec<u8>, H
     let cipher = XChaCha20Poly1305::new((&key.0).into());
     let body = cipher
         .encrypt(&nonce(header), Payload { msg: &plaintext, aad: &clear })
-        .expect("XChaCha20-Poly1305 seals any length that fits a frame");
+        .map_err(|_| HubSealError::Seal)?;
     let mut out = Vec::with_capacity(HUB_HEADER_LEN + body.len());
     out.extend_from_slice(&clear);
     out.extend_from_slice(&body);
@@ -292,7 +301,7 @@ pub fn open(key: &HubKey, payload: &[u8]) -> Result<Opened, HubOpenError> {
     let inner_source = HubRole::from_byte(plaintext[32]).ok_or(HubOpenError::Inner)?;
     Ok(Opened {
         header,
-        inner_session: plaintext[..16].try_into().expect("16 bytes"),
+        inner_session: take::<16>(&plaintext, 0),
         inner_pos: HubPos::new(be_u64(&plaintext[16..24]), be_u64(&plaintext[24..32])),
         inner_source,
         event: plaintext[HUB_INNER_LEN..].to_vec(),
