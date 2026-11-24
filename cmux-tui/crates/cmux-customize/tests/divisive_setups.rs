@@ -49,7 +49,7 @@ fn settings(home: &Path) -> Value {
     cmux_config::jsonc::parse(&text).unwrap()
 }
 
-fn install(customize: &Customize, name: &str, at: i64) {
+fn install(customize: &Customize, name: &str, at: u64) {
     let read = read(name);
     customize.plan_setup(&read, "manaflow-ai", "0.0.0").unwrap_or_else(|e| panic!("{name}: {e}"));
     let installed = customize
@@ -71,7 +71,7 @@ fn install(customize: &Customize, name: &str, at: i64) {
     assert!(status.problems.is_empty(), "{name}: installs with problems: {:?}", status.problems);
 }
 
-fn remove(customize: &Customize, name: &str, at: i64) {
+fn remove(customize: &Customize, name: &str, at: u64) {
     let id = read(name).manifest.id;
     let found = customize.setup(&id).unwrap().unwrap_or_else(|| panic!("{name}: not recorded"));
     customize.remove_setup(&found, "cli", at).unwrap();
@@ -113,7 +113,7 @@ fn setups_on_different_axes_stack_and_each_removes_alone() {
     let customize = Customize::open(Roots::under(home.path()));
     let stack = ["dense", "terminal-first", "safe-agents"];
     for (at, name) in stack.iter().enumerate() {
-        install(&customize, name, 10 + at as i64);
+        install(&customize, name, 10 + at as u64);
     }
     let live = settings(home.path());
     for name in stack {
