@@ -1432,6 +1432,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-braid-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
@@ -2413,6 +2421,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-redact"
+version = "0.1.0"
+dependencies = [
+ "acpmux",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-relay"
 version = "0.1.0"
 dependencies = [
@@ -2441,6 +2457,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-braid-path",
+ "cmux-braid-session",
  "cmux-build-identity",
  "cmux-deadline",
  "cmux-fault",
@@ -2720,6 +2737,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
@@ -2898,6 +2923,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
