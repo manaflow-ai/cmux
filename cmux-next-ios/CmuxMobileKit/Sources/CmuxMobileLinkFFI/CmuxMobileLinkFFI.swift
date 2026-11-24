@@ -1950,6 +1950,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func path()  -> LinkPath
     
     /**
+     * Where the direct path's peer address is: `lan`, `tailnet` (100.64.0.0/10 or Tailscale's
+     * IPv6 range), `wan`, or empty on a relayed path or before a route
+     * (`cmux_mobile_link::dial::peer_scope`). The app's DEBUG hand-off receipt names it, so a dev
+     * link over Tailscale says so.
+     */
+    func peerScope()  -> String
+    
+    /**
      * Round-trip one ping; milliseconds.
      */
     func ping() async throws  -> UInt32
@@ -2275,6 +2283,20 @@ open func park(holdMs: UInt32, timeoutMs: UInt32)async throws  -> Bool  {
 open func path() -> LinkPath  {
     return try!  FfiConverterTypeLinkPath_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_path(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Where the direct path's peer address is: `lan`, `tailnet` (100.64.0.0/10 or Tailscale's
+     * IPv6 range), `wan`, or empty on a relayed path or before a route
+     * (`cmux_mobile_link::dial::peer_scope`). The app's DEBUG hand-off receipt names it, so a dev
+     * link over Tailscale says so.
+     */
+open func peerScope() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_peer_scope(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -8225,6 +8247,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_peer_scope() != 11861) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 22934) {
