@@ -56,10 +56,9 @@ export const BENCHES: readonly Bench[] = [
     args: ["500", "500", "3"],
     timeoutMs: 30_000,
   },
-  // chat-open takes about 36 s on the perf runner (2026-11-12). The nightly interaction-latency cmux-linux runner took
-  // 95 s for chat-open and 256 s for chat-switch on 2026-11-23, at their old 105 s and 255 s timeouts.
-  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 200_000 },
-  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 450_000 },
+  // chat-open takes about 36 s on the perf runner (2026-11-12).
+  { name: "chat-open", file: "chat-open.bench.ts", args: ["3", "300"], timeoutMs: 105_000 },
+  { name: "chat-switch", file: "chat-switch.bench.ts", args: ["3", "300"], timeoutMs: 255_000 },
   // settled_page.score_max (NOW settled_page_score_max, cmuxterm-hq goals/settled-page-ceiling.md). The in-page
   // transitions only until first-load-after-restart.bench.ts has its BOUND mode; about 3 min on a 32-core VM, its own
   // part so it never pushes the suite past its cap.
@@ -86,13 +85,12 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 900_000,
     ownPart: true,
   },
-  // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12), 51 s on a lane VM and over 90 s on the nightly
-  // interaction-latency cmux-linux runner, which timed it out at 90 s on every nightly from 2026-11-22.
+  // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
     file: "thread-rail-jump.bench.ts",
     args: ["1000", "5"],
-    timeoutMs: 240_000,
+    timeoutMs: 90_000,
   },
   // ui-stability takes 130 to 134 s on a fast-checks runner (about 225 s on the perf runner) once its Chromium launches.
   { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 360_000 },
@@ -110,9 +108,8 @@ export const BENCHES: readonly Bench[] = [
     file: "transcript-replay.bench.ts",
     args: ["--turns", "600"],
     // 93 to 99 s on a fast-checks runner (about 165 s on the perf runner, where 150 s timed it out on every tip
-    // measurement since 2026-11-12), the same before #40642 and #41096 (94 s at 842118ab39d9). The nightly
-    // interaction-latency cmux-linux runner timed it out at 300 s from 2026-11-22.
-    timeoutMs: 600_000,
+    // measurement since 2026-11-12), the same before #40642 and #41096 (94 s at 842118ab39d9).
+    timeoutMs: 300_000,
   },
   // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
   // record's arrival to its paint, task ms per call and layout shift.
@@ -120,8 +117,7 @@ export const BENCHES: readonly Bench[] = [
     name: "tool-call-burst",
     file: "tool-call-burst.bench.ts",
     args: ["--rounds", "3"],
-    // 118 s of 120 on the nightly interaction-latency cmux-linux runner (2026-11-23).
-    timeoutMs: 240_000,
+    timeoutMs: 120_000,
   },
   // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
   // React per frame, mount and a row's press to its paint.
@@ -129,8 +125,7 @@ export const BENCHES: readonly Bench[] = [
     name: "all-chats-list",
     file: "all-chats-list.bench.ts",
     args: ["3", "500"],
-    // 59 s on a lane VM; over 90 s on the nightly interaction-latency cmux-linux runner from 2026-11-22.
-    timeoutMs: 240_000,
+    timeoutMs: 90_000,
   },
   // One session's status, unread, title or cost changing at 100, 1,000 and 3,000 listed sessions: the cost per change
   // and its growth, which should be none. perf-cron.py's web-ui-scale part (about 90 s on a lane VM).
@@ -383,7 +378,7 @@ export function slowestFirst(rows: readonly PerfRow[]): PerfRow[] {
   });
 }
 
-async function run(bench: Bench) {
+async function run(bench: Bench, timeoutMs = bench.timeoutMs) {
   const webviews = path.resolve(import.meta.dir, "..");
   const started = performance.now();
   const proc = Bun.spawn(["bun", path.join("bench", bench.file), ...bench.args], {
@@ -397,7 +392,7 @@ async function run(bench: Bench) {
   const timer = setTimeout(() => {
     timedOut = true;
     proc.kill("SIGKILL");
-  }, bench.timeoutMs);
+  }, timeoutMs);
   const [stdout, stderr, exit] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -425,13 +420,22 @@ async function main() {
     console.error(`web-ui-suite: unknown bench ${unknown.join(", ")}`);
     process.exit(2);
   }
+  // `--timeout-s N` replaces the timeout of each bench `--only` names: the nightly interaction-latency job runs one
+  // bench at a time on a runner two to three times slower than the perf runner, so it brings its own (TIMEOUT_S in
+  // scripts/ci/nightly_interaction_latency.py), and the defaults stay sized to SUITE_CAP_MS for the perf cron.
+  const timeoutS = flag("--timeout-s") === undefined ? undefined : Number(flag("--timeout-s"));
+  if (timeoutS !== undefined && !(only && Number.isFinite(timeoutS) && timeoutS > 0)) {
+    console.error("web-ui-suite: --timeout-s takes a positive number of seconds, with --only");
+    process.exit(2);
+  }
   const rows: PerfRow[] = [];
   const failed: Failure[] = [];
   const benches: Record<string, { exit: number | null; seconds: number; rows: number; load: number }> = {};
   for (const bench of BENCHES.filter((each) => (only ? only.includes(each.name) : !each.ownPart))) {
     console.log(`web-ui-suite: ${bench.name} ${bench.args.join(" ")}`);
     const before = probe();
-    const result = await run(bench);
+    const timeoutMs = timeoutS === undefined ? bench.timeoutMs : timeoutS * 1000;
+    const result = await run(bench, timeoutMs);
     const load = contentionFactor([...before, ...probe()]);
     const { rows: measured, bad } = parseRows(result.stdout);
     const got = normalizeRows(measured, load);
@@ -441,7 +445,7 @@ async function main() {
       if (line && !line.startsWith(PERF_ROW_MARK)) console.log(`  ${bench.name}| ${line}`);
     benches[bench.name] = { exit: result.exit, seconds: result.seconds, rows: got.length, load };
     const why = result.timedOut
-      ? `timed out after ${bench.timeoutMs / 1000} s`
+      ? `timed out after ${timeoutMs / 1000} s`
       : result.exit !== 0
         ? `exit ${result.exit}`
         : got.length === 0
