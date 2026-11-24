@@ -73,8 +73,8 @@ import { type NewTabChat, type NewTabHost, pickedNewTabApp } from "./newTabModel
 import type { NewTabScreenActions } from "./newtab/NewTabScreen";
 import type { NewTabStartFailure } from "./newtab/StartFailure";
 import { startFailureCause, startFailureCode } from "./startFailure";
-import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { ContextScreen } from "./context/ContextScreen";
+import { HarnessesScreen } from "./lazyScreens";
+import { ContextScreen } from "./lazyScreens";
 import { contextAccess, contextSave } from "./context/contextAccess";
 import { registerHarnessesPage } from "./harnesses/harnessesPage";
 import {
@@ -108,7 +108,8 @@ import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { hatSide } from "./jumpPlace";
 import { hatPillPlace } from "./hatPillPlace.experiment";
-import { githubFolderRepo } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { useSendAfterCheckout } from "./sendAfterCheckout";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { shownTemplate } from "./newtab/templates";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -7065,6 +7066,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
+      setSendAfterCheckout(false);
       // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
       // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`.
       if (!peer && githubFolderRepo(cwd)) {
@@ -7122,6 +7124,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }>();
   /// New Worktree, or a GitHub repository picked for a new chat on this Mac (`github`): this Mac's checkout of
   /// it, cloned first when there is none, then the chat's worktree of that, as New Worktree makes one.
+  /// A GitHub repository picked for a new chat with This Mac picked is the chip's choice only: its checkout here
+  /// starts when Return sends, never at the pick (cmux#53226). `deferredGitHub` keeps the folders here whose remote
+  /// names it; `sendAfterCheckout` sends the prompt Return held once the checkout is the chat's folder.
+  const deferredGitHub = useRef<{ repo: string; candidates: string[] }>(undefined);
+  const [sendAfterCheckout, setSendAfterCheckout] = useState(false);
   const startInWorktree = useCallback(
     (cwd: string, github?: { repo: string; candidates: string[] }) => {
       // A newer folder pick wins over this worktree, as between two picks; the request this one
@@ -7170,6 +7177,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const code = (error as { code?: unknown } | null)?.code;
           const cloneFailure = code === "github.clone_failed" || code === "github.clone_no_folder";
           const message = github && cloneFailure ? errorMessage(error).trim() || undefined : undefined;
+          setSendAfterCheckout(false);
           if (pick === folderPick.current)
             setWorktreeError({ cwd, ...asked, ...(github ? { github } : {}), ...(message ? { message } : {}) });
         })
@@ -7178,6 +7186,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         });
     },
     [trustVisit],
+  );
+  // Return checked a GitHub repository out here first (checkOutGitHubOnSend): the prompt goes once it is the folder.
+  useSendAfterCheckout(
+    sendAfterCheckout && checkedOutGitHub !== undefined && checkedOutGitHub.cwd === projectDraft,
+    () => {
+      setSendAfterCheckout(false);
+      void composerHandle.current?.send();
+    },
   );
   const automationPick = useRef<(cwd: string) => void>(undefined);
   automationPick.current = (cwd) => chooseProject(cwd);
@@ -8599,7 +8615,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
-    return [...byPath.values()];
+    // A No folder chat's private agent-home folder is no project: every picker fed from this list (the
+    // composer's folder menu, the hero chooser) listed it by its id, a bare UUID (cmux#53226).
+    return [...byPath.values()].filter((project) => !isAgentHome(project.cwd));
   }, [newTabFolderSessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The pickers list repositories in the order of their newest folder: the folder of the newest chat first.
   const newTabProjectList = useMemo(
@@ -8633,7 +8651,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const peer = summary?.peer || (summary?.hostKind === "cloud" ? summary.host : undefined);
     return {
       // Every folder: the chooser lists one row per repository and finds the rest by search.
-      projects: [...newTabProjects.filter((project) => !isAgentHome(project.cwd)), ...remote.values()],
+      projects: [...newTabProjects, ...remote.values()],
       current: cwd && !isAgentHome(cwd) ? cwd.replace(/(.)\/+$/, "$1") : undefined,
       currentPeer: peer,
       // In no project only when it is: its folder is agent-home, or the host starts it there. A chat
@@ -9591,9 +9609,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setWorktreeCreating(false);
       setCloudSourceWaiting(false);
       setCheckedOutGitHub(undefined);
+      setSendAfterCheckout(false);
       pickedProject.current = undefined;
       setChooseFolder(false);
       setProjectDraft("");
+    },
+    deferGitHub: (repo: string, candidates: string[]) => {
+      deferredGitHub.current = { repo, candidates };
+      void chooseProject(githubFolder(repo));
+    },
+    checkOutGitHubOnSend: () => {
+      const repo = githubFolderRepo(projectDraft);
+      if (!repo || !projectDraft || !freshRef.current) return false;
+      const github =
+        deferredGitHub.current?.repo === repo ? deferredGitHub.current : { repo, candidates: [] as string[] };
+      setSendAfterCheckout(true);
+      startInWorktree(projectDraft, github);
+      return true;
     },
     pickSourceProject: (cwd: string, peer?: string) => {
       if (peer && sandbox.mode === "cloud") applyRunMode("persistent");

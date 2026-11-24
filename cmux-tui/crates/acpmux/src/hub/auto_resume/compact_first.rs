@@ -173,6 +173,7 @@ impl Hub {
                         trust_gate: step.trust_gate,
                         error: &step.error,
                         not_before: None,
+                        slash: None,
                     };
                     hub.auto_resume(&session, cut, step.attempt).await;
                 });
