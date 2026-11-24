@@ -1151,6 +1151,7 @@ impl HubCarrier {
                 generation: 0,
                 connection_attempt: ConnectionAttemptId(random_16()?),
                 resume: BTreeMap::new(),
+                daemon_takes_ik: false,
                 handshake_timeout: self.timings.handshake,
             },
         )
