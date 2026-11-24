@@ -462,6 +462,7 @@ jobs:
           PR: ${{ needs.target.outputs.pr }}
           HEAD_SHA: ${{ needs.target.outputs.head }}
           KEY: ${{ steps.key.outputs.key }}
+          LOOK_DISPATCH: ${{ vars.CMUX_TUI_LOOK_DISPATCH }}
         run: |
           set -euo pipefail
           if curl --fail --silent --max-time 15 -o /dev/null "https://files.cmux.com/cmux-tui/tree/$KEY/completion.json?hotverify=$GITHUB_RUN_ID"; then
@@ -472,6 +473,15 @@ jobs:
           IFS=$'\t' read -r branch pr_sha repo <<<"$info"
           if [[ "$repo" != "$GITHUB_REPOSITORY" || "$pr_sha" != "$HEAD_SHA" ]]; then
             echo "#$PR moved past ${HEAD_SHA:0:12} or is a fork: no build requested" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # A dispatch on a pull request's branch cannot publish: cmux-tui-artifacts.yml's publish and publish-tree
+          # jobs take a dispatch only on main or feat-cmux-next. Each one built three targets for nothing (82
+          # dispatches on lane/* heads 2026-11-24 05:08-10:20Z, about 120 job-min each, about 49k job-min a day, no
+          # tree published). vars.CMUX_TUI_LOOK_DISPATCH=1 sends it again once that workflow publishes a dispatched
+          # branch's tree.
+          if [[ "${LOOK_DISPATCH:-}" != 1 ]]; then
+            echo "cmux-tui tree $KEY is not published; a dispatch on $branch would build it without publishing, so none is sent" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
@@ -582,20 +592,6 @@ jobs:
           url="$(sed -n 's/^url=//p' "$RUNNER_TEMP/result.out")"
           echo "hot verify: the fleet's look: $(sed -n 's/^reason=//p' "$RUNNER_TEMP/result.out")" | tee -a "$GITHUB_STEP_SUMMARY"
           { echo "url=$url"; [[ -n "$url" ]] && echo "tar=true" || echo "tar=false"; } >> "$GITHUB_OUTPUT"
-      - name: Dispatch one more look
-        if: ${{ steps.check.outputs.ok == 'true' && steps.result.outputs.tar == 'false' && inputs.attempt != '1' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ inputs.pr }}
-          HEAD_SHA: ${{ inputs.head }}
-          LAYERS: ${{ inputs.layers }}
-          EVENT_AT: ${{ inputs.event_at }}
-          KIND: ${{ inputs.kind }}
-        run: |
-          set -euo pipefail
-          gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
-            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
-          echo "hot verify: the look returned no out.tar; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
       # The fleet step's out.tar, from the fleet artifact store's signed link (the controller's look_result): data
       # from a fleet worker, unpacked and checked below before anything is published.
       - name: Download the look's out.tar
@@ -613,12 +609,22 @@ jobs:
         env:
           PR: ${{ inputs.pr }}
           HEAD_SHA: ${{ inputs.head }}
+          ATTEMPT: ${{ inputs.attempt }}
         run: |
           set -euo pipefail
           out="$(python3 scripts/cmux-next/hot-verify-ci.py unpack "$RUNNER_TEMP/artifact/out.tar" "$RUNNER_TEMP/out")"
           echo "out=$out" >> "$GITHUB_OUTPUT"
+          rc=0
           python3 scripts/cmux-next/hot-verify-ci.py stage "$out" --pr "$PR" --head "$HEAD_SHA" \
-            --stage "$RUNNER_TEMP/hv/media" --text "$RUNNER_TEMP/hv/text/hv-text.txt" > "$RUNNER_TEMP/stage.out"
+            --stage "$RUNNER_TEMP/hv/media" --text "$RUNNER_TEMP/hv/text/hv-text.txt" > "$RUNNER_TEMP/stage.out" || rc=$?
+          # Exit 3: the tar has no receipt (the worker stopped first, e.g. its GitHub read ran out of quota, run
+          # 44455465520). The look never judged the change: once, look again (the dispatch step below).
+          if [[ "$rc" == 3 && "${ATTEMPT:-}" != 1 ]]; then
+            echo "again=true" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the look's out.tar has no receipt; one more look runs" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ "$rc" == 0 ]] || exit "$rc"
           if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["needs_build"] else 1)' "$RUNNER_TEMP/stage.out"; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
             echo "hot verify: the worker's plan against the nightly says this change needs a build; no comment (the build path covers it)" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -626,6 +632,20 @@ jobs:
             echo "needs_build=false" >> "$GITHUB_OUTPUT"
             ls "$RUNNER_TEMP/hv/media" 2>/dev/null | sed 's/^/staged: /' || true
           fi
+      - name: Dispatch one more look
+        if: ${{ steps.check.outputs.ok == 'true' && (steps.result.outputs.tar == 'false' || steps.stage.outputs.again == 'true') && inputs.attempt != '1' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          HEAD_SHA: ${{ inputs.head }}
+          LAYERS: ${{ inputs.layers }}
+          EVENT_AT: ${{ inputs.event_at }}
+          KIND: ${{ inputs.kind }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-hot-verify.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next \
+            -f pr="$PR" -f head="$HEAD_SHA" -f layers="$LAYERS" -f event_at="$EVENT_AT" -f kind="${KIND:-head}" -f attempt=1
+          echo "hot verify: the look returned no out.tar or no receipt; one more look runs for ${HEAD_SHA:0:12}" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Is the gallery advisory also on this head
         id: gallery
         if: ${{ steps.stage.outputs.needs_build == 'false' }}
