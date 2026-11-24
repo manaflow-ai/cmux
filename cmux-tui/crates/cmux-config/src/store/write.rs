@@ -14,7 +14,8 @@ use crate::jsonc::{self, JsoncError};
 use crate::keypath::{RESERVED_SHORTCUT_KEYS, dotted};
 use crate::refusal::Refusal;
 use crate::schema::{
-    Row, accepts, normalize_backdrop, replaced_by_row, retired_keys, retired_reason,
+    Row, accepts, normalize_backdrop, recents_of, record_recent, replaced_by_row, retired_keys,
+    retired_reason,
 };
 use crate::value::{canonical, is_empty_object, value_at};
 
@@ -80,6 +81,15 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
             return Err(Refusal::FileUnreadable { message: problem.clone() });
         }
         next.recompute();
+        // Once per write, so an edit batch records the background it started from.
+        let text = match record_background(state, &next, text)? {
+            Recorded::Same(text) => text,
+            Recorded::Changed(text) => {
+                next.read_file(super::FileRead::Text(text.clone()));
+                next.recompute();
+                text
+            }
+        };
         next.revision = state.revision + 1;
         // Every applied write bumps the revision once, even when no value changed.
         let keys = diff::changed_keys(&state.effective, &next.effective);
@@ -213,10 +223,14 @@ fn set_text(
         accepts(row, &value, &state.domains)?;
         // The default's own value removes the key, so it keeps following the default when a later
         // release changes it (Swift `isUnsetValue`); not when a layer below the file fills the key.
-        let below = state.managed.recommended.contains_key(&row.key)
-            || state.team.defaults.contains_key(&row.key);
-        if remove_default && !below && row.default.clone().map(canonical).as_ref() == Some(&value) {
-            return remove_pruning(without_replaced(source.to_string(), &path)?, &path);
+        if remove_default
+            && row.default.clone().map(canonical).as_ref() == Some(&value)
+            && !state.managed.recommended.contains_key(&row.key)
+            && !state.team.defaults.contains_key(&row.key)
+            && !overrides_group_background(state, source, row, &value)?
+        {
+            let text = remove_pruning(without_replaced(source.to_string(), &path)?, &path)?;
+            return Ok(text);
         }
     }
     if row.is_none() {
@@ -224,6 +238,67 @@ fn set_text(
     }
     let text = without_replaced(source.to_string(), &path)?;
     jsonc::set(&text, &path, &value).map_err(unreadable)
+}
+
+fn overrides_group_background(
+    state: &State,
+    source: &str,
+    row: &Row,
+    value: &Value,
+) -> Result<bool, Refusal> {
+    if row.key != crate::sidebar_look::GROUP_BACKGROUND || source == state.source {
+        return Ok(state.overrides_group_background(row, value));
+    }
+    // Earlier edits in this batch may have changed the selected look or its theme.
+    let mut pending = state.clone();
+    pending.file_root = jsonc::parse(source).map_err(unreadable)?;
+    pending.recompute();
+    Ok(pending.overrides_group_background(row, value))
+}
+
+const BACKGROUND: [&str; 2] = ["appearance", "background"];
+const BACKGROUND_RECENTS: [&str; 2] = ["appearance", "backgroundRecents"];
+
+enum Recorded {
+    Same(String),
+    Changed(String),
+}
+
+/// The background cmux shows: the effective value (theme, file, team defaults, recommended), else
+/// the schema default.
+fn shown_background(state: &State) -> Option<String> {
+    let path = parts(&BACKGROUND);
+    value_at(&state.effective.root, &path)
+        .cloned()
+        .or_else(|| state.schema.row_at(&path).and_then(|row| row.default.clone()))
+        .and_then(|value| value.as_str().map(str::to_string))
+}
+
+/// After a write that changes the background shown, from any surface, the background it replaced
+/// goes first in `appearance.backgroundRecents` (Leo, 2026-11-22: "it was cumbersome back then to
+/// switch back"), and the new one leaves the list. Nothing is recorded when the shown value did
+/// not change or a policy manages the recents.
+fn record_background(state: &State, next: &State, text: String) -> Result<Recorded, Refusal> {
+    let recents_path = parts(&BACKGROUND_RECENTS);
+    if check_managed(state, &recents_path).is_err() {
+        return Ok(Recorded::Same(text));
+    }
+    let (Some(previous), now) = (shown_background(state), shown_background(next)) else {
+        return Ok(Recorded::Same(text));
+    };
+    if now.as_deref() == Some(previous.as_str()) {
+        return Ok(Recorded::Same(text));
+    }
+    let root = jsonc::parse(&text).map_err(unreadable)?;
+    let old = recents_of(value_at(&root, &recents_path));
+    // The background now shown is not a recent one: the list is what one click goes back to.
+    let mut recents = record_recent(&old, &previous);
+    recents.retain(|recent| Some(recent) != now.as_ref());
+    if recents == old {
+        return Ok(Recorded::Same(text));
+    }
+    let value = Value::Array(recents.into_iter().map(Value::String).collect());
+    Ok(Recorded::Changed(jsonc::set(&text, &recents_path, &value).map_err(unreadable)?))
 }
 
 /// `text` without the retired key the row at `path` replaced, so the old key
@@ -270,11 +345,12 @@ fn reset_text(
     check_managed(state, &path)?;
     // A retired key may be removed from an old file (pruning like a row).
     let text = without_replaced(source.to_string(), &path)?;
-    if row.is_some() || retired_reason(&path).is_some() {
-        remove_pruning(text, &path)
+    let text = if row.is_some() || retired_reason(&path).is_some() {
+        remove_pruning(text, &path)?
     } else {
-        jsonc::remove(&text, &path).map_err(unreadable)
-    }
+        jsonc::remove(&text, &path).map_err(unreadable)?
+    };
+    Ok(text)
 }
 
 /// Removes every schema key and every shortcut override. Custom actions,

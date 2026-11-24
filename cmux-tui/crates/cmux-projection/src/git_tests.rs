@@ -46,7 +46,7 @@ fn project(git_dir: &Path, commit: &str, book: &mut Book, now_ns: i64) -> Projec
         commit_ns: 1_000_000_000,
         now_ns,
         gitfile: Some("gitdir: /x\n".into()),
-        real_root: Path::new("/real"),
+        real_root: Some(Path::new("/real")),
         links: &links,
     };
     Projection::build(commit, &items, book, &layout).unwrap()
@@ -114,6 +114,30 @@ fn a_commit_projects_with_links_a_gitfile_and_build_output_on_the_real_disk() {
     assert_eq!(second.mtime_ns, 5_000_000_000);
 }
 
+#[test]
+fn an_unread_mount_ends_its_git_processes_and_drops_its_recent_blobs() {
+    let (_dir, git_dir, commit) = repo();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
+    let readme = projection.manifest.resolve("README.md").unwrap();
+    let blobs = GitBlobs::new(&git_dir, projection.sources.clone());
+    assert_eq!(blobs.read(readme, 0, 100).unwrap(), b"hello\n");
+    assert_eq!(blobs.pooled(), 1, "a read leaves its git cat-file in the pool");
+
+    // A sweep before the idle time keeps both.
+    blobs.held.sweep(Instant::now(), IDLE);
+    assert_eq!(blobs.pooled(), 1);
+    assert_eq!(blobs.held.recent.lock().unwrap().len(), 1);
+
+    // After it, the process ends and the recent blobs go.
+    blobs.held.sweep(Instant::now() + IDLE, IDLE);
+    assert_eq!(blobs.pooled(), 0, "an idle mount holds no git process");
+    assert!(blobs.held.recent.lock().unwrap().is_empty(), "nor any blob bytes");
+
+    // The next read starts a new one and reads the same bytes.
+    assert_eq!(blobs.read(readme, 2, 2).unwrap(), b"ll");
+    assert_eq!(blobs.pooled(), 1);
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
@@ -137,7 +161,7 @@ fn a_mounted_commit_is_a_clean_worktree_and_writes_land_in_the_upper_folder() {
         commit_ns: 1_000_000_000,
         now_ns: 5_000_000_000,
         gitfile: Some(Worktree::gitfile(&admin)),
-        real_root: &real_root,
+        real_root: Some(&real_root),
         links: &links,
     };
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
@@ -203,4 +227,62 @@ fn git_reads_the_written_index_as_the_commit() {
     let debug = run(work, &["ls-files", "--debug", "run.sh"]);
     assert!(debug.contains("mtime: 5:0"), "{debug}");
     assert!(debug.contains("size: 10"), "{debug}");
+}
+
+#[test]
+fn a_kept_listing_answers_without_git_and_matches_it() {
+    let (dir, git_dir, commit) = repo();
+    let cache = dir.path().join("keep/trees").join(&commit);
+    let listed = ls_tree_cached(&git_dir, &commit, &cache).unwrap();
+    assert_eq!(listed, ls_tree(&git_dir, &commit).unwrap());
+    assert!(cache.exists(), "the listing is kept");
+    // A wrong git dir: only the kept listing can answer.
+    let kept = ls_tree_cached(&dir.path().join("nowhere"), &commit, &cache).unwrap();
+    assert_eq!(kept, listed);
+}
+
+#[test]
+fn a_new_commits_listing_takes_its_sizes_from_a_kept_one_and_matches_git() {
+    let (dir, git_dir, commit) = repo();
+    let trees = dir.path().join("keep/trees");
+    ls_tree_cached(&git_dir, &commit, &trees.join(&commit)).unwrap();
+    let work = dir.path().join("work");
+    std::fs::write(work.join("README.md"), "hello, a longer line\n").unwrap();
+    std::fs::write(work.join("new.txt"), "new\n").unwrap();
+    std::fs::remove_file(work.join("a-b")).unwrap();
+    run(&work, &["add", "-A"]);
+    run(&work, &["commit", "-q", "-m", "two"]);
+    let two = run(&work, &["rev-parse", "HEAD"]).trim().to_owned();
+    let listed = ls_tree_cached(&git_dir, &two, &trees.join(&two)).unwrap();
+    assert_eq!(listed, ls_tree(&git_dir, &two).unwrap());
+}
+
+#[test]
+fn a_sparse_index_holds_the_left_out_paths_as_skip_worktree() {
+    let (dir, git_dir, commit) = repo();
+    let projection = project(&git_dir, &commit, &mut Book::default(), 2_000_000_000);
+    let kept: Vec<IndexEntry> =
+        projection.index.iter().filter(|e| !e.path.starts_with("crate/")).cloned().collect();
+    let skipped: Vec<TreeItem> = ls_tree(&git_dir, &commit)
+        .unwrap()
+        .into_iter()
+        .filter(|item| item.path.starts_with("crate/"))
+        .collect();
+    let index = dir.path().join("sparse-index");
+    std::fs::write(&index, index_bytes_sparse(&kept, &skipped, 0, 0).unwrap()).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("--git-dir")
+            .arg(&git_dir)
+            .args(args)
+            .env("GIT_INDEX_FILE", &index)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let listed = git(&["ls-files", "-v"]);
+    assert!(listed.contains("S crate/src/main.rs"), "{listed}");
+    assert!(listed.contains("H README.md"), "{listed}");
+    assert_eq!(git(&["diff-index", "--cached", "--name-only", &commit]), "", "nothing staged");
 }

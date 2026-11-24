@@ -533,9 +533,6 @@ const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
-/// The `acpmux daemon service` LaunchAgent. `ProcessType` `Interactive`: a job with none is
-/// `Standard`, whose QoS clamp holds the daemon and everything it starts below the default CPU
-/// priority, and every pane's connect waits on the daemon (`qos::lowered_priority`).
 pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -545,7 +542,6 @@ pub(crate) const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
   <key>WorkingDirectory</key><string>__HOME__</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>__HOME__/.acpmux/launchd.log</string>
   <key>StandardErrorPath</key><string>__HOME__/.acpmux/launchd.log</string>
 </dict></plist>
@@ -699,6 +695,11 @@ const IN_PLACE: &str = "ACPMUX_IN_PLACE=";
 /// `WatchdogSignal=SIGTERM` ends it as a restart handoff (agents kept), not
 /// with the default SIGABRT's core dump of a large heap; one that does not
 /// stop is killed after `TimeoutStopSec`.
+///
+/// `CPUWeight=1000` and `IOWeight=1000`: ten times systemd's default for the unit's `app.slice`
+/// siblings and twenty or more times a session scope's (`session_scope.rs`), so under load the
+/// daemon still answers (`daemon_priority.rs`). Unprivileged: a user manager without the `cpu` or
+/// `io` controller (stock systemd delegates `cpu memory pids`) ignores the key and starts the unit.
 pub(crate) const SYSTEMD_UNIT: &str = "[Unit]
 Description=acpmux daemon
 After=default.target
@@ -718,6 +719,8 @@ KillMode=process
 TimeoutStopSec=30
 NotifyAccess=main
 WatchdogSignal=SIGTERM
+CPUWeight=1000
+IOWeight=1000
 
 [Install]
 WantedBy=default.target
@@ -727,7 +730,7 @@ WantedBy=default.target
 /// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
 /// with any other text was written or edited by someone else and is left
 /// as it is.
-pub(crate) const OLD_SYSTEMD_UNITS: [&str; 4] = [
+pub(crate) const OLD_SYSTEMD_UNITS: [&str; 5] = [
     // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
     "[Unit]
 Description=acpmux daemon
@@ -813,6 +816,30 @@ RestartSteps=5
 RestartMaxDelaySec=60
 KillMode=process
 TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+",
+    // Before the daemon outranked its work (RFD 0049 R3, 2026-11-22): no CPUWeight or IOWeight.
+    "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run --take-over
+WorkingDirectory=%h
+Restart=always
+RestartPreventExitStatus=75
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+NotifyAccess=main
+WatchdogSignal=SIGTERM
 
 [Install]
 WantedBy=default.target
@@ -929,10 +956,20 @@ const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1
 /// logout, is kept). Asked only once the unit is known to be used.
 pub(crate) const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
 
-/// Fails (exit 4) when the daemon still answers after its shutdown (a live
-/// daemon's status carries its `pid`; a stopped one's only `"running":
-/// false`): it holds the lock, so the unit's daemon could not take over.
-const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'; then echo "the daemon of ~/.acpmux did not shut down, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi"#;
+/// Fails (exit 4) when the daemon `$p` ([`daemon_unit`]) still answers after
+/// its shutdown (a live daemon's status carries its `pid`; a stopped one's
+/// only `"running": false`), or another one answers that `acpmux.service`
+/// does not run: either holds the lock, so the unit's daemon could not take
+/// over. A new daemon that is `acpmux.service`'s main process is the takeover
+/// already done: the old daemon saw its binary replaced and handed over
+/// through `systemctl --user restart --no-block acpmux.service` while the
+/// update ran, so the unit read `deactivating` (not active) and the update
+/// took the shutdown branch. A fleet Linux host, 2026-11-23 10:53Z: this check
+/// read the unit's new daemon (pid 326107, the new build) as the old one not
+/// shutting down, and the update rolled a good build back for good.
+pub(super) const STILL_RUNNING_CHECK: &str = r#"acpmux_q=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1)
+if [ -n "$acpmux_q" ] && [ "$acpmux_q" = "$p" ]; then echo "the daemon of ~/.acpmux did not shut down, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi
+if [ -n "$acpmux_q" ] && [ "$acpmux_q" != "$(systemctl --user show acpmux.service -p MainPID --value 2>/dev/null)" ]; then echo "another daemon of ~/.acpmux (pid $acpmux_q) started outside acpmux.service, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi"#;
 
 /// (Re)start the daemon on a Linux host. Under the user systemd unit
 /// `acpmux.service` when the user manager outlives the session

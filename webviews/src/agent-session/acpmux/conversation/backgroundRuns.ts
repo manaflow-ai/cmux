@@ -30,6 +30,7 @@ import type { Translate } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 import { BACKGROUND_TURN, backgroundWeight } from "./backgroundTurns";
+import { SUBAGENT_DONE } from "../subagents/subagentRows";
 import type { Folds } from "./viewFolds";
 import { isVisiblyEmptyMessage } from "./visibleMessage";
 
@@ -49,6 +50,14 @@ function memberKind(row: AcpmuxRow, inline: boolean): MemberKind | undefined {
     if (turn.trigger === "task_notification") return "finished";
     return turn.trigger === "scheduled" ? "scheduled" : "other";
   }
+  if (row.kind === SUBAGENT_DONE) {
+    // A subagent's end, whatever the harness wrote (acpmux's own lifecycle record, not the text of
+    // a notification): it counts as a run's member like a shell's end.
+    const state = row.subagents?.[0]?.state;
+    if (state === "completed") return "finished";
+    if (state === "failed") return "failed";
+    return state === "cancelled" || state === "disconnected" ? "stopped" : undefined;
+  }
   if (row.kind === "backgroundTask") {
     const state = row.backgroundTask?.state;
     if (state === "completed") return "finished";
@@ -56,6 +65,16 @@ function memberKind(row: AcpmuxRow, inline: boolean): MemberKind | undefined {
     if (state === "failed") return "failed";
   }
   return undefined;
+}
+
+type SubagentEnd = NonNullable<AcpmuxBackgroundRun["subagentEnd"]>;
+
+/// How a subagent's end row says it ended.
+function subagentEnd(row: AcpmuxRow): SubagentEnd {
+  const state = row.subagents?.[0]?.state;
+  if (state === "failed") return "failed";
+  if (state === "disconnected") return "disconnected";
+  return state === "cancelled" ? "stopped" : "finished";
 }
 
 /// A row of a member line the reader opened (`lines` holds the members' background turn ids): it
@@ -86,6 +105,8 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
     }
     const counts = { finished: 0, stopped: 0, failed: 0, scheduled: 0, other: 0 };
     let commands = 0;
+    let subagents = 0;
+    const ends = new Set<SubagentEnd>();
     const lines = new Set<string>();
     let end = index;
     let last = index;
@@ -95,6 +116,10 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
       if (kind) {
         counts[kind] += 1;
         if (row.kind === "backgroundTask") commands += 1;
+        if (row.kind === SUBAGENT_DONE) {
+          subagents += 1;
+          ends.add(subagentEnd(row));
+        }
         if (row.background) lines.add(row.background.id);
         last = end;
       } else if (ownedBy(row, lines)) last = end;
@@ -116,7 +141,12 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
     const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
     const id = backgroundRunRowId((opened ?? first).id);
     const open = opened !== undefined || outerOpen;
-    const run: AcpmuxBackgroundRun = { ...counts, commands, rows: folded.map((row) => row.id) };
+    const run: AcpmuxBackgroundRun = {
+      ...counts,
+      commands,
+      ...(subagents > 0 && { subagents, ...(ends.size === 1 && { subagentEnd: [...ends][0] }) }),
+      rows: folded.map((row) => row.id),
+    };
     out.push({
       id,
       // Moves with every member's version and the open state: the memoized line and the height
@@ -163,6 +193,14 @@ export function backgroundRunLabel(t: Translate, run: AcpmuxBackgroundRun): stri
   const failed = run.failed;
   const n = run.finished + run.stopped + failed + run.scheduled + run.other;
   const ended = n - failed;
+  // Subagents' ends alone: "12 subagents stopped", the one way they all ended, else "12 subagents ended".
+  if (run.subagents === n) {
+    if (run.subagentEnd === "stopped") return t("backgroundRun.subagentsStopped", { n });
+    if (run.subagentEnd === "disconnected") return t("backgroundRun.subagentsDisconnected", { n });
+    if (run.subagentEnd === "failed") return t("backgroundRun.subagentsFailed", { n });
+    if (run.subagentEnd === "finished") return t("backgroundRun.subagentsFinished", { n });
+    return t("backgroundRun.subagentsEnded", { n });
+  }
   if (run.commands === n) {
     if (ended === 0) return t("backgroundRun.commandsAllFailed", { n: failed });
     if (run.stopped === 0) {

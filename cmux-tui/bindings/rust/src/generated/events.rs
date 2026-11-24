@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2e0877c88adc3bd75bf9e49964f9345f01e89bccf21a8b32cbba5f203a9bd76f.
+// cmux-tui mux protocol 12, IR 9dae40e9a91d9653a152d869db666939b2c8725ede52f1d9338cb1d888180110.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -393,6 +393,17 @@ pub struct ConversationRunChangedEvent {
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledChangedEvent {
+    pub conversation: String,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -1115,6 +1126,7 @@ pub enum Event {
     ConversationInboxChanged(ConversationInboxChangedEvent),
     ConversationLive(ConversationLiveEvent),
     ConversationRunChanged(ConversationRunChangedEvent),
+    ConversationScheduledChanged(ConversationScheduledChangedEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -1220,6 +1232,7 @@ impl Event {
             Self::ConversationInboxChanged(_) => Some("conversation-inbox-changed"),
             Self::ConversationLive(_) => Some("conversation-live"),
             Self::ConversationRunChanged(_) => Some("conversation-run-changed"),
+            Self::ConversationScheduledChanged(_) => Some("conversation-scheduled-changed"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -1324,6 +1337,7 @@ impl Event {
             Self::ConversationInboxChanged(_) => Some(&CONVERSATION_INBOX_CHANGED_EVENT_METADATA),
             Self::ConversationLive(_) => Some(&CONVERSATION_LIVE_EVENT_METADATA),
             Self::ConversationRunChanged(_) => Some(&CONVERSATION_RUN_CHANGED_EVENT_METADATA),
+            Self::ConversationScheduledChanged(_) => Some(&CONVERSATION_SCHEDULED_CHANGED_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -1677,6 +1691,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-run-changed") => match serde_json::from_value::<ConversationRunChangedEvent>(raw.clone()) {
             Ok(event) => Event::ConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-scheduled-changed") => match serde_json::from_value::<ConversationScheduledChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationScheduledChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

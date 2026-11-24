@@ -60,6 +60,30 @@
           ]
         },
         {
+          "key": "experiments.hoverLook",
+          "note": "Taste prototype: one restyled look for every tooltip and hover card in the web UI (Base UI tooltips, title tooltips, toolbar hints, hover cards): a frostier glass with a crisp hairline ring and a soft two-layer shadow, painted by the page instead of the App's glass (webviews useExperimentSwitch(\"hoverLook\"), ui/hoverLook.css; arms in ui/hoverLook.experiment.ts). Paint only: sizes, padding and type do not change. Off by default; off keeps today's tooltips.",
+          "title": {
+            "key": "settings.experiments.hoverLook",
+            "text": "Tooltip Refresh"
+          },
+          "help": {
+            "key": "settings.experiments.hoverLook.help",
+            "text": "Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "tooltip",
+            "tooltips",
+            "hover",
+            "card",
+            "glass"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
@@ -115,6 +139,53 @@
           ]
         },
         {
+          "key": "experiments.menuStyleV2",
+          "note": "Menu Style v2: the restyled menus (webviews experiment menu-style-v2, arm v2; the native popup reads DesignSettings.shared.experiment(\"menuStyleV2\")). Off by default.",
+          "title": {
+            "key": "settings.experiments.menuStyleV2",
+            "text": "Menu Style v2"
+          },
+          "help": {
+            "key": "settings.experiments.menuStyleV2.help",
+            "text": "Restyled menus."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "menu",
+            "menus",
+            "style",
+            "look",
+            "labs"
+          ]
+        },
+        {
+          "key": "experiments.menuRowStates",
+          "note": "Menu Row States: a menu row that is unavailable says why, and a row that starts work shows its progress inline (webviews experiment menu-row-states, arm on; the native popup reads DesignSettings.shared.experiment(\"menuRowStates\")). Off by default.",
+          "title": {
+            "key": "settings.experiments.menuRowStates",
+            "text": "Menu Row States"
+          },
+          "help": {
+            "key": "settings.experiments.menuRowStates.help",
+            "text": "Menu rows that are unavailable say why, and rows that start work show their progress."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "menu",
+            "menus",
+            "unavailable",
+            "disabled",
+            "progress",
+            "labs"
+          ]
+        },
+        {
           "key": "experiments.toastsV2",
           "note": "Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch(\"toastsV2\")). Off by default; off keeps today's toasts.",
           "title": {
@@ -160,6 +231,32 @@
             "widget",
             "tool",
             "card"
+          ]
+        },
+        {
+          "key": "experiments.attachmentTypeIcons",
+          "note": "Taste prototype: while the App looks up a dropped or pasted file's local path, its composer chip shows a file or image icon instead of the loading mark, and an image keeps its image icon until its thumbnail arrives (webviews experimentSwitchOn(\"attachmentTypeIcons\"), composer/attachmentIntakeModel.ts resolvingPath). Off by default; off keeps the loading mark. The path-first attach itself is not behind this switch.",
+          "title": {
+            "key": "settings.experiments.attachmentTypeIcons",
+            "text": "Attachment Type Icons"
+          },
+          "help": {
+            "key": "settings.experiments.attachmentTypeIcons.help",
+            "text": "While an attachment loads, its chip shows a file or image icon instead of the loading mark."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "attachment",
+            "attachments",
+            "icon",
+            "file",
+            "image",
+            "loading",
+            "chip"
           ]
         }
       ]

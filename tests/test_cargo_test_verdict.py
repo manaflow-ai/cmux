@@ -152,6 +152,43 @@ def coloured(text):
     return "\n".join(f"2026-10-31T01:02:03.4567890Z {line}" for line in text.splitlines())
 
 
+class NestedCargoSummary(unittest.TestCase):
+    """#46751 job 137280817482: bwrap's captured child output closes before the parent binary."""
+
+    def nested(self, parent_failed=2, child_failed=1):
+        child = binary(("child", "FAILED")).replace("1 failed;", f"{child_failed} failed;")
+        parent = binary(("outer", "FAILED"), ("flaky", "FAILED"))
+        parent = parent.replace("2 failed;", f"{parent_failed} failed;")
+        return parent.replace("\nfailures:\n", "\nfailures:\n\n---- outer stdout ----\n" + child + "\n", 1)
+
+    def test_nested_summaries_keep_each_binarys_failures(self):
+        head = self.nested()
+        own, notes = verdict.judge(head, None, head, JOB)
+        self.assertFalse(own, notes)
+
+    def test_child_names_cannot_cover_an_unnamed_parent_failure(self):
+        head = self.nested(parent_failed=3)
+        self.assertTrue(verdict.judge(head, None, head, JOB)[0])
+
+    def test_parent_names_cannot_cover_an_unnamed_child_failure(self):
+        head = self.nested(child_failed=2)
+        self.assertTrue(verdict.judge(head, None, head, JOB)[0])
+
+    def test_parent_flakes_rewrite_only_the_parent_summary(self):
+        head = self.nested()
+        retry = binary(("flaky", "ok"))
+        base = binary(("outer", "FAILED"), ("child", "FAILED"))
+        own, notes = verdict.judge(head, retry, base, JOB)
+        self.assertFalse(own, notes)
+        rewritten = verdict.without_failures(head, {"flaky"})
+        self.assertIn("test result: FAILED. 0 passed; 1 failed;", rewritten)
+        self.assertIn("test result: FAILED. 1 passed; 1 failed;", rewritten)
+
+    def test_child_summary_cannot_close_an_unfinished_parent(self):
+        head = self.nested().rsplit("test result:", 1)[0]
+        self.assertTrue(verdict.judge(head, None, self.nested(), JOB)[0])
+
+
 class ColouredSummary(unittest.TestCase):
     """#41329's review F2: "scripts/ci/cargo_test_verdict.py:160: the summary rewrite searches the raw line, so ANSI
     codes around FAILED stop it matching. The flaky result drops out while its failure count stays, and judge() calls
@@ -242,7 +279,8 @@ class Scope(unittest.TestCase):
         changed = ["cmux-tui/crates/cmux-json/src/lib.rs", "skills/cmux-computer-use/SKILL.md", "cmux-tui/Cargo.lock",
                    "README.md", "webviews/src/app.tsx", "cmux-tui/crates/ghostty-vt/src/lib.rs"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, changed), changed[:3])
-        gates = ["scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/v2-gates.d/pr03d.gates"]
+        gates = ["scripts/cmux-next/run-v2-gates.sh", "scripts/cmux-next/tests/run-v2-gates.test.sh",
+                 "scripts/cmux-next/v2-gates.d/pr03d.gates"]
         self.assertEqual(verdict.touches(ROOT, self.CRATE, gates), gates)  # read at test time
         self.assertEqual(verdict.touches(ROOT, "cmux-tui/crates/cmux-host", gates), [])
 

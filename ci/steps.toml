@@ -215,7 +215,6 @@ inputs = [
   ".github/workflows/ci.yml",
   ".github/workflows/ci-macos.yml",
   ".github/workflows/nightly.yml",
-  ".github/workflows/seed-derived-data.yml",
   "scripts/ci/cache_restore_receipt.py",
   "scripts/check-test-determinism.py",
   "tests/test_ci_cache_restore_receipt.py",
@@ -578,6 +577,96 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
+# ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
+# web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
+# web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
+# bases, and skips only feat-cmux-next's pull requests, where Web status counts that skip as fine. `inputs` is that
+# route, plus what the commands read outside it: the files web's sources import from outside web/
+# (workers/presence/src, images/cmux-vm/auto-roll.ts), the relay catalog the catalog check compares, and the
+# fixit-compile and retry wrappers (scripts/ci/oops). The same commands: the locked install, the relay catalog
+# check, and the type check through retry.py (one retry of a classified infrastructure failure) and
+# fixit_compile.py (on errors that each have one safe fix, the patch in $RUNNER_TEMP/fixit-compile, which
+# pr-pipeline.yml's linux job uploads on failure as a fixit-compile-* artifact for the cmuxterm-hq reconciler),
+# then one more run when the native compiler aborts. The patch names the pull request's head (the merge commit's
+# second parent), as the job's FIXIT_COMPILE_HEAD_SHA did. The job's always-uploaded ci_oops ledger artifact
+# (ci-oops-web-typecheck-RUN-ATTEMPT) is not kept: nothing reads it; retry.py still prints its verdict in the log.
+# 32 s cold on 2 CPUs through ci/run (an empty bun cache), 85 s when fixit-compile fixes an error and compiles again.
+[step.web-typecheck]
+job = "linux"
+timeout = 300
+title = "Web typecheck"
+about = "web's locked dependencies install, the managed relay catalog's generated copies match config/iroh, and web typechecks (tsgo)"
+needs = ["bun"]
+inputs = [
+  "web/**/*.ts",
+  "web/**/*.tsx",
+  "web/**/*.mts",
+  "web/**/*.cts",
+  "web/**/*.js",
+  "web/**/*.jsx",
+  "web/**/*.mjs",
+  "web/**/*.cjs",
+  "web/**/*.json",
+  "web/bun.lock",
+  "workers/presence/src/**",
+  "images/cmux-vm/auto-roll.ts",
+  "config/iroh/managed-relay-catalog.json",
+  "scripts/ci/oops/**",
+  "scripts/ci/web_subareas.py",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+export RUNNER_TEMP="${RUNNER_TEMP:-$(mktemp -d)}"
+if head="$(git rev-parse -q --verify 'HEAD^2')"; then
+  export FIXIT_COMPILE_HEAD_SHA="$head"
+fi
+cd web
+bun install --frozen-lockfile
+status=0
+bun tools/generate-managed-iroh-relay-catalog.ts --check || status=1
+log="$(mktemp "$RUNNER_TEMP/web-typecheck.XXXXXX.log")"
+set +e
+python3 -I ../scripts/ci/oops/retry.py --job web-typecheck -- \
+  python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee "$log"
+typecheck=${PIPESTATUS[0]}
+set -e
+# The native TypeScript preview compiler can abort on a healthy runner: once more, then its status stands.
+if [ "$typecheck" -ne 0 ] && grep -Fq 'Aborted (core dumped)' "$log"; then
+  echo "::warning::native tsgo aborted during web typecheck; retrying once"
+  typecheck=0
+  bun run typecheck || typecheck=$?
+fi
+[ "$typecheck" -eq 0 ] || status=1
+exit "$status"
+'''
+
+# cmux-next-guards.yml's security-holes job, which every feat-cmux-next pull request ran: 3,725 jobs and 8,327
+# runner-minutes a day, a median 85 s for about 30 s of work. It judged every change whatever it touched (gitleaks
+# reads any file a change adds), so its `inputs` are `**` and every change routes it, but a docs-only change
+# alone does not start the pipeline for it (scripts/ci/pr_router.py table_steps), as the workflow's docs-only path
+# filter started no run. The job's `if:` now
+# skips feat-cmux-next's pull requests; nothing requires the job, so no rollup counts its skip. The same commands,
+# with CMUX_STATIC_ANALYSIS_BLOCKING=1: the ratchet's own tests, zizmor and gitleaks judged on the merge commit
+# against its first parent (checked out at depth 2, as the job's was), and the two runner-size guards. The job ran
+# each with `!cancelled()`, so one failed command does not stop the others. The pinned, checksummed zizmor and
+# gitleaks binaries download into ~/.cache/static-analysis (a persistent runner keeps them).
+# 31 s on 2 CPUs through ci/run (a warm tool cache; the zizmor and gitleaks downloads add a few seconds cold).
+[step.security-holes]
+job = "linux"
+timeout = 300
+title = "Workflow security holes and secrets"
+about = "the ratchet's tests pass, the change adds no workflow security hole (zizmor) and no secret (gitleaks), and no job is pinned to one runner size"
+inputs = ["**"]
+run = '''
+export CMUX_STATIC_ANALYSIS_BLOCKING=1
+status=0
+python3 tests/test_static_analysis_ratchet.py || status=1
+python3 scripts/static-analysis/ratchet.py zizmor --base HEAD^1 --head HEAD || status=1
+python3 scripts/static-analysis/ratchet.py gitleaks --base HEAD^1 --head HEAD || status=1
+python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py || status=1
+exit "$status"
+'''
+
 # Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
 # drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
 # test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
@@ -671,8 +760,6 @@ about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.
 needs = ["rust", "node"]
 inputs = [
   "coderouter/**",
-  ".github/workflows/coderouter-publish-npm.yml",
-  ".github/workflows/coderouter-publish-pypi.yml",
   ".github/workflows/coderouter-release.yml",
   ".github/workflows/coderouter-verify-release.yml",
 ]
@@ -711,6 +798,35 @@ python3 scripts/ci/pr_design_spec_check.py --body-file "$RUNNER_TEMP/design-body
   --paths-file "$RUNNER_TEMP/paths.txt" --tree-file "$RUNNER_TEMP/tree.txt" \
   --map .github/design-surfaces.json --pr-map "$RUNNER_TEMP/design-surfaces.json" \
   || echo "::warning title=Design spec::the design spec check could not run (exit $?); see this job's log"
+'''
+
+# Capture: a pull request that changes native app UI shows a real capture of it in its description (what
+# `cmux-ci capture` prints, the media-tour label, or a `No capture: <why>` line). It was the one description lint
+# that could turn its job red (exit 2 on bad input); as a step of the `advisory` job it warns, like the rest
+# ("Advisory checks never block", CI v2). Leo, 2026-10-31: "WE DONT NEED F***ING SCREENSHOTS JUST LET ME TRY
+# THE STUFF OUT". A media-tour label event re-runs it. When git could not list the paths it reads the files API.
+[step.capture]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 180
+title = "Capture"
+about = "a pull request that changes native app UI shows a real capture in its description, or a No capture line"
+labels = ["media-tour", "media-tour-mac"]
+run = '''
+if [ ! -f scripts/ci/pr_capture_check.py ]; then
+  # The pull request that adds the check: its base has no check to run yet.
+  echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
+  exit 0
+fi
+printf '%s' "$BODY" > "$RUNNER_TEMP/capture-body.md"
+paths="$RUNNER_TEMP/capture-paths.txt"
+if [ "${CAPTURE_LISTED:-}" != true ]; then
+  paths="$RUNNER_TEMP/capture-api-paths.txt"
+  gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+fi
+python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md" --paths-file "$paths" \
+  --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
 '''
 
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
@@ -892,7 +1008,7 @@ python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "
 job = "advisory"
 blocks = false
 class = "idle"
-timeout = 300
+timeout = 540
 title = "split-plan advisory"
 about = "a pull request that spans many surfaces or commits gets split-plan triggers as a warning"
 run = '''
@@ -904,7 +1020,8 @@ repo="$RUNNER_TEMP/split-plan"
 rm -rf "$repo"
 git init -q "$repo"
 git -C "$repo" remote add origin "$URL"
-fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
+# At most four fetches (the window, its fallback, the deepen, its fallback), each bounded, inside the step's 540 s.
+fetch() { timeout 120 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
 # A SHA fetch works on GitHub; the pull request's head ref and the base branch are the fallback. Either
 # can find no commit that new (a head or base older than 14 days): the whole history below answers that.
 fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \

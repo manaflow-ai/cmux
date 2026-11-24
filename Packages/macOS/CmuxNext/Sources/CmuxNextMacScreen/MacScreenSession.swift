@@ -86,6 +86,9 @@ public final class MacScreenSession {
     /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
     /// asks the host for its ultra encode profile in the next offer; nil (Balanced) asks for nothing.
     @ObservationIgnored public var encodeProfile: String?
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the next offer asks
+    /// for at most this many frames per second; nil asks for the quality's rate.
+    @ObservationIgnored public var maxFpsCap: Int?
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
     public var relayErrors: [ICECandidateError] { [] }
@@ -174,6 +177,7 @@ public final class MacScreenSession {
         }
         signalingOpen = false
         pendingOffer = nil
+        laterCandidates = []
         let sessionID = (signaling as? TicketSignaling)?.ticket.sessionID ?? UUID().uuidString
         tasks.append(Task { [weak self] in
             let servers = MacScreenRdServers((try? await signaling.iceServers()) ?? [])
@@ -237,7 +241,14 @@ public final class MacScreenSession {
                     }
                     answered(answer)
                 case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
-                    process.send(["candidate": candidate.candidate])
+                    // The link process reads its answer first: a candidate the host trickled
+                    // right behind its answer (which no longer waits for STUN and TURN) waits
+                    // until the answer has gone to the process.
+                    if let waiting = laterCandidates {
+                        laterCandidates = waiting + [candidate.candidate]
+                    } else {
+                        process.send(["candidate": candidate.candidate])
+                    }
                 case .bye:
                     end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
                     return
@@ -256,6 +267,8 @@ public final class MacScreenSession {
     @ObservationIgnored private var signalingOpen = false
     /// This side's offer, made before the socket opened.
     @ObservationIgnored private var pendingOffer: String?
+    /// The host's candidates that came before the link process had its answer (nil once it has).
+    @ObservationIgnored private var laterCandidates: [String]? = []
 
     private func sendOffer(_ text: String, signaling: any ScreenSignaling, process: MacScreenRdProcess) async {
         logger.info("cmux rd: offer sent")
@@ -283,7 +296,8 @@ public final class MacScreenSession {
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
-                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels)
+                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels,
+                                                    maxFps: maxFpsCap)
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
@@ -315,13 +329,7 @@ public final class MacScreenSession {
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
-                switch Self.failureCause(ofEnded: reason) {
-                case let .host(why)?: hostFailed(why)
-                case let cause?:
-                    end(reason)
-                    if case .failed = phase { failureCause = cause }
-                case nil: end(reason)
-                }
+                linkEnded(reason)
                 return
             }
         }
@@ -351,6 +359,8 @@ public final class MacScreenSession {
             logger.info("cmux rd: link started toward the host")
             process.send(Answer(session: sessionID, peerKey: answer.key, stun: servers.stun, turn: servers.turn,
                                 candidates: answer.candidates, socket: path, relayOnly: relayOnly))
+            for candidate in laterCandidates ?? [] { process.send(["candidate": candidate]) }
+            laterCandidates = nil
         })
     }
 
@@ -429,6 +439,19 @@ public final class MacScreenSession {
     private func fail(_ message: String) {
         disconnect()
         phase = .failed(message: message, needsSignIn: false)
+    }
+
+    /// `cmux rd connect`'s `ended` line: the session ends, a failure naming who failed
+    /// (``failureCause(ofEnded:)``), so the failed card says why ("link failed: the secure
+    /// handshake timed out" reads "The connection to <name> failed: the secure handshake timed out").
+    func linkEnded(_ reason: String) {
+        switch Self.failureCause(ofEnded: reason) {
+        case let .host(why)?: hostFailed(why)
+        case let cause?:
+            end(reason)
+            if case .failed = phase { failureCause = cause }
+        case nil: end(reason)
+        }
     }
 
     /// The host said it could not serve the session: a failure even after the picture started

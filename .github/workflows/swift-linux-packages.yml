@@ -29,6 +29,7 @@ on:
     paths:
       - Packages/**
       - vendor/stack-auth-swift-sdk-prerelease/**
+      - cmux-next-ios/CmuxMobileKit/**
       - scripts/ci/swift-linux-packages.txt
       - scripts/ci/package-test-lane.sh
       - scripts/ci/swift-test-debug-info.sh
@@ -53,10 +54,10 @@ jobs:
     name: Swift packages on Linux (${{ matrix.group }})
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # 32 vCPU: swift build compiles a package's modules in parallel (tests/test_ci_linux_compile_runners.py);
     # 16 vCPU while the Blacksmith outage switch is on (tests/test_ci_blacksmith_linux_failover.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 30
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     defaults:
@@ -79,6 +80,10 @@ jobs:
           - group: stack-auth
             packages: vendor/stack-auth-swift-sdk-prerelease
             test_filter: RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests|PublishableKeyOptionalTests|TokenRefreshAlgorithmTests/[a-zA-Z]*Fresh
+          # The cmux-next iPhone app's modules that need no UI framework (the manifest's CMUX_SWIFTPM_TARGET_LINUX
+          # shape); cmux-next-ios-kit.yml skips their test targets on the Mac.
+          - group: ios-kit
+            packages: cmux-next-ios/CmuxMobileKit
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -93,7 +98,7 @@ jobs:
         id: key
         run: |
           set -euo pipefail
-          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
+          inputs="$({ find Packages vendor/stack-auth-swift-sdk-prerelease cmux-next-ios -type d \( -name .build -o -name .git -o -name node_modules \) -prune -o \
               -type f \( -name Package.swift -o -name Package.resolved \) -print0
             printf '%s\0' scripts/ci/swift-linux-packages.txt scripts/ci/swift-test-debug-info.sh; } |
             LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d ' ' -f1)"
@@ -110,6 +115,7 @@ jobs:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
           restore-keys: |
             swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-
@@ -168,4 +174,5 @@ jobs:
           path: |
             Packages/**/.build
             vendor/stack-auth-swift-sdk-prerelease/.build
+            cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}

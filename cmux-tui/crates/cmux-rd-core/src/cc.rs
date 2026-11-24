@@ -47,6 +47,11 @@ pub struct CcConfig {
     pub lan_rtt_us: u64,
 }
 
+/// A round trip under this is a LAN: the start jumps to `lan_start_bps`. Wi-Fi in one home
+/// (an iPhone or laptop viewing a Mac) sits at 5 to 10 ms, under a 5 ms limit it started at
+/// 8 Mbit/s and reached 15 Mbit/s only after about 1 s of motion. A WAN is 20 ms and up.
+pub const LAN_RTT_US: u64 = 10_000;
+
 impl Default for CcConfig {
     fn default() -> Self {
         Self {
@@ -55,7 +60,7 @@ impl Default for CcConfig {
             start_bps: 8_000_000,
             relay_max_bps: 4_000_000,
             lan_start_bps: 30_000_000,
-            lan_rtt_us: 5_000,
+            lan_rtt_us: LAN_RTT_US,
         }
     }
 }
@@ -409,8 +414,8 @@ pub struct CongestionController {
     capacity_bps: Option<f64>,
     last_increase_us: Option<u64>,
     last_decrease_us: Option<u64>,
-    /// Ultra only: one round trip (at least [`MIN_DECREASE_INTERVAL_US`]) between cuts,
-    /// fixed when a cut is taken.
+    /// One round trip (at least [`MIN_DECREASE_INTERVAL_US`]) between cuts, fixed
+    /// when a cut is taken: delay and loss cuts share it (ultra's too).
     response_window_us: u64,
     next_decrease_us: u64,
     usage: Usage,
@@ -756,27 +761,15 @@ impl CongestionController {
             // none): until one does, ultra's rate moves by standard's measured rules
             // below, within ultra's ceiling, rather than sitting at the start rate.
         }
-        if evidence {
+        let overuse = evidence && self.usage == Usage::Overuse;
+        if overuse || loss > 0.10 {
+            self.decrease(now_us, overuse, loss);
+        } else if evidence {
             match self.usage {
-                Usage::Overuse => self.decrease(now_us),
                 // The queue is draining: hold until it is empty.
-                Usage::Underuse => self.last_increase_us = Some(now_us),
+                Usage::Underuse | Usage::Overuse => self.last_increase_us = Some(now_us),
                 Usage::Normal => self.increase(now_us),
             }
-        }
-        if loss > 0.10 {
-            let before = self.target_bps as f64;
-            let mut target = before * (1.0 - 0.5 * loss.min(1.0));
-            // Heavy loss while the stream fills the target is a full queue (a queue too
-            // short or too fast-filling for the delay trend to see): what still arrives
-            // is the capacity, so growth afterwards is slow near it, not a 2x probe.
-            if let Some(acked) = self.acked_bps().filter(|&a| a >= 0.5 * before || loss > 0.3) {
-                self.capacity_bps = Some(acked);
-                // A full queue holds its delay flat, so the cut goes under what arrives.
-                target = target.min(BETA * acked);
-            }
-            self.target_bps = target as u64;
-            self.last_increase_us = Some(now_us);
         }
         if self.profile == EncodeProfile::Ultra {
             // Unmeasured ultra (above): the standard rules set the wire rate.
@@ -786,37 +779,46 @@ impl CongestionController {
         self.after_feedback(before_bps, now_us);
     }
 
-    fn decrease(&mut self, now_us: u64) {
+    fn decrease(&mut self, now_us: u64, overuse: bool, loss: f64) {
         self.last_increase_us = Some(now_us);
-        if self
-            .last_decrease_us
-            .is_some_and(|t| now_us.saturating_sub(t) < MIN_DECREASE_INTERVAL_US)
-        {
+        // Delay and loss describe the same bottleneck. Give a reduction at least
+        // one round trip to take effect before either signal can reduce it again.
+        // Keep the deadline fixed if the RTT estimate changes during that window.
+        if self.last_decrease_us.is_some() && now_us < self.next_decrease_us {
             return;
         }
-        let target = self.target_bps as f64;
-        let Some(acked) = self.acked_bps() else {
-            self.target_bps = (target * BETA) as u64;
-            self.last_decrease_us = Some(now_us);
-            return;
-        };
-        let sending_more = self.sent_bps(now_us).is_some_and(|sent| sent > 1.2 * acked);
-        if acked < 0.5 * target && !sending_more {
-            // Our own traffic is far under the target and all of it gets through (a quiet
-            // screen): the throughput says nothing about the path's capacity. A queue that
-            // still grows (the trend filter qualified it) is someone else's; step down from
-            // the target, not to our small throughput, so the next motion does not start low.
-            self.target_bps = (target * BETA) as u64;
-            self.last_decrease_us = Some(now_us);
-            return;
+        let before = self.target_bps as f64;
+        let acked = self.acked_bps();
+        let mut target = before;
+        if overuse {
+            target = before * BETA;
+            if let Some(acked) = acked {
+                let sending_more = self.sent_bps(now_us).is_some_and(|sent| sent > 1.2 * acked);
+                // A quiet screen does not measure capacity. Only cut to delivered
+                // throughput when the stream fills the target or is building a queue.
+                if acked >= 0.5 * before || sending_more {
+                    self.capacity_bps = Some(match self.capacity_bps {
+                        Some(c) if (acked - c).abs() < 0.5 * c => 0.7 * c + 0.3 * acked,
+                        _ => acked,
+                    });
+                    target = (BETA * acked).min(before);
+                }
+            }
         }
-        self.capacity_bps = Some(match self.capacity_bps {
-            // A capacity far off the last one is a new path condition, not noise.
-            Some(c) if (acked - c).abs() < 0.5 * c => 0.7 * c + 0.3 * acked,
-            _ => acked,
-        });
-        self.target_bps = (BETA * acked).min(target) as u64;
-        self.last_decrease_us = Some(now_us);
+        if loss > 0.10 {
+            // Combine both candidates against the original target, never apply a
+            // second multiplicative cut to the delay reduction in the same report.
+            target = target.min(before * (1.0 - 0.5 * loss.min(1.0)));
+            if let Some(acked) = acked.filter(|&a| a >= 0.5 * before || loss > 0.3) {
+                self.capacity_bps = Some(acked);
+                target = target.min(BETA * acked);
+            }
+        }
+        if (target as u64) < self.target_bps {
+            self.target_bps = target as u64;
+            self.last_decrease_us = Some(now_us);
+            self.next_decrease_us = now_us.saturating_add(self.response_window_us);
+        }
     }
 
     fn update_ultra(&mut self, now_us: u64) {

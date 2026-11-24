@@ -66,38 +66,11 @@ pub(super) const MARKER: &str = ".cmux-ext-dev.json";
 /// extension folder outside a cmux checkout builds the same way.
 const PACK_TS: &str = include_str!("../../../../cmux-app-host/tools/pack.ts");
 
-/// The extension SDK's source, embedded so `cmux-extension-sdk` resolves in a folder with
-/// no copy of its own (a sample copied out of a checkout, one a person installs): the
-/// packer gets it in `CMUX_EXTENSION_SDK`. Paths keep the checkout's layout, which the
-/// SDK's relative imports of its tables expect.
-const SDK_FILES: [(&str, &str); 5] = [
-    (
-        "cmux-extension-sdk/typescript/src/index.ts",
-        include_str!("../../../../cmux-extension-sdk/typescript/src/index.ts"),
-    ),
-    (
-        "cmux-extension-sdk/typescript/src/widget.ts",
-        include_str!("../../../../cmux-extension-sdk/typescript/src/widget.ts"),
-    ),
-    (
-        "cmux-extension-sdk/typescript/src/design.ts",
-        include_str!("../../../../cmux-extension-sdk/typescript/src/design.ts"),
-    ),
-    (
-        "cmux-app-host/schema/v2/events.json",
-        include_str!("../../../../cmux-app-host/schema/v2/events.json"),
-    ),
-    (
-        "cmux-app-host/generated/scopes.json",
-        include_str!("../../../../cmux-app-host/generated/scopes.json"),
-    ),
-];
-
 /// Writes the packer and the SDK into `dir`; returns the SDK entry for `CMUX_EXTENSION_SDK`.
 pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
     std::fs::write(dir.join("pack.ts"), PACK_TS)?;
-    for (path, text) in SDK_FILES {
-        let file = dir.join("sdk").join(path);
+    for (path, text) in super::scaffold::runtime_sdk_files() {
+        let file = dir.join(path);
         if let Some(parent) = file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -105,13 +78,13 @@ pub(super) fn write_packer(dir: &Path) -> std::io::Result<PathBuf> {
     }
     // `cmux-extension-sdk/customize`: the types of what this build lets you customize,
     // written from the same schema `cmux customize schema` prints (not committed anywhere).
-    let types = dir.join("sdk/cmux-extension-sdk/typescript/src/generated/customize.ts");
+    let types = dir.join("sdk/src/generated/customize.ts");
     if let Some(parent) = types.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let schema = cmux_customize::schema::Schema::current();
     std::fs::write(types, cmux_customize::schema::typescript(&schema))?;
-    Ok(dir.join("sdk").join(SDK_FILES[0].0))
+    Ok(dir.join("sdk/src/index.ts"))
 }
 
 /// One problem with file and position where known.
@@ -799,7 +772,7 @@ impl NewTabPick {
 }
 
 /// Where each contribution shows, from the manifest. `shown` is the app's
-/// record (installed, on, not hidden); a whole New Tab page also needs the
+/// record (installed, on, not hidden); a New Tab view also needs the
 /// person's pick (`new_tab`), so it is never reported as shown without it.
 pub(super) fn placements(
     manifest: &Value,
@@ -823,13 +796,14 @@ pub(super) fn placements(
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
                 "cmux.newtab/1" => {
-                    "the whole New Tab page, once you pick it (cmux settings set tabs.newTabApp <id>)"
+                    "over the New Tab composer, once you pick it (cmux settings set tabs.newTabApp <id>)"
                         .into()
                 }
                 "cmux.widget/1" => "a widget the person adds from Edit Widgets > Add Widget (New Tab page or sidebar)".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 "cmux.composer.command/1" => "the agent chat composer's / menu".into(),
                 "cmux.composer.mention/1" => "the agent chat composer's @ completions".into(),
+                "cmux.composer.chip/1" => "the agent chat composer's context chips".into(),
                 "cmux.chat.widget/1" => {
                     match entry.pointer("/options/tools").and_then(Value::as_array) {
                         Some(tools) if !tools.is_empty() => format!(
@@ -1320,7 +1294,7 @@ impl Session {
                     Ok(Ok(ops)) => {
                         outcome.scene = super::scene::outline(&[&ops]);
                         if VIEWS.contains(&interface.as_str()) {
-                            outcome.recorded = vec![(name.clone(), ops.clone())];
+                            outcome.recorded = vec![(name, ops.clone())];
                         }
                         let (system, problem) = super::design_system::System::load(&pkg.dir);
                         outcome.design = problem

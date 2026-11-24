@@ -86,6 +86,14 @@ const overImage: Play = async (ctx) => {
   await park(ctx);
 };
 
+/// The page in one of the appearance modes the control must hold in: Borders none, Reduce Transparency.
+const inMode =
+  (attribute: string, value = ""): Play =>
+  async (ctx) => {
+    ctx.document.documentElement.setAttribute(attribute, value);
+    await park(ctx);
+  };
+
 const look = (arm: JumpPairLook, up = false) => ({
   experiments: { [jumpPairLook.id]: arm, ...(up ? { [jumpUpButton.id]: "on" } : {}) },
 });
@@ -126,7 +134,7 @@ export default agentPaneEntry({
       ...look("labeled", true),
     },
     frosted: {
-      note: "Selected (ships): a 32 px frosted disc at the composer's glass level; the words under it frost, nothing bends.",
+      note: "Selected (ships): the composer's own control, a 28 px disc in the input card's fill, edge, rim and depth; the words under it frost, nothing bends.",
       snapshot,
       play: park,
       ...look("frosted"),
@@ -154,6 +162,24 @@ export default agentPaneEntry({
       snapshot,
       play: park,
       ...look("lens"),
+    },
+    "frosted-up": {
+      note: "Jump up in the shipped look: the same composer control as Jump to latest, its arrow turned up.",
+      snapshot,
+      play: atLatest,
+      ...look("frosted", true),
+    },
+    "frosted-borders-none": {
+      note: "Borders none: the composer's edge clears on the control as on the card; the fill and depth stay.",
+      snapshot,
+      play: inMode("data-borders", "none"),
+      ...look("frosted"),
+    },
+    "frosted-reduce-transparency": {
+      note: "Reduce Transparency: the composer's solid surface and its hairline, no frost and no rim light.",
+      snapshot,
+      play: inMode("data-reduce-transparency"),
+      ...look("frosted"),
     },
     "frosted-image": {
       note: "The shipped look over a wallpaper: still glass, the art shows through the frost.",

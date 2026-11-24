@@ -178,8 +178,9 @@ await requireBrowserLane("hat-composer-icon-grid.test.ts", async () => {
           near("panel button width", m.panel.w, m.mic.w);
           near("panel button height", m.panel.h, m.mic.h);
           near("chevron over the mic", m.chevronGlyph.cx, m.mic.cx);
-          // One glyph size: the header's glyphs grow with the composer's and draw its ink.
-          const glyph = m.plusGlyph.w * (14 / 16);
+          // One glyph size: the header's glyphs grow with the composer's glyph (the mic's; + is drawn a step
+          // over the other icons) and draw its ink.
+          const glyph = m.micGlyph.w * (14 / 16);
           near("panel glyph size", m.panelGlyph.w, glyph);
           near("chevron glyph size", m.chevronGlyph.w, glyph);
           near("header mark size", m.headLead?.w, glyph);

@@ -63,6 +63,27 @@ public final class TerminalTabHost {
         // interactive update puts it back (V3-4, T-TABS-14).
         controller.viewIfLoaded.map { Self.expose($0, false) }
     }
+
+    /// The page that last appeared. A retained tab can show on a new page before SwiftUI
+    /// tears the old one down; only the current owner may change the size claim, so the
+    /// outgoing page's late disappearance cannot release it from under the visible one.
+    private var pageOwner: UUID?
+
+    func pageAppeared(_ page: UUID, interactive: Bool) {
+        pageOwner = page
+        model.setPageShown(interactive)
+    }
+
+    func pageSettled(_ page: UUID, interactive: Bool) {
+        guard pageOwner == page else { return }
+        model.setPageShown(interactive)
+    }
+
+    func pageDisappeared(_ page: UUID) {
+        guard pageOwner == page else { return }
+        pageOwner = nil
+        model.setPageShown(false)
+    }
 }
 
 /// The embedded terminal page (SPEC 10 inside a workspace). TabsKit owns the
@@ -77,6 +98,8 @@ public struct TerminalTabPage: View {
     let insets: EdgeInsets
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
+    /// This page's own identity for the host's size-claim ownership.
+    @State private var pageID = UUID()
 
     public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool) {
         self.host = host
@@ -93,10 +116,23 @@ public struct TerminalTabPage: View {
             // Only a page on screen, settled and taking input sizes the Mac's
             // terminal; the grid, a swipe away, another tab or leaving the
             // workspace release it (PROTOCOL.md, "Terminal size claims").
-            .onAppear { host.model.setPageShown(isInteractive) }
-            .onChange(of: isInteractive) { _, interactive in host.model.setPageShown(interactive) }
-            .onDisappear { host.model.setPageShown(false) }
-            .ignoresSafeArea()
+            .onAppear {
+                host.pageAppeared(pageID, interactive: isInteractive)
+                TerminalPageOrientation.shared.page(pageID, shows: isInteractive)
+            }
+            .onChange(of: isInteractive) { _, interactive in
+                host.pageSettled(pageID, interactive: interactive)
+                // Settled, the page turns with the phone; zoomed out, the grid is portrait.
+                TerminalPageOrientation.shared.page(pageID, shows: interactive)
+            }
+            .onDisappear {
+                host.pageDisappeared(pageID)
+                TerminalPageOrientation.shared.page(pageID, shows: false)
+            }
+            // Full bleed top and bottom (the page's own insets place the rows);
+            // sideways, the grid keeps clear of the Dynamic Island and the
+            // corners (no side insets in portrait). The black fills them.
+            .ignoresSafeArea(.all, edges: .vertical)
             .background(Color.black)
             // Not attached: the page as last seen on this phone, as it was (a
             // warm surface keeps its own rows, live and scrollable, under
@@ -115,7 +151,8 @@ public struct TerminalTabPage: View {
                         // once; once attached the frame stays until the live rows
                         // are drawn, then goes in one frame: a cut, never a fade
                         // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
+                                               screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
@@ -151,16 +188,20 @@ public struct TerminalTabCard: View {
         cardContent.accessibilityHidden(true)
     }
 
+    /// What the card draws: also read by the UI tests' face probe (`TabCardFaceRecord`).
+    public var content: TerminalCardContent {
+        let started = model.controller?.started == true
+        return TerminalCardContent.choose(sessionStarted: started,
+                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                          hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+    }
+
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background)
-                let started = model.controller?.started == true
-                let content = TerminalCardContent.choose(sessionStarted: started,
-                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
@@ -246,19 +287,14 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let insets: EdgeInsets
     let isInteractive: Bool
 
-    func makeUIViewController(context: Context) -> TerminalViewController {
-        let controller = host.controller
-        // The same controller comes back when the tab is shown again; a page
-        // being replaced may still hold it for a moment.
-        if controller.parent != nil {
-            controller.willMove(toParent: nil)
-            controller.view.removeFromSuperview()
-            controller.removeFromParent()
-        }
-        return controller
+    func makeUIViewController(context: Context) -> EmbeddedTerminalContainer {
+        EmbeddedTerminalContainer(terminal: host.controller)
     }
 
-    func updateUIViewController(_ controller: TerminalViewController, context: Context) {
+    func updateUIViewController(_ container: EmbeddedTerminalContainer, context: Context) {
+        container.loadViewIfNeeded()
+        let controller = container.terminal
+        guard controller.parent === container else { return }
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
@@ -272,6 +308,36 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
         }
     }
 
-    static func dismantleUIViewController(_ controller: TerminalViewController, coordinator: ()) {}
+    static func dismantleUIViewController(_ controller: EmbeddedTerminalContainer, coordinator: ()) {}
+}
+
+/// SwiftUI owns one container per representable lifetime. The terminal survives
+/// those lifetimes, so returning it directly lets an outgoing representable's
+/// delayed teardown detach the controller already used by the incoming page.
+/// Only the child moves; tearing down the old container cannot remove it again.
+final class EmbeddedTerminalContainer: UIViewController {
+    let terminal: TerminalViewController
+
+    init(terminal: TerminalViewController) {
+        self.terminal = terminal
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if terminal.parent != nil {
+            terminal.willMove(toParent: nil)
+            terminal.view.removeFromSuperview()
+            terminal.removeFromParent()
+        }
+        addChild(terminal)
+        terminal.view.translatesAutoresizingMaskIntoConstraints = true
+        terminal.view.frame = view.bounds
+        terminal.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(terminal.view)
+        terminal.didMove(toParent: self)
+    }
 }
 #endif

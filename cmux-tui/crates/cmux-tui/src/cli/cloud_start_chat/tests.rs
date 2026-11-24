@@ -267,6 +267,11 @@ struct Fake {
     estimated: Vec<(usize, String)>,
     /// The progress lines the run said ([`Runner::say`]).
     said: Vec<String>,
+    /// The answer to a stuck machine's look (`fresh::LOOK`), which takes no time and no scripted answer; None:
+    /// the exec route refuses it.
+    look: Option<Ran>,
+    /// The looks asked, apart from `ran`.
+    looked: Vec<Vec<String>>,
 }
 
 impl Fake {
@@ -298,12 +303,32 @@ impl Fake {
             until: None,
             estimated: Vec::new(),
             said: Vec::new(),
+            look: None,
+            looked: Vec::new(),
         }
+    }
+
+    /// A stuck machine's look ([`fresh::LOOK`]): answered apart from the scripted steps.
+    fn looks(&mut self, args: &[String]) -> Option<Ran> {
+        let look = args.get(1).map(String::as_str) == Some("exec")
+            && args.iter().any(|word| word.contains("cmux stuck-machine look"));
+        if !look {
+            return None;
+        }
+        self.looked.push(args.to_vec());
+        Some(self.look.clone().unwrap_or_else(|| Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "unavailable", "message": "no exec here"}).to_string(),
+        }))
     }
 }
 
 impl Runner for Fake {
     fn cmux(&mut self, args: &[String]) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
         self.clock += self.cost(args);
         self.ran.push(args.to_vec());
         self.answers.pop_front().expect("an answer for every step")
@@ -311,6 +336,9 @@ impl Runner for Fake {
     /// A step that would run past `until` is killed there, as `internal::bounded::output_by` kills it: its answer
     /// is used up and never seen.
     fn cmux_by(&mut self, args: &[String], until: Instant) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
         if self.clock + self.cost(args) <= until {
             return self.cmux(args);
         }
@@ -1209,7 +1237,12 @@ fn a_permission_question_and_a_timeout_say_what_to_do() {
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "20"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
-    assert!(error["message"].as_str().unwrap().contains("acp wait sess-1"));
+    assert!(
+        error["message"].as_str().unwrap().contains(
+            "cmux cloud chat status --target machine:vm-1 --session sess-1 --after 0 --wait 20"
+        ),
+        "{error}"
+    );
 }
 
 #[test]

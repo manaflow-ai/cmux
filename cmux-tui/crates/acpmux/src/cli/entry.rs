@@ -60,10 +60,10 @@ pub unsafe fn process_main() -> Result<()> {
         unsafe { std::env::remove_var(key) };
     }
     crate::heap_profile::start();
-    // glibc builds: two malloc arenas, not eight per core (malloc_arenas.rs).
+    // glibc builds: sixteen malloc arenas, not eight per core (malloc_arenas.rs).
     // SAFETY: as above, before any thread exists.
     unsafe {
-        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::DAEMON_ARENAS);
+        cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -103,6 +103,18 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
         return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
     }
+    // `cmux github` for an agent session on a machine added from a Mac (`github_lane_mint.rs`):
+    // git's credential helper and the `gh` shim the session's env names. No runtime, no daemon
+    // start; stdout is git's or gh's alone.
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::github_lane_mint::CLI_ARG) {
+        crate::install_github_source();
+        let rest: Vec<String> =
+            args[1..].iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        let code = cmux_host::github_cli::run(&rest);
+        // crash-allow: git and gh read this exit code (a helper's refusal, gh's own status); no runtime or daemon runs yet
+        std::process::exit(i32::from(code));
+    }
     // A Codex start's PreToolUse hook in a filling checkout (`codex_repo_gate.rs`): no runtime.
     if args.first().is_some_and(|a| a == crate::codex_repo_gate::HOOK_ARG) {
         return crate::codex_repo_gate::main();
@@ -128,7 +140,11 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
-    runtime(&args)?.block_on(async_main(args, invocation))
+    let daemon = crate::daemon_priority::is_daemon_run(&args);
+    let word_rule = runtime_workers(&args);
+    let parsed = parse(args, invocation);
+    runtime_with(daemon, workers_for(word_rule, parsed.cli.command.as_ref()))?
+        .block_on(async_main(parsed))
 }
 
 /// The stdio MCP servers acpmux gives each agent session (`agent_tools.rs`).
@@ -160,12 +176,6 @@ const TOOLS_MCP_WORKERS: usize = 1;
 /// that takes no bytes must not keep a stopped daemon from exiting.
 // timeout: a hang breaker on a local log write at exit, not a wait for a slow path; lines not written in time are dropped
 const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
-/// How long a lowered `--take-over` start that moved to a login-session job waits for that job's
-/// daemon to take the home, so the update swap that started it sees the hand-over: the swap's own
-/// wait for a take-over start to ask (`daemon/exe_swap.rs` `HANDOVER_WITHIN`).
-#[cfg(target_os = "macos")]
-// timeout: a stop condition on a wait for launchd's job, not a correctness decision; the job serves the home either way
-const HANDOVER_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// The worker count `args` (without the program name) runs with: None is
 /// tokio's default, one per core.
@@ -188,16 +198,63 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
 /// these futures on the stack the daemon gives them.
 pub const WORKER_STACK_BYTES: usize = 8 << 20;
 
+#[cfg(test)]
 fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
+    runtime_with(crate::daemon_priority::is_daemon_run(args), runtime_workers(args))
+}
+
+fn runtime_with(daemon: bool, workers: Option<usize>) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.thread_stack_size(WORKER_STACK_BYTES);
-    if let Some(workers) = runtime_workers(args) {
+    // The daemon outranks the work it supervises (`daemon_priority.rs`): its nice before any
+    // runtime thread starts (they inherit it), and each runtime thread's QoS on macOS.
+    if daemon {
+        crate::daemon_priority::raise();
+        builder.on_thread_start(crate::daemon_priority::thread_start);
+    }
+    if let Some(workers) = workers {
         builder.worker_threads(workers);
     }
     builder.enable_all().build()
 }
 
-async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
+/// Worker threads of a one-shot client call (`one_shot`): the call's future runs on the
+/// main thread (`block_on`), and the client's reader task needs one worker. Still a multi-thread
+/// runtime, so `block_in_place` works.
+const ONE_SHOT_WORKERS: usize = 1;
+
+/// Whether `command` is a one-shot call to the daemon: one connect, one hello, a few requests,
+/// then exit. Each tokio worker is a thread the kernel must schedule twice more, once to park and
+/// once to exit (exit_group waits for every thread), and on a loaded host each waits behind the
+/// busy ones: a worker per core cost `acpmux ls` most of its 812 ms p99 at 10 busy loops per core
+/// (cmux#51033's duress bench), while the call itself needs one.
+fn one_shot(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Ls(_)
+            | Command::Send { .. }
+            | Command::Register { .. }
+            | Command::Status { .. }
+            | Command::Info { .. }
+            | Command::Last { .. }
+            | Command::Pending
+    )
+}
+
+/// The worker count a parsed command runs with: the word rule (`runtime_workers`) first, then one
+/// worker for a one-shot call, else None (tokio's default, one per core).
+fn workers_for(word_rule: Option<usize>, command: Option<&Command>) -> Option<usize> {
+    word_rule.or_else(|| command.filter(|c| one_shot(c)).map(|_| ONE_SHOT_WORKERS))
+}
+
+/// A command line read before any runtime exists: `--version`, `--help` and a refused command
+/// end here with no thread started, and the runtime is sized for the command it will run.
+struct Parsed {
+    cli: Cli,
+    json_out: bool,
+}
+
+fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
     // `acpmux ls | head` must end quietly, not panic on a closed pipe.
     #[cfg(unix)]
     unsafe {
@@ -255,7 +312,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             }
         }
     };
-    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+    let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
     if let Some(Command::New(_)) = &cli.command
         && let Some((_, new)) = matches.subcommand()
@@ -264,7 +321,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     {
         errors::exit_with(&refusal.into(), json_out)
     }
-    let command = cli.command.map(flatten).map(|c| match c {
+    cli.command = cli.command.take().map(flatten).map(|c| match c {
         Command::New(mut a) if run_alias => {
             a.quiet = true;
             a.detach = true;
@@ -275,8 +332,16 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         }
         other => other,
     });
+    Parsed { cli, json_out }
+}
+
+async fn async_main(parsed: Parsed) -> Result<()> {
+    let Parsed { cli, json_out } = parsed;
+    let command = cli.command;
     match command {
         Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
+        Some(Command::PrWait(args)) => crate::cli::pr_wait::run(args, json_out).await,
+        Some(Command::Ci(ci)) => crate::cli::ci_wait::run(ci, json_out).await,
         // Before anything that reads or writes the home: this runs as root.
         #[cfg(target_os = "linux")]
         Some(Command::DaemonEnroll { person_key_fd }) => {
@@ -349,31 +414,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                     );
                 }
             }
-            // A daemon that starts below its CPU tier (a clamp or nice it inherited, as an update's
-            // `--take-over` successor inherits its lowered predecessor's) starts again as a
-            // login-session job, where launchd runs it at `Interactive`: every pane's connect waits
-            // on this daemon (`daemon/login_session.rs` `leave_lowered_run`). A start that carries a
-            // descriptor (the app's, a command's) was placed by its starter and stays.
-            #[cfg(target_os = "macos")]
-            if ready_fd.is_none() && person_key_fd.is_none() && !memory && !dev {
-                let home = crate::config::home();
-                // timeout: no wait unless a take-over swap waits on this start (HANDOVER_WAIT says why)
-                let wait = if take_over { HANDOVER_WAIT } else { std::time::Duration::ZERO };
-                if crate::daemon::login_session::leave_lowered_run(
-                    &home,
-                    &home.join("daemon.log"),
-                    wait,
-                )
-                .await
-                {
-                    crate::log_sink::flush(LOG_FLUSH_BUDGET);
-                    return Ok(());
-                }
-            }
             // An acknowledged reply waits on the event journal's sync, which a utility disk tier
             // throttles 15-30x under another app's disk work (STATUS 11554): the daemon stays at
             // the default tier, and only its background threads yield.
             crate::qos::enter_daemon();
+            // Which priority knobs took, for the duress bench (`daemon_priority.rs`).
+            tracing::info!("{}", crate::daemon_priority::report().line());
             // Agents before the daemon for the OOM killer and earlyoom (`oom_rank.rs`).
             if let Some(p) = crate::oom_rank::protect_daemon() {
                 tracing::info!("{}", crate::oom_rank::describe(p));
@@ -476,6 +522,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::ForkRun(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::fork_run::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -504,6 +557,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
+        Some(Command::Scorecard(args)) => {
+            let json_out = cli.json;
+            match crate::cli::scorecard::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Bead(cmd)) => {
             let json_out = cli.json;
             match crate::cli::beads::run(cmd, json_out).await {
@@ -521,6 +581,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Trigger(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::trigger::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
@@ -699,6 +766,48 @@ mod tests {
         ] {
             assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
         }
+    }
+
+    /// The worker count each command line runs with, read as `main` reads it: the word rule, then
+    /// the parsed command (on the CLI's stack, as the grammar needs).
+    fn workers_of(args: &[&str]) -> Option<usize> {
+        let args = os(args);
+        std::thread::Builder::new()
+            .stack_size(WORKER_STACK_BYTES)
+            .spawn(move || {
+                use clap::Parser as _;
+                let mut argv = vec![OsString::from("acpmux")];
+                argv.extend(args.iter().cloned());
+                let cli = Cli::try_parse_from(argv).unwrap();
+                workers_for(runtime_workers(&args), cli.command.map(flatten).as_ref())
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_one_shot_call_runs_on_one_worker_not_one_per_core() {
+        for args in [
+            &["ls"][..],
+            &["--json", "ls"],
+            &["send", "--no-wait", "worker", "hello"],
+            &["send", "worker", "hello"],
+            &["register", "duress-reg-1"],
+            &["status"],
+            &["info", "worker"],
+            &["last", "worker"],
+            &["pending"],
+        ] {
+            assert_eq!(workers_of(args), Some(ONE_SHOT_WORKERS), "{args:?}");
+        }
+        assert_eq!(runtime_with(false, Some(ONE_SHOT_WORKERS)).unwrap().metrics().num_workers(), 1);
+        // The daemon, the terminal UI and every other command keep tokio's default.
+        for args in [&["daemon", "run"][..], &[], &["--json"], &["attach", "worker"]] {
+            assert_eq!(workers_of(args), None, "{args:?}");
+        }
+        // The word rule still wins: a stdio MCP server keeps its two.
+        assert_eq!(workers_of(&["forum-mcp"]), Some(MCP_WORKERS));
     }
 
     #[test]

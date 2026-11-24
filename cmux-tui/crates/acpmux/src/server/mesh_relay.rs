@@ -28,10 +28,9 @@
 //! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`).
 
 use super::*;
-use crate::mesh::{
-    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork,
-};
+use crate::mesh::{Ack, Backoff, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode, StartWork};
 use crate::mesh_http::MeshControlFrom;
+use crate::prompt_provenance::RelaySender;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Weak;
@@ -334,7 +333,8 @@ async fn heartbeats(
     if !started(&hub, &mut stop).await {
         return;
     }
-    let host = crate::pairing::machine_name();
+    // The name it joined with, so two machines with one host name are two hosts on the mesh.
+    let host = crate::pairing::mesh_host();
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
     loop {
@@ -581,6 +581,34 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
     (in_tx, out_rx)
 }
 
+/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
+/// first checks the stamped sender daemon against the owner's `meshRelay.controlFrom` allowlist,
+/// then acts through requests on a connection of `Origin::Peer` (`server::mesh_relay::
+/// relay_connection`, proven as `ConnAuth::PeerToken`). The message has already been checked to be
+/// for this daemon (`Hub::mesh_for_here`). None leaves the message unacked (its lease ends and it
+/// comes back). Moved from `mesh.rs`: it takes the hub, which `mesh.rs` (a lower module) does
+/// not reach.
+pub trait ControlHook: Send + Sync {
+    fn control<'a>(
+        &'a self,
+        hub: &'a Arc<Hub>,
+        message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>>;
+}
+
+/// The control hook of a daemon that runs no control messages: each one is refused.
+pub struct RefuseControl;
+
+impl ControlHook for RefuseControl {
+    fn control<'a>(
+        &'a self,
+        _hub: &'a Arc<Hub>,
+        _message: &'a InMessage,
+    ) -> futures::future::BoxFuture<'a, Option<Ack>> {
+        Box::pin(async { Some(Ack::refused("this daemon runs no control messages")) })
+    }
+}
+
 /// Runs an owner-allowlisted hub control message through the same authenticated peer-origin
 /// request path as a connected daemon. The relay hub only selected this daemon; it does not grant
 /// ownership, and the request handlers below still apply their normal peer-origin and owner checks.
@@ -650,7 +678,14 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                return Some(read::answer(hub, message).await);
+                // A rename through the hub is a change: only a sender trusted with a lifecycle op
+                // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
+                let writes = ["start", "resume", "stop"].iter().any(|op| {
+                    self.allowed
+                        .iter()
+                        .any(|entry| entry.allows(&message.from, own_user.as_deref(), op))
+                });
+                return Some(read::answer(hub, message, writes).await);
             }
             // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
             let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {
@@ -752,6 +787,36 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     if body.get("version").and_then(serde_json::Value::as_u64) != Some(1) {
         return Some(Ack::refused("unsupported control body version"));
     }
+    // A chat pulled here from the sender (`hub/transfer_pull.rs`), as a local actor: the source
+    // is the daemon the hub stamped, never one the body names. The hook admitted only this
+    // machine's own person, with `move` listed (`mesh_relay_config.rs`).
+    if matches!(op, crate::mesh_relay_config::MOVE_OP | crate::mesh_relay_config::MOVE_FORGET_OP) {
+        let source = message.from.daemon_id.as_deref().unwrap_or_default();
+        let answered = if op == crate::mesh_relay_config::MOVE_OP {
+            hub.transfer_pull_op(source, message.from.host.as_deref(), &body).await
+        } else {
+            hub.transfer_pull_forget(&body).await
+        };
+        return Some(match answered {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(error.message),
+        });
+    }
+    if op == crate::mesh_relay_config::MOVE_OUT_OP {
+        let mut args = match crate::mesh_control::MoveOutParams::parse(body, "version") {
+            Ok(args) => args,
+            Err(why) => return Some(Ack::refused(why)),
+        };
+        // Only the hub's authenticated sender stamp identifies the requesting machine.
+        if args.to.eq_ignore_ascii_case("local") {
+            args.to = message.from.daemon_id.clone()?;
+        }
+        let result = crate::cli::run::session_move::move_out(hub, args).await;
+        return Some(match result {
+            Ok(result) => Ack::answered(&message.message_id, result.to_string()),
+            Err(error) => Ack::refused(format!("{error:#}")),
+        });
+    }
     let mut params = match op {
         "start" => {
             let Some(params) = body.get("params").filter(|value| value.is_object()) else {
@@ -766,7 +831,28 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             }
             without_unsent_answer(params, message)
         }
-        "resume" | "stop" => serde_json::json!({}),
+        "resume" => serde_json::json!({}),
+        // A peer's stop carries its closer's reason and outcome and the host the hub stamped
+        // (`close_why.rs`): recorded with the close, never a condition on it.
+        "stop" => {
+            let asked = body.get("params");
+            let text = |key: &str| {
+                asked
+                    .and_then(|p| p.get(key))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            };
+            let from = message.from.host.as_deref().unwrap_or("an unnamed machine");
+            let reason = match text("reason") {
+                Some(reason) => format!("mesh stop from {from}: {reason}"),
+                None => format!("mesh stop from {from}"),
+            };
+            let mut params = serde_json::json!({"reason": reason});
+            if let Some(outcome) = text("outcome") {
+                params["outcome"] = serde_json::Value::String(outcome);
+            }
+            params
+        }
         _ => return Some(Ack::refused(format!("unsupported control operation {op:?}"))),
     };
     if matches!(op, "resume" | "stop") {
@@ -882,10 +968,23 @@ async fn rpc_call(
         {
             return match (result, error) {
                 (Some(result), None) => Ok(result),
-                (_, Some(error)) => Err(ControlFailure::Refused(error.to_string())),
+                (_, Some(error)) => Err(ControlFailure::Refused(refusal_detail(&error))),
                 _ => Err(ControlFailure::Unknown),
             };
         }
+    }
+}
+
+/// A refused control's ack detail: the RPC error's message and code, and its `data.reason` when
+/// it has one. The reason is what tells two refusals with one text apart (`remote.mode_not_asking`
+/// from `remote.executable_refused`); the ack is all the starting machine sees of it (Door A
+/// timing run, 2026-11-16: the Mac got only "no reviewed asking mode ... (code -32602)").
+fn refusal_detail(error: &crate::rpc::RpcError) -> String {
+    let reason =
+        error.data.as_ref().and_then(|data| data.get("reason")).and_then(serde_json::Value::as_str);
+    match reason {
+        Some(reason) => format!("{} (code {}, reason {reason})", error.message, error.code),
+        None => error.to_string(),
     }
 }
 
@@ -941,6 +1040,48 @@ fn sender_name(message: &InMessage, book_host: Option<&str>) -> String {
     named.chars().take(crate::hub::MAX_FROM_AGENT_CHARS).collect::<String>().trim().to_owned()
 }
 
+/// What the transport proves of a message no session sent (the lane-gh broker's `acpmux send`, a
+/// shell outside acpmux): the machine, as a relay record (`prompt_provenance::FROM_RELAY`) the
+/// receiver shows as verified. The hub authenticated the sending daemon by its credential and
+/// stamped `from.daemonId`; the machine is the one this person's book lists for it, else the host
+/// the hub returned beside that stamp. The session is the sending daemon's relay record's, its
+/// word as a peer link's `fromRelay` is, kept only when that record names the same machine.
+/// None for a message from a session (`fromSessionId` proves it), a team address, or one with no
+/// hub stamp: those read as [`sender_name`] says.
+/// Why: every broker relay through the hub read "a session on HOST (self-declared,
+/// unauthenticated)" though the hub had proved HOST, and receivers asked the sender to confirm.
+fn hub_relay(message: &InMessage, book_host: Option<&str>) -> Option<RelaySender> {
+    let from = &message.from;
+    let present = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).is_some();
+    if present(from.session_id.as_deref())
+        || present(from.team_address.as_deref())
+        || !present(from.daemon_id.as_deref())
+    {
+        return None;
+    }
+    let machine = book_host.or(from.host.as_deref()).map(str::trim).filter(|h| !h.is_empty())?;
+    let carried = from.relay.as_ref().and_then(RelaySender::of);
+    let (by, session) = match carried {
+        Some(r) if r.machine == machine => (r.by, r.session),
+        _ => (HUB_RELAY.to_owned(), None),
+    };
+    RelaySender::of(&json!({"by": by, "machine": machine, "session": session}))
+}
+
+/// How a [`hub_relay`] record reads as the sender: `MACHINE/SESSION`, or `PROGRAM on MACHINE`
+/// for a program outside any session that named itself, or the machine alone.
+fn relay_name(relay: &RelaySender) -> String {
+    match &relay.session {
+        None if relay.by != HUB_RELAY => {
+            crate::prompt_provenance::relayed_label(&format!("{} on {}", relay.by, relay.machine))
+        }
+        _ => relay.name(),
+    }
+}
+
+/// The relay a [`hub_relay`] record names when the sending daemon carried none: the team hub.
+const HUB_RELAY: &str = "mesh-hub";
+
 /// The host this person's address book lists for the daemon the hub stamped on `message`
 /// (`from.daemonId`): the machine as the hub proved it, not as the sender wrote it.
 fn stamped_host(hub: &Hub, message: &InMessage) -> Option<String> {
@@ -990,7 +1131,14 @@ pub async fn deliver(
         Err(why) => return Some(Ack::refused(why)),
     };
     let prompt_id = message.message_id.as_str();
-    let from_name = sender_name(message, stamped_host(hub, message).as_deref());
+    let book_host = stamped_host(hub, message);
+    // A send no session made: the machine the hub proved names it, with the session its daemon's
+    // relay record names, so the label is verified rather than declared ([`hub_relay`]).
+    let relay = hub_relay(message, book_host.as_deref());
+    let from_name = match &relay {
+        Some(relay) if !team => relay_name(relay),
+        _ => sender_name(message, book_host.as_deref()),
+    };
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
@@ -1033,7 +1181,8 @@ pub async fn deliver(
     let sender = crate::prompt_provenance::BoundSender {
         session_id: message.from.session_id.clone(),
         harness: None,
-        relay: None,
+        relay: relay.filter(|_| !team),
+        display_name: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
     // The harness the sender says it came from, for the chat's sender chip: the claim only, so
@@ -1161,6 +1310,27 @@ mod tests {
         assert_eq!(sender_name(&bare, None), "hook on hub daemon inst_a");
     }
 
+    /// gap:surface:naming: a 429 recovery send from `ACPMUX_FROM=glaeda-land` read only
+    /// "build-host". The program's own relay record names it on the machine the hub proved; a
+    /// record for another machine, or none, still reads as the machine alone.
+    #[test]
+    fn a_program_outside_any_session_is_named_on_the_proven_machine() {
+        let name = |m: &InMessage| hub_relay(m, Some("build-host")).map(|r| relay_name(&r));
+        let mut message = from("build-host", "glaeda-land");
+        message.from.daemon_id = Some("inst_a".into());
+        message.from.relay =
+            Some(serde_json::json!({"by": "glaeda-land", "machine": "build-host"}));
+        assert_eq!(name(&message).as_deref(), Some("glaeda-land on build-host"));
+        message.from.relay = Some(serde_json::json!({"by": "glaeda-land", "machine": "other"}));
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = None;
+        assert_eq!(name(&message).as_deref(), Some("build-host"));
+        message.from.relay = Some(
+            serde_json::json!({"by": "lane-gh", "machine": "build-host", "session": "lane-7"}),
+        );
+        assert_eq!(name(&message).as_deref(), Some("build-host/lane-7"));
+    }
+
     /// An old peer that sends neither host, name nor a stamped daemon keeps today's text.
     #[test]
     fn an_unknown_sender_keeps_todays_text() {
@@ -1216,6 +1386,23 @@ mod tests {
         assert!(!start_work_allowed(&message));
         message.start_work = Some(StartWork::Allowed);
         assert!(start_work_allowed(&message));
+    }
+
+    /// Door A timing run (huge-blue/door-a-join-timing, 2026-11-16): `cmux chat --on doora-vm-1`
+    /// was refused "this harness has no reviewed asking mode for a remote WebSocket connection
+    /// (code -32602)", a text two refusals share. The ack names the refusal's reason, so the Mac
+    /// says which one it was.
+    #[test]
+    fn a_refused_control_ack_names_the_refusals_reason() {
+        let error = crate::rpc::RpcError::invalid_params("no reviewed asking mode")
+            .with_data(serde_json::json!({"reason": "remote.executable_refused"}));
+        let detail = refusal_detail(&error);
+        assert!(detail.contains("no reviewed asking mode"), "{detail}");
+        assert!(detail.contains("code -32602"), "{detail}");
+        assert!(detail.contains("reason remote.executable_refused"), "{detail}");
+        // An error with no reason reads as before.
+        let plain = crate::rpc::RpcError::invalid_params("bad params");
+        assert_eq!(refusal_detail(&plain), "bad params (code -32602)");
     }
 
     #[test]

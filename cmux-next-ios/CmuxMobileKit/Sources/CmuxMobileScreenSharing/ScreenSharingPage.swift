@@ -1,5 +1,6 @@
 #if os(iOS)
 public import CmuxDeviceHub
+import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxScreenKit
 import CmuxScreenKitUI
@@ -72,12 +73,23 @@ public struct ScreenSharingPage: View {
         } message: { alert in
             if let message = alert.refusal.message { Text(message) }
         }
+        .alert(service.shareProblem.map { "Couldn't share \($0.hostName)" } ?? "",
+               isPresented: Binding(get: { service.shareProblem != nil }, set: { if !$0 { service.shareProblem = nil } }),
+               presenting: service.shareProblem) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { problem in
+            Text(problem.message)
+        }
         .accessibilityIdentifier("screenSharing.page")
     }
 
     @ViewBuilder private func alertActions(_ alert: ScreenSharingMacAlert) -> some View {
         switch alert.refusal {
         case .notShared, .hostOffline, .permissionNone:
+            if alert.refusal == .notShared {
+                // The person's yes: the only thing that signs a share approval (cmuxterm-hq#18912).
+                Button("Share \(alert.hostName)") { service.share(alert.hostID, scope: alert.requested) }
+            }
             Button("Check Again") {
                 checking?.cancel()
                 // task-owner: one list refresh for the alert's Check Again, then that tap's outcome;
@@ -160,9 +172,12 @@ public struct ScreenSharingPage: View {
             ForEach(macs) { mac in
                 ScreenSharingMacRow(mac: mac, access: service.access(to: mac),
                                     connecting: service.pendingSelection?.hostID == mac.id
+                                        || service.sharing?.hostID == mac.id
                                         || (service.viewerOnScreen == nil && service.viewer?.hostID == mac.id
                                             && service.viewer?.phase.isRequesting == true)) { scope in
                     select(mac, scope: scope)
+                } share: {
+                    service.share(mac)
                 }
             }
         } header: {
@@ -182,6 +197,8 @@ struct ScreenSharingMacRow: View {
     var connecting = false
     /// Connect, or say why not; nil asks for the default scope.
     let connect: (SessionScope?) -> Void
+    /// Share this Mac from the iPhone (a Mac that's online and not shared).
+    var share: () -> Void = {}
 
     private var available: Bool { mac.online && mac.macScreenShared && access != .none }
 
@@ -209,6 +226,8 @@ struct ScreenSharingMacRow: View {
             if available {
                 Button("Connect with Full Control", systemImage: "cursorarrow.click.2") { connect(.full) }
                 Button("Connect View Only", systemImage: "eye") { connect(.view) }
+            } else if mac.online, !mac.macScreenShared {
+                Button("Share \(mac.name)", systemImage: "rectangle.on.rectangle") { share() }
             }
         }
         .accessibilityIdentifier("screenSharing.mac.\(mac.name)")
@@ -267,6 +286,8 @@ struct ScreenSharingViewerScreen: View {
         Group {
             if let screen = viewer.screen {
                 ScreenSessionView(session: screen, features: Self.features, close: close)
+            } else if let model = viewer.rdScreen {
+                MacScreenRdView(model: model, title: viewer.hostName, control: viewer.rdControl, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
             }
@@ -327,7 +348,7 @@ extension ScreenSharingRefusal {
         case .permissionNone: "Change this iPhone's access on the Mac, in Settings › Devices."
         case .viewOnly: "Connect View Only, or allow Full Control on the Mac."
         case .hostOffline: "Open cmux on the Mac and make sure it's online."
-        case .notShared: "Turn on Share This Mac in the Mac's Settings › Devices."
+        case .notShared: "Share it from this iPhone, or turn on Share This Mac in the Mac's Settings › Devices."
         case .notFound: nil
         case let .other(reason?): "The device hub could not start the session: \(reason)"
         case .other: "Check your connection and try again."

@@ -43,7 +43,9 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Gc { .. }
             | Command::Worktree(..)
+            | Command::Fetch(..)
             | Command::Group(..)
+            | Command::Account(..)
             | Command::ShareHost(..)
             | Command::Attach { .. }
             | Command::ResumeHere { .. }
@@ -278,9 +280,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A promptless `new` opens the full-screen TUI. In a pipe (the
             // common agent/scripting case), refuse before connecting so the
             // caller gets an immediate, stable usage error.
+            let promptless =
+                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none();
             if new_requires_tty(
                 json_out,
-                args.prompt.join(" ").trim().is_empty() && launch.file_prompt.is_none(),
+                promptless,
                 args.detach,
                 std::io::stdin().is_terminal(),
                 std::io::stdout().is_terminal(),
@@ -302,6 +306,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let folder_named = args.cwd.is_some() || launch.worktree.is_some();
             let target =
                 crate::cli::place::new_target(args.host.as_deref(), interactive, folder_named);
+            let placed = matches!(target, crate::cli::place::Target::Place(_));
             let host = match target {
                 crate::cli::place::Target::Place(work) => {
                     before_deadline(
@@ -348,6 +353,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(n) = &launch.name {
                 meta.set("name", json!(n));
+                // Placed or started on another machine, it keeps its name: a taken one gets a
+                // `-N` suffix there, never the agent's name. `--reuse` finds the one running.
+                if keeps_name_suffixed(placed, host.as_deref(), launch.reuse) {
+                    meta.set("ifNameTaken", json!(crate::hub::SUFFIX_TAKEN_NAME));
+                }
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
@@ -412,6 +422,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
+            // This create's key (`hub/create_key.rs`): sent again with it after a restart, it
+            // gets the session the first one made, or makes it, never a second one.
+            meta.set(crate::hub::create_key::FIELD, json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(cwd) = &cwd {
                 p["cwd"] = json!(cwd);
@@ -423,10 +436,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // and runs the whole find-or-create again, so it finds that session and
             // never makes a second one; a handover can happen twice in a row
             // (systemd's daemon taking over one the CLI started), hence two tries.
-            // Without a name to find it by, a retry could make a duplicate: no retry,
-            // except after the daemon's shutdown refused the create before making
-            // anything (`refused_before_create`): a self-update's restart, or one on a
-            // failing disk, then never fails a new session.
+            // Any other create resends its create key (`hub/create_key.rs`) to a daemon that
+            // keeps keys, when the one that closed kept them too: the next daemon answers
+            // with the session the first made, or makes it. A restart while it waits (a
+            // self-update under a benchmark's `new -d`, a lane VM 2026-11-21) then
+            // never fails the create, and never makes two. Only to this daemon's own
+            // sessions: one on a peer may run a daemon that ignores the key. Without a key
+            // a retry could make a duplicate: no retry, except after the daemon's shutdown
+            // refused the create before making anything (`refused_before_create`).
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
                 match find_or_create(
@@ -442,16 +459,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     Err(error)
                         if reconnects < NEW_RECONNECTS
                             && ((launch.reuse && key.is_some() && daemon_closed_error(&error))
-                                || refused_before_create(&error)) =>
+                                || refused_before_create(&error)
+                                || (daemon_closed_error(&error)
+                                    && keyed_resend(host.as_deref(), &client))) =>
                     {
                         reconnects += 1;
-                        client =
+                        let named = launch.reuse && key.is_some();
+                        let next =
                             before_deadline(deadline, setup_name, reconnect_after_update()).await?;
+                        // A daemon that keeps no keys (a rollback) could make a second one.
+                        if !named
+                            && !refused_before_create(&error)
+                            && !keyed_resend(host.as_deref(), &next)
+                        {
+                            return Err(error);
+                        }
+                        client = next;
                     }
                     // A machine this daemon has no peer for may still be reached by the
                     // configured new relay (`new_relay.rs`).
-                    Err(error) => match crate::cli::new_relay::for_refusal(host.as_deref(), &error)
-                    {
+                    Err(error) => match crate::cli::new_relay::for_refusal(
+                        host.as_deref(),
+                        &error,
+                        promptless,
+                    ) {
                         Some((relay, machine, words)) => {
                             return crate::cli::new_relay::start(
                                 relay, &machine, words, json_out, deadline,
@@ -482,6 +513,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(session_id)
                 .to_owned();
+            // Its name was taken there: it runs under the suffixed one (`ifNameTaken`).
+            if let Some(asked) = v.pointer("/_meta/acpmux/requestedName").and_then(Value::as_str) {
+                eprintln!("{asked:?} is taken there, so the session is named {name:?}");
+            }
             // A failed sidebar step is an error after the session has been
             // created, so scripts can retry only the exact open command.
             let daemon_cli_path = client.daemon_cli_path();
@@ -1166,7 +1201,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         #[cfg(not(unix))]
         Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Fetch(args) => crate::cli::fetch::run(args, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
+        Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
@@ -1249,6 +1286,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 g("eventCount"),
                 g("lastSeq")
             );
+            if let Some(line) = super::transfer::move_progress_line(&v) {
+                println!("{line}");
+            }
             if let Some(modes) = v.pointer("/modes/availableModes").and_then(Value::as_array) {
                 let names: Vec<String> = modes
                     .iter()
@@ -1289,6 +1329,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+/// Whether a create whose connection `client` closed may be sent again with its create key
+/// (`hub/create_key.rs`): a session on this daemon, which lists that it keeps the key.
+fn keyed_resend(host: Option<&str>, client: &Client) -> bool {
+    host.is_none() && client.daemon_lists(crate::hub::create_key::FEATURE)
+}
+
+/// Whether a named `new` asks the creating daemon to keep a taken name with a `-N` suffix
+/// (`ifNameTaken`): a start placed (`--machine auto`) or sent to another machine, unless it
+/// is `--reuse`, which finds the running session by that name instead.
+fn keeps_name_suffixed(placed: bool, host: Option<&str>, reuse: bool) -> bool {
+    !reuse && (placed || host.is_some())
 }
 
 /// How many times a named `new --reuse` reconnects after the daemon closed its
@@ -1692,6 +1745,10 @@ fn first_prompt_id(args: &crate::cli::command::NewArgs) -> PromptId {
     let mut prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
     prompt.from_agent =
         args.from.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned);
+    // A named first prompt proves its sender as `send --from` does (`sender_token.rs`).
+    if prompt.from_agent.is_some() {
+        prompt.sender_token = crate::sender_token::of_this_send(None).ok().flatten();
+    }
     prompt
 }
 
@@ -1712,6 +1769,17 @@ fn relay_fields(relay: crate::cli::command::SendRelay) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
+        // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.
+        assert!(super::keeps_name_suffixed(false, Some("far-host"), false));
+        assert!(super::keeps_name_suffixed(true, None, false));
+        assert!(super::keeps_name_suffixed(true, Some("far-host"), false));
+        // `--reuse` finds the running session by that name; a start here is refused as before.
+        assert!(!super::keeps_name_suffixed(true, Some("far-host"), true));
+        assert!(!super::keeps_name_suffixed(false, None, false));
+    }
+
     #[test]
     fn relay_flags_are_the_relay_record_the_daemon_reads() {
         use crate::cli::command::{Cli, Command};

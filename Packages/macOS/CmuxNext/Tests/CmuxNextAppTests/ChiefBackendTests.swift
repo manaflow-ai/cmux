@@ -90,6 +90,34 @@ import Testing
         #expect(request.1 == .unii)
     }
 
+    @MainActor @Test func onItsOwnCloudMachineGoesToTheMachineStartWithOneKeyPerSheet() async throws {
+        let sheet = HomeNewChiefSheet()
+        _ = sheet.view
+        #expect(sheet.ownMachine.isHidden)  // no machine path wired: the sheet is as it was
+        let (asked, ask) = AsyncStream<(String, String)>.makeStream()
+        sheet.onCreateOnMachine = { name, key in
+            ask.yield((name, key))
+            return .offline
+        }
+        sheet.onCreate = { _, _ in
+            Issue.record("the hosted create ran with the machine box on")
+            return .offline
+        }
+        #expect(!sheet.ownMachine.isHidden)
+        sheet.ownMachine.state = .on
+        sheet.name.stringValue = "Ops"
+        sheet.submit()
+        var iterator = asked.makeAsyncIterator()
+        let first = try #require(await iterator.next())
+        #expect(first.0 == "Ops")
+        #expect(first.1 == sheet.machineKey)
+        // An engine whose Chiefs are this Mac's has no machine choice.
+        let index = try #require(sheet.backend.itemArray.firstIndex { $0.representedObject as? String == "unii" })
+        sheet.backend.selectItem(at: index)
+        sheet.backend.sendAction(sheet.backend.action, to: sheet.backend.target)
+        #expect(sheet.ownMachine.isHidden)
+    }
+
     /// "Make it on this Mac" is the person's opt-in for a Claude Chief: off by default, so Create
     /// goes to `onCreate` (the cloud `chief.create`); ticked, Create goes to `onCreateOnThisMac`.
     /// An engine whose Chiefs are this Mac's already has no such choice.
@@ -223,9 +251,8 @@ import Testing
             return HomeChiefRecord(id: "agent_compose01", name: name, isDefault: false, rev: 0, mainConversation: "conv_compose", placed: true)
         }
         let page = TopHomePageView(services: services, windowKey: { "compose-new-chief" })
-        #expect(page.list.newChief.accessibilityLabel() == HomeConversationStrings.chiefTitle)
         #expect(page.list.compose.accessibilityLabel() == HomeConversationStrings.newMessage)
-        page.list.newChief.performClick(nil)
+        page.startChiefConversation()
         var iterator = opened.makeAsyncIterator()
         _ = await iterator.next()
         let sent = try #require(await calls.sends.first)
@@ -252,7 +279,7 @@ import Testing
         services.home.chiefRenames.rename(ConversationID("conv_renamed"), to: HomeStrings.chiefName, record: nil)
         #expect(services.home.chiefNames[ConversationID("conv_renamed")] == HomeStrings.chiefName)
         let page = TopHomePageView(services: services, windowKey: { "new-chief-shown-names" })
-        page.list.newChief.performClick(nil)
+        page.startChiefConversation()
         var iterator = opened.makeAsyncIterator()
         _ = await iterator.next()
         let sent = try #require(await calls.sends.first)

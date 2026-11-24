@@ -99,6 +99,8 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// The launch's layout cache (`LaunchShell.layoutCache`): a window with no saved frame or sidebar opens at its cached ones.
+    var layoutCache: LayoutCacheLaunch?
     /// The saved windows' read failed for good: no restore places the launch window's claims (``awaitsRestore(_:)``).
     private(set) var restoreGaveUp = false
     /// Windows the person closed before `restore` finished, which it must not open again (cx-ghagp).
@@ -253,6 +255,7 @@ final class WindowManager {
             // The feed handoff waited for this classification of incognito workspaces (#31210).
             services.notifications.feedDriver?.run()
             restoreClosed.restoreEnded(in: registry.value, applied: services.daemon.store.appliedSequence) { self.services.workspace(id: $0) != nil }
+            services.updater.afterimage?.newCopyDrew() // the last relaunch's pictures leave, under these windows (RelaunchAfterimage)
         }
         // A launch snapshot the daemon does not know (WindowRules+Launch): the window drops it, as a launch with nothing to restore.
         if let launch = launchWindowID, let state = controller(for: launch)?.state, WindowRules().launchSnapshotIsStale(snapshot: services.daemon.launchSnapshotRegistryID,
@@ -290,6 +293,8 @@ final class WindowManager {
         }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         if adopted == nil { placeLaunchWindow(document) }
+        if let adopted, let cached = layoutCache?.window(adopted.state.id)?.panes, let mark = adopted.content?.layoutModel.layoutCacheDrift(
+            cached: cached, bounds: adopted.window?.contentView?.bounds) { DebugTimings.markLaunch(mark) } // layout_cache.exact: the first frame was the final one
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = restoredRegistry.frontOpen(where: hasMirroredWorkspace) { restoreClosed.closed(front) }
         for record in document.windows where states[record.id] == nil {
@@ -393,9 +398,10 @@ final class WindowManager {
         launchWindowAdopted(from: launchID, as: front)
         states[launchID] = nil
         states[front] = launch.state
-        launch.sidebar.restore(width: record.sidebarWidth, hidden: record.sidebarHidden)
+        launch.sidebar.container.restoreIfChanged(width: record.sidebarWidth.map { CGFloat($0) }, presentation: record.sidebarHidden ? .hidden : .shown)
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
-            launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: restored.window(front)?.display), display: true)
+            let visible = WindowPlacementFallback.visible(frame, display: restored.window(front)?.display)
+            LayoutCacheWindow.place(launch.window, at: LaunchDisplay.placed(visible, defaultSize: WindowController.defaultSize) ?? visible)
         }
         return launch
     }
@@ -405,7 +411,8 @@ final class WindowManager {
     private func placeLaunchWindow(_ document: WindowStateDocument) {
         guard services.environment.testWindow == nil, let launch = launchWindowID.flatMap(controller(for:)),
               let frame = document.lastFrame?.rect else { return }
-        launch.window?.setFrame(WindowPlacementFallback.visible(frame, display: document.lastDisplay), display: true)
+        let visible = WindowPlacementFallback.visible(frame, display: document.lastDisplay)
+        LayoutCacheWindow.place(launch.window, at: LaunchDisplay.placed(visible, defaultSize: WindowController.defaultSize) ?? visible)
     }
 
     func restoresSession(_ id: String) -> Bool { registry.restoresSession(id, launchWindow: launchWindowID, saved: previousLaunch?.windowIDs) }
@@ -416,15 +423,24 @@ final class WindowManager {
     @discardableResult
     func makeController(for window: WindowRegistry.Window) -> WindowController {
         DebugTimings.markLaunch("window.make_start"); let state = state(for: window.id) // the first window's marks (startup-tti)
-        var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
+        // A frame its caller chose (tear-off, Move to New Window) is kept; only the launch and
+        // restored windows move to the launch display (#51115).
+        let chosen = pendingFrames.removeValue(forKey: window.id)
+        // No saved frame or sidebar (no record, or a window the record lost): the layout cache's, where it last drew.
+        let cached = chosen == nil && (restoring || !restored) ? layoutCache?.window(opening: window.id, isLaunch: window.id == launchWindowID) : nil
+        var frame = (window.frame ?? chosen ?? cached.flatMap { layoutCache?.frame(for: $0.id) }).map { WindowPlacementFallback.visible($0, display: window.display) }
         let placement = services.environment.testWindow
         if let placement, let placed = placement.windowFrame(ordinal: placedWindows, visibleFrames: NSScreen.screens.map(\.visibleFrame)) {
             frame = placed
             placedWindows += 1
+        } else if chosen == nil, restoring || !restored,
+                  let placed = LaunchDisplay.placed(frame, defaultSize: WindowController.defaultSize, cascade: controllers.count) {
+            frame = placed
         }
         let controller = WindowController(state: state, services: services, frame: frame); DebugTimings.markLaunch("window.init_done")
         controller.window?.animationBehavior = Motion.panes.windowOpenBehavior(restoring: restoresSession(window.id)) // REOPEN-F2: a restore shows in place; a new window opens like one (#38128)
-        controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
+        let sidebar = state.sidebarWidth == nil && window.id == launchWindowID ? cached?.sidebar : nil // a record's sidebar always wins
+        controller.sidebar.restore(width: state.sidebarWidth ?? sidebar?.width, hidden: sidebar?.collapsed ?? state.sidebarHidden)
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         services.dragSession.installWorkspaceHandoff(on: controller)
         controllers.append(controller)
@@ -530,6 +546,7 @@ final class WindowManager {
     func prepareForTermination() async {
         loadObservation?.cancel()
         recordSaver.geometryTimer.cancel()
+        await recordSaver.launchImages.captureForQuit() // the last frames, before the record's last write
         await recordSaver.flushSaves()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()

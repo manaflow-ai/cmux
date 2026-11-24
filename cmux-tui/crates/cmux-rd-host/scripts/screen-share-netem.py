@@ -23,6 +23,11 @@ Each attempt is one fresh session (new keys, new link). Per attempt it records:
                   the first lost key press to the next one that showed
   recovered_after_drop
                   true when a marker arrived after the selected full-drop interval
+  recovery_ms     the longest stall minus the drop itself: how long frames took to come back once
+                  the network did
+With --gate-recovery-ms MS every drop row is a gate: the run exits 1, naming each attempt, when an
+attempt did not recover or took longer than MS to. CI runs the 10 s and 60 s rows this way
+(screen-share-drop-gate.yml), so a change that breaks the reconnect after a drop fails its PR.
 An attempt that does not connect, or ends before its samples, counts as a failed connect.
 """
 import argparse, json, os, select, shutil, subprocess, sys, time
@@ -65,16 +70,22 @@ def setup(args):
                             "--workload", args.workload],
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     time.sleep(1.0)
-    started(app, "testapp")
+    started(app, "testapp", others=[xvfb])
     return [app, xvfb]
 
 
-def started(proc, what):
+def started(proc, what, others=()):
     """Stops the run when a helper exited during start-up: every attempt after it would fail
-    with the host's "Connection refused" and say nothing of why."""
+    with the host's "Connection refused" and say nothing of why. OTHERS, the helpers already
+    started, are stopped too: an Xvfb left running holds its display, and the next run exits
+    at start with "Server is already active"."""
     if proc.poll() is None:
         return
     err = (proc.stderr.read() if proc.stderr else "").strip()
+    for other in others:
+        if other.poll() is None:
+            other.kill()
+            other.wait()
     teardown()
     sys.exit(f"screen-share-netem: {what} exited {proc.returncode} at start: {err[-400:]}")
 
@@ -89,14 +100,54 @@ def teardown():
         sh(f"ip netns del {ns}", check=False)
 
 
-def readline(proc, deadline):
+class Lines:
+    """Lines from a child's stdout, read off the descriptor itself. A buffered pipe's readline()
+    pulls every line that has arrived into Python's buffer, where select() no longer sees them:
+    a host that printed displays, key and candidates in one write left the key there, and the
+    attempt timed out with no key ("answer line: invalid type: null"), about one session in
+    ten, or half of them on a busy machine."""
+
+    def __init__(self, pipe):
+        self.fd = pipe.fileno()
+        self.buf = b""
+        self.eof = False
+
+    def fileno(self):
+        return self.fd
+
+    def ready(self):
+        """A whole line is buffered, or the pipe ended: next() returns at once."""
+        return b"\n" in self.buf or self.eof
+
+    def fill(self):
+        """One read of what the descriptor has (call it when select says readable)."""
+        chunk = os.read(self.fd, 65536)
+        self.buf += chunk
+        self.eof = self.eof or not chunk
+
+    def take(self):
+        """The next buffered line, or "" at the end of the pipe, or None when neither."""
+        if b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            return line.decode(errors="replace") + "\n"
+        if self.eof:
+            rest, self.buf = self.buf, b""
+            return rest.decode(errors="replace")
+        return None
+
+
+def readline(lines, deadline):
+    """The next line from LINES (a Lines) by DEADLINE, "" at the end of the pipe, None on timeout."""
     while True:
+        line = lines.take()
+        if line is not None:
+            return line
         left = deadline - time.time()
         if left <= 0:
             return None
-        r, _, _ = select.select([proc.stdout], [], [], left)
+        r, _, _ = select.select([lines], [], [], left)
         if r:
-            return proc.stdout.readline()
+            lines.fill()
 
 
 def sample_budget(base_samples, drop_s, trigger_s=0):
@@ -112,6 +163,33 @@ def sample_budget(base_samples, drop_s, trigger_s=0):
 def recovered_after_drop(drop_s, drop_restored, stalls_ms, host_ended):
     """Only count a post-drop stall when the link was restored and stayed alive."""
     return drop_s is None or (drop_restored and not host_ended and bool(stalls_ms))
+
+
+def recovery_ms(drop_s, stalls_ms):
+    """The time past the drop itself that frames took to come back: the longest stall spans the
+    drop (from the first key it swallowed) and then the recovery."""
+    if drop_s is None or not stalls_ms:
+        return None
+    return round(max(0.0, max(stalls_ms) - drop_s * 1000), 1)
+
+
+def drop_gate(records, bound_ms):
+    """Each drop attempt that failed the gate, as one line: it never connected, it did not
+    recover after the network came back, or it took longer than bound_ms to."""
+    failures = []
+    for rec in records:
+        drop_s = rec.get("drop_s")
+        if drop_s is None:
+            continue
+        name = f"attempt {rec.get('attempt')} ({rec.get('row')})"
+        if "connect_ms" not in rec:
+            failures.append(f"{name}: never connected: {rec.get('error') or 'no report'}")
+        elif not rec.get("recovered_after_drop"):
+            why = rec.get("host_ended") or rec.get("error") or "no marker after the network came back"
+            failures.append(f"{name}: did not recover: {why}")
+        elif rec.get("recovery_ms") is not None and rec["recovery_ms"] > bound_ms:
+            failures.append(f"{name}: recovered in {rec['recovery_ms']:.0f} ms, over {bound_ms:.0f} ms")
+    return failures
 
 
 STAGES = ("up", "inject", "draw_damage", "gate", "capture", "encode", "send", "down", "decode",
@@ -201,13 +279,20 @@ def attempt(args, n, drop_s=None):
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
     host = None
     try:
-        line = readline(viewer, time.time() + 10)
-        viewer_key = json.loads(line)["key"]
+        viewer_out = Lines(viewer.stdout)
+        line = readline(viewer_out, time.time() + 10)
+        try:
+            viewer_key = json.loads(line)["key"]
+        except (ValueError, KeyError, TypeError):
+            # The viewer's own words (a build without `bench` says so), not a JSONDecodeError.
+            err = (line or "").strip() or (viewer.stderr.read() if viewer.poll() is not None else "")
+            raise RuntimeError(f"viewer did not start: {err.strip()[-400:] or 'no output'}") from None
         timing_env = ["env", f"CMUX_RD_TIMING_LOG={args.timing_log}"] if args.timing_log else []
         host = subprocess.Popen(["ip", "netns", "exec", HOST_NS, *timing_env, *args.host_wrap.split(), args.bin, "serve", "--display",
                                  args.display, "--profile", "baseline", *args.serve_arg],
                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, bufsize=1)
+        host_out = Lines(host.stdout)
         host.stdin.write(json.dumps({"session": session, "peer_key": viewer_key, "scope": "control",
                                      "stun": [], "display": args.display,
                                      "viewer": {"user": "viewer", "install": "bench"}}) + "\n")
@@ -217,7 +302,7 @@ def attempt(args, n, drop_s=None):
         while True:
             # Once the key and a candidate are in, wait only briefly for more: serve with
             # no STUN prints no candidates_done, and the handshake clock is already running.
-            line = readline(host, min(dl, time.time() + 0.2) if host_key and cands else dl)
+            line = readline(host_out, min(dl, time.time() + 0.2) if host_key and cands else dl)
             if not line:
                 break
             msg = json.loads(line)
@@ -237,7 +322,7 @@ def attempt(args, n, drop_s=None):
         blip_done = args.blip_at is None or drop_s is None
         blip_until = None
         drop_restored = drop_s is None
-        streams = {host.stdout: "host", viewer.stdout: "viewer"}
+        streams = {host_out: "host", viewer_out: "viewer"}
         deadline = t0 + args.timeout
         while streams and time.time() < deadline:
             if not blip_done and "connect_ms" in rec and time.time() - t0 >= args.blip_at:
@@ -249,9 +334,15 @@ def attempt(args, n, drop_s=None):
                 netem(args.rtt, args.loss)
                 blip_until = None
                 drop_restored = True
-            r, _, _ = select.select(list(streams), [], [], 0.05)
+            r = [s for s in streams if s.ready()]
+            if not r:
+                r, _, _ = select.select(list(streams), [], [], 0.05)
+                for s in r:
+                    s.fill()
             for s in r:
-                line = s.readline()
+                line = s.take()
+                if line is None:
+                    continue
                 if not line:
                     del streams[s]
                     continue
@@ -272,7 +363,7 @@ def attempt(args, n, drop_s=None):
                     rec["host_ended"] = msg["ended"]
                 elif who == "viewer" and "g2g_ms" in msg:
                     rec["report"] = msg
-                    streams.pop(viewer.stdout, None)
+                    streams.pop(viewer_out, None)
             if "report" in rec:
                 break
         if blip_until:
@@ -286,6 +377,8 @@ def attempt(args, n, drop_s=None):
             rec["recovered_after_drop"] = recovered_after_drop(
                 drop_s, drop_restored, rec["stalls_ms"], rec.get("host_ended")
             )
+            if drop_s is not None:
+                rec["recovery_ms"] = recovery_ms(drop_s, rec["stalls_ms"])
             rec["frames_per_s"] = rep.get("frames_per_s")
             rec["mbit_per_s"] = rep.get("mbit_per_s")
             rec["ended"] = rep.get("ended")
@@ -338,6 +431,9 @@ def main():
         metavar="SECONDS",
         help="run a fresh-session row for each full-drop duration (repeat for 10 and 60)",
     )
+    ap.add_argument("--gate-recovery-ms", type=float, default=None, metavar="MS",
+                    help="fail the run when a drop attempt does not recover, or takes longer than MS "
+                         "after the network is back")
     ap.add_argument("--timeout", type=float, default=90)
     ap.add_argument("--serve-arg", action="append", default=[])
     ap.add_argument("--out")
@@ -350,6 +446,8 @@ def main():
     args = ap.parse_args()
     if args.drop_seconds is not None and args.blip_at is None:
         ap.error("--drop-seconds requires --blip-at")
+    if args.gate_recovery_ms is not None and args.blip_at is None:
+        ap.error("--gate-recovery-ms requires --blip-at (it gates the drop rows)")
     drop_seconds = args.drop_seconds
     if drop_seconds is None:
         drop_seconds = [args.blip_s] if args.blip_at is not None else [None]
@@ -392,6 +490,12 @@ def main():
         teardown()
     if run_status(records):
         sys.exit(f"screen-share-netem: none of {len(records)} attempts reached a first frame")
+    if args.gate_recovery_ms is not None:
+        failures = drop_gate(records, args.gate_recovery_ms)
+        if failures:
+            sys.exit("screen-share-netem: drop gate failed:\n  " + "\n  ".join(failures))
+        print(f"screen-share-netem: drop gate passed: every drop attempt recovered within "
+              f"{args.gate_recovery_ms:.0f} ms", flush=True)
 
 
 if __name__ == "__main__":

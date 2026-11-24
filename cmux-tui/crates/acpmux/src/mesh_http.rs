@@ -105,7 +105,7 @@ impl HttpHub {
     /// nothing more ([`HttpHub::refused`]).
     pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -162,7 +162,7 @@ impl HttpHub {
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -197,6 +197,32 @@ impl HttpHub {
             .await
             .map_err(|e| e.to_string())?;
         decode(value).map_err(|e| e.to_string())
+    }
+
+    /// Connect tickets the platform pre-minted for every machine this one's Register ticket lets
+    /// in (`{"connects": true}`, RFD 0039 cut 5). `None` from a platform that mints none: an older
+    /// one refuses the field (400) or answers without `connects`.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) async fn carrier_connects(
+        &self,
+    ) -> Result<Option<Vec<crate::hub_carrier::CarrierAnswer>>, String> {
+        self.registers().map_err(|e| e.to_string())?;
+        let body = json!({"connects": true});
+        let value = match self
+            .call(reqwest::Method::POST, "/v1/mesh/carrier", Some(&body), CALL_WAIT)
+            .await
+        {
+            Ok(value) => value,
+            // An older platform refuses the field ("unknown field connects").
+            Err(e) if e.status == Some(400) => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+        match value.get("connects") {
+            Some(connects) => {
+                serde_json::from_value(connects.clone()).map(Some).map_err(|e| e.to_string())
+            }
+            None => Ok(None),
+        }
     }
 
     /// A token: the one held while it is good, else a new one from the command.

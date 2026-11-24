@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 670,
+  "count": 689,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,18 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerLook",
+          "title": "Composer Look",
+          "help": "Where the mode, model and effort sit: under the box or inside it.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Agent Chat",
+          "values": [
+            "auto",
+            "studio"
           ]
         },
         {
@@ -92,6 +104,18 @@
             "always",
             "collapsed",
             "never"
+          ]
+        },
+        {
+          "key": "agentPane.emptyChatComposerPosition",
+          "title": "Empty Chat Message Box",
+          "help": "Where the message box sits in a chat with no messages yet.",
+          "kind": "choice",
+          "default": "bottom",
+          "group": "Agent Chat",
+          "values": [
+            "bottom",
+            "center"
           ]
         },
         {
@@ -215,6 +239,18 @@
           }
         },
         {
+          "key": "agents.appControl",
+          "title": "Agents Can Change cmux",
+          "help": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes.",
+          "kind": "choice",
+          "default": "change",
+          "group": "cmux Tools",
+          "values": [
+            "change",
+            "read"
+          ]
+        },
+        {
           "key": "agents.autoRetry.attempts",
           "title": "Retries per Error",
           "help": "How many times the chat tries again before it stops and waits for you.",
@@ -306,6 +342,27 @@
           }
         },
         {
+          "key": "agents.chats.coldSegments",
+          "title": "Compress Long Chats",
+          "help": "Compresses the older parts of long chats. Run cmux chats warm to undo.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.coldSegmentsLevel",
+          "title": "Long Chat Compression Level",
+          "help": "Higher levels use less disk and take longer to compress.",
+          "kind": "number",
+          "default": 3,
+          "group": "Chats",
+          "range": {
+            "min": 1,
+            "max": 19,
+            "unit": "count"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -340,12 +397,11 @@
         {
           "key": "agents.cmuxMcp",
           "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
           "kind": "choice",
-          "default": "ask",
+          "default": "on",
           "group": "cmux Tools",
           "values": [
-            "ask",
             "on",
             "off"
           ]
@@ -634,6 +690,14 @@
           "group": "Tabs"
         },
         {
+          "key": "app.warnBeforeQuitShortcut",
+          "title": "Warn Before Quitting with ⌘Q",
+          "help": "⌘Q asks before quitting; press it again to quit. The Quit menu item and the Dock quit at once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Quitting"
+        },
+        {
           "key": "appearance.metrics.tabFontSize",
           "title": "Tab Text Size",
           "help": "Text size of tab titles. Unset, tabs follow the interface size.",
@@ -786,23 +850,7 @@
             "org.keepassxc.KeePassXC",
             "1password",
             "bitwarden",
-            "com.apple.systempreferences",
-            "com.apple.Terminal",
-            "com.googlecode.iterm2",
-            "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty",
-            "com.github.wez.wezterm",
-            "org.alacritty",
-            "dev.warp.*",
-            "windowsterminal.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "pwsh.exe",
-            "org.gnome.Terminal",
-            "org.gnome.Ptyxis",
-            "org.kde.konsole",
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.*"
+            "com.apple.systempreferences"
           ],
           "group": "Computer Use"
         },
@@ -854,7 +902,7 @@
           "title": "After Each Action",
           "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
           "kind": "choice",
-          "default": "adaptive",
+          "default": "openai",
           "group": "Computer Use",
           "values": [
             "adaptive",
@@ -1537,7 +1585,7 @@
         {
           "key": "tabs.newTabApp",
           "title": "New Tab App",
-          "help": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+          "help": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
           "kind": "text",
           "default": null,
           "group": "Tabs"
@@ -1611,6 +1659,18 @@
           "values": [
             "hover",
             "always"
+          ]
+        },
+        {
+          "key": "tabs.shellIconTheme",
+          "title": "Shell Tab Icons",
+          "help": "Machines shows each shell tab with the icon of the machine it runs on.",
+          "kind": "choice",
+          "default": "default",
+          "group": "Tabs",
+          "values": [
+            "default",
+            "machine"
           ]
         },
         {
@@ -1690,7 +1750,7 @@
           "title": "Download Updates Automatically",
           "help": "Off: cmux asks before downloading. It always asks before restarting.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {
@@ -1986,6 +2046,22 @@
             "afterCurrent",
             "bottom"
           ]
+        },
+        {
+          "key": "worktrees.autoCleanup",
+          "title": "Clean Up Agent Worktrees",
+          "help": "Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Storage"
+        },
+        {
+          "key": "worktrees.cleanBuildCaches",
+          "title": "Clean Up Build Caches",
+          "help": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Storage"
         }
       ]
     },
@@ -2346,6 +2422,20 @@
           }
         },
         {
+          "key": "agentPane.display.transcriptLook",
+          "title": "Transcript Look",
+          "help": "How messages, cards and spacing look.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
+        },
+        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -2704,6 +2794,22 @@
           }
         },
         {
+          "key": "appearance.backgroundPlacement",
+          "title": "Background Placement",
+          "help": "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundRecents",
+          "title": "Recent Backgrounds",
+          "help": "The backgrounds shown before, newest first, so one click goes back.",
+          "kind": "string_list",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundRotation",
           "title": "Change Picture",
           "help": "How often a shuffled background changes.",
@@ -3027,6 +3133,14 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.liquidGlass",
+          "title": "Liquid Glass",
+          "help": "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Density and Motion"
         },
         {
           "key": "appearance.metrics.chromeFontSize",
@@ -3569,6 +3683,18 @@
           }
         },
         {
+          "key": "appearance.tabShape",
+          "title": "Tab Shape",
+          "help": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules.",
+          "kind": "choice",
+          "default": "block",
+          "group": "Panes",
+          "values": [
+            "block",
+            "rounded"
+          ]
+        },
+        {
           "key": "appearance.theme",
           "title": "Theme",
           "help": "Colors for terminals. A space, workspace or terminal theme overrides it.",
@@ -3644,6 +3770,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Window Background"
+        },
+        {
+          "key": "customize.doctorNotice",
+          "title": "Customization notices",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "App Theme"
         },
         {
           "key": "diff.colors",
@@ -4175,7 +4309,10 @@
             "auto",
             "glass",
             "solid",
-            "sections"
+            "sections",
+            "chip",
+            "tree",
+            "card"
           ]
         },
         {
@@ -4505,6 +4642,22 @@
             "lines",
             "linesIcons"
           ]
+        },
+        {
+          "key": "sidebar.sections.hidden",
+          "title": "Hidden Sections",
+          "help": "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.sections.order",
+          "title": "Section Order",
+          "help": "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Sidebar"
         },
         {
           "key": "sidebar.sessionTree",
@@ -5915,7 +6068,7 @@
           "title": "Suggestions Shown",
           "help": "",
           "kind": "number",
-          "default": 8,
+          "default": 6,
           "group": "Address Bar",
           "range": {
             "min": 3,
@@ -7068,7 +7221,15 @@
         {
           "key": "mobile.allowIPhoneConnections",
           "title": "Allow iPhone Connections",
-          "help": "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+          "help": "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "iPhone"
+        },
+        {
+          "key": "mobile.autoApprovePhones",
+          "title": "Approve Phone Requests Automatically",
+          "help": "A new phone signed in to your account connects without asking you first. Other accounts never connect.",
           "kind": "toggle",
           "default": false,
           "group": "iPhone"
@@ -7136,6 +7297,14 @@
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"
+        },
+        {
+          "key": "macScreen.onlyPersonStartsViewing",
+          "title": "Only Your Click Starts Viewing a Screen",
+          "help": "On, a Screen Sharing tab an agent or the cmux CLI opens waits until you choose View Only or Full Control. Off, it starts viewing your own devices at once and says who started it. A device someone else owns always asks first.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Screen Sharing"
         },
         {
           "key": "phone.cloudDesktop",

@@ -327,6 +327,12 @@ struct TerminalPage: View {
                 Text("Choose which device controls the shared terminal's size.")
             }
             Section {
+                Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
+                    .accessibilityIdentifier("settings.terminalFitToPhone")
+            } footer: {
+                Text("Off: the phone re-wraps the Mac's terminal at its own width and the Mac keeps its size. On: the Mac's terminal resizes to the phone. Applies to terminals opened next.")
+            }
+            Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
                     .accessibilityIdentifier("settings.predictiveEcho")
             } footer: {
@@ -346,7 +352,7 @@ struct TerminalPage: View {
                 }
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
-                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open. Still in progress.")
+                Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -372,6 +378,9 @@ struct ComposerPage: View {
             Section {
                 Toggle(isOn: $settings.dismissKeyboardAfterSend) {
                     SettingsLabel("Dismiss keyboard after sending", symbol: "keyboard.chevron.compact.down")
+                }
+                Toggle(isOn: $settings.swipeDownCollapsesComposer) {
+                    SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
@@ -659,10 +668,8 @@ struct TransportDetails: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
                             .font(theme.type.rowTitle)
-                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .textSelection(.enabled)
+                        InPlaceSelectionLabel(store.macLinkDiagnostics[macID] ?? "", textStyle: .footnote,
+                                              color: theme.colors.label2.uiColor)
                     }
                     .accessibilityElement(children: .combine)
                 }

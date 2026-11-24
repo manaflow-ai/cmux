@@ -3,7 +3,7 @@
 // and "these should be doable via automation. the "feel" and "vibes" thing. you can simulate cursors
 // clicking around."
 //
-// The stage (agent-pane.composer-hat-head, ComposerHatHeadStage.tsx) is fed bursts: a subagent's steps
+// The stage (agent-pane.composer-hat-head, variant calm: the shipped step arm, ComposerHatHeadStage.tsx) is fed bursts: a subagent's steps
 // arriving faster than anyone reads, subagents joining one after another, and a command joining.
 // The probe reads every painted frame; the verdicts are numbers (test/feel/verdicts.ts):
 // - the live line swaps at a pace a reader keeps: each line stays up long enough to read, and the
@@ -37,20 +37,23 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     },
   };
 
-  // Red on feat-cmux-next today; the composer-hat-calm lane is calming the header.
-  const FIX = "the composer-hat-calm lane: the header swaps its words as fast as they come";
   const { scenario, testFor } = feelStage({
     entry: "agent-pane.composer-hat-head",
-    variant: "running",
+    variant: "calm",
     component: "composer-hat",
     viewport: { width: 480, height: 240 },
     prepare: async (page) => void (await page.waitForSelector(HEAD)),
-    known: Object.fromEntries(
-      ["steps-8-per-second", "steps-30-per-second", "steps-2-per-second", "join-5", "join-20"].map((name) => [
-        name,
-        FIX,
-      ]),
-    ),
+    // Twenty joining widen the subagent icon row (HatFaces.tsx) from 2 icons to its 140 px cap, and the
+    // kinds and time after it move over by that width: 0.013 against 0.01 in this 480 x 240 stage, on
+    // every arm. Measured by each layout-shift entry's sources (the kinds, the time, the icons), 2026-11-22.
+    // The row's count is held 1.6 s, so it is one move, not twenty, and the kinds glide there on transform
+    // (useGlide); Chrome scores the layout move under the glide all the same. A score of 0 needs the words
+    // never to move: the row after them, or its full width reserved. That is the icon header's design
+    // (#49824), a question for Leo, not this file's.
+    known: {
+      "join-20":
+        "the subagent icon row widening to its cap moves the kinds after it once, glided (0.013): a header design choice",
+    },
   });
 
   /** Presses the stage's `button` (outside the pane: the feed, not the cursor) `times` times, one
@@ -63,9 +66,9 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
   };
 
   /** How long a line must stay up to be read, and how many swaps a second a reader keeps up with:
-   *  the calm the hat is held to (proposed; composer-hat-calm owns the number). */
-  const READ_MS = 800;
-  const SWAPS_PER_SECOND = 1.5;
+   *  the calm the hat is held to (hatStep.ts PHASE_DWELL_MS, 1.6 s: under one change per 1.5 s). */
+  const READ_MS = 1_500;
+  const SWAPS_PER_SECOND = 0.67;
 
   describe("feel: composer hat header", () => {
     for (const [name, every] of [
@@ -86,7 +89,7 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
             v.atLeast("shortest time a live line stays up", latest.shortestHold, READ_MS, " ms");
             v.atMost("live line swaps per second", latest.swapsPerSecond, SWAPS_PER_SECOND);
             v.atMost("header name swaps", title.swaps, 0);
-            v.atMost("live line width changes per second", latest.widthChangesPerSecond, 1);
+            v.atMost("live line width changes per second", latest.widthChangesPerSecond, 0);
             v.atMost("header moved", head.moved.head ?? 0, 1, " px");
             v.atMost("composer moved", head.moved.composer ?? 0, 1, " px");
             v.atMost("layout shift", head.shift, 0.01);
@@ -102,7 +105,8 @@ await requireBrowserLane("feel-composer-hat.test.ts", async () => {
     ] as const)
       testFor(`join-${times}`)(`${name}: the header's words change at a reading pace and it holds still`, async () => {
         const verdicts = await scenario(`join-${times}`, async (page, v) => {
-          const trace = await record(page, SPEC, () => feed(page, "join", times, every), { settleFrames: 60 });
+          // Settles past the header's dwell (hatStep.ts PHASE_DWELL_MS), so the burst's one change is seen.
+          const trace = await record(page, SPEC, () => feed(page, "join", times, every), { settleFrames: 240 });
           const title = churn(trace, "title");
           const more = churn(trace, "more");
           const head = still(trace);

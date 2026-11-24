@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 
 use super::*;
+use crate::lower::ExtendError;
 use crate::manifest::Item;
 
 fn me() -> Who {
@@ -222,6 +223,26 @@ fn a_read_while_the_mac_is_away_fails_with_ehostdown() {
     let readme = path_ino(&overlay, "README.md");
     assert_eq!(overlay.read(readme, 0, 10), Err(112));
     assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
+}
+
+/// RFD 0007: the agent is told once that the Mac is away, naming the reads that failed: one
+/// report for many failed reads, with the files the agent read (not the ones read ahead).
+#[test]
+fn reads_while_the_mac_is_away_make_one_report_naming_them() {
+    let (state, manifest, fake) = setup(true);
+    let (sender, reports) = std::sync::mpsc::channel();
+    let sender = Mutex::new(sender);
+    let away = crate::away::Away::with_gather(Duration::from_millis(100), move |report| {
+        let _ = sender.lock().unwrap().send(report);
+    });
+    let overlay = open(state.path(), &manifest, &fake).with_away(away);
+    for path in ["README.md", "src/a.rs", "big.bin", "src/a.rs", "README.md"] {
+        assert_eq!(overlay.read(path_ino(&overlay, path), 0, 10), Err(112));
+    }
+    let report = reports.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(report.paths, ["README.md", "big.bin", "src/a.rs"]);
+    assert_eq!(report.failed, 3);
+    assert!(reports.recv_timeout(Duration::from_millis(400)).is_err());
 }
 
 #[test]
@@ -559,4 +580,480 @@ fn a_create_whose_whiteout_cannot_go_leaves_nothing_behind() {
     // The lower file stays deleted, as the file on disk still says.
     assert_eq!(overlay.lookup(src, "a.rs"), Err(ENOENT));
     assert_eq!(overlay.whiteouts(), ["src/a.rs"]);
+}
+
+/// RFD 0007, "Tracked files the skip rules keep home": a file the Mac keeps home stats as it is
+/// there, an open of it (read or write) fails with `EACCES`, and nothing about it is ever asked
+/// of the Mac, read-ahead of its folder included.
+#[test]
+fn a_file_kept_on_the_mac_stats_real_and_opens_as_eacces_without_asking_the_mac() {
+    let (state, manifest, fake) = setup(false);
+    let mut kept = (*manifest).clone();
+    let b = kept.resolve("src/b.rs").unwrap();
+    kept.keep_home(b, "secret: key files are shared only on purpose").unwrap();
+    let manifest = Arc::new(kept);
+    let overlay = open(state.path(), &manifest, &fake);
+    let ino = path_ino(&overlay, "src/b.rs");
+    let attr = overlay.getattr(ino).unwrap();
+    assert_eq!((attr.kind, attr.size, attr.mode), (Type::File, 9, 0o644));
+    assert_eq!(attr.mtime_ns, 1_700_000_000_000_000_000);
+    assert!(names(&overlay, path_ino(&overlay, "src")).contains(&"b.rs".to_owned()));
+    assert_eq!(overlay.open_handle(ino, libc::O_RDONLY), Err(EACCES));
+    assert_eq!(overlay.open_handle(ino, libc::O_RDWR), Err(EACCES));
+    assert_eq!(overlay.open_handle(ino, libc::O_WRONLY | libc::O_TRUNC), Err(EACCES));
+    assert_eq!(overlay.read(ino, 0, 100), Err(EACCES));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0, "nothing was asked of the Mac");
+    // Its folder's read-ahead leaves it out.
+    let a = path_ino(&overlay, "src/a.rs");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+    let batches = fake.batches.lock().unwrap().clone();
+    assert!(batches.iter().all(|batch| !batch.contains(&b)), "{batches:?}");
+    assert!(!batches.is_empty());
+    assert_eq!(
+        kept_text("secret: key files are shared only on purpose"),
+        "kept on the Mac (secret: key files are shared only on purpose); `cmux link access request PATH` asks the person for it"
+    );
+}
+
+/// A manifest of files of `size` bytes each at `paths` (folders are made as they are needed).
+fn sized(files: &[(&str, u64)]) -> Manifest {
+    let items = files
+        .iter()
+        .map(|(path, size)| Item {
+            path: (*path).into(),
+            kind: Kind::File,
+            mode: 0o644,
+            size: *size,
+            mtime_ns: 1,
+            link: None,
+        })
+        .collect();
+    Manifest::build(1, items).unwrap()
+}
+
+/// What a fault on `path` reads ahead, as paths, with the paths `skip` names left out.
+fn picked(manifest: &Manifest, path: &str, skip: impl Fn(&str, &Entry) -> bool) -> Vec<String> {
+    let index = manifest.resolve(path).unwrap();
+    let lower = Lower::new(Arc::new(manifest.clone()));
+    let picked = read_ahead(&lower, index, |other, entry| skip(&manifest.path_of(other), entry));
+    let names: Vec<String> = picked.iter().map(|other| manifest.path_of(*other)).collect();
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "a file is picked twice");
+    assert!(!names.iter().any(|name| name == path), "the faulting file is picked");
+    names
+}
+
+/// A workspace `ws` whose `crates` folder holds three projects (`a` and `b` with a `Cargo.toml`,
+/// `c` with a `package.json`), a folder with no marker and a loose file, beside a `docs` folder.
+fn workspace() -> Manifest {
+    sized(&[
+        ("ws/Cargo.toml", 4),
+        ("ws/crates/a/Cargo.toml", 4),
+        ("ws/crates/a/build.rs", 4),
+        ("ws/crates/a/src/lib.rs", 4),
+        ("ws/crates/a/src/x.rs", 4),
+        ("ws/crates/b/Cargo.toml", 4),
+        ("ws/crates/b/src/lib.rs", 4),
+        ("ws/crates/c/package.json", 4),
+        ("ws/crates/notes/readme.md", 4),
+        ("ws/crates/top.txt", 4),
+        ("docs/one.md", 4),
+    ])
+}
+
+#[test]
+fn a_fault_in_a_folder_with_no_marker_beside_it_reads_only_its_own_folder() {
+    let manifest =
+        sized(&[("src/a.rs", 4), ("src/b.rs", 4), ("src/deep/d.rs", 4), ("README.md", 4)]);
+    assert_eq!(picked(&manifest, "src/a.rs", |_, _| false), ["src/b.rs"]);
+}
+
+#[test]
+fn a_fault_in_a_project_reads_the_projects_beside_it_but_not_their_subfolders() {
+    let manifest = workspace();
+    assert_eq!(
+        picked(&manifest, "ws/crates/a/Cargo.toml", |_, _| false),
+        ["ws/crates/a/build.rs", "ws/crates/b/Cargo.toml", "ws/crates/c/package.json"]
+    );
+}
+
+#[test]
+fn a_fault_in_a_projects_sources_stays_in_its_folder() {
+    // `src` has no folder beside it, and its project's neighbours are not its own neighbours.
+    let manifest = workspace();
+    assert_eq!(picked(&manifest, "ws/crates/a/src/x.rs", |_, _| false), ["ws/crates/a/src/lib.rs"]);
+}
+
+#[test]
+fn a_fault_at_the_top_reads_only_the_top_folder() {
+    let manifest = sized(&[("Cargo.toml", 4), ("README.md", 4), ("a/Cargo.toml", 4)]);
+    assert_eq!(picked(&manifest, "Cargo.toml", |_, _| false), ["README.md"]);
+}
+
+#[test]
+fn skipped_files_and_folders_are_not_read_or_looked_into() {
+    let manifest = workspace();
+    let skipped = |path: &str, entry: &Entry| {
+        path == "ws/crates/b"
+            || (entry.kind == Kind::File && path == "ws/crates/a/build.rs")
+            || (entry.kind == Kind::File && path == "ws/crates/c/package.json")
+    };
+    // `c` is still a project (its marker is cached, not gone): it is looked into, and has nothing
+    // else to read.
+    assert_eq!(picked(&manifest, "ws/crates/a/Cargo.toml", skipped), Vec::<String>::new());
+}
+
+#[test]
+fn a_batch_holds_at_most_the_file_budget_with_the_faulting_file() {
+    let files: Vec<(String, u64)> = (0..300).map(|at| (format!("d/f{at:03}.rs"), 4)).collect();
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "d/f000.rs", |_, _| false);
+    assert_eq!(names.len(), BATCH_FILES - 1);
+    assert_eq!(names.first().map(String::as_str), Some("d/f001.rs"));
+}
+
+#[test]
+fn the_projects_beside_share_the_file_budget_in_name_order() {
+    let files: Vec<(String, u64)> =
+        (0..300).map(|at| (format!("crates/p{at:03}/Cargo.toml"), 4)).collect();
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "crates/p000/Cargo.toml", |_, _| false);
+    assert_eq!(names.len(), BATCH_FILES - 1);
+    assert_eq!(names.first().map(String::as_str), Some("crates/p001/Cargo.toml"));
+    assert_eq!(names.last().map(String::as_str), Some("crates/p255/Cargo.toml"));
+}
+
+#[test]
+fn a_batch_holds_at_most_the_byte_budget_and_no_big_file() {
+    const MIB: u64 = 1024 * 1024;
+    let mut files: Vec<(String, u64)> =
+        vec![("d/a.bin".into(), MIB), ("d/huge.bin".into(), CHUNK + 1)];
+    files.extend((0..40).map(|at| (format!("d/b{at:02}.bin"), MIB)));
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    let names = picked(&manifest, "d/a.bin", |_, _| false);
+    // The faulting megabyte and fifteen more make the budget's sixteen.
+    assert_eq!(names.len(), 15);
+    assert!(!names.iter().any(|name| name == "d/huge.bin"));
+}
+
+#[test]
+fn a_pick_looks_at_no_more_than_its_scan_budget() {
+    let mut files: Vec<(String, u64)> =
+        (0..BATCH_SCAN + 10).map(|at| (format!("a/src/s{at:05}.rs"), 4)).collect();
+    files.push(("a/src/fault.rs".into(), 4));
+    files.push(("a/tests/Cargo.toml".into(), 4));
+    let refs: Vec<(&str, u64)> = files.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = sized(&refs);
+    // Every file of the own folder is skipped, so the pick stops at its scan budget before it
+    // gets to the project beside it.
+    let names = picked(&manifest, "a/src/fault.rs", |path, entry| {
+        entry.kind == Kind::File && path != "a/src/fault.rs" && path != "a/tests/Cargo.toml"
+    });
+    assert_eq!(names, Vec::<String>::new());
+}
+
+/// A manifest of files holding `files`' bytes, with their sizes, and a fake source serving them.
+fn served(files: &[&str]) -> (Arc<Manifest>, Arc<Fake>) {
+    let contents: Vec<(String, u64)> =
+        files.iter().map(|path| ((*path).to_string(), format!("<{path}>").len() as u64)).collect();
+    let refs: Vec<(&str, u64)> =
+        contents.iter().map(|(path, size)| (path.as_str(), *size)).collect();
+    let manifest = Arc::new(sized(&refs));
+    let mut fake = Fake::default();
+    for path in files {
+        fake.bytes.insert(manifest.resolve(path).unwrap(), format!("<{path}>").into_bytes());
+    }
+    (manifest, Arc::new(fake))
+}
+
+#[test]
+fn a_fault_fetches_the_projects_beside_it_in_one_ask_and_never_again() {
+    let (manifest, fake) = served(&[
+        "ws/crates/a/Cargo.toml",
+        "ws/crates/a/src/lib.rs",
+        "ws/crates/b/Cargo.toml",
+        "ws/crates/b/build.rs",
+        "ws/crates/b/src/lib.rs",
+        "ws/crates/c/package.json",
+    ]);
+    let state = tempfile::tempdir().unwrap();
+    let overlay = open(state.path(), &manifest, &fake);
+    let a = path_ino(&overlay, "ws/crates/a/Cargo.toml");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"<ws/crates/a/Cargo.toml>");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    assert_eq!(fake.batches.lock().unwrap()[0].len(), 4);
+    for path in ["ws/crates/b/Cargo.toml", "ws/crates/b/build.rs", "ws/crates/c/package.json"] {
+        let ino = path_ino(&overlay, path);
+        assert_eq!(overlay.read(ino, 0, 100).unwrap(), format!("<{path}>").into_bytes());
+    }
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+    // A fault in b's sources asks for that file alone: what is cached is not asked for again.
+    let b = path_ino(&overlay, "ws/crates/b/src/lib.rs");
+    assert_eq!(overlay.read(b, 0, 100).unwrap(), b"<ws/crates/b/src/lib.rs>");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 2);
+    assert_eq!(fake.batches.lock().unwrap()[1].len(), 1);
+    assert_eq!(overlay.stats().remote_reads, 5);
+}
+
+/// The bytes of the blobs in a projection's cache folder, on disk.
+fn cache_on_disk_bytes(state: &Path) -> u64 {
+    fs::read_dir(state.join("cache"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name() != CACHE_ID_FILE)
+        .map(|entry| entry.metadata().unwrap().len())
+        .sum()
+}
+
+/// RFD 0007: the lower byte cache is capped (512 MiB by default) and lets the least recently used
+/// blob go first; a read of an evicted file asks the Mac again and answers the same bytes.
+#[test]
+fn the_cache_stays_under_its_cap_least_recently_used_first() {
+    assert_eq!(DEFAULT_CACHE_MAX_BYTES, 512 * 1024 * 1024);
+    let (state, manifest, fake) = setup(false);
+    // Two 4 MiB chunks of big.bin and a little more.
+    let cap = 2 * 4 * 1024 * 1024 + 64;
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    let big = path_ino(&overlay, "big.bin");
+    let chunk = 4 * 1024 * 1024u64;
+    let bytes = big_bytes();
+    for at in [0, chunk, 2 * chunk] {
+        let read = overlay.read(big, at, 4096).unwrap();
+        assert_eq!(read, bytes[at as usize..at as usize + 4096]);
+        assert!(overlay.cache_bytes() <= cap, "cache at {} over cap {cap}", overlay.cache_bytes());
+        assert!(cache_on_disk_bytes(state.path()) <= cap, "cache on disk over its cap");
+    }
+    assert!(overlay.cache_evicted() > 0, "nothing was evicted past the cap");
+    // The first chunk was least recently used: it went, and reading it asks the Mac again.
+    let asked = overlay.stats().remote_reads;
+    assert_eq!(overlay.read(big, 0, 4096).unwrap(), bytes[..4096]);
+    assert!(overlay.stats().remote_reads > asked, "an evicted chunk was served without the Mac");
+    // The newest chunk stayed (it is read from the cache).
+    let asked = overlay.stats().remote_reads;
+    assert_eq!(overlay.read(big, 2 * chunk, 4096).unwrap(), bytes[2 * chunk as usize..][..4096]);
+    assert_eq!(overlay.stats().remote_reads, asked, "the most recent chunk was evicted");
+}
+
+/// A cache an earlier daemon left over the cap goes down to it when the overlay opens again.
+#[test]
+fn a_reopen_trims_a_cache_left_over_its_cap() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    let chunk = 4 * 1024 * 1024u64;
+    for at in [0, chunk, 2 * chunk] {
+        overlay.read(big, at, 16).unwrap();
+    }
+    let before = cache_on_disk_bytes(state.path());
+    assert!(before > 2 * chunk, "the cache held {before} bytes");
+    drop(overlay);
+    let cap = chunk + 64;
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    assert!(overlay.cache_bytes() <= cap);
+    assert!(cache_on_disk_bytes(state.path()) <= cap, "a reopen kept the cache over its cap");
+    let bytes = big_bytes();
+    assert_eq!(overlay.read(big, chunk, 16).unwrap(), bytes[chunk as usize..][..16]);
+}
+
+// MARK: Pins (RFD 0007 gap 5)
+
+#[test]
+fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
+    let (state, manifest, fake) = setup(false);
+    // A cap smaller than one file: nothing unpinned stays.
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(4).with_pin_reserve(0);
+    let report = overlay.pin("src").unwrap();
+    assert_eq!(report.files, 4);
+    assert_eq!(report.bytes, 36);
+    assert_eq!(report.fetched_bytes, 36);
+    assert_eq!((report.failed, report.first_error), (0, None));
+    assert_eq!(overlay.pinned_bytes(), 36);
+    assert_eq!(overlay.cache_bytes(), 0, "pinned bytes are not the LRU's");
+    // Unpinned reads churn the LRU; the pin is never evicted.
+    overlay.read(path_ino(&overlay, "README.md"), 0, 64).unwrap();
+    overlay.read(path_ino(&overlay, "big.bin"), 0, 64).unwrap();
+    assert_eq!(overlay.pinned_bytes(), 36);
+    assert_eq!(overlay.pins(), vec!["src".to_owned()]);
+    drop(overlay);
+
+    // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
+    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
+    assert_eq!(overlay.pins(), vec!["src".to_owned()]);
+    assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
+    assert_eq!(overlay.read(path_ino(&overlay, "src/a.rs"), 0, 64).unwrap(), b"fn a() {}");
+    assert_eq!(away.calls.load(Ordering::Relaxed), 0, "a pinned read asked the Mac");
+    // An unpinned file still needs the Mac.
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64), Err(112));
+    let again = overlay.hydrate_pins();
+    assert_eq!((again.fetched_bytes, again.failed), (0, 0), "already whole on disk");
+}
+
+#[test]
+fn a_pinned_big_file_is_fetched_by_every_chunk() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(1).with_pin_reserve(0);
+    let report = overlay.pin("big.bin").unwrap();
+    assert_eq!(report.fetched_bytes, BIG);
+    assert_eq!(overlay.pinned_bytes(), BIG);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let ino = path_ino(&overlay, "big.bin");
+    let tail = overlay.read(ino, BIG - 10, 10).unwrap();
+    assert_eq!(tail, big_bytes()[(BIG - 10) as usize..]);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls, "a pinned chunk asked the Mac");
+}
+
+#[test]
+fn unpin_hands_the_bytes_to_the_lru_and_keeps_an_overlapping_pin() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(9).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    overlay.pin("src/deep").unwrap();
+    assert_eq!(overlay.pinned_bytes(), 36);
+    overlay.unpin("src").unwrap();
+    // d.rs stays under src/deep; the other three go to the LRU and down to its 9-byte cap.
+    assert_eq!(overlay.pinned_bytes(), 9);
+    assert!(overlay.cache_bytes() <= 9);
+    assert_eq!(overlay.pins(), vec!["src/deep".to_owned()]);
+    assert_eq!(overlay.unpin("src"), Err(ENOENT));
+}
+
+#[test]
+fn a_pin_the_disk_cannot_hold_is_refused_before_any_fetch() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    assert_eq!(overlay.pin(""), Err(libc::ENOSPC));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
+    assert!(overlay.pins().is_empty(), "a refused pin is not recorded");
+    assert_eq!(overlay.pin("nope"), Err(ENOENT));
+    assert_eq!(overlay.pin("../etc"), Err(EINVAL));
+}
+
+#[test]
+fn a_pin_made_with_the_mac_away_holds_and_stops_at_the_first_absence() {
+    let (state, manifest, _) = setup(false);
+    let (_, _, away) = setup(true);
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    let report = overlay.pin("").unwrap();
+    assert_eq!(report.first_error, Some(112));
+    assert_eq!(report.failed, 1, "the walk stops at the first EHOSTDOWN");
+    assert_eq!(overlay.pins(), vec![String::new()]);
+    drop(overlay);
+    // Back online, a hydration finishes it; the root pin read back from its file.
+    let (_, _, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    assert_eq!(overlay.pins(), vec![String::new()]);
+    let report = overlay.hydrate_pins();
+    assert_eq!((report.files, report.failed), (6, 0));
+    assert_eq!(report.fetched_bytes, report.bytes);
+}
+
+#[test]
+fn hydration_after_a_restart_keeps_the_disk_reserve() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(0);
+    let (_, _, away) = setup(true);
+    drop(overlay);
+    // Pinned with the Mac away: recorded, nothing fetched.
+    let overlay = open(state.path(), &manifest, &away).with_pin_reserve(0);
+    overlay.pin("src").unwrap();
+    drop(overlay);
+    // The disk filled since: the hydration stops with ENOSPC before asking for anything.
+    let overlay = open(state.path(), &manifest, &fake).with_pin_reserve(u64::MAX / 2);
+    let calls = fake.calls.load(Ordering::Relaxed);
+    let report = overlay.hydrate_pins();
+    assert_eq!(report.first_error, Some(libc::ENOSPC));
+    assert_eq!(report.fetched_bytes, 0);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+}
+
+fn file_item(path: &str, size: u64) -> Item {
+    Item {
+        path: path.into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size,
+        mtime_ns: 1_700_000_000_000_000_000,
+        link: None,
+    }
+}
+
+/// The head of `setup` plus a new file in `src` and a new folder, as the Mac's full manifest.
+fn full_of(manifest: &Manifest, extra: &[&str]) -> Arc<Manifest> {
+    let mut items: Vec<Item> = (1..manifest.len() as u32)
+        .map(|id| {
+            let entry = manifest.entry(id).unwrap();
+            Item {
+                path: manifest.path_of(id),
+                kind: entry.kind,
+                mode: entry.mode,
+                size: entry.size,
+                mtime_ns: entry.mtime_ns,
+                link: entry.link.clone(),
+            }
+        })
+        .collect();
+    items.extend(extra.iter().map(|path| file_item(path, 4)));
+    Arc::new(Manifest::build(1, items).unwrap())
+}
+
+#[test]
+fn extend_keeps_an_inode_and_an_upper_write_and_adds_the_tail() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    let src = path_ino(&overlay, "src");
+    overlay.write(readme, 0, b"README").unwrap();
+    assert_eq!(overlay.lookup(src, "new.rs"), Err(ENOENT));
+    assert_eq!(overlay.lookup(overlay.root(), "tail"), Err(ENOENT));
+
+    let full = full_of(&manifest, &["src/new.rs", "tail/x.txt"]);
+    let done = overlay.extend(full).unwrap();
+    assert_eq!(done.added, 3);
+    assert!(done.changed.contains(&src));
+
+    assert_eq!(path_ino(&overlay, "README.md"), readme);
+    assert_eq!(path_ino(&overlay, "src"), src);
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"README");
+    assert_eq!(fs::read(overlay.upper_dir().join("README.md")).unwrap(), b"README");
+    assert!(overlay.lookup(src, "new.rs").is_ok());
+    assert!(names(&overlay, src).contains(&"new.rs".to_string()));
+    assert!(names(&overlay, overlay.root()).contains(&"tail".to_string()));
+    let x = path_ino(&overlay, "tail/x.txt");
+    assert_eq!(overlay.getattr(x).unwrap().size, 4);
+    // The head's files still read through the Mac by the same entries.
+    let a = path_ino(&overlay, "src/a.rs");
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+}
+
+#[test]
+fn extend_to_a_manifest_missing_a_path_is_refused_and_the_mount_stays() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let a = path_ino(&overlay, "src/a.rs");
+    let items: Vec<Item> = ["README.md", "big.bin"].iter().map(|p| file_item(p, 1)).collect();
+    let not_super = Arc::new(Manifest::build(1, items).unwrap());
+    assert!(matches!(overlay.extend(not_super), Err(ExtendError::NotSuperset { .. })));
+    assert_eq!(path_ino(&overlay, "src/a.rs"), a);
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), b"fn a() {}");
+    // A refused extend leaves the overlay open to a good one.
+    assert!(overlay.extend(full_of(&manifest, &["z.txt"])).is_ok());
+    assert!(overlay.lookup(overlay.root(), "z.txt").is_ok());
+    // Only once.
+    assert!(matches!(overlay.extend(full_of(&manifest, &["y.txt"])), Err(ExtendError::Done)));
+}
+
+#[test]
+fn extend_refuses_a_path_that_changed_kind() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    // `src` becomes a file.
+    let items = vec![file_item("README.md", 6), file_item("big.bin", BIG), file_item("src", 1)];
+    let full = Arc::new(Manifest::build(1, items).unwrap());
+    assert!(matches!(overlay.extend(full), Err(ExtendError::NotSuperset { .. })));
 }

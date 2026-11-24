@@ -6,12 +6,12 @@
     "post_merge": {
       "cmux-tui-spec.yml": {
         "workflow": "cmux-tui spec inventory",
-        "after_merge": "push to feat-cmux-next, same paths; every job a pull request runs (changes, acpmux tests) also runs on the push",
+        "after_merge": "the post-merge batch runs suite cmux-tui-spec, same paths; every job a pull request runs (changes, acpmux tests) also runs there",
         "why": "the last check on 13 of 233 pull requests, done p90 59 min after the push with job queue p90 68 min and job runtime p90 11 min (cmuxterm-hq docs/rfd/0045-landing-tail.md, 290 merged PRs 2026-11-19 to 11-22)"
       },
       "gallery-health.yml": {
         "workflow": "gallery health",
-        "after_merge": "push to feat-cmux-next, same paths",
+        "after_merge": "the post-merge batch runs suite gallery-health, same paths",
         "why": "renders gallery states; a display check no ruleset requires, base reds already warn"
       },
       "cmux-next-media.yml": {
@@ -36,7 +36,7 @@
       },
       "cmux-tui-sdks.yml": {
         "workflow": "cmux-tui SDKs",
-        "after_merge": "push to feat-cmux-next, same paths",
+        "after_merge": "the post-merge batch runs suite cmux-tui-sdks, same paths",
         "why": "runs again on the push to feat-cmux-next for the same paths (cmuxterm-hq docs/rfd/0045-landing-tail.md)"
       },
       "test-ios.yml": {
@@ -131,6 +131,10 @@
       "kind": "publish",
       "why": "a bot that regenerates files on the base"
     },
+    "cmux-next-head-compile.yml": {
+      "kind": "check",
+      "why": "compiles the head the merges make together; each pull request compiles only its own merge with the base it saw"
+    },
     "cmux-next-package-deps-heal.yml": {
       "kind": "publish",
       "why": "a bot that heals package dependency pins on the base"
@@ -170,10 +174,6 @@
     "fresh-chief-eval.yml": {
       "kind": "publish",
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
-    },
-    "gallery-health.yml": {
-      "kind": "check",
-      "why": "renders gallery states per merge; a display check no ruleset requires (#48553)"
     },
     "gateway-e2e.yml": {
       "kind": "check",

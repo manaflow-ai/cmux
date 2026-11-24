@@ -6,7 +6,9 @@ use cmux_json::JsonSet as _;
 mod host_build;
 mod host_load;
 
-pub(crate) use host_build::{host_build_differs, other_build_host_line, other_build_hosts_line};
+pub(crate) use host_build::{
+    host_build_differs, live_host_build, other_build_host_line, other_build_hosts_line,
+};
 
 /// The mux record of a change in how many subagents a session runs (`hub/tap.rs`), which
 /// watchers hear as `_acpmux/session_changed` with the new `subagentsRunning`.
@@ -39,19 +41,28 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
     RunningWork { subagents: running.len(), names, commands }
 }
 
-/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
-/// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, no time
+/// breakdown, and a long title cut (`TITLE_CHARS`), including in rows supplied by older peers.
 /// A packed row cuts the same with no parse (`PeerRow::changed_text`).
+/// A peer on an older acpmux lists `timeBreakdown` in every row once a chat's Session Info read
+/// it: 6.5 MB of a 38 MB list of 10,790 rows, up to 78 KB a row, which every agent page held and
+/// parsed again on each change (Leo, 2026-11-18: "typing in the composer still slow"). Only the
+/// chat's own pane reads it, from its attach and its attached `session_changed`, which keep it.
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
         row.remove("toolsMutable");
+        row.remove(CENSUS_LEAVES_OUT);
         if let Some(Value::String(title)) = row.get_mut("title") {
             *title = summary_title(title);
         }
     }
     summary
 }
+
+/// The detail-only member a census row leaves out beside the inventory: a chat's time
+/// breakdown, its spans one per turn (`hub/time_breakdown.rs`).
+pub(crate) const CENSUS_LEAVES_OUT: &str = "timeBreakdown";
 
 /// The most of a chat's title a census row shows. A harness may title a chat with its whole first
 /// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
@@ -693,7 +704,7 @@ impl Hub {
         #[cfg(test)]
         self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
-        let waiting = super::subsession_send::waiting_on(session);
+        let waiting = self.waiting_on(session);
         let turn = session.turn();
         // The running turn's prompt is acpmux's notice, not anyone's words (`prompt_line::is_notice`).
         let notice = turn.as_ref().is_some_and(|t| t.notice);
@@ -723,19 +734,22 @@ impl Hub {
             session_id: m.id.clone(),
             name: m.name.clone(),
             handle: Some(m.spoken_handle().into_owned()),
+            display_name: m.handle.clone().filter(|h| crate::session_handle::valid(h)),
+            icon: m.icon.clone(),
             name_given: m.name_given,
             former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
-            status: m.status.to_string(),
+            // A watched chat whose app exited reads disconnected (`app_exit.rs`).
+            status: super::app_exit::row_status(session, m.status),
             // A Stop's turn that has not ended yet (`cancel.rs`): never read as running on.
             state: if stopping {
                 "stopping".to_owned()
             } else if stuck.is_some() {
                 "stuck".to_owned()
             } else {
-                m.status.to_string()
+                super::app_exit::row_status(session, m.status)
             },
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
@@ -781,6 +795,7 @@ impl Hub {
             // An expired list is no longer the chat's plan (`task_list.rs`): the row and the hat drop it.
             task_list: super::task_list::current_task_list(&m),
             rolling_summary: m.rolling_summary.clone(),
+            approved_plan: m.approved_plan.clone(),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
@@ -801,6 +816,8 @@ impl Hub {
             // prompt's start that waits to be tried again (`start_retry.rs`).
             starting: session.spawn_lock.try_lock().is_err()
                 || session.start_retry_waits.load(Ordering::SeqCst),
+            // A launch credential only this daemon's memory holds (`credentials.rs`).
+            credential_only_here: self.credential_only_here(session, &m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some() && m.moved_to.is_none(),
             // Moved away for good (`transfer_out.rs` commit): where it runs now.
@@ -949,6 +966,13 @@ impl Hub {
         if let Some(cold) = &m.cold {
             summary.set("coldArchive", json!(cold));
         }
+        // Who closed it, why, and how its work ended (`close_why.rs`): a fleet tool lists the
+        // unfinished closes from `ls --closed --json`.
+        if m.status == SessionStatus::Closed
+            && let Some(close) = &m.close
+        {
+            summary.set("close", json!(close));
+        }
         if let Some(dirs) = super::additional_dirs::acp_value(&m) {
             summary.set(super::additional_dirs::FIELD, dirs);
         }
@@ -963,13 +987,20 @@ impl Hub {
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
         // being able to see the # of associated subagents and whatnot"): its running subagents,
         // their first names, and its running background commands (`running_work`).
-        let work = running_work(
-            session,
-            summary.get("turn").is_some_and(Value::is_object),
-            self.running_processes_read(session),
-        );
+        let turn_runs = summary.get("turn").is_some_and(Value::is_object);
+        let work = running_work(session, turn_runs, self.running_processes_read(session));
         summary.set("subagentsRunning", json!(work.subagents));
         summary.set("subagentNames", json!(work.names));
+        // Its latest subagents, live and finished, and how many it started: the sidebar nests them
+        // under the chat's row (`subagents_recent.rs`; Leo 2026-11-19: "the nested sessions").
+        // A chat that never started one carries neither key, so its row costs what it did.
+        {
+            let tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            if tree.seen() > 0 {
+                summary.set("recentSubagents", json!(tree.recent(turn_runs)));
+                summary.set("subagentsSeen", json!(tree.seen()));
+            }
+        }
         summary.set("commandsRunning", json!(work.commands));
         // The build its live agent host runs, and whether it differs from this daemon's: a
         // host that has not hibernated since an update (`views/host_build.rs`).
@@ -1037,6 +1068,11 @@ impl Hub {
             v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
+        // A fork of a subagent: the chat and the subagent whose conversation it holds
+        // (`fork_subagent.rs`), the pane's "subagent of" line.
+        if let Some(of) = &m.fork_of_subagent {
+            v.set("forkOf", json!(of));
+        }
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
@@ -1211,6 +1247,9 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
             // The host's CPU and RAM budget and this daemon's share of the load (`host_load.rs`).
             "host_pressure": host_pressure,
+            // Each session scope's memory, CPU, IO and disk budget and its use, versioned
+            // (`session_budget.rs`, `hub/session_budget_watch.rs`).
+            "sessionBudgets": super::session_budget_watch::status(),
         })
     }
 }

@@ -371,7 +371,16 @@ public struct DaemonLauncher: Sendable {
         // XDG_RUNTIME_DIR would win over TMPDIR in cmux-tui's socket lookup.
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
+        Self.applyRuntimeScope(to: &environment)
         return environment
+    }
+
+    /// `CMUX_TUI_RUNTIME_SCOPE`: the owner's socket directory is scoped by this app's HOME when it is not the
+    /// account's own, so an app on another HOME (a fresh-HOME launch check, an isolated profile) starts and
+    /// reaches its own owner and never the one of another app of the same user. The usual single app has no
+    /// scope, so its socket keeps the path it always had. Always set or cleared, never inherited.
+    static func applyRuntimeScope(to environment: inout [String: String]) {
+        environment["CMUX_TUI_RUNTIME_SCOPE"] = DaemonLaunchRules.runtimeScope(home: environment["HOME"])
     }
 
     /// Returns the live endpoint: a running owner from `server status`
@@ -391,6 +400,7 @@ public struct DaemonLauncher: Sendable {
         if environment["CMUX_NEXT_CLOUD_LAUNCHER"] != "1",
            let running = await runningOwner() {
             health?.note(.ready(pid: running.pid))
+            DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
             return running
         }
         async let reapGrace = supportsReapGrace()
@@ -423,6 +433,7 @@ public struct DaemonLauncher: Sendable {
             )
             let ensured = try Self.parseEnsure(result)
             note?.end(.ready(pid: ensured.pid))
+            DaemonLaunchTimings.shared.mark(ensured.status == "started" ? DaemonLaunchTimings.spawned : DaemonLaunchTimings.reused)
             return ensured
         } catch {
             note?.end(.exited)
@@ -451,6 +462,7 @@ public struct DaemonLauncher: Sendable {
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
+        Self.applyRuntimeScope(to: &environment)
         DaemonLaunchTimings.shared.mark("daemon.status_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.status_end") }
         guard let result = try? await ProcessRunner.run(
@@ -512,6 +524,7 @@ public struct DaemonLauncher: Sendable {
             if let path = remembered.take() {
                 if DaemonSocketMemory.acceptsConnections(path) {
                     DaemonLaunchTimings.shared.mark("daemon.remembered_socket")
+                    DaemonLaunchTimings.shared.mark(DaemonLaunchTimings.reused)
                     return DaemonEndpoint(socketPath: path)
                 }
             }

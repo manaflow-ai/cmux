@@ -4,13 +4,18 @@ import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/toolRowModel";
-import { permissionDiffs, shellCommand } from "../direct";
+import { permissionDiffs } from "../permissionMessage";
+import { shellCommand } from "../toolActivity";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
 import { permissionKeyAction } from "./prompt";
 import { ProposedEdits } from "./ProposedEdits";
+import { focusRoute } from "../../../ui/focusRoute";
+import { HoldRing, holdButtonProps, holdTitle, useHoldToApprove, type HoldControl } from "./HoldButton";
+import { holdApplies, holdSettings } from "./holdToApprove";
+import type { HoldScope } from "./holdToApprove.experiment";
 
 /// Each answer's letter, as the single card's (prompt.ts PERMISSION_LETTERS).
 const LETTERS: Record<PermissionDecision, string> = { allow_once: "y", allow_chat: "a", deny: "n" };
@@ -48,14 +53,18 @@ type Props = {
   onRetry(): void;
   onRevoke(): void;
   onRefresh(): void;
+  /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts).
+  /// The pane passes none; the gallery and tests do.
+  hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
 };
 
 const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
 
-/// What one request asks, as its row names it: a verb and the command, path, address or pattern
-/// the call carries (in the code face), else the agent's title for it.
+/// What one request asks, as its row names it: what the call does in the agent's words when it
+/// says (acpmux's `summary`, a shell call's description), else a verb and the command, path,
+/// address or pattern the call carries (in the code face), else the agent's title for it.
 function askOf(item: PermissionGroupItem, fallback: string) {
   const request = record(item.request);
   const subject = record(request?.subject);
@@ -68,7 +77,9 @@ function askOf(item: PermissionGroupItem, fallback: string) {
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
     .filter((path): path is string => path !== undefined);
-  const command = kind === "execute" ? text(shellCommand(input)) : undefined;
+  // acpmux's copy drops the line it put before a subagent's command to name the caller.
+  const command = kind === "execute" ? (text(item.command) ?? text(shellCommand(input))) : undefined;
+  const summary = text(item.summary);
   const path = paths[0] ?? text(input?.file_path) ?? text(input?.path);
   const named =
     kind === "execute"
@@ -84,15 +95,16 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     tool,
     kind,
     // The title already says what the call does ("Edit upload.sh"): no verb before it.
-    verb: named !== undefined ? verbs[kind ?? ""] : undefined,
+    verb: summary === undefined && named !== undefined ? verbs[kind ?? ""] : undefined,
     subject:
+      summary ??
       named ??
       (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
       text(subjectCommand?.title) ??
       requestTitle ??
       text(tool?.title) ??
       fallback,
-    code: named !== undefined,
+    code: summary === undefined && named !== undefined,
     command,
     cwd: text(input?.cwd),
     scope:
@@ -107,6 +119,65 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     paths,
     input: tool?.rawInput,
   };
+}
+
+/// One answer of a waiting group. Under hold to approve (HoldButton.tsx) an allow answers after a
+/// held press, never a click; it registers its hold so the panel's keys (y, a, Return) can run it.
+function AnswerButton({
+  holdKey,
+  identity,
+  label,
+  className,
+  keyshortcuts,
+  disabled,
+  holds,
+  durationMs,
+  reduced,
+  holdDescription,
+  onRespond,
+  register,
+}: {
+  holdKey: string;
+  /// What a hold answers: the group, its revision and the decision. A hold answers only the identity
+  /// it started on, so a new revision or group needs a new press.
+  identity: string;
+  label: string;
+  className: string;
+  keyshortcuts?: string;
+  disabled: boolean;
+  holds: boolean;
+  durationMs: number;
+  reduced?: boolean;
+  holdDescription: string;
+  onRespond(): void;
+  register(key: string, hold: HoldControl | undefined): void;
+}) {
+  const hold = useHoldToApprove({
+    enabled: holds,
+    identity,
+    durationMs,
+    disabled,
+    reducedOverride: reduced,
+    onComplete: onRespond,
+  });
+  useEffect(() => {
+    register(holdKey, hold);
+    return () => register(holdKey, undefined);
+  });
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-keyshortcuts={keyshortcuts}
+      disabled={disabled}
+      onClick={onRespond}
+      {...(hold ? holdButtonProps(hold, holdDescription) : {})}
+      title={hold ? holdTitle(undefined, holdDescription) : undefined}
+    >
+      {hold && <HoldRing hold={hold} />}
+      {label}
+    </button>
+  );
 }
 
 /// One request: a row like the transcript's tool rows (its glyph, verb and what it names, on one
@@ -182,8 +253,17 @@ function AskRow({
   );
 }
 
-export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
+export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh, hold }: Props) {
   const t = useT();
+  // Hold to approve (HoldButton.tsx, off unless its experiment is on), read once per panel.
+  const [experimentHold] = useState(holdSettings);
+  const holdConfig = hold ?? experimentHold;
+  /// Each allow button's hold, by `<groupId>:<decision>`, for the panel's keys.
+  const holds = useRef(new Map<string, HoldControl>());
+  const registerHold = (key: string, control: HoldControl | undefined) => {
+    if (control) holds.current.set(key, control);
+    else holds.current.delete(key);
+  };
   const shortcuts = {
     allow_once: useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce),
     allow_chat: useShortcut(SHORTCUT_ACTIONS.permissionAllowChat),
@@ -209,24 +289,37 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       ["permissionRefresh", runRefresh],
       ["permissionExpand", () => setExpandSignal((value) => value + 1)],
     ]);
-    /// Whether a pending group took `decision`.
-    function respondToPending(decision: PermissionDecision): boolean {
+    /// The pending group `decision` would answer now, if any.
+    function pendingFor(decision: PermissionDecision) {
       const current = stateRef.current;
       if (!current.supported || current.busy || current.loading || current.ready === false || current.uncertain)
-        return false;
-      if (decision !== "deny" && current.allowRefused) return false;
-      const group = pendingRef.current.find(
+        return undefined;
+      if (decision !== "deny" && current.allowRefused) return undefined;
+      return pendingRef.current.find(
         (candidate) => candidate.state === "pending" && candidate.decisions.includes(decision),
       );
-      if (group) callbacks.current.onRespond(group.groupId, group.revision, decision);
-      return group !== undefined;
+    }
+    /// Whether a pending group took `decision`. `event` is the key that asked, absent for an app
+    /// shortcut's page event: under hold to approve a held key runs the button's hold, and a page
+    /// event, which cannot be held, puts the keyboard on the button.
+    function respondToPending(decision: PermissionDecision, event?: KeyboardEvent): boolean {
+      const group = pendingFor(decision);
+      if (!group) return false;
+      const hold = holds.current.get(`${group.groupId}:${decision}`);
+      if (hold) {
+        if (event) hold.holdKey(event);
+        else focusRoute(hold.ref.current, "person", "an app allow shortcut under hold to approve");
+        return true;
+      }
+      callbacks.current.onRespond(group.groupId, group.revision, decision);
+      return true;
     }
     // The single card's keys (prompt.ts permissionKeyAction): y, a and n, Return and Esc, with
     // nothing focused, focus in the panel or in an empty composer. Capture, as the card's.
     const onKey = (event: KeyboardEvent) => {
       const action = permissionKeyAction(event, panel.current, false);
       if (!action || action === "closeFeedback") return;
-      if (!respondToPending(action === "allow_always" ? "allow_chat" : action)) return;
+      if (!respondToPending(action === "allow_always" ? "allow_chat" : action, event)) return;
       event.preventDefault();
       event.stopPropagation();
     };
@@ -286,24 +379,36 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       aria-busy={state.busy}
     >
       {pending.map((group) => {
+        const groupHolds = holdApplies(
+          holdConfig.scope,
+          group.items.map((item) => {
+            const ask = askOf(item, "");
+            return { kind: ask.kind, command: ask.command };
+          }),
+        );
         const buttons =
           group.state === "pending" ? (
             <div className="acpmux-ask-actions">
               {answers
                 .filter(([decision]) => group.decisions.includes(decision) && (!allowRefused || decision === "deny"))
                 .map(([decision, label]) => (
-                  <button
+                  <AnswerButton
                     key={decision}
-                    type="button"
+                    holdKey={`${group.groupId}:${decision}`}
+                    identity={`${group.groupId}\u0000${group.revision}\u0000${decision}`}
+                    label={t(label)}
                     className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : decision === "allow_chat" ? " is-secondary" : ""}`}
-                    aria-keyshortcuts={
+                    keyshortcuts={
                       [group === keyed && LETTERS[decision], shortcuts[decision]].filter(Boolean).join(" ") || undefined
                     }
                     disabled={disabled}
-                    onClick={() => onRespond(group.groupId, group.revision, decision)}
-                  >
-                    {t(label)}
-                  </button>
+                    holds={groupHolds && decision !== "deny"}
+                    durationMs={holdConfig.durationMs}
+                    reduced={hold?.reduced}
+                    holdDescription={t("permission.holdToAllow")}
+                    onRespond={() => onRespond(group.groupId, group.revision, decision)}
+                    register={registerHold}
+                  />
                 ))}
             </div>
           ) : undefined;
