@@ -12,6 +12,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import re
 import os
 import subprocess
 import sys
@@ -1762,9 +1763,10 @@ class LaunchBound(unittest.TestCase):
         self.assertEqual(hv.launch_seconds({"SIDE_INSTANCE_BUDGET_WAIT_S": "soon"}), 1800 + hv.LAUNCH_SECONDS)
 
     def test_every_launch_uses_the_budget_aware_bound(self):
-        source = ENGINE.read_text()
-        self.assertNotIn('side.run("launch", timeout=LAUNCH_SECONDS)', source)
-        self.assertGreaterEqual(source.count('side.run("launch", timeout=launch_seconds())'), 2)
+        launches = re.findall(r'side\.run\("launch".*\)', ENGINE.read_text())
+        self.assertGreaterEqual(len(launches), 2)
+        for call in launches:
+            self.assertIn("timeout=launch_seconds()", call)
 
 
 if __name__ == "__main__":
