@@ -23,7 +23,7 @@ function IssuesGallery({ route, data = mockIssueData }: Props) {
     // The store routes its own clicks (a row, All issues) in place of `location.hash`.
     const held: { store?: IssuesStore } = {};
     held.store = new IssuesStore(
-      new MockGitHubProvider(undefined, undefined, undefined, data),
+      new MockGitHubProvider(undefined, undefined, undefined, null, data),
       (hash) => void held.store?.route(hash),
       () => false,
     );

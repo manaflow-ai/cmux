@@ -151,7 +151,7 @@ test("the list draws each issue's title, number, labels, author and comment coun
   const document = mountDom();
   const held: { store?: IssuesStore } = {};
   held.store = new IssuesStore(
-    new MockGitHubProvider(undefined, undefined, undefined, mockIssueData),
+    new MockGitHubProvider(undefined, undefined, undefined, null, mockIssueData),
     (hash) => void held.store?.route(hash),
     () => false,
   );
@@ -187,7 +187,7 @@ test("the list draws each issue's title, number, labels, author and comment coun
 test("an empty repository and a failed read each say so", async () => {
   const document = mountDom();
   const store = new IssuesStore(
-    new MockGitHubProvider(undefined, undefined, undefined, { ...mockIssueData, issues: [] }),
+    new MockGitHubProvider(undefined, undefined, undefined, null, { ...mockIssueData, issues: [] }),
     () => {},
     () => false,
   );
@@ -198,7 +198,7 @@ test("an empty repository and a failed read each say so", async () => {
   expect(document.querySelector(".gh-issues-note")?.textContent).toBe(en["github.issues.empty"]!);
   store.stop();
   const failing = new IssuesStore(
-    new MockGitHubProvider(undefined, undefined, undefined, { ...mockIssueData, issue: "failed" }),
+    new MockGitHubProvider(undefined, undefined, undefined, null, { ...mockIssueData, issue: "failed" }),
     () => {},
     () => false,
   );
