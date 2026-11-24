@@ -6,6 +6,7 @@
 // page drew the chat draws nothing. A page with none, or with one for another size or theme, draws
 // nothing here and opens as before.
 import { paintSnapshot } from "./paint";
+import { askEarlyOpen } from "./earlyOpen";
 import {
   SNAPSHOT_BOOT_GLOBAL,
   SNAPSHOT_GLOBAL,
@@ -41,5 +42,7 @@ function boot(): void {
     globals[SNAPSHOT_MISS_GLOBAL] = `error: ${String(error)}`;
   }
 }
+// Before the copy draws: the handshake and the socket go on while the bundle loads (earlyOpen.ts).
+askEarlyOpen();
 globals[SNAPSHOT_BOOT_GLOBAL] = boot;
 if (SNAPSHOT_GLOBAL in globals) boot();
