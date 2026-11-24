@@ -28,7 +28,7 @@
 //
 // The saved report-disclosure look keeps its inline Markdown report. Its row toggles the report;
 // the agent name opens the agent's view (doneReport.experiment.ts).
-import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
@@ -36,6 +36,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
+import { headerToggleClick } from "../conversation/headerToggle";
 import { ReactionMark } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -209,6 +210,9 @@ function DoneLine({
       ...(phase.kind === "failed" && phase.gaveUp ? [t("retry.retriedOut", { of: phase.gaveUp.of })] : []),
       ...(error ? [shortReason(error)] : []),
     ].join(" · ") || t("subagents.state.failed");
+  // The quiet line opens the subagent's view from anywhere on it, as a tool row opens.
+  const quietOpen = quiet ? open : undefined;
+  const cutFailure = error !== undefined && shortReason(error) !== error.trim();
   const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
@@ -333,18 +337,23 @@ function DoneLine({
     <div className="cv-tools">
       <TranscriptActivityRowShell
         className="cv-tool cv-subagent-done-row"
+        // The pointer's wider target: its trailing time and chevron open the view too.
+        onClick={quietOpen ? headerToggleClick(() => quietOpen(agent.id)) : undefined}
         attributes={{
           "data-state": waiting ? "retrying" : agent.state,
           ...(look && { "data-look": look }),
           ...(compact && { "data-report-look": "compact" }),
         }}
       >
-        {/* No control itself: only its name opens the view (the chip below). */}
-        <div
+        {/* A quiet failed line that opens the view is that control, edge to edge, and lifts as
+            every tool row does (cmux#52916); any other line is no control itself: only its name
+            opens the view (the chip below). */}
+        <LineControl
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
           data-state={waiting ? "retrying" : agent.state}
           {...(agent.stopReason && { "data-reason": agent.stopReason })}
           aria-label={whole}
+          onOpen={quietOpen ? () => quietOpen(agent.id) : undefined}
         >
           <span className="cv-tool__icon">
             <AgentIdentity
@@ -355,20 +364,12 @@ function DoneLine({
             />
           </span>
           {quiet ? (
-            // tooltip-allow: the line cuts its title and reason; its whole text, the failure included
-            <span className="cv-tool__text cv-subagent-failed__text" title={whole}>
-              {open ? (
-                <SubagentChipPreview agent={agent} name={name}>
-                  <AgentTag
-                    name={name}
-                    className="cv-subagent-failed__title"
-                    ariaLabel={openLabel}
-                    onClick={() => open(agent.id)}
-                  />
-                </SubagentChipPreview>
-              ) : (
-                <span className="cv-subagent-failed__title">{name}</span>
-              )}
+            // What it was asked to do and why it failed, in the line itself: no chip, no ring and
+            // no hover card over the row above (cmux#52916, on "Subagent  Failed" with a ringed
+            // chip and a "Failed · 0s" card). The whole failure shows only where the line cuts it.
+            // tooltip-allow: the line cuts the failure to its first sentence; its whole text
+            <span className="cv-tool__text cv-subagent-failed__text" title={cutFailure ? whole : undefined}>
+              <span className="cv-subagent-failed__title">{name}</span>
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
           ) : (
@@ -394,7 +395,7 @@ function DoneLine({
               )}
             </span>
           )}
-        </div>
+        </LineControl>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {resumed.note}
@@ -494,5 +495,28 @@ function ReportPreview({ report, onOpenView }: { report: WholeReport; onOpenView
         </button>
       )}
     </div>
+  );
+}
+
+/// A done line's words: a button that opens the subagent's view when `onOpen` is given, else a
+/// plain box (its name chip is then the control).
+function LineControl({
+  onOpen,
+  children,
+  ...attributes
+}: {
+  onOpen?: () => void;
+  children: ReactNode;
+  className: string;
+  "aria-label": string;
+  "data-state": string;
+  "data-reason"?: string;
+}) {
+  return onOpen ? (
+    <button type="button" {...attributes} onClick={onOpen}>
+      {children}
+    </button>
+  ) : (
+    <div {...attributes}>{children}</div>
   );
 }
