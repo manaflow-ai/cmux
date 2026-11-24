@@ -262,6 +262,7 @@ public final class TerminalSurfaceView: NSView {
     func stopFollowingResizeGesture() {
         isFollowingResizeGesture = false
         gridReports.flush()
+        settleBoundsAhead()
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
