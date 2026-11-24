@@ -38,7 +38,7 @@ mod dialer;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
-mod health;
+pub(crate) mod health;
 #[path = "peer_overlay.rs"]
 pub(crate) mod overlay;
 
@@ -214,6 +214,55 @@ impl PeerNotice {
 #[cfg(test)]
 pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
     rows.iter().map(|row| serde_json::from_str(row).unwrap_or(Value::Null)).collect()
+}
+
+#[cfg(test)]
+impl Peer {
+    /// A test that stands in for a listener from before the early request: no first request goes
+    /// out with the upgrade, as after the real refusal (`early_refused`).
+    #[cfg(test)]
+    pub(crate) fn refuse_early(&self) {
+        self.early_refused.store(true, Ordering::SeqCst);
+    }
+
+    /// Test stand-in for the far daemon: answers every request this peer's link would write with
+    /// `result` until one is `m`, and gives that one's line. No `serve` runs: the frames are read
+    /// off the link's queue as `serve` would read them.
+    pub(crate) async fn answer_until_for_tests(&self, m: &str, result: Value) -> Value {
+        let mut out = self.out_rx.lock().await;
+        let Some(out) = out.as_mut() else { return Value::Null };
+        // A queue that closed gives Null, which no test takes for the request it waits on.
+        while let Some(frame) = out.recv().await {
+            let line: Value = serde_json::from_str(&frame.line).unwrap_or(Value::Null);
+            if let Some(key) = frame.key
+                && let Some(reply) = self.pending.lock().await.remove(&key)
+            {
+                let _ = reply.send(Ok(result.clone()));
+            }
+            if line.get("method").and_then(Value::as_str) == Some(m) {
+                return line;
+            }
+        }
+        Value::Null
+    }
+
+    /// The link's socket open, as `run` leaves it once a handshake begins: requests on it are
+    /// queued for the far daemon (the test reads them with `answer_until_for_tests`).
+    pub(crate) fn open_link_for_tests(&self) {
+        self.open.store(true, Ordering::SeqCst);
+    }
+
+    /// How many of the frames queued on the link now and not read yet are requests `m`.
+    pub(crate) async fn queued_for_tests(&self, m: &str) -> usize {
+        let mut out = self.out_rx.lock().await;
+        let Some(out) = out.as_mut() else { return 0 };
+        let mut count = 0;
+        while let Ok(frame) = out.try_recv() {
+            let line: Value = serde_json::from_str(&frame.line).unwrap_or(Value::Null);
+            count += usize::from(line.get("method").and_then(Value::as_str) == Some(m));
+        }
+        count
+    }
 }
 
 /// A row as a list carries it: its compact JSON.
@@ -520,6 +569,11 @@ pub struct Peer {
     /// watch's reply, and the changes after it, until then, and drops them when the
     /// initialize reply says the watch was not the one to ask.
     pipelined_key: StdMutex<Option<String>>,
+    /// The `initialize` that went out with the upgrade request: its id and its answer
+    /// (`early_initialize`); the handshake takes it instead of asking again.
+    /// A listener refused the upgrade with a request behind it: none is sent early again.
+    early_refused: AtomicBool,
+    early_init: StdMutex<Option<(i64, oneshot::Receiver<Result<Value, RpcError>>)>>,
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.
     pipelines: AtomicBool,
@@ -698,10 +752,6 @@ impl Peer {
         }
     }
 }
-
-/// The longest a handshake reading its watch list in pages may take in all: each page moves its
-/// deadline on by the handshake's own (`LinkTimings::handshake`), never past this.
-const HANDSHAKE_MOST: Duration = Duration::from_secs(300);
 
 /// The rows of the first watch page read by count (`Peer::watch_row_pages`): about 5 MB
 /// without tools at the incident's row sizes (2.3 KB).
