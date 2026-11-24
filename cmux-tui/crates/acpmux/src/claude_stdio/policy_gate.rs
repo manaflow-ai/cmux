@@ -134,7 +134,7 @@ impl Translator {
 }
 
 /// A PreToolUse hook output with `decision` and `reason`.
-fn pre_tool(decision: &str, reason: &str) -> Value {
+pub(super) fn pre_tool(decision: &str, reason: &str) -> Value {
     json!({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": decision,
