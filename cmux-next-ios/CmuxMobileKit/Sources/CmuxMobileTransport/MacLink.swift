@@ -101,6 +101,11 @@ public protocol MacLink: AnyObject, Sendable {
     /// it as connected at once instead of waiting a main-actor turn for the
     /// state stream (verify/perf-latency.md).
     var connectedPath: LinkPathKind? { get }
+    /// Where a direct path's peer address is, as the Rust link names it
+    /// (`cmux_mobile_link::dial::peer_scope`): `lan`, `tailnet` (a Tailscale or
+    /// CGNAT address), `wan`, or empty on a relayed path, before a route, or
+    /// when the link cannot say. The DEBUG hand-off receipt names it.
+    var peerScope: String { get }
     /// How long ago the link last received any frame from the Mac (a pong,
     /// channel data, a control frame), measured where frames arrive, not where
     /// a channel's reader takes them; nil when the link cannot say. Any frame
@@ -116,6 +121,7 @@ public protocol MacLink: AnyObject, Sendable {
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+    public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
