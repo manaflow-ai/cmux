@@ -445,9 +445,10 @@ test("a thread write names its thread; an approval with no login says so; an unc
     return call<R>(op, params);
   };
   expect(await store.resolveThread("PRRT_r2", true)).toBe(true);
-  expect(host.calls.at(-1)).toEqual({
-    op: GitHubOps.threadResolve,
-    params: { url: MOCK_URL, thread: "PRRT_r2", resolved: true },
+  expect(host.calls.find((call) => call.op === GitHubOps.threadResolve)?.params).toEqual({
+    url: MOCK_URL,
+    thread: "PRRT_r2",
+    resolved: true,
   });
   error = pageError("cmux.github.gesture_required", "Click to reply");
   expect(await store.replyThread("PRRT_r2", "Fixed in the next push.")).toBe(false);
