@@ -701,7 +701,6 @@ impl Brain {
         size: Option<&str>,
         machines: &[crate::place_route::Machine],
         family: crate::acpmux::Family,
-        taken: &[u64],
     ) -> Result<SpawnPlan, String> {
         if let Some(s) = size
             && !crate::subagents::SIZES.contains(&s)
@@ -770,13 +769,10 @@ impl Brain {
         // Never below an id already handed out: a reset or unreadable
         // counter must not give `a<N>` twice (persistent-ids-DESIGN.md).
         let prior = self.state.next_subagent;
-        let first = free_subagent_run(
-            self.state
-                .next_subagent
-                .max(highest_subagent(&self.state.spawns) + 1),
-            tasks.len() as u64,
-            taken,
-        );
+        let first = self
+            .state
+            .next_subagent
+            .max(highest_subagent(&self.state.spawns) + 1);
         let ids: Vec<String> = (0..tasks.len() as u64)
             .map(|k| format!("a{}", first + k))
             .collect();
@@ -3892,22 +3888,6 @@ fn user_text(msg: &serde_json::Map<String, Value>) -> String {
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// The first of `count` numbers in a row, from `from` on, none of which is
-/// `taken` (an `a<N>` whose acpmux session name exists): acpmux refuses a
-/// session name it holds, so a counter that restarted below the old
-/// sessions (memory deleted, sessions kept) would fail every spawn.
-pub(crate) fn free_subagent_run(from: u64, count: u64, taken: &[u64]) -> u64 {
-    let mut first = from;
-    while let Some(hit) = taken
-        .iter()
-        .filter(|&&n| n >= first && n < first + count)
-        .max()
-    {
-        first = hit + 1;
-    }
-    first
 }
 
 /// The highest `a<N>` any recorded spawn gave, 0 when none did.

@@ -1046,16 +1046,6 @@ impl AgentPort for FakeAgents {
         Ok(inner.taken.contains(name).then(|| name.to_owned()))
     }
 
-    fn session_names(&self) -> Result<Vec<String>, String> {
-        let inner = self.inner.lock().unwrap();
-        Ok(inner
-            .taken
-            .iter()
-            .cloned()
-            .chain(inner.specs.iter().map(|s| s.name.clone()))
-            .collect())
-    }
-
     fn probe_models(&self, harness: &str) -> Result<(), String> {
         self.inner.lock().unwrap().probed.push(harness.to_owned());
         Ok(())
