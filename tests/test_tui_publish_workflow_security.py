@@ -31,11 +31,9 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# A provenance publish job runs on the provenance pool (GitHub-hosted: npm provenance and attestations need it) and says
-# why. #47603 routed the literal `ubuntu-latest` through RUNNER_POOLS; a fork still gets ubuntu-latest.
-PROVENANCE_RUNS_ON = (
-    "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }}"
-)
+# A provenance publish job runs on GitHub-hosted Ubuntu (npm provenance and attestations need it) and says why. #47603
+# routed `ubuntu-latest` through RUNNER_POOLS.provenance; scripts/ci/one_linux_label.py froze that read back to the label.
+PROVENANCE_RUNS_ON = "runs-on: ubuntu-latest"
 
 def load_tests(
     loader: unittest.TestLoader,
@@ -1038,8 +1036,8 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
     # #48337: cut-tags holds the release app's signing key, so it skips LINUX_RUNNER
-    # (the reused fleet) and goes straight to the ephemeral-only linux_4 pool.
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in cut_tags
+    # (the reused fleet) and stays on the ephemeral label its linux_4 pool resolved to.
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags

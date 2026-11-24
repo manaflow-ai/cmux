@@ -39,7 +39,7 @@ jobs:
     if: github.repository != 'manaflow-ai/cmux' && startsWith(github.ref, 'refs/heads/')
     name: build and publish this branch's web layer
     # Only forks run it, on their own GitHub-hosted runners.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }} # frozen-label: holds signing material
     timeout-minutes: 30
     permissions:
       # The release that holds the layer, in this fork.
