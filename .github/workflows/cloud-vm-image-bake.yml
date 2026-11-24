@@ -467,6 +467,7 @@ jobs:
              + (if ($b[0].inputsSha256 // null) != null then {inputs_sha256: $b[0].inputsSha256} else {} end)
              + (if ($b[0].daemonIdentify.capabilities // [] | type) == "array" then {cmux_tui: {commit: ($b[0].daemonIdentify.build_commit // $sha), committed_at: (now|todate), capabilities: $b[0].daemonIdentify.capabilities}} else {} end)
              + (if $b[0].teamFilesRoot then {team_files_root: $b[0].teamFilesRoot} else {} end)
+             + (if ($b[0].disk // null) != null then {disk: $b[0].disk} else {} end)
              + (if $large != null then {large: $large} else {} end)' \
             > "$candidate"
           cat "$candidate"

@@ -115,6 +115,7 @@ pub mod github_broker;
 pub mod github_lane_mint;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod github_rest_op;
 #[cfg(unix)]
 pub mod github_session_env;
 pub mod god_fixture;
@@ -295,6 +296,7 @@ pub mod routes;
 pub mod rows;
 pub mod rpc;
 pub mod run_elsewhere;
+pub mod sccache_env;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
@@ -306,6 +308,8 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod sent_by;
 pub mod server;
+mod session_budget;
+mod session_disk;
 pub mod session_env;
 mod session_handle;
 pub mod session_icon;
