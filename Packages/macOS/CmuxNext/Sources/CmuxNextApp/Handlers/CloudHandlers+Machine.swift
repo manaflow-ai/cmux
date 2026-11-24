@@ -80,6 +80,7 @@ extension CloudHandlers {
         bind("cloudExec", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             let command = try rules.text("command", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             // A CLI or agent run gets the command's exit code and output: it runs through the
             // Cloud API's exec and opens no tab (the CLI cannot read a tab on the machine's
             // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
@@ -121,16 +122,19 @@ extension CloudHandlers {
         bind("cloudFileWrite", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             let contents = try rules.text("contents", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("write Cloud file", context) {
                 try await cloud.machineAPI.writeFile(session.machineID, path: path, data: Data(contents.utf8))
             }
         }
         bind("cloudFileMkdir", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("create Cloud directory", context) { try await cloud.machineAPI.makeDirectory(session.machineID, path: path) }
         }
         bind("cloudFileRemove", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("remove Cloud file", context) { try await cloud.machineAPI.removeFile(session.machineID, path: path) }
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in
@@ -504,7 +508,7 @@ extension CloudHandlers {
             let values = try await keychainValues(items)
             // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
             // no value crosses the platform, a file API, a terminal or a log.
-            let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)
+            let delivered = try await cloud.machineAPI.daemon.deliverSealedSecrets(machineID, values: values)
             guard case .wrote(let count) = delivered else {
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(Self.sealedReason(delivered)))
             }
@@ -520,7 +524,7 @@ extension CloudHandlers {
 
     /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `busy`)
     /// or the step that failed. Never a value or a machine's own text.
-    static func sealedReason(_ answer: CloudAPIClient.SealedDelivery) -> String {
+    static func sealedReason(_ answer: CloudDaemon.SealedDelivery) -> String {
         switch answer {
         case .wrote: "unexpected"
         case .failed(let code, let refusal, _): refusal ?? code
@@ -529,7 +533,7 @@ extension CloudHandlers {
 
     private static var operationUnavailable: ActionFailure {
         ActionFailure(message: String(localized: "cloud.operationUnavailable",
-            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module))
+            defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage))
     }
 
     /// A machine change (resize, snapshot, template, restore, fork): an agent's or a script's restore or fork waits for the person's Allow (``CloudChangeRuns``), Don't Allow a refusal, its other changes (``CloudChangeRequest/unasked``) run at once and toast; a person's own run goes as before, `sheet` showing its answer.

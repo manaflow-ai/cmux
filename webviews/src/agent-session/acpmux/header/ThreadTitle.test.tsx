@@ -84,7 +84,7 @@ test("the chat title is plain text, not a menu button", async () => {
   const title = container.querySelector<HTMLElement>(".acpmux-thread-title")!;
   expect(title.tagName).toBe("SPAN");
   expect(title.textContent).toBe("Phone to computer connection");
-  expect(title.title).toBe("Phone to computer connection");
+  expect(title.title).toBe("");
   expect(container.querySelector("button, [role='button'], [aria-haspopup], [tabindex]")).toBeNull();
   expect(container.querySelector(".acpmux-thread-title-chevron")).toBeNull();
   await act(async () => title.click());
@@ -121,8 +121,10 @@ test("the title draws no fill in any state (header.css)", () => {
 
 // Leo (2026-11-01), on the title beside the tools in the pane's tab row: "why did you all keep this".
 // The pane's own tab names the chat there; the header's title shows only in the header's own row.
-test("the tab row shows no chat title (App.tsx)", () => {
-  const app = readFileSync(join(import.meta.dir, "..", "App.tsx"), "utf8");
+test("the tab row shows no chat title (App.tsx, pane/PaneBody.tsx)", () => {
+  const app = ["App.tsx", "pane/PaneBody.tsx"]
+    .map((file) => readFileSync(join(import.meta.dir, "..", file), "utf8"))
+    .join("\n");
   const titles = [...app.matchAll(/\{([^{}]*)<ThreadTitle\b/g)].map((match) => match[1]!.replace(/\s+/g, " ").trim());
   expect(titles.length).toBeGreaterThan(0);
   // Every title is inside one of those guarded expressions; none sits in the JSX unguarded.

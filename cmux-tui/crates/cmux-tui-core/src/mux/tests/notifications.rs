@@ -102,6 +102,64 @@ fn cmux_next_agent_hook_notifications_have_the_agent_source() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn agent_delivery_posts_a_badge_and_a_banner_and_skips_disabled_completion() {
+    let mux = test_mux();
+    let dir = cmux_unix_socket::short_test_dir("notify-levels");
+    let config = dir.path().join("cmux-next.json");
+    std::fs::write(
+        &config,
+        r#"{"notifications":{"delivery":{
+        "permissionRequest":"banner","question":"badge","taskComplete":"off"
+    }}}"#,
+    )
+    .unwrap();
+    assert!(mux.start_settings_owner(settings::SettingsPaths {
+        config,
+        seed: None,
+        state_dir: None,
+        watch: false,
+        reader: Box::new(cmux_config::managed::FixedManagedReader::default()),
+    }));
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().to_string();
+    let events = mux.subscribe();
+    for (seq, (event, payload)) in [
+        ("PermissionRequest", serde_json::json!({"tool_name":"Bash"})),
+        ("PermissionRequest", serde_json::json!({"tool_name":"AskUserQuestion"})),
+        ("Stop", serde_json::json!({})),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal),
+            payload,
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, seq as u64 + 1).unwrap();
+    }
+    let posted: Vec<_> = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::Notification(note) => Some((note.title, note.desktop)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        posted,
+        vec![
+            ("Claude needs approval".to_owned(), true),
+            ("Claude asked a question".to_owned(), false)
+        ]
+    );
+    assert_eq!(mux.resource_notifications(16).len(), 2);
+    assert!(mux.surface_notification(surface.id).is_some_and(|marker| marker.unread));
+}
+
 #[test]
 fn agent_hook_transitions_post_durable_notifications_once() {
     let mux = test_mux();
@@ -1037,4 +1095,112 @@ fn a_poster_names_the_leader_it_reports() {
         NotificationPoster::of_terminal(7, group, |leader| Some(format!("/bin/program-{leader}")))
             .expect("a poster");
     assert_eq!(poster.executable, format!("/bin/program-{}", poster.pid));
+}
+
+/// A mux whose settings file sets `notifications.delivery.blocked` to
+/// `level` (`None`: the key is absent, its default).
+#[cfg(unix)]
+fn blocked_delivery_mux(level: Option<&str>) -> (Arc<Mux>, cmux_unix_socket::TestDir) {
+    let mux = test_mux();
+    let dir = cmux_unix_socket::short_test_dir("notify-blocked");
+    let config = dir.path().join("cmux-next.json");
+    let delivery =
+        level.map_or(serde_json::json!({}), |level| serde_json::json!({"blocked": level}));
+    std::fs::write(
+        &config,
+        serde_json::json!({"notifications": {"delivery": delivery}}).to_string(),
+    )
+    .unwrap();
+    assert!(mux.start_settings_owner(settings::SettingsPaths {
+        config,
+        seed: None,
+        state_dir: None,
+        watch: false,
+        reader: Box::new(cmux_config::managed::FixedManagedReader::default()),
+    }));
+    (mux, dir)
+}
+
+/// The notifications `report` posts while it runs: title and banner flag.
+#[cfg(unix)]
+fn posted_during(mux: &Mux, report: impl FnOnce()) -> Vec<(String, bool)> {
+    let events = mux.subscribe();
+    report();
+    events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::Notification(note) => Some((note.title, note.desktop)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_turning_blocked_posts_once_per_transition_when_blocked_delivery_is_banner() {
+    let (mux, _dir) = blocked_delivery_mux(Some("banner"));
+    let surface = mux.new_workspace(None, None).unwrap();
+    let report = |state| {
+        mux.report_agent(surface.id, state, AgentSource::Plugin, Some("codex".into())).unwrap();
+    };
+    assert!(posted_during(&mux, || report(AgentState::Working)).is_empty());
+    assert_eq!(
+        posted_during(&mux, || report(AgentState::Blocked)),
+        vec![("Agent is blocked".to_owned(), true)]
+    );
+    assert!(mux.surface_notification(surface.id).is_some_and(|marker| marker.unread));
+    // Still Blocked: no second post.
+    assert!(posted_during(&mux, || report(AgentState::Blocked)).is_empty());
+    // Unblocked, then Blocked again: a new transition posts again.
+    report(AgentState::Working);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    assert_eq!(posted_during(&mux, || report(AgentState::Blocked)).len(), 1);
+    let blocked = mux
+        .resource_notifications(16)
+        .into_iter()
+        .filter(|note| note.title == "Agent is blocked")
+        .collect::<Vec<_>>();
+    assert_eq!(blocked.len(), 2);
+    assert!(
+        blocked.iter().all(|note| note.source == NotificationSource::Agent
+            && note.level == NotificationLevel::Warning)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_blocked_delivery_off_or_unset_suppresses_and_badge_skips_the_banner() {
+    for level in [None, Some("off")] {
+        let (mux, _dir) = blocked_delivery_mux(level);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let posted = posted_during(&mux, || {
+            mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Plugin, None).unwrap();
+        });
+        assert!(posted.is_empty(), "{level:?} posted {posted:?}");
+        assert!(mux.resource_notifications(16).is_empty(), "{level:?}");
+    }
+    let (mux, _dir) = blocked_delivery_mux(Some("badge"));
+    let surface = mux.new_workspace(None, None).unwrap();
+    let posted = posted_during(&mux, || {
+        mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Socket, None).unwrap();
+    });
+    assert_eq!(posted, vec![("Agent is blocked".to_owned(), false)]);
+    assert!(mux.surface_notification(surface.id).is_some_and(|marker| marker.unread));
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_hook_block_keeps_its_own_alert_and_posts_no_second_blocked_notification() {
+    let (mux, _dir) = blocked_delivery_mux(Some("banner"));
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().to_string();
+    let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "PermissionRequest",
+        Some(&terminal),
+        serde_json::json!({"tool_name":"Bash"}),
+    )
+    .unwrap();
+    let posted = posted_during(&mux, || mux.apply_agent_hook_record(&ingress, 1).unwrap());
+    assert_eq!(posted, vec![("Claude needs approval".to_owned(), true)]);
 }

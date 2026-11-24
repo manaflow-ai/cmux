@@ -1,0 +1,41 @@
+{
+  "id": "calculator-random-product",
+  "split": "dev",
+  "title": "Use the calculator with random numbers",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "instruction": "Use the Calculator app to compute {num_a} times {num_b}, then type the result into the Answer field of the \"CU Eval Form\" window.",
+  "setup": [
+    {
+      "fixture": "form",
+      "name": "form"
+    },
+    {
+      "app": "calculator"
+    }
+  ],
+  "checks": [
+    {
+      "type": "json",
+      "state": "form",
+      "path": "answer",
+      "op": "eq_var",
+      "var": "product",
+      "strip": true
+    },
+    {
+      "type": "tool_trace",
+      "op": "targets_app",
+      "value": "calculator"
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300,
+  "notes": "Like calculator-product, with random operands per trial."
+}

@@ -48,6 +48,26 @@ public final class LoginKeychain: Sendable {
         return allowed != 0
     }
 
+    /// Whether this user has no default keychain to keep an item in: none is set, or the one set does not exist
+    /// (a fresh `HOME` a test or fleet job made, with no `login.keychain-db`). Any other answer, including an error,
+    /// is false, so a real keychain is never mistaken for a missing one.
+    ///
+    /// A new item's `SecItemAdd` there does not fail: macOS shows "Keychain Not Found" (Cancel, Help, Reset To
+    /// Defaults) and waits for a person, even on a Mac nobody sits at. A caller that would add an item checks this
+    /// first and stores nothing instead.
+    public func defaultKeychainMissing() -> Bool {
+        guard let copyDefault = Self.copyDefault, let getStatus = Self.getStatus else { return false }
+        return withoutUI {
+            var keychain: UnsafeMutableRawPointer?
+            let found = copyDefault(&keychain)
+            if found == errSecNoDefaultKeychain || found == errSecNoSuchKeychain { return true }
+            guard found == errSecSuccess, let keychain else { return false }
+            defer { Unmanaged<AnyObject>.fromOpaque(keychain).release() }
+            var status: UInt32 = 0
+            return getStatus(keychain, &status) == errSecNoSuchKeychain
+        }
+    }
+
     private func enter() {
         state.withLock { state in
             if state.depth == 0 {
@@ -70,6 +90,15 @@ public final class LoginKeychain: Sendable {
     // call would add a deprecation warning to every build.
     private typealias Getter = @convention(c) (UnsafeMutablePointer<UInt8>) -> Int32
     private typealias Setter = @convention(c) (UInt8) -> Int32
+
+    // `SecKeychainCopyDefault` and `SecKeychainGetStatus`, resolved the same way (deprecated, no replacement).
+    private typealias CopyDefault = @convention(c) (UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> Int32
+    private typealias GetStatus = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<UInt32>) -> Int32
+
+    private static let copyDefault: CopyDefault? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SecKeychainCopyDefault")
+        .map { unsafeBitCast($0, to: CopyDefault.self) }
+    private static let getStatus: GetStatus? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SecKeychainGetStatus")
+        .map { unsafeBitCast($0, to: GetStatus.self) }
 
     private static let get: Getter? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SecKeychainGetUserInteractionAllowed")
         .map { unsafeBitCast($0, to: Getter.self) }
