@@ -45,12 +45,13 @@ import Testing
         #expect(unreachable.empty?.message == "Your Mac is online, but this iPhone can't reach it.")
     }
 
-    @Test func aRetryKeepsItsStateAndSaysUpdating() throws {
+    @Test func aRetryKeepsItsStateAndSaysItReconnects() throws {
         // The state under the retry stays (no flash to another empty state); Retry spins.
         let status = try #require(HomeConnectionStatus.make(linkDown: true, macOnline: true, failed: false, retrying: true, macName: "Studio"))
         #expect(status.kind == .unreachable)
         #expect(status.isRetrying)
-        #expect(status.detail == "Updating…")
+        // A retry of a failed link reconnects; nothing says "Updating" (Leo, 2026-11-24).
+        #expect(status.detail == "Reconnecting…")
     }
 
     @Test func aRetryAfterTheLinkCameBackConnects() throws {

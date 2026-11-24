@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -67,6 +67,30 @@ struct DemoDriver {
         case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
+        // Leo, 2026-11-24 ("they dont need to know that it's updating before they KNOW it's
+        // updating"): every place the app said "Updating…" over rows it already had, held there
+        // for QuietUpdatingUITests. The Workspaces list refreshing its team over cached rows
+        // (then a workspace's chat catching up with its Mac); Home showing the rows it kept.
+        case "retry-workspaces-updating", "retry-chat-updating":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return CatchingUpSource(inner: MockAgentSession(summary: summary, richFirstTurn: false, history: true),
+                                        hold: .seconds(30))
+            }
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            shell.store.teamDataState = .loading
+            if name == "retry-chat-updating" {
+                await pause(0.6)
+                if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+            }
+        case "retry-home-updating":
+            MacHomeFeed.shared.seedStressRows(count: 8, macID: "mac-studio")
+            MacHomeFeed.shared.setKeptForDemo()
+            shell.store.tracksMacData = true
+            shell.store.macConnection["mac-studio"] = .connected
+            shell.tab = .home
         case "retry-feed":
             shell.tab = .feed
             // A failed real refresh is the fixture; no private connection is used.
@@ -1334,6 +1358,43 @@ private final class FrameClock: NSObject {
         link?.invalidate()
         link = nil
     }
+}
+/// A demo chat that has its rows, then catches up with its Mac for `hold` (a reattach after time
+/// away): the kept transcript shows the whole time (``AgentSessionEvent/historyLoading(_:)``).
+@MainActor
+final class CatchingUpSource: AgentSessionSource {
+    let inner: MockAgentSession
+    let hold: Duration
+
+    init(inner: MockAgentSession, hold: Duration) {
+        self.inner = inner
+        self.hold = hold
+    }
+
+    var summary: AgentSessionSummary { inner.summary }
+
+    func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let inner = inner, hold = hold
+        Task { @MainActor in
+            var first = true
+            for await event in inner.events() {
+                continuation.yield(event)
+                guard first else { continue }
+                first = false
+                continuation.yield(.historyLoading(true))
+                // Demo only: stands in for a Mac that takes `hold` to answer the catch-up.
+                Task { @MainActor in
+                    try? await Task.sleep(for: hold)
+                    continuation.yield(.historyLoading(false))
+                }
+            }
+            continuation.finish()
+        }
+        return stream
+    }
+
+    func send(_ intent: AgentClientIntent) { inner.send(intent) }
 }
 /// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
 /// with Retry and Retry with another model (the mock offers three models).

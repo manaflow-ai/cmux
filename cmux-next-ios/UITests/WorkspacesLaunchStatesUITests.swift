@@ -31,7 +31,7 @@ final class WorkspacesLaunchStatesUITests: XCTestCase {
         XCTAssertTrue(loading.waitForExistence(timeout: 30), "first-launch placeholders\n\(app.debugDescription)")
         XCTAssertTrue(text(app, containing: "Loading workspaces").waitForExistence(timeout: 5),
                       "the placeholders say what loads\n\(app.debugDescription)")
-        // Past the 1.5 s "Updating…" delay: the title must not stack a second indicator.
+        // Past 1.5 s (when the title once said "Updating…"): no second indicator.
         XCTAssertFalse(text(app, containing: "Updating").waitForExistence(timeout: 3), "no stacked Updating…")
         XCTAssertFalse(app.descendants(matching: .any)["workspaces.empty.all"].exists, "no empty claim while loading")
         XCTAssertFalse(text(app, containing: "Connect a Mac").exists, "no connect-a-Mac claim while loading")

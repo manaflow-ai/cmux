@@ -27,9 +27,11 @@ private let theme = CmuxMobileTheme.standard
 public struct ConnectionChip: View {
     /// Every link state a chip can show, each with its one word pair and one symbol, so a state
     /// reads the same on every surface (the Home list, Workspaces, agent chat, the browser, the
-    /// terminal). The only place a chip's word or symbol is chosen.
+    /// terminal). The only place a chip's word or symbol is chosen. No state says a refresh over
+    /// rows the phone has is under way (Leo, 2026-11-24: "they dont need to know that it's
+    /// updating before they KNOW it's updating"); only a link that is down or failed has a chip.
     public enum Kind: String, Sendable, Hashable, CaseIterable {
-        case connecting, reconnecting, updating
+        case connecting, reconnecting
         /// The phone has no network.
         case offline
         /// The phone is online, the Mac is not.
@@ -41,7 +43,6 @@ public struct ConnectionChip: View {
             switch self {
             case .connecting: String(localized: "Connecting")
             case .reconnecting: String(localized: "Reconnecting")
-            case .updating: String(localized: "Updating")
             case .offline: String(localized: "Offline")
             case .macOffline: String(localized: "Mac offline")
             case .cantReach: String(localized: "Can't reach")
@@ -51,7 +52,7 @@ public struct ConnectionChip: View {
         /// An SF Symbol; nil shows a spinner (still trying).
         public var symbol: String? {
             switch self {
-            case .connecting, .reconnecting, .updating: nil
+            case .connecting, .reconnecting: nil
             case .offline: "wifi.slash"
             case .macOffline: "moon.zzz"
             case .cantReach: "exclamationmark.triangle"

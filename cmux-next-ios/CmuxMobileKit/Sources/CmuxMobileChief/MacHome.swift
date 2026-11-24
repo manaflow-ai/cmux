@@ -234,10 +234,10 @@ public struct MacHomeList: Equatable, Sendable {
 /// What Home says under its rows while the Mac's own list is not in (the user, 2026-11-09:
 /// "never show an empty UI for data that exists but is still loading").
 public enum HomeListNote: Equatable, Sendable {
-    /// Nothing to say: the Mac's list shows, or a search or a failure note speaks instead.
+    /// Nothing to say: the Mac's list shows, or the rows kept from an earlier read show while
+    /// the Mac's is on its way (Leo, 2026-11-24: "they dont need to know that it's updating
+    /// before they KNOW it's updating"), or a search or a failure note speaks instead.
     case none
-    /// The rows kept from an earlier read show; the Mac's list is on its way.
-    case updating
     /// A Mac is chosen and nothing is kept for it: its list is on its way.
     case connecting
     /// No Mac is chosen yet, while the account lists Macs (or they are still loading).
@@ -245,10 +245,9 @@ public enum HomeListNote: Equatable, Sendable {
 
     /// The note for Home's state. `macsMayExist`: the account lists a Mac, or its Macs are
     /// not known yet. `failing`: the retry note shows (the list failed or the Mac is offline).
-    public static func make(rows: [MacHomeRow]?, showingKept: Bool, homeMacID: String?, macsMayExist: Bool,
+    public static func make(rows: [MacHomeRow]?, homeMacID: String?, macsMayExist: Bool,
                             searching: Bool, failing: Bool) -> HomeListNote {
-        guard !searching, !failing else { return .none }
-        if rows != nil { return showingKept ? .updating : .none }
+        guard !searching, !failing, rows == nil else { return .none }
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
     }
@@ -306,7 +305,7 @@ public struct HomeConnectionStatus: Equatable, Sendable {
             return nil
         }
         let detail: String = if retrying {
-            String(localized: "Updating…")
+            String(localized: "Reconnecting…")
         } else if kind == .failed {
             String(localized: "Couldn't refresh · last known")
         } else {
@@ -454,6 +453,8 @@ public final class MacHomeFeed {
 
     /// The `retry-home-failed` demo: the last read failed on a live link.
     public func setProblemForDemo(_ text: String) { problem = text }
+    /// The `retry-home-updating` demo: the rows show as the ones this phone kept, the Mac's not in yet.
+    public func setKeptForDemo() { isShowingKeptRows = true }
 
     /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
     /// a few other conversations, with no link.
