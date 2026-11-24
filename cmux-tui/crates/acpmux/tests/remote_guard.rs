@@ -810,9 +810,12 @@ async fn a_hub_relayed_start_below_the_owners_grant_starts_asking_and_never_appr
     assert!(meta.remote_origin, "a relayed start is a remote chain");
     assert_eq!(meta.permission_policy.as_deref(), Some("ask"), "not the approve-all default");
     let before = hub.sessions().len();
-    for asked in
-        [json!({"policy": "approve-all"}), json!({"_meta": {"acpmux": {"policy": "approve-all"}}})]
-    {
+    for asked in [
+        json!({"policy": "approve-all"}),
+        json!({"policy": "yolo"}),
+        json!({"_meta": {"acpmux": {"policy": "approve-all"}}}),
+        json!({"_meta": {"acpmux": {"policy": "yolo"}}}),
+    ] {
         let r = relayed.call("session/new", new_session(&cwd, asked.clone())).await;
         assert!(r.get("error").is_some(), "{asked}: {r}");
     }
