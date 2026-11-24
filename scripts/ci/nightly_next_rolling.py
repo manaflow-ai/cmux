@@ -135,6 +135,12 @@ FINISH_STEPS = ("Ask main's nightly-next tick at notarization", "Notarize app ti
 # one-slot rule and the rollback; 2 is one build per signer Mac (design hq#17011).
 SLOTS = 1
 MAX_SLOTS = 2
+# With 2 slots, the second start waits until the first has run SIGNER_STAGGER_MINUTES, half the measured build (run
+# 44907462015: 33.6 min from run start to nightly-next-one's end): two builds started together finish together, and a
+# landing just after them waits for both. Replaying the 809 feat-cmux-next landings of 2026-11-20 15:00Z to 2026-11-21
+# 15:00Z with that build: p95 merge-to-feed 66.2 min on one slot, 58.1 on two started at once, 50.1 on two half a
+# build apart.
+SIGNER_STAGGER_MINUTES = 16.0
 
 
 def leaving_slot(jobs: list[dict]) -> bool:
@@ -313,6 +319,10 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             # answer (and reason) as one slot gives.
             building = (f"nightly-next run {busy_run.get('html_url', busy_run.get('id'))} is building "
                         f"{(busy_run.get('head_sha') or head)[:12]}")
+        elif busy_count and not building and since_start is not None and since_start < SIGNER_STAGGER_MINUTES:
+            return False, (f"{busy_count} of {slots} nightly-next slots busy, and the newest build started "
+                           f"{since_start:.0f} of {SIGNER_STAGGER_MINUTES:g} min ago; the next starts half a build "
+                           "after it, so the two finish apart")
         elif busy_count and not building:
             return True, f"{busy_count} of {slots} nightly-next slots busy; promoting the newest buildable commit now"
     if not building and skipped_retry:
@@ -417,9 +427,32 @@ def git_oldest_after(head: str, tip: str, git=None):
         raise LookupError(f"could not read the commits after {head[:12]}") from error
 
 
-def gh_api(path: str):
-    out = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
-    return json.loads(out)
+class GhRefused(subprocess.CalledProcessError):
+    """A failed `gh api`, whose repr (the rolling rule's warnings) carries what gh said."""
+
+    def __repr__(self) -> str:
+        return f"gh api {self.cmd[-1]} exited {self.returncode}: {self.stderr}"
+
+
+def gh_api(path: str, env=None, run=subprocess.run):
+    """One `gh api` GET with the job's token. Refused, it goes out once more on SPARE_READ_TOKEN (a read-only
+    App token with a budget of its own, the tick's), so a dry job token does not cost the tick its answer: ticks
+    45118875109 and 45119653528 (2026-11-23 05:39 and 05:44Z) could not list the running builds while both
+    builds' nightly-next-one had ended, and the promotion waited until 05:52. A refusal carries gh's own words."""
+    env = os.environ if env is None else env
+    tokens = [None, env["SPARE_READ_TOKEN"]] if env.get("SPARE_READ_TOKEN") else [None]
+    for index, token in enumerate(tokens):
+        child = None if token is None else {**env, "GH_TOKEN": token}
+        done = run(["gh", "api", path], capture_output=True, text=True, env=child)
+        if done.returncode == 0:
+            if index:
+                print(f"gh api {path.split('?')[0]}: the job's token was refused; read on the spare token")
+            return json.loads(done.stdout)
+        said = " ".join((done.stderr or "").split())[-300:]
+        if index + 1 < len(tokens):
+            print(f"gh api {path.split('?')[0]} was refused ({said}); reading it on the spare token")
+            continue
+        raise GhRefused(done.returncode, ["gh", "api", path], done.stdout, said)
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
