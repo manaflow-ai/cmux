@@ -7,8 +7,8 @@ use super::super::super::GlobalArgs;
 use super::super::super::cloud_start_chat::Machine;
 use super::super::{Parsed, cloud_words, here_words, parse};
 use super::{
-    Drive, account, cached_plan, drive, drive_args, drive_words, here_of, local_harness,
-    move_words, pause_words, plan_of, takes, tool_event,
+    Drive, account, boot_tags, cached_plan, drive, drive_args, drive_words, end_stage, here_of,
+    local_harness, move_words, pause_words, plan_of, takes, tool_event,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -292,6 +292,35 @@ fn a_long_first_turn_moves_at_its_next_tool_boundary_once_the_machine_is_ready()
         driver.did,
         ["create", "show booting", "show ready", "show moving", "move", "show live"]
     );
+}
+
+/// The tags each Show sets, read back as acpmux's gate reads them: a Bash call made while the
+/// machine boots is held, then runs on the machine once its Show says ready, and every drive's end
+/// leaves a stage no call waits on.
+#[test]
+fn each_show_tags_the_stage_a_held_call_waits_on_and_the_end_frees_it() {
+    use cmux_cloud_start_core::hybrid_tools::{self, Boot, Call, MACHINE_TAG, Route, STAGE_TAG};
+    let routed = |tags: &Value| {
+        let boot = Boot {
+            stage: hybrid_tools::stage_of(tags[STAGE_TAG].as_str()),
+            machine: tags[MACHINE_TAG].as_str(),
+        };
+        hybrid_tools::route(&boot, &Call { kind: "execute", held_ms: 0 })
+    };
+    assert_eq!(boot_tags(Cloud::Booting, None), json!({STAGE_TAG: "booting"}));
+    assert_eq!(routed(&boot_tags(Cloud::Booting, None)), Route::Hold);
+    let ready = boot_tags(Cloud::Ready, Some("vm-1"));
+    assert_eq!(ready, json!({STAGE_TAG: "ready", MACHINE_TAG: "vm-1"}));
+    assert_eq!(routed(&ready), Route::OnMachine { machine: "vm-1".into() });
+    // The drive's end: live and failed stay; anything else is `none`, a chat here as before.
+    let mut driver = fake(vec![Event::ToolStarted, Event::MachineReady, Event::ToolEnded]);
+    assert_eq!(end_stage(&drive(&mut driver)), Cloud::Live);
+    let mut driver = fake(vec![Event::MachineFailed { reason: "quota".into() }]);
+    assert_eq!(end_stage(&drive(&mut driver)), Cloud::Failed);
+    let mut driver = fake(vec![]);
+    let stopped = end_stage(&drive(&mut driver));
+    assert_eq!(stopped, Cloud::None);
+    assert!(matches!(routed(&boot_tags(stopped, None)), Route::Here { .. }));
 }
 
 /// What this machine's acpmux answers `_acpmux/harnesses` with Claude Code and Codex found.
