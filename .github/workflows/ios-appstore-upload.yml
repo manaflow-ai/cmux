@@ -313,9 +313,29 @@ jobs:
           LAST_UPLOAD_SHA: ${{ needs.decide.outputs.last_upload_sha }}
         run: ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOAD_SHA"
 
-      - name: Select Xcode
+      # App Store Connect mails ITMS-90725 for every upload built below the
+      # iOS 27 SDK (2026-11-22). Pin a released Xcode 27 (the image carries it
+      # beside the pool's 26.6): vars.IOS_STORE_XCODE_APP, else Xcode 27.1.
+      - name: Pin Xcode 27 (iOS 27 SDK) for App Store Connect
         env:
-          CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+          IOS_STORE_XCODE_APP: ${{ vars.IOS_STORE_XCODE_APP }}
+        run: |
+          set -euo pipefail
+          pick="${IOS_STORE_XCODE_APP:-}"
+          for app in /Applications/Xcode_27.1.app /Applications/Xcode_27.1.0.app; do
+            [ -n "$pick" ] || { [ -d "$app/Contents/Developer" ] && pick="$app"; } || true
+          done
+          if [ -z "$pick" ] || [ ! -d "$pick/Contents/Developer" ]; then
+            echo "::error::No Xcode 27.1 on this runner; App Store Connect needs the iOS 27 SDK (ITMS-90725)." >&2
+            exit 1
+          fi
+          # Read the SDK from its settings file: the toolchain runs only after Select Xcode.
+          sdk="$(/usr/libexec/PlistBuddy -c 'Print :Version' "$pick/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/SDKSettings.plist")"
+          case "$sdk" in 27|27.*) ;; *) echo "::error::$pick has iOS SDK $sdk, not 27" >&2; exit 1 ;; esac
+          echo "Pinned $pick (iOS SDK $sdk) for App Store Connect"
+          echo "CMUX_CI_XCODE_APP=$pick" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
       - name: Set up Go for the Cloud tunnel extension
