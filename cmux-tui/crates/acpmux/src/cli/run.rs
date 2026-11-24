@@ -27,6 +27,7 @@ mod ls_tools;
 pub use ls::LsArgs;
 mod move_end;
 mod parent;
+mod rebalance;
 mod send_async;
 pub(crate) mod session_move;
 pub(crate) use session_move::move_auto;
