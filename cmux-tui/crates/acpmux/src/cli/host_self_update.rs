@@ -1039,8 +1039,8 @@ pub(crate) async fn self_update(
             "acpmux: fast-patch {} {}: {} in {} s",
             fast_patch::SERVICE,
             plan.commit.get(..12).unwrap_or(&plan.commit),
-            line["outcome"].as_str().unwrap_or_default(),
-            line["seconds"]
+            line.get("outcome").and_then(|v| v.as_str()).unwrap_or_default(),
+            line.get("seconds").cloned().unwrap_or_default()
         );
         line
     });
