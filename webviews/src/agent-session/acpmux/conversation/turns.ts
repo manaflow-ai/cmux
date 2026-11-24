@@ -133,7 +133,7 @@ export const SUPERSEDED = "superseded";
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
 
-/// "1m 16s", "42s", "1h 3m"; zero units dropped, under one second is "0s".
+/// "1m 16s", "42s", "1h 3m"; zero units dropped, under one second is "<1s".
 export function formatDuration(ms: number): string {
   // Nearest second, and never "0s": a span that measured anything under a second reads "<1s", so
   // 0.95 s is not "1s" and 1.4 s is (Leo: "well no it rounds down apparently. so it's just about what
