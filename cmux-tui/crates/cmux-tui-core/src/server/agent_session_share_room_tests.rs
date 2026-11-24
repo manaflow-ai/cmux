@@ -250,6 +250,14 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
         },
         _ => (shared.deletes.lock().unwrap().pop_front().unwrap_or(200), json!({})),
     };
+    // The real room echoes a requested team id. This lets daemon tests exercise the
+    // compatibility check that rejects an older room silently dropping team access.
+    if method == "PUT"
+        && let Some(team) = body.get("team_id").cloned()
+        && let Some(object) = reply.as_object_mut()
+    {
+        object.insert("team_id".into(), team);
+    }
     let _ = seen.send(Seen::Request { method, path, bearer, body });
     if is_delete {
         if let Some(gate) = shared.delete_gate.lock().unwrap().clone() {
@@ -433,6 +441,55 @@ fn every_invite_url_of_an_answer_names_the_build() {
     let mut after = before.clone();
     name_app_in_invites(&mut after, "");
     assert_eq!(after, before);
+}
+
+#[test]
+fn a_team_share_is_provisioned_with_a_secretless_invite_url_and_acknowledged_team() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-share", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let id = share["share_id"].as_str().unwrap();
+    assert_eq!(share["team_id"], team);
+    assert!(share.get("secret").is_none(), "team access must not expose a link secret");
+    assert_eq!(share["url"], format!("{}/i/{id}", room.url));
+    let (path, bearer, body) = room.request("PUT");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, OWNER_TOKEN);
+    assert_eq!(body["team_id"], team);
+}
+
+#[test]
+fn a_team_redeem_carries_the_room_attestation_to_the_daemon() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-team-redeem", &room);
+    let team = "team_0123456789abcdef0123";
+    let reply = owner.request(json!({
+        "cmd": "agent-session-share-create",
+        "surface": surface,
+        "owner_token": OWNER_TOKEN,
+        "team_id": team,
+        "role": "talk"
+    }));
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "a1",
+        "account": "member@example.com", "team_id": team, "name": "Member"}));
+    let redeemed = room.frame(conn);
+    assert_eq!(redeemed["t"], "redeemed");
+    assert_eq!(redeemed["role"], "talk");
+    assert!(redeemed.get("error").is_none(), "{redeemed}");
+    assert_eq!(share["uses_left"], 1);
 }
 
 #[test]
