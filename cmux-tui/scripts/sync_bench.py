@@ -487,6 +487,10 @@ def push(binary: Path, socket: Path, local: Path, remote: Path, state: Path, ext
         "timings": timings,
         "progress": progress,
     }
+    # The push's own lines about the store (used, fell back, 507 sync.quota_exceeded, roots), pass or fail.
+    store_lines = [line[:600] for line in proc.stderr.decode(errors="replace").splitlines() if '"store"' in line]
+    if store_lines:
+        row["store_lines"] = store_lines[-20:]
     if proc.returncode:
         row["stderr_tail"] = proc.stderr.decode(errors="replace")[-2000:]
         row["stdout_tail"] = proc.stdout.decode(errors="replace")[-2000:]
@@ -528,6 +532,21 @@ def store_args():
     return (["--store", platform], Path(cred).read_bytes()), None
 
 
+class Rows(dict):
+    """A layout's scenario rows. With SYNC_BENCH_ROWS=FILE each row is also appended to FILE as one JSON line the
+    moment its scenario ends, so a run cut off later (a CI step timeout) keeps the scenarios it finished."""
+
+    def __init__(self, layout: str, rtt_ms: int):
+        super().__init__()
+        self.layout, self.rtt_ms = layout, rtt_ms
+
+    def __setitem__(self, key, row):
+        super().__setitem__(key, row)
+        if path := os.environ.get("SYNC_BENCH_ROWS"):
+            with open(path, "a") as out:
+                out.write(json.dumps({"layout": self.layout, "rtt_ms": self.rtt_ms, "scenario": key, "row": row}) + "\n")
+
+
 def run_layout(binary: Path, layout: str, rtt_ms: int, scenarios: str, drop_caches: bool, rate_mbit: int) -> dict:
     top = layout_dir(layout)
     if not top.is_dir():
@@ -535,7 +554,7 @@ def run_layout(binary: Path, layout: str, rtt_ms: int, scenarios: str, drop_cach
     work = ROOT / "work"
     shutil.rmtree(work, ignore_errors=True)
     machine = Machine(binary, work)
-    rows: dict = {}
+    rows = Rows(layout, rtt_ms)
     machine.start()
     try:
         with Link(rtt_ms, machine.socket, rate_mbit) as socket:
