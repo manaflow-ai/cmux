@@ -27,6 +27,8 @@ public struct WorkspacesList: View {
     let creator: WorkspaceCreator
     /// Pushes a workspace (the new one, right after a tap).
     let open: (Workspace) -> Void
+    /// The last workspace visited, kept when the user backs out to this list.
+    let rememberedWorkspaceID: String?
     /// The signed-in account, for "sign in as …" in the empty state.
     var accountEmail: String?
     /// Links a Mac (live only): a Mac whose list the phone does not have.
@@ -94,16 +96,20 @@ public struct WorkspacesList: View {
     @State private var revealedRequest: Int?
     /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
     @State private var isShown = false
+    /// The remembered row is scrolled once each time this list becomes visible.
+    @State private var restoredLastWorkspace = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
                 refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(),
+                rememberedWorkspaceID: String? = nil,
                 open: @escaping (Workspace) -> Void) {
         self.store = store
         self.creator = creator
         self.accountEmail = accountEmail
+        self.rememberedWorkspaceID = rememberedWorkspaceID
         self.reconnect = reconnect
         self.linking = linking
         self.refresh = refresh
@@ -453,11 +459,60 @@ public struct WorkspacesList: View {
                 guard let request, isShown else { return }
                 reveal(request.workspaceID)
             }
+            .onChange(of: rememberedWorkspaceID) { _, _ in
+                restoredLastWorkspace = false
+                restoreLastWorkspace(inbox)
+            }
+            .onChange(of: store.activeWorkspaces.map(\.id)) { _, _ in
+                restoreLastWorkspace(inbox)
+            }
+            .onChange(of: query) { _, _ in
+                restoreLastWorkspace(inbox)
+            }
+            .onChange(of: unfolded) { _, _ in
+                restoreLastWorkspace(inbox)
+            }
+            .onChange(of: creator.groupsRevision) { _, _ in
+                restoreLastWorkspace(inbox)
+            }
             .onAppear {
                 isShown = true
                 if let request = store.revealRequest, request.id != revealedRequest { reveal(request.workspaceID) }
+                restoredLastWorkspace = false
+                restoreLastWorkspace(inbox)
             }
-            .onDisappear { isShown = false }
+            .onDisappear {
+                isShown = false
+                restoredLastWorkspace = false
+            }
+    }
+
+    /// Scrolls to the remembered row after cached or live rows first include it.
+    /// Closed groups and offline Mac folds are opened without the reveal flash used for an explicit request.
+    private func restoreLastWorkspace(_ inbox: WorkspaceInbox) {
+        guard isShown, !restoredLastWorkspace,
+              let workspaceID = LastOpenRestore.listTarget(savedWorkspaceID: rememberedWorkspaceID,
+                                                           workspaces: store.activeWorkspaces),
+              let workspace = store.workspace(id: workspaceID) else { return }
+        if !query.isEmpty {
+            query = ""
+            return
+        }
+        if let group = workspace.group, group.isCollapsed {
+            creator.setGroupCollapsed(group, on: workspace.macID, false)
+            return
+        }
+        if let fold = inbox.folds.first(where: { $0.mac.id == workspace.macID }), !fold.isForcedOpen {
+            unfolded.insert(workspace.macID)
+            return
+        }
+        guard listModel(inbox).items[WorkspacesListModel.rowID(workspaceID)] != nil else { return }
+        restoredLastWorkspace = true
+        Task { @MainActor in
+            await Task.yield()
+            guard isShown else { return }
+            listControl.scrollTo(WorkspacesListModel.rowID(workspaceID), atTop: true, animated: false)
+        }
     }
 
     /// Everything the collection's model reads besides the inbox (named by its memo's build):
@@ -483,6 +538,7 @@ public struct WorkspacesList: View {
         /// listed Mac's groups as it lists them (a group made or deleted on the Mac), in Mac order only.
         var groupsRevision: Int
         var macGroups: [String: [MacWorkspaceGroup]]
+        var rememberedWorkspaceID: String?
     }
 
     /// Sections and items for the collection, built once per change of their input.
@@ -501,7 +557,8 @@ public struct WorkspacesList: View {
                                    grouping: grouping, unfolded: unfolded, searching: !query.isEmpty, scopeMacID: scope.macID,
                                    recoveryMacID: scopedMac.flatMap { showsRecovery($0) ? $0.id : nil },
                                    typeSize: typeSize, canReconnect: reconnect != nil, sameNames: sameNames,
-                                   groupsRevision: creator.groupsRevision, macGroups: macGroups)
+                                   groupsRevision: creator.groupsRevision, macGroups: macGroups,
+                                   rememberedWorkspaceID: rememberedWorkspaceID)
         return listMemo.value(input) { buildListModel(inbox, input) }
     }
 
@@ -522,7 +579,8 @@ public struct WorkspacesList: View {
         func rows(_ list: [Workspace]) -> [(String, WorkspacesListItem)] {
             list.map { ws in
                 let mac = rights[ws.macID] ?? .none
-                return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending, tracks: tracks)))
+                return (WorkspacesListModel.rowID(ws.id), .row(rowModel(ws, inbox, names, rights: mac, pending: pending,
+                                                                        tracks: tracks, isRemembered: ws.id == input.rememberedWorkspaceID)))
             }
         }
         if let id = input.recoveryMacID, !input.searching { add("recovery", [("recovery.\(id)", .recovery(id))]) }
@@ -658,7 +716,7 @@ public struct WorkspacesList: View {
     /// worked out once per pass: the same answers as `canManage`, `canArrange`
     /// and `canDuplicate` for this workspace.
     private func rowModel(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String], rights: WorkspaceCreator.MacRights,
-                          pending: Set<String>, tracks: Bool) -> WorkspaceRowModel {
+                          pending: Set<String>, tracks: Bool, isRemembered: Bool) -> WorkspaceRowModel {
         let status = inbox.status(ws)
         let macName = names[ws.macID]
         let canManage = status != .offline && !pending.contains(ws.id) && rights.manage
@@ -668,7 +726,7 @@ public struct WorkspacesList: View {
                                  offlineMacName: status == .offline ? macName : nil, isStale: inbox.stale.contains(ws.id),
                                  tracksMacData: tracks, canManage: canManage, canArrange: canArrange,
                                  canDuplicate: canManage && !ws.isHome, canMoveUp: moves.up, canMoveDown: moves.down,
-                                 compact: compactList)
+                                 compact: compactList, isRemembered: isRemembered)
     }
 
     /// A Mac workspace group's header, as its sidebar shows it: a tap folds or
@@ -1099,6 +1157,8 @@ struct WorkspaceRowModel: Equatable {
     var canMoveDown: Bool
     /// Settings → Compact Workspace List: the name line only.
     var compact = false
+    /// The workspace last visited before returning to this list.
+    var isRemembered = false
 }
 
 /// One Workspaces row and what it carries: the tap, the press fill, the
@@ -1118,6 +1178,12 @@ struct WorkspaceListRow: View, Equatable {
         } label: {
             WorkspaceRow(workspace: ws, status: model.status, macName: model.macName, offlineMacName: model.offlineMacName,
                          compact: model.compact)
+                .background {
+                    RoundedRectangle(cornerRadius: theme.metrics.selectedRowRadius, style: .continuous)
+                        .fill(theme.colors.fillSelected)
+                        .opacity(model.isRemembered ? 1 : 0)
+                        .padding(.horizontal, -theme.metrics.selectedRowInset)
+                }
         }
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
@@ -1125,6 +1191,7 @@ struct WorkspaceListRow: View, Equatable {
         // Last-known rows (live mode), dimmed until the Mac answers on this link.
         .opacity(model.isStale ? 0.55 : 1)
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: model.isStale)
+        .accessibilityAddTraits(model.isRemembered ? .isSelected : [])
         .onAppear {
             #if DEBUG
             // The list rig's seeded rows, not the mock ones shown before it seeds (LaunchTTIUITests).
