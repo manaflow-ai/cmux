@@ -37,6 +37,7 @@ import {
 } from "./conversationFilter";
 import { GitHubMarkdown } from "./GitHubMarkdown";
 import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
+import { ReviewBox, ThreadActions } from "./ReviewBox";
 import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
@@ -133,6 +134,8 @@ export function GitHubPage({
   readinessLayout = "list",
   readinessShown,
   conversationFilter = "all",
+  reviewDraft,
+  replyOpen,
 }: {
   store: GitHubStore;
   strings: Strings;
@@ -145,6 +148,9 @@ export function GitHubPage({
   /** The blocker whose detail starts open, and the conversation's first filter (gallery states). */
   readinessShown?: Blocker["kind"];
   conversationFilter?: ConversationFilter;
+  /** The review box's starting words, and the thread whose reply box starts open (gallery states). */
+  reviewDraft?: string;
+  replyOpen?: string;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
@@ -180,6 +186,10 @@ export function GitHubPage({
   const conversation = pr && (
     <Conversation
       details={details}
+      snapshot={snapshot}
+      store={store}
+      reviewDraft={reviewDraft}
+      replyOpen={replyOpen}
       strings={strings}
       now={now}
       open={open}
@@ -451,6 +461,10 @@ function Description({
 
 function Conversation({
   details,
+  snapshot,
+  store,
+  reviewDraft,
+  replyOpen,
   strings,
   now,
   open,
@@ -458,6 +472,10 @@ function Conversation({
   initialFilter,
 }: {
   details?: PullRequestDetails;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  reviewDraft?: string;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -518,21 +536,37 @@ function Conversation({
       ) : (
         <ol className="gh-timeline">
           {entries.map((entry, index) => (
-            <Entry key={entry.url ?? index} entry={entry} strings={strings} now={now} open={open} />
+            <Entry
+              key={entry.url ?? index}
+              entry={entry}
+              snapshot={snapshot}
+              store={store}
+              replyOpen={replyOpen}
+              strings={strings}
+              now={now}
+              open={open}
+            />
           ))}
         </ol>
       )}
+      <ReviewBox snapshot={snapshot} store={store} strings={strings} initialBody={reviewDraft} />
     </Section>
   );
 }
 
 function Entry({
   entry,
+  snapshot,
+  store,
+  replyOpen,
   strings,
   now,
   open,
 }: {
   entry: ConversationEntry;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -563,6 +597,16 @@ function Entry({
                 {comment.line != null && `:${comment.line}`}
               </span>
               <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
+              {comment.thread && snapshot.pullRequest?.state === "open" && (
+                <ThreadActions
+                  thread={comment.thread}
+                  resolved={comment.resolved === true}
+                  snapshot={snapshot}
+                  store={store}
+                  strings={strings}
+                  initialReplying={replyOpen === comment.thread}
+                />
+              )}
             </li>
           ))}
         </ul>
