@@ -146,12 +146,16 @@ open class ComposerReturnTextView: UITextView {
         return abs(fittingSize(proposedWidth: bounds.width).height - bounds.height) > 0.5
     }
 
-    /// Whether the caret's line is wholly inside the field's visible rect.
+    /// Whether the caret's line shows in the field's visible rect: at least three quarters
+    /// of the caret is inside. A field with no inset (chat) sizes to the line box, which
+    /// the caret overhangs by a point or two, so "wholly inside" read "out" on a fitting
+    /// one-line draft; a line hidden under the edge shows a quarter or less.
     public var caretInView: Bool {
         guard let end = selectedTextRange?.end else { return true }
         let caret = caretRect(for: end)
         guard caret.height > 0, !caret.isNull, !caret.isInfinite else { return true }
-        return bounds.insetBy(dx: 0, dy: -0.5).contains(CGRect(x: bounds.minX + 1, y: caret.minY, width: 1, height: caret.height))
+        let shown = min(caret.maxY, bounds.maxY) - max(caret.minY, bounds.minY)
+        return shown >= caret.height * 0.75
     }
 
     /// Whether the text is taller than the field (it scrolls inside).
