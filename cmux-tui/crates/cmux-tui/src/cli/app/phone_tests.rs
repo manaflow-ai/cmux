@@ -18,12 +18,12 @@ fn a_phone_tab_address_routes_the_verb_to_the_phone() {
         panic!("a phone call");
     };
     assert_eq!(device, None);
-    let request = request(device.as_deref(), &then).expect("a request");
-    assert_eq!(request["op"], "phone-page");
-    assert_eq!(request["device"], json!(null));
-    assert_eq!(request["method"], "browser.page.eval");
-    assert_eq!(request["params"]["tab"], "tab_ab");
-    assert_eq!(request["params"]["script"], "document.title");
+    let sent = request(device.as_deref(), &then).expect("a request");
+    assert_eq!(sent["op"], "phone-page");
+    assert_eq!(sent["device"], json!(null));
+    assert_eq!(sent["method"], "browser.page.eval");
+    assert_eq!(sent["params"]["tab"], "tab_ab");
+    assert_eq!(sent["params"]["script"], "document.title");
 
     let Ok(Some(AppCommand::Phone { device, then })) =
         parsed(&["browser", "tab_ab@dev-7", "screenshot"])
