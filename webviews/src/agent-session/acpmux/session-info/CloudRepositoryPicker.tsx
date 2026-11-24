@@ -249,9 +249,16 @@ export function CloudRepositoryPicker({
           </div>
         )}
         {connectUrl && (
-          <a className="acpmux-cloud-repository-connect" href={connectUrl} target="_blank" rel="noreferrer">
+          // The folder menu's own Connect GitHub (`github.connect`): the install comes back to cmux, which finishes
+          // it and lists the repositories, instead of a web link that ends on the console (#46018).
+          <button
+            type="button"
+            className="acpmux-cloud-repository-connect"
+            data-action="connect-github"
+            onClick={() => void request("github.connect", {}).catch(() => undefined)}
+          >
             {t("cloudRepository.connect")}
-          </a>
+          </button>
         )}
       </div>
     </Popover>

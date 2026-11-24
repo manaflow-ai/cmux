@@ -52,6 +52,18 @@ opens the file chooser for this draft. Unavailable actions stay hidden. The
 daemon lists buttons from enabled, visible apps in app-id and manifest order,
 taking the first occurrence of each action. A manifest reload updates open panes.
 
+## Message actions
+
+A manifest can add rows to a chat message's actions menu. Set
+`implements["cmux.chat.action/1"]` to
+`{"options":{"actions":[{"id":"issue","title":"Make an issue from this","op":"<family>.issue","roles":["assistant"]}]}}`.
+The daemon lists the rows for a message of a role (`apps.chat_actions.list {role}`) from enabled,
+visible apps in app-id and manifest order; `roles` defaults to both `user` and `assistant`. A
+picked row sends `apps-chat-action {app, action, message: {id, role, text, session?}, gesture?}`;
+the daemon checks the app still lists that row for the role, then runs its catalog `op` on the
+`apps-run` path with `{action, message}`, so the op's own grant and install checks apply. A
+manifest reload updates the menu.
+
 ## Composer chips
 
 A manifest can offer context chips in the agent chat composer with
@@ -71,7 +83,7 @@ When the user runs a palette row (Return, click, Cmd-Return), the host runs the 
 Only an own-command ref gets a fresh command token (see Gesture tokens).
 
 ## Runtime entry points
-`__cmuxAppInit(json)`, `__cmuxAppSetSettings(json)`, `__cmuxAppMount(mountId, exportName, ctxJSON) -> "" | error`, `__cmuxAppUnmount(mountId)`, `__cmuxAppDispatch(mountId, nodeId, event, payloadJSON)` (`tap`, `change {value}` (Toggle: boolean, Slider: number), `move {id,index,extra}`, `dragChange {state}`, `submit {text}`, `edit {text}`, `cancel`, `menu {path:[int]}`), `__cmuxAppRunCommand(exportName, argsJSON, cbId, ctxJSON?)`, `__cmuxAppPaletteOpen(scopeId, kind, query, generation, ctxJSON, reqId) -> "" | error`, `__cmuxAppPaletteCancel(reqId)`, `__cmuxAppPaletteDetail(scopeId, itemId, reqId)`, `__cmuxAppResolve`, `__cmuxAppEvent`, `__cmuxAppTimer`, `__cmuxAppTick(mountId, nowMs)` (a widget mount's host-owned clock: a mount whose context has `surface: "widget"` gets `ctx.now()`, a reactive Unix-ms clock that only this entry moves), `__cmuxAppFlush()` (hosts whose engine needs an explicit microtask drain, such as QuickJS `JS_ExecutePendingJob`, drain jobs and then call this). `__cmuxAppRuntimeVersion` is a string (`1.1.0` adds the palette entry points and the command gesture; `1.2.0` adds `cmux.watch`; `1.3.0` adds `__cmuxAppTick` and the widget `now()` clock).
+`__cmuxAppInit(json)`, `__cmuxAppSetSettings(json)`, `__cmuxAppMount(mountId, exportName, ctxJSON) -> "" | error`, `__cmuxAppUnmount(mountId)`, `__cmuxAppDispatch(mountId, nodeId, event, payloadJSON)` (`tap`, `change {value}` (Toggle: boolean, Slider: number), `move {id,index,extra}`, `dragChange {state}`, `submit {text}`, `edit {text}`, `cancel {text?}`, `menu {path:[int]}`; a TextField's `edit`, `submit` and `cancel` carry the text it shows, and the runtime sends the bound `text` back only when it differs from that: after an edit when the app changed it, after a submit or cancel once the handler (its promise, for an async one) is done), `__cmuxAppRunCommand(exportName, argsJSON, cbId, ctxJSON?)`, `__cmuxAppPaletteOpen(scopeId, kind, query, generation, ctxJSON, reqId) -> "" | error`, `__cmuxAppPaletteCancel(reqId)`, `__cmuxAppPaletteDetail(scopeId, itemId, reqId)`, `__cmuxAppResolve`, `__cmuxAppEvent`, `__cmuxAppTimer`, `__cmuxAppTick(mountId, nowMs)` (a widget mount's host-owned clock: a mount whose context has `surface: "widget"` gets `ctx.now()`, a reactive Unix-ms clock that only this entry moves), `__cmuxAppFlush()` (hosts whose engine needs an explicit microtask drain, such as QuickJS `JS_ExecutePendingJob`, drain jobs and then call this). `__cmuxAppRuntimeVersion` is a string (`1.1.0` adds the palette entry points and the command gesture; `1.2.0` adds `cmux.watch`; `1.3.0` adds `__cmuxAppTick` and the widget `now()` clock).
 
 `__cmuxAppRunCommand` `ctxJSON` (optional): `{"gesture"}`, minted only as Gesture tokens describes (palette-scopes.md 6.7 B2). The command's second argument is `{app, gesture?, cmux}`; `ctx.cmux` is a per-invocation copy of the global whose op calls carry the token. The runtime stops attaching it when the command settles; the host's revocation at `commandDone` or 2 s is the real limit.
 
