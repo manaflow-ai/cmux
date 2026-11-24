@@ -25,10 +25,12 @@
   /* Progress rows, times, command meta: text, so the theme's secondary ink, which holds 4.5:1 on every fill.
      The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
   --cv-text-dim: var(--agent-muted);
-  /* Tool rows, Worked for and background activity: Claude Code's secondary reading level. A public look
-     token (schemas/agent-pane/style-tokens.json), so a look on a tinted page can hold 4.5:1 here; its
-     default is Instrument's ink.activity (schemas/instrument/instrument.json reads it from this line). */
-  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
+  /* Tool rows, Worked for and background activity: the theme's secondary ink, which holds 4.5:1 on every
+     fill. A fixed 58% of the text fell to 3.54:1 on folio's page and 2.43:1 on plush's (cmuxterm-hq
+     docs/findings/2026-11-24-looks-text-contrast.md). A public look token
+     (schemas/agent-pane/style-tokens.json); its default is Instrument's ink.activity
+     (schemas/instrument/instrument.json reads it from this line). */
+  --cv-activity-text: var(--agent-muted);
   --cv-fg: var(--agent-text);
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
@@ -203,8 +205,8 @@
      buttons' own 10px of air (code-actions-look `spaced` puts the old 4px back). */
   --cv-code-action-gap: 0px;
 }
-/* Gallery-only comparisons for the activity hierarchy. The shipped middle value keeps secondary
-   text above AA in both palettes; the alternatives are capture arms, never user settings. */
+/* Gallery-only comparisons for the activity hierarchy: fixed mixes of the text, which a tinted look's page
+   can pull under AA. Capture arms, never user settings. */
 :root[data-transcript-activity-tone="tertiary"] {
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 52%, transparent);
 }

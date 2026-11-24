@@ -1,7 +1,7 @@
 {
   "$comment": "The one token file of Instrument, the cmux design system (cmuxterm-hq docs/rfd/0034-design-instrument.md, 'Adopted 2026-11-22', its token table between instrument-tokens:begin/end). Each token has the value Instrument names (`instrument`) and the value the app draws today (`today`), read from the source that sets it now. Where the two differ the Instrument value is recorded, not applied: the generated CSS (webviews/src/ui/instrument.generated.css) carries today's value, so this file moves no pixel. A default moves when its own source moves; scripts/cmux-next/gen-instrument-tokens.py --check then fails until `today` here says the new value, and the pending list (pending-baseline.json) may only shrink. CHANGELOG.md beside this file records every version.",
   "system": "Instrument",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "rfd": "cmuxterm-hq docs/rfd/0034-design-instrument.md",
   "questions": {
     "leo-1": "Two tones on by default, or one colour by default with two tones as the first toggle.",
@@ -41,7 +41,7 @@
     {"name": "ink.text", "rule": "100%: the theme's text colour", "drawnOn": "body text, links, primary button, focus ring"},
     {"name": "ink.text-muted", "instrument": "84% light, 80% dark, as a solid mix", "today": {"file": "schemas/design-scale/design-scale.json", "path": "colors[name=muted].fallback", "value": "color-mix(in srgb, CanvasText 62%, transparent)"}, "waits": "skeleton", "drawnOn": "secondary text"},
     {"name": "ink.text-dim", "instrument": "68% light, 64% dark, as a solid mix", "today": {"file": "schemas/design-scale/design-scale.json", "path": "colors[name=faint].fallback", "value": "color-mix(in srgb, CanvasText 45%, transparent)"}, "waits": "skeleton", "drawnOn": "times, counts, hints"},
-    {"name": "ink.activity", "instrument": "color-mix(in srgb, var(--cv-fg) 58%, transparent)", "today": {"file": "webviews/src/agent-session/acpmux/conversation/conversation.css", "path": "--cv-activity-text", "value": "color-mix(in srgb, var(--cv-fg) 58%, transparent)"}, "drawnOn": "tool-call rows, \"Worked for\", notices and background activity lines", "note": "The transcript's text at 58% over clear, the look token --cv-activity-text (schemas/agent-pane/style-tokens.json): a look on a tinted page sets it to hold 4.5:1 there, which a fixed mix could not (RFD 0116, strict fix 9). today reads its :root default in the stylesheet."},
+    {"name": "ink.activity", "instrument": "var(--agent-muted)", "today": {"file": "webviews/src/agent-session/acpmux/conversation/conversation.css", "path": "--cv-activity-text", "value": "var(--agent-muted)"}, "drawnOn": "tool-call rows, \"Worked for\", notices and background activity lines", "note": "The theme's secondary ink, as ink.text-muted's source --agent-muted, which holds 4.5:1 on every fill; it was the text at 58% over clear, which fell to 2.43:1 under a tinted look (cmuxterm-hq docs/findings/2026-11-24-looks-text-contrast.md). The look token --cv-activity-text (schemas/agent-pane/style-tokens.json). today reads its :root default in the stylesheet."},
     {"name": "ink.surface.light", "instrument": "#ffffff", "waits": "no-token", "drawnOn": "pane, page (light)"},
     {"name": "ink.frame.light", "instrument": "#f5f5f5", "waits": "no-token", "drawnOn": "sidebar, tab bar, docks (light)"},
     {"name": "ink.hover.light", "instrument": "#ececec", "waits": "no-token", "drawnOn": "hover (light)"},
