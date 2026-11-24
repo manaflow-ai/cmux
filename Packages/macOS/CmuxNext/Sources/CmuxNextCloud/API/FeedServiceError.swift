@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Why a call to the API Worker as the signed-in user (the App's `FeedService.call`) failed;
 /// `HomeDirectory` (CmuxNextHomeEngine) throws and reads it too.
 public enum FeedServiceError: Error, Sendable {
