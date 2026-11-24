@@ -4,6 +4,34 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it.
+    SsoConnectionCreateOp {
+        name: "sso.connection.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: SsoConnectionCreateParams,
+        result: SsoConnection,
+        error: SsoConnectionCreateError,
+    }
+}
+
+wire_enum! {
+    SsoConnectionCreateParamsJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionCreateParamsJit {
+    pub enabled: bool,
+    pub default_role: SsoConnectionCreateParamsJitDefaultRole,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SsoConnectionCreateParams {
     pub issuer: String,
@@ -870,24 +898,5 @@ wire_op! {
         params: TeamDeviceReportStatusParams,
         result: DeviceStatus,
         error: TeamDeviceReportStatusError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDeviceReportStatusParams {
-    pub policy_version: i64,
-    pub app_version: String,
-    pub mdm_keys: Vec<String>,
-    pub conflicts: Vec<String>,
-}
-
-wire_errors! {
-    /// The error codes team.device.report_status declares.
-    TeamDeviceReportStatusError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }

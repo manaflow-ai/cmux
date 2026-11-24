@@ -5,6 +5,32 @@
 use super::*;
 
 wire_op! {
+    /// Read the team's integration policy (allowed providers, GitHub repository scope).
+    IntegrationPolicyGetOp {
+        name: "integration.policy.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: IntegrationPolicyGetParams,
+        result: TeamIntegrationPolicy,
+        error: IntegrationPolicyGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationPolicyGetParams {}
+
+wire_errors! {
+    /// The error codes integration.policy.get declares.
+    IntegrationPolicyGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
     /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
     IntegrationPolicySetOp {
         name: "integration.policy.set",
@@ -874,31 +900,4 @@ pub struct NetworkListResultNetworksItem {
     #[serde(rename = "cidrV6")]
     pub cidr_v6: Option<String>,
     pub scope: NetworkListResultNetworksItemScope,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct NetworkListResult {
-    pub networks: Vec<NetworkListResultNetworksItem>,
-}
-
-wire_errors! {
-    /// The error codes network.list declares.
-    NetworkListError {
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Hand a group to another current person (the owner only). You stay as an admin.
-    OwnershipTransferOp {
-        name: "ownership.transfer",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "destructive",
-        principals: [Session],
-        params: OwnershipTransferParams,
-        result: HomeConversationCommit,
-        error: OwnershipTransferError,
-    }
 }

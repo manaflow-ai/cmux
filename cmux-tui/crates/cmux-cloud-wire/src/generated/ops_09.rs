@@ -5,6 +5,33 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListResult {
+    pub networks: Vec<NetworkListResultNetworksItem>,
+}
+
+wire_errors! {
+    /// The error codes network.list declares.
+    NetworkListError {
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Hand a group to another current person (the owner only). You stay as an admin.
+    OwnershipTransferOp {
+        name: "ownership.transfer",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "destructive",
+        principals: [Session],
+        params: OwnershipTransferParams,
+        result: HomeConversationCommit,
+        error: OwnershipTransferError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OwnershipTransferParams {
     pub conversation: ConversationId,
     pub participant: ParticipantId,
@@ -872,32 +899,4 @@ wire_errors! {
         SsoDiscoveryFailed = "sso.discovery_failed",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it.
-    SsoConnectionCreateOp {
-        name: "sso.connection.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionCreateParams,
-        result: SsoConnection,
-        error: SsoConnectionCreateError,
-    }
-}
-
-wire_enum! {
-    SsoConnectionCreateParamsJitDefaultRole {
-        Member = "member",
-        Admin = "admin",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionCreateParamsJit {
-    pub enabled: bool,
-    pub default_role: SsoConnectionCreateParamsJitDefaultRole,
 }
