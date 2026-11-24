@@ -1523,9 +1523,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// SSH computers (hosts, keys, live sessions). Local to this device and
     /// independent of the cmux account. See `MobileShellComposite+SSHComputers.swift`.
     public let sshComputers: MobileSSHComputers
-    /// The "On iPhone" browser network per paired Mac, keyed by Mac device
-    /// id. See `MobileShellComposite+MacBrowserTunnel.swift`.
-    @ObservationIgnored var macBrowserNetworks: [String: MobileMacBrowserNetwork] = [:]
+    /// The "On iPhone" browser network per paired Mac instance, keyed by device
+    /// id and instance tag. See `MobileShellComposite+MacBrowserTunnel.swift`.
+    @ObservationIgnored var macBrowserNetworks: [MacPairingKey: MobileMacBrowserNetwork] = [:]
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
