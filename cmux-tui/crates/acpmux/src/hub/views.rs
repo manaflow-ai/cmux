@@ -523,6 +523,12 @@ impl Hub {
         });
     }
 
+    /// [`Self::seed_time_breakdown`] for a server test that needs a chat with a breakdown.
+    #[cfg(test)]
+    pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
+        self.seed_time_breakdown(session, false);
+    }
+
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
     /// reducer current at the append seam. A chat with no usable copy is folded from its whole
     /// log only when `backfill` says so (or its store holds no files to read): an open never

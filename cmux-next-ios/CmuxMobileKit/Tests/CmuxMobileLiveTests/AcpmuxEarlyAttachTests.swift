@@ -89,16 +89,19 @@ import Testing
     }
 
     /// A Mac from before `alsoKinds` that serves the sudo card: its early page left those kinds
-    /// out, so the chat attaches again with them, as it always did, and opens.
-    @Test func anOlderMacWithSudoCardsAttachesAgainWithItsKinds() async throws {
+    /// out. The page is kept; the stream is widened by a read-free hold attach with them, and
+    /// only the sudo-card records are read, not the page again.
+    @Test func anOlderMacWithSudoCardsKeepsThePageAndReadsOnlyItsCards() async throws {
         let (wire, store, hub, early) = try await Self.coldOpen(capabilities: [Self.elevation])
         defer { withExtendedLifetime(hub) {} }
         #expect(early)
         await Chat.waitUntil { wire.attaches.count == 2 }
         #expect(wire.attaches.count == 2)
         let again = try #require(wire.attaches.last)
-        #expect(again["alsoKinds"] == nil)
+        #expect(again["hold"] as? Bool == true)
+        #expect(again["limit"] == nil && again["maxBytes"] == nil)
         #expect((again["kinds"] as? [String])?.suffix(2) == ["elevation_request", "elevation_decision"])
+        #expect(wire.methods.contains("_acpmux/events"))
         #expect(store.turns.count == Chat.turns)
     }
 

@@ -369,7 +369,9 @@ impl Link {
                 "_acpmux/attach",
                 json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": CHAT_KINDS,
                        "alsoKinds": ELEVATION_KINDS, "eventStream": true,
-                       "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES}),
+                       "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES,
+                       // The app asks for no breakdown from its first attach (`attachParams`).
+                       "omitTimeBreakdown": true}),
             )
             .await?;
         let mut got = link.answers(&[init, watch, attach], deadline).await?.into_iter();
@@ -1435,20 +1437,32 @@ async fn chat_cold_open_while_the_agent_works() {
             scale.trim_end_matches('x').parse().unwrap_or_else(|_| panic!("scale {scale}"));
         control.seed(&session, turns, BASE_TURNS * x).await;
         turns = turns.max(BASE_TURNS * x);
-        // The agent works through every open of this scale (`NETCOND_LOAD=idle`: it does not).
+        // The agent works through every open of this scale (`NETCOND_LOAD=idle`: it does not), on
+        // the connection that made the session (a second connection's prompts did not run there).
         let idle = std::env::var("NETCOND_LOAD").is_ok_and(|l| l == "idle");
-        let mut agent = Control::new(&hub);
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worked = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut agent = control;
         let busy_session = session.clone();
+        let (busy_stop, busy_worked) = (stop.clone(), worked.clone());
         let busy = tokio::spawn(async move {
-            if idle {
-                return;
-            }
             let pad = "busy busy busy ".repeat(64);
-            for n in 0u64.. {
-                agent.prompt(&busy_session, &format!("busy {n}: {pad}")).await;
+            let mut n = 0u64;
+            while !idle && !busy_stop.load(std::sync::atomic::Ordering::Relaxed) {
                 let next = Instant::now() + BUSY_TURN_EVERY;
-                while let Ok(Some(_)) = tokio::time::timeout_at(next, agent.rx.recv()).await {}
+                let id = agent.prompt(&busy_session, &format!("busy {n}: {pad}")).await;
+                match agent.answer(id, BOUND).await {
+                    Some(v) if v.get("error").is_none() => {
+                        busy_worked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    // Counted, not fatal: the rows then say how little the agent did.
+                    other if n < 3 => eprintln!("NETCOND-ERROR busy turn {n}: {other:?}"),
+                    _ => {}
+                }
+                n += 1;
+                tokio::time::sleep_until(next).await;
             }
+            agent
         });
         tokio::time::sleep(BUSY_TURN_EVERY * 3).await;
         for profile in &profiles {
@@ -1470,6 +1484,11 @@ async fn chat_cold_open_while_the_agent_works() {
                 }
             }
         }
-        busy.abort();
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        control = busy.await.expect("the busy agent");
+        eprintln!(
+            "NETCOND-FIXTURE busy chat {scale}: the agent finished {} turns while measured",
+            worked.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
 }
