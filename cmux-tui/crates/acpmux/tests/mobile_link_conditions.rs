@@ -136,6 +136,8 @@ struct Link {
     /// Every inbound frame with its arrival: `None` for a ping or pong.
     rx: mpsc::UnboundedReceiver<(Instant, Option<Value>)>,
     pending: VecDeque<(Instant, Value)>,
+    /// Answers that came before the one awaited (pipelined requests are answered as each ends).
+    replies: std::collections::HashMap<i64, (Instant, Value)>,
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
@@ -170,6 +172,12 @@ impl Link {
                 tapped.down(&frame);
                 let item = match frame {
                     Message::Text(t) => serde_json::from_str::<Value>(&t).ok(),
+                    // A compressed message (`frame_compress.rs`), once `initialize` offered zlib.
+                    Message::Binary(b) => {
+                        acpmux::frame_compress::inflate(&b, acpmux::rpc::MAX_MESSAGE_BYTES)
+                            .ok()
+                            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                    }
                     Message::Close(_) => break,
                     _ => None,
                 };
@@ -182,6 +190,7 @@ impl Link {
             sink,
             rx,
             pending: VecDeque::new(),
+            replies: std::collections::HashMap::new(),
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
@@ -235,23 +244,81 @@ impl Link {
 
     /// The answer to `id` and when it came; notifications on the way wait in `pending`.
     async fn answer(&mut self, id: i64, deadline: Instant) -> Result<(Instant, Value), String> {
+        let answered = |at: Instant, v: Value| match v.get("error") {
+            Some(e) => Err(format!("request {id}: {e}")),
+            None => Ok((at, v["result"].clone())),
+        };
+        if let Some((at, v)) = self.replies.remove(&id) {
+            return answered(at, v);
+        }
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) => {
-                    if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
-                        if let Some(e) = v.get("error") {
-                            return Err(format!("request {id}: {e}"));
-                        }
-                        return Ok((at, v["result"].clone()));
-                    }
                     if v.get("method").is_some() {
                         self.pending.push_back((at, v));
+                    } else if v.get("id") == Some(&json!(id)) {
+                        return answered(at, v);
+                    } else if let Some(other) = v.get("id").and_then(Value::as_i64) {
+                        self.replies.insert(other, (at, v));
                     }
                 }
                 Next::Silent => return Err(format!("no answer to request {id} in time")),
                 Next::Closed => return Err(format!("closed before the answer to request {id}")),
             }
         }
+    }
+
+    /// A chat's kinds before `initialize` answers: the elevation kinds too. A Mac without
+    /// elevation cards matches none of them (`EventFilter::parse` keeps unknown kinds), so the
+    /// attach needs nothing from the reply and rides in its flight.
+    fn every_kind() -> Value {
+        let mut kinds: Vec<&str> = CHAT_KINDS.to_vec();
+        kinds.extend(["elevation_request", "elevation_decision"]);
+        json!(kinds)
+    }
+
+    /// The phone's cold open of a chat in one flight (cmux-next-ios `AcpmuxHub.swift`):
+    /// `initialize`, the first watch page and the chat's attach, sent together and answered as
+    /// each ends. `link` is a channel already open; `compress` offers zlib, so the reply crosses
+    /// the shaper deflated as the phone's link carries it (its host deflates the `acpmux`
+    /// channel's frames past 16 KiB, `AcpmuxConnection.channelArgs`).
+    async fn open_chat(
+        mut link: Link,
+        token: &str,
+        session: &str,
+        compress: bool,
+        deadline: Instant,
+    ) -> Result<(Link, Instant, Value), String> {
+        let mut meta = json!({"localAppToken": token});
+        if compress {
+            meta["compression"] = acpmux::frame_compress::offer();
+        }
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": meta}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let attach = link
+            .post(
+                "_acpmux/attach",
+                json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": Self::every_kind(),
+                       "eventStream": true, "maxBytes": OPEN_BYTES,
+                       "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES}),
+            )
+            .await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        link.answer(watch, deadline).await?;
+        let (at, reply) = link.answer(attach, deadline).await?;
+        Ok((link, at, reply))
     }
 
     fn kinds(&self) -> Value {
@@ -466,8 +533,25 @@ async fn cold_and_warm(
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = match Link::open(shaper.addr(), token, deadline).await {
-        Ok(l) => l,
+    let dialed = match tokio::time::timeout_at(deadline, Link::dial(shaper.addr())).await {
+        Ok(dialed) => dialed,
+        Err(_) => Err("connect timed out".to_owned()),
+    };
+    let opened = match dialed {
+        Ok(link) => Link::open_chat(link, token, session, false, deadline).await,
+        Err(e) => Err(e),
+    };
+    let mut link = match opened {
+        Ok((link, at, reply)) => {
+            if rows(&reply).is_empty() {
+                emit(&k, "first_content_ms", None);
+                emit_error(&k, "first_content_ms", "the attach reply carried no rows");
+            } else {
+                emit(&k, "first_content_ms", Some(ms(at - start)));
+                emit_bytes(&k, shaper);
+            }
+            link
+        }
         Err(e) => {
             for m in ["first_content_ms", "interactive_ms"] {
                 emit(&k, m, None);
@@ -476,21 +560,6 @@ async fn cold_and_warm(
             return None;
         }
     };
-    match link.attach(session, None, deadline).await {
-        Ok((at, reply)) if !rows(&reply).is_empty() => {
-            emit(&k, "first_content_ms", Some(ms(at - start)));
-            emit_bytes(&k, shaper);
-        }
-        Ok(_) => {
-            emit(&k, "first_content_ms", None);
-            emit_error(&k, "first_content_ms", "the attach reply carried no rows");
-        }
-        Err(e) => {
-            emit(&k, "first_content_ms", None);
-            emit_error(&k, "first_content_ms", &e);
-            return None;
-        }
-    }
     // The prompt is shown as sent when its user_message record comes back.
     let prompt_id = format!("netcond-{profile}-{scale}-{run}");
     let sent = link
@@ -542,7 +611,35 @@ async fn cold_and_warm(
             return None;
         }
     }
+    cold_on_channel(shaper, token, &Key { phase: "cold_channel", ..k }, session).await;
     Some(link)
+}
+
+/// The phone's cold open as its radio carries it: its link is already up (the dial is the
+/// scoreboard's own row), so the `acpmux` channel opens with no round trip (`Link::open_on`
+/// sends its open frame and the requests behind it at once; the host's splice upgrades the
+/// loopback WebSocket on the Mac). Here the WebSocket is dialed before the clock starts, and
+/// the reply crosses deflated, as the host's channel compression sends it.
+async fn cold_on_channel(shaper: &Shaper, token: &str, k: &Key<'_>, session: &str) {
+    let fail = |why: &str| {
+        emit(k, "first_content_ms", None);
+        emit_error(k, "first_content_ms", why);
+    };
+    let link = match tokio::time::timeout(BOUND, Link::dial(shaper.addr())).await {
+        Ok(Ok(link)) => link,
+        Ok(Err(e)) => return fail(&e),
+        Err(_) => return fail("connect timed out"),
+    };
+    shaper.reset_counters();
+    let start = Instant::now();
+    match Link::open_chat(link, token, session, true, start + BOUND).await {
+        Ok((_, at, reply)) if !rows(&reply).is_empty() => {
+            emit(k, "first_content_ms", Some(ms(at - start)));
+            emit_bytes(k, shaper);
+        }
+        Ok(_) => fail("the attach reply carried no rows"),
+        Err(e) => fail(&e),
+    }
 }
 
 /// The agent streams; the link drops (the profile's disruption); the app's policy reconnects.
