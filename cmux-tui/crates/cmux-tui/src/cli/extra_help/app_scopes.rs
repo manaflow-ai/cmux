@@ -98,6 +98,11 @@ fn scope_text(args: &[String]) -> Option<String> {
         ["live", ..] => return Some(format!("{}\n", messages.live.usage)),
         ["nightly", ..] => return Some(format!("{}\n", messages.nightly.usage)),
         ["app", "try", ..] => return Some(format!("{}\n", messages.app_try.usage)),
+        ["app", "versions" | "use", ..] => return Some(format!("{}\n", messages.nightly.usage)),
+        ["app", "web-pieces", ..] => {
+            return Some(format!("{}\n", super::super::app::WEB_PIECES_USAGE));
+        }
+        ["app", "share", ..] => return Some(format!("{}\n", messages.app_share.usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -142,12 +147,21 @@ usage: cmux app ping | identify | capabilities
        cmux app renderers profile --browser <id> [--seconds <n>]  (one cmux page's heap and CPU profile; needs defaults key CMUXPageProfiler)
        cmux app chat perf --tab <tab> [--seconds <1-60>]  (a chat's frames and record-to-paint times)
        cmux app remote-views [--tab <tab>]      (Cloud desktop tabs: viewer, connected, who has control)
-       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: phase, first frame ms, fps, round trip, drops)
+       cmux app mac-screens [--tab <tab>]       (Mac Screen tabs: state, error, frame size, first frame ms, fps, round trip, drops; --tab takes a tab id)
+       cmux app clicks [--limit <n>]            (your last clicks: the window each reached, what took it, the page's focus)
        cmux app machines [--no-refresh]         (the Machines section's machines and their link state)
        cmux app try . [--from APP] | . --extract | . --stop  (your working tree in a copy of your NIGHTLY: no dev build)
        cmux app try <PR|branch|sha> [--dry-run] | undo | status  (another commit's cmux in this app, live when it can)
+       cmux app versions [--limit N]            (the recent builds: * this one, kept, pulled)
+       cmux app use previous|next|latest|<build>  (go back or forward to that build, every session kept)
+       cmux app try <share link> [--dry-run]    (a build someone shared, beside your cmux)
+       cmux app share [--app APP] [--bundle] [--dry-run]  (the build you run, as one `cmux app try` line: a SHA when it can)
        cmux app join-line [--mint] [--name <name>] [--no-open]  (Add Device's join line)
        cmux app launch-times [--limit <n>] [--file <path>] [--phases]  (the last launches' times and phases, from a file; no app needed)
+       cmux app web-pieces check --state <dir> --channel <channel> [--offline] | status --state <dir>  (what each web piece of a web update serves; no app needed)
+       cmux app publish [NAME] [--port P] [--cmd CMD] [--dir DIR] [--ref REF] [--include-dirty] [--share team]
+                                                (this Cloud machine's preview as a new app version; no app needed)
+       cmux app versions NAME | rollback NAME [--to N] | ls  (published apps on this machine)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 

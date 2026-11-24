@@ -39,6 +39,20 @@ pub async fn call<O: Op>(
     key: Option<&str>,
     origin: Option<Origin>,
 ) -> Result<Answer<O::Result, O::Error>, ApiError> {
+    call_with_options::<O>(http, base_url, params, key, origin, None).await
+}
+
+/// Sends an op with an optimistic-concurrency precondition. Mutations should
+/// pass the revision carried by their scoped machine capability; the server
+/// then refuses a stale handle before doing provider work.
+pub async fn call_with_options<O: Op>(
+    http: &reqwest::Client,
+    base_url: &str,
+    params: O::Params,
+    key: Option<&str>,
+    origin: Option<Origin>,
+    expected_revision: Option<&str>,
+) -> Result<Answer<O::Result, O::Error>, ApiError> {
     let mut request = OpRequest::new::<O>(params);
     match (O::IDEMPOTENCY, key) {
         (WireIdempotency::Required, None) => {
@@ -55,6 +69,9 @@ pub async fn call<O: Op>(
     if let Some(origin) = origin {
         request = request.with_origin(origin);
     }
+    if let Some(revision) = expected_revision {
+        request = request.with_expected_revision(revision);
+    }
     let url = format!("{}{}", base_url.trim_end_matches('/'), O::CLASS.http_path());
     let response =
         http.post(url).json(&request).send().await.map_err(|e| ApiError::unreachable(&e))?;
@@ -65,6 +82,19 @@ pub async fn call<O: Op>(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
     let body = response.bytes().await.map_err(|e| ApiError::unreachable(&e))?;
+    if status == 200 && O::CLASS == WireClass::Mutation {
+        // A success for another intent cannot complete this capability. Keep
+        // the wire envelope intact until its operation and key are checked.
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&body).map_err(ApiError::unreadable)?;
+        if envelope.get("op").and_then(serde_json::Value::as_str) != Some(O::NAME)
+            || key.is_some_and(|key| {
+                envelope.get("idempotency_key").and_then(serde_json::Value::as_str) != Some(key)
+            })
+        {
+            return Err(ApiError::unreadable("mutation answer named another operation or key"));
+        }
+    }
     read_answer::<O>(status, retry_after.as_deref(), &body)
 }
 

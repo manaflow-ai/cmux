@@ -58,6 +58,7 @@ const words = (node: ReactNode) =>
     <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
   )
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 const drawn = (row: AcpmuxRow, now: number) =>
@@ -72,6 +73,7 @@ const drawn = (row: AcpmuxRow, now: number) =>
       heardAt={row.heardAt}
       heardKey={row.heardKey}
       turnTotal={row.turnTotal}
+      liveWait={row.liveWait}
       now={() => now}
     />,
   );
@@ -111,7 +113,7 @@ test("a step stamped at one moment has no time of its own: the line shows only t
   expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
 });
 
-test("thinking ticks from its first chunk after a silence, and a later silence reads Waiting", () => {
+test("thinking ticks from its first chunk after a silence, and a later silence says what it waits on", () => {
   // Leo, 2026-11-12, on "Thinking 683ms · turn 15m 15s": "the whatever ms gets stuck and becomes
   // false really quickly". The time beside Thinking is a live clock, never a frozen sum.
   const at = events[0]!.at;
@@ -127,7 +129,9 @@ test("thinking ticks from its first chunk after a silence, and a later silence r
   expect(brief.heardAt).toBe(at + 420);
   expect(drawn(brief, at + 3_000)).toBe("Thinking 3s · turn 23s");
   expect(drawn(brief, at + 9_000)).toBe("Thinking 9s · turn 29s");
-  expect(drawn(brief, at + 420 + 12_000)).toBe("Waiting 12s · turn 32s");
+  // After a thought the model owes its next step (Leo, 2026-11-22: "write more detailed things than
+  // just waiting").
+  expect(drawn(brief, at + 420 + 12_000)).toBe("Waiting on the model's next step 12s · turn 32s");
 });
 
 test("every finished row's own time: milliseconds under a second, none for one stamped at one moment", async () => {

@@ -1,0 +1,27 @@
+{
+  "id": "particles",
+  "name": "Particles",
+  "description": "A dithered dust field that drifts slowly and parts around the pointer, closing behind it.",
+  "shader": "wallpaper.wgsl",
+  "fps": 30,
+  "scale": 0.5,
+  "interactive": true,
+  "params": [
+    { "name": "cell", "title": "Particle spacing (pt)", "default": 12, "min": 6, "max": 40 },
+    { "name": "radius", "title": "Clearing radius (pt)", "default": 64, "min": 30, "max": 220 },
+    { "name": "speed", "title": "Drift speed", "default": 1.0, "min": 0, "max": 3 },
+    { "name": "contrast", "title": "Cloud contrast", "default": 1.1, "min": 0, "max": 2 },
+    { "name": "dither", "title": "Dither (0 ordered, 1 blue noise)", "default": 1, "min": 0, "max": 1 },
+    { "name": "accent", "title": "Accent share at the rim", "default": 0.18, "min": 0, "max": 1 },
+    { "name": "stretch", "title": "Velocity stretch", "default": 1.0, "min": 0, "max": 2 },
+    { "name": "size", "title": "Particle size", "default": 1.0, "min": 0.3, "max": 2.5 }
+  ],
+  "still": { "time": 23.0, "pointer": [0.62, 0.45] },
+  "variants": [
+    { "name": "Dust", "accent": "#3D7BFF", "params": {} },
+    { "name": "Star field", "accent": "#E8A23A",
+      "params": { "cell": 22, "radius": 80, "speed": 0.5, "contrast": 0.3, "dither": 0, "accent": 0.3, "size": 0.7 } },
+    { "name": "Nebula", "accent": "#D9576E",
+      "params": { "cell": 9, "radius": 96, "speed": 0.6, "contrast": 1.6, "dither": 0, "accent": 0.14, "stretch": 1.4, "size": 1.3 } }
+  ]
+}
