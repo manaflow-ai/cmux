@@ -52794,127 +52794,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use Setup"
+            "value": "Set Up Computer Use"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータ操作のセットアップ"
+            "value": "コンピュータ操作をセットアップ"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "إعداد استخدام الكمبيوتر"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Postavljanje Computer Use"
+            "state": "translated",
+            "value": "Postavi Computer Use"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Opsætning af Computer Use"
+            "state": "translated",
+            "value": "Konfigurer Computer Use"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Computer Use einrichten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Configurar Computer Use"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Configuration de Computer Use"
+            "state": "translated",
+            "value": "Configurer Computer Use"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Configurazione Computer Use"
+            "state": "translated",
+            "value": "Configura Computer Use"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការរៀបចំ Computer Use"
+            "state": "translated",
+            "value": "រៀបចំ Computer Use"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "컴퓨터 사용 설정"
+            "state": "translated",
+            "value": "컴퓨터 사용 설정하기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Oppsett av Computer Use"
+            "state": "translated",
+            "value": "Konfigurer Computer Use"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Konfiguracja Computer Use"
+            "state": "translated",
+            "value": "Skonfiguruj Computer Use"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Configurar Computer Use"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Настройка Computer Use"
+            "state": "translated",
+            "value": "Настроить Computer Use"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ตั้งค่า Computer Use"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use Kurulumu"
+            "state": "translated",
+            "value": "Computer Use'u Kur"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Налаштування Computer Use"
+            "state": "translated",
+            "value": "Налаштувати Computer Use"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Thiết lập Computer Use"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Computer Use 设置"
+            "state": "translated",
+            "value": "设置 Computer Use"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "電腦操作設定"
+            "state": "translated",
+            "value": "設定電腦操作"
           }
         }
       }
