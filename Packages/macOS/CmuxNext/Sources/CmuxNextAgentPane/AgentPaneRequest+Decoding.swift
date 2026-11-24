@@ -263,7 +263,8 @@ extension AgentPaneRequest {
             }
         case "pane.painted":
             self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false,
-                            settled: params?["settled"] as? Bool ?? false)
+                            settled: params?["settled"] as? Bool ?? false,
+                            copy: params?["copy"] as? Bool ?? false)
         case "pane.launchSettle":
             if let epochMs = params?["settledEpochMs"] as? Double, epochMs.isFinite,
                let px = params?["maxMovePx"] as? Double, px.isFinite, px >= 0,
