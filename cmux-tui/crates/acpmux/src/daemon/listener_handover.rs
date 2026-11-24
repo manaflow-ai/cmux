@@ -19,7 +19,7 @@
 //! 4. A connect in between waits in the kernel's queue, which the new daemon's copy keeps open,
 //!    and is accepted once the new daemon holds the lock and serves ([`take_received`]).
 //! 5. The connections the old daemon had accepted that hold no state go the same way, on the
-//!    same side socket, at the end of its drain ([`hand_connections`],
+//!    same side socket, late in its stop ([`hand_connections`],
 //!    `server/conn_handover.rs`): their clients read no end of file and redial nothing.
 
 use std::io;
