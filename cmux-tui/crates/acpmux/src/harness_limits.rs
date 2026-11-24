@@ -40,6 +40,76 @@ pub const CLAUDE_ENV: &[(&str, &str)] = &[
 /// reads against 400k too.
 pub const CLAUDE_AUTOCOMPACT_WINDOW: (&str, &str) = ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "400000");
 
+/// What a `claude` started in a cmux terminal gets on top of [`CLAUDE_ENV`] (Leo 2026-11-24:
+/// "in terminals and guis alike perhaps terminal simply needs to also have the fixes and
+/// enhancements"). An agent chat survives a capacity outage in acpmux: a turn that Claude
+/// Code ends with "Repeated 529 Overloaded errors" is continued after a wait, with no limit
+/// on attempts (`hub::auto_resume::capacity_wait`, cmux#52824). A terminal has no acpmux
+/// behind it, so the same outage left the person at an "API Error: Repeated 529" prompt.
+/// Claude Code waits a 529 out in place under its retry watchdog in the capacity scope
+/// (`CLAUDE_CODE_RETRY_WATCHDOG=1`, `CLAUDE_CODE_RETRY_WATCHDOG_SCOPE=capacity`): it stops
+/// giving up after 3 straight 529s and backs off (to 5 min a wait) with no time budget, as
+/// the chat's continuation has no attempt limit; the scope keeps the watchdog's other
+/// retries off. Measured on Claude Code 2.1.331 against a server answering six 529s: without
+/// it `claude -p` failed after 3 requests in 4 s ("Repeated 529 Overloaded errors"); with it
+/// the 7th request answered. `CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS` alone did not change
+/// that run. The watchdog would also sit out a plan's usage limit until it resets; a 0 budget
+/// for that keeps the usage limit in front of the person, as before. Esc still stops the wait.
+/// A person who set any of [`CLAUDE_RETRY_CHOICES`] keeps theirs and gets none of these.
+pub const CLAUDE_TERMINAL_ENV: &[(&str, &str)] = &[
+    ("CLAUDE_CODE_RETRY_WATCHDOG", "1"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "capacity"),
+    ("CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS", "0"),
+];
+
+/// Claude Code's own retry settings: one set by the person means they chose how it retries,
+/// so [`CLAUDE_TERMINAL_ENV`] is left out whole.
+pub const CLAUDE_RETRY_CHOICES: &[&str] = &[
+    "CLAUDE_CODE_RETRY_WATCHDOG",
+    "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE",
+    "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS",
+    "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS",
+    "CLAUDE_CODE_MAX_RETRIES",
+    "CLAUDE_CODE_OVERLOADED_RETRY_MAX_WAIT_MS",
+];
+
+/// The environment a terminal's `claude` starts with beyond its own (the cmux-tui Claude
+/// wrapper): every [`CLAUDE_ENV`] and [`CLAUDE_TERMINAL_ENV`] knob `getenv` leaves unset, and
+/// the chats' autocompact window ([`CLAUDE_AUTOCOMPACT_WINDOW`]) when neither the launch
+/// (`args`), its env nor Claude's settings choose one, exactly as [`lift_claude`] does for an
+/// agent chat.
+pub fn terminal_claude_env(
+    args: &[String],
+    cwd: &std::path::Path,
+    getenv: impl Fn(&str) -> Option<String>,
+) -> Vec<(&'static str, &'static str)> {
+    let retry_chosen = CLAUDE_RETRY_CHOICES.iter().any(|name| getenv(name).is_some());
+    let terminal = if retry_chosen { &[][..] } else { CLAUDE_TERMINAL_ENV };
+    let mut lifted: Vec<(&'static str, &'static str)> = CLAUDE_ENV
+        .iter()
+        .chain(terminal)
+        .copied()
+        .filter(|(key, _)| getenv(key).is_none())
+        .collect();
+    let (key, value) = CLAUDE_AUTOCOMPACT_WINDOW;
+    let env =
+        ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"]
+            .into_iter()
+            .filter_map(|name| getenv(name).map(|value| (name.to_string(), value)))
+            .collect();
+    let source = crate::usage_stats::Source {
+        family: "claude".into(),
+        argv: Some(std::iter::once("claude".to_string()).chain(args.iter().cloned()).collect()),
+        cwd: cwd.to_path_buf(),
+        env,
+        ..Default::default()
+    };
+    if crate::usage_stats::claude_autocompact_unset(&source) {
+        lifted.push((key, value));
+    }
+    lifted
+}
+
 /// Codex's config keys (`-c key=value`) and their values (defaults are
 /// codex 0.162.1's).
 pub const CODEX_CONFIG: &[(&str, &str)] = &[
