@@ -1059,6 +1059,11 @@ impl Hub {
             v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
+        // A fork of a subagent: the chat and the subagent whose conversation it holds
+        // (`fork_subagent.rs`), the pane's "subagent of" line.
+        if let Some(of) = &m.fork_of_subagent {
+            v.set("forkOf", json!(of));
+        }
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
         // The folder's HEAD when the session started (`git_state.rs`); its
         // `gitBranch` is the summary's, the branch checked out now.
