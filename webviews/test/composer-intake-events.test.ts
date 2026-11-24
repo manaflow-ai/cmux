@@ -299,11 +299,10 @@ test("a file's upload never waits for a sibling image the host knows the path of
   );
   await fileChip.fired;
   expect(uploaded).toEqual([["notes.zip"]]);
-  expect(ready).toEqual(["1 link"]);
-  decoded();
   const result = await taken;
-  expect(ready).toEqual(["1 link", "0 image"]);
-  expect(result.attachments.find((chip) => chip.kind === "image")?.originalPath).toBe("/Users/me/shot.png");
+  expect(ready).toEqual(["0 link", "1 link"]);
+  expect(result.attachments[0]?.path).toBe("/Users/me/shot.png");
+  decoded();
 });
 
 // Review (Codex): an image is a chip as soon as its preview is made, while its original still

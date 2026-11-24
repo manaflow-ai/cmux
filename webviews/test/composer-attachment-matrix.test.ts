@@ -9,7 +9,7 @@
 // - A folder's bytes cannot be read: it is not sent, and the rest of the batch still is.
 // - In a chat whose folder is on this Mac, a dropped or pasted folder, or a file no block takes,
 //   goes as a resource_link to where it is (the host's `chat.attach.dropped` answers its real
-//   path): nothing is copied or uploaded. Images retain a normalized preview plus the original path.
+//   path), including images, without copying their bytes.
 import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import {
   linkItems,
@@ -299,7 +299,7 @@ function paths(folders: string[] = []) {
 }
 
 describe("attachment matrix: a chat on this Mac links what no block takes where it is", () => {
-  test("a folder, a zip and a png dropped together: an image block, and links to the folder and the zip; nothing uploaded", async () => {
+  test("a local folder, zip and png go as ordered links without uploading", async () => {
     const local = paths(["src"]);
     const result = await take(
       [folder("src"), file("build.zip", "application/zip"), file("shot.png", "image/png", PNG)],
@@ -310,21 +310,20 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     expect(result.sent).toEqual([]);
     expect(result.error).toBeUndefined();
     expect(result.attachments.map((chip) => [chip.kind, chip.name, chip.path, chip.saved])).toEqual([
-      ["image", "shot.png", undefined, undefined],
       ["link", "src/", "/Users/dev/src", undefined],
       ["link", "build.zip", "/Users/dev/build.zip", undefined],
+      ["link", "shot.png", "/Users/dev/shot.png", undefined],
     ]);
     expect(result.blocks.map((block) => block.type)).toEqual([
       "text",
-      "image",
       "resource_link",
       "resource_link",
       "resource_link",
     ]);
     expect(result.blocks.filter((block) => block.type === "resource_link")).toEqual([
-      { type: "resource_link", uri: "file:///Users/dev/shot.png", name: "shot.png" },
       { type: "resource_link", uri: "file:///Users/dev/src", name: "src/" },
       { type: "resource_link", uri: "file:///Users/dev/build.zip", name: "build.zip" },
+      { type: "resource_link", uri: "file:///Users/dev/shot.png", name: "shot.png" },
     ]);
     expect(result.text).not.toContain("data:");
   });
@@ -356,12 +355,12 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     expect(only(result.attachments)).toMatchObject({ kind: "link", path: "/Users/dev/shot.png" });
   });
 
-  test("an image retains its preview and text files become links", async () => {
+  test("a local image and text file both go by path", async () => {
     const local = paths();
     const result = await take([file("shot.png", "image/png", PNG), file("notes.txt", "text/plain", "hi\n")], {
       localPaths: local.localPaths,
     });
-    expect(result.attachments.map((chip) => chip.kind)).toEqual(["image", "link"]);
+    expect(result.attachments.map((chip) => chip.kind)).toEqual(["link", "link"]);
   });
 
   test("the host is asked before any file is read: its record of the drop lasts only seconds", async () => {
@@ -381,7 +380,7 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
         return local.localPaths(batch);
       },
     });
-    expect(order[0]).toBe("asked");
+    expect(order).toEqual(["asked"]);
   });
 
   test("a folder as WebKit hands it (`<name>.zip`, application/zip, unreadable) links to the folder", async () => {
