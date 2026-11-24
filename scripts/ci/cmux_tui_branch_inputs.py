@@ -18,12 +18,27 @@ the tree of the base. A head that carries the trailer Cmux-Daemon-Tests: run is 
 
 Every failure answers "changed": the run builds as before. Undo: vars.CMUX_TUI_BRANCH_INPUT_GATE = '0'.
 
+BASE-MOVED: a head that does change a tree-key input still builds nothing when feat-cmux-next has moved its
+own tree key since the merge base. Leo, 2026-11-21: "even 300 vms every fucking hour is a huge fucking
+luxury". The pull request's route reads the tree of its merge with feat-cmux-next, and reads the head's
+tree only when that merge keeps the head's key (pin-cmux-tui.sh probe_checkout_tree); once the base moved
+a tree-key input, the merge's key is neither the head's nor the base's, so path routing reports "own merge
+of a base whose cmux-tui source moved ... Update the branch" and no route fetches the head's tree. Of 16
+long branch builds on 2026-11-23 21:00-23:30Z (about 28 min on each of three legs), one tree was ever
+fetched. Updating the branch (its merge then keeps its key) or the trailer Cmux-Daemon-Tests: run builds.
+Undo this part alone: vars.CMUX_TUI_BRANCH_BASE_MOVED_GATE = '0' (env CMUX_TUI_BRANCH_BASE_MOVED_GATE).
+
 Git reads, no REST: the commits since --since (default 21 days) of the head and the base with no trees
 (--filter=tree:0), then the merge base's trees (--filter=blob:none --depth=1) and the one blob the key
 reads (the inputs list). The checkout must be a blob:none partial clone of the repository (origin).
 
+Both fetches pass --no-recurse-submodules. A checkout holds .gitmodules, so fetch's on-demand submodule
+check read .gitmodules at each fetched commit, one lazy blob fetch at a time: every push-gate sampled on
+2026-11-23 (3 of 3) hit the 60 s git timeout or died in pack-objects (BUG: should_include_obj), so the
+gate answered "changed" every time. The history fetch took 2-3 s without it.
+
 Usage: cmux_tui_branch_inputs.py --ref REF --sha SHA [--base feat-cmux-next] [--since 21.days]
-Writes unchanged=true|false to $GITHUB_OUTPUT.
+Writes unchanged=true|false to $GITHUB_OUTPUT (true: build nothing, for either reason above).
 """
 
 from __future__ import annotations
@@ -75,7 +90,7 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if "".join(trailer.split()).lower() == "run":
         return False, f"{sha[:12]} carries Cmux-Daemon-Tests: run"
     base_ref = f"refs/remotes/origin/{base}"
-    git("fetch", "--no-tags", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
+    git("fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
         f"+refs/heads/{base}:{base_ref}", sha, lazy=True, deadline=deadline)
     try:
         merge_base = git("merge-base", sha, base_ref, deadline=deadline)
@@ -83,11 +98,14 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
         raise Unknown(f"no merge base with {base} within {since}") from error
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise Unknown(f"unexpected merge base {merge_base!r}")
-    if merge_base != sha:
-        # No haves: the server sends the merge base's whole tree, not just what a shallow have implies.
-        git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--quiet", "--filter=blob:none",
-            "--depth=1", "origin", merge_base, lazy=True, deadline=deadline)
-    for revision in {sha, merge_base}:
+    base_tip = git("rev-parse", base_ref, deadline=deadline)
+    base_moved_gate = os.environ.get("CMUX_TUI_BRANCH_BASE_MOVED_GATE", "") != "0"
+    # No haves: the server sends each commit's whole tree, not just what a shallow have implies.
+    wanted = [rev for rev in dict.fromkeys((merge_base, base_tip if base_moved_gate else merge_base)) if rev != sha]
+    if wanted:
+        git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=blob:none",
+            "--depth=1", "origin", *wanted, lazy=True, deadline=deadline)
+    for revision in {sha, merge_base, *wanted}:
         # tree_key reads the inputs list blob with lazy fetches off; bring that one blob in.
         git("cat-file", "blob", f"{revision}:{tree_key.INPUTS_PATH}", lazy=True, deadline=deadline)
     try:
@@ -98,6 +116,15 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if head_key == base_key:
         return True, (f"{sha[:12]} has the tree key {head_key[:12]} of its merge base {merge_base[:12]} with {base}: "
                       "it changes no tree-key input")
+    if base_moved_gate and base_tip != merge_base:
+        try:
+            tip_key = tree_key.tree_key(base_tip, "v2")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            raise Unknown(f"tree key of {base}: {error}") from error
+        if tip_key != base_key:
+            return True, (f"{base} moved its tree key since merge base {merge_base[:12]} ({base_key[:12]} -> "
+                          f"{tip_key[:12]} at {base_tip[:12]}): the pull request's merge has neither key, so no "
+                          f"route reads this head's tree {head_key[:12]}. Update the branch to build it")
     return False, f"tree key {head_key[:12]} differs from merge base {merge_base[:12]}'s {base_key[:12]}"
 
 
@@ -117,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         unchanged, reason = False, f"could not tell ({error}); building as before"
         print(f"::warning title=cmux-tui branch inputs::{reason}")
     if unchanged:
-        print(f"::notice title=cmux-tui inputs unchanged::{reason}. This run builds and publishes nothing; "
+        print(f"::notice title=cmux-tui branch build skipped::{reason}. This run builds and publishes nothing; "
               "readers use the newest published tree. To build anyway add the trailer Cmux-Daemon-Tests: run.")
     else:
         print(f"Building: {reason}")

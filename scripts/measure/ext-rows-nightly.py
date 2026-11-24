@@ -64,6 +64,7 @@ class Ctx:
     token: str = field(default_factory=lambda: f"rows{int(time.time())}")
     raw_cli: Path | None = None
     version_seq: int = 0
+    mcp_config: Path | None = None
     # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
     app: Path | None = None
     pid_file: Path | None = None
@@ -560,6 +561,181 @@ def row_status(ctx: Ctx) -> dict:
             "log_lines": rendered, "views": status_views}
 
 
+def op_sample(ctx: Ctx, name: str, extra: dict, op_extra: dict | None = None) -> tuple[dict, str, str]:
+    """Installs a customize app with one catalog op (`local.customize.<verb>`, export `go`) that logs its
+    args with a token word; `extra` adds manifest keys (`cli`, `contributes`), `op_extra` catalog keys."""
+    verb, word = f"probe{ctx.token[-6:]}", f"{ctx.token}-{name}-ran"
+    op_name = f"local.customize.{verb}"
+    catalog = {"family": "local.customize", "owner": f"app:{CUSTOMIZE_APP}", "operations": [{
+        "name": op_name, "owner": f"app:{CUSTOMIZE_APP}", "class": "read", "risk": "read",
+        "idempotency": "forbidden", "focuses": False,
+        "input": {"type": "object", "additionalProperties": True, "properties": {}, "required": []},
+        "docs": f"Rows probe for {name}.", "since": "local.customize/1", "export": "go", **(op_extra or {})}]}
+    install = install_customize(ctx, {"name": f"Rows {name}", "description": f"A {name} probe.",
+                                      "runtime": {"main": "main.js"}, "catalog": "catalog.json", **extra},
+                                {"catalog.json": json.dumps(catalog, indent=2),
+                                 "main.js": ("function go(args) {\n"
+                                             f"  console.log({json.dumps(word)} + ' ' + JSON.stringify(args || {{}}))\n"
+                                             f"  return {{ ran: {json.dumps(word)} }}\n}}\n"
+                                             "globalThis.__cmuxAppExports = { go }\n")})
+    return install, op_name, word
+
+
+def first_workspace(snapshot) -> str | None:
+    """The first workspace id in a `snapshot.get` answer (its `workspaces` list, wherever it nests)."""
+    if isinstance(snapshot, dict):
+        for item in snapshot.get("workspaces") or []:
+            if isinstance(item, dict) and item.get("id"):
+                return str(item["id"])
+        snapshot = list(snapshot.values())
+    if isinstance(snapshot, list):
+        for item in snapshot:
+            found = first_workspace(item)
+            if found:
+                return found
+    return None
+
+
+def menu_target_passed(logged: list[str], word: str, workspace: str | None, ran: dict) -> bool:
+    # action.run exposes the workspace's public id and its key. app.menu.run passes the key to the op.
+    resolved = ran.get("resolved") or {}
+    if not workspace or resolved.get("id") != workspace or resolved.get("kind") != "workspace":
+        return False
+    for line in logged:
+        try:
+            args = json.loads(line.partition(word + " ")[2])
+        except ValueError:
+            continue
+        target = args.get("target") if isinstance(args, dict) else None
+        if isinstance(target, dict) and target.get("kind") == "workspace" and target.get("id") and (
+                target["id"] == workspace or target["id"] == resolved.get("key")):
+            return True
+    return False
+
+
+def row_menus(ctx: Ctx) -> dict:
+    """Context menus on cmux's own surfaces (#43006): a manifest's `contributes.menus` row for the sidebar
+    workspace menu is in `apps-list` (what the Mac's menu builder reads at each right-click), and the action
+    that row runs (`app.menu.run` with the app, the item and the right-clicked workspace, the same action a
+    click sends) runs the app's op with the workspace as `args.target`. No click: the row's own action."""
+    title = f"Copy branch {ctx.token[-4:]}"
+    install, op_name, word = op_sample(ctx, "menus", {"contributes": {"menus": [
+        {"id": "copy-branch", "target": "workspace", "title": title, "op": f"local.customize.probe{ctx.token[-6:]}"}]}})
+    record = app_record(ctx) or {}
+    rows = (((record.get("manifest") or {}).get("contributes") or {}).get("menus")) or []
+    workspace = first_workspace(ctx.rpc("snapshot.get", {}, timeout=15))
+    ran = ctx.rpc("action.run", {"action": "app.menu.run", "target": f"workspace:{workspace}",
+                                 "args": {"app": CUSTOMIZE_APP, "item": "copy-branch"}}, timeout=30) \
+        if workspace else {"error": "no workspace in snapshot.get"}
+    logged = logs_with(ctx, word)
+    return {"checks": {"installed": install["installed"],
+                       "menu_row_listed": any(r.get("id") == "copy-branch" and r.get("title") == title
+                                              for r in rows if isinstance(r, dict)),
+                       "row_action_ran_op": bool(logged),
+                       "target_passed": menu_target_passed(logged, word, workspace, ran)},
+            "install": install, "menus": rows, "op": op_name, "workspace": workspace, "run": ran,
+            "log_lines": logged}
+
+
+row_menus.needs_app = True
+
+
+def row_mcp_tools(ctx: Ctx) -> dict:
+    """Agent tools from an extension (#43031): an op whose catalog says `mcp.expose: "default"` is a tool in
+    the copy's own `cmux mcp serve` (`tools/list`), and `tools/call` runs it in the app (`apps-logs`)."""
+    # The CLI is a child of the probe, so it needs the copy's config path explicitly.
+    config = ctx.mcp_config
+    if config is None:
+        config = ctx.work / "mcp-settings.json"
+        config.write_text(json.dumps({"agents": {"cmuxMcp": "on"}}))
+    install, op_name, word = op_sample(ctx, "mcp", {}, {"mcp": {"expose": "default"}})
+    tool = op_name.replace(".", "_").replace("-", "_")
+    lines = [{"jsonrpc": "2.0", "id": 1, "method": "initialize",
+              "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                         "clientInfo": {"name": "ext-rows-nightly", "version": "1"}}},
+             {"jsonrpc": "2.0", "method": "notifications/initialized"},
+             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+             {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": tool, "arguments": {}}}]
+    try:
+        run = subprocess.run([str(ctx.cli), *ctx.globals_, "mcp", "serve", "--all-tools"],
+                             env=os.environ | {"CMUX_NEXT_CONFIG_FILE": str(config.resolve())},
+                             input="".join(json.dumps(line) + "\n" for line in lines), capture_output=True,
+                             text=True, timeout=60)
+        stdout, stderr, exit_ = run.stdout, run.stderr[-2000:], run.returncode
+    except (OSError, subprocess.TimeoutExpired) as error:
+        stdout, stderr, exit_ = "", str(error), None
+    answers = {}
+    for line in stdout.splitlines():
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(value, dict) and value.get("id") in (1, 2, 3):
+            answers[value["id"]] = value
+    listed = [t for t in ((answers.get(2) or {}).get("result") or {}).get("tools") or [] if t.get("name") == tool]
+    called = answers.get(3) or {}
+    logged = logs_with(ctx, word)
+    return {"checks": {"installed": install["installed"], "tool_listed": bool(listed),
+                       "call_answered": "result" in called and not (called.get("result") or {}).get("isError"),
+                       "op_ran": bool(logged)},
+            "install": install, "tool": tool, "listed": listed, "call": called, "mcp_exit": exit_,
+            "mcp_stderr": stderr, "log_lines": logged}
+
+
+def row_cli_name(ctx: Ctx) -> dict:
+    """Plugin CLI subcommands (#43012): with `cli.name` in the manifest and a `cli.path` on an op, the copy's
+    own `cmux <name> <path>` runs that op in the app (`apps-logs`); a path the app lacks is refused."""
+    name = f"rows{ctx.token[-6:]}"
+    install, op_name, word = op_sample(ctx, "cli", {"cli": {"name": name}}, {"cli": {"path": "go", "visible": True}})
+    ran = cli_json(ctx.cli, ["--socket", ctx.daemon], [name, "go"], timeout=60)
+    unknown = cli_json(ctx.cli, ["--socket", ctx.daemon], [name, "no-such-verb"], timeout=60)
+    logged = logs_with(ctx, word)
+    return {"checks": {"installed": install["installed"], "cli_ran": ran.get("exit") == 0, "op_ran": bool(logged),
+                       "unknown_path_refused": unknown.get("exit") not in (0, None)},
+            "install": install, "cli_name": name, "op": op_name, "run": ran, "unknown": unknown,
+            "log_lines": logged}
+
+
+FORK_APP = "widget-clock"
+
+
+def row_fork(ctx: Ctx) -> dict:
+    """Forkable built-ins (#43005): a first-party app copied as a user's fork (first-party-apps/fork-check.ts's
+    rewrite: id `local/fork-<name>`, its catalog ops' owner) loads in the copy's daemon from its own folder
+    with `ext shot --json` (`ext dev --once`, no install) and draws its scene."""
+    source = ROOT / "first-party-apps" / FORK_APP
+    folder = ctx.work / f"fork-{FORK_APP}"
+    shutil.rmtree(folder, ignore_errors=True)
+    shutil.copytree(source, folder, ignore=shutil.ignore_patterns("node_modules", "test", "preview", "screenshots"))
+    fork_id = f"local/fork-{FORK_APP}"
+    manifest_path = folder / "cmux-app.json"
+    manifest = json.loads(manifest_path.read_text())
+    original = manifest.get("id")
+    manifest["id"] = fork_id
+    manifest.pop("$schema", None)
+    manifest.pop("screenshots", None)
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    catalog = manifest.get("catalog")
+    if isinstance(catalog, str) and (folder / catalog).is_file():
+        data = json.loads((folder / catalog).read_text())
+        for entry in data.get("operations") or []:
+            if isinstance(entry, dict) and "owner" in entry:
+                entry["owner"] = f"app:{fork_id}"
+        if "owner" in data:
+            data["owner"] = f"app:{fork_id}"
+        (folder / catalog).write_text(json.dumps(data, indent=2))
+    shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"fork-{FORK_APP}.png")])
+    answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
+    loaded = answer.get("ok") is True or (answer.get("phase") == "shot" and not answer.get("errors"))
+    scene = scene_of(shot)
+    return {"checks": {"forked": original != fork_id, "fork_loaded": loaded,
+                       "scene_drawn": bool(scene) or not ctx.control},
+            "app": FORK_APP, "original_id": original, "fork_id": fork_id,
+            "load": {k: answer.get(k) for k in ("ok", "phase", "app", "errors", "placed", "shot", "next")},
+            "scene": scene[:20], "shot_exit": shot.get("exit"),
+            **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
+
+
 # Row name: (its function, the PRs that closed it in code). One entry per row; order is run order: each
 # customize row replaces the last one's sample, activation first (it checks no view is open), the rows that
 # open a tab last; ext_new uses folders of its own; widget relaunches the copy, so it runs last.
@@ -570,6 +746,10 @@ ROWS = {
     "chat_widget": (row_chat_widget, "#43030"),
     "background_events": (row_background_events, "#43018 #49223"),
     "status": (row_status, "#47317"),
+    "menus": (row_menus, "#43006"),
+    "mcp_tools": (row_mcp_tools, "#43031"),
+    "cli_name": (row_cli_name, "#43012"),
+    "fork": (row_fork, "#43005"),
     "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "newtab": (row_newtab, "#42998"),
     "web_pane": (row_web_pane, "#41546 #43033"),
@@ -627,6 +807,7 @@ def main() -> int:
     parser.add_argument("--cli", help="a cmux binary, with --daemon-socket (no Mac app)")
     parser.add_argument("--daemon-socket")
     parser.add_argument("--control-socket")
+    parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
     parser.add_argument("--out", required=True)
     parser.add_argument("--rows", default=",".join(ROWS))
@@ -650,6 +831,7 @@ def main() -> int:
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
     receipt |= {"daemon_socket": daemon, "control_socket": control}
     ctx = Ctx(cli=cli, daemon=daemon, customize=Path(args.customize), work=out / "work", control=control,
+              mcp_config=args.mcp_config,
               app=Path(args.app) if args.app else None, pid_file=Path(args.pid_file) if args.pid_file else None)
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)

@@ -21,23 +21,6 @@ use std::time::Instant;
 const SAMPLES: usize = 200;
 
 impl Rpc {
-    /// [`Rpc::call`] that hands a refusal back instead of failing the test.
-    async fn try_call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
-        self.next += 1;
-        let id = self.next;
-        let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        self.wr.write_all(format!("{line}\n").as_bytes()).await.expect("send");
-        loop {
-            let v = self.message().await;
-            if v.get("id") == Some(&json!(id)) {
-                return match v.get("error") {
-                    Some(error) => Err(error.clone()),
-                    None => Ok(v["result"].clone()),
-                };
-            }
-        }
-    }
-
     async fn message(&mut self) -> Value {
         let line = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line())
             .await
@@ -48,28 +31,18 @@ impl Rpc {
     }
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
-
-/// Two daemons, each the other's ssh peer `target`, their peer links `one_way_ms` slow each way.
+/// Two daemons, each the other's ssh peer `target`, their peer links `one_way_ms` slow each way
+/// (the stand-in `ssh -W` holds each chunk, `FAKE_SSH_DELAY_MS`).
 async fn linked_pair(tag: &str, one_way_ms: u64) -> [Side; 2] {
     let (a, b) = (format!("{tag}a"), format!("{tag}b"));
-    let (port_a, port_b) = (free_port(), free_port());
-    let first = Daemon::spawn_linked(
-        &a,
-        Some(Daemon::place(&b)),
-        json!({}),
-        Some((port_a, port_b, one_way_ms)),
-    )
-    .await;
-    let second = Daemon::spawn_linked(
-        &b,
-        Some(Daemon::place(&a)),
-        json!({}),
-        Some((port_b, port_a, one_way_ms)),
-    )
-    .await;
+    let delay = one_way_ms.to_string();
+    let vars = [("FAKE_SSH_DELAY_MS", delay.as_str())];
+    let first =
+        Daemon::spawn_full(&a, Some(Daemon::place(&b)), json!({}), true, &vars, "approve-all")
+            .await;
+    let second =
+        Daemon::spawn_full(&b, Some(Daemon::place(&a)), json!({}), true, &vars, "approve-all")
+            .await;
     [first, second].map(|daemon| {
         let folder = daemon.home.join("project");
         std::fs::create_dir(&folder).unwrap();
