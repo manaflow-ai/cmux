@@ -242,7 +242,7 @@ pub struct File {
 impl Artifacts {
     pub fn new(base: String, bearer: Bearer) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .read_timeout(CALL_TIMEOUT)
