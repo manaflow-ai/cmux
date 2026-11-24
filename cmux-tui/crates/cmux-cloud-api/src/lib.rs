@@ -61,6 +61,7 @@ mod http;
 mod machine;
 pub mod machine_destroy;
 pub mod machine_io;
+pub mod machine_resume;
 mod network;
 mod owner;
 mod previews;
