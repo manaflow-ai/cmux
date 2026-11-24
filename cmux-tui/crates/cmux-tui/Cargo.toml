@@ -280,6 +280,8 @@ cmux-tui-platform = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
 # tests/mobile_link_conditions.rs: the phone's link profiles and shaper.
 cmux-fault.workspace = true
+# tests/composer_send_duress.rs: the phone composer's keyed Send under link duress.
+cmux-composer-send.workspace = true
 # cli/apps_store.rs: what opening a pane cmux draws itself runs (the sidebar and `app.open` share it).
 cmux-layout-reducer.workspace = true
 # cli/catalog_request_tests.rs: a palette request row sends what its CLI verb sends.

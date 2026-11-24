@@ -207,6 +207,73 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::SessionHold { session, held, fleet, allow, reason, status } => {
+            let client = connect(true).await?;
+            if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
+                return Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "session_hold_unsupported",
+                    "the running daemon predates `session hold`: restart it on the installed \
+                     acpmux, then retry",
+                )
+                .into());
+            }
+            if fleet {
+                let params = if status {
+                    json!({})
+                } else {
+                    let mut p = json!({"on": held, "allow": allow});
+                    if let Some(reason) = reason {
+                        cmux_json::JsonSet::set(&mut p, "reason", json!(reason));
+                    }
+                    p
+                };
+                let v = client.request(method::MUX_FLEET_HOLD, params).await?;
+                if json_out {
+                    print_json(&v);
+                } else if v.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true) {
+                    let allow = v
+                        .pointer("/fleetHold/allow")
+                        .and_then(Value::as_array)
+                        .map_or_else(String::new, |a| {
+                            a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ")
+                        });
+                    println!(
+                        "fleet hold on{}; allowed: {}",
+                        v.get("held")
+                            .and_then(Value::as_u64)
+                            .map(|n| format!(", {n} sessions held"))
+                            .unwrap_or_default(),
+                        if allow.is_empty() { "none".to_owned() } else { allow }
+                    );
+                } else {
+                    println!("fleet hold off");
+                }
+                return Ok(());
+            }
+            let Some(session) = session else {
+                anyhow::bail!("name a session, or pass --fleet");
+            };
+            let id = resolve_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_SESSION_HOLD, json!({"sessionId": id, "held": held}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else if held {
+                println!(
+                    "held{}: messages wait in its inbox; its person's prompt, opening it, or `acpmux session release {session}` lets it run",
+                    if v.get("paused").and_then(Value::as_bool) == Some(true) {
+                        ", its agent paused"
+                    } else {
+                        ""
+                    }
+                );
+            } else {
+                println!("released: it runs its next prompt");
+            }
+            Ok(())
+        }
         Command::RouteDeath { facts } => {
             let text = if facts.as_os_str() == "-" {
                 let mut buf = String::new();
@@ -642,11 +709,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             cwd,
             dry_run,
             from,
+            slow_ok,
+            abort,
             from_snapshot,
         }) => {
+            if abort {
+                return super::session_move::end_stale(&sessions, from.as_deref(), json_out).await;
+            }
             let args = super::session_move::MoveArgs {
                 sessions,
-                host,
+                host: host.unwrap_or_default(),
                 all_idle,
                 interrupt,
                 after_turn,
@@ -657,6 +729,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 dry_run,
                 resume_there: false,
                 from,
+                slow_ok,
                 from_snapshot,
             };
             super::session_move::run(args, json_out).await
