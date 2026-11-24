@@ -1,0 +1,1 @@
+docs/mdm/com.manaflow.cmux.json: merged three-way by cmux-export-v1; the base autofix rebuilds it after landing (scripts/cmux-next/regenerate-settings-exports.sh (Swift))

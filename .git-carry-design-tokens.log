@@ -1,0 +1,2 @@
+$ bun scripts/check-design-tokens.ts
+Design token ratchet passed: 2785 recorded violations.

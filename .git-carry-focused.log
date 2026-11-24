@@ -1,0 +1,9 @@
+$ bash ../scripts/ci/run-webviews-tests.sh src/pages/settings/replayIntroCard.test.tsx src/pages/settings/textSizeCard.test.tsx
+running 2 webviews test files, 12 at a time, beside 0 browser files 4 at a time (0 dev server files after, 4 at a time), 120s each
+START src/pages/settings/replayIntroCard.test.tsx (hard limit 120s)
+START src/pages/settings/textSizeCard.test.tsx (hard limit 120s)
+PASS src/pages/settings/replayIntroCard.test.tsx (raw log retained for the final bounded summary)
+PASS src/pages/settings/textSizeCard.test.tsx (raw log retained for the final bounded summary)
+::group::TAP final named results
+::endgroup::
+### webviews tests: 2 files, 0 failed or timed out (0 retried alone, 0 passed alone)

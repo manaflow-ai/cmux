@@ -1,0 +1,8 @@
+Auto-merging Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings
+Auto-merging Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings
+Auto-merging Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/BoundActionCatalogTests.swift
+Auto-merging cmux-next-ios/verify/parity-mac.md
+Auto-merging cmux-tui/crates/cmux-action-catalog/strings.json
+Auto-merging schemas/settings/settings-schema.json
+Auto-merging schemas/settings/source/page-layout.json
+Automatic merge went well; stopped before committing as requested
