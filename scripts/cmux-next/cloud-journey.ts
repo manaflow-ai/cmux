@@ -3412,6 +3412,23 @@ export function transcriptModels(stdout: string): string[] {
   return [...new Set([...stdout.matchAll(/"model":"([^"]+)"/g)].map((m) => m[1]!).filter((m) => m !== "<synthetic>"))];
 }
 
+/**
+ * The models a claude session ran, read from what ran: `acp session info` only names its agentSessionId, and every
+ * assistant message's `model` in that Claude transcript is the answer. Passes only when each one is `asked` (or a
+ * dated `asked-...` id); the session record naming `asked` counts for nothing (a pooled agent on another model ran
+ * under a record that named the asked one, cmux#40383).
+ */
+export async function sessionModelVerdict(exec: Exec, session: string, asked: string): Promise<string> {
+  const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
+  const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
+  if (!asid) throw new Error(`asked ${asked}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
+  const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
+  const ran = transcriptModels(t.stdout);
+  if (!ran.length) throw new Error(`asked ${asked}; the session's Claude transcript (${asid}) names no model`);
+  if (ran.some((m) => m !== asked && !m.startsWith(`${asked}-`))) throw new Error(`asked ${asked}; the agent ran ${ran.join(", ")}`);
+  return `asked ${asked}; the agent ran ${ran.join(", ")} (its Claude transcript)`;
+}
+
 /** --machine: stop an earlier run's model stub and drop its endpoint from Claude Code's settings (and Codex's stub provider). */
 export const REUSE_RESET =
   // Only the stub an earlier run recorded (its launch writes journey-model-stub.pid), and only while that pid still runs it.
@@ -5432,15 +5449,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       // the harness offers (so it named the asked model even when a pooled agent ran another one: a second chat
       // on one machine asked claude-sonnet-5-5 and ran claude-haiku-5-5, and this step passed, 2026-11-10).
       if (askedModel && !modelStub && harness === "claude") {
-        await J.step("session model", async () => {
-          const r = await exec(`${GUEST}"$c" acp --json session info ${shq(session)} 2>&1`, 45_000);
-          const asid = /"agentSessionId"\s*:\s*"([^"]+)"/.exec(r.stdout)?.[1];
-          if (!asid) throw new Error(`asked ${askedModel}; acp session info names no agentSessionId: ${r.stdout.slice(-200)}`);
-          const t = await exec(`${GUEST}${claudeTranscriptModelsProgram(asid)}`, 45_000);
-          const ran = transcriptModels(t.stdout);
-          if (!ran.length) throw new Error(`asked ${askedModel}; the session's Claude transcript (${asid}) names no model`);
-          if (ran.some((m) => m !== askedModel && !m.startsWith(`${askedModel}-`))) throw new Error(`asked ${askedModel}; the agent ran ${ran.join(", ")}`);
-          return { value: null, detail: `asked ${askedModel}; the agent ran ${ran.join(", ")} (its Claude transcript)` };
+        await J.step("session model", async () => ({ value: null, detail: await sessionModelVerdict(exec, session, askedModel) }));
+        // Production 2026-11-10: a second chat on the same machine ran the model of the chat before it (acpmux served it
+        // the pooled agent spawned on that model, cmux#40383). A chat on another model must run that model.
+        await J.step("second chat's model (same machine)", async () => {
+          const other = askedModel.includes("haiku") ? "claude-sonnet-5-5" : "claude-haiku-5-5";
+          const second = `${session}-m2`;
+          const r = await exec(`${GUEST}"$c" acp ensure ${shq(second)} -m ${shq(`${harness}/${other}`)} --json 2>&1; echo "@@exit $?"`, 120_000);
+          if (!/@@exit 0\s*$/.test(r.stdout)) throw new Error(`acp ensure -m ${harness}/${other}: ${r.stdout.slice(-400)}`);
+          // One turn, so its transcript names the model that answered it.
+          const sent = await exec(`${GUEST}printf '%s' 'Reply with the word ok.' | "$c" acp send --no-wait ${shq(second)} - 2>&1; echo "@@exit $?"`, 60_000);
+          if (!/@@exit 0\s*$/.test(sent.stdout)) throw new Error(`acp send to ${second}: ${sent.stdout.slice(-400)}`);
+          const waited = await exec(`${GUEST}"$c" acp wait ${shq(second)} --timeout 120 >/dev/null 2>&1; echo "@@wait $?"`, 150_000);
+          const wait = /@@wait (\d+)/.exec(waited.stdout)?.[1];
+          if (wait !== "0") throw new Error(`the second chat's turn did not end cleanly (acp wait exit ${wait ?? "none"})`);
+          return { value: null, detail: await sessionModelVerdict(exec, second, other) };
         });
       }
       if (modelStub && provider) {

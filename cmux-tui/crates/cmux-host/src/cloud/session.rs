@@ -71,6 +71,9 @@ struct AcpDaemon {
     /// Its line's `phases` block, if it sent one: whether its model streams are relayed, and
     /// one entry per session at work.
     phases: Option<(bool, Vec<Value>)>,
+    /// Its line carried `"turn_end": 1`: its 0 means nothing pending
+    /// ([`super::wire::ACTIVITY_TURN_END_CAPABILITY`]).
+    turn_end: bool,
 }
 
 /// The `phases` block of one `acp_activity` line, or None when it has none or it does not read
@@ -133,6 +136,12 @@ impl AcpActivity {
     /// When the first daemon's count lapses.
     fn next_expiry(&self) -> Option<u64> {
         self.daemons.values().map(|d| d.expires_at).min()
+    }
+
+    /// Whether the machine's 0 means nothing pending: the count is known and every daemon whose
+    /// count holds promised it (`turn_end` version 1). No daemon, no promise.
+    fn turn_end(&self) -> bool {
+        self.known() && !self.daemons.is_empty() && self.daemons.values().all(|d| d.turn_end)
     }
 
     /// The machine's `phases` block: every daemon's turns, relayed only when every daemon's
@@ -272,8 +281,9 @@ impl Session {
         self.acp.lapsed_busy.remove(&id);
         self.acp.absent_known = false;
         let phases = read_phases(line, sessions);
+        let turn_end = line.field("turn_end").as_u64() == Some(1);
         let expires_at = now + ACP_ACTIVITY_TTL_MS;
-        self.acp.daemons.insert(id, AcpDaemon { sessions, expires_at, phases });
+        self.acp.daemons.insert(id, AcpDaemon { sessions, expires_at, phases, turn_end });
         self.acp_refresh(now)
     }
 
@@ -321,11 +331,13 @@ impl Session {
     }
 
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
-    /// it while acpmux's count is known, `activity-phases` with that while its phases are, and
+    /// it while acpmux's count is known, `activity-phases` with that while its phases are,
+    /// `activity-turn-end` with `activity-turns` while every daemon promised it, and
     /// `activity-workload` with `activity` while the workload probe reads.
     fn daemon_now(&self) -> DaemonInfo {
         self.base
             .with_activity(self.stream_live, self.acp.known(), self.acp.phases().is_some())
+            .with_turn_end(self.acp.turn_end())
             .with_workload(self.workload.is_some())
     }
 
@@ -815,6 +827,62 @@ mod tests {
 
     fn acp_from(daemon: &str, turns: u64) -> String {
         json!({"acp_activity": {"turns": turns, "daemon": daemon}}).to_string()
+    }
+
+    /// Old vs new: an acpmux line without `turn_end` (every daemon before it) never earns
+    /// `activity-turn-end`; one with `"turn_end": 1` does, alongside `activity-turns`; a machine
+    /// with one old and one new daemon gets none; and it goes when the counts lapse.
+    #[test]
+    fn activity_turn_end_needs_every_daemons_promise() {
+        use super::super::wire::{
+            ACTIVITY_CAPABILITY, ACTIVITY_TURN_END_CAPABILITY, ACTIVITY_TURNS_CAPABILITY,
+        };
+        let new = |daemon: &str, turns: u64| {
+            json!({"acp_activity": {"turns": turns, "daemon": daemon, "turn_end": 1}}).to_string()
+        };
+        let has = |s: &Session| {
+            s.reporter.daemon().capabilities.iter().any(|c| c == ACTIVITY_TURN_END_CAPABILITY)
+        };
+        let base = DaemonInfo { version: "v".into(), capabilities: vec![] };
+        assert_eq!(
+            base.with_activity(true, false, false).with_turn_end(true).capabilities,
+            [ACTIVITY_CAPABILITY],
+            "never without `activity-turns`"
+        );
+        assert_eq!(
+            base.with_activity(true, true, false).with_turn_end(true).capabilities,
+            [ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY, ACTIVITY_TURN_END_CAPABILITY]
+        );
+
+        // Old: no `turn_end` field, no capability.
+        let mut s = session();
+        s.activity_stream(true, 0);
+        s.line(&acp_from("/a.sock", 0), 1_000);
+        assert!(s.reporter.daemon().capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY));
+        assert!(!has(&s), "an acpmux older than `turn_end`");
+        // A version this agent does not know is no promise either.
+        s.line(
+            &json!({"acp_activity": {"turns": 0, "daemon": "/a.sock", "turn_end": 2}}).to_string(),
+            2_000,
+        );
+        assert!(!has(&s));
+
+        // New: the same daemon now promises it.
+        s.line(&new("/a.sock", 0), 3_000);
+        assert!(has(&s));
+        s.line(&new("/a.sock", 1), 4_000);
+        assert!(has(&s), "the promise holds while a turn runs too");
+
+        // Mixed: a second, older daemon takes it away until it lapses.
+        s.line(&acp_from("/b.sock", 0), 5_000);
+        assert!(!has(&s), "one daemon's 0 may hide pending work");
+        s.line(&new("/a.sock", 0), 5_000 + ACP_ACTIVITY_TTL_MS - 1_000);
+        s.fire(5_000 + ACP_ACTIVITY_TTL_MS);
+        assert!(has(&s), "the old daemon lapsed idle");
+
+        // Every count lapsed: no promise.
+        s.fire(5_000 + 3 * ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s));
     }
 
     /// cmux#33330: two acpmux daemons on one machine. The idle one's renewal never replaces the
