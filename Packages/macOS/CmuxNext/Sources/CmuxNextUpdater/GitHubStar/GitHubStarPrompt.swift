@@ -52,7 +52,7 @@ public final class GitHubStarPrompt {
     public func start() {
         guard !listening else { return }
         listening = true
-        PromptSentSignal.subscriber = { [weak self] in self?.recordPromptSent() }
+        PromptSentSignal.shared.subscriber = { [weak self] in self?.recordPromptSent() }
     }
 
     public func recordPromptSent() {

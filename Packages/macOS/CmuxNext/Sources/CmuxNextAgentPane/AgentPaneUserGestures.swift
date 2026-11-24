@@ -305,7 +305,7 @@ import CmuxNextWakeups
         dropTickets { !$1.isFresh(at) || ($1.connection == connection && $1.intent.slot == intent.slot) }
         if intent.method == "session/prompt" {
             // The GitHub star ask counts the person's sends (GitHubStarPrompt, t3code's rule).
-            if postedUnder == nil { PromptSentSignal.send() }
+            if postedUnder == nil { PromptSentSignal.shared.send() }
             let prompts = tickets.filter { $0.value.connection == connection && $0.value.intent.method == intent.method }
             var excess = prompts.count - (Self.promptTicketsKept - 1)
             for old in prompts.filter({ at - $0.value.at > $0.value.intent.lifetime }).sorted(by: { $0.value.order < $1.value.order }) {
