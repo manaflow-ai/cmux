@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextTabs
@@ -35,6 +36,9 @@ import Testing
         #expect(try icon(store) == .terminal)
         _ = store.apply(.agentChanged(claude(on: 3)))
         #expect(try icon(store) == .agentMark("claude"), "the tab of the reported terminal draws Claude's mark")
+        // A terminal agent's mark draws on a tile, not bare as a chat's (Leo 2026-11-24, AgentRunSurface).
+        let tab = try #require(store.workspaces.first?.allTabs.first)
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "Terminal").agentRunSurface == .terminal)
     }
 
     @Test func theConnectSeedMarksTheRestoredTab() throws {

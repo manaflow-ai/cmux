@@ -1,3 +1,4 @@
+public import CmuxAgentBrands
 public import CmuxNextDesign
 public import CmuxNextIcons
 
@@ -8,6 +9,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// Working directory or URL. Shown in the hover card.
     public var subtitle: String?
     public var icon: TabIcon
+    /// Where the agent of an `.agentMark` icon runs: a terminal agent's mark draws on a tinted
+    /// rounded square, a chat's bare (`AgentRunSurface`, the iPhone's Feed avatars' rule).
+    public var agentRunSurface: AgentRunSurface = .chat
     public var isPinned: Bool
     /// False for a tab the person cannot close (the Home tab of a pinned
     /// dock column, `pinned-dock-v1`): it shows no close button, and Cmd-W

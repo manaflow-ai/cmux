@@ -9,17 +9,30 @@ final class TabAgentMarkCache {
     /// The mark fills about the symbol's optical size inside the icon square.
     private static let fill: CGFloat = 0.82
 
-    func image(brand: String, tint: NSColor, size: CGFloat, scale: CGFloat) -> CGImage? {
+    /// The tile behind a terminal agent's mark: the tint at this alpha, the mark at `tileFill` of its side.
+    private static let tileAlpha: CGFloat = 0.18
+    private static let tileFill: CGFloat = 0.66
+
+    /// `surface` `.terminal` draws the mark smaller on a rounded square of the tint (a terminal
+    /// agent, as the iPhone's Feed avatars draw it, `AgentRunSurface`); `.chat` the bare mark.
+    func image(brand: String, tint: NSColor, size: CGFloat, scale: CGFloat, surface: AgentRunSurface = .chat) -> CGImage? {
         guard let spec = AgentBrandCatalog.spec(for: AgentBrandID(rawValue: brand))?.variant(forPointSize: Double(size)) else { return nil }
         let resolved = tint.usingColorSpace(.sRGB) ?? tint
-        let key = "\(brand)|\(resolved.redComponent)|\(resolved.greenComponent)|\(resolved.blueComponent)|\(resolved.alphaComponent)|\(size)|\(scale)"
+        let key = "\(brand)|\(resolved.redComponent)|\(resolved.greenComponent)|\(resolved.blueComponent)|\(resolved.alphaComponent)|\(size)|\(scale)|\(surface.rawValue)"
         if let cached = cache[key] { return cached }
         let pixels = Int((size * scale).rounded())
         guard pixels > 0, let context = CGContext(
             data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
-        let side = CGFloat(pixels) * Self.fill
+        if surface == .terminal {
+            let box = CGRect(x: 0, y: 0, width: pixels, height: pixels)
+            let radius = surface.cornerRadius(side: CGFloat(pixels))
+            context.addPath(CGPath(roundedRect: box, cornerWidth: radius, cornerHeight: radius, transform: nil))
+            context.setFillColor(resolved.withAlphaComponent(resolved.alphaComponent * Self.tileAlpha).cgColor)
+            context.fillPath()
+        }
+        let side = CGFloat(pixels) * (surface == .terminal ? Self.tileFill : Self.fill)
         let inset = (CGFloat(pixels) - side) / 2
         AgentBrandRenderer.draw(
             spec, in: context, rect: CGRect(x: inset, y: inset, width: side, height: side),

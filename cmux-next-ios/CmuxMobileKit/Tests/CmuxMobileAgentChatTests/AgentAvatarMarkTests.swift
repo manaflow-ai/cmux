@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentBrands
 import CmuxMobileDesign
 import Testing
 import UIKit
@@ -49,6 +50,16 @@ import UIKit
         #expect(AgentAvatarMark.fallbackSymbol("terminal") == "terminal")
         #expect(AgentAvatarMark.fallbackSymbol("lint-bot") == "sparkle")
         #expect(!AgentAvatarMark.rendered(harness: "lint-bot", side: 40, scale: 3).isMark)
+    }
+
+    /// Leo, 2026-11-24: "terminal agent chats. can they be demarcated a bit differently ... than gui
+    /// agent chats". A chat's avatar is a circle; a terminal agent's a rounded square, the same mark.
+    @Test func aTerminalAgentSitsOnARoundedSquareAndAChatOnACircle() {
+        #expect(AgentAvatarMark.cornerRadius(side: 40, surface: .chat) == 20)
+        #expect(AgentAvatarMark.cornerRadius(side: 40, surface: .terminal) == 12)
+        #expect(AgentAvatarMark.cornerRadius(side: 30, surface: .terminal) == 9)
+        #expect(AgentRunSurface(inTerminal: true) == .terminal && AgentRunSurface(inTerminal: false) == .chat)
+        #expect(AgentRunSurface.terminal.spokenSuffix == "in a terminal" && AgentRunSurface.chat.spokenSuffix.isEmpty)
     }
 
     @Test func aHarnessIsDrawnOnceThenShared() {

@@ -18,7 +18,8 @@ extension TabCell {
                                                size: metrics.iconSize, scale: scale)
         case .image(let image): return image.cgImage
         case .agentMark(let brand):
-            return TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: metrics.iconSize, scale: scale)
+            return TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: metrics.iconSize, scale: scale,
+                                                  surface: item.agentRunSurface)
                 ?? TabPackIconCache.shared.image(name: .tabTerminal, tint: tint, size: metrics.iconSize, scale: scale)
         case .icon(let name):
             // The pack fills the icon box; without a drawing, the catalog's SF Symbol at text size.

@@ -285,7 +285,7 @@ final class TabHoverCardView: NSView {
         let cg: CGImage? = switch item?.icon {
         case .image(let image)?: image.cgImage
         case .agentMark(let brand)?:
-            TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale)
+            TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale, surface: item?.agentRunSurface ?? .chat)
         case .icon(let name)?:
             TabPackIconCache.shared.image(name: name, tint: tint, size: size, scale: scale)
                 ?? TabSymbolCache.shared.image(named: IconCatalog.bundled.entry(for: name)?.sf ?? "questionmark.square.dashed",

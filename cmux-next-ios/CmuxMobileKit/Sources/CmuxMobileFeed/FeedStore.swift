@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxAgentQuestion
 import CmuxMobileAgentChat
 import CmuxMobileModel
@@ -65,6 +66,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
     /// The event came from a terminal tab (a terminal agent's notification):
     /// opening it shows the terminal, and it takes no inline reply.
     public var opensTerminal = false
+    /// Where the sending agent runs, which its avatar's shape shows: a terminal agent's mark sits
+    /// on a rounded square, a chat's on a circle (`AgentRunSurface`).
+    public var runSurface: AgentRunSurface { AgentRunSurface(inTerminal: opensTerminal) }
     /// The Mac whose agent sent the event: answers, replies and opens go to
     /// that Mac's link, never the chosen one's (nil: mock content, old archives).
     public var macID: String?

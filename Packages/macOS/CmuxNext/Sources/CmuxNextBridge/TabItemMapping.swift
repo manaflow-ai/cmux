@@ -72,6 +72,8 @@ public struct TabItemMapping {
             status: status(tab)
         )
         item.isNewTabPage = isNewTabPage
+        // A live terminal's agent (Claude Code, Codex in a terminal) wears its mark on a tile; a chat's is bare.
+        item.agentRunSurface = AgentRunSurface(inTerminal: !isConversation && !isBrowser && !tab.dead && tab.agentBrand != nil)
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         // A terminal title's spinner glyph (`⠐ Fix the bug`) shows as the working mark, not as text.
         else if item.indicator == .idle, tab.titleActivity == .working, DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs { item.indicator = .working(progress: nil) }

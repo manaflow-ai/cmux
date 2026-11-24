@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentBrands
 import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
@@ -34,10 +35,13 @@ struct FeedPeekView: View {
     /// The row's place header: who, and where it happened.
     private var header: some View {
         HStack(spacing: 10) {
+            // A terminal agent's on a rounded square, a chat's on a circle (`AgentRunSurface`).
             Image(systemName: AgentAvatarMark.fallbackSymbol(item.harness))
                 .font(.system(size: 13, weight: .semibold))
                 .frame(width: 30, height: 30)
-                .background(Color.cmuxMobileSurfaceRaised, in: Circle())
+                .background(Color.cmuxMobileSurfaceRaised,
+                            in: RoundedRectangle(cornerRadius: AgentAvatarMark.cornerRadius(side: 30, surface: item.runSurface),
+                                                 style: item.runSurface == .chat ? .circular : .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.agentName).font(.subheadline.weight(.semibold)).lineLimit(1)

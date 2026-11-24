@@ -102,6 +102,8 @@ let package = Package(
         .target(name: "CmuxMobileFeed", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
+            // A row's avatar shape: chat (circle) or terminal agent (rounded square), `AgentRunSurface`.
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(
@@ -240,7 +242,8 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileNotificationsTests", dependencies: ["CmuxMobileNotifications"]),
         .testTarget(name: "CmuxMobileTransportTests", dependencies: ["CmuxMobileTransport"]),
-        .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileRealtime"]),
+        .testTarget(name: "CmuxMobileAgentChatTests", dependencies: ["CmuxMobileAgentChat", "CmuxMobileDiff", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileRealtime",
+                                                                     .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")]),
         .testTarget(name: "CmuxMobileTerminalTests", dependencies: [
             "CmuxMobileTerminal", "CmuxMobileDesign",
             .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),

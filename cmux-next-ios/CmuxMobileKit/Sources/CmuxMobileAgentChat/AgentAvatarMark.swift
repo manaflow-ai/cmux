@@ -9,6 +9,10 @@ import UIKit
 /// in its owner's colors, centered in a circle softly tinted with the mark's color. A harness with
 /// no mark (a terminal, an unknown agent) keeps its SF Symbol on the raised gray circle.
 ///
+/// A terminal agent (Claude Code or Codex in a terminal tab) draws the same mark on a rounded
+/// square instead of the circle (`AgentRunSurface`, shared with the Mac's tab strip): the shape
+/// tells a terminal agent from a GUI agent chat with nothing added to the mark.
+///
 /// The marks are painted in the `.brand` style, so each owner's color rules hold (the Codex mark
 /// is black or white only, and so is its circle's tint).
 public enum AgentAvatarMark {
@@ -34,6 +38,12 @@ public enum AgentAvatarMark {
         case "terminal": "terminal"
         default: "sparkle"
         }
+    }
+
+    /// The corner radius of the avatar's container `side` points across: a circle for a chat,
+    /// a rounded square for a terminal agent.
+    public static func cornerRadius(side: CGFloat, surface: AgentRunSurface) -> CGFloat {
+        surface.cornerRadius(side: side)
     }
 
     /// The circle's tint behind a mark: the mark's color (its tile's, when it sits on one), packed
@@ -100,15 +110,23 @@ public enum AgentAvatarMark {
     }
 }
 
-/// The round avatar in SwiftUI, by `AgentAvatarMark`'s rule.
+/// The avatar in SwiftUI, by `AgentAvatarMark`'s rule: a circle for a chat, a rounded square for
+/// a terminal agent.
 public struct AgentAvatar: View {
     private let harness: String
     private let side: CGFloat
+    private let surface: AgentRunSurface
     @Environment(\.colorScheme) private var colorScheme
 
-    public init(harness: String, side: CGFloat = 32) {
+    public init(harness: String, side: CGFloat = 32, surface: AgentRunSurface = .chat) {
         self.harness = harness
         self.side = side
+        self.surface = surface
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: AgentAvatarMark.cornerRadius(side: side, surface: surface),
+                         style: surface == .chat ? .circular : .continuous)
     }
 
     public var body: some View {
@@ -118,12 +136,12 @@ public struct AgentAvatar: View {
                 AgentBrandMark(agent: AgentSenderIcon.family(harness), size: (side * AgentAvatarMark.markShare).rounded(), style: .brand)
                     .frame(width: side, height: side)
                     .background(Color(red: Double((tint.rgb >> 16) & 0xFF) / 255, green: Double((tint.rgb >> 8) & 0xFF) / 255,
-                                      blue: Double(tint.rgb & 0xFF) / 255).opacity(tint.opacity), in: .circle)
+                                      blue: Double(tint.rgb & 0xFF) / 255).opacity(tint.opacity), in: shape)
             } else {
                 Image(systemName: AgentAvatarMark.fallbackSymbol(harness))
                     .font(.system(size: side * AgentAvatarMark.symbolShare, weight: .medium))
                     .frame(width: side, height: side)
-                    .background(Color.cmuxMobileSurfaceRaised, in: .circle)
+                    .background(Color.cmuxMobileSurfaceRaised, in: shape)
             }
         }
         .accessibilityHidden(true)

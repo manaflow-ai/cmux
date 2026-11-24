@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentBrands
 import CmuxAgentQuestion
 import CmuxSpinner
 import OSLog
@@ -267,7 +268,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if let harness = cell.current?.harness { cell.applyAvatar(harness) }
+            if let item = cell.current { cell.applyAvatar(item) }
         }
     }
 
@@ -329,7 +330,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.frame = layout.avatar
         avatarGlyph.frame = avatar.bounds
-        applyAvatar(item.harness)
+        applyAvatar(item)
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
         unread.frame = CGRect(x: layout.avatar.maxX - 9 + 2, y: layout.avatar.minY - 2, width: 9, height: 9)
@@ -394,6 +395,9 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         if spokenDate?.date != item.createdAt { spokenDate = (item.createdAt, Self.fullDate.string(from: item.createdAt)) }
         let date = spokenDate?.text ?? ""
         time.accessibilityLabel = date
+        // The avatar's shape says a terminal agent sent it; VoiceOver hears it with the name.
+        let surface = item.runSurface
+        name.accessibilityLabel = surface == .chat ? nil : "\(item.agentName), \(surface.spokenSuffix)"
         let frame = layout.header
         if styles.isAccessibilitySize {
             // At accessibility sizes the source wraps under the name instead of truncating.
@@ -756,11 +760,15 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
     }
 
     /// The sender's avatar (`AgentAvatarMark`): the agent's own mark on a circle tinted with its
-    /// color, or a symbol on the raised gray circle. The images are drawn once per harness and
-    /// shared, so a row only reads the cache.
-    private func applyAvatar(_ harness: String) {
+    /// color, or a symbol on the raised gray circle; a terminal agent's on a rounded square
+    /// (`FeedItem.runSurface`). The images are drawn once per harness and shared, so a row only
+    /// reads the cache.
+    private func applyAvatar(_ item: FeedItem) {
         let scale = traitCollection.displayScale
-        let rendered = AgentAvatarMark.rendered(harness: harness, side: 40, scale: scale)
+        let rendered = AgentAvatarMark.rendered(harness: item.harness, side: 40, scale: scale)
+        let surface = item.runSurface
+        avatar.layer.cornerRadius = AgentAvatarMark.cornerRadius(side: 40, surface: surface)
+        avatar.layer.cornerCurve = surface == .chat ? .circular : .continuous
         avatar.backgroundColor = rendered.fill
         avatarGlyph.image = rendered.glyph(dark: traitCollection.userInterfaceStyle == .dark)
     }
