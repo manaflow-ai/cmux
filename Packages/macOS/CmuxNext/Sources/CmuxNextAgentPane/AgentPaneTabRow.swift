@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import CmuxNextDesign
 import CmuxNextSettings
+import Foundation
 
 /// A chat's header tools in its pane's tab row (header/tabRow.ts):
 /// the width the page last reported for them (`pane.tabRowTools {width}`, CSS pixels) and the row
@@ -36,9 +37,37 @@ import CmuxNextSettings
     /// (``sharedWidth(zoom:)``). A report, 0 included, ends it.
     private var awaitingReport = false
 
-    /// The page reported its tools' width.
-    func report(width: CGFloat) {
-        if width > 0 { neededWidth = width }
+    /// Where the tools' last width is kept across launches (``AgentPaneModel`` passes the app's defaults; nil keeps
+    /// nothing, as in tests).
+    private let defaults: UserDefaults?
+    static let keptWidthKey = "agentPane.tabRowToolsWidth"
+
+    /// A new chat view's row. With a width kept from an earlier launch, the row starts as a reloaded page's does
+    /// (``sharedWidth(zoom:)``): the pane lays the chat under the strip from its first layout. A row that waited for
+    /// the page's first report laid the chat below the strip, then under it once the page reported, after every
+    /// launch: the header grew by 6 and the composer dropped by the row's 34 just after the chat drew (relaunch-shift
+    /// bench; Leo, 2026-11-14: "too much render shift when the thing restarts to update").
+    init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults
+        let kept = CGFloat(defaults?.double(forKey: Self.keptWidthKey) ?? 0)
+        if kept > 0 {
+            neededWidth = kept
+            awaitingReport = true
+        }
+    }
+
+    /// The page reported its tools' width, and their `need`: the width less what takes only the row's leftover room
+    /// (the chat's rolling summary, header/tabRow.ts TAB_ROW_ACCESSORY). The need, not the width, is what decides
+    /// whether a pane offers the row: a summary measured in a wide pane made the tools need more than half of the row
+    /// once the pane was split, and the chat's tools dropped to a second row under the tabs (Leo 2026-11-22: "the icons
+    /// on the top right have gotten displaced due to putting things on a line"). A page that sends no need (older) has
+    /// its width as the need.
+    func report(width: CGFloat, need: CGFloat? = nil) {
+        if width > 0 {
+            let needed = min(width, need.map { $0 > 0 ? $0 : width } ?? width)
+            if abs(needed - neededWidth) >= 0.5 { defaults?.set(Double(needed), forKey: Self.keptWidthKey) }
+            neededWidth = needed
+        }
         let awaited = awaitingReport
         awaitingReport = false
         guard width != toolsWidth || awaited else { return }

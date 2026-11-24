@@ -385,7 +385,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           language,
           open: state.sections.context,
           onCompact: props.onCompact,
-          onViewPrompt: props.onViewPrompt,
           openLists,
           onToggleList: (id) =>
             setOpenLists((was) => {

@@ -26,6 +26,7 @@ pub mod agent;
 pub mod agent_credentials;
 pub mod agent_displays;
 pub mod agent_guidance;
+pub mod agent_home;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
@@ -59,6 +60,7 @@ pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
+pub mod close_why;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
@@ -75,6 +77,7 @@ mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
+mod codex_signed_out;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
@@ -94,6 +97,7 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_usage;
 pub mod folder_instructions;
 #[cfg(all(test, unix))]
 mod fork_tests;
@@ -108,7 +112,11 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 #[cfg(unix)]
+pub mod github_lane_mint;
+#[cfg(unix)]
 pub mod github_mcp;
+#[cfg(unix)]
+pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
@@ -123,6 +131,13 @@ pub mod github_mcp {
 
     pub async fn run() -> anyhow::Result<()> {
         anyhow::bail!("acpmux github-mcp runs only on a cmux Cloud machine")
+    }
+}
+/// Machines a Mac lends GitHub are unix machines (`github_session_env.rs`).
+#[cfg(not(unix))]
+pub mod github_session_env {
+    pub fn lent() -> bool {
+        false
     }
 }
 pub mod github_status;
@@ -235,6 +250,8 @@ pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+// A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
@@ -261,9 +278,11 @@ pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
 pub mod race_records;
+pub mod range_fetch;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -287,6 +306,8 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod sent_by;
 pub mod server;
+mod session_budget;
+mod session_disk;
 pub mod session_env;
 mod session_handle;
 pub mod session_icon;
@@ -305,6 +326,7 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
@@ -321,6 +343,7 @@ pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
+pub mod scorecard;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -339,6 +362,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;
@@ -362,6 +386,7 @@ mod test_stack;
 pub mod test_support;
 pub(crate) mod time_breakdown;
 pub(crate) mod tool_env;
+pub mod tool_mentions;
 pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
