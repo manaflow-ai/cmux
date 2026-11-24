@@ -91,6 +91,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "watch_ls",
             "watch_rm",
             "send_status",
+            "wait",
+            "cancel",
             "machine_read",
             "machine_edit",
             "machine_exec"
