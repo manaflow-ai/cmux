@@ -336,16 +336,10 @@ final class CloudService {
         })
         // After sleep the list is stale even with cmux in front: the idle
         // auto-pause may have parked machines while the lid was closed.
+        // The place driver hears sleep and wake from the app's one presence adapter (``FeedService``).
         observers.append(Task { [weak self] in
-            for await note in NSWorkspace.shared.notificationCenter.notifications(named: nil) {
-                switch note.name {
-                case NSWorkspace.didWakeNotification:
-                    self?.placeDriver?.slept(false)
-                    await self?.refresh(ifOlderThan: .seconds(30))
-                // Auto starts its moves as the system is about to sleep.
-                case NSWorkspace.willSleepNotification: self?.placeDriver?.slept(true)
-                default: continue
-                }
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
+                await self?.refresh(ifOlderThan: .seconds(30))
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and

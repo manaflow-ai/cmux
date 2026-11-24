@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 
 /// Bring Back Local (cmuxterm-hq#1874 slice 4): the one action behind the palette's "Bring Back
