@@ -52,13 +52,6 @@ pub enum Delivery {
     Screen,
 }
 
-impl Delivery {
-    /// Whether messages of this delivery keep only the newest.
-    fn latest(self) -> bool {
-        matches!(self, Self::Latest | Self::Screen)
-    }
-}
-
 /// The datagram kind of a class message fragment (liveness pings are 1, pongs 2).
 pub(crate) const DATAGRAM_CLASS: u8 = 3;
 /// The datagram kind of a screen message fragment: the same header as
@@ -153,6 +146,39 @@ pub(crate) fn parse_datagram(datagram: &[u8]) -> Option<Fragment> {
     })
 }
 
+/// A [`Delivery::Screen`] channel's state shared by its sender and its
+/// route: the newest message the peer acknowledged, and how many copies of
+/// each datagram to send.
+#[derive(Debug)]
+pub(crate) struct ScreenState {
+    /// Newest acknowledged message number plus one (0: none).
+    acked: std::sync::atomic::AtomicU64,
+    copies: std::sync::atomic::AtomicUsize,
+}
+
+impl ScreenState {
+    pub(crate) fn new() -> Self {
+        Self { acked: 0.into(), copies: COPIES.into() }
+    }
+
+    pub(crate) fn acknowledge(&self, seq: u64) {
+        self.acked.fetch_max(seq.saturating_add(1), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn base(&self) -> Option<u64> {
+        self.acked.load(std::sync::atomic::Ordering::Relaxed).checked_sub(1)
+    }
+
+    pub(crate) fn copies(&self) -> usize {
+        self.copies.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn set_surface(&self, visible: bool, attending: bool) {
+        let copies = if attending { COPIES } else { usize::from(visible) };
+        self.copies.store(copies, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// A screen acknowledgement datagram for message `seq` of `channel`.
 pub(crate) fn screen_ack(channel: u32, seq: u64) -> Vec<u8> {
     let mut datagram = Vec::with_capacity(SCREEN_ACK_LEN);
@@ -166,7 +192,10 @@ pub(crate) fn parse_screen_ack(datagram: &[u8]) -> Option<(u32, u64)> {
     if datagram.len() != SCREEN_ACK_LEN || datagram[0] != DATAGRAM_SCREEN_ACK {
         return None;
     }
-    Some((u32::from_be_bytes(datagram[1..5].try_into().ok()?), u64::from_be_bytes(datagram[5..13].try_into().ok()?)))
+    Some((
+        u32::from_be_bytes(datagram[1..5].try_into().ok()?),
+        u64::from_be_bytes(datagram[5..13].try_into().ok()?),
+    ))
 }
 
 /// What a sender puts on the wire for a screen message: `base` (or
