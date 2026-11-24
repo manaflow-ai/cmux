@@ -492,6 +492,7 @@ impl Hub {
                             agent_error.as_deref(),
                             &e.message,
                         ),
+                        slash: None,
                     })
                 }
                 _ => None,
