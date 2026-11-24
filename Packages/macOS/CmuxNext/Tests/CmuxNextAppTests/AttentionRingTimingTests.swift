@@ -143,7 +143,9 @@ struct AttentionRingTimingTests {
         fixture.controller.showWorkspace(requested: fixture.b.id)
         try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.b }, report: { "workspace b never showed" })
         let model = try #require(fixture.controller.content?.layoutModel)
-        let overlay = try #require(fixture.controller.content?.layoutView.context.hosts[pane]?.chrome, "b's pane has no overlay")
+        let layoutView = try #require(fixture.controller.content?.layoutView)
+        layoutView.context.reduceMotionOverride = false // this view's motion: the process-wide override can be reset by a suite beside this one
+        let overlay = try #require(layoutView.context.hosts[pane]?.chrome, "b's pane has no overlay")
         try await PinnedPageTests.until({ model.attention[pane] != nil && overlay.attentionRingShown }, report: { "b's ring never drew" })
         fixture.controller.showWorkspace(requested: fixture.a.id)
         try await PinnedPageTests.until({ fixture.controller.content?.workspace === fixture.a && fixture.controller.focus.state.pane != fixture.ringing.id })
@@ -153,8 +155,11 @@ struct AttentionRingTimingTests {
         #expect(model.attention[pane] == nil && model.attentionReadByEntry.contains(pane), "the switch did not read b's ring")
         #expect(overlay.attentionLayer.isHidden, "the read ring blinks over the old workspace's frame")
         try await PinnedPageTests.until({ !model.holdsAttentionUntilShown }, report: { "the hold never ended" })
-        try await PinnedPageTests.until({ overlay.attentionAnimationKeys.contains("attention-dismiss") },
-                                        report: { "the switch took b's ring without the dismiss blink on the overlay" })
+        try await PinnedPageTests.until({ overlay.attentionAnimationKeys.contains("attention-dismiss") }, report: {
+            "the switch took b's ring without the dismiss blink on the overlay (ring shown \(overlay.attentionRingShown), keys \(overlay.attentionAnimationKeys), "
+                + "read by entry \(model.attentionReadByEntry.contains(pane)), live \(layoutView.isLive), animates \(layoutView.canAnimate), "
+                + "motion off \(Motion.reduceMotion), same overlay \(layoutView.context.hosts[pane]?.chrome === overlay))"
+        })
         #expect(!overlay.attentionLayer.isHidden, "the blink plays hidden")
     }
 
