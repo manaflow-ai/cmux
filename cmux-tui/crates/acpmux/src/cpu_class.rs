@@ -203,7 +203,17 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
             Ok(())
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    // A daemon that took a negative nice (`daemon_priority.rs`) starts its harness at no better
+    // than the default: the daemon outranks its agents, never lends them its rank.
+    #[cfg(unix)]
+    // SAFETY: as above: getpriority(2) and setpriority(2) on itself, async-signal-safe.
+    unsafe {
+        cmd.pre_exec(|| {
+            crate::qos::at_least_default_nice();
+            Ok(())
+        });
+    }
+    #[cfg(not(unix))]
     let _ = cmd;
 }
 

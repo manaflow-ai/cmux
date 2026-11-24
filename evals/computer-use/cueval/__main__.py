@@ -46,6 +46,8 @@ def main(argv=None) -> int:
 
     rp = sub.add_parser("report", help="render out/report.html")
     rp.add_argument("--out", default="out")
+    rp.add_argument("--runs", help="comma list of run ids (default: every run in --out)")
+    rp.add_argument("--reparse", action="store_true", help="rebuild calls.jsonl from the stored stream logs first")
 
     a = p.parse_args(argv)
     if a.cmd == "selftest":
@@ -60,6 +62,12 @@ def main(argv=None) -> int:
         for t in load_tasks(split=a.split):
             print(f"{t['id']:28} {t['split']:8} {','.join(t['platforms']):20} {t['title']}")
         return 0
+    if a.cmd == "report":
+        if a.reparse:
+            runner.reparse(a.out)
+        print(report.text_summary(a.out, a.runs.split(",") if a.runs else None))
+        print(f"report: {report.render(a.out)}")
+        return 0
     arms = a.arms.split(",")
     ids = a.tasks.split(",") if a.tasks else None
     if a.cmd == "prereg":
@@ -72,6 +80,7 @@ def main(argv=None) -> int:
         print(f"wrote {a.out} (digest {reg['digest'][:12]}); commit it before the run")
         return 0
     runner.run(arms, a.agent, a.model, a.trials, a.out, ids, a.split, a.seed, a.prereg, a.max_turns_cap)
+    print(report.text_summary(a.out))
     print(f"report: {report.render(a.out)}")
     return 0
 
