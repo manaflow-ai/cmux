@@ -12,7 +12,10 @@
 // Options: --speed X (virtual time X times real time, default 1), --max-gap MS (the longest real wait
 // between two steps, default 1500), --width PX (default 720), --height PX (default 900), --shot-every N
 // (a screenshot every N steps too), --motion on|off (default on), --max-seconds S (stop the run there,
-// default 600). Needs Chrome: Linux, a lane VM or CI (never a Mac, as for the browser lane).
+// default 600), --start S / --end S (play only that window of the full playback, s as a whole run's
+// video reads: the history before it is drawn at once; with a full ffmpeg the video is cut to the window,
+// scripts/chat-sim-video.ts), --arm NAME (the follow-motion arm: send, steady, blocks, linear, ...).
+// Needs Chrome: Linux, a lane VM or CI (never a Mac, as for the browser lane).
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { WatchOptions, WatchResult, WatchShot } from "../test/browser/chat-sim.harness";
@@ -20,6 +23,7 @@ import { CHAT_SIM_PAGE, startChatSimServer } from "../test/support/chatSimServer
 import { NO_PLAYWRIGHT_ON_MACS, playwrightRefusedHere, useSystemChrome } from "../test/support/systemChrome";
 import { SCENARIOS, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 import { cutRecords, readRecords } from "./chat-sim-records";
+import { findFfmpeg, stackClips } from "./chat-sim-video";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(name);
@@ -33,7 +37,7 @@ function usage(code: number): never {
   console.log(
     readFileSync(import.meta.path, "utf8")
       .split("\n")
-      .slice(1, 15)
+      .slice(1, 18)
       .map((line) => line.replace(/^\/\/ ?/, ""))
       .join("\n"),
   );
@@ -51,7 +55,10 @@ const options: WatchOptions = {
   maxGapMs: number("--max-gap", 1500),
   shotEvery: number("--shot-every", 0),
   maxSeconds: number("--max-seconds", 600),
+  startS: number("--start"),
+  endS: number("--end"),
 };
+const arm = value("--arm");
 const replay = value("--replay");
 if (replay) {
   options.records = cutRecords(readRecords(replay), {
@@ -108,7 +115,17 @@ try {
     viewport: { width, height },
     ...(videoDir ? { recordVideo: { dir: videoDir, size: { width, height } } } : {}),
   });
+  if (arm)
+    await context.addInitScript((pick: string) => {
+      localStorage.setItem("cmux.experiments", JSON.stringify({ "follow-motion": pick }));
+    }, arm);
   const page = await context.newPage();
+  // The recording starts with the page; a window's start is this far into it.
+  const recordingFrom = performance.now();
+  let windowAtS = 0;
+  await page.exposeFunction("__chatSimWindow", async () => {
+    windowAtS = (performance.now() - recordingFrom) / 1000;
+  });
   page.on("pageerror", (error) => console.error(`chat-sim page: ${error.message}`));
   let shot = 0;
   await page.exposeFunction("__chatSimShot", async (at: WatchShot) => {
@@ -121,7 +138,7 @@ try {
     await page.screenshot({ path: file });
   });
   await page.goto(`${base}${CHAT_SIM_PAGE}?width=${width}&motion=${motion}`);
-  await page.waitForFunction(() => "__chatSim" in window);
+  await page.waitForFunction(() => "__chatSim" in window, undefined, { timeout: 120_000 });
   console.log(
     `chat-sim-watch: ${options.name} (${options.records ? `${options.records.length} records, ` : ""}speed ${options.speed}, motion ${motion}, max ${options.maxSeconds} s)`,
   );
@@ -130,10 +147,25 @@ try {
       (window as unknown as { __chatSim: { watch(o: unknown): Promise<unknown> } }).__chatSim.watch(watchOptions),
     options,
   )) as WatchResult;
+  const endedAtS = (performance.now() - recordingFrom) / 1000;
   const video = page.video();
   await context.close();
   if (video && videoOut) {
-    copyFileSync(await video.path(), videoOut);
+    const ffmpeg = options.startS !== undefined || options.endS !== undefined ? findFfmpeg() : undefined;
+    if (ffmpeg && videoOut.endsWith(".mp4")) {
+      const seconds = endedAtS - windowAtS;
+      stackClips(
+        ffmpeg,
+        [{ file: await video.path(), startS: windowAtS, seconds, label: arm ?? options.name! }],
+        videoOut,
+      );
+    } else {
+      copyFileSync(await video.path(), videoOut);
+      if (options.startS !== undefined)
+        console.log(
+          `the window starts ${windowAtS.toFixed(2)} s into the video (an .mp4 --video and a full ffmpeg cut it)`,
+        );
+    }
     console.log(`video: ${videoOut}`);
   }
 } finally {
@@ -146,7 +178,7 @@ if (shotsDir) {
 }
 if (videoDir) rmSync(videoDir, { recursive: true, force: true });
 console.log(
-  `${result!.scenario}: played ${result!.played}/${result!.steps} steps, ${result!.turns} turns, ${Math.round(result!.virtualMs / 1000)} s simulated in ${Math.round(result!.wallMs / 1000)} s${result!.stoppedEarly ? " (stopped at --max-seconds)" : ""}; model-rule violations ${result!.violations}`,
+  `${result!.scenario}: played ${result!.played}/${result!.steps} steps, ${result!.turns} turns, ${Math.round(result!.virtualMs / 1000)} s simulated in ${Math.round(result!.wallMs / 1000)} s${result!.stoppedEarly ? " (stopped at --max-seconds or --end)" : ""}; model-rule violations ${result!.violations}`,
 );
 clearTimeout(hardStop);
 process.exit(0);
