@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Swipe a grid card left to close it, as Safari does. Device reference:
 /// iPhone 17 Pro Max Safari (`swipe-close-device.mp4`, real frame times,
