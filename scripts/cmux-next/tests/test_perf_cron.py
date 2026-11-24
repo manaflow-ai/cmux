@@ -1212,6 +1212,30 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.linux_job_minutes("web-ui"), 40)
         self.assertEqual(cron.linux_job_minutes("web-ui-god"), 40)  # its paired rounds stop inside the suite's cap
 
+    def test_every_web_ui_bench_times_out_inside_its_part_run_cap(self):
+        # chat-100k-flat's suite timeout (1200 s) killed it in long_x20, and the grown run timed out at 1770 s against a
+        # 1800 s run cap: web-ui-flat stored no row after 2026-11-17. A suite timeout must leave the bench time to finish
+        # and sit under the part's run cap, so the suite (not the cap) records which bench ran long.
+        suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts")).read()
+        timeouts = {m.group(1): int(m.group(2).replace("_", "")) for m in cron.re.finditer(
+            r'name: "([^"]+)",(?:(?!\bname: ).)*?timeoutMs: ([\d_]+)', suite, cron.re.S)}
+        self.assertEqual(timeouts["chat-100k-flat"], 2_400_000)
+        self.assertEqual(timeouts["chat-100k-flat-grown"], 3_000_000)
+        checked = 0
+        for part in cron.PARTS:
+            if part.get("where") != "linux" or not part["name"].startswith("web-ui"):
+                continue
+            for argv, _, _ in cron.linux_bench_runs("/r", part["name"]).values():
+                if "--only" not in argv:
+                    continue
+                for bench in argv[argv.index("--only") + 1].split(","):
+                    if bench in timeouts:
+                        checked += 1
+                        self.assertLess(timeouts[bench] / 1000, cron.linux_run_seconds(part["name"]), (part["name"], bench))
+        self.assertGreater(checked, 5)
+        self.assertEqual(cron.linux_job_minutes("web-ui-flat"), 55)
+        self.assertEqual(cron.linux_job_minutes("web-ui-flat-grown"), 65)
+
     def test_a_run_past_its_cap_is_killed_with_its_children(self):
         # subprocess.run's timeout killed only bash: its cargo went on building, and the suite's own cargo build then
         # waited on that build's lock.
