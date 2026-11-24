@@ -161,8 +161,9 @@ export function folderMenu({
 
 /// The folders a `chatFolders` menu lists: the host's list for the chat's machine first (this Mac's
 /// `projectChoices` on this Mac, `machineFolders` on the chat's own other machine, none on a machine
-/// picked that is neither), then the folders its chats work in. On a Cloud machine, no chat's private
-/// `~/chats/<chat>` folder: it is not a folder to pick.
+/// picked that is neither), then the folders its chats work in. No chat's private folder: this Mac's
+/// agent-home folder anywhere (a host list that names one drew it as a bare UUID, cmux#53226), and a
+/// Cloud machine's `~/chats/<chat>` there. Neither is a folder to pick.
 export function chatFolderChoices<F extends { id: string }>({
   known,
   listed,
@@ -178,5 +179,5 @@ export function chatFolderChoices<F extends { id: string }>({
         return [...listed, ...known.filter((folder) => !seen.has(folder.id))];
       })()
     : [...known];
-  return cloudMachine ? merged.filter((folder) => !isCloudChatFolder(folder.id)) : merged;
+  return merged.filter((folder) => !isAgentHome(folder.id) && !(cloudMachine && isCloudChatFolder(folder.id)));
 }
