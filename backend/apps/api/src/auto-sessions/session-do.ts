@@ -61,9 +61,25 @@ export class AutoSessionDO extends DurableObject<Env> {
     return write && r.machine === by.machine ? r : undefined
   }
 
-  private autoMachine(owner: string): Promise<AutoMachine | null> {
+  /**
+   * The owner's Auto machine for a chat of `of.team`: the one they named, else one of their own Cloud machines in
+   * that team, which the owner's index picks and keeps (index-do.ts `autoMachine`, the one lookup every reader
+   * of the Auto machine calls).
+   */
+  private autoMachine(of: { readonly owner: string; readonly team: string | null }): Promise<AutoMachine | null> {
     const ns = this.env.AUTO_SESSION_INDEX_DO!
-    return ns.get(ns.idFromName(owner)).machine()
+    return ns.get(ns.idFromName(of.owner)).autoMachine(of.owner, of.team)
+  }
+
+  /**
+   * A chat that waits for a machine asks for one again when its owner reads it, so a machine made since is found
+   * with no further step. Not at a renewal: those come every 10 s. A look that cannot run leaves the chat waiting.
+   */
+  private async sought(r: AutoRecord): Promise<AutoRecord> {
+    if (r.blocked !== "no_machine") return r
+    const machine = await this.autoMachine(r).catch(() => null)
+    if (machine) await this.machineSet(r.owner, machine)
+    return loadRecord(this.sql) ?? r
   }
 
   /** Sets the alarm to the nearest clock, or clears it. Call it before any await after a write, so the alarm commits with the write. */
@@ -139,7 +155,7 @@ export class AutoSessionDO extends DurableObject<Env> {
       const now = Date.now()
       if ((nextDue(r) ?? Infinity) <= now) {
         // The Auto machine is read only for a lease that ran out; nothing else changed if that read was not needed.
-        const machine = leaseDue(r, now) ? await this.autoMachine(r.owner) : null
+        const machine = leaseDue(r, now) ? await this.autoMachine(r) : null
         await this.apply<null>((current) => {
           const next = tick(current, machine, now)
           return next ? { out: null, rec: next, loud: true } : { out: null }
@@ -186,12 +202,15 @@ export class AutoSessionDO extends DurableObject<Env> {
     return r.ok ? ok(r.value.session) : r
   }
 
-  /** `POST /v1/auto-sessions`: a chat started with no laptop. The Auto machine holds it and has to create it; its first message waits in the inbox. */
-  async createCloud(owner: string, id: string, input: { readonly title: string; readonly harness: string; readonly repo: AutoRepo; readonly message: { readonly id: string; readonly text: string } }): Promise<AutoResult<AutoSessionView>> {
+  /**
+   * `POST /v1/auto-sessions`: a chat started with no laptop. The Auto machine holds it and has to create it; its
+   * first message waits in the inbox. `team`: the caller's, where a machine is looked for when the owner named none.
+   */
+  async createCloud(owner: string, id: string, team: string | null, input: { readonly title: string; readonly harness: string; readonly repo: AutoRepo; readonly message: { readonly id: string; readonly text: string } }): Promise<AutoResult<AutoSessionView>> {
     const seen = loadRecord(this.sql)
     if (seen) return seen.owner === owner ? ok(viewOf(seen, Date.now())) : NOT_FOUND
-    const machine = await this.autoMachine(owner)
-    if (!machine) return { ok: false, code: "auto.no_machine", message: "no Auto machine is set" }
+    const machine = await this.autoMachine({ owner, team })
+    if (!machine) return { ok: false, code: "auto.no_machine", message: "the owner has no Cloud machine for Auto chats" }
     // A repeat of the same request may have made it while the machine was read.
     const again = loadRecord(this.sql)
     if (again) return ok(viewOf(again, Date.now()))
@@ -201,12 +220,15 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   async get(by: AutoCaller): Promise<AutoResult<AutoSessionView>> {
     const r = this.admitted(by, false)
-    return r ? ok(viewOf(r, Date.now())) : NOT_FOUND
+    if (!r) return NOT_FOUND
+    return ok(viewOf(by.kind === "owner" ? await this.sought(r) : r, Date.now()))
   }
 
   /** The chat once its version is past `after`, once it is closed, or at the deadline (at most MAX_WAIT_MS). No timer outlives its request. */
   async wait(owner: string, after: number, waitMs: number): Promise<AutoResult<AutoSessionView>> {
     const deadline = Date.now() + Math.max(0, Math.min(waitMs, MAX_WAIT_MS))
+    const first = this.admitted({ kind: "owner", owner }, false)
+    if (first) await this.sought(first)
     for (;;) {
       const r = this.admitted({ kind: "owner", owner }, false)
       if (!r) return NOT_FOUND
@@ -226,8 +248,9 @@ export class AutoSessionDO extends DurableObject<Env> {
   }
 
   async release(by: AutoCaller, holder: string, epoch: number): Promise<AutoResult<AutoSessionView>> {
-    if (!this.admitted(by, true)) return NOT_FOUND
-    const machine = await this.autoMachine(by.owner)
+    const held = this.admitted(by, true)
+    if (!held) return NOT_FOUND
+    const machine = await this.autoMachine(held)
     const r = await this.apply((current, now) => release(current, by, holder, epoch, machine, now))
     return r.ok ? ok(r.value.session) : r
   }
@@ -332,8 +355,9 @@ export class AutoSessionDO extends DurableObject<Env> {
 
   /** `POST inbox`: a message for the chat from any of the owner's devices. The same id again answers what the first answered. */
   async post(owner: string, message: { readonly id: string; readonly text: string }): Promise<AutoResult<{ readonly state: InboxState; readonly session: AutoSessionView }>> {
-    if (!this.admitted({ kind: "owner", owner }, true)) return NOT_FOUND
-    const machine = await this.autoMachine(owner)
+    const chat = this.admitted({ kind: "owner", owner }, true)
+    if (!chat) return NOT_FOUND
+    const machine = await this.autoMachine(chat)
     const r = await this.apply<InboxState>((current, now) => {
       if (!current.auto) return { fail: "auto.closed", message: "Auto is off for this chat" }
       const sent = sentState(this.sql, message.id)

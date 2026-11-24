@@ -13,11 +13,13 @@ import { SHA256_HEX } from "./snapshots.ts"
  * Callers (callers.ts): the owner (a signed-in session or a person's install), and a machine (the bearer of a VM
  * install bound to a Cloud machine of the owner; its holder is `vm:<that machine>`).
  *
- *   GET  /v1/auto-sessions/machine              owner    -> {team, machine}; 404 auto.no_machine
- *   PUT  /v1/auto-sessions/machine              owner    {team, machine} -> {team, machine}
+ *   GET  /v1/auto-sessions/machine              owner    -> {team, machine}: the one the owner named, else one of their own Cloud machines
+ *                                                        that the store picks and keeps; 404 auto.no_machine when they have none
+ *   PUT  /v1/auto-sessions/machine              owner    {team, machine} -> {team, machine}; it replaces a pick
  *   GET  /v1/auto-sessions?limit=&cursor=       owner    -> {sessions, nextCursor}
  *   POST /v1/auto-sessions                      owner    {title?, harness, repo: {remote, branch}, firstMessage: {id, text}}
  *                                                        -> 201 {session}: the Auto machine holds it, assignment `create`; 409 auto.no_machine
+ *                                                        only when the owner named none and has no Cloud machine of their own
  *   GET  /v1/auto-sessions/assignments?timeoutMs=  machine  -> {assignments: [{kind, session}]}, held until one exists or the deadline
  *   PUT  /v1/auto-sessions/:id                  owner    {auto, title, harness, device, keepInCloud?, repo?} -> {session}; the first call makes it,
  *                                                        held by `device:<device>` at epoch 1; `{auto: false}` closes it, 409 auto.held_in_cloud while a machine holds it
@@ -205,7 +207,7 @@ const collection = async (request: Request, env: Env): Promise<Response> => {
     const cursor = url.searchParams.get("cursor")
     const before = cursor ? decodeCursor(cursor) : undefined
     if (before === null) return invalid("cursor: use the nextCursor of the previous page")
-    const page = await indexOf(env, by.owner).list(Math.max(1, bounded(url.searchParams.get("limit"), 50, 100)), before)
+    const page = await indexOf(env, by.owner).list(by.owner, Math.max(1, bounded(url.searchParams.get("limit"), 50, 100)), before)
     return json({ sessions: page.sessions, nextCursor: page.next ? encodeCursor(page.next) : null })
   }
   const b = await bodyOf(request, MAX_INBOX_TEXT_BYTES * 4 + 4096)
@@ -220,18 +222,22 @@ const collection = async (request: Request, env: Env): Promise<Response> => {
   if (env.CLOUD_MUTATION_LIMIT && !(await env.CLOUD_MUTATION_LIMIT.limit({ key: `auto-session:${by.owner}` })).success) return fail(429, "rate_limited", "too many new chats just now; retry in a minute")
   // The id is the first message's: a retry after a lost answer reaches the chat it made.
   const id = `as_${(await hex(`${by.owner}\u0000${first.id}`)).slice(0, 20)}`
-  return answer(await stub(env, by.owner, id).createCloud(by.owner, id, { title, harness: b.harness, repo, message: { id: first.id, text: first.text } }), session, 201)
+  return answer(await stub(env, by.owner, id).createCloud(by.owner, id, by.team, { title, harness: b.harness, repo, message: { id: first.id, text: first.text } }), session, 201)
 }
 
-/** `GET` and `PUT /v1/auto-sessions/machine`: the owner's Auto machine. Setting one sends the chats that were waiting for a machine to it. */
+/**
+ * `GET` and `PUT /v1/auto-sessions/machine`: the owner's Auto machine. `GET` answers the one they named, else the
+ * one the store picked among their own Cloud machines (it looks in the caller's team when none is kept yet).
+ * `PUT` names one: it replaces a pick, and the chats that were waiting for a machine go to it.
+ */
 const machineSetting = async (request: Request, env: Env): Promise<Response> => {
   if (request.method !== "GET" && request.method !== "PUT") return fail(405, "method_not_allowed", "GET or PUT")
   const by = await callerFor(request, env, "owner", request.method === "PUT")
   if (isRefused(by)) return refused(by)
   const index = indexOf(env, by.owner)
   if (request.method === "GET") {
-    const set = await index.machine()
-    return set ? json(set) : fail(404, "auto.no_machine", "no Auto machine is set")
+    const set = await index.autoMachine(by.owner, by.team)
+    return set ? json(set) : fail(404, "auto.no_machine", "the owner has no Cloud machine for Auto chats")
   }
   const b = await bodyOf(request)
   if (b instanceof Response) return b
@@ -239,17 +245,7 @@ const machineSetting = async (request: Request, env: Env): Promise<Response> => 
   if (typeof b.machine !== "string" || !MACHINE.test(b.machine)) return invalid("machine: the Cloud machine id (letters, digits, _ -, at most 64)")
   if (!(await mayUseTeam(env, by.owner, b.team))) return fail(403, "auth.forbidden", "no access to this team's machines")
   const machine = { team: b.team, machine: b.machine }
-  await index.setMachine(by.owner, machine)
-  // The chats that waited for a machine, or were given to another that never picked them up, go to this one. A
-  // page at a time, until a page comes back the same (a chat that could not be reached is told by its own index
-  // write later).
-  let last = ""
-  for (let page = 0; page < 10; page++) {
-    const ids = await index.waitingFor(machine.machine)
-    if (ids.length === 0 || ids.join() === last) break
-    last = ids.join()
-    await Promise.allSettled(ids.map((id) => stub(env, by.owner, id).machineSet(by.owner, machine)))
-  }
+  await index.nameMachine(by.owner, machine)
   return json(machine)
 }
 
