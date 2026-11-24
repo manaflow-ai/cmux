@@ -177,6 +177,25 @@ class RunTests(unittest.TestCase):
             self.assertEqual(CLOSES.main(["--event", str(path), "--repo", REPO]), 0)
 
 
+class BackfillTests(unittest.TestCase):
+    LOG = (
+        "aaa\x00ci: newer (#30)\n\nFixes #7 and closes #8\n\x1e\n"
+        "bbb\x00no pull request here\n\nFixes #9\n\x1e\n"
+        "ccc\x00docs: names nothing (#20)\n\nSee #9\n\x1e\n"
+        "ddd\x00fix: older (#10)\n\nFixes #10, fixes manaflow-ai/other#5, resolves #6\n\x1e\n"
+    )
+
+    def test_each_squash_commit_that_names_an_issue_oldest_first(self):
+        plans = CLOSES.plans_from_log(self.LOG, REPO)
+        self.assertEqual([(p.pull, p.sha, p.issues) for p in plans], [(10, "ddd", [6]), (30, "aaa", [7, 8])])
+        self.assertEqual(plans[0].comment, "Fixed on feat-cmux-next by #10 (ddd).")
+
+    def test_backfill_closes_only_open_issues(self):
+        github = FakeGitHub({6: {"state": "open"}, 7: {"state": "closed"}, 8: {"state": "open"}})
+        closed = [n for p in CLOSES.plans_from_log(self.LOG, REPO) for n in CLOSES.run(p, github, dry_run=False)]
+        self.assertEqual(closed, [6, 8])
+
+
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text()

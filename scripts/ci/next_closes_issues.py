@@ -14,6 +14,13 @@ repository (#N, OWNER/REPO#N or https://github.com/OWNER/REPO/issues/N). Refs in
 request template's example) and code are not refs. Each referenced item that is an open issue gets one
 comment naming the pull request and its merge commit, and is closed as completed. Pull requests, closed
 issues and missing numbers are skipped. `--dry-run` reads and prints, and changes nothing.
+
+Backfill: the workflow sees only merges after it landed (#53953, 2026-11-24), and a run that failed closes
+nothing. `--since DATE` reads the squash commits on feat-cmux-next since DATE from a local checkout instead
+(`git log --first-parent`; a squash commit carries its pull request's title, `(#N)`, and body) and closes what
+each one names, with the same comment:
+
+    python3 scripts/ci/next_closes_issues.py --since 2026-09-01 [--ref origin/feat-cmux-next] [--dry-run]
 """
 
 from __future__ import annotations
@@ -118,6 +125,37 @@ class GitHub:
                 raise RuntimeError(f"closing #{number}: {done.stderr.strip()}")
 
 
+_SUBJECT_PR = re.compile(r"\(#(\d+)\)\s*$")
+
+
+def plans_from_log(log: str, repo: str) -> List[Plan]:
+    """One Plan per squash commit in LOG (`git log --format=%H%x00%B%x1e`) that names an issue, oldest first."""
+    plans: List[Plan] = []
+    for record in log.split("\x1e"):
+        sha, _, message = record.strip("\n").partition("\x00")
+        sha = sha.strip()
+        if not sha or not message:
+            continue
+        match = _SUBJECT_PR.search(message.split("\n", 1)[0])
+        if not match:
+            continue  # not a squash merge of a pull request
+        pull = int(match.group(1))
+        issues = [n for n in closing_refs(message, repo) if n != pull]
+        if issues:
+            plans.append(Plan(pull=pull, sha=sha, issues=issues))
+    return list(reversed(plans))
+
+
+def read_log(ref: str, since: str) -> str:
+    done = subprocess.run(
+        ["git", "log", "--first-parent", f"--since={since}", "--format=%H%x00%B%x1e", ref],
+        capture_output=True, text=True, timeout=300,
+    )
+    if done.returncode != 0:
+        raise RuntimeError(f"git log {ref}: {done.stderr.strip()}")
+    return done.stdout
+
+
 def run(the_plan: Plan, github: Any, dry_run: bool) -> List[int]:
     """Close each open issue in the plan; return the numbers closed (or that would be, on a dry run)."""
     closed: List[int] = []
@@ -144,7 +182,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--event", default=os.environ.get("GITHUB_EVENT_PATH", ""), help="the pull_request event JSON")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
     parser.add_argument("--dry-run", action="store_true", help="read and print, change nothing")
+    parser.add_argument("--since", help="backfill: every squash commit on --ref since this date (git log --since)")
+    parser.add_argument("--ref", default=f"origin/{BASE}", help="the branch --since reads (default origin/%(default)s)")
     args = parser.parse_args(argv)
+    if args.since:
+        try:
+            github = GitHub(args.repo)
+            closed = [n for p in plans_from_log(read_log(args.ref, args.since), args.repo) for n in run(p, github, args.dry_run)]
+        except RuntimeError as error:
+            print(f"::error::{error}")
+            return 1
+        print(f"{len(closed)} issue(s) {'would be ' if args.dry_run else ''}closed")
+        return 0
     if not args.event:
         parser.error("--event (or GITHUB_EVENT_PATH) is required")
     with open(args.event, encoding="utf-8") as handle:
