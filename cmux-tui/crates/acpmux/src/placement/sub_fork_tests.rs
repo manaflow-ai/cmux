@@ -336,3 +336,36 @@ async fn a_cancelled_placement_still_deletes_its_fork() {
     }
     assert_eq!(machines.deleted(), vec!["m-fork-0"]);
 }
+
+#[test]
+fn a_start_goes_to_a_fork_only_with_the_key_on_a_cloud_machine_and_a_working_sub_agent() {
+    let fork = StartPlan::Fork { machine: "m".into() };
+    assert_eq!(start_plan(true, true, Some("m")), fork);
+    assert_eq!(start_plan(false, true, Some("m")), StartPlan::Today, "key off");
+    assert_eq!(start_plan(true, false, Some("m")), StartPlan::Today, "read-only sub-agent");
+    assert_eq!(start_plan(true, true, None), StartPlan::Today, "not on Cloud");
+    assert_eq!(start_plan(true, true, Some("  ")), StartPlan::Today, "no machine id");
+}
+
+#[tokio::test]
+async fn with_the_key_off_the_start_hook_does_nothing() {
+    let parent = checkout();
+    let before = files(parent.path());
+    let objects = |p: &Path| git(p, None, &["count-objects", "-v"], None).unwrap();
+    let before_objects = objects(parent.path());
+    assert_eq!(on_start(&StartPlan::Today, "edit", parent.path()).await, None);
+    assert_eq!(files(parent.path()), before);
+    assert_eq!(objects(parent.path()), before_objects, "not even a snapshot is written");
+}
+
+#[tokio::test]
+async fn in_this_build_the_start_hook_falls_back_at_the_fork_and_changes_nothing() {
+    let parent = checkout();
+    let before = files(parent.path());
+    let out = on_start(&StartPlan::Fork { machine: "m".into() }, "edit", parent.path()).await;
+    let Some(Outcome::Fallback { cause: Cause::Fork, fork_deleted: None, .. }) = out else {
+        panic!("{out:?}")
+    };
+    assert!(out.unwrap().runs_here());
+    assert_eq!(files(parent.path()), before);
+}

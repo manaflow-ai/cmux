@@ -131,6 +131,61 @@ impl Outcome {
     }
 }
 
+/// How a `start_session` sub-agent starts, read before anything starts: on a fork only when the
+/// AutoCloud key is on, this daemon runs on a Cloud machine with an id, and the sub-agent works
+/// (it asked for a worktree: it edits files or runs commands). A read-only one, or any start with
+/// the key off, starts as today.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartPlan {
+    /// Today's start on this machine; nothing of this module runs.
+    Today,
+    /// Place it on a fork of `machine`.
+    Fork { machine: String },
+}
+
+pub fn start_plan(on: bool, working: bool, machine: Option<&str>) -> StartPlan {
+    match machine.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(machine) if on && working => StartPlan::Fork { machine: machine.to_owned() },
+        _ => StartPlan::Today,
+    }
+}
+
+/// This daemon's Cloud machine id (`CMUX_VM_ID`, the Cloud image sets it), when it runs on one.
+pub fn this_machine() -> Option<String> {
+    if !crate::cloud_host::is_cloud_vm() {
+        return None;
+    }
+    std::env::var("CMUX_VM_ID").ok().filter(|id| !id.trim().is_empty())
+}
+
+/// The fork backend this build has: none yet. cmux-cloud-api's `fork_machine` (cmux-platform
+/// `POST /v1/machines/{id}/fork`) lands on its own lane; until this file is pointed at it every
+/// placement falls back at the fork step, logged, and the sub-agent runs here as today.
+pub struct NoForkBackend;
+
+impl Machines for NoForkBackend {
+    async fn fork(&self, _machine: &str, _client_key: &str) -> Result<String, String> {
+        Err("no fork backend in this build (cmux-cloud-api fork_machine not wired yet)".into())
+    }
+    async fn delete(&self, _machine: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl SubRun for NoForkBackend {
+    async fn run(&self, _fork: &str, _task: &Task) -> Result<Ran, String> {
+        Err("no sub-agent runner for a fork in this build".into())
+    }
+}
+
+/// `start_session`'s hook: with [`StartPlan::Fork`], try the placement; answers the outcome to
+/// put on the reply, `None` when the plan is today's (the key off: nothing ran, nothing changes).
+pub async fn on_start(plan: &StartPlan, prompt: &str, checkout: &Path) -> Option<Outcome> {
+    let StartPlan::Fork { machine } = plan else { return None };
+    let backend = Arc::new(NoForkBackend);
+    Some(place(true, Some(machine), backend.clone(), backend.as_ref(), prompt, checkout).await)
+}
+
 /// Owns a fork from the moment it exists: [`ForkGuard::delete`] deletes it, and a guard dropped
 /// without it (the placement's future cancelled, a panic) deletes it on the runtime in the
 /// background, so no exit leaves one running.
