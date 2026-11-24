@@ -43704,6 +43704,29 @@
     "vi": "Phiên",
     "zh-Hans": "会话",
     "zh-Hant": "工作階段"
+   },
+   "action.presence.live.toggle": {
+    "ar": "تبديل الوضع المباشر",
+    "bs": "Prebaci uživo",
+    "da": "Skift Live",
+    "de": "Live umschalten",
+    "en": "Toggle Live",
+    "es": "Alternar En vivo",
+    "fr": "Basculer Direct",
+    "it": "Attiva/disattiva Live",
+    "ja": "ライブを切り替える",
+    "km": "បិទបើកផ្ទាល់",
+    "ko": "라이브 전환",
+    "nb": "Veksle Live",
+    "pl": "Przełącz tryb na żywo",
+    "pt-BR": "Alternar Ao vivo",
+    "ru": "Переключить присутствие",
+    "th": "สลับออนไลน์",
+    "tr": "Canlıyı Aç/Kapat",
+    "uk": "Перемкнути присутність",
+    "vi": "Bật/tắt trực tuyến",
+    "zh-Hans": "切换在线状态",
+    "zh-Hant": "切換線上狀態"
    }
   },
   "RemoteActions": {

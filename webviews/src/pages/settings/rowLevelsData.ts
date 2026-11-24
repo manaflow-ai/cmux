@@ -152,6 +152,8 @@ export const ROW_LEVELS: {
     "sidebar.spacesPosition": "more",
     "sidebar.showProfileControl": "more",
     "sidebar.showSearchButton": "more",
+    "sidebar.showLiveToggle": "more",
+    "presence.live": "more",
     "sidebar.showNewWorkspaceChooser": "more",
     "sidebar.nowPlaying.otherApps": "more",
     "home.channelsEnabled": "more",
