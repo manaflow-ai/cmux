@@ -40,7 +40,8 @@ agents or user sessions. It checks idle output, input-only diffs, final cursor
 positions and input responsiveness during 1,000 streamed updates:
 
 ```sh
-cargo build --release -p acpmux --features tui   # the TUI is off in a default build
+cargo build --release -p cmux-tui   # the TUI is the acpmux-tui crate, which cmux links
+ln -sf cmux-tui target/release/acpmux
 python3 tests/tui_terminal.py target/release/acpmux
 ```
 

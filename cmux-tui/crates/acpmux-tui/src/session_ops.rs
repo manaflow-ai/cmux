@@ -114,15 +114,15 @@ impl App {
         let model = d
             .model
             .as_deref()
-            .map(crate::tui::render::model_label)
+            .map(crate::render::model_label)
             .unwrap_or_else(|| "default model".into());
         let effort = d
             .effort
             .as_deref()
             .filter(|e| !e.is_empty())
-            .map(crate::tui::render::effort_label)
+            .map(crate::render::effort_label)
             .unwrap_or_else(|| "default".into());
-        let policy = crate::tui::render::policy_label(&d.policy).0;
+        let policy = crate::render::policy_label(&d.policy).0;
         let rows = vec![
             PickRow {
                 value: "draft:harness".into(),
@@ -154,7 +154,7 @@ impl App {
             },
             PickRow {
                 value: "draft:directory".into(),
-                label: format!("Directory · {}", crate::tui::render::shorten_path(&d.cwd)),
+                label: format!("Directory · {}", crate::render::shorten_path(&d.cwd)),
                 header: false,
                 group: String::new(),
                 note: String::new(),
@@ -254,7 +254,7 @@ impl App {
         };
         let form_name = form.name.text();
         if !form_name.is_empty()
-            && let Err(e) = crate::session_name::validate(&form_name)
+            && let Err(e) = acpmux::session_name::validate(&form_name)
         {
             self.status = e;
             return;
@@ -398,7 +398,7 @@ impl App {
             .and_then(|opts| {
                 opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model"))
             })
-            .map(crate::model_catalog::choices)
+            .map(acpmux::model_catalog::choices)
             .unwrap_or_default();
         let mut harnesses: Vec<Value> =
             catalog.get("harnesses").and_then(Value::as_array).cloned().unwrap_or_default();

@@ -7,7 +7,7 @@ use super::*;
 pub fn help_rows(app: &App) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = Vec::new();
     let mut group = "";
-    for d in crate::tui::actions::ACTIONS {
+    for d in crate::actions::ACTIONS {
         if d.group != group {
             if !group.is_empty() {
                 rows.push((String::new(), String::new()));
@@ -26,7 +26,7 @@ pub fn help_rows(app: &App) -> Vec<(String, String)> {
     }
     rows.push((String::new(), String::new()));
     rows.push((String::new(), "editing and mouse".to_owned()));
-    for (k, w) in crate::tui::actions::EDITING_KEYS {
+    for (k, w) in crate::actions::EDITING_KEYS {
         rows.push(((*k).to_owned(), (*w).to_owned()));
     }
     rows
@@ -322,7 +322,7 @@ fn draw_text_dialog(
     hover: Option<(u16, u16)>,
     title: &str,
     above: &str,
-    text: &crate::tui::editor::Editor,
+    text: &crate::editor::Editor,
     placeholder: &str,
     below: &str,
     ok_label: &str,
@@ -375,7 +375,7 @@ fn draw_text_dialog(
 pub(super) fn draw_add_host(
     f: &mut ratatui::Frame,
     area: Rect,
-    text: &crate::tui::editor::Editor,
+    text: &crate::editor::Editor,
     app: &mut App,
     hover: Option<(u16, u16)>,
 ) {
@@ -396,7 +396,7 @@ pub(super) fn draw_add_host(
 pub(super) fn draw_directory(
     f: &mut ratatui::Frame,
     area: Rect,
-    text: &crate::tui::editor::Editor,
+    text: &crate::editor::Editor,
     app: &mut App,
     hover: Option<(u16, u16)>,
 ) {
@@ -408,7 +408,7 @@ pub(super) fn draw_directory(
         if let Some(parent) = path.parent() {
             paths.push(("↑ Parent directory".to_owned(), parent.to_string_lossy().into_owned()));
         }
-        for p in crate::tui::directory::children(&path) {
+        for p in crate::directory::children(&path) {
             paths.push((
                 format!("▢ {}", p.file_name().unwrap_or_default().to_string_lossy()),
                 p.to_string_lossy().into_owned(),

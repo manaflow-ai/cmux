@@ -105,7 +105,7 @@ fn command_id(id: &str) -> &str {
     }
 }
 impl Keymap {
-    pub fn new(cfg: &crate::config::TuiConfig) -> Result<Self> {
+    pub fn new(cfg: &acpmux::config::TuiConfig) -> Result<Self> {
         let mut specs: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for (id, keys) in [
             ("palette", "ctrl+shift+p,super+shift+p,super+k,<leader>p"),

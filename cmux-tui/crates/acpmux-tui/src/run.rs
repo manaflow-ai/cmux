@@ -5,8 +5,8 @@ use super::*;
 pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     let mut client = client;
     // Read UI preferences without probing or changing harness configuration.
-    let path = crate::config::Config::path();
-    let cfg: crate::config::Config = if path.exists() {
+    let path = acpmux::config::Config::path();
+    let cfg: acpmux::config::Config = if path.exists() {
         serde_json::from_str(&std::fs::read_to_string(&path)?)?
     } else {
         Default::default()
@@ -250,7 +250,7 @@ pub(super) fn make_app(
     client: Arc<Client>,
     tx: mpsc::UnboundedSender<AppMsg>,
     sessions: Vec<Value>,
-    cfg: crate::config::Config,
+    cfg: acpmux::config::Config,
 ) -> Result<App> {
     let tui = cfg.tui.clone();
     for p in std::iter::once(&tui.palette_prefix)
@@ -373,7 +373,7 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
     let mut delay = std::time::Duration::from_millis(300);
     loop {
         tokio::time::sleep(delay).await;
-        match crate::daemon::connect(true).await {
+        match acpmux::daemon::connect(true).await {
             Ok(c) => {
                 // Only the watch turns on here: the list is read whole just below, so its reply
                 // is one row, not a copy of that list read to be dropped.

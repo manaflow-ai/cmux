@@ -171,7 +171,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
                 },
                 ButtonAction::DraftEffort,
             ),
-            (crate::tui::render::policy_label(&d.policy).0, ButtonAction::DraftPolicy),
+            (crate::render::policy_label(&d.policy).0, ButtonAction::DraftPolicy),
         ];
         let mut labels = Vec::new();
         for (label, action) in parts.iter() {
@@ -213,7 +213,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             let label = format!("Starting {}…", d.harness);
             let w = label.width().min(inner.width as usize);
             let x = inner.x + (inner.width as usize - w) as u16 / 2;
-            let spans = crate::tui::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright);
+            let spans = crate::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright);
             f_render(
                 buf,
                 Paragraph::new(Line::from(spans)),
@@ -317,7 +317,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     }
     let rows = &app.transcript_cache.rows;
     let track = Rect { x: area.x + area.width - 1, y: inner.y, width: 1, height: inner.height };
-    let mut link_runs: Vec<crate::tui::links::LinkCell> = Vec::new();
+    let mut link_runs: Vec<crate::links::LinkCell> = Vec::new();
     let anchor = app.transcript_anchor.clone();
     let vp = app.viewport.entry(id.clone()).or_default();
     vp.layout(rows.len(), inner.height as usize, track);
@@ -358,8 +358,8 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         }
         // URLs and paths become OSC 8 hyperlinks the terminal can Cmd-click;
         // the backend attaches OSC 8 only to changed cells in the frame diff.
-        for link in crate::tui::links::find(&row.text) {
-            let href = crate::tui::links::href(&link.target, &cwd);
+        for link in crate::links::find(&row.text) {
+            let href = crate::links::href(&link.target, &cwd);
             let end = link.end.min(inner.width as usize);
             if link.start >= end {
                 continue;
@@ -373,7 +373,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
                 text.push_str(cell.symbol());
                 col += cell.symbol().width().max(1);
             }
-            link_runs.push(crate::tui::links::LinkCell {
+            link_runs.push(crate::links::LinkCell {
                 x: inner.x + link.start as u16,
                 y,
                 text,

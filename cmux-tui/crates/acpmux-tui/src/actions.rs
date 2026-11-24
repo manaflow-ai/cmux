@@ -195,8 +195,7 @@ impl App {
             self.report_error("Skill browsing currently uses local projects; open a local session to select a skill".into());
             return;
         }
-        self.skills =
-            crate::tui::skills::Skill::discover(std::path::Path::new(&cwd), &self.skill_paths);
+        self.skills = crate::skills::Skill::discover(std::path::Path::new(&cwd), &self.skill_paths);
         let rows = self
             .skills
             .iter()
@@ -553,7 +552,7 @@ impl App {
                 if let Some(u) = &self.web_url {
                     // Deep link to the selected session; the token stays out of the status bar.
                     let url = match self.selected_id() {
-                        Some(id) => crate::config::web_url_for_session(u, &id),
+                        Some(id) => acpmux::config::web_url_for_session(u, &id),
                         None => u.clone(),
                     };
                     let _ = std::process::Command::new(if cfg!(target_os = "macos") {

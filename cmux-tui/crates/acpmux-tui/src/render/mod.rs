@@ -6,7 +6,7 @@ use super::dialog::{self, DialogRow, DialogSpec};
 use super::scroll::draw_thumb;
 use super::theme::Chrome;
 use super::{App, ButtonAction, Focus, NewForm, Overlay, POLICIES, Picker, Toggle};
-use crate::transcript::{Item, Transcript};
+use acpmux::transcript::{Item, Transcript};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
