@@ -1640,6 +1640,36 @@ def check_resize_hitch(tab, pane):
          "pass_if": "no app frame over 50 ms during the corner drags; the sample names what the main thread does"})
 
 
+def build_user_grid(page_tab):
+    """The user's live-resize layout (his recording, 2026-11-24 1:45 PM): two columns, four Chromium pages and a
+    terminal. The measured page (the layout page, `page_tab`) and a heavy canvas page in one column, two probe pages
+    and the terminal in the other. Each new page goes into a pane a `splitDown` made from a pane of its column; the
+    measured page's pane and its divider stay where the rows look for them. Returns what it opened."""
+    made = {}
+    terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+    for name, from_tab, query in (("heavy", page_tab, "?grid-heavy"), ("probe2", terminal_tab, "?grid-a"),
+                                  ("probe3", terminal_tab, "?grid-b")):
+        if not from_tab:
+            made[name] = {"error": "no tab to split from"}
+            continue
+        action("tab.focus", target=f"tab:{from_tab}")
+        time.sleep(0.3)  # test harness: focus lands
+        split = action("splitDown")
+        time.sleep(1.2)  # test harness: the new pane's terminal attaches
+        opened = action("openBrowser.chromium", {"url": URL + "layout" + query})
+        tab = wait(lambda: (lambda r: r if r.get("value") is True and r.get("tab") not in (None, page_tab) else None)(
+            page_eval(f"location.search === {json.dumps(query)} && window.layoutReady === true")), 30, 0.4)
+        made[name] = {"split": str(split)[:120], "open": str(opened)[:120], "tab": tab.get("tab") if tab else None}
+    action("tab.focus", target=f"tab:{page_tab}")
+    time.sleep(1.0)  # test harness: every page draws (the heavy canvas starts)
+    views = [v for v in main_layers().get("page_views") or [] if not v.get("parked")]
+    made["page_views_shown"] = len(views)
+    RAW["user_grid"] = made
+    row("PASS" if len(views) >= 4 else "FAIL", "user_grid",
+        {"page_views_shown": len(views), "made": made, "pass_if": "4 page views shown (the user's grid: 4 pages + a terminal)"})
+    return made
+
+
 def check_divider_load(tab, pane):
     """The divider fence's quality and frame-rate cost on a light page and a heavy one (the user's animating canvas):
     the same three out-and-back divider drags as live_resize.divider, recorded by the app's recorder, each frame
@@ -2027,7 +2057,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom",
+REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -2260,6 +2290,9 @@ try:
             row(False, "regressions.setup", {"layout_ready": layout_ready, "pane": pane})
         else:
             time.sleep(0.5)  # test harness: the layout page draws
+            if "user_grid" in CHECKS:
+                build_user_grid(page_tab)
+                pane = page_pane(page_tab) or pane  # the measured page keeps its pane
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
                               ("resize_hitch", check_resize_hitch), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
