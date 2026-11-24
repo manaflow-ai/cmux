@@ -109,6 +109,14 @@ filter = 'binary_id(acpmux::stop_watchdog)'
 slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
 success-output = "final"
 
+# The composer Send duress table (cmux-tui tests/composer_send_duress.rs) prints its table and
+# COMPOSER-SEND lines on stderr, kept for a passing run. Its scenarios run at once; the slowest
+# (100 Sends at a person's pace on lossy-10, then up to 150 s settling) sets the time: 480 s is the margin.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::composer_send_duress)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+success-output = "final"
+
 # The shell-integration fork counts on Linux: a count is the gap in the
 # system PID counter, so a process any other test starts in the window
 # counts as a fork of the shell. nextest runs each test in its own process;
@@ -279,3 +287,12 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 filter = 'binary_id(cmux-tui::automation_live_journey)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# One row of the rollback check (tests/store_schemas_in_its_time.rs) is for a store in WAL mode
+# whose `-wal` name is a link. It writes to stderr which names the session's folder holds, each
+# with its length, before the check's calls and after each, and the text of each error, in lines
+# that start with WAL-LINK-ROW. A passing row keeps its output, so a step's log shows those lines
+# on each system.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::store_schemas_in_its_time) & test(=a_store_in_wal_mode_whose_wal_name_is_a_link_is_an_error_of_the_check)'
+success-output = "final"

@@ -34,6 +34,9 @@ const MAX_DAEMON_REPLY: u64 = 1 << 20;
 /// The daemon command that names the worker (lane `worker` serves it).
 pub const ENDPOINT_CMD: &str = "computer-use-endpoint";
 
+/// What an agent does when Computer Use is off: open the guided setup for the person.
+const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it opens without taking their focus; there the person turns Computer Use on and grants the two macOS permissions), tell them it is open, and try again once they finish.";
+
 /// Where the worker serves, from the daemon.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Endpoint {
@@ -460,11 +463,14 @@ impl Outcome {
             Outcome::Output(out) => out.to_mcp(),
             Outcome::Off(reason) => ToolOutput::error(
                 "computer_use_off",
-                if reason.is_empty() {
-                    "Computer Use is off on this machine. The person can turn it on in Settings > Computer Use.".to_owned()
-                } else {
-                    format!("Computer Use is off: {reason}. The person can turn it on in Settings > Computer Use.")
-                },
+                format!(
+                    "Computer Use is off{}. {OFF_NEXT}",
+                    if reason.is_empty() {
+                        " on this machine".to_owned()
+                    } else {
+                        format!(": {reason}")
+                    }
+                ),
             )
             .to_mcp(),
             Outcome::Failed { code, message } => ToolOutput::error(code, message.clone()).to_mcp(),

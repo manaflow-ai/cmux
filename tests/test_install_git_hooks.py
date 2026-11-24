@@ -1931,7 +1931,8 @@ mkdir -p node_modules/.bin
         head = self.commit_all("a commit to push")
         queue = self.root / "queue"
         queue.mkdir()
-        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
+        # Every hook pushes the same head: the pass cache would answer all but the first, and this is about the queue.
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), CMUX_PREPUSH_PASS_CACHE="0", **settings)
         logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
         for handle in logs:
             self.addCleanup(handle.close)
@@ -1964,6 +1965,85 @@ mkdir -p node_modules/.bin
         times, output = self.queued_hooks(2, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="0")
         self.assertEqual(len(times), 2)
         self.assertTrue(all("pre-push: passed" in text for text in output), output)
+
+    # 2026-11-22: 181 of 511 pushes on cosmic-gray in six hours repeated a sha already tried, each judged from scratch.
+    def stub_checks(self, gate_exit=0):
+        """Install, then replace the web lint and the gate with stubs that log their argv; returns (hook, log, head)."""
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        log = self.root / "checks-run"
+        for name, code in (("web_lint_prepush.py", 0), ("cmux_next_prepush_gate.py", gate_exit)):
+            (hook_dir / name).write_text(
+                "import sys\n"
+                f"open({str(log)!r}, 'a').write({name!r} + ' ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+                f"sys.exit({code})\n")
+        (self.repo / "file").write_text("x\n")
+        return hook_dir / "pre-push", log, self.commit_all("a commit to push")
+
+    def push_hook(self, hook, head, **settings):
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(self.root), **settings)
+        return subprocess.run([str(hook), "origin", "https://example.invalid/x.git"], cwd=self.repo, env=env, text=True,
+                              input=f"refs/heads/topic {head} refs/heads/topic {'0' * 40}\n", capture_output=True,
+                              timeout=120)
+
+    def runs(self, log):
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_pre_push_judges_the_same_push_once(self):
+        hook, log, head = self.stub_checks()
+        first = self.push_hook(hook, head)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(len(self.runs(log)), 2, first.stderr)
+        again = self.push_hook(hook, head)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(len(self.runs(log)), 2, "a retry of a judged push ran the checks again")
+        self.assertIn("not judged again", again.stderr)
+        self.assertIn("pass-cache", again.stderr)
+        self.assertNotIn("waiting for a turn", again.stderr)
+        # Another head, a changed skip setting, or the cache off: judged.
+        (self.repo / "file").write_text("y\n")
+        other = self.commit_all("another commit")
+        self.assertEqual(self.push_hook(hook, other).returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4)
+        self.assertEqual(self.push_hook(hook, head, CMUX_NEXT_CHECKS_SKIP_REASON="x fails on base").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 6)
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_PASS_CACHE="0").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 8)
+
+    def test_pre_push_records_no_refused_push(self):
+        hook, log, head = self.stub_checks(gate_exit=1)
+        self.assertEqual(self.push_hook(hook, head).returncode, 1)
+        self.assertEqual(self.push_hook(hook, head).returncode, 1)
+        self.assertEqual(len(self.runs(log)), 4, "a refused push must be judged again")
+        self.assertFalse(list((self.common_dir() / "cmux-prepush-pass").glob("*")) if
+                         (self.common_dir() / "cmux-prepush-pass").exists() else [])
+
+    def test_pre_push_judges_again_after_the_checks_copy_changes(self):
+        hook, log, head = self.stub_checks()
+        self.assertEqual(self.push_hook(hook, head).returncode, 0)
+        (hook.parent / "cmux_next_prepush_gate.py").write_text(
+            (hook.parent / "cmux_next_prepush_gate.py").read_text() + "# a new gate\n")
+        self.assertEqual(self.push_hook(hook, head).returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4, "a new gate must judge the push again")
+
+    def test_a_loaded_host_leaves_the_ci_layers_to_ci_and_its_pass_answers_only_a_loaded_run(self):
+        hook, log, head = self.stub_checks()
+        loaded = self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000")
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        gate_runs = [line for line in self.runs(log) if line.startswith("cmux_next_prepush_gate.py")]
+        self.assertEqual(len(gate_runs), 1)
+        self.assertIn("--defer-ci-layers", gate_runs[0])
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 2, "a loaded retry of a loaded pass ran the checks again")
+        idle = self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="0")
+        self.assertEqual(idle.returncode, 0, idle.stderr)
+        gate_runs = [line for line in self.runs(log) if line.startswith("cmux_next_prepush_gate.py")]
+        self.assertEqual(len(gate_runs), 2, "an idle run must run the layers the loaded pass left to CI")
+        self.assertNotIn("--defer-ci-layers", gate_runs[1])
+        # The idle run's full pass answers a loaded run too.
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4)
 
     def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
         _old, new = self.stale_install()
