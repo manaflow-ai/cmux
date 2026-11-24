@@ -88,6 +88,7 @@ impl Rpc {
             loop {
                 let line = self.lines.next_line().await.unwrap().expect("daemon connected");
                 let message: Value = serde_json::from_str(&line).unwrap();
+                assert!(message.get("error").is_none(), "waiting for {method}: {message}");
                 if message["method"] == method && predicate(&message["params"]) {
                     break;
                 }
