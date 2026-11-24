@@ -152,7 +152,7 @@ async function measure(
     })));
     if (now >= WINDOW_MS || Date.now() - startedAt > WINDOW_MS * 3) break;
     // Quiet: content since QUIET_MS ago with no frame of another state since.
-    const lastOther = frames.findLast((frame) => frame.state !== "content");
+    const lastOther = [...frames].reverse().find((frame) => frame.state !== "content");
     const firstContent = frames.find((frame) => frame.state === "content");
     if (
       firstContent &&
