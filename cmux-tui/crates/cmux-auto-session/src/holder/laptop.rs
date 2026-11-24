@@ -143,6 +143,7 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
             match answer.verdict {
                 Verdict::Holder => {
                     out.chat.fresh_at = out.chat.fresh_at.max(sent_at);
+                    out.renew_answered(sent_at, now);
                     held_again(out, answer, false);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
@@ -150,7 +151,9 @@ pub(super) fn holding(out: &mut Out, epoch: u64, event: Event, now: u64) {
             }
         }
         Event::Unanswered { request } => {
-            out.answered(request);
+            if out.answered(request).is_some() {
+                out.renew_unanswered(now);
+            }
         }
         Event::SnapshotStored { copy, snapshot } => {
             out.stored(copy, snapshot);
@@ -187,6 +190,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
                 Verdict::Holder if now >= sent_at.saturating_add(SELF_STOP_MS) => out.renew(now),
                 Verdict::Holder => {
                     out.chat.fresh_at = sent_at;
+                    out.renew_answered(sent_at, now);
                     held_again(out, answer, true);
                 }
                 Verdict::Standby | Verdict::Lost => lose(out, answer.epoch.max(epoch), now),
@@ -196,6 +200,7 @@ pub(super) fn stopped(out: &mut Out, epoch: u64, event: Event, now: u64) {
         Event::Unanswered { request } => {
             if out.answered(request).is_some() {
                 out.to(State::Stopped { epoch, why: Stop::Offline });
+                out.renew_unanswered(now);
             }
         }
         Event::SnapshotStored { copy, snapshot } => {

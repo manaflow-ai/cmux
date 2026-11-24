@@ -241,7 +241,7 @@
       "tool_ended": "holding: upload_events, upload_snapshot, renew(needs_run)",
       "turn_ended_idle": "holding: upload_events, upload_snapshot",
       "turn_started": "holding: renew(needs_run)",
-      "unanswered": "-",
+      "unanswered": "holding: schedule_at",
       "wake": "stopped_wake: stop_tree, renew"
     },
     "off": {
@@ -463,7 +463,7 @@
       "tool_ended": "-",
       "turn_ended_idle": "-",
       "turn_started": "-",
-      "unanswered": "-",
+      "unanswered": "stopped_offline: schedule_at",
       "wake": "stopped_offline: renew"
     },
     "stopped_wake": {
@@ -500,7 +500,7 @@
       "tool_ended": "-",
       "turn_ended_idle": "-",
       "turn_started": "-",
-      "unanswered": "stopped_offline: show_blocked(offline)",
+      "unanswered": "stopped_offline: show_blocked(offline), schedule_at",
       "wake": "stopped_wake: renew"
     },
     "taking": {
