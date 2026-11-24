@@ -678,10 +678,15 @@ impl Hub {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
+        // Only cmux-harness binds durable state (its journal) to the agent session id. Another
+        // harness that cannot load its session starts a new one on each machine it moves to
+        // (an ACP agent without loadSession), so its id differs on the way back and the chat
+        // is still this one: the outer id and the harness say so.
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
-                && existing_meta.agent_session_id == bundle_meta.agent_session_id
+                && (existing_meta.agent_session_id == bundle_meta.agent_session_id
+                    || bundle_meta.harness != "cmux-harness")
         });
         if old.is_some() && !replacing_durable {
             return Err(transfer_error(
