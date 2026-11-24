@@ -8,11 +8,6 @@ final class TabAgentMarkCache {
 
     /// The mark fills about the symbol's optical size inside the icon square.
     private static let fill: CGFloat = 0.82
-    /// A terminal agent's mark inside its rounded square (`TabIcon.terminalAgentMark`).
-    private static let terminalFill: CGFloat = 0.6
-    /// The rounded square's corner radius as a share of its side, and how much of the tint it shows.
-    private static let tileCornerShare: CGFloat = 0.3
-    private static let tileAlpha: CGFloat = 0.2
 
     /// `terminal` draws the mark smaller on a soft rounded square of `tint` (a terminal agent's tab).
     func image(brand: String, tint: NSColor, size: CGFloat, scale: CGFloat, terminal: Bool = false) -> CGImage? {
@@ -27,12 +22,12 @@ final class TabAgentMarkCache {
         ) else { return nil }
         if terminal {
             let box = CGRect(x: 0, y: 0, width: pixels, height: pixels)
-            context.addPath(CGPath(roundedRect: box, cornerWidth: box.width * Self.tileCornerShare,
-                                   cornerHeight: box.height * Self.tileCornerShare, transform: nil))
-            context.setFillColor(resolved.withAlphaComponent(resolved.alphaComponent * Self.tileAlpha).cgColor)
+            context.addPath(CGPath(roundedRect: box, cornerWidth: box.width * AgentBrandCatalog.terminalTileCornerShare,
+                                   cornerHeight: box.height * AgentBrandCatalog.terminalTileCornerShare, transform: nil))
+            context.setFillColor(resolved.withAlphaComponent(resolved.alphaComponent * AgentBrandCatalog.terminalTileAlpha).cgColor)
             context.fillPath()
         }
-        let side = CGFloat(pixels) * (terminal ? Self.terminalFill : Self.fill)
+        let side = CGFloat(pixels) * (terminal ? AgentBrandCatalog.terminalTileMarkShare : Self.fill)
         let inset = (CGFloat(pixels) - side) / 2
         AgentBrandRenderer.draw(
             spec, in: context, rect: CGRect(x: inset, y: inset, width: side, height: side),

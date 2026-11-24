@@ -19,7 +19,7 @@ import UIKit
 /// from: `AgentAvatarHostGallery`).
 public enum AgentAvatarMark {
     /// A terminal avatar's corner radius as a share of its side (the continuous curve of an app icon).
-    public static let tileCornerShare: CGFloat = 0.3
+    public static let tileCornerShare = AgentBrandCatalog.terminalTileCornerShare
 
     /// The corner radius of an avatar `side` points across: a circle's for a chat, a tile's for a terminal.
     public static func cornerRadius(side: CGFloat, host: AgentAvatarHost) -> CGFloat {
