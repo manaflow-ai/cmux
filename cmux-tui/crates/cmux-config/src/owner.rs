@@ -55,7 +55,11 @@ impl ConfigStore {
         state_dir: Option<PathBuf>,
         reader: Box<dyn ManagedReader>,
     ) -> ConfigStore {
-        let build_file = crate::build_scope::build_file();
+        // Only the shared settings file has build-scoped values beside it: a store opened on any
+        // other file is that file alone.
+        let build_file = crate::build_scope::build_file().filter(|_| {
+            standardized(&config_path) == standardized(&crate::location::config_path())
+        });
         Self::open_with_build_file(config_path, seed_path, state_dir, reader, build_file)
     }
 
@@ -234,6 +238,12 @@ impl ConfigStore {
     /// are on disk (the shared file is not written when only build-scoped values changed).
     fn publish(&self, text: &str) -> std::io::Result<()> {
         let Some(build_file) = &self.build_file else { return publish(&self.config_path, text) };
+        if crate::build_scope::build_file_is_broken(build_file) {
+            return Err(std::io::Error::other(format!(
+                "{} is not valid JSON; fix or remove it before changing settings",
+                build_file.display()
+            )));
+        }
         let disk = match read_settings(&self.config_path, self.seed_path.as_deref()) {
             FileRead::Text(disk) => disk,
             FileRead::Unreadable(message) => return Err(std::io::Error::other(message)),

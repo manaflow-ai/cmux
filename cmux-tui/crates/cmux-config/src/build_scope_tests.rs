@@ -143,3 +143,44 @@ fn split_sends_build_values_to_the_build_and_leaves_the_shared_file_alone() {
     assert!(shared.contains("// mine"));
     assert_eq!(parse(&shared), json!({"computerUse": {"mode": "fullAccess"}, "x": 5}));
 }
+
+#[test]
+fn a_broken_shared_file_at_the_first_read_writes_nothing_and_the_next_good_read_migrates() {
+    let root = tempfile::tempdir().unwrap();
+    let shared_path = root.path().join("cmux-next.json");
+    let build = root.path().join("builds/com.cmuxterm.app/build-settings.json");
+    // A save half done: the person's denied apps must not be lost to it.
+    std::fs::write(&shared_path, r#"{"computerUse": {"deniedApps": ["Mail"]"#).unwrap();
+    let _ = effective_text_with(&shared_path, Some(&build));
+    assert!(!build.exists(), "a broken moment of the shared file became the build's values");
+    std::fs::write(&shared_path, r#"{"computerUse": {"deniedApps": ["Mail"]}}"#).unwrap();
+    let text = effective_text_with(&shared_path, Some(&build)).unwrap();
+    assert_eq!(parse(&text).pointer("/computerUse/deniedApps"), Some(&json!(["Mail"])));
+    assert_eq!(
+        parse(&std::fs::read_to_string(&build).unwrap()),
+        json!({"computerUse": {"deniedApps": ["Mail"]}})
+    );
+}
+
+#[test]
+fn every_copy_of_a_repeated_scoped_key_goes_and_a_set_one_stays_in_place() {
+    let shared = "{\n  \"computerUse\": {\"mode\": \"off\"},\n  \"x\": 1,\n  \"computerUse\": {\"mode\": \"fullAccess\"}\n}\n";
+    // No Computer Use values of the build's: no copy of another build's shows through.
+    assert_eq!(parse(&overlaid_source(shared, &json!({}))).get("computerUse"), None);
+    // A value the build sets replaces the member where it is, with the comment above it.
+    let commented = "{\n  // grants\n  \"computerUse\": {\"mode\": \"off\"},\n  \"x\": 1\n}\n";
+    let merged = overlaid_source(commented, &json!({"computerUse": {"mode": "approvedApps"}}));
+    assert!(merged.contains("// grants\n  \"computerUse\""), "{merged}");
+    assert!(merged.find("computerUse").unwrap() < merged.find("\"x\"").unwrap(), "{merged}");
+}
+
+#[test]
+fn a_broken_build_file_is_reported_and_never_replaced() {
+    let root = tempfile::tempdir().unwrap();
+    let build = root.path().join("build-settings.json");
+    assert!(!build_file_is_broken(&build), "a missing file is not broken");
+    std::fs::write(&build, "{\"computerUse\": ").unwrap();
+    assert!(build_file_is_broken(&build));
+    std::fs::write(&build, "{}").unwrap();
+    assert!(!build_file_is_broken(&build));
+}

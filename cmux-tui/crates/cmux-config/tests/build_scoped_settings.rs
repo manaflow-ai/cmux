@@ -75,3 +75,23 @@ fn each_build_keeps_its_own_cmux_tools_and_computer_use_permissions() {
     assert_eq!(effective(&nightly, "/computerUse/mode"), Some(json!("approvedApps")));
     assert_eq!(effective(&nightly, "/agents/cmuxMcp"), Some(json!("off")));
 }
+
+/// A hand-broken build file is never overwritten by a settings write: the write is refused and
+/// the file stays for the person to fix.
+#[test]
+fn a_write_never_replaces_a_broken_build_file() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("cmux-next.json");
+    let build_file = root.path().join("build-settings.json");
+    std::fs::write(&config, "{}\n").unwrap();
+    std::fs::write(&build_file, "{\"computerUse\": ").unwrap();
+    let mut store = open(&config, &build_file);
+    let meta = WriteMeta { origin: Origin::User, ..Default::default() };
+    let applied = store.apply(Op::Set {
+        target: Target::Key("computerUse.mode".into()),
+        value: json!("approvedApps"),
+        meta,
+    });
+    assert!(applied.result.is_err(), "the broken build file was written over");
+    assert_eq!(std::fs::read_to_string(&build_file).unwrap(), "{\"computerUse\": ");
+}

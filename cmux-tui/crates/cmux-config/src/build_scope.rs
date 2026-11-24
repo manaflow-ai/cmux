@@ -92,7 +92,7 @@ pub fn extract(root: &Value) -> Value {
         let nested = path.iter().try_fold(root, |node, key| node.get(*key)).cloned();
         let flat = members.get(&path.join(".")).cloned();
         let off = Value::String("off".into());
-        let value = if path == &["agents", "cmuxMcp"] && (flat.as_ref() == Some(&off)) {
+        let value = if *path == ["agents", "cmuxMcp"] && flat.as_ref() == Some(&off) {
             Some(off)
         } else {
             nested.or(flat)
@@ -136,8 +136,11 @@ pub fn overlaid_source(source: &str, values: &Value) -> String {
     let base = if source.trim().is_empty() { "{}\n".to_string() } else { source.to_string() };
     let Ok(root @ Value::Object(_)) = jsonc::parse(&base) else { return source.to_string() };
     let mut text = base;
+    // A path the build sets is replaced in place (`jsonc::set` keeps its position and the comments
+    // around it); a path it does not set, and every flat spelling, is taken out, every copy of it.
     let mut removals: Vec<Vec<String>> = SCOPED_PATHS
         .iter()
+        .filter(|path| path.iter().try_fold(values, |node, key| node.get(*key)).is_none())
         .map(|path| path.iter().map(|key| (*key).to_string()).collect())
         .collect();
     for key in root.as_object().into_iter().flat_map(Map::keys) {
@@ -146,9 +149,13 @@ pub fn overlaid_source(source: &str, values: &Value) -> String {
         }
     }
     for path in removals {
-        match jsonc::remove(&text, &path) {
-            Ok(next) => text = next,
-            Err(_) => return source.to_string(),
+        // `jsonc::remove` takes the last member of a repeated key: repeat until none is left.
+        loop {
+            match jsonc::remove(&text, &path) {
+                Ok(next) if next == text => break,
+                Ok(next) => text = next,
+                Err(_) => return source.to_string(),
+            }
         }
     }
     for path in SCOPED_PATHS {
@@ -171,15 +178,18 @@ pub fn overlaid_source(source: &str, values: &Value) -> String {
 
 /// The build's values from its file `build_file`, made from `shared` (the shared file's text) on
 /// the first read: the file is then written once, never over one another process wrote first. A
-/// file that does not parse gives the shared values and is left for the person to fix.
+/// shared file that does not parse right then (a typo, a save half done) writes nothing: its values
+/// are read as none for now and the next good read makes the file, so a broken moment never resets
+/// the person's grants. A build file that does not parse gives the shared values and is left for
+/// the person to fix (the owner refuses to write over it: [`build_file_is_broken`]).
 pub fn build_values(build_file: &Path, shared: &str) -> Value {
     match std::fs::read_to_string(build_file) {
         Ok(text) => match jsonc::parse(&text) {
             Ok(value @ Value::Object(_)) => value,
-            _ => migrated(shared),
+            _ => migrated(shared).unwrap_or_else(|| Value::Object(Map::new())),
         },
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            let values = migrated(shared);
+            let Some(values) = migrated(shared) else { return Value::Object(Map::new()) };
             match write_new(build_file, &render(&values)) {
                 Ok(()) => values,
                 // Another reader wrote it first: its copy is the build's.
@@ -190,14 +200,24 @@ pub fn build_values(build_file: &Path, shared: &str) -> Value {
                 },
             }
         }
-        Err(_) => migrated(shared),
+        Err(_) => migrated(shared).unwrap_or_else(|| Value::Object(Map::new())),
     }
 }
 
-fn migrated(shared: &str) -> Value {
+/// Whether `build_file` exists but is not a JSON object (a hand edit gone wrong): a write must not
+/// replace it.
+pub fn build_file_is_broken(build_file: &Path) -> bool {
+    match std::fs::read_to_string(build_file) {
+        Ok(text) => !matches!(jsonc::parse(&text), Ok(Value::Object(_))),
+        Err(error) => error.kind() != io::ErrorKind::NotFound,
+    }
+}
+
+/// The build-scoped values of the shared file's text; `None` when it does not parse.
+fn migrated(shared: &str) -> Option<Value> {
     match jsonc::parse(if shared.trim().is_empty() { "{}" } else { shared }) {
-        Ok(root) => extract(&root),
-        Err(_) => Value::Object(Map::new()),
+        Ok(root @ Value::Object(_)) => Some(extract(&root)),
+        _ => None,
     }
 }
 
@@ -267,7 +287,7 @@ pub fn effective_text_with(shared_path: &Path, build_file: Option<&Path>) -> io:
 pub fn split(merged: &str, shared_on_disk: &str) -> Option<(Value, Option<String>)> {
     let merged_root = jsonc::parse(merged).ok()?;
     let values = extract(&merged_root);
-    let disk_values = migrated(shared_on_disk);
+    let disk_values = migrated(shared_on_disk)?;
     let shared_next = overlaid_source(merged, &disk_values);
     let unscoped =
         |text: &str| jsonc::parse(&overlaid_source(text, &Value::Object(Map::new()))).ok();
