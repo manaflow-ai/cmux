@@ -90,7 +90,11 @@ await Promise.all(
             await frame.addStyleTag({ content: style });
             await page.waitForTimeout(200);
           }
-          const el = await frame.frameElement();
+          res.toolInk = await frame.evaluate(() => {
+          const w = document.querySelector(".cv-worked");
+          return w ? getComputedStyle(w).color : null;
+        });
+        const el = await frame.frameElement();
           res.pane = await read(frame, () => el.screenshot({ type: "png", animations: "disabled", caret: "hide" }));
         } catch (e) {
           res.error = String(e).split("\n")[0].slice(0, 160);
