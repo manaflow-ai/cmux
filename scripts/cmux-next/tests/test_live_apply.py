@@ -45,6 +45,9 @@ class ClassifyTests(unittest.TestCase):
         # design/ holds generator sources and design pages; the generated files the app reads are elsewhere.
         self.assertEqual(self.verdict([("M", "design/live-wallpapers-gallery/aurora.js")]), "no-app")
         self.assertEqual(self.verdict([("M", "design/icons/source/widgets.json")]), "no-app")
+        # vault/ is a Go service the app never builds; capture-scratch/ is screenshot replay output.
+        self.assertEqual(self.verdict([("M", "vault/internal/syncer/redact.go")]), "no-app")
+        self.assertEqual(self.verdict([("A", "capture-scratch/replay/manifest.json")]), "no-app")
         self.assertEqual(self.verdict([("D", "dogfood/scenarios/copy-actions-tour.json")]), "no-app")
         self.assertEqual(self.verdict([("M", "evals/computer-use/tasks/finder-new-folder.json")]), "no-app")
         self.assertEqual(self.verdict([("A", "Native/OptChat/optchat-chief/evals/cases/upsell-a675-cloud-plan-required.json")]),
