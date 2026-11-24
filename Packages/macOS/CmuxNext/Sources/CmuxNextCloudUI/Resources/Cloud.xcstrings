@@ -7533,6 +7533,137 @@
         }
       }
     },
+    "cloud.move.lastChangesFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder's last changes didn't copy, so the chat stayed where it was. Retry to move it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُنسخ آخر تغييرات المجلد، لذا بقيت الدردشة في مكانها. أعد المحاولة لنقلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posljednje promjene foldera nisu kopirane, pa je chat ostao gdje je bio. Pokušajte ponovo da ga premjestite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappens seneste ændringer blev ikke kopieret, så chatten blev, hvor den var. Prøv igen for at flytte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die letzten Änderungen des Ordners wurden nicht kopiert, daher blieb der Chat, wo er war. Erneut versuchen, um ihn zu verschieben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los últimos cambios de la carpeta no se copiaron, así que el chat se quedó donde estaba. Reintenta para moverlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les dernières modifications du dossier n'ont pas été copiées, la conversation est donc restée où elle était. Réessayez pour la déplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le ultime modifiche della cartella non sono state copiate, quindi la chat è rimasta dov'era. Riprova per spostarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの最新の変更をコピーできなかったため、チャットは元の場所に残りました。再試行して移動してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ប្តូរចុងក្រោយរបស់ថតមិនត្រូវបានចម្លងទេ ដូច្នេះការជជែកនៅកន្លែងដដែល។ ព្យាយាមម្តងទៀតដើម្បីផ្លាស់ទីវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더의 최근 변경 사항을 복사하지 못해 채팅이 원래 위치에 그대로 있습니다. 다시 시도하여 이동하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappens siste endringer ble ikke kopiert, så chatten ble der den var. Prøv igjen for å flytte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnie zmiany folderu nie zostały skopiowane, więc czat został tam, gdzie był. Spróbuj ponownie, aby go przenieść."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As últimas alterações da pasta não foram copiadas, então o chat ficou onde estava. Tente novamente para movê-lo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последние изменения папки не скопировались, поэтому чат остался на месте. Повторите, чтобы переместить его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกการเปลี่ยนแปลงล่าสุดของโฟลเดอร์ไม่สำเร็จ แชทจึงยังอยู่ที่เดิม ลองอีกครั้งเพื่อย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasörün son değişiklikleri kopyalanamadı, bu yüzden sohbet olduğu yerde kaldı. Taşımak için yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Останні зміни папки не скопіювалися, тому чат залишився на місці. Повторіть, щоб перемістити його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các thay đổi cuối cùng của thư mục chưa được sao chép, nên cuộc trò chuyện vẫn ở chỗ cũ. Thử lại để di chuyển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹的最新更改未能复制，因此对话留在原处。请重试以移动它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾的最新變更未能複製，因此對話留在原處。請重試以移動它。"
+          }
+        }
+      }
+    },
     "cloud.move.restarting": {
       "extractionState": "manual",
       "localizations": {

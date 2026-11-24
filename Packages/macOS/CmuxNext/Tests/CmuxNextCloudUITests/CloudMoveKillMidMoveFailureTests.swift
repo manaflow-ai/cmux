@@ -18,6 +18,21 @@ import Testing
         #expect(bringing.retry != nil)
     }
 
+    /// The drills' frozen source showed "sync_failed: the folder's last changes: sync_failed: the machine
+    /// did not answer for N s"; a Retry then moved the chat in 5.9 s.
+    @Test func lastChangesThatDidNotCopyReadPlainlyAndOfferRetry() {
+        let detail = "the folder's last changes: the machine did not answer for 30 s"
+        let moving = CloudMoveFailure.moving(CloudMoveCLI.Answer(ok: false, errorCode: "sync_failed", error: detail, side: "target"),
+                                             machine: "paint-dev", retry: .move(machineID: "m1"))
+        #expect(moving.message == CloudMoveStrings.lastChangesFailed)
+        #expect(moving.retry != nil)
+        #expect(!moving.message.contains("sync_failed"))
+        let back = CloudMoveFailure.bringingBack(CloudMoveCLI.Answer(ok: false, errorCode: "sync_failed", error: detail, side: "source"),
+                                                 machine: "paint-dev", retry: .move(machineID: "m1"))
+        #expect(back.message == CloudMoveStrings.lastChangesFailed)
+        #expect(back.retry != nil)
+    }
+
     @Test func aMachineTooOldForAFileAsksForItsUpdate() {
         let answer = CloudMoveCLI.Answer(ok: false, errorCode: CloudMoveStrings.outdatedCode,
                                          error: "the machine runs an older cmux-tui that refused a file of this chat; update the machine", side: "target")

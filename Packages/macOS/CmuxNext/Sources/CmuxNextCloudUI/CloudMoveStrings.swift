@@ -98,6 +98,13 @@ public struct CloudMoveStrings {
     }
     /// The machine's chat service was restarting (`agent_transfer.unavailable`): the CLI waited to its
     /// deadline and gave the chat back, so nothing moved and the same move may work again.
+    /// The folder's last changes did not reach the other machine (`sync_failed`: it did not answer
+    /// in time, say), so the chat stayed frozen where it was; a Retry moves it again.
+    public static var lastChangesFailed: String {
+        String(localized: "cloud.move.lastChangesFailed", defaultValue: "The folder's last changes didn't copy, so the chat stayed where it was. Retry to move it.",
+               table: "Cloud", bundle: .localizedModule)
+    }
+
     public static func restarting(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.restarting", defaultValue: "%@ is restarting, so the chat stayed where it was. Retry in a moment.",
                               table: "Cloud", bundle: .localizedModule), machine)

@@ -189,6 +189,13 @@ pub(super) fn failure_code(error: &anyhow::Error) -> String {
     SeedError::of(error).code
 }
 
+/// The message of a failed push, without its code: a caller that names the code beside it
+/// (`--sync`'s "the folder's last changes: …") never shows it twice, as `{error:#}` of a
+/// [`SeedError`] (`code: message`) did.
+pub(super) fn failure_message(error: &anyhow::Error) -> String {
+    SeedError::of(error).message
+}
+
 /// The answer line of a failed [`push`]: its code and message, and for a
 /// refused seed its `fallback_code` and what a copy would send.
 pub(super) fn failure(error: &anyhow::Error) -> Value {
@@ -1397,7 +1404,7 @@ mod tests {
     use super::plan::{Planned, SeedParams};
     use super::{
         Command, Ended, LocalBundle, Record, SeedError, asks_head_first, barrier_marker,
-        barrier_ready, parse, pull, seed_job, seed_record, seeded, settle_fill,
+        barrier_ready, failure_message, parse, pull, seed_job, seed_record, seeded, settle_fill,
     };
 
     /// The ops a scripted machine was asked, in order.
@@ -1418,6 +1425,17 @@ mod tests {
                 .map_err(|code| SeedError::new(code, "refused"))
         };
         (call, asked)
+    }
+
+    /// An unreachable machine's refusal reads once: "sync_failed: … sync_failed: the machine did
+    /// not answer" was the label of a frozen source in the kill-mid-move drills.
+    #[test]
+    fn a_failure_message_does_not_repeat_its_code() {
+        let error = anyhow::Error::new(SeedError::new(
+            "sync_failed",
+            "the machine did not answer for 30 s",
+        ));
+        assert_eq!(failure_message(&error), "the machine did not answer for 30 s");
     }
 
     fn later() -> Instant {
