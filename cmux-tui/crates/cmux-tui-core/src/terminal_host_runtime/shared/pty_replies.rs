@@ -27,11 +27,14 @@ pub(crate) struct PtyReplies {
     queued: Arc<AtomicUsize>,
 }
 
+/// One batch of answer bytes written against the PTY input.
+type WriteFn = Box<dyn Fn(&[u8]) + Send>;
+
 /// Where answers go. Most programs never ask the terminal anything, so the
 /// writer thread starts with the first answer, not with the host.
 enum Writer {
     /// No answer yet: the PTY write the thread will run.
-    Idle(Box<dyn Fn(&[u8]) + Send>),
+    Idle(WriteFn),
     /// The writer thread's queue.
     Running(Sender<Vec<u8>>),
     /// The thread could not start: answers are written inline.

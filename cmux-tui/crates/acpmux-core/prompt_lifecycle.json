@@ -1,0 +1,891 @@
+{
+  "effects": {
+    "approve": "sends",
+    "bookmark": "none",
+    "cancel": "withdraws",
+    "copy": "none",
+    "edit_and_resend": "forks",
+    "edit_in_place": "changes",
+    "fork": "forks",
+    "remove": "withdraws",
+    "retry": "sends",
+    "send_now": "sends"
+  },
+  "generated": "acpmux-core src/chat/prompt_lifecycle.rs; rerun with BLESS=1 cargo test -p acpmux-core prompt_lifecycle",
+  "stages": [
+    {
+      "cases": [
+        {
+          "actions": [],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "sending",
+        "queued",
+        "steer_waiting"
+      ],
+      "stage": "composing"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "waiting_for_host",
+        "queued",
+        "steer_waiting",
+        "read",
+        "failed"
+      ],
+      "stage": "sending"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "read",
+        "queued",
+        "failed",
+        "composing"
+      ],
+      "stage": "waiting_for_host"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "send_now",
+            "cancel",
+            "remove",
+            "edit_in_place"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "steer_waiting",
+        "read",
+        "composing"
+      ],
+      "stage": "queued"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "cancel",
+            "send_now"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "read",
+        "composing"
+      ],
+      "stage": "steer_waiting"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "approve",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "read",
+        "queued"
+      ],
+      "stage": "held_in_inbox"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "retry",
+            "edit_in_place",
+            "remove"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "sending",
+        "composing"
+      ],
+      "stage": "failed"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [
+        "answered",
+        "failed"
+      ],
+      "stage": "read"
+    },
+    {
+      "cases": [
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "fork",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "edit_and_resend",
+            "fork",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": false,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "fork",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": false
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": false,
+            "steer": true,
+            "turn_before": true
+          }
+        },
+        {
+          "actions": [
+            "copy",
+            "fork",
+            "bookmark"
+          ],
+          "facts": {
+            "forks": true,
+            "steer": true,
+            "turn_before": true
+          }
+        }
+      ],
+      "next": [],
+      "stage": "answered"
+    }
+  ]
+}

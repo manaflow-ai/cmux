@@ -38,11 +38,16 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
-        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-        view.autocorrectionType = .no
+        // GUI text, so autocorrect and spell check are on, as in every other text app (Leo,
+        // 2026-11-23: "you need to not ... entirely disable autocorrect in the gui"; the
+        // terminal's composer keeps it off). No capitals and no curly quotes or long dashes:
+        // a prompt holds code, paths and flags (full verify D5).
+        view.autocorrectionType = .yes
+        view.spellCheckingType = .yes
         view.autocapitalizationType = .none
         view.smartQuotesType = .no
         view.smartDashesType = .no
+        ComposerTextTraits.blockSiriSuggestions(view)
         view.returnKeyType = .default
         view.accessibilityIdentifier = Self.accessibilityIdentifier
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -129,7 +134,8 @@ struct ChatComposerField: UIViewRepresentable {
                 parent.text = textView.text
             }
             (textView as? ComposerReturnTextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerReturnTextView)?.followCaret()
         }
 
