@@ -90,6 +90,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "schemas/ghostty-shell-features/vectors.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
@@ -106,6 +107,7 @@ on:
       # Customize inputs of the routed jobs: the seven-language conformance and
       # Windows check read these, so a change to them must start this workflow
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       # The installers' signed release file check (linux-release-verify.test.sh) reads these.
       - "web/public/tui/install-static.sh"

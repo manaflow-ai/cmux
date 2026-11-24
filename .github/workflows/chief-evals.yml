@@ -7,24 +7,12 @@
 # and are reported in the job summary. When the model route is down they are
 # skipped with a warning, so a subrouter outage never reads as a Chief failure.
 #
-# A pull request into feat-cmux-next that touches Chief code runs it too, as an advisory check: no ruleset requires
-# it, and on a pull request the job is named "evals (advisory)", so land-judge and next-autoland neither wait on nor
-# refuse for it. A red there is a follow-up (ci-oops soft class), not a merge block. A pull request run whose tailnet
-# join is refused skips the model cases with the warning above; the deterministic cases still run.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 name: chief-evals
 on:
   push:
-    branches: [feat-cmux-next]
-    paths:
-      - "Native/OptChat/**"
-      - "cmux-tui/crates/cmux-chief/**"
-      - "cmux-tui/crates/cmux-conversation/**"
-      - ".github/workflows/chief-evals.yml"
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "Native/OptChat/**"
