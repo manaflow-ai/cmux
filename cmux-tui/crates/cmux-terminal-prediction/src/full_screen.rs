@@ -414,14 +414,17 @@ impl FullScreenEcho {
         else {
             return;
         };
-        let pending = self.pending[index];
+        let Some(&pending) = self.pending.get(index) else {
+            return;
+        };
         if character == Some(pending.character) {
             // Keys typed before it are done too. A space was never printed
             // (see `observe`); any other key drawn but not printed in its
             // cell went somewhere else, which is a mismatch.
-            let older: Vec<Pending> = self.pending.drain(..=index).collect();
+            let older: Vec<Pending> = self.pending.drain(..index).collect();
+            self.pending.remove(0);
             let (row, column) = (pending.row, pending.column);
-            for earlier in &older[..index] {
+            for earlier in &older {
                 if earlier.character == b' ' && earlier.row == row && earlier.column < column {
                     result.confirmed.push(now.saturating_sub(earlier.typed_at));
                 } else if earlier.is_displayed {
