@@ -178,12 +178,31 @@ pub(super) struct Http {
     client: reqwest::Client,
 }
 
+/// The hosts github.com redirects a release download to (docs/privacy.md lists them).
+const RELEASE_REDIRECT_HOSTS: [&str; 2] =
+    ["objects.githubusercontent.com", "release-assets.githubusercontent.com"];
+
+/// Follows a redirect on the request's own host or to a release download host; stops the rest.
+fn follow_release_redirect(attempt: reqwest::redirect::Attempt<'_>) -> reqwest::redirect::Action {
+    let host = attempt.url().host_str().unwrap_or_default().to_owned();
+    let same_host =
+        attempt.previous().first().and_then(|first| first.host_str()) == Some(host.as_str());
+    if attempt.previous().len() >= 10 {
+        attempt.error("too many redirects")
+    } else if same_host || RELEASE_REDIRECT_HOSTS.contains(&host.as_str()) {
+        attempt.follow()
+    } else {
+        attempt.stop()
+    }
+}
+
 impl Http {
     pub(super) fn new() -> Result<Http, Failure> {
         Http::with_timeout(Duration::from_secs(300))
     }
 
     /// One whose every request gives up after `timeout`.
+    /// A redirect is followed on the same host, or to where github.com sends a release download.
     pub(super) fn with_timeout(timeout: Duration) -> Result<Http, Failure> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -193,6 +212,7 @@ impl Http {
         let client = cmux_egress::client_builder("cmux_tui::cli::customize::pr")
             .timeout(timeout)
             .user_agent(concat!("cmux-customize/", env!("CARGO_PKG_VERSION")))
+            .redirect(reqwest::redirect::Policy::custom(follow_release_redirect))
             .build()
             .map_err(|error| failure(format!("could not start an HTTP client: {error}")))?;
         Ok(Http { runtime, client })

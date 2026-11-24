@@ -218,6 +218,8 @@ impl<E: Fn(Value) + Clone + Send + 'static> Engine<E> {
         match command.get_str("t") {
             Some("start") => match command.get_str("api").map(|api| secure_origin(api.trim())) {
                 Some(Ok(api)) => {
+                    // The app names its own platform origin (a preview stack in dev builds).
+                    cmux_egress::allow_named(&api);
                     self.app_version = command.get_str("app_version").map(str::to_owned);
                     self.start(api);
                 }
