@@ -272,8 +272,10 @@ impl Endpoint {
         if self.selector.add_path_on(id, kind, medium).is_err() {
             return;
         }
-        let entry =
-            PathEntry { route, kind, next_probe_us: now_us,
+        let entry = PathEntry {
+            route,
+            kind,
+            next_probe_us: now_us,
             heard_us: now_us,
             unanswered_sends: 0,
             unanswered_datagrams: 0,
@@ -570,11 +572,15 @@ impl Endpoint {
         let probe_late = outstanding.is_some_and(|(id, sent)| {
             now_us.saturating_sub(sent) > window && self.flagged.insert(id)
         });
-        // Nothing authenticated arrived on any route for a window either: the
-        // peer is not just answering on another path, so spray now instead of
-        // after the probe's own window too. A false alarm costs duplicates
-        // until the probe answers.
-        let link_silent = self.braid_paths && quiet && now_us.saturating_sub(heard_any) > window;
+        // A stream of session datagrams went out and nothing authenticated
+        // arrived on any route for a window either: the peer is not just
+        // answering on another path, so spray now instead of after the probe's
+        // own window too. A false alarm costs duplicates until the probe
+        // answers.
+        let link_silent = self.braid_paths
+            && quiet
+            && path.unanswered_datagrams >= LINK_SILENT_DATAGRAMS
+            && now_us.saturating_sub(heard_any) > window;
         if (probe_late || link_silent)
             && let Ok(Some(switch)) = self.selector.on_silence(current)
         {
@@ -614,7 +620,10 @@ impl Endpoint {
             .filter(|_| established && self.braid_paths)
             .and_then(|current| {
                 let window = silence_us(self.selector.path(current).and_then(|view| view.rtt_us));
-                let path = self.paths.get(&current).filter(|path| path.unanswered_sends > 0)?;
+                let path = self
+                    .paths
+                    .get(&current)
+                    .filter(|path| path.unanswered_datagrams >= LINK_SILENT_DATAGRAMS)?;
                 Some(path.heard_us.max(self.heard_any_us) + window + 1)
             });
         let punch = (self.punching() && !self.paths.is_empty()).then_some(self.next_punch_us);

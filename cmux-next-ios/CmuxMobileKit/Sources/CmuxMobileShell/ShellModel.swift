@@ -64,6 +64,8 @@ final class ShellModel {
             updateShownMacs()
         }
     }
+    /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
+    var workspacesMacPanelShown = false
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
     /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
