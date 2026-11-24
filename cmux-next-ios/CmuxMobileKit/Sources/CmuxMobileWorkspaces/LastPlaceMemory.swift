@@ -49,6 +49,7 @@ public final class LastPlaceMemory {
         #endif
     }
 
+    #if os(iOS)  // ChatReadingAnchor is iOS-only (AgentChatScreen.swift)
     /// The reader of `tabID` came to rest at `anchor` (nil: on the newest turn).
     public func noteReading(workspaceID: String, tabID: String, anchor: ChatReadingAnchor?) {
         #if canImport(CmuxMobileLinkFFI)
@@ -65,6 +66,7 @@ public final class LastPlaceMemory {
         return nil
         #endif
     }
+    #endif
 
     /// The app goes to the background: write what waits now.
     public func flush() {
