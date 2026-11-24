@@ -53,7 +53,6 @@ const { ChiefWeb, loadChiefTranscript } = await import("../src/chief-web/ChiefWe
 // Load the real chunk once up front, so a later load lands within a few microtasks.
 await loadChiefTranscript();
 const gallery = (await import("../src/chief-web/ChiefWeb.gallery")).default;
-const { translate } = await import("../src/agent-session/acpmux/i18n");
 type Props = Parameters<typeof ChiefWeb>[0];
 
 afterAll(async () => {
