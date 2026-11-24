@@ -149,6 +149,9 @@ struct PagedLabReading {
     /// The rows around the eye line (the neighbour measure), the largest drawn move beyond the scroll.
     var neighbourShift: Double { number("neighbourShift") }
     var neighbourShifted: Int { Int(number("neighbourShifted")) }
+    /// One-frame jumps of everything drawn (the push measure), the largest, in pt over the threshold's.
+    var pushShift: Double { number("pushShift") }
+    var pushShifted: Int { Int(number("pushShifted")) }
     var samples: Int { Int(number("samples")) }
     var shiftedFrames: Int { Int(number("shiftedFrames")) }
     var frames: Int { Int(number("frames")) }

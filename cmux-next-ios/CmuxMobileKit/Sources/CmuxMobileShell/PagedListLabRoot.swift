@@ -127,6 +127,7 @@ public struct PagedListLabRoot: View {
             probe.samplerCost = { [hud] ms in hud.samplerCost(ms) }
             probe.drawnShift = { [hud] shift, detail in hud.drawnSampled(shift, detail) }
             probe.neighbourShift = { [hud] shift, detail in hud.neighbourSampled(shift, detail) }
+            probe.pushShift = { [hud] size, detail in hud.pushSampled(size, detail) }
             probe.shiftDetail = { [hud] shift, detail in hud.shifted(shift, detail) }
             probe.slid = { [hud] frames in hud.slid(frames) }
             probe.held = { [hud] rows in hud.hold(rows) }
@@ -462,6 +463,20 @@ final class PagedLabHUD {
     @ObservationIgnored var neighbourShifted = 0
     @ObservationIgnored var neighbourWorst = ""
 
+    /// The push measure (``PagedListProbe/pushShift``): one-frame jumps of everything drawn.
+    @ObservationIgnored var pushShift: CGFloat = 0
+    @ObservationIgnored var pushShifted = 0
+    @ObservationIgnored var pushWorst = ""
+
+    func pushSampled(_ size: CGFloat, _ detail: String?) {
+        guard size > 0 else { return }
+        pushShifted += 1
+        if size > pushShift {
+            pushShift = size
+            pushWorst = detail ?? ""
+        }
+    }
+
     func neighbourSampled(_ shift: CGFloat, _ detail: String?) {
         guard abs(shift) > 0.5 else { return }
         neighbourShifted += 1
@@ -526,7 +541,7 @@ final class PagedLabHUD {
         let ratio = seconds > 0 ? hitchMs / seconds : 0
         let samplerMean = samplerCosts.isEmpty ? 0 : samplerCosts.reduce(0, +) / Double(samplerCosts.count)
         let samplerP99 = samplerCosts.isEmpty ? 0 : samplerCosts.sorted()[min(samplerCosts.count - 1, samplerCosts.count * 99 / 100)]
-        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)"}"#
+        return #"{"edge":"\#(edge)","newer":"\#(newer)","rows":\#(rows),"landings":\#(landings),"maxShift":\#(maxShift),"frameShift":\#(frameShift),"samples":\#(samples),"shiftedFrames":\#(shiftedFrames),"frames":\#(frames),"hitches":\#(hitches),"dropped":\#(dropped),"worstMs":\#(worstMs),"hitchMsPerS":\#(ratio),"changes":\#(changes),"flushes":\#(flushes),"inMemory":\#(inMemory),"total":\#(total),"onDisk":\#(onDisk),"diskBytes":\#(diskBytes),"slides":\#(slides),"slideFrames":\#(slideFrames),"held":\#(heldRows),"worstShift":"\#(worstShift)","passFrameShift":\#(passFrameShift),"passShifted":\#(passShifted),"passMidPlacement":\#(passMidPlacement),"passWorstShift":"\#(passWorstShift)","samplerMeanMs":\#(samplerMean),"samplerP99Ms":\#(samplerP99),"samplerFrames":\#(samplerCosts.count),"drawnShift":\#(drawnShift),"drawnShifted":\#(drawnShifted),"drawnWorst":"\#(drawnWorst)","neighbourShift":\#(neighbourShift),"neighbourShifted":\#(neighbourShifted),"neighbourWorst":"\#(neighbourWorst)","pushShift":\#(pushShift),"pushShifted":\#(pushShifted),"pushWorst":"\#(pushWorst)"}"#
     }
 }
 
