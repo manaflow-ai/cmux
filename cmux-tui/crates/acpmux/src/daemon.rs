@@ -927,15 +927,18 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if let (Some(addr), Some((_, token)), true) =
         (bound_addr, ws_listener.as_ref(), tailnet_mode != crate::tailnet_carrier::Mode::Off)
     {
-        tokio::spawn(crate::tailnet_carrier::serve_peers(
-            hub.clone(),
-            addr.port(),
-            token.clone(),
-            crate::server::WsAuth { local_app: local_app.clone(), peer: peer.clone() },
-            ws_shutdown.clone(),
-            tailnet_mode,
-            crate::tailnet_carrier::Gate::cli(),
-        ));
+        hub.scope.spawn_until_cancelled(
+            "tailnet peers",
+            crate::tailnet_carrier::serve_peers(
+                hub.clone(),
+                addr.port(),
+                token.clone(),
+                crate::server::WsAuth { local_app: local_app.clone(), peer: peer.clone() },
+                ws_shutdown.clone(),
+                tailnet_mode,
+                crate::tailnet_carrier::Gate::cli(),
+            ),
+        );
     }
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
