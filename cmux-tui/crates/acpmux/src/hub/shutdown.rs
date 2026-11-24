@@ -317,6 +317,8 @@ impl Hub {
         self.retention_wake.notify_one();
         // So does the cold archive's preview worker (`cold_archive.rs`).
         self.cold_wake.notify_one();
+        // So does the cold segments' worker (`cold_segments.rs`).
+        self.cold_sealed_wake.notify_one();
         let sessions = self.sessions();
         // A scheduled provider retry must not survive an explicit daemon shutdown: settle it
         // before teardown so restart restoration cannot replay it. A turn this shutdown cuts
@@ -415,7 +417,7 @@ impl Hub {
                 settled.extend(turn.map(|t| t.turn_id));
             }
             if s.status() != SessionStatus::Closed {
-                self.set_status(s, SessionStatus::Idle);
+                self.set_status(s, NotWaiting::Idle);
             }
         }
         let detach = futures::future::join_all(hosted.iter().map(|c| c.detach(SHUTDOWN_GRACE)));
