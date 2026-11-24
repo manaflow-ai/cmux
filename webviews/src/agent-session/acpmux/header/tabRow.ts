@@ -42,7 +42,9 @@ export function setTabRow(value: unknown): void {
     accessoryRoom?: unknown;
   };
   const accessoryRoom =
-    typeof raw.accessoryRoom === "number" && Number.isFinite(raw.accessoryRoom) ? Math.max(0, raw.accessoryRoom) : undefined;
+    typeof raw.accessoryRoom === "number" && Number.isFinite(raw.accessoryRoom)
+      ? Math.max(0, raw.accessoryRoom)
+      : undefined;
   const height = pixels(raw.height);
   current =
     height > 0
