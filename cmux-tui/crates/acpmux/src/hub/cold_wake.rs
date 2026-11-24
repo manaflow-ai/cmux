@@ -43,6 +43,9 @@ pub(crate) const MAX_WINDOW_MS: u64 = 5 * 60_000;
 pub(crate) const SIZE_FULL_TOKENS: u64 = 200_000;
 /// How long cold a chat is when its window is longest.
 pub(crate) const COLD_FULL_MS: u64 = 30 * 60_000;
+/// The context below which a cold chat opens no batch: re-reading it uncached costs little, so
+/// its wakes go in as before (a chat with no usage reported yet included).
+pub(crate) const MIN_BATCH_TOKENS: u64 = 20_000;
 /// The context from which a cold batch compacts first.
 pub(crate) const COMPACT_ABOVE_TOKENS: u64 = 100_000;
 /// Settings > General > Prompt Cache: batch a cold chat's wakes on an interval (on by default).
@@ -73,7 +76,8 @@ fn read_settings() -> (bool, bool) {
 pub(crate) const NO_EXPIRY_TTL_MS: u64 = 5 * 60_000;
 
 /// How long the chat of `meta` has been cold at `now` (unix ms), and its context's tokens; None
-/// while its cache is warm or nothing says when it lapses (no turn ended yet).
+/// while its cache is warm, nothing says when it lapses (no turn ended yet), or its context is
+/// under [`MIN_BATCH_TOKENS`].
 pub(crate) fn coldness(meta: &SessionMeta, now: u64) -> Option<(u64, u64)> {
     let usage = meta.usage.as_ref();
     let expires =
@@ -87,7 +91,7 @@ pub(crate) fn coldness(meta: &SessionMeta, now: u64) -> Option<(u64, u64)> {
     };
     let cold = now.checked_sub(expires).filter(|c| *c > 0)?;
     let tokens = usage.and_then(|u| u.get("used")).and_then(Value::as_u64).unwrap_or(0);
-    Some((cold, tokens))
+    (tokens >= MIN_BATCH_TOKENS).then_some((cold, tokens))
 }
 
 /// The batch window of a chat `cold_ms` cold with `tokens` of context (module docs).
