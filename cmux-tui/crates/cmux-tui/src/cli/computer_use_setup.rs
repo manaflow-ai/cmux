@@ -30,7 +30,7 @@ pub(super) fn run(global: &GlobalArgs, dry_run: bool, window: bool, json_flag: b
             return code;
         }
     };
-    let applies = report["state"] != "not_applicable";
+    let applies = report.get("state").and_then(Value::as_str) != Some("not_applicable");
     if !dry_run && window && opens_window(&report) {
         report.set("window", open_window(global));
     }
@@ -46,7 +46,7 @@ pub(super) fn run(global: &GlobalArgs, dry_run: bool, window: bool, json_flag: b
                 "checks": checks.iter().map(|c| json!({
                     "name": c.name, "ok": c.ok, "detail": c.detail, "fix": c.fix,
                 })).collect::<Vec<_>>(),
-                "displays": live["displays"].clone(),
+                "displays": live.get("displays").cloned().unwrap_or(Value::Null),
             }),
         );
     }
