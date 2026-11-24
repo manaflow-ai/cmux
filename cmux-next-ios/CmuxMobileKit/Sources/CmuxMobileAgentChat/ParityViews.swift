@@ -167,9 +167,9 @@ struct SubagentsScreen: View {
         List {
             ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
                 Button { selected = entry.agent.id } label: {
-                    // RED (this commit only): the row takes a closure, so SwiftUI cannot tell an
-                    // unchanged row from a changed one and evaluates every row on every change.
-                    SubagentRow(agent: entry.agent, depth: entry.depth, subtitle: subtitle)
+                    // Plain values only: SwiftUI compares them and skips the rows that did not change.
+                    SubagentRow(name: entry.agent.name, subtitle: subtitle(entry.agent), state: entry.agent.state,
+                                startedAt: entry.agent.startedAt, endedAt: entry.agent.endedAt, depth: entry.depth)
                 }
                 .buttonStyle(.cmuxPressFill)
             }
@@ -200,9 +200,12 @@ struct SubagentsScreen: View {
 /// A row of the Subagents list. Its own view, so a change to one subagent evaluates its row,
 /// not every row of the list.
 struct SubagentRow: View {
-    let agent: AgentSubagent
+    let name: String
+    let subtitle: String
+    let state: AgentSubagent.State
+    let startedAt: Date
+    let endedAt: Date?
     let depth: Int
-    let subtitle: (AgentSubagent) -> String
     #if DEBUG
     /// Body evaluations (tests: per change, the changed rows only).
     static var bodies = 0
@@ -213,13 +216,14 @@ struct SubagentRow: View {
         let _ = Self.bodies += 1
         #endif
         HStack(spacing: 12) {
-            SubagentStateGlyph(state: agent.state)
+            SubagentStateGlyph(state: state)
             VStack(alignment: .leading, spacing: 2) {
-                Text(agent.name).font(.body).lineLimit(1)
-                Text(subtitle(agent)).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                Text(name).font(.body).lineLimit(1)
+                Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 4)
-            Text(Duration.seconds(agent.duration).formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
+            Text(Duration.seconds((endedAt ?? Date()).timeIntervalSince(startedAt))
+                .formatted(.units(allowed: [.minutes, .seconds], width: .narrow)))
                 .font(.footnote.monospacedDigit())
                 .foregroundStyle(.tertiary)
             // Drill-down affordance, as on every pushed row.
