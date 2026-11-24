@@ -85,9 +85,14 @@ permissions:
 # Independent NEXT pushes must not wait for another run's tests or promotion gates.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
 # Retain pending jobs: a slower older test run must not replace a newer pending deployment.
+# A pull request's opened, synchronize and reopened runs share one group (`run`; `closed` keeps its own, so the
+# preview cleanup always runs), and a newer head cancels the run of the head it replaced: a superseded head's
+# shards measured 644 runner-min a day still running after the next push (11-23T22..11-24T22), and its pending
+# successor waited for them. Not while the preview broker is on: its jobs write the shared development branch and
+# the PR's preview, and a cancel must not cut one short. Pushes are unchanged (one group per push, never cancelled).
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}
-  cancel-in-progress: false
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && (github.event.action == 'closed' && 'closed' || 'run') || github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' && vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED != '1' }}
 
 env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
@@ -117,11 +122,29 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A later push of a pull request that leaves every path this workflow runs on (`pull_request.paths`, this file
+      # among them) as an earlier green run of this shard had them reuses that verdict (.github/actions/tree-result,
+      # scripts/ci/paths_tree_key.py): on 11-23T22..11-24T22, 55 of 333 backend PR runs tested inputs identical to an
+      # earlier head of the same PR with no backend change on the base between. Only pull requests reuse; a push to
+      # the base runs every shard.
+      - name: This shard's input tree
+        id: inputs
+        working-directory: ${{ github.workspace }}
+        run: echo "key=$(python3 scripts/ci/paths_tree_key.py --workflow .github/workflows/backend.yml --job api-workerd-${{ matrix.shard }})" >> "$GITHUB_OUTPUT"
+      - name: Reuse a green result of this shard for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: api-workerd-${{ matrix.shard }}
+          key: ${{ steps.inputs.outputs.key }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -130,10 +153,13 @@ jobs:
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       # vitest-pool-workers and node:sqlite need a current Node.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+        if: ${{ steps.tree.outputs.hit != 'true' }}
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: backend/apps/api
         # A packed cmux-linux runner shares its VM's vCPUs with up to 3 others (#48644) but nproc still reports all
         # 16, so vitest's default (one worker per vCPU) started 15 workerd isolates per job, 60 on 16 CPUs: imports took
@@ -147,6 +173,13 @@ jobs:
           bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
           echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once; running it again (a load timeout on a packed runner, or a real failure that fails again)"
           bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n"
+      - name: Record this shard's green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: api-workerd-${{ matrix.shard }}
+          key: ${{ steps.inputs.outputs.key }}
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
