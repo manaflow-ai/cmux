@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "91fecf89725707985cbdda0aa3979e11c9becb1ed10ec089fd557e65cde718c8";
+pub const ir_sha256 = "724282239c9187f7c417cd5288e84b25dda94c802b05dc03917ab16c539d52ce";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3824,6 +3824,7 @@ pub const AttachSurfaceRequest = struct {
     replay_history_rows: wire.Field(u32) = .absent,
     replay_history_start: wire.Field(u64) = .absent,
     resume_generation: wire.Field([]const u8) = .absent,
+    resume_max_bytes: wire.Field(u64) = .absent,
     resume_offset: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
@@ -3859,6 +3860,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
                 .{ .name = "resume_generation", .since = null, .capability = "terminal-resume-v1" },
+                .{ .name = "resume_max_bytes", .since = null, .capability = "terminal-resume-bounded-v1" },
                 .{ .name = "resume_offset", .since = null, .capability = "terminal-resume-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
