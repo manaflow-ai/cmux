@@ -64,6 +64,7 @@ const codex = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }
 const words = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 const drawn = (line: AcpmuxRow, now: number) =>
@@ -230,12 +231,6 @@ test("once the reply has stopped, the line's clock and token count stop with it"
   expect(drawn(line, reply.at + 2_000)).toBe(`Writing ${(reply.at + 2_000 - user.at) / 1_000}s`);
   // Past the pause it says only Thinking: no clock, however long the turn stays open.
   const tokens = {
-    agents: 0,
-    commands: 0,
-    sessions: 0,
-    openAgents() {},
-    openCommands() {},
-    openSessions() {},
     tokens: 4_200,
   };
   const counted = (now: number) =>
@@ -274,7 +269,7 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
   // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting.
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Waiting 1m 33s · turn 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Waiting on the model's next step 1m 33s · turn 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
@@ -287,15 +282,12 @@ test("a running call reads the turn's clock as its total, never a clock that sta
   expect(html).toContain('<span class="cv-worked__time">13s</span>');
 });
 
-test("waiting on subagents, the line does not count them a second time", () => {
+test("waiting on subagents, the line names them once, with no count after its time", () => {
   const start = 1_000_000;
-  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts}>
-      <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />
-    </WorkingCountsContext.Provider>,
+    <Thinking since={start} liveState="subagents" liveAgents={2} turnTotal now={() => start + 60_000} />,
   );
-  expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
+  expect(words(html)).toBe("Waiting on 2 subagents 1m");
 });
 
 test("Thinking past the first step times only this stretch of thinking, the waits go to the total", () => {
@@ -321,5 +313,5 @@ test("Thinking past the first step times only this stretch of thinking, the wait
   expect(drawn(line, t0 + 454_000)).toBe("Thinking 5s · turn 7m 34s");
   // It keeps counting with no new event, then says it waits once nothing came for 10 s.
   expect(drawn(line, t0 + 460_000)).toBe("Thinking 11s · turn 7m 40s");
-  expect(drawn(line, t0 + 470_000)).toBe("Waiting 16s · turn 7m 50s");
+  expect(drawn(line, t0 + 470_000)).toBe("Waiting on the model's next step 16s · turn 7m 50s");
 });

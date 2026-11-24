@@ -88,6 +88,9 @@ mod handshake_tests;
 #[path = "peer_liveness.rs"]
 pub mod liveness;
 #[cfg(test)]
+#[path = "peer_hub_behind_tests.rs"]
+mod hub_behind_tests;
+#[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
 #[cfg(test)]
@@ -460,7 +463,7 @@ pub struct Peer {
     /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
     /// request about the chat (a `session/load` sends its history again, which is no repeat).
     replay_tail: StdMutex<HashMap<String, u64>>,
-    notices: mpsc::Sender<(String, u64, PeerNotice)>,
+    notices: crate::peer_notice_outbox::NoticeOutbox,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,

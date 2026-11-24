@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-14",
+  "row": "app_lines",
+  "allow": 9,
+  "why": "A hover card port row's SidebarIntent.openPort is routed where every sidebar intent is: SidebarBridge.handle in the App, which alone holds the machine registry (the workspace's owning daemon), the window and the bridge's failure reporting. The case only looks up the daemon, shows the workspace and sends workspace.open_url; the port rule is Rust (cmux-layout-reducer workspace_port_links) and the request is WorkspaceOpenURLClient in CmuxNextDaemon.",
+  "author": "next-open-port (claude opus)",
+  "owner": "next-open-port",
+  "receipt": "Review (claude opus review subagent): SHIP at 4608fd1b1811add41484222b8c542384043e0573",
+  "expiry": "2026-12-14"
+}

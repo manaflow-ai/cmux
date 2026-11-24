@@ -113,6 +113,7 @@ tmux-*.log
 /webviews/src/ui/designTokens.generated.ts
 /webviews/src/pages/home-channels/generated/pane-strings.json
 /webviews/src/pages/changelog/generated/pane-strings.json
+/webviews/src/pages/settings/generated/pane-strings.json
 /webviews/src/pages/diff/generated/locales/
 /webviews/src/pages/diff/generated/localeLoaders.ts
 /webviews/src/**/generated/*.tmp
