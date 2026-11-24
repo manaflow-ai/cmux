@@ -860,6 +860,8 @@ function RowPreview({ layout }: { layout: Layout }) {
       <span className="row-layout-line-label" aria-hidden="true">
         {label}
       </span>
+      {/* A picture of a sidebar row, not form controls: a fieldset would be the wrong element. */}
+      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <div className="row-layout-preview" data-row-layout-preview="" role="group" aria-label={label}>
         {layout.lines.map((line, l) => (
           <div key={l} className="row-layout-preview-line" data-preview-line={l}>
