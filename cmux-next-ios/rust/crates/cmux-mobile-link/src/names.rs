@@ -42,6 +42,7 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const BUNDLE: &str = "bundle-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -99,6 +100,10 @@ pub const ALL: &[Capability] = &[
     host(
         TAB_SNAPSHOTS,
         "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
+    ),
+    host(
+        BUNDLE,
+        "(2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest.",
     ),
     host(
         BROWSER_STREAM,
