@@ -572,6 +572,9 @@ class Swapper:
         self.sock = sock
         self.env = env
         self.previous: Path | None = None  # the last cmux-tui this loop swapped in
+        # The owner's socket once an identify on it named the same pid `server status` did: the handoff's
+        # waits then ask the daemon itself (a millisecond) instead of starting a CLI per poll.
+        self.owner_sock: str | None = None
         # An app's daemon file and the copy of what it held before the first swap. Kept in the state
         # folder, one marker per session/socket, so a watcher that died never takes a swapped file for
         # the app's, and a watcher on another session never restores this one's.
@@ -613,6 +616,11 @@ class Swapper:
         if not match:
             return None
         pid = match.group(1)
+        if self.owner_sock is None:
+            sock = re.search(r'"socket"\s*:\s*"([^"]+)"', status.stdout)
+            sock = sock.group(1) if sock else self.sock
+            if sock and self.identify_pid(sock, 1.0) == int(pid):
+                self.owner_sock = sock
         try:
             # Linux names a file renamed over since the process started "PATH (deleted)", as an app's
             # owner's is right after a swap renames the new build over it; the owner still runs PATH's.
@@ -623,6 +631,33 @@ class Swapper:
             names = [line[1:] for line in out.stdout.splitlines() if line.startswith("n/")]
             exe = Path(names[0]) if names else Path("")
         return (int(pid), exe) if exe.is_absolute() and exe.is_file() else None
+
+    @staticmethod
+    def identify_pid(sock: str, timeout: float) -> int | None:
+        """The pid of the daemon answering on `sock`, or None (none answers in `timeout`)."""
+        try:
+            pid = request(Path(sock), {"cmd": "identify"}, timeout=max(timeout, 0.01)).get("pid")
+            return int(pid) if pid is not None else None
+        except (OSError, RuntimeError, ValueError, TypeError):
+            return None
+
+    def owner_pid(self, cli: Path, timeout: float) -> int | None:
+        """The answering owner's pid: from its socket when known, else from `server status`."""
+        if self.owner_sock:
+            return self.identify_pid(self.owner_sock, min(timeout, 0.5))
+        owner = self.owner(cli, timeout=timeout)
+        return owner[0] if owner else None
+
+    @staticmethod
+    def place(source: Path, dest: Path) -> None:
+        """`dest` names the same file as `source`: a hard link (no bytes move), else a copy (another volume).
+        Nothing here writes a file in place: every change is a new file renamed over a name, so a link is a
+        copy that costs nothing (a debug cmux-tui is 614 MB: two copies per handoff were most of it)."""
+        dest.unlink(missing_ok=True)
+        try:
+            os.link(source, dest)
+        except OSError:
+            shutil.copy2(source, dest)
 
     @staticmethod
     def app_file(exe: Path) -> Path | None:
@@ -639,14 +674,14 @@ class Swapper:
             marker = self.marker()
             keep = (marker.with_suffix("") if marker else Path(tempfile.mkdtemp(prefix="rust-live-app-"))) / target.name
             keep.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, keep)
+            self.place(target, keep)
             self.app_original = (target, keep)
             if marker:
                 marker.write_text(json.dumps({"selector": self.selector, "file": str(target), "copy": str(keep)}) + "\n")
         before = target.with_name(f".{target.name}.rust-live-before")
         staged = target.with_name(f".{target.name}.rust-live")
-        shutil.copy2(target, before)
-        shutil.copy2(new, staged)
+        self.place(target, before)
+        self.place(new, staged)
         staged.chmod(0o755)
         os.replace(staged, target)  # the running owner keeps the file it mapped
         self.terminate_owner(new, pid)
@@ -670,8 +705,7 @@ class Swapper:
         """SIGTERM to `pid` only while it is still the session's owner: the copies before this can take
         seconds, and a pid that exited in that time can belong to another process (or the app's next
         owner) by now."""
-        current = self.owner(cli, timeout=10)
-        if not current or current[0] != pid:
+        if self.owner_pid(cli, timeout=10) != pid:
             return
         try:
             os.kill(pid, signal.SIGTERM)
@@ -679,12 +713,13 @@ class Swapper:
             pass
 
     def wait_for_new_owner(self, cli: Path, old: int) -> int | None:
+        # APP_OWNER_SECS bounds only a no-show: the wait ends the moment the next owner answers.
         deadline = time.monotonic() + APP_OWNER_SECS
         while time.monotonic() < deadline:
-            owner = self.owner(cli, timeout=deadline - time.monotonic())
-            if owner and owner[0] != old:
-                return owner[0]
-            time.sleep(0.05)
+            pid = self.owner_pid(cli, timeout=deadline - time.monotonic())
+            if pid is not None and pid != old:
+                return pid
+            time.sleep(0.01)
         return None
 
     def restore_app(self) -> str | None:
@@ -696,7 +731,7 @@ class Swapper:
             return None
         owner = self.owner(target)
         staged = target.with_name(f".{target.name}.rust-live")
-        shutil.copy2(keep, staged)
+        self.place(keep, staged)
         os.replace(staged, target)
         # Only this app's owner hands off: one running from somewhere else is not the swapped build.
         if owner and self.app_file(owner[1]) == target and self.handoff_to_file(owner[0], target) is None:
@@ -715,7 +750,8 @@ class Swapper:
         if "cmux-tui" in built:
             new = built["cmux-tui"]
             t0 = time.monotonic()
-            owner = self.owner(new)
+            # `server status` from the build that already ran (warm pages; macOS assessed it once), not the new one.
+            owner = self.owner(self.previous if self.previous and self.previous.is_file() else new)
             target = self.app_file(owner[1]) if owner else None
             if self.previous is None:
                 self.previous = owner[1] if owner else None
