@@ -34,6 +34,8 @@ rcgen = { version = "0.13", optional = true }
 rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The local ad's key tag (local.rs); already in the graph.
+sha2 = "0.10"
 # Larger UDP socket buffers for the tunnel (a replay burst after a roam).
 socket2 = "0.6"
 thiserror.workspace = true
@@ -53,3 +55,4 @@ zeroize.workspace = true
 cmux-mobile-link = { path = ".", features = ["testing"] }
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
+cmux-fault.workspace = true
