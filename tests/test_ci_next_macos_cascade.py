@@ -2710,7 +2710,7 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
                         context["inputs"].update(runner=requested, platform="macos")
                         context["needs"] = {"resolve-ref": {"outputs": {"trusted_ref": trusted}}}
                         self.assertEqual(evaluate(runs_on_of(job), context),
-                                         SIDE if trusted == "true" else SMALL)
+                                         "cmux-mac" if trusted == "true" else SMALL)
 
     def test_the_incident_rerun_takes_the_owned_label(self):
         """Run 43590543702's attempt 3: a bot re-run with attempt 1's placement carried, CI_PR_POOL_OWNED on."""
@@ -2735,6 +2735,34 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         self.assertTrue(any(on.jobs.values()))
         self.assertEqual(placement.gui_overflow(env(CI_BLACKSMITH_MACOS=""), live, waiting, None), "")
         self.assertEqual(placement.gui_overflow(env(CI_BLACKSMITH_MACOS="on"), live, waiting, None), SMALL)
+
+    def test_a_fleet_client_job_no_idle_mini_took_spills_to_the_fleet_while_off(self):
+        # 2026-11-23 09-11Z: with Blacksmith macOS off the fast tier queued 46 to 65 min on the side label (all
+        # its slots busy) while the gateway had idle runners: place() never listed it for its fleet client.
+        live, waiting = {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}
+        values = {"CI_BLACKSMITH_MACOS": "", "FLEET_CLIENT_JOBS": "fast-tier"}
+        spilled = cascade.place(env(**values), (), live, waiting, saturated=True)
+        self.assertEqual(spilled.fleet_jobs, ("fast-tier",))
+        self.assertEqual({label: jobs for label, jobs in spilled.jobs.items() if jobs}, {})
+        self.assertIn("reserved for the fleet gateway", spilled.why)
+        self.assertIn(cascade.FLEET_SPILL_SWITCH, spilled.why)
+        # An idle mini took it, the runners were unread, or the off switch is `0`: it stays on its owned label.
+        self.assertEqual(cascade.place(env(**values), ("fast-tier",), live, waiting, saturated=True).fleet_jobs, ())
+        self.assertEqual(cascade.place(env(**values), (), live, waiting, saturated=False).fleet_jobs, ())
+        off = cascade.place(env(**values, CI_FAST_TIER_FLEET_SPILL="0"), (), live, waiting, saturated=True)
+        self.assertEqual(off.fleet_jobs, ())
+        # Only FLEET_CLIENT_JOBS spill, and with Blacksmith on the cascade places as before.
+        self.assertEqual(cascade.place(env(CI_BLACKSMITH_MACOS=""), (), live, waiting, saturated=True).fleet_jobs, ())
+        on = cascade.place(env(**{**values, "CI_BLACKSMITH_MACOS": "on"}), (), live, waiting, saturated=True)
+        self.assertNotIn("fleet gateway (vars.", on.why)
+
+    def test_the_spill_switch_reaches_macos_placement(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+        steps = workflow["jobs"]["macos-placement"]["steps"]
+        envs = [step.get("env") or {} for step in steps if "FLEET_CLIENT_JOBS" in (step.get("env") or {})]
+        self.assertTrue(envs)
+        for step_env in envs:
+            self.assertEqual(step_env.get(cascade.FLEET_SPILL_SWITCH), "${{ vars.CI_FAST_TIER_FLEET_SPILL }}")
 
     def test_the_read_deadline_route_is_owned_while_off(self):
         with tempfile.TemporaryDirectory() as tmp:
