@@ -17,7 +17,6 @@ pub enum Order {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ListFilter {
     /// Tasks assigned to the caller's person or delegated to the caller.
     #[serde(default)]
