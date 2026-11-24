@@ -229,13 +229,17 @@ async fn dial_relayed_on(mac: &Mac, radio: &Radio, timeline: Timeline) -> Option
     };
     let attempt = async {
         let phone_id = uuid::Uuid::new_v4().to_string();
-        let phone =
-            SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id).await.ok()?;
-        timeline.mark("signaling_connected");
-        let connected =
-            dial::connect(&phone, &mac.mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
-                .await
-                .ok()?;
+        // The redial: TURN allocates beside the signaling reconnect (`signaling_connected`).
+        let reconnect = SignalingClient::connect(&radio.signaling_url, "user:alice", "team", &phone_id);
+        let (phone, connected) = dial::connect_after(
+            reconnect,
+            &mac.mac_id,
+            TransportKind::WireGuard,
+            &options,
+            LinkConfig::default(),
+        )
+        .await
+        .ok()?;
         Some(Up { connected, _signaling: Some(phone) })
     };
     timeout(WAIT, attempt).await.ok().flatten()
