@@ -313,6 +313,17 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // Time to content on every page the app ships (bench/surface-loading.bench.ts; Leo 2026-11-10: "Anything fucking
+  // slow, anything fucking bullshit, anything with a stupid ass fucking loading state."): each page built as shipped,
+  // opened cold on ?mock, every painted frame judged blank, loading or content. surface_loading.over_bound counts the
+  // pages whose spinner or blank pane outlasts 1 s. perf-cron.py runs it as its own part (web-ui-loading).
+  {
+    name: "surface-loading",
+    file: "surface-loading.bench.ts",
+    args: ["3"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   {
     name: "chat-switch-god",
     file: "chat-switch.bench.ts",

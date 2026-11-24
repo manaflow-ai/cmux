@@ -353,6 +353,11 @@ PARTS = [
     # (webviews/bench/chat-fast-scroll.bench.ts, Leo 2026-11-22 "lags on scrolling ... when he's scrolling really
     # fast"): fling frame intervals and blank frames, rail click to paint and clicks that never loaded. Its own part.
     {"name": "web-ui-scroll", "where": "linux", "kind": "webui", "needs": "web-ui-scroll"},
+    # Time to content on every shipped page (webviews/bench/surface-loading.bench.ts, Leo 2026-11-10: "anything with a
+    # stupid ass fucking loading state"): each page built as the app ships it, opened cold on ?mock, every painted
+    # frame judged blank, loading or content; surface_loading.<page>.time_to_content and .over_bound (pages whose
+    # spinner or blank pane outlasts 1 s). Its own part: the web-ui part's suite is at its 30-minute cap.
+    {"name": "web-ui-loading", "where": "linux", "kind": "webui", "needs": "web-ui-loading"},
     # One live chat's disk growth (scripts/measure/chat-disk-growth.py, the same goal): a release acpmux streams one
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
@@ -422,6 +427,7 @@ ROW_PARTS = [
     (r"^webui\.transcript_scroll_up_scale\.", "web-ui-scroll-up"),
     (r"^webui\.composer_typing\.", "web-ui-typing"),
     (r"^webui\.chat_fast_scroll\.", "web-ui-scroll"),
+    (r"^webui\.surface_loading\.", "web-ui-loading"),
     (r"^webui\.sidebar_chats_fling\.", "web-ui-scroll"),
     (r"^webui\.chat_disk\.", "chat-disk"),
     (r"^cloud\.claim_to_ready", "cloud-claim"),
@@ -1256,6 +1262,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "sim-fidelity"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-scroll":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "chat-fast-scroll,sidebar-chats-fling"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-loading":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "surface-loading"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
     if part == "coord-sim":
@@ -2440,6 +2448,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{SCROLL_UP_SCALE_BENCH}")
         elif need == "web-ui-scroll":
             ok = has_path(sha, f"{CHAT_FAST_SCROLL_BENCH}")
+        elif need == "web-ui-loading":
+            ok = has_path(sha, f"{SURFACE_LOADING_BENCH}")
         elif need == "web-ui-typing":
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
         elif need == "web-ui-million":
@@ -2545,6 +2555,7 @@ SCROLL_UP_SCALE_BENCH = "webviews/bench/transcript-scroll-up-scale.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
+SURFACE_LOADING_BENCH = "webviews/bench/surface-loading.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
 CLOUD_CLAIM = "scripts/cmux-next/cloud-claim-rows.py"

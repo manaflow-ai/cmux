@@ -24,7 +24,7 @@ def row(p95, unit="ms", floor=1.0, budget=None):
     return {"p50": p95, "p95": p95, "unit": unit, "floor": floor, "budget": budget}
 
 
-LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
+LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-loading", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
 
 
@@ -1237,6 +1237,14 @@ class WebUiTests(unittest.TestCase):
         # The suite names the bench the part asks for (web-ui-suite.ts), as its own part outside the suite's cap.
         suite = open(os.path.join(cron.ROOT, "webviews/bench/web-ui-suite.ts"), encoding="utf-8").read()
         self.assertRegex(suite, r'name: "composer-typing",\s*file: "composer-typing\.bench\.ts"')
+
+    def test_the_surface_loading_rows_have_their_own_part(self):
+        self.assertTrue(cron.is_linux_part("web-ui-loading"))
+        self.assertEqual(cron.part_for_row("webui.surface_loading.over_bound@linux"), "web-ui-loading")
+        self.assertEqual(cron.part_for_row("webui.surface_loading.settings.time_to_content@linux"), "web-ui-loading")
+        argv, cwd, _ = cron.linux_bench_runs("/r", "web-ui-loading")["suite"]
+        self.assertEqual(argv, ["bun", "bench/web-ui-suite.ts", "--only", "surface-loading"])
+        self.assertEqual(cwd, "/r/webviews")
 
     def test_the_chat_fast_scroll_rows_have_their_own_part(self):
         self.assertTrue(cron.is_linux_part("web-ui-scroll"))
