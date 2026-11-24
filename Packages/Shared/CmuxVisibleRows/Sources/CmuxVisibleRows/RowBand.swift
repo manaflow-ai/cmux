@@ -61,6 +61,7 @@ public struct RowBand: Equatable, Sendable {
 }
 
 /// The rows a highlight move redraws: the one that had it and the one that has it, at most two, none when it stays.
+// lint:allow namespace-type: one pure rule over two optional ids, shared by every list that draws a highlight.
 public enum HighlightTouch {
     public static func rows<ID: Hashable>(from old: ID?, to new: ID?) -> [ID] {
         guard old != new else { return [] }
