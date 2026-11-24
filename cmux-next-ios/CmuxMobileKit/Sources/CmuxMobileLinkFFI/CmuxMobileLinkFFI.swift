@@ -3848,6 +3848,13 @@ public protocol TerminalPredictionProtocol: AnyObject, Sendable {
     func set(enabled: Bool, remote: Bool)  -> Bool
     
     /**
+     * Predicts inside full-screen programs too (an agent's TUI, an editor's
+     * insert mode), each key confirmed by the program printing it in its
+     * cell. The setting, off by default. Answers whether anything drawn went.
+     */
+    func setFullScreenApps(on: Bool)  -> Bool
+    
+    /**
      * 0 disabled, 1 local surface, 2 listening, 3 link fast enough, 4
      * alternate screen, 5 suspended, 6 predicting.
      */
@@ -4066,6 +4073,20 @@ open func set(enabled: Bool, remote: Bool) -> Bool  {
             self.uniffiCloneHandle(),
         FfiConverterBool.lower(enabled),
         FfiConverterBool.lower(remote),$0
+    )
+})
+}
+    
+    /**
+     * Predicts inside full-screen programs too (an agent's TUI, an editor's
+     * insert mode), each key confirmed by the program printing it in its
+     * cell. The setting, off by default. Answers whether anything drawn went.
+     */
+open func setFullScreenApps(on: Bool) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprediction_set_full_screen_apps(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),$0
     )
 })
 }
@@ -9212,6 +9233,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_set() != 27923) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_set_full_screen_apps() != 2710) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_status() != 9701) {
