@@ -1,0 +1,27 @@
+{
+ "owners": [
+  {
+   "at": "2026-11-24T14:01:41Z",
+   "harness": "codex",
+   "host": "gcp-agent-lane-9",
+   "name": "transport-lockstep",
+   "pid": 3049290,
+   "pr": null,
+   "proc_start": "28189956",
+   "session_id": "01a20dc4-dd74-7d82-9196-df4e2e1487eb",
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--acpmux-wire-declarations/cmux-tui"
+  },
+  {
+   "at": "2026-11-24T15:10:12Z",
+   "harness": "claude",
+   "host": "gcp-agent-lane-9",
+   "name": "transport-lockstep",
+   "pid": 1800797,
+   "pr": null,
+   "proc_start": "27829917",
+   "session_id": "01a20d8d-e986-70b7-b5d3-173dab52e55c",
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--transport-lockstep/cmux-tui"
+  }
+ ],
+ "schema": "cargo-target-owner/v1"
+}

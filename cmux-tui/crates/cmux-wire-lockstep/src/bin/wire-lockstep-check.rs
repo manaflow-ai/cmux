@@ -129,7 +129,7 @@ fn main() -> ExitCode {
             match git_show(&root, other, &rel) {
                 Ok(Some(text)) => match Manifest::from_json(&text) {
                     Ok(theirs) => {
-                        findings.extend(collisions(base_manifest.as_ref(), &head, &theirs, other))
+                        findings.extend(collisions(base_manifest.as_ref(), &head, &theirs, other));
                     }
                     Err(e) => println!("{rel} at {other}: unreadable ({e}); not compared"),
                 },
