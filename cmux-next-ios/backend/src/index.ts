@@ -22,10 +22,13 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
+import { RELAY_SUBPROTOCOL, relayRoomName } from "./link-relay.ts"
+import { isRegion, netcheckRoomName, parseNetcheck, relayPlacement } from "./placement.ts"
 import { Timing, timingFor } from "./timing.ts"
 import { WorkerEntrypoint } from "cloudflare:workers"
 
 export { TeamHub } from "./team-hub.ts"
+export { LinkRelay } from "./link-relay.ts"
 export { ConnectivityAlertDesk } from "./connectivity-alerts.ts"
 
 const CLOUD_MACHINE = /^vm_[a-z0-9]{20}$/
@@ -338,9 +341,18 @@ const colo = (req: Request): string | null => {
 
 /** Where a request entered Cloudflare: colo, country and continent codes (`req.cf`), each null when unknown. */
 const ingressOf = (req: Request): Ingress => {
-  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown } }).cf
+  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown; latitude?: unknown; longitude?: unknown } }).cf
   const code = (v: unknown) => (typeof v === "string" && /^[A-Z0-9]{2,4}$/.test(v) ? v : null)
-  return { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent) }
+  // Rounded to 0.1 degree (about 11 km): enough to place a relay, never a street.
+  const deg = (v: unknown, max: number) => {
+    const n = typeof v === "string" ? Number.parseFloat(v) : typeof v === "number" ? v : Number.NaN
+    return Number.isFinite(n) && Math.abs(n) <= max ? Math.round(n * 10) / 10 : null
+  }
+  const out: Ingress = { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent), lat: deg(cf?.latitude, 90), lon: deg(cf?.longitude, 180) }
+  // The client's netcheck (`?netcheck=wnam:31,enam:72`, PROTOCOL.md "Relay placement"), when it sent one.
+  const rtt = parseNetcheck(new URL(req.url).searchParams.get("netcheck"))
+  if (rtt) out.rtt = rtt
+  return out
 }
 
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
@@ -390,6 +402,42 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     await limit(env.ICE_LIMIT, me, "ICE requests")
     const { iceServers: list, ttl, turn } = await t.span("turn", cachedIceServers(env, ctx))
     return json({ iceServers: list, ttl, turn })
+  }
+
+  const probe = path.match(/^\/v1\/netcheck\/([a-z]+)$/)
+  if (probe && method === "GET") {
+    // A netcheck target (PROTOCOL.md "Relay placement"): a WebSocket to one Durable Object per region, created
+    // with that region's hint, that answers `ping` with `pong` without waking. The client times a few pings to
+    // each region and sends the result with its signal socket, so a relay is placed by measured round trips.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    const region = probe[1]!
+    if (!isRegion(region)) throw new HttpError(404, "unknown_region", "no such netcheck region")
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(netcheckRoomName(space, region)), { locationHint: region })
+    const headers = new Headers({ upgrade: "websocket" })
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    return t.span("relay", room.fetch("https://link-relay/netcheck", { headers }))
+  }
+
+  const relay = path.match(/^\/v1\/relay\/([^/]+)$/)
+  if (relay && method === "GET") {
+    // The link's WebSocket relay (PROTOCOL.md "WebSocket relay"): only the two devices the caller's hub bound to
+    // this session can join, each with its own socket, and only after direct UDP and TURN failed them.
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return fail(426, "upgrade_required", "expected a WebSocket upgrade")
+    if (env.LINK_RELAY_MODE === "off") return fail(503, "relay_off", "the cmux relay is turned off")
+    const sessionId = decodeURIComponent(relay[1]!).toLowerCase()
+    const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
+    if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
+    const bound = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId))
+    if (!bound) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    const peer = bound.peer
+    // Placed from both ends (placement.ts): only the first join creates the object, later hints are ignored.
+    const placed = relayPlacement(ingressOf(req), bound.ingress, caller.hint)
+    const room = env.LINK_RELAY.get(env.LINK_RELAY.idFromName(relayRoomName(me, space, sessionId)), placed.hint ? { locationHint: placed.hint } : undefined)
+    const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer })
+    // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
+    if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    return t.span("relay", room.fetch("https://link-relay/join", { headers }))
   }
 
   if (path === "/v1/me/bootstrap" && method === "POST") {
@@ -603,11 +651,14 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ environment: r.environment, status: r.status, reason: r.reason })) }))
       // Why APNs refused, so the Mac (and whoever reads its log) can see it without the Worker's logs.
       const failures = notifyFailures(results)
+      // Not sent: APNs refused the key or topic for another send to the same environment and topic.
+      const skipped = results.filter((r) => r.outcome === "skipped").length
       return json({
         configured: true,
         sent: results.filter((r) => r.outcome === "sent").length,
         failed: failed.length,
         dropped: drop.length,
+        ...(skipped ? { skipped } : {}),
         wants,
         batches: true,
         ...(failures.length ? { failures } : {})

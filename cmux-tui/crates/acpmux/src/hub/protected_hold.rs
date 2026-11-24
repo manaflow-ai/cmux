@@ -17,6 +17,10 @@ impl Hub {
     /// Whether `session`'s restored work waits for the person: its folder is protected and no
     /// client shows it now. Marks the hold, which `release_protected_hold` lifts.
     pub(super) fn hold_in_protected_folder(&self, session: &Session) -> bool {
+        // A held chat's restored work waits for its release too (`session_hold.rs`).
+        if self.session_held(session) {
+            return true;
+        }
         if self.shown(session) {
             return false;
         }

@@ -221,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.whenOpen { [weak services] in services?.startNonPaintServices(); services?.liveCode.labsSwitch(services?.settings?.snapshot.liveCode == true) }
         firstFrame.whenOpen { [weak services] in services?.startPostFrameFeeds(); LaunchTypeProbe(environment: ProcessInfo.processInfo.environment) { DebugTimings.markLaunch($0) }?.type() } // launch-ready type=1
         // Before the first window opens (restoreWhenLoaded opens one at once).
+        launchReads.shell.content.contentReady = services.launchReveal.whenContentReady // swap over stage 0 once regions show content
         services.windows.onPresent = { [weak services, shell = launchReads.shell] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window); shell.presented(controller.window) // the first takes stage 0's frame, then its place
         }
@@ -249,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // group editor (WebKit, ~60 MB of processes) wait for a menu or palette open, where every Set Icon and Rename Group is,
         // and are freed again once their idle limit passes with no open or menu (IconPickerService/GroupEditorService.idleLimit);
         // each menu or palette open makes them again or pushes that limit back.
-        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false) }
+        launchSettle.whenSettled { [palette = services.palette, weak services] in Self.preparePalette(palette, step: 0) { services?.hoverCards.warm() }; services?.iconPicker.prepare(page: false); services?.windows.recordSaver.launchImages.windowsChanged() }
         let warmOverlays = { @MainActor [weak services] in services?.iconPicker.prepare(); services?.groupEditor.prepare() }
         services.keyRouter.menuPickKeys.tracking.onMenus(warmOverlays)
         services.palette.onShows(warmOverlays)
@@ -291,8 +292,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return pane != nil
         }
         DebugTimings.markLaunch("dfl.home_history")
+        services.windows.layoutCache = launchReads.shell.layoutCache // the last run's layout, read before stage 0's commit
         services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
-        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule() }
+        firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
@@ -477,6 +479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
+                services.updater.attachHealthCheck(socket: { [weak self] in self?.control.socketPath }, file: { [reporter = services.crashReporting.reporter] in reporter.captureNonFatal($0, type: $1, fingerprint: $2, tags: $3, extra: $4) })
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
@@ -554,6 +557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         cloudBootstrap?.cancel()
         cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()
+        services?.windows.recordSaver.layoutCache.flushNow() // what the quit's awaited flushes missed: one write, on this thread
         services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
         services?.updater.stopReleasePush()
@@ -615,6 +619,7 @@ extension AppDelegate {
             async let files: Void = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
             await services.windows.recordSaver.launchRecord.flush()
+            await services.windows.recordSaver.layoutCache.flush()
             await files
         }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }

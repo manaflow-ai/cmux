@@ -101,6 +101,11 @@ public protocol MacLink: AnyObject, Sendable {
     /// it as connected at once instead of waiting a main-actor turn for the
     /// state stream (verify/perf-latency.md).
     var connectedPath: LinkPathKind? { get }
+    /// Where a direct path's peer address is, as the Rust link names it
+    /// (`cmux_mobile_link::dial::peer_scope`): `lan`, `tailnet` (a Tailscale or
+    /// CGNAT address), `wan`, or empty on a relayed path, before a route, or
+    /// when the link cannot say. The DEBUG hand-off receipt names it.
+    var peerScope: String { get }
     /// How long ago the link last received any frame from the Mac (a pong,
     /// channel data, a control frame), measured where frames arrive, not where
     /// a channel's reader takes them; nil when the link cannot say. Any frame
@@ -112,12 +117,31 @@ public protocol MacLink: AnyObject, Sendable {
     /// is idle: with Align Keepalives on, the heartbeat probes it on the
     /// keepalive beat (``KeepaliveBeat``).
     var trafficAgo: Duration? { get }
+    /// The WireGuard static public keys this link's tunnel handshook with
+    /// (nil: not a tunnel). The phone's `auth` signs them and checks the Mac's
+    /// identity proof over them (``TunnelKeys``).
+    var tunnelKeys: TunnelKeys? { get }
+}
+
+/// The two WireGuard static public keys of a tunnel (base64, as in `wg-init`
+/// and `wg-resp`): the dialer's (this phone's) and the answerer's (the Mac's).
+/// A v2 `auth`'s identity proofs cover them (cmux-mobile-host `pairing.rs`).
+public struct TunnelKeys: Sendable, Equatable {
+    public var dialer: String
+    public var answerer: String
+
+    public init(dialer: String, answerer: String) {
+        self.dialer = dialer
+        self.answerer = answerer
+    }
 }
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+    public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public var tunnelKeys: TunnelKeys? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
     public func setForegroundProbe(_ on: Bool) {}
 
@@ -129,6 +153,20 @@ extension MacLink {
     public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         try await openChannel(service: service, args: args)
     }
+}
+
+/// A link the Mac can hold while the app is suspended (PROTOCOL.md "Parked
+/// link"): a WireGuard link to a Mac that knows parking.
+public protocol ParkableMacLink: MacLink {
+    /// Before the OS suspends the app: ask the Mac to hold the link for up to
+    /// `hold` while the phone is silent. `true`: parked, and nothing on the
+    /// link wakes the phone until ``resumeParked()``. `false`: an older Mac,
+    /// no answer within `timeout`, or a transport that cannot be held.
+    func park(hold: Duration, timeout: Duration) async -> Bool
+    /// Back in front: `true` when the link was parked and its hold has not
+    /// passed. The tunnel then moves onto a fresh socket; probe it, and the
+    /// first frame back ends the park on both sides.
+    func resumeParked() -> Bool
 }
 
 /// One multiplexed channel inside a link.
