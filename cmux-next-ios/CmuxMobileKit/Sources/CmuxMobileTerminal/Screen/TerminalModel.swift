@@ -898,6 +898,30 @@ public final class TerminalModel {
         addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
     }
 
+    /// Demo driver `live-attach` (the pair-e2e rig's attachment leg): a picked video, as the Photos
+    /// picker hands it over (a file on the phone), starts uploading at once like any pick.
+    public func demoAttachVideo(at url: URL) {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        addAttachment(ComposerAttachment(kind: .video, name: url.lastPathComponent, byteCount: size, fileURL: url))
+    }
+
+    /// Demo driver `live-attach`: the first tile's X, as a tap on it does.
+    public func demoRemoveFirstAttachment() {
+        if let id = attachments.first?.id { removeAttachment(id) }
+    }
+
+    /// Demo driver `live-attach`: the first tile's upload, for the rig's log ("none" without one).
+    public func demoUploadState() -> String {
+        guard let first = attachments.first, let p = uploadProgress(first) else { return "none" }
+        return "\(p.stage) \(p.ackedBytes)/\(p.totalBytes) attempt \(p.attempt)"
+    }
+
+    /// Demo driver `live-attach`: whether the first tile's upload moves bytes (past the Mac's first ack).
+    public var demoUploadAcked: Bool {
+        guard let first = attachments.first, let p = uploadProgress(first) else { return false }
+        return p.stage == .uploading && p.ackedBytes > 0 && p.ackedBytes < p.totalBytes
+    }
+
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
     /// live session reports it. A state that is not attached holds until the
     /// next `demoConnection`, so the mock shell's output (which a live link
