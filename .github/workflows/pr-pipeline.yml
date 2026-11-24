@@ -97,6 +97,32 @@ jobs:
           else
             echo "::notice::No merge commit to diff: every web-browser step runs."
           fi
+      # The agent-pane-real-acpmux step builds acpmux on an ephemeral runner: with no cargo cache it compiled ~470
+      # crates from scratch and could pass its 1800 s budget (job 138744570179, 2026-11-24). Restore the dependency
+      # build agent-pane-acpmux-cache.yml saves from feat-cmux-next, only when that step is routed. Never saves here
+      # (a pull request's save is a per-ref copy no other pull request can read, #54905).
+      - name: Does the change route the agent pane's acpmux build?
+        id: acpmux
+        run: |
+          # The step's own finer router reads one path a line (ci/run's $CI_PATHS_FILE); PATHS_FILE is NUL-separated.
+          lines=""
+          if [ -n "${PATHS_FILE:-}" ]; then lines="$RUNNER_TEMP/changed-paths-lines.txt"; tr '\0' '\n' < "$PATHS_FILE" > "$lines"; fi
+          if ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} \
+              | python3 -c 'import json,sys; sys.exit(0 if "agent-pane-real-acpmux" in json.load(sys.stdin).get("web-browser", []) else 1)' \
+            && CI_PATHS_FILE="$lines" python3 -I scripts/ci/web_subareas.py has agent_pane; then
+            echo "routed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Restore the agent pane's acpmux cargo build
+        if: ${{ steps.acpmux.outputs.routed == 'true' }}
+        continue-on-error: true
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          shared-key: agent-pane-real-acpmux
+          save-if: false
+          workspaces: cmux-tui -> target
       - name: Run the routed web-browser steps (ci/steps.toml)
         run: ci/run run --job web-browser ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # The real-daemon pane checks' measurements (the agent-pane-real-acpmux step writes $RUNNER_TEMP/agent-pane-real-acpmux).
