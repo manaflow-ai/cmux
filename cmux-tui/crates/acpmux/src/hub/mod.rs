@@ -11,6 +11,7 @@ mod control_asks;
 mod account_usage;
 mod activity;
 mod app_exit;
+mod session_usage;
 // Opt-in team usage sharing: one record per turn (`cmux-usage-share`).
 mod usage_share;
 // A foreground shell still running after five minutes goes to the background (Claude Code).
