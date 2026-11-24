@@ -377,7 +377,8 @@ test("work after the turn's summary (a task notification's) is one live line, no
     ...head,
     row("late", "activity", { items: [call("cat build.log"), call("bun test", "in_progress")] }),
   ]);
-  expect(callIds(running)).toEqual(["cat build.log"]);
+  // The ended turn's one call draws flat, in place: too little to fold (turns.ts `worthFolding`).
+  expect(callIds(running)).toEqual(["git log", "cat build.log"]);
   expect(running.at(-1)).toMatchObject({ kind: THINKING, doing: "bun test", doingShell: true });
 });
 

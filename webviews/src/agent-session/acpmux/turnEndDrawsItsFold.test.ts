@@ -87,33 +87,43 @@ test("a turn's end alone draws the fold its result draws", async () => {
   const { daemon, view, until, id, settled, close } = await pane();
   try {
     const turnId = "t-fold";
+    // Stamped six seconds apart: a turn under a second never folds (turns.ts `worthFolding`).
+    const t0 = Date.now() - 60_000;
     daemon.touch(id, { status: "running", turn: { turnId } });
-    daemon.emit(id, { mux: "user_message", msg: { text: "Fold the retry work", promptId: `p-${turnId}` } });
-    daemon.emit(id, { mux: "turn_started", msg: { turnId, promptId: `p-${turnId}` } });
+    daemon.emit(id, { mux: "user_message", msg: { text: "Fold the retry work", promptId: `p-${turnId}` } }, t0);
+    daemon.emit(id, { mux: "turn_started", msg: { turnId, promptId: `p-${turnId}` } }, t0);
     // Three calls: a turn with less to hide draws flat, with no fold (turns.ts `worthFolding`).
-    for (const toolCallId of ["c1", "c2", "c3"]) {
-      daemon.emit(id, {
-        update: {
-          sessionUpdate: "tool_call",
-          toolCallId,
-          kind: "execute",
-          title: "run tests",
-          status: "completed",
+    for (const [index, toolCallId] of ["c1", "c2", "c3"].entries()) {
+      daemon.emit(
+        id,
+        {
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            kind: "execute",
+            title: "run tests",
+            status: "completed",
+          },
         },
-      });
+        t0 + (index + 1) * 1_000,
+      );
     }
-    daemon.emit(id, {
-      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done: the tests pass." } },
-    });
+    daemon.emit(
+      id,
+      {
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done: the tests pass." } },
+      },
+      t0 + 5_000,
+    );
     await until(() => view.shown.isWorking);
     await settled();
     daemon.touch(id, { status: "running", turn: null });
-    daemon.emit(id, { mux: "turn_end", msg: { stopReason: "end_turn", turnId } });
+    daemon.emit(id, { mux: "turn_end", msg: { stopReason: "end_turn", turnId } }, t0 + 6_000);
     await settled();
     const atEnd = drawn(view.shown, "Fold the retry work");
     expect(atEnd.some((row) => row.endsWith(`@${WORKED}`))).toBe(true);
     expect(atEnd.some((row) => row.endsWith("@activity"))).toBe(false);
-    daemon.emit(id, { mux: "turn_result", msg: { status: "completed", turnId, promptId: `p-${turnId}` } });
+    daemon.emit(id, { mux: "turn_result", msg: { status: "completed", turnId, promptId: `p-${turnId}` } }, t0 + 6_000);
     daemon.touch(id, { status: "ready" });
     await settled();
     expect(drawn(view.shown, "Fold the retry work")).toEqual(atEnd);
