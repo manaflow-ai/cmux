@@ -134,8 +134,9 @@ public final class NIOChannelByteStream: TunnelByteStream, @unchecked Sendable {
         ended = true
         let waiter = self.waiter
         self.waiter = nil
-        let pending = buffered.isEmpty ? nil : buffered.removeFirst()
+        // Without a waiting read, buffered chunks stay for the reads that follow.
         guard let waiter else { return }
+        let pending = buffered.isEmpty ? nil : buffered.removeFirst()
         if let pending {
             waiter.resume(returning: pending)
         } else if let error {

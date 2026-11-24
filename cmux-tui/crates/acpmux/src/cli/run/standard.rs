@@ -43,6 +43,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Process(..)
             | Command::Gc { .. }
             | Command::Worktree(..)
+            | Command::Fetch(..)
             | Command::Group(..)
             | Command::Account(..)
             | Command::ShareHost(..)
@@ -1200,6 +1201,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         #[cfg(not(unix))]
         Command::Gc { .. } => Err(anyhow::anyhow!("acpmux gc: not supported on this platform")),
         Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
+        Command::Fetch(args) => crate::cli::fetch::run(args, json_out).await,
         Command::Group(cmd) => crate::cli::group::run(cmd, json_out).await,
         Command::Account(cmd) => crate::cli::account::run(cmd, json_out).await,
         Command::ShareHost(cmd) => crate::share_host::cli::run(cmd, json_out).await,
@@ -1231,14 +1233,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Info { session, fields } => {
             let client = connect(true).await?;
-            let v = match resolve_id(&client, &session).await {
-                Ok(id) => {
-                    crate::cli::slow_notice::noted(
-                        "the session's details",
-                        client.request(method::MUX_INFO, json!({"sessionId": id})),
-                    )
-                    .await?
-                }
+            let v = match crate::cli::slow_notice::noted(
+                "the session's details",
+                session_info(&client, &session, false),
+            )
+            .await
+            {
+                Ok(record) => record,
                 // A row only the send relay lists: its details are the relay's row, `via: relay`.
                 Err(e) => match crate::cli::send_relay::relayed_row(&e) {
                     Some(row) => row.clone(),

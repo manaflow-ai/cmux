@@ -9,8 +9,16 @@
 //! - The Mac serves only a peer whose saved config says `githubBroker`
 //!   (`PeerConfig::github_broker`); any other peer is refused, as every request from a peer was.
 //! - Only these actions exist: read a repository or a pull request, open an issue, comment on
-//!   one, and open a draft pull request. There is no push, merge, close, delete, edit, settings,
-//!   secret, workflow or `gh api` passthrough.
+//!   one, open a draft pull request, and `token`. There is no merge, close, delete, edit,
+//!   settings, secret or `gh api` passthrough.
+//! - `token` (remote-integrations slice 2) is how git, `gh` and GitHub MCP on the machine push
+//!   and open pull requests: the Mac mints a GitHub App installation token for one repository
+//!   with the permissions asked (from `TOKEN_PERMISSIONS`, at most an hour), with the cmux
+//!   sign-in the app lends it and never with its keyring login, and answers it to the agent
+//!   session that asked. That is the exposure a Cloud machine's git already has: the token lives
+//!   in the memory of the one git, gh or MCP process that asked (`cmux_host::github_cli`), never
+//!   on disk, in a log, an event or argv, and the session's `github_broker_action` row names the
+//!   repository and permissions only.
 //! - On the lane only an agent session of that daemon may ask (its caller token, `hub/person.rs`),
 //!   over the unix socket; the Web, the app's pages and peers are refused (`remote_guard.rs`).
 //! - The token never leaves the Mac: `gh` reads it from the Mac's keyring, or, with no keyring
@@ -66,6 +74,21 @@ pub fn owner_slots(peer: &str) -> Arc<tokio::sync::Semaphore> {
         .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(OWNER_SLOTS)))
         .clone()
 }
+/// Whether a Mac lent this daemon GitHub since it started (`hub/github_owner.rs`): its agent
+/// sessions then get git's credential helper, the `gh` shim and GitHub MCP through it
+/// (`github_session_env.rs`, `agent_tools.rs`).
+static LENT_HERE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// A Mac that lends GitHub opened a link to this daemon.
+pub fn mark_lent_here() {
+    LENT_HERE.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Whether a Mac lent this daemon GitHub since it started.
+pub fn lent_here() -> bool {
+    LENT_HERE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// The Mac's daemon sets this on the `gh` it runs, and the shim refuses to run with it set, so
 /// the shim can never be the `gh` the Mac calls back into.
 pub const SHIM_REFUSAL_ENV: &str = "ACPMUX_GITHUB_BROKER_OWNER";
@@ -77,6 +100,7 @@ pub enum GithubAction {
     Issue,
     Comment,
     DraftPr,
+    Token,
 }
 
 impl GithubAction {
@@ -86,6 +110,7 @@ impl GithubAction {
             Self::Issue => "issue",
             Self::Comment => "comment",
             Self::DraftPr => "draft_pr",
+            Self::Token => "token",
         }
     }
 }
@@ -111,10 +136,44 @@ pub struct GithubActionParams {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// The permissions a `token` asks for, by GitHub's names (`TOKEN_PERMISSIONS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<serde_json::Map<String, Value>>,
     /// Unix ms, by the machine's clock: when it stops waiting for the answer
     /// ([`deadline_from`]). The lane sets it; the Mac starts nothing that could finish later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deadline_ms: Option<u64>,
+}
+
+/// The permissions a `token` may ask for, and the highest level of each: what git (`contents`,
+/// `workflows` for a push that changes `.github/workflows`), `gh` and GitHub MCP ask
+/// (`cmux_host::github_cli::{credential_asks, gh_ask}`). The team's policy in cmux Cloud is
+/// still the limit; nothing here asks for administration, secrets or settings.
+pub const TOKEN_PERMISSIONS: [(&str, &str); 8] = [
+    ("contents", "write"),
+    ("pull_requests", "write"),
+    ("issues", "write"),
+    ("workflows", "write"),
+    ("checks", "read"),
+    ("actions", "read"),
+    ("statuses", "read"),
+    ("metadata", "read"),
+];
+
+/// Whether `asked` is a non-empty set of `TOKEN_PERMISSIONS`, each read or write and no higher
+/// than its limit.
+fn valid_token_permissions(asked: &serde_json::Map<String, Value>) -> bool {
+    !asked.is_empty()
+        && asked.iter().all(|(name, level)| {
+            let Some((_, max)) = TOKEN_PERMISSIONS.iter().find(|(n, _)| n == name) else {
+                return false;
+            };
+            match level.as_str() {
+                Some("read") => true,
+                Some("write") => *max == "write",
+                _ => false,
+            }
+        })
 }
 
 /// The deadline the lane gives an action it sends at `now_ms`.
@@ -209,6 +268,7 @@ pub fn validate(r: &GithubActionParams) -> Result<(), RpcError> {
         GithubAction::Issue => (&["title"], &["body"]),
         GithubAction::Comment => (&["issue", "body"], &[]),
         GithubAction::DraftPr => (&["branch", "title"], &["base", "body"]),
+        GithubAction::Token => (&["permissions"], &[]),
     };
     let given = [
         ("branch", r.branch.is_some()),
@@ -216,6 +276,7 @@ pub fn validate(r: &GithubActionParams) -> Result<(), RpcError> {
         ("issue", r.issue.is_some()),
         ("title", r.title.is_some()),
         ("body", r.body.is_some()),
+        ("permissions", r.permissions.is_some()),
     ];
     for (field, present) in given {
         if present && !needs.contains(&field) && !allows.contains(&field) {
@@ -227,6 +288,12 @@ pub fn validate(r: &GithubActionParams) -> Result<(), RpcError> {
     }
     if r.issue.is_some_and(|n| !(1..=1_000_000_000).contains(&n)) {
         return Err(invalid("issue must be a positive number"));
+    }
+    if r.permissions.as_ref().is_some_and(|p| !valid_token_permissions(p)) {
+        return Err(invalid(
+            "permissions must be read or write of contents, pull_requests, issues or workflows, \
+             or read of checks, actions, statuses or metadata",
+        ));
     }
     bounded_text("title", r.title.as_deref())?;
     bounded_text("body", r.body.as_deref())
@@ -253,6 +320,8 @@ pub fn gh_args(r: &GithubActionParams) -> Vec<String> {
         (GithubAction::Comment, _) => {
             vec!["issue".into(), "comment".into(), n, opt("--body", &r.body)]
         }
+        // A token runs no `gh` (`serve_owner` mints it instead).
+        (GithubAction::Token, _) => Vec::new(),
         (GithubAction::DraftPr, _) => vec![
             "pr".into(),
             "create".into(),
@@ -330,6 +399,7 @@ pub fn audit_payload(
         "repo": r.repo,
         "branch": r.branch,
         "issue": r.issue,
+        "permissions": r.permissions,
         "status": status,
         "source": source,
         "error": error.map(|e| json!({"code": e.code})),
@@ -446,6 +516,9 @@ pub async fn serve_owner(
         .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
     validate(&request)?;
     check_deadline(request.deadline_ms, crate::store::now_ms())?;
+    if request.action == GithubAction::Token {
+        return serve_token(peer, &request, app).await;
+    }
     let (source, chosen) = crate::github_app_token::choose(&request, app).await;
     let result = match &chosen {
         // Again once the login is chosen (`gh auth status` and a mint take time): `gh` still
@@ -464,6 +537,39 @@ pub async fn serve_owner(
     tracing::info!(peer, session, "github broker: {row}");
     let output = result.map_err(|e| with_source(e, source))?;
     Ok(json!({"action": request.action, "repo": request.repo, "output": output, "source": source}))
+}
+
+/// The Mac's side of `token`: an App installation token for the one repository and the asked
+/// permissions, minted with the lent cmux sign-in (never the keyring login: that one is long
+/// lived and covers every repository the person can reach), answered only while that sign-in
+/// is still lent and the machine still waits.
+async fn serve_token(
+    peer: &str,
+    request: &GithubActionParams,
+    app: Option<&crate::github_app_token::AppLease>,
+) -> Result<Value, RpcError> {
+    let minted = crate::github_app_token::mint_for_peer(request, app).await;
+    let result = match &minted {
+        Ok(source) => crate::github_app_token::while_lent(source, app, || {
+            check_deadline(request.deadline_ms, crate::store::now_ms())
+        }),
+        Err(e) => Err(e.clone()),
+    };
+    let session = request.session_id.as_deref().unwrap_or("-");
+    let status = if result.is_ok() { "allowed" } else { "failed" };
+    let row = audit_payload(request, status, result.as_ref().err(), Some("app"));
+    tracing::info!(peer, session, "github broker: {row}");
+    result.map_err(|e| with_source(e, Some("app")))?;
+    let token = minted.ok().and_then(|s| s.token().map(str::to_owned)).unwrap_or_default();
+    Ok(json!({"action": request.action, "repo": request.repo, "token": token, "source": "app"}))
+}
+
+/// Whether `token` has the shape of a GitHub App installation token (`ghs_`), the only kind a
+/// `token` answer may carry.
+pub fn installation_token(token: &str) -> bool {
+    token.starts_with("ghs_")
+        && token.len() <= 255
+        && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// `e` says which login it ran with, whatever data it had (none, for a `gh` that failed to
