@@ -77,7 +77,7 @@ pub(super) async fn handle(
             .ok_or_else(|| RpcError::invalid_params("surface is required"))?;
         let text = str_param(params, "text")
             .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-        return hub.composer_set(&s, surface, text, &conn.label());
+        return hub.composer_set(&s, surface, text, params.get("images"), &conn.label());
     }
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
@@ -90,7 +90,9 @@ pub(super) async fn handle(
     }
     // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
     let who = super::who(conn);
-    let admitted = hub.admit_new(super::ask(conn, params, &who)).await?;
+    // An aside starts beside its chat, never on a peer (`hub/admission_redirect.rs`).
+    let ask = crate::hub::admission::Ask { redirect: false, ..super::ask(conn, params, &who) };
+    let admitted = hub.admit_new(ask).await?;
     admitted.run(hub.ask_aside(&s, text, &conn.label(), opts())).await
 }
 
