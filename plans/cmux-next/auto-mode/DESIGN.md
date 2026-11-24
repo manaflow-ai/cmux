@@ -337,6 +337,55 @@ Rules added after the correctness review (2026-11-23):
 - The alarm's look reads at most 3 teams with a chat that waits, by their oldest such chat, counting only teams
   the owner may still use: a team they left takes no place, and with no other team waiting the look ends.
 
+Moving a chat by hand, as built (2026-11-24):
+
+The store's side of "Modes and moving a chat by hand" below. The pure rules are `move.ts` (`move`, `give`); the
+Rust mirror is `cmux-auto-session/src/fake/moves.rs`, and the conformance vectors replay both.
+
+- `POST :id/move` (owner; a machine is answered 403) `{to: "cloud" | "local", device?: "device:<id>"}` ->
+  `{session}`. `device` is taken only with `to: "local"` (400 `validation.invalid` otherwise). A chat with Auto
+  off is refused `auto.off`.
+  - To the Cloud. A machine holds it already (any of the owner's): the wish is dropped, `keepInCloud: true`, no
+    machine is looked up. No Auto machine: `auto.no_machine`. Parked: `auto.not_copied` with no snapshot, else a
+    `takeover` for the Auto machine at the next epoch with `keepInCloud: true`. A laptop holds it: the wish and
+    `keepInCloud: true` in one write, and the Auto machine is started now so it is up at the give.
+  - To a laptop. A laptop holds it and none is named, or the holder is named: the wish is dropped,
+    `keepInCloud: false`. Otherwise the target is the named laptop when it stands by, or with none named the
+    standby that renewed last; without one, `auto.no_laptop`. Parked: the target holds it at the next epoch with
+    `needsRun: false`, owing an import unless it is the laptop the chat was parked from. A machine or another
+    laptop holds it: the wish and `keepInCloud: false` in one write; a machine that holds it is started, since
+    it may be paused and has to read the wish.
+  - Asked again while it waits, a wish's time starts again. A move that changes nothing writes nothing.
+- The wish is `session.move: {to, device?, at}` in the view (left out when there is none). The lease answer
+  carries `move: "cloud" | "local"` only to the holder (`role: "holder"`), never to a standby or a `lost` caller.
+- `POST :id/give` (the holder, laptop or machine) `{holder, epoch}` -> `{session}`. The checks, in order: the
+  fence (`auto.closed`, `auto.not_holder`, `auto.stale_epoch`); `auto.no_move` with no wish; `auto.not_copied`
+  unless a snapshot exists and `snapshotSeq >= lastSeq`. To the Cloud the Auto machine is looked up at the give
+  (`auto.no_machine`) and gets a `takeover`. To a laptop the target is found again at the give (the named
+  standby, else the newest; `auto.no_laptop` when it stopped standing by): it holds the chat at the next epoch,
+  owing an import, with `needsRun` as the giver last said it, so work the giver stopped still counts as work if
+  that laptop never renews.
+- All four new codes answer 409: `auto.off`, `auto.no_laptop`, `auto.no_move`, `auto.not_copied`.
+- The wish goes at every change of holder (a give, a takeover, parking, a hand-back, a standby taking the chat)
+  and at the alarm once `at + MOVE_MS` (120 s) has passed. `keepInCloud` stays as the move set it: a wish that
+  runs out leaves the chat where it is, in the mode the person chose.
+- A wish that names a laptop also steers a hand-back that happens before the give: the machine's idle renewal
+  and `release` go to the named laptop when it stands by, else to the newest standby, and a paused machine's
+  chat goes only to the named laptop's renewal.
+- Parked take-back: the laptop a chat was parked from does not take it back, by `PUT` or by renewal, when the
+  chat is kept in the Cloud and has a snapshot. A `PUT` is judged with `keepInCloud` as that `PUT` leaves it, so
+  a `PUT` that stops keeping the chat takes it back. With no snapshot the laptop has the only chat there is and
+  takes it back whatever the chat is kept as.
+- `POST /v1/auto-sessions` takes `keepInCloud` (a chat made in Cloud mode). The Rust `CreateRequest` has no
+  such field yet; the fake store takes it through `FakeAutoCloud::create_kept`.
+- Storage: the wish is one added column (`move_wish`, JSON) on the chat's record, and the machine a wish waits
+  on is one added column (`wake_machine`) on the owner's index, which starts it once per wish. Both are added
+  with `ALTER TABLE` when an older object starts.
+- Rust: the wire types are in `cmux-auto-session/src/wire/moves.rs` (`MoveTo`, `MoveRequest`, `MoveWish`,
+  `MoveRefusal`), `SessionView.moving` and `LeaseAnswer.move_to` read the two `move` fields, and `AutoCloud`
+  has `move_` and `give`. The four new codes are not in `ErrorCode`: an error carries one as its raw code and
+  `AutoCloudError::move_refusal()` reads it (`code()` is None for them).
+
 Known limits of the store's rules:
 
 - A chat whose machine cannot run it has a way back only when the machine was never heard from: the owner sets
