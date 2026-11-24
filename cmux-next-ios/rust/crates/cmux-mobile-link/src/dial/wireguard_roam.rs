@@ -334,7 +334,9 @@ impl Session {
     /// Give the underlay a socket on `wanted` (none: drop it), or move the
     /// session onto it once its interface is the `primary` one.
     fn apply_multipath(&self, wanted: Option<&super::multipath::NetInterface>, primary: Option<&str>) {
-        if !self.multipath || self.closed.load(Ordering::Relaxed) {
+        // The dialing side (the phone) takes the second socket; the answering
+        // side copies to the phone's metered address instead.
+        if !self.multipath || !self.dialer || self.closed.load(Ordering::Relaxed) {
             return;
         }
         let mut current = lock(&self.secondary);
@@ -1156,5 +1158,42 @@ mod tests {
             serde_json::from_str::<RoamMessage>(r#"{"t":"reach"}"#).unwrap(),
             RoamMessage::Reach { from: None, via: None }
         );
+    }
+
+    /// Protocol version 3's `metered` message, old against new both ways: a
+    /// version-2 peer's messages all still parse, a `metered` one is new
+    /// JSON a version-2 peer reads as unreadable and skips (its loop logs
+    /// it and goes on), and only a version-3 peer gets a second socket.
+    #[test]
+    fn metered_messages_old_and_new() {
+        let metered = RoamMessage::Metered { addresses: vec!["198.51.100.4:61000".into()] };
+        let text = serde_json::to_string(&metered).unwrap();
+        assert_eq!(text, r#"{"t":"metered","addresses":["198.51.100.4:61000"]}"#);
+        assert_eq!(serde_json::from_str::<RoamMessage>(&text).unwrap(), metered);
+        assert_eq!(
+            serde_json::from_str::<RoamMessage>(r#"{"t":"metered"}"#).unwrap(),
+            RoamMessage::Metered { addresses: Vec::new() }
+        );
+        // What a version-2 side sends parses the same here.
+        let old = r#"{"t":"endpoints","generation":3,"endpoints":["203.0.113.7:40000"]}"#;
+        assert!(matches!(serde_json::from_str::<RoamMessage>(old).unwrap(), RoamMessage::Endpoints { .. }));
+        // A version-2 side's enum, which lacks `metered`, refuses it (and
+        // `run_control` there only logs an unreadable message).
+        #[derive(Debug, Deserialize)]
+        #[serde(tag = "t", rename_all = "kebab-case")]
+        #[allow(dead_code)]
+        enum V2 {
+            Endpoints { generation: u64, endpoints: Vec<String> },
+            Ack { generation: u64 },
+            Reach { from: Option<String>, via: Option<String> },
+        }
+        assert!(serde_json::from_str::<V2>(&text).is_err());
+        assert!(serde_json::from_str::<V2>(old).is_ok());
+        let many = RoamMessage::Metered {
+            addresses: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_METERED],
+        };
+        assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
+        assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION);
+        assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
     }
 }
