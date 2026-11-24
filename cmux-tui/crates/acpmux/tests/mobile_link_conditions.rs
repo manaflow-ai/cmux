@@ -28,6 +28,7 @@ mod daemon_env;
 // environment, so the bench's knobs are kept by name or every run takes the defaults.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "NETCOND_PROFILES",
+    "NETCOND_LOAD",
     "NETCOND_PROFILES_FILE",
     "NETCOND_RELAY",
     "NETCOND_SCALES",
@@ -1365,6 +1366,7 @@ async fn busy_open(shaper: &Shaper, token: &str, session: &str, k: &Key<'_>, ear
     }
     emit(k, "first_content_ms", Some(ms(at - start)));
     emit_bytes(k, shaper);
+    emit_kinds(k, "to_first", &link.tap.take());
     let mut events = link
         .pending
         .iter()
@@ -1378,6 +1380,15 @@ async fn busy_open(shaper: &Shaper, token: &str, session: &str, k: &Key<'_>, ear
     }
     emit(k, "bytes_down_10s", Some(shaper.counters().down_bytes as f64));
     emit(k, "events_10s", Some(events as f64));
+    emit_kinds(k, "after_first", &link.tap.take());
+}
+
+/// Every message type the link carried down, bytes and count: `<when>:down:<type>`.
+fn emit_kinds(k: &Key, when: &str, t: &TapInner) {
+    for (name, (n, bytes)) in &t.down {
+        emit(k, &format!("{when}:down:{name}"), Some(*bytes as f64));
+        emit(k, &format!("{when}:msgs_down:{name}"), Some(*n as f64));
+    }
 }
 
 /// The cold open of a chat whose agent is working (cmuxterm-hq optimum-ledger rows 95 and 105;
@@ -1424,10 +1435,14 @@ async fn chat_cold_open_while_the_agent_works() {
             scale.trim_end_matches('x').parse().unwrap_or_else(|_| panic!("scale {scale}"));
         control.seed(&session, turns, BASE_TURNS * x).await;
         turns = turns.max(BASE_TURNS * x);
-        // The agent works through every open of this scale.
+        // The agent works through every open of this scale (`NETCOND_LOAD=idle`: it does not).
+        let idle = std::env::var("NETCOND_LOAD").is_ok_and(|l| l == "idle");
         let mut agent = Control::new(&hub);
         let busy_session = session.clone();
         let busy = tokio::spawn(async move {
+            if idle {
+                return;
+            }
             let pad = "busy busy busy ".repeat(64);
             for n in 0u64.. {
                 agent.prompt(&busy_session, &format!("busy {n}: {pad}")).await;
