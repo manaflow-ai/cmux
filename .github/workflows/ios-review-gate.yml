@@ -174,9 +174,13 @@ permissions:
 
 concurrency:
   group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}
-  # Latest wins for pull requests and feat-cmux-next pushes; a dispatched or
-  # called run (a submission) always finishes.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # Latest wins for pull requests. A feat-cmux-next push run always finishes:
+  # the newest pending push replaces older pending ones, the running one is
+  # kept. With pushes a median 9.7 min apart and the gate about 30 min, latest
+  # wins cancelled 75 of 100 push runs (11-23 02:54Z to 11-24 04:55Z) and 1
+  # passed, so app breaks on the base went unreported. A dispatched or called
+  # run (a submission) always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
