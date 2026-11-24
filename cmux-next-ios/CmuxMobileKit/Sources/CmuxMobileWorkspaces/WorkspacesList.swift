@@ -49,8 +49,6 @@ public struct WorkspacesList: View {
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
-    /// A refresh has taken long enough to say so.
-    @State private var showsUpdating = false
     /// The page's placeholder rows showed in this load: the list's own (below Mac lines) take
     /// over from them at once.
     @State private var placeholdersShown = false
@@ -96,7 +94,7 @@ public struct WorkspacesList: View {
     @State private var revealedRequest: Int?
     /// The list is on screen (not under a pushed workspace page): a reveal waits for it.
     @State private var isShown = false
-    /// The remembered row is scrolled once each time this list becomes visible.
+    /// The remembered row was scrolled to (or found hidden): once per launch.
     @State private var restoredLastWorkspace = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
@@ -166,9 +164,6 @@ public struct WorkspacesList: View {
         store.tracksMacData ? WorkspaceInbox.ListState(store.macDataPhase(macID)) : .live
     }
 
-    /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
-    private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
-
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
         WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
@@ -205,15 +200,6 @@ public struct WorkspacesList: View {
             // own placeholder rows that replace them (a Mac line arrived) skip their show delay.
             .onChange(of: pageShowsPlaceholder || inbox.isLoading, initial: true) { _, loading in
                 placeholdersShown = loading && (placeholdersShown || pageShowsPlaceholder)
-            }
-            .task(id: isRefreshing) {
-                // Say "Updating…" only when a refresh is slow, not on every one.
-                guard isRefreshing else {
-                    showsUpdating = false
-                    return
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                if !Task.isCancelled { showsUpdating = true }
             }
             .alert(unavailableTitle, isPresented: isPresented($unavailable), presenting: unavailable) { _ in
                 Button("OK", role: .cancel) {}
@@ -291,8 +277,8 @@ public struct WorkspacesList: View {
         return "Its workspaces stay open on \(name)."
     }
 
-    /// Filtered: the Mac and its presence. Else "Updating…" for a slow
-    /// refresh, "2 need you", or with several Macs how many are online.
+    /// Filtered: the Mac and its presence. Else "2 need you", or with several
+    /// Macs how many are online. A refresh adds no words: the rows update in place.
     private var subtitle: String {
         if let mac = scopedMac {
             let now = MinuteClock.shared.now
@@ -305,8 +291,8 @@ public struct WorkspacesList: View {
             return "\(displayName(mac)) · " + line
         }
         let state = launchState
-        // One loading indicator at a time: over the placeholder rows the page already says it loads.
-        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        // A refresh of rows already on screen says nothing: the rows update in place, in the
+        // background (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
         // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
         if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
             return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
@@ -459,55 +445,27 @@ public struct WorkspacesList: View {
                 guard let request, isShown else { return }
                 reveal(request.workspaceID)
             }
-            .onChange(of: rememberedWorkspaceID) { _, _ in
-                restoredLastWorkspace = false
-                restoreLastWorkspace(inbox)
-            }
             .onChange(of: store.activeWorkspaces.map(\.id)) { _, _ in
-                restoreLastWorkspace(inbox)
-            }
-            .onChange(of: query) { _, _ in
-                restoreLastWorkspace(inbox)
-            }
-            .onChange(of: unfolded) { _, _ in
-                restoreLastWorkspace(inbox)
-            }
-            .onChange(of: creator.groupsRevision) { _, _ in
                 restoreLastWorkspace(inbox)
             }
             .onAppear {
                 isShown = true
                 if let request = store.revealRequest, request.id != revealedRequest { reveal(request.workspaceID) }
-                restoredLastWorkspace = false
                 restoreLastWorkspace(inbox)
             }
-            .onDisappear {
-                isShown = false
-                restoredLastWorkspace = false
-            }
+            .onDisappear { isShown = false }
     }
 
-    /// Scrolls to the remembered row after cached or live rows first include it.
-    /// Closed groups and offline Mac folds are opened without the reveal flash used for an explicit request.
+    /// Once per launch, scrolls to the remembered row as soon as cached or live rows include it. Backing out of a
+    /// workspace keeps the list where it was, so only the first appearance scrolls. Only a row the list already
+    /// shows is a target: a restore never opens a collapsed group (that writes the Mac's sidebar), unfolds a Mac
+    /// or clears a search the user typed; the row is still marked when they get to it.
     private func restoreLastWorkspace(_ inbox: WorkspaceInbox) {
-        guard isShown, !restoredLastWorkspace,
+        guard isShown, !restoredLastWorkspace, query.isEmpty,
               let workspaceID = LastOpenRestore.listTarget(savedWorkspaceID: rememberedWorkspaceID,
-                                                           workspaces: store.activeWorkspaces),
-              let workspace = store.workspace(id: workspaceID) else { return }
-        if !query.isEmpty {
-            query = ""
-            return
-        }
-        if let group = workspace.group, group.isCollapsed {
-            creator.setGroupCollapsed(group, on: workspace.macID, false)
-            return
-        }
-        if let fold = inbox.folds.first(where: { $0.mac.id == workspace.macID }), !fold.isForcedOpen {
-            unfolded.insert(workspace.macID)
-            return
-        }
-        guard listModel(inbox).items[WorkspacesListModel.rowID(workspaceID)] != nil else { return }
+                                                           workspaces: store.activeWorkspaces) else { return }
         restoredLastWorkspace = true
+        guard listModel(inbox).items[WorkspacesListModel.rowID(workspaceID)] != nil else { return }
         Task { @MainActor in
             await Task.yield()
             guard isShown else { return }

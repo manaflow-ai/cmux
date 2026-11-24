@@ -123,7 +123,7 @@ struct WorkspacesScreen: View {
     private var workspaces: some View {
         WorkspacesList(
                 store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
-                rememberedWorkspaceID: shell.lastWorkspace.load(),
+                rememberedWorkspaceID: shell.lastWorkspaceID,
                 reconnect: shell.live.map { live in
                     { macID in live.recover(macID: macID) }
                 },
