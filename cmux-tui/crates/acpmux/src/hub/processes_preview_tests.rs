@@ -53,7 +53,12 @@ fn an_api_path_previews_the_root() {
 async fn a_preview_is_only_a_port_that_accepts() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    // A bound socket that never listens refuses connects and keeps the port from any other test.
+    // A dropped listener would keep accepting while a child another test spawns holds a copy of
+    // its descriptor (between fork and exec), and the newest-first probe would pick it.
+    let refusing = tokio::net::TcpSocket::new_v4().unwrap();
+    refusing.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let closed = refusing.local_addr().unwrap().port();
     let output = format!("up http://localhost:{port}/\ndown http://127.0.0.1:{closed}/\n");
     let found = first_listening(previews_in(output.as_bytes())).await;
     assert_eq!(found, Some(preview(&format!("http://localhost:{port}/"), port)));
