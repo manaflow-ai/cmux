@@ -62,7 +62,7 @@ async fn tui(socket: &std::path::Path, ids: &[&str]) -> (App, mpsc::UnboundedRec
     let client = Client::connect(socket).await.unwrap();
     let (tx, rx) = mpsc::unbounded_channel();
     let sessions = ids.iter().map(|id| json!({"sessionId": id})).collect();
-    let mut app = run::make_app(client, tx, sessions, crate::config::Config::default()).unwrap();
+    let mut app = run::make_app(client, tx, sessions, acpmux::config::Config::default()).unwrap();
     app.focus = Focus::Input;
     app.select(0);
     app.draft_tick(Instant::now());

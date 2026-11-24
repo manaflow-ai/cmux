@@ -17,6 +17,7 @@ acpmux = { path = "../acpmux", default-features = false }
 anyhow = "1"
 base64 = "0.22"
 cmux-json.workspace = true
+cmux-scope.workspace = true
 crossterm = { workspace = true, features = ["event-stream"] }
 dirs = "6"
 futures-util = "0.3"

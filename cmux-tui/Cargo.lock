@@ -217,6 +217,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-json",
+ "cmux-scope",
  "crossterm",
  "dirs",
  "futures-util",
