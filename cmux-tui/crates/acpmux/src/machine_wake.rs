@@ -73,7 +73,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
         path_segment(&lease)
     );
     let client =
-        reqwest::Client::builder().default_headers(cmux_build_space::headers()?).build()?;
+        crate::happy_dial::http_client().default_headers(cmux_build_space::headers()?).build()?;
     let mut request = client.post(url);
     if let Some(token) = &config.token {
         request = request.bearer_auth(token);
@@ -90,7 +90,7 @@ pub async fn wake(config: &MachineWakeConfig, summary: &Value) -> Result<bool> {
 /// ended with all it started (the `Child`'s drop). The command keeps its own log.
 pub(crate) fn run_peer_wake(argv: &[String], limit: std::time::Duration) -> Result<(), String> {
     let (program, args) = argv.split_first().ok_or("no command")?;
-    let mut child = cmux_process::Command::new(program)
+    let mut child = cmux_process::Command::new(crate::config::user_program(program))
         .args(args)
         .env(crate::peer::WAKE_ENV, "1")
         .stdin(cmux_process::Stdio::null())
