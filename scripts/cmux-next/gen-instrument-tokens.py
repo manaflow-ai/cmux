@@ -173,6 +173,19 @@ def validate(data):
                 raise TokenError(f'{name}: an offToken entry is {{file, line, value, on}}')
 
 
+def css_root_value(text, prop):
+    """A custom property's value in a stylesheet's first `:root { ... }` block (a `today.file` ending in .css,
+    `today.path` the property): a default the stylesheet itself owns, such as a look token's."""
+    block = re.search(r'^:root\s*\{(.*?)^\}', text, re.S | re.M)
+    if not block:
+        raise TokenError('no :root block')
+    body = re.sub(r'/\*.*?\*/', '', block.group(1), flags=re.S)
+    m = re.search(rf'(?:^|[;\s]){re.escape(prop)}\s*:\s*([^;]+);', body)
+    if not m:
+        raise TokenError(f'{prop} is not declared on :root')
+    return ' '.join(m.group(1).split())
+
+
 def drift(data, root=ROOT):
     """Each token whose recorded `today` is no longer what its source says."""
     found, cache = [], {}
@@ -185,9 +198,11 @@ def drift(data, root=ROOT):
             if not path.is_file():
                 found.append(f'{t["name"]}: {today["file"]} does not exist')
                 continue
-            cache[today['file']] = json.loads(path.read_text(encoding='utf-8'))
+            text = path.read_text(encoding='utf-8')
+            cache[today['file']] = text if today['file'].endswith('.css') else json.loads(text)
         try:
-            live = resolve(cache[today['file']], today['path'])
+            source = cache[today['file']]
+            live = css_root_value(source, today['path']) if isinstance(source, str) else resolve(source, today['path'])
         except TokenError as error:
             found.append(f'{t["name"]}: {error}')
             continue

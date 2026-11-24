@@ -61,6 +61,31 @@ class InstrumentTokenTests(unittest.TestCase):
         self.assertIn('corner.card', found[0])
         self.assertIn('A default moved', found[0])
 
+    def test_stylesheet_default_is_read_and_moved_default_is_drift(self):
+        # ink.activity reads its :root default from conversation.css; moving the mix there is drift.
+        sheet = ':root {\n  /* a comment: --cv-activity-text: red; */\n  --cv-x: 1px;\n' \
+                '  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%,\n    transparent);\n}\n' \
+                '.row { --cv-activity-text: blue; }\n'
+        self.assertEqual('color-mix(in srgb, var(--cv-fg) 58%, transparent)',
+                         tokens.css_root_value(sheet, '--cv-activity-text'))
+        with self.assertRaises(tokens.TokenError):
+            tokens.css_root_value(sheet, '--cv-missing')
+        token = next(t for t in self.data['tokens'] if t['name'] == 'ink.activity')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for t in self.data['tokens']:
+                if 'today' in t:
+                    dest = root / t['today']['file']
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if not dest.exists():
+                        dest.write_text((ROOT / t['today']['file']).read_text())
+            css_path = root / token['today']['file']
+            css_path.write_text(css_path.read_text().replace('var(--cv-fg) 58%, transparent);',
+                                                             'var(--cv-fg) 64%, transparent);', 1))
+            found = tokens.drift(self.data, root)
+        self.assertEqual(1, len(found))
+        self.assertIn('ink.activity', found[0])
+
     def test_applying_a_value_shrinks_and_must_be_locked(self):
         data = copy.deepcopy(self.data)
         card = self.token('corner.card', data)

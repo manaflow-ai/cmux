@@ -24,6 +24,12 @@
       "about": "The quietest transcript text: timestamps and hints."
     },
     {
+      "name": "--cv-activity-text",
+      "kind": "color",
+      "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",
+      "about": "Tool-call rows, Worked for, notices and background activity lines. Unset: the theme's text at 58% (Instrument's ink.activity). A look on a tinted page sets it to hold 4.5:1 there."
+    },
+    {
       "name": "--cv-link",
       "kind": "color",
       "owner": "webviews/src/agent-session/acpmux/conversation/conversation.css",

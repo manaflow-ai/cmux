@@ -25,7 +25,9 @@
   /* Progress rows, times, command meta: text, so the theme's secondary ink, which holds 4.5:1 on every fill.
      The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
   --cv-text-dim: var(--agent-muted);
-  /* Background activity follows Claude Code's secondary reading level. */
+  /* Tool rows, Worked for and background activity: Claude Code's secondary reading level. A public look
+     token (schemas/agent-pane/style-tokens.json), so a look on a tinted page can hold 4.5:1 here; its
+     default is Instrument's ink.activity (schemas/instrument/instrument.json reads it from this line). */
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
   --cv-fg: var(--agent-text);
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
