@@ -121,7 +121,7 @@ public struct ThemeTokens: Hashable, Sendable {
         return min(max(themeFloor + (1 - contrastHeadroom) * 0.10 + luminanceBias, 0.52), 0.76)
     }
 
-    /// Minimum contrast for primary and secondary chrome text.
+    /// Default minimum contrast for primary and secondary chrome text.
     public static let minimumTextContrast = 4.5
     /// Minimum contrast for tertiary text and status marks.
     public static let minimumMarkContrast = 3.0
@@ -136,8 +136,9 @@ public struct ThemeTokens: Hashable, Sendable {
     /// ```
     ///
     /// - Parameter input: The terminal theme.
+    /// - Parameter contrastFloor: Minimum contrast for primary and secondary chrome text.
     /// - Returns: The tokens, with every text tier holding its contrast.
-    public static func derive(from input: ThemeInput) -> ThemeTokens {
+    public static func derive(from input: ThemeInput, contrastFloor: Double = minimumTextContrast) -> ThemeTokens {
         let bg = input.background
         let isDark = bg.relativeLuminance < input.foreground.relativeLuminance
         let fg = input.foreground
@@ -163,7 +164,8 @@ public struct ThemeTokens: Hashable, Sendable {
         // In a see-through window the quieter inks also hold over the tint on the worst desktop for
         // the theme (sidebar sweep 2026-10-21); the tint stays the opacity asked for (#22566).
         let seeThrough = seeThroughSurfaces(bg: bg, opacity: input.backgroundOpacity, isDark: isDark, fills: [pressed, selection])
-        let (primary, secondary, tertiary) = inks(fg, rows: [worstSurface, bg], seeThrough: seeThrough, background: bg)
+        let (primary, secondary, tertiary) = inks(fg, rows: [worstSurface, bg], seeThrough: seeThrough, background: bg,
+                                                   contrastFloor: contrastFloor)
 
         // The config's selection fill, when text reads on it. Many themes select by inverse video
         // (the foreground as the fill, with a dark `selection-foreground`); chrome and pages draw
@@ -249,16 +251,17 @@ public struct ThemeTokens: Hashable, Sendable {
     /// of two candidates that both read, the one toward the pole that reads better on the row
     /// fill wins). Hot Dog Stand's white on red reaches only 4.20:1, so it takes the dark ink;
     /// Grass's dark ink drops to 3.73:1 on its background, so it takes white.
-    static func inks(_ foreground: ThemeRGB, rows: [ThemeRGB], seeThrough: [ThemeRGB], background bg: ThemeRGB)
+    static func inks(_ foreground: ThemeRGB, rows: [ThemeRGB], seeThrough: [ThemeRGB], background bg: ThemeRGB,
+                     contrastFloor: Double)
         -> (ThemeRGB, ThemeRGB, ThemeRGB) {
         func least(_ ink: ThemeRGB) -> Double { rows.map { ink.contrast(with: $0) }.min() ?? 1 }
         let poles = [ThemeRGB.white, .black].sorted { $0.contrast(with: rows[0]) > $1.contrast(with: rows[0]) }
         let candidates = poles.map { pole -> (inks: (ThemeRGB, ThemeRGB, ThemeRGB), score: Double) in
-            let primary = readable(foreground, over: rows, toward: pole, minimum: minimumTextContrast)
+            let primary = readable(foreground, over: rows, toward: pole, minimum: contrastFloor)
             let inkSurface = (rows + seeThrough).min { primary.contrast(with: $0) < primary.contrast(with: $1) } ?? bg
-            let secondary = muted(primary, toward: bg, upTo: 0.38, over: inkSurface, minimum: minimumTextContrast)
+            let secondary = muted(primary, toward: bg, upTo: 0.38, over: inkSurface, minimum: contrastFloor)
             let tertiary = muted(primary, toward: bg, upTo: 0.55, over: inkSurface, minimum: minimumMarkContrast)
-            return ((primary, secondary, tertiary), min(least(primary), least(secondary), minimumTextContrast))
+            return ((primary, secondary, tertiary), min(least(primary), least(secondary), contrastFloor))
         }
         var chosen = candidates[0]
         for candidate in candidates.dropFirst() where candidate.score > chosen.score { chosen = candidate }

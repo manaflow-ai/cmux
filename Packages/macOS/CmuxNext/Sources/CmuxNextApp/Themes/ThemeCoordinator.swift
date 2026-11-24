@@ -88,6 +88,7 @@ final class ThemeCoordinator {
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
         _ = (store.setAccent(settings.applied.accent), store.setSelection(settings.applied.selection))
+        store.setContrastFloor(settings.applied.highContrastLook ? 7 : ThemeTokens.minimumTextContrast)
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -112,9 +113,7 @@ final class ThemeCoordinator {
         }
         // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
         store.setMachineColors(settings.applied.machineColors)
-        machineColorsObservation = Task {
-            for await colors in ObservationStream({ settings.applied.machineColors }) { store.setMachineColors(colors) }
-        }
+        machineColorsObservation = Task { for await values in ObservationStream({ (settings.applied.machineColors, settings.applied.highContrastLook) }) { store.setMachineColors(values.0); store.setContrastFloor(values.1 ? 7 : ThemeTokens.minimumTextContrast) } }
     }
 
     private func applyChromeTheme() {

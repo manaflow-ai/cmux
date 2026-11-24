@@ -11976,6 +11976,268 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更多"}}
       }
     },
+    "settings.labs.highContrastLook": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High Contrast Look"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darstellung mit hohem Kontrast"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apparence à contraste élevé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مظهر عالي التباين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspecto de alto contraste"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高對比外觀"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高对比外观"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고대비 외관"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハイコントラストの外観"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izgled visokog kontrasta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Udseende med høj kontrast"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspetto ad alto contrasto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបរាងកម្រិតពណ៌ខ្ពស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utseende med høy kontrast"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygląd o wysokim kontraście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aparência de alto contraste"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Высококонтрастное оформление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปแบบคอนทราสต์สูง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüksek kontrastlı görünüm"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Висококонтрастне оформлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diện mạo tương phản cao"
+          }
+        }
+      }
+    },
+    "settings.labs.highContrastLook.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raises derived chrome text to a 7:1 contrast floor. Off, cmux keeps its normal 4.5:1 floor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erhöht den Mindestkontrast für abgeleiteten Text der App-Oberfläche auf 7:1. Ausgeschaltet behält cmux den normalen Mindestwert von 4,5:1."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porte le contraste minimal du texte dérivé de l’interface à 7:1. Si désactivé, cmux conserve son minimum habituel de 4,5:1."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرفع الحد الأدنى لتباين النص المشتق في واجهة التطبيق إلى 7:1. عند إيقافه، يحتفظ cmux بالحد المعتاد البالغ 4.5:1."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eleva a 7:1 el contraste mínimo del texto derivado de la interfaz. Si se desactiva, cmux mantiene el mínimo habitual de 4,5:1."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將衍生的應用程式介面文字最低對比提高至 7:1。關閉時，cmux 維持原本的 4.5:1 下限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将派生的应用界面文字最低对比度提高至 7:1。关闭时，cmux 保持原有的 4.5:1 下限。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 인터페이스에서 파생된 텍스트의 최소 대비를 7:1로 높입니다. 끄면 cmux는 기본 최소 대비인 4.5:1을 유지합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのインターフェイスから生成される文字色の最低コントラスト比を7:1に引き上げます。オフの場合、cmuxは通常の最低値4.5:1を維持します。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povećava minimalni kontrast izvedenog teksta interfejsa na 7:1. Kada je isključeno, cmux zadržava uobičajeni minimum od 4,5:1."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øger minimumskontrasten for afledt tekst i appens grænseflade til 7:1. Når funktionen er slået fra, beholder cmux sit normale minimum på 4,5:1."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumenta a 7:1 il contrasto minimo del testo derivato dell’interfaccia. Se disattivato, cmux mantiene il minimo normale di 4,5:1."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើនកម្រិតពណ៌អប្បបរមានៃអត្ថបទចំណុចប្រទាក់ដែលបានបង្កើតឡើងដល់ 7:1។ ពេលបិទ cmux រក្សាកម្រិតអប្បបរមាធម្មតា 4.5:1។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øker minimumskontrasten for avledet tekst i appens grensesnitt til 7:1. Når funksjonen er av, beholder cmux sitt vanlige minimum på 4,5:1."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podnosi minimalny kontrast tekstu interfejsu o wyliczonym kolorze do 7:1. Po wyłączeniu cmux zachowuje zwykłe minimum 4,5:1."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eleva para 7:1 o contraste mínimo do texto derivado da interface. Quando desativado, o cmux mantém o mínimo normal de 4,5:1."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повышает минимальную контрастность текста интерфейса с вычисляемым цветом до 7:1. При отключении cmux сохраняет обычный минимум 4,5:1."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มคอนทราสต์ขั้นต่ำของข้อความส่วนติดต่อที่คำนวณสีขึ้นเป็น 7:1 เมื่อปิด cmux จะคงค่าขั้นต่ำปกติที่ 4.5:1"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Türetilen arayüz metninin minimum kontrastını 7:1 düzeyine yükseltir. Kapalıyken cmux normal 4,5:1 alt sınırını korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підвищує мінімальну контрастність тексту інтерфейсу з обчислюваним кольором до 7:1. Коли вимкнено, cmux зберігає звичайний мінімум 4,5:1."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tăng độ tương phản tối thiểu của văn bản giao diện có màu được tính toán lên 7:1. Khi tắt, cmux giữ mức tối thiểu thông thường là 4,5:1."
+          }
+        }
+      }
+    },
     "settings.agentPane.display.thinking.shimmer": {
       "comment": "Settings > Chat > Transcript > Thinking Shimmer: title of the setting for how the agent chat's live status line shimmers",
       "extractionState": "manual",

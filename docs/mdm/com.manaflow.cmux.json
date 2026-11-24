@@ -4016,6 +4016,12 @@
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
+    "labs.highContrastLook" : {
+      "default" : false,
+      "description" : "Raises derived chrome text to a 7:1 contrast floor. Off, cmux keeps its normal 4.5:1 floor.",
+      "title" : "High Contrast Look",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
