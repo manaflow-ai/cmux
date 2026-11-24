@@ -415,6 +415,8 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When a cookie reply last had this side send a handshake at once.
+    cookie_retry_at: Option<Instant>,
     scratch: Vec<u8>,
 }
 
@@ -495,6 +497,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            cookie_retry_at: None,
             scratch: vec![0u8; BUFFER_BYTES + 32],
         })
     }
@@ -597,6 +600,7 @@ impl Driver {
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
+        let mut cookie_taken = false;
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
                 TunnResult::Done => {
@@ -607,6 +611,10 @@ impl Driver {
                         self.underlay.authenticated(origin);
                         note_inbound(&mut self.watchdog, &mut self.last_inbound, &mut self.resumed);
                     }
+                    // Done for a cookie reply: boringtun took the cookie
+                    // (it answered this side's latest handshake message).
+                    cookie_taken =
+                        !input.is_empty() && classify(input) == DatagramClass::WireGuardCookieReply;
                     break;
                 }
                 TunnResult::Err(_) => break,
@@ -680,6 +688,9 @@ impl Driver {
                     break;
                 }
             }
+        }
+        if cookie_taken {
+            self.answer_cookie(Instant::now());
         }
         self.replay(replay);
     }
