@@ -530,6 +530,11 @@ path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_protocol_skew_check.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
+
+[[test]]
 path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
@@ -912,6 +917,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_upload_artifact_retention.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_vm_image_qcow2.py"
 lane = "linux-guard"
 
 [[test]]

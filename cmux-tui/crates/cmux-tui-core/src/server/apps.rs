@@ -565,7 +565,9 @@ pub(super) fn try_handle(
                 supervisor.reload_local_now(app.as_deref())
             }));
         }
-        Command::Store { op, args } if op == "apps.local.reload" => {
+        Command::Store { op, args }
+            if op == "apps.local.reload" || crate::apps::store_op_fetches(&op, &args) =>
+        {
             return Some(answer_off_thread(writer, id, move || {
                 supervisor.store_call(client, &op, args, origin)
             }));
