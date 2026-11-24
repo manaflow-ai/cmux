@@ -329,7 +329,8 @@ public struct LayoutCacheStripApplied: Codable, Sendable {
 }
 
 /// The C ABI's calls (include/cmux_layout_cache.h), JSON in and out, snake_case on the wire.
-public enum LayoutCacheFFI {
+public struct LayoutCacheFFI {
+    public init() {}
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
