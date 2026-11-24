@@ -19,6 +19,7 @@
 mod bundle;
 mod copy;
 mod folder;
+mod reconcile;
 #[cfg(test)]
 mod folder_tests;
 

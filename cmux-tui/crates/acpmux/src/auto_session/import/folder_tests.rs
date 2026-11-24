@@ -90,8 +90,8 @@ fn an_identical_untracked_file_is_no_conflict() {
     assert_eq!(std::fs::read(rig.laptop.join("run.sh")).unwrap(), b"#!/bin/sh\n");
     assert_eq!(mode(&rig.laptop.join("run.sh")), 0o755);
     assert_eq!(std::fs::read(rig.laptop.join("a.txt")).unwrap(), b"a by the cloud\n");
-    // Nothing differed, so nothing was set aside.
-    assert!(!rig.laptop.join(".git/cmux-auto").exists());
+    // Nothing differed, so nothing is kept aside.
+    assert!(!rig.laptop.join(".git/cmux-auto/quarantine/chat-2/run.sh").exists());
 }
 
 #[test]
