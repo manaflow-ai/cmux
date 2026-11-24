@@ -292,6 +292,8 @@ impl std::fmt::Display for AllocFailure {
     }
 }
 
+impl std::error::Error for AllocFailure {}
+
 /// An allocation, or why the stream one was refused.
 #[derive(Default)]
 pub(crate) struct Allocated {
