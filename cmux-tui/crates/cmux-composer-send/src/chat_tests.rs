@@ -503,7 +503,7 @@ fn lossy_run_with(seed: u64, sends: usize, hold: Duration, mix: Mix) -> Run {
                         end(&mut ended, done);
                     }
                     Some(CancelStep::RemoveOnMac { id }) => {
-                        removes.push((id, (rng.next() % 10) as u32))
+                        removes.push((id, (rng.next() % 10) as u32));
                     }
                     None => {}
                 }
