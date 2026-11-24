@@ -33,7 +33,7 @@ echo "harness: run $RUN_ID"; grep -E '^(PASS|FAIL)' "$OUT" || true
 NODE="$RUN_ID-embedded"
 d run -d --name "$NODE" --label "$LABEL" --network "$RUN_ID" \
   -e TS_DEBUG_USE_DERP_HTTP=1 -e CMUX_LIVE_KEY_FILE=/run/key -e CMUX_LIVE_SERVER=http://headscale:8080 \
-  -e CMUX_LIVE_HOLD_S=60 -e HOME=/tmp \
+  -e CMUX_LIVE_HOLD_S=60 -e CMUX_LIVE_TSNET_LOG=1 -e HOME=/tmp \
   -v "$BIN:/acpmux-tests:ro" -v "$WORK/keys/reusable:/run/key:ro" \
   ubuntu:24.04 /acpmux-tests --ignored --exact --nocapture \
   tailnet::embedded_join::tests::live_join_against_a_throwaway_headscale >/dev/null

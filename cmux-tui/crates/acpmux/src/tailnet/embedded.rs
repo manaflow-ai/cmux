@@ -1303,10 +1303,19 @@ impl Controller {
     }
 
     fn watch(self: Arc<Self>, node: Arc<Node>, generation: u64, runtime: tokio::runtime::Handle) {
-        if let Ok(watch) = node.watch() {
-            for notify in watch {
+        match node.watch() {
+            Ok(watch) => {
+                for notify in watch {
+                    let mut snapshot = self.snapshot();
+                    snapshot.apply_notify(&notify, Some(&node));
+                    self.publish_if_current(generation, snapshot);
+                }
+            }
+            // Say why: a stream that never opened otherwise reads as a plain stop.
+            Err(error) => {
                 let mut snapshot = self.snapshot();
-                snapshot.apply_notify(&notify, Some(&node));
+                snapshot.error =
+                    Some(format!("the tailnet state stream did not open: {}", error.0));
                 self.publish_if_current(generation, snapshot);
             }
         }
@@ -1536,6 +1545,11 @@ pub(crate) fn node_config(
         config.ephemeral = profile.ephemeral;
     }
     config.auth_key = auth_key.map(|key| key.expose().to_owned());
+    // The live test (`testing/live-embedded-join.sh`) reads tsnet's own log on stderr.
+    #[cfg(test)]
+    if std::env::var_os("CMUX_LIVE_TSNET_LOG").is_some() {
+        config.log_fd = Some(2);
+    }
     config
 }
 

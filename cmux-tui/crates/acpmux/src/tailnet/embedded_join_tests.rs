@@ -272,7 +272,18 @@ async fn live_join_against_a_throwaway_headscale() {
     p.control_url = Some(server);
     p.allow_http = true;
     p.hostname = Some("cmux-embedded-live".into());
-    let snapshot = controller.join(p.plan().unwrap()).await.unwrap();
+    let mut changes = controller.subscribe();
+    let watch = tokio::spawn(async move {
+        while let Ok(change) = changes.recv().await {
+            println!("LIVE change: {}", change.to_json(false));
+        }
+    });
+    let joined = controller.join(p.plan().unwrap()).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    watch.abort();
+    let snapshot = joined.unwrap_or_else(|error| {
+        panic!("join failed: {error}; now {}", controller.snapshot().to_json(false))
+    });
     println!(
         "LIVE joined: state={} dns={:?} ips={:?}",
         snapshot.state, snapshot.dns_name, snapshot.ips
