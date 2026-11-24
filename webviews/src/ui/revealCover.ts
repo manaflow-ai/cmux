@@ -21,8 +21,9 @@ const observe = (el: Element) => {
   observer ??=
     typeof ResizeObserver === "undefined"
       ? undefined
-      : new ResizeObserver((entries) => {
-          for (const entry of entries) write(entry.target);
+      : // A stand-in observer (a test's, a polyfill's) may call back with no entries.
+        new ResizeObserver((entries?: readonly ResizeObserverEntry[]) => {
+          for (const entry of entries ?? []) write(entry.target);
         });
   observer?.observe(el);
 };
