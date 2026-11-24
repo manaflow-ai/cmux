@@ -3454,6 +3454,7 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
+        prompt={promptText}
         onPersonEdit={() => {
           typedAt.current = performance.now();
         }}
