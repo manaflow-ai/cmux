@@ -144,7 +144,7 @@ export default componentEntry<Props>({
   },
   variants: {
     shipped: {
-      note: "Shipped (Lawrence 2026-11-23: \"go back and other builds button is unnecessary\"): the Updated card has no way back; Settings > Channels keeps it.",
+      note: 'Shipped (Lawrence 2026-11-23: "go back and other builds button is unnecessary"): the Updated card has no way back; Settings > Channels keeps it.',
       props: { look: "none" },
     },
     footer: {
