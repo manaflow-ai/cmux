@@ -86,7 +86,7 @@ struct AgentPaneDroppedPushTests {
                     return AgentPaneReply.success(["token": "s1", "size": size, "chunkSize": 512 * 1024])
                 case .chunk(_, let offset, let data):
                     stage.requests.append("chunk \(offset)")
-                    stage.bytes.append(data)
+                    stage.bytes.append(data.bytes() ?? Data())
                     return AgentPaneReply.success(["offset": offset + data.count])
                 case .finish:
                     stage.requests.append("finish")
