@@ -8,6 +8,7 @@ extension DaemonLanePolicy {
         "ack-tab-notifications": ["surface"],
         "add-tabs-to-tab-group": ["group", "surfaces", "transaction"],
         "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "hybrid_frame", "hybrid_stream", "mode", "output_coalesce_ms", "replay_history_rows", "replay_history_start", "resume_generation", "resume_offset", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
+        "bind-conversation-tab-session": ["expected_session", "harness", "session", "surface"],
         "browser-activate": ["surface"],
         "browser-back": ["surface"],
         "browser-forward": ["surface"],
