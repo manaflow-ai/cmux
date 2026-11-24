@@ -386,6 +386,16 @@ impl Hub {
             self.check_new_route(route_id, &family).await?;
         }
         let stores = super::adoption::store_families(&*self.config.read().await);
+        // An evicted chat this create may meet (its id, key, name, or adopted agent session) is
+        // back in memory first, so the checks below see it as they did (`evict.rs`).
+        self.rehydrate_where(|m| {
+            m.id == id
+                || (create_key.is_some() && m.create_key == create_key)
+                || name.as_deref().is_some_and(|n| m.name == n)
+                || adopt.as_ref().is_some_and(|a| {
+                    m.agent_session_id.as_deref() == Some(a.agent_session_id.as_str())
+                })
+        });
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {
@@ -424,7 +434,7 @@ impl Hub {
                     // A placed or forwarded start keeps its name, suffixed (`NAME-2`), never the
                     // agent's; any other start is refused, so `new --reuse` finds the one running.
                     let n = if taken && suffix_taken_name {
-                        suffixed_name_among(&sessions, &n)
+                        suffixed_name_among(&sessions, &self.evicted.names(), &n)
                     } else if taken {
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
@@ -441,9 +451,10 @@ impl Hub {
                 None => match self
                     .pool_claimed_name(&id)
                     .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
+                    .filter(|n| !self.evicted.any_meta(|m| m.name == *n))
                 {
                     Some(n) => n,
-                    None => unique_name_among(&sessions, agent),
+                    None => unique_name_among(&sessions, &self.evicted.names(), agent),
                 },
             };
             meta.wait_start = wait_start;
@@ -688,7 +699,7 @@ impl Hub {
     }
 
     pub(super) fn unique_name(&self, agent: &str) -> String {
-        unique_name_among(&self.sessions.lock().unwrap(), agent)
+        unique_name_among(&self.sessions.lock().unwrap(), &self.evicted.names(), agent)
     }
 
     /// The session's agent, for a request that came when the session had been stopped `stops`
@@ -1431,6 +1442,7 @@ impl Hub {
                     recap: recap.clone(),
                     claude_session_id: known.clone(),
                     resumes_cut_turn,
+                    stop_condition: meta.stop_condition.is_some(),
                 };
                 self.spawn_hosted_child(
                     session,
@@ -1450,6 +1462,7 @@ impl Hub {
                 );
                 *tr.fast.lock().await = fast;
                 tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.stop_condition.store(meta.stop_condition.is_some(), Ordering::Relaxed);
                 tr.set_recap(recap.as_deref());
                 if resumes_cut_turn {
                     tr.owe_resumed();
