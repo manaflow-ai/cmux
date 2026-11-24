@@ -181,7 +181,7 @@ async fn a_finish_with_the_owners_login_starts_the_moved_chats_agent_signed_in()
     let session = hub.resolve(&new_id).unwrap();
     let want = AgentCredential::parse(&json!({"env": {CLAUDE_OAUTH: TOKEN}})).unwrap();
     assert_eq!(hub.held_credential(&new_id), Some(want));
-    let launched = hub.started_env(&new_id).await;
+    let launched = hub.started_env(&new_id).await.expect("its agent started");
     assert_eq!(launched.get(CLAUDE_OAUTH).map(String::as_str), Some(TOKEN));
     let records = hub.events(&new_id, 0, 100_000).unwrap();
     let log: Vec<_> = records.into_iter().map(|r| (r.kind, r.msg)).collect();

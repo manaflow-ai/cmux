@@ -123,10 +123,10 @@ impl Hub {
     pub(crate) async fn started_env(
         self: &Arc<Self>,
         id: &str,
-    ) -> std::collections::BTreeMap<String, String> {
-        let session = self.resolve(id).expect("the chat");
-        self.child_for(&session).await.expect("its agent started");
-        session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_default()
+    ) -> Option<std::collections::BTreeMap<String, String>> {
+        let session = self.resolve(id).ok()?;
+        self.child_for(&session).await.ok()?;
+        session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 

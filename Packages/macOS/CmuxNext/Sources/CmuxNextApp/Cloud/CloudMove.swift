@@ -215,14 +215,10 @@ struct CloudMove {
         progress.enter(.copy, name: name)
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again, progress: progress)
         let owner = await Self.ownerAnswer(machine)
-        // The owner's agent login goes with the move, as a plain Cloud start sends it, so the chat resumes signed in
-        // there ("Claude is not signed in here" before). Only to their own machine; a chosen login that can't be read stops it here.
+        // The owner's agent login goes with the move, as a plain Cloud start's (a moved chat answered "Claude is not signed in here").
         let credential: CloudAgentCredential?
-        do {
-            credential = owner.vmKind == "owner" ? try await services.agentTabs.cloudCredentials?.launchCredential(chat: session, machine: machine.machineID, harness: record.harness) : nil
-        } catch {
-            throw Failure(message: CloudMoveStrings.loginFailed(name, CloudStrings.errorText(error)), retry: again)
-        }
+        do { credential = try await services.agentTabs.cloudCredentials?.moveCredential(vmKind: owner.vmKind, chat: session, machine: machine.machineID, harness: record.harness) }
+        catch { throw Failure(message: CloudMoveStrings.loginFailed(name, CloudStrings.errorText(error)), retry: again) }
         progress.enter(.agent, name: name)
         let moved: CloudMoveCLI.Answer
         do {
@@ -272,17 +268,13 @@ struct CloudMove {
     }
 
     /// Opens the moved chat's tab on `machine`, then closes this Mac's tab, whose chat closed with the move.
-    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel, progress: CloudMoveProgress,
-                        credential: CloudAgentCredential? = nil) async throws {
+    private func finish(_ shown: CloudMoveRetries.Shown, on machine: CloudMachineSession, tab: TabModel, progress: CloudMoveProgress, credential: CloudAgentCredential? = nil) async throws {
         progress.enter(.tab, name: machine.machine.title)
         do {
             let surface = try await Self.open(shown, host: AgentTabStore.registryHost(of: machine.daemon), hostName: machine.machine.title, on: machine.daemon,
                                 repair: machine.emptyWorkspaces, mutation: "cloud-move-", leaving: tab, services: services)
-            // The moved chat's ChatGPT plan token is kept fresh on the machine, as after a Cloud start (AgentTabs+RemoteStart).
-            if let credential {
-                services.agentTabs.cloudCredentials?.started(chat: shown.session, machine: machine.machineID, on: credential, push: CloudAgentCredentialRefresher.machinePush(
-                    surface: surface, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, reconnect: nil, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon)))
-            }
+            services.agentTabs.cloudCredentials?.moved(chat: shown.session, machine: machine.machineID, on: credential, surface: surface,
+                                                       ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         } catch {
             throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
@@ -385,9 +377,8 @@ struct CloudMove {
 
     /// Opens a moved chat (Move to Cloud's, Bring Back Local's) on `daemon`, bound to `shown.session` through `host`: a workspace placed like Cmd-N whose only tab is the chat's (made once: `mutation` + `shown.key`), selected.
     /// No terminal first: as the first tab it took the window and `--focus` (capture baf4f76ab502); a new terminal beside the chat starts in its folder. Each window that showed `tab`, the tab the chat leaves, shows it there even for a run with no `--focus`, as focus follows a moved tab.
-    /// The new tab's surface on `daemon`.
-    @discardableResult
-    static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
+    /// Returns the new tab's surface on `daemon`.
+    @discardableResult static func open(_ shown: CloudMoveRetries.Shown, host: String?, hostName: String?, on daemon: DaemonService, repair: EmptyWorkspaceRepair,
                      mutation: String, leaving tab: TabModel, services: AppServices) async throws -> UInt64 {
         guard let connection = daemon.connection, let host else { throw DaemonError.notConnected }
         let record = AgentSessionRef(host: host, hostName: hostName, session: shown.session, harness: shown.harness)
