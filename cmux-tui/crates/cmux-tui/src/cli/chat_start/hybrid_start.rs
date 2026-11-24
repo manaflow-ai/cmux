@@ -174,6 +174,11 @@ fn refresh_plan() -> Option<String> {
     Some(plan)
 }
 
+/// The account as a start reads it now: the flag, else the plan (cached when fresh).
+pub(super) fn account_now(global: &GlobalArgs) -> Account {
+    account_for_start(global, flag())
+}
+
 /// [`account_of`] for a start: the cached plan when it grants it, else the plan read beside the
 /// machine list (both bounded as before), never one after the other.
 fn account_for_start(global: &GlobalArgs, flag: Option<bool>) -> Account {
