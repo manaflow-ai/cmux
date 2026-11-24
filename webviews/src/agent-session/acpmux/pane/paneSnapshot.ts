@@ -3,7 +3,7 @@ import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
 import { restoreForkSource } from "../handoff/restoreForkSource";
 import type { QueryClient } from "@tanstack/react-query";
-import type { AcpmuxRow, AcpmuxSnapshot, QueueEdit } from "../model";
+import { emitted, type AcpmuxRow, type AcpmuxSnapshot, type QueueEdit } from "../model";
 import {
   AcpmuxDirectClient,
   type AcpmuxHostConfig,
@@ -808,7 +808,7 @@ export function paneSnapshotEffect({
       setSnapshot((current) => ({
         ...current,
         rows,
-        connection: "debug",
+        ...emitted("debug"),
         isWorking: fields?.isWorking ?? false,
         canLoadOlder: false,
         // The live chat's steers name rows the seed replaced: only the fixture's own stand.
@@ -2858,7 +2858,7 @@ export function paneSnapshotEffect({
     } catch (error) {
       if (!cancelled) {
         acpWire.lifecycle("handshake failed", { message: String(error) });
-        setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
+        setSnapshot((current) => ({ ...current, ...emitted(`connecting: ${String(error)}`) }));
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.

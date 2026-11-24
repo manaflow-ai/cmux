@@ -192,17 +192,16 @@ function sameEntries(a: Sessions, b: Sessions | undefined): boolean {
 /// first emits list nothing yet), on a connection acpmux calls local (a chat on another machine
 /// lists only its own chat; an older acpmux names no origin), and not connecting, cut off, a
 /// gallery or a debug page.
-function publishable(snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions">): boolean {
-  const connection = snapshot.connection;
+function publishable(snapshot: Pick<AcpmuxSnapshot, "link" | "emitReason" | "origin" | "listedSessions">): boolean {
   if (snapshot.listedSessions !== true || snapshot.origin !== "local") return false;
-  if (connection === "disconnected" || connection === "debug" || connection === "gallery") return false;
-  return !connection.startsWith("connecting") && !connection.startsWith("reconnecting");
+  if (snapshot.link !== "connected") return false;
+  return snapshot.emitReason !== "debug" && snapshot.emitReason !== "gallery";
 }
 
 /// Takes a page's daemon snapshot into the store, when it is publishable and its list changed.
-/// `connection` is why the client emitted ("connected", "session changed", an event's kind).
+/// `link` is the pane's link; `emitReason` is why the client emitted ("connected", an event's kind).
 export function publishSessions(
-  snapshot: Pick<AcpmuxSnapshot, "connection" | "origin" | "listedSessions" | "sessions">,
+  snapshot: Pick<AcpmuxSnapshot, "link" | "emitReason" | "origin" | "listedSessions" | "sessions">,
   at = Date.now(),
 ): void {
   if (!publishable(snapshot)) return;
@@ -289,11 +288,11 @@ export function markMockPage(mock = true): void {
 /// (`unknown`) and may be another machine's, as `publishable` reads it.
 export function sharesChatList(
   page: { privateChatLists?: boolean } | undefined,
-  snapshot: Pick<AcpmuxSnapshot, "origin" | "connection">,
+  snapshot: Pick<AcpmuxSnapshot, "origin" | "link" | "emitReason">,
 ): boolean {
   if (!page || page.privateChatLists || mockPage) return false;
   if (snapshot.origin !== undefined && snapshot.origin !== "local") return false;
-  return snapshot.connection !== "disconnected" && snapshot.connection !== "debug";
+  return snapshot.link !== "disconnected" && snapshot.emitReason !== "debug";
 }
 
 /// `sharedSessions` as a hook: the page re-renders when it or another page publishes. `enabled`

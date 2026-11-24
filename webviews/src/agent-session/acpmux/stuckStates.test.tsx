@@ -166,10 +166,16 @@ test("an automatic retry's line says nothing frozen and nothing about a turn tha
 });
 
 test("the phase is offline while the link is down, whatever the frozen snapshot says", () => {
-  expect(turnPhase({ connection: "disconnected", isWorking: true, stopping: true })).toBe("offline");
-  expect(turnPhase({ connection: "connected", isWorking: false })).toBe("idle");
-  expect(turnPhase({ connection: "connected", isWorking: true })).toBe("working");
-  expect(turnPhase({ connection: "connected", isWorking: true, stopping: true })).toBe("stopping");
+  expect(
+    turnPhase({
+      link: "disconnected",
+      isWorking: true,
+      stopping: true,
+    }),
+  ).toBe("offline");
+  expect(turnPhase({ link: "connected", isWorking: false })).toBe("idle");
+  expect(turnPhase({ link: "connected", isWorking: true })).toBe("working");
+  expect(turnPhase({ link: "connected", isWorking: true, stopping: true })).toBe("stopping");
 });
 
 // --- Restart acpmux the app never answers -------------------------------------------------------------

@@ -71,7 +71,7 @@ const StopsAgents = createContext(true);
 
 /// How a workflow agent's transcript is read (App.tsx `readWorkflowAgent`); unset, a workflow's
 /// agents are listed but open nothing.
-export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
+export type WorkflowReads = { sessionId?: string; chat: string; emitReason: string; read: TranscriptRead };
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
 
 /// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
@@ -360,7 +360,7 @@ function WorkflowAgentTranscript({
     agent,
     reads.chat,
     reads.read,
-    reads.connection,
+    reads.emitReason,
   );
   // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it. The
   // hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so

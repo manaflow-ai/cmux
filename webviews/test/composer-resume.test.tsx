@@ -102,8 +102,8 @@ test("Resume requires an empty stopped-turn offer and cannot race work, queue, g
     expect(canResumeFromComposer(snapshot, { ...emptyState, ...change })).toBe(false);
   for (const changed of [
     { ...snapshot, isWorking: true },
-    { ...snapshot, connection: "disconnected" },
-    { ...snapshot, connection: "connecting…" },
+    { ...snapshot, link: "disconnected" as const, emitReason: "disconnected" },
+    { ...snapshot, link: "connecting" as const, emitReason: "connecting…" },
     { ...snapshot, queue: [{ id: "queued", prompt: "Next" }] },
     { ...snapshot, summary: { ...snapshot.summary!, watching: "another-owner" } },
     { ...snapshot, summary: { ...snapshot.summary!, goal: { objective: "Finish", status: "active" as const } } },

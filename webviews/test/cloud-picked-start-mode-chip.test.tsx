@@ -127,6 +127,8 @@ async function newChat(startsOnCloud: boolean, harness = "claude", cloudStartMod
     origin: "local",
     rows: [],
     sessions: [],
+    link: "connected" as const,
+    emitReason: "test",
     connection: "test",
     isWorking: false,
     queue: [],

@@ -108,6 +108,8 @@ test("Ultracode on and off ride the free effort option, never acpmux's ultracode
       protocolVersion: 1,
       rows: [],
       sessions: [],
+      link: "connected" as const,
+      emitReason: "test",
       connection: "test",
       isWorking: false,
       queue: [],

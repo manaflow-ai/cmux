@@ -8,7 +8,7 @@
 // `part` (menuParts.ts), even outside a prompt or reply (a tool row); with a selection, only a link.
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
-import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { linkUp, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { findSession } from "../sessionIndex";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
@@ -87,8 +87,7 @@ export function messageMenuSessionMatches(
 
 /// Whether acpmux can fork the chat at all here: it serves forks and the pane is connected. A chat
 /// on another computer forks there: acpmux forwards the fork to that computer (`fork_through.rs`).
-const forkServed = (snapshot: AcpmuxSnapshot) =>
-  Boolean(snapshot.canFork) && snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+const forkServed = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork) && linkUp(snapshot);
 
 /// Whether a pick of another harness's model can fork the chat onto it in place (forkHold.ts, App.tsx
 /// `chat.switchModel`): acpmux serves forks, and a chat on another computer (a peer's, a Cloud machine's)

@@ -6,7 +6,7 @@ import { markMockPage, sharesChatList } from "../src/agent-session/acpmux/newtab
 afterAll(() => markMockPage(false));
 
 test("a mock daemon's New Tab page does not list the shared chats", () => {
-  const snapshot = { origin: "local" as const, connection: "connected" };
+  const snapshot = { origin: "local" as const, link: "connected" as const, emitReason: "connected" };
   expect(sharesChatList({}, snapshot)).toBe(true);
   markMockPage();
   expect(sharesChatList({}, snapshot)).toBe(false);

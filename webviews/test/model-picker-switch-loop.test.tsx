@@ -101,6 +101,8 @@ function fakeAgent(quirks: { alias?: Record<string, string>; refuse?: string[] }
       sessionId: "s1",
       rows: [],
       sessions: [],
+      link: "connected" as const,
+      emitReason: "test",
       connection: "test",
       isWorking: false,
       queue: [],

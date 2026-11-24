@@ -147,6 +147,8 @@ test("the subagent's panel lists its worktree and its tokens; the chat's lists i
   const snapshot: AcpmuxSnapshot = {
     type: "snapshot",
     protocolVersion: 1,
+    link: "connected" as const,
+    emitReason: "connected",
     connection: "connected",
     isWorking: false,
     queue: [],

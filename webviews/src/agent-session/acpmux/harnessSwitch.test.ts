@@ -87,6 +87,8 @@ test("a prompt held while the agent starts reads as sent, and Stop hands every h
     protocolVersion: 1,
     rows: [],
     sessions: [],
+    link: "connected",
+    emitReason: "connected",
     connection: "connected",
     origin: "local",
     isWorking: false,

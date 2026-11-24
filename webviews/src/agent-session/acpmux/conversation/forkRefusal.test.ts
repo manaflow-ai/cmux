@@ -8,7 +8,15 @@ import type { AcpmuxSnapshot } from "../model";
 import { canFork, forkRefusal, forkToTarget } from "./messageMenu";
 
 const snapshot = (over: Partial<AcpmuxSnapshot>): AcpmuxSnapshot =>
-  ({ canFork: true, isWorking: false, connection: "connected", rows: [], ...over }) as unknown as AcpmuxSnapshot;
+  ({
+    canFork: true,
+    isWorking: false,
+    link: "connected",
+    emitReason: "connected",
+    connection: "connected",
+    rows: [],
+    ...over,
+  }) as unknown as AcpmuxSnapshot;
 
 const turn = { kind: "turnSummary", seq: 7 };
 
@@ -39,9 +47,16 @@ test("an idle chat forks through its latest finished turn", () => {
 
 test("a chat acpmux cannot fork here says so", () => {
   expect(forkRefusal(snapshot({ canFork: false, rows: [turn] as AcpmuxSnapshot["rows"] }))).toBe("unavailable");
-  expect(forkRefusal(snapshot({ connection: "disconnected", rows: [turn] as AcpmuxSnapshot["rows"] }))).toBe(
-    "unavailable",
-  );
+  expect(
+    forkRefusal(
+      snapshot({
+        link: "disconnected",
+        emitReason: "disconnected",
+        connection: "disconnected",
+        rows: [turn] as AcpmuxSnapshot["rows"],
+      }),
+    ),
+  ).toBe("unavailable");
 });
 
 // Leo, 2026-11-11: "why are only some chats forkable". A chat on another computer forks there:

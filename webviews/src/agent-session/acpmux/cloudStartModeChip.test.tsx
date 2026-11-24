@@ -90,6 +90,8 @@ function cloudNewChat(harness: string, family: string, cloud = true): AcpmuxSnap
     protocolVersion: 1,
     rows: [],
     sessions: [],
+    link: "connected",
+    emitReason: "test",
     connection: "test",
     isWorking: false,
     queue: [],

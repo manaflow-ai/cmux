@@ -78,6 +78,10 @@ export function automationState(host: AutomationHost) {
   const assistant = [...snapshot.rows].reverse().find((row) => row.kind === "assistant");
   const groups = snapshot.permissionGroups;
   return {
+    /// The pane's link (`PaneLink`) and why the client last emitted; `connection` is the old field
+    /// carrying the reason, kept one release for older scripts.
+    link: snapshot.link,
+    emitReason: snapshot.emitReason,
     connection: snapshot.connection,
     sessionId: snapshot.sessionId ?? null,
     harness: snapshot.summary?.harness ?? null,

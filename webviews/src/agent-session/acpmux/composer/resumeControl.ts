@@ -21,7 +21,7 @@ export function canResumeFromComposer(
   return (
     state.offered &&
     Boolean(snapshot.sessionId ?? snapshot.summary?.sessionId) &&
-    linkUp(snapshot.connection) &&
+    linkUp(snapshot) &&
     remoteComposer(snapshot).canSend &&
     !snapshot.summary?.watching &&
     !state.readOnly &&

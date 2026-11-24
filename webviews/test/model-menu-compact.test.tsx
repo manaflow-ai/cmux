@@ -174,6 +174,8 @@ async function mount(
       protocolVersion: 1,
       rows: [],
       sessions: [],
+      link: "connected" as const,
+      emitReason: "test",
       connection: "test",
       isWorking: false,
       queue: [],

@@ -18,7 +18,7 @@
 // fields moved (`sameSessions`).
 import { useRef } from "react";
 import { PrefixFilter } from "../conversation/prefixFlatMap";
-import { linkUp, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { emitted, linkUp, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
 /// What a running turn changes on each tool step that nothing in the composer reads (Composer.tsx,
@@ -136,16 +136,16 @@ export function sameComposerView(a: AcpmuxSnapshot, b: AcpmuxSnapshot): boolean 
   return true;
 }
 
-/// The composer's view of `snapshot`: its rows cut to `composerRows`, its `connection` (which names
-/// why the client emitted, a streamed event's kind among them; model.ts `linkUp`) to whether the link
-/// is up, which is all the composer could read of it, and the turn's live fields (`TURN_LIVE`) left
+/// The composer's view of `snapshot`: its rows cut to `composerRows`, its `emitReason` (why the
+/// client emitted, a streamed event's kind among them) to "connected" while `link` is up, which is
+/// all the composer could read of it, and the turn's live fields (`TURN_LIVE`) left
 /// out. The last view while it holds the same members (sameComposerView), so a snapshot that changed
 /// only what the composer does not show leaves it be.
 export function composerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
   const view: AcpmuxSnapshot = {
     ...snapshot,
     rows: composerRows(snapshot.rows),
-    connection: linkUp(snapshot.connection) ? "connected" : snapshot.connection,
+    ...emitted(linkUp(snapshot) ? "connected" : snapshot.emitReason),
   };
   for (const key of TURN_LIVE) delete view[key];
   return view;

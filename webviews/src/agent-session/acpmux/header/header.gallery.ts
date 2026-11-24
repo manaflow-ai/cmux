@@ -133,11 +133,15 @@ export default agentPaneEntry({
     },
     disconnected: {
       note: "The daemon connection dropped while the pane asks for it again: the header stays quiet.",
-      snapshot: chat(finished, { connection: "disconnected" }),
+      snapshot: chat(finished, { link: "disconnected", emitReason: "disconnected", connection: "disconnected" }),
     },
     reconnecting: {
       note: "Retrying after a failure is quiet: no Reconnecting in the header; a lasting failure is one line above the composer.",
-      snapshot: chat(finished, { connection: "connecting: connection refused by the local daemon" }),
+      snapshot: chat(finished, {
+        link: "connecting",
+        emitReason: "connecting: connection refused by the local daemon",
+        connection: "connecting: connection refused by the local daemon",
+      }),
     },
     "tab-row": {
       note: "The header shares the pane's tab row: only its tools, no title (the tab names the chat) and no extra location row.",
@@ -168,7 +172,11 @@ export default agentPaneEntry({
       // A dropped socket the pane is asking for again is quiet (paneHeader `hostRecovering`), so the
       // warning this state shows in the tab row is a failed chat's.
       note: "The header shares the pane's tab row: the connection warning leads the tools.",
-      snapshot: chat(finished, { connection: "error: the agent process exited before it answered" }),
+      snapshot: chat(finished, {
+        link: "connected",
+        emitReason: "error: the agent process exited before it answered",
+        connection: "error: the agent process exited before it answered",
+      }),
       play: inTabRow,
     },
     "session-info-overlay-closed": {

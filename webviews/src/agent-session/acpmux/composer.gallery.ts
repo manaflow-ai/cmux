@@ -3575,12 +3575,17 @@ export default agentPaneEntry({
     },
     disconnected: {
       note: "The daemon connection dropped.",
-      snapshot: chat(finished, { connection: "disconnected" }),
+      snapshot: chat(finished, { link: "disconnected", emitReason: "disconnected", connection: "disconnected" }),
     },
     // Leo 2026-10-29: "i literally can't stop you i clicked the stop button and it didnt do anything".
     "working-stop-reconnecting": {
       note: "Play: Stop while the pane reconnects to acpmux mid-turn (an acpmux restart): the app refuses the cancel, and the composer says Stopping… until the Stop goes out on the reconnect (stopThroughReconnect.ts).",
-      snapshot: chat(working, { isWorking: true, connection: "disconnected" }),
+      snapshot: chat(working, {
+        isWorking: true,
+        link: "disconnected",
+        emitReason: "disconnected",
+        connection: "disconnected",
+      }),
       native: { "chat.cancel": { nativeError: { code: "native.not_connected" } } },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Stop" });

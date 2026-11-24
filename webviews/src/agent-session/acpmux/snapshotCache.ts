@@ -1,7 +1,7 @@
 // The pane's reload copy of its snapshot (sessionStorage) and the turn-end test App.tsx runs between
 // renders. Kept out of App.tsx so the copy's timer and cache outlive a Fast Refresh of App, and App
 // exports only components (a component module with other exports can't take a hot update).
-import type { AcpmuxSnapshot } from "./model";
+import { emitted, type AcpmuxSnapshot } from "./model";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { acpmuxPerf } from "./perf";
 
@@ -11,7 +11,7 @@ export function emptySnapshot(): AcpmuxSnapshot {
     protocolVersion: 1,
     rows: [],
     sessions: [],
-    connection: "connecting",
+    ...emitted("connecting"),
     isWorking: false,
     queue: [],
     catalog: [],
@@ -122,7 +122,7 @@ export function cachedSnapshot(view: string | null = null): AcpmuxSnapshot {
     const value = JSON.parse(sessionStorage.getItem(snapshotKey(view)) ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
-      // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
+      // `link`, `emitReason`, `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
       // restored: no client has drawn anything yet, so this document's first paint is its own to report. The prompt
       // index is never restored: a copy saved by an older build holds it as rows, not columns, and a client reads
       // it again.
@@ -130,7 +130,7 @@ export function cachedSnapshot(view: string | null = null): AcpmuxSnapshot {
         ...emptySnapshot(),
         ...value,
         earlierPrompts: undefined,
-        connection: "connecting",
+        ...emitted("connecting"),
         drewKeptTail: undefined,
         chatRead: undefined,
         turnsEnded: undefined,

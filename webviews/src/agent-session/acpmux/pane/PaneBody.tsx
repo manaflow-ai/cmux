@@ -433,7 +433,7 @@ export type PaneBodyDeps = NewTabShown &
       | {
           sessionId: string | undefined;
           chat: string;
-          connection: string;
+          emitReason: string;
           read: (
             request: WorkflowDetailRequest & { before?: number | undefined; after?: number | undefined },
           ) => Promise<unknown>;

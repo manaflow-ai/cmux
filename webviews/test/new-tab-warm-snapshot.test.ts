@@ -41,12 +41,24 @@ test("a device chats push the host already made wins over the carried ones", () 
 });
 
 test("the carried chats show only until the page's own list arrives", () => {
-  expect(shownNewTabSessions({ sessions: [], connection: "connected" }, sessions)).toBe(sessions);
+  expect(shownNewTabSessions({ sessions: [], link: "connected" as const, emitReason: "connected" }, sessions)).toBe(
+    sessions,
+  );
   expect(
-    shownNewTabSessions({ sessions: [], listedSessions: true, connection: "connected" }, sessions),
+    shownNewTabSessions(
+      { sessions: [], listedSessions: true, link: "connected" as const, emitReason: "connected" },
+      sessions,
+    ),
   ).toBeUndefined();
-  expect(shownNewTabSessions({ sessions: sessions.slice(0, 1), connection: "connected" }, sessions)).toBeUndefined();
-  expect(shownNewTabSessions({ sessions: [], connection: "connected" }, [])).toBeUndefined();
+  expect(
+    shownNewTabSessions(
+      { sessions: sessions.slice(0, 1), link: "connected" as const, emitReason: "connected" },
+      sessions,
+    ),
+  ).toBeUndefined();
+  expect(
+    shownNewTabSessions({ sessions: [], link: "connected" as const, emitReason: "connected" }, []),
+  ).toBeUndefined();
 });
 
 test("a local listed snapshot posts its newest chats once, coalesced", () => {
@@ -77,9 +89,15 @@ test("a local listed snapshot posts its newest chats once, coalesced", () => {
 
 // Review (#22261): a page whose daemon is down, or that reconnects, must not show the carried chats.
 test("a disconnected page shows no carried chats", () => {
-  expect(shownNewTabSessions({ sessions: [], connection: "disconnected" }, sessions)).toBeUndefined();
-  expect(shownNewTabSessions({ sessions: [], connection: "debug" }, sessions)).toBeUndefined();
-  expect(shownNewTabSessions({ sessions: [], connection: "connected" }, sessions)).toBe(sessions);
+  expect(
+    shownNewTabSessions({ sessions: [], link: "disconnected" as const, emitReason: "disconnected" }, sessions),
+  ).toBeUndefined();
+  expect(
+    shownNewTabSessions({ sessions: [], link: "connected" as const, emitReason: "debug" }, sessions),
+  ).toBeUndefined();
+  expect(shownNewTabSessions({ sessions: [], link: "connected" as const, emitReason: "connected" }, sessions)).toBe(
+    sessions,
+  );
 });
 
 test("once the page's own connection lists, the carried chats are done for good", () => {

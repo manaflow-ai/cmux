@@ -112,6 +112,8 @@ async function cloudChat(summary: Partial<Summary> = {}): Promise<Snapshot> {
     origin: "remote",
     rows: [],
     sessions: [],
+    link: "connected" as const,
+    emitReason: "test",
     connection: "test",
     isWorking: false,
     queue: [],

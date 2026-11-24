@@ -1253,12 +1253,32 @@ export type AcpmuxWorkflowWire = {
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
-/// Whether the pane's link to acpmux is up. A snapshot's `connection` names why the client emitted
-/// it ("connected", "session changed", a streamed event's kind, "failed" for a refused request on
-/// an open socket), not the link's state: only a lost ("disconnected") or opening ("connecting…")
-/// connection is down. Never compare it with "connected" to ask whether the link is up.
-export function linkUp(connection: string): boolean {
-  return connection !== "disconnected" && !connection.startsWith("connecting");
+/// The pane's link to acpmux as a snapshot carries it (`AcpmuxSnapshot.link`): opening (the first
+/// dial or a redial, `connecting`), open (`connected`), or lost (`disconnected`). Why the client
+/// emitted the snapshot is `emitReason`, never this.
+export type PaneLink = "connecting" | "connected" | "disconnected";
+
+export const PANE_LINKS: readonly PaneLink[] = ["connecting", "connected", "disconnected"];
+
+/// The link an emit reason implies, the one place it is read off the reason: a lost
+/// ("disconnected") or opening ("connecting", "connecting: <why>") connection is down; every other
+/// reason ("connected", "session changed", a streamed event's kind, "failed" for a refused request
+/// on an open socket, "waiting: daemon", "peer offline") was emitted with the link up.
+export function paneLinkOf(emitReason: string): PaneLink {
+  if (emitReason === "disconnected") return "disconnected";
+  if (emitReason.startsWith("connecting")) return "connecting";
+  return "connected";
+}
+
+/// A snapshot's link fields for `emitReason`: `link`, `emitReason`, and the old combined
+/// `connection` (the same text as `emitReason`), which older readers still take for one release.
+export function emitted(emitReason: string): Pick<AcpmuxSnapshot, "link" | "emitReason" | "connection"> {
+  return { link: paneLinkOf(emitReason), emitReason, connection: emitReason };
+}
+
+/// Whether the pane's link to acpmux is up.
+export function linkUp(snapshot: Pick<AcpmuxSnapshot, "link">): boolean {
+  return snapshot.link === "connected";
 }
 
 /** Incremental journal attribution for the Session Info "Where the time went" chart. */
@@ -1476,6 +1496,14 @@ export type AcpmuxSnapshot = {
     /// person started); the header draws it beside the title (header/ChatSummaryLine.tsx).
     rollingSummary?: { text: string; next?: string };
   };
+  /// The pane's link to acpmux (`PaneLink`).
+  link: PaneLink;
+  /// Why the client emitted this snapshot: "connected", "session changed", a streamed event's
+  /// kind, "failed" (a refused request on an open socket), "connecting: <why>", ... Never a link
+  /// state to compare: ask `link`.
+  emitReason: string;
+  /// @deprecated The old field carrying both: the same text as `emitReason`, kept one release for
+  /// older readers (automation scripts). Read `link` or `emitReason`.
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
   daemonWaitingSince?: number;
@@ -4526,10 +4554,10 @@ export function paneHeader(
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
   // Initial connecting, retrying and normal turn events are quiet.
-  const connection = snapshot.connection;
+  const connection = snapshot.emitReason;
   const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
-    connection === "disconnected" && !hostRecovering ? t("header.disconnected") : failed ? t("header.failed") : "";
+    snapshot.link === "disconnected" && !hostRecovering ? t("header.disconnected") : failed ? t("header.failed") : "";
   if (!status) return { title, status };
   const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
   let rowError: string | undefined;

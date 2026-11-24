@@ -5,6 +5,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { promptRoot } from "./direct";
 import { keptStopStep, useStopThroughReconnect, type KeptStop, type StopView } from "./stopThroughReconnect";
+import { paneLinkOf } from "./model";
 import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -21,14 +22,14 @@ afterAll(async () => {
     else delete scope[key];
 });
 
-const working: StopView = { sessionId: "s1", connection: "connected", isWorking: true, turnPrompt: "p1" };
+const working: StopView = { sessionId: "s1", link: "connected", isWorking: true, turnPrompt: "p1" };
 
 test("a kept Stop waits through the lost connection and goes out once its turn runs again", () => {
   let kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
-  const lost = keptStopStep(kept, { ...working, connection: "disconnected" });
+  const lost = keptStopStep(kept, { ...working, link: "disconnected" });
   expect(lost.step).toBe("keep");
   kept = lost.kept;
-  expect(keptStopStep(kept, { ...working, connection: "reconnecting" }).step).toBe("keep");
+  expect(keptStopStep(kept, { ...working, link: "connecting" }).step).toBe("keep");
   expect(keptStopStep(kept, working).step).toBe("send");
   // Back with nothing running (acpmux's continuation of the turn still waits): nothing goes yet,
   // so a session-wide cancel never lands while the chat runs nothing; it goes once that turn runs.
@@ -50,16 +51,16 @@ test("a kept Stop never stops another turn", () => {
 test("a snapshot emitted for an event reads as reachable (Codex re-review of #27804, P2)", () => {
   const kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
   // The client names each snapshot after what it emitted it for: an event's kind, history, ….
-  for (const connection of ["turn_started", "agent_message_chunk", "history", "attached"])
-    expect(keptStopStep(kept, { ...working, connection }).step).toBe("send");
-  for (const connection of ["disconnected", "reconnecting", "connecting", "connecting: refused"])
-    expect(keptStopStep(kept, { ...working, connection }).step).toBe("keep");
+  for (const reason of ["turn_started", "agent_message_chunk", "history", "attached"])
+    expect(keptStopStep(kept, { ...working, link: paneLinkOf(reason) }).step).toBe("send");
+  for (const reason of ["disconnected", "connecting", "connecting: refused"])
+    expect(keptStopStep(kept, { ...working, link: paneLinkOf(reason) }).step).toBe("keep");
 });
 
 test("a Stop refused while the pane still read connected waits for the disconnect first", () => {
   const closing: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: true };
   expect(keptStopStep(closing, working).step).toBe("keep");
-  const lost = keptStopStep(closing, { ...working, connection: "disconnected" });
+  const lost = keptStopStep(closing, { ...working, link: "disconnected" });
   expect(lost).toEqual({ step: "keep", kept: { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false } });
   expect(keptStopStep(lost.kept, working).step).toBe("send");
   // It never lost the connection and the turn ended: nothing is left to stop.
@@ -71,7 +72,7 @@ test("a Stop refused while the pane still read connected waits for the disconnec
 test("a kept Stop is for its chat only", () => {
   const kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
   expect(keptStopStep(kept, { ...working, sessionId: "s2" }).step).toBe("drop");
-  expect(keptStopStep(kept, { ...working, sessionId: undefined, connection: "disconnected" }).step).toBe("drop");
+  expect(keptStopStep(kept, { ...working, sessionId: undefined, link: "disconnected" }).step).toBe("drop");
 });
 
 test("acpmux's continuation of a cut turn runs for that turn's prompt", () => {
@@ -97,7 +98,7 @@ test("the composer's Stop during a reconnect says it is stopping and stops the t
   const root = createRoot(dom.window.document.body.appendChild(dom.window.document.createElement("div")));
   const render = (view: StopView) => act(async () => root.render(<Probe view={view} />));
   // acpmux restarted on a new version mid-turn: the pane shows the turn still working.
-  const reconnecting = { ...working, connection: "disconnected" };
+  const reconnecting: StopView = { ...working, link: "disconnected" };
   await render(reconnecting);
   expect(shown!.stopping).toBe(false);
   await act(async () => shown!.stop());
@@ -131,7 +132,7 @@ test("a Stop acpmux took is not sent again", async () => {
   const root = createRoot(dom.window.document.body.appendChild(dom.window.document.createElement("div")));
   await act(async () => root.render(<Probe view={working} />));
   await act(async () => shown!.stop());
-  await act(async () => root.render(<Probe view={{ ...working, connection: "disconnected" }} />));
+  await act(async () => root.render(<Probe view={{ ...working, link: "disconnected" }} />));
   await act(async () => root.render(<Probe view={{ ...working }} />));
   expect(cancels).toHaveLength(1);
   expect(shown!.stopping).toBe(false);
@@ -153,7 +154,7 @@ test("a kept Stop does not stop the queued prompt that started while the pane wa
   }
   const root = createRoot(dom.window.document.body.appendChild(dom.window.document.createElement("div")));
   const render = (view: StopView) => act(async () => root.render(<Probe view={view} />));
-  await render({ ...working, connection: "disconnected" });
+  await render({ ...working, link: "disconnected" });
   await act(async () => shown!.stop());
   expect(shown!.stopping).toBe(true);
   // Back, and the stopped turn ended meanwhile; the next queued prompt (p2) runs now.

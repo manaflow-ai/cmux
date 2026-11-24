@@ -8,7 +8,14 @@ import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const finished = [{ kind: "turnSummary", seq: 4 }];
 const snapshot = (over: Partial<AcpmuxSnapshot>): AcpmuxSnapshot =>
-  ({ connection: "connected", isWorking: false, rows: finished, ...over }) as unknown as AcpmuxSnapshot;
+  ({
+    link: "connected",
+    emitReason: "connected",
+    connection: "connected",
+    isWorking: false,
+    rows: finished,
+    ...over,
+  }) as unknown as AcpmuxSnapshot;
 
 test("a chat on another machine forks there when its machine opens side chats", () => {
   expect(sideChatPlace({ quick: false, localCwd: "/Users/me/api", onMachine: undefined })).toBe("local");
@@ -26,8 +33,12 @@ test("a Cloud chat's side chat needs its machine connected and a turn to copy", 
   expect(sideChatRefusal(snapshot({ sideChatOnMachine: true }), "machine")).toBeUndefined();
   expect(sideChatRefusal(snapshot({ sideChatOnMachine: true, isWorking: true, rows: [] }), "machine")).toBeUndefined();
   expect(sideChatRefusal(snapshot({ sideChatOnMachine: true, rows: [] }), "machine")).toBe("nothingYet");
-  expect(sideChatRefusal(snapshot({ connection: "disconnected" }), "machine")).toBe("unavailable");
-  expect(sideChatRefusal(snapshot({ connection: "connecting (2)" }), "machine")).toBe("unavailable");
+  expect(sideChatRefusal(snapshot({ link: "disconnected", emitReason: "disconnected" }), "machine")).toBe(
+    "unavailable",
+  );
+  expect(sideChatRefusal(snapshot({ link: "connecting", emitReason: "connecting (2)" }), "machine")).toBe(
+    "unavailable",
+  );
   expect(sideChatRefusal(snapshot({}), undefined)).toBe("unavailable");
   // A local chat keeps the fork's own rule: no `canFork`, no side chat.
   expect(sideChatRefusal(snapshot({}), "local")).toBe("unavailable");

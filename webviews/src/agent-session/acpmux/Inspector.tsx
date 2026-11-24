@@ -112,6 +112,8 @@ export function Inspector({
   const exportLog = async () => {
     const text = wire.exportJsonl({
       sessionId: snapshot.sessionId,
+      link: snapshot.link,
+      emitReason: snapshot.emitReason,
       connection: snapshot.connection,
       sessionStatus: snapshot.summary?.status,
     });
@@ -170,7 +172,7 @@ export function Inspector({
       <dl className="acpmux-inspector-state">
         <div>
           <dt>{t("inspector.connection")}</dt>
-          <dd>{snapshot.connection}</dd>
+          <dd>{snapshot.emitReason}</dd>
         </div>
         <div>
           <dt>{t("inspector.session")}</dt>

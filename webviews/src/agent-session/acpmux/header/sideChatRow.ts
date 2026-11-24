@@ -2,7 +2,7 @@
 // that the app opens in a split beside the chat (`chat.side`), leaving the chat where it is.
 import { forkRefusal, latestForkSeq } from "../conversation/messageMenu";
 import { type Translate, translate } from "../i18n";
-import type { AcpmuxSnapshot } from "../model";
+import { linkUp, type AcpmuxSnapshot } from "../model";
 import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 /// Where New side chat and `/side` fork the chat: `local`, this Mac's acpmux (the chat's folder
@@ -31,7 +31,7 @@ export function sideChatRefusal(
   place: SideChatPlace | undefined,
 ): "unavailable" | "nothingYet" | undefined {
   if (place === "local") return forkRefusal(snapshot);
-  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+  const connected = linkUp(snapshot);
   if (place !== "machine" || !connected) return "unavailable";
   if (!snapshot.isWorking && latestForkSeq(snapshot.rows) === undefined) return "nothingYet";
   return undefined;
