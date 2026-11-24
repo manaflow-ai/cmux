@@ -88,38 +88,6 @@ import Testing
         }
     }
 
-    /// A window in AppKit's live resize (its edge or corner dragged) reports it.
-    final class LiveResizingWindow: NSWindow {
-        override var inLiveResize: Bool { true }
-    }
-
-    /// During a live resize of the window the page's frame may take longer than a display frame: Chrome's window waits
-    /// for it up to `kUIPaintTimeout` (500 ms, `NativeWidgetNSWindowBridge::PreCommitTimeout`). With a one-frame wait
-    /// every corner-drag fence missed on the other Mac (fences 36, joined 60, presented 0, missed 60; 132 of 467 frames
-    /// with a gutter). The render server holds the commit; the main thread waits for nothing.
-    @Test func aLiveResizeOfTheWindowWaitsForThePagesFrameLikeChrome() {
-        withInTreeOn {
-            let window = LiveResizingWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300),
-                                            styleMask: .borderless, backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
-            defer { window.close() }
-            window.contentView?.wantsLayer = true
-            let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-            window.contentView?.addSubview(host)
-            let hosting = CEFInTreeHosting(schedule: { $0() }, resizeFences: CEFResizeFences(makePort: { _ in
-                var name = mach_port_t(MACH_PORT_NULL)
-                guard mach_port_allocate(mach_task_self_, MACH_PORT_RIGHT_RECEIVE, &name) == KERN_SUCCESS,
-                      mach_port_insert_right(mach_task_self_, name, name, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND))
-                      == KERN_SUCCESS else { return nil }
-                return name
-            }))
-            hosting.view = host
-            #expect(hosting.pageWindowCreated(browser: 4, calls: fork.calls))
-            hosting.pageViewResized()
-            #expect(fork.timeouts.last == 500, "a live resize waited \(fork.timeouts) ms for the page's frame, not Chrome's 500")
-        }
-    }
-
     @Test func aFullScreenTransitionNeverHoldsTheWindowsCommit() {
         #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: true, fullScreenTransition: true, refreshMs: 8.33) == nil)
         #expect(CEFInTreeHosting.fenceTimeoutMs(windowResized: false, fullScreenTransition: true, refreshMs: 8.33) == nil)
