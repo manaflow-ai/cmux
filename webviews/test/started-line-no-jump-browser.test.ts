@@ -67,10 +67,14 @@ await requireBrowserLane("started-line-no-jump-browser.test.ts", async () => {
     });
 
     test("a short row cuts the later name first", async () => {
-      const lone = await chips(1, 360);
-      const pair = await chips(2, 360);
-      expect(pair[0]!.width).toBeGreaterThanOrEqual(lone[0]!.width - 1);
+      // Room for the first name whole and a few words of the second.
+      const lone = await chips(1, 520);
+      const pair = await chips(2, 520);
+      expect(pair[0]!.width).toBe(lone[0]!.width);
       expect(pair[1]!.cut).toBe(true);
+      // Too short for both: each keeps its few words, the later no wider than the first.
+      const tight = await chips(2, 360);
+      expect(tight[1]!.width).toBeLessThanOrEqual(tight[0]!.width);
       const row = await page.getByTestId("row").evaluate((node) => {
         const sentence = node.querySelector<HTMLElement>(".cv-agent-activity__sentence")!;
         return { right: sentence.getBoundingClientRect().right, edge: node.getBoundingClientRect().right };
