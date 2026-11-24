@@ -679,7 +679,10 @@ impl Peer {
         let mut handshake = self.scope.spawn_named("peer-handshake", async move {
             let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
                 // Large replies (the session list) may come compressed (`frame_compress.rs`).
-                "_meta": {"acpmux": {"compression": crate::frame_compress::offer()}}});
+                "_meta": {"acpmux": {"compression": crate::frame_compress::offer(),
+                    // What this build reads (`server/client_features.rs`): the peer sends a gated
+                    // notification only once it is listed.
+                    crate::server::client_features::FIELD: crate::server::client_features::own()}}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
                 hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));

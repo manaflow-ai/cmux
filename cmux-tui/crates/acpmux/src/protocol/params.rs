@@ -101,6 +101,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "effort",
     "env",
     "ephemeral",
+    "features",
     "forceAdmit",
     "forwardProjection",
     "fromAgent",
