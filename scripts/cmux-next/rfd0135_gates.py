@@ -102,16 +102,21 @@ def gate_move(args: argparse.Namespace) -> dict:
         sys.stderr.write(log[-20_000:])
     cells = matrix_cells(log)
     clean = sum(c["clean"] for c in cells)
+    # The matrix's own count line (kill-mid-move-drills, cmux#51760), when the build has it, wins over the table.
+    counted = [json.loads(l.split(" ", 1)[1]) for l in log.splitlines() if l.startswith("MOVE_KILL_MATRIX {")]
+    n_cells = counted[-1]["cells"] if counted else len(cells)
+    if counted:
+        clean = counted[-1]["clean"]
     times = json.loads(Path(os.environ["MOVE_TIMES"]).read_text()) if os.environ.get("MOVE_TIMES") else {}
     to_cloud, back = p95(times.get("to_cloud_ms", [])), p95(times.get("back_ms", []))
-    ok = (landed and len(cells) == MATRIX_CELLS and clean == MATRIX_CELLS and to_cloud is not None
+    ok = (landed and n_cells == MATRIX_CELLS and clean == MATRIX_CELLS and to_cloud is not None
           and back is not None and to_cloud < P95_BUDGET_MS and back < P95_BUDGET_MS)
-    return {"gate": "move", "ran": bool(cells), "ok": ok, "pr_51824_landed": landed, "cells": len(cells),
+    return {"gate": "move", "ran": bool(n_cells), "ok": ok, "pr_51824_landed": landed, "cells": n_cells,
             "clean": clean, "not_clean": [f'{c["step"]}:{c["kill"]}' for c in cells if not c["clean"]],
             "p95_to_cloud_ms": to_cloud, "p95_back_ms": back,
             "number": f"{clean}/{MATRIX_CELLS} clean, p95 {to_cloud} / {back} ms, #51824 "
                       + ("landed" if landed else "open"),
-            "why": None if cells else "the matrix printed no table"}
+            "why": None if n_cells else "the matrix printed no table"}
 
 
 def gate_phone(_args: argparse.Namespace) -> dict:

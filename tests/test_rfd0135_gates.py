@@ -4,11 +4,14 @@ nearest-rank 95th percentile, and the phone gate is NO (not NOT-RUN) until its c
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import os
+import tempfile
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("rfd0135_gates", ROOT / "scripts/cmux-next/rfd0135_gates.py")
@@ -30,6 +33,13 @@ class Rfd0135GatesTest(unittest.TestCase):
         cells = gates.matrix_cells(LOG)
         self.assertEqual([c["step"] for c in cells], ["before-begin", "after-begin", "mid-copy"])
         self.assertEqual([c["clean"] for c in cells], [True, False, False])
+
+    def test_matrix_count_line_wins_over_the_table(self) -> None:
+        log = Path(tempfile.mkdtemp(), "m.log")
+        log.write_text('| direction | step | kill | seed |\nMOVE_KILL_MATRIX {"cells":56,"clean":56,"known":0,"new":0}\n')
+        with mock.patch.object(gates.subprocess, "run", return_value=mock.Mock(returncode=1, stdout="")):
+            got = gates.gate_move(argparse.Namespace(matrix_log=str(log)))
+        self.assertEqual((got["cells"], got["clean"], got["ok"]), (56, 56, False))
 
     def test_p95(self) -> None:
         self.assertIsNone(gates.p95([]))
