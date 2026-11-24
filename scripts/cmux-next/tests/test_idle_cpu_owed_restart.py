@@ -89,5 +89,25 @@ class OwedRestart(unittest.TestCase):
                 idle_cpu.check_args(idle_cpu.parse_args(["--app", "/x.app", "--minutes", "6", *bad]))
 
 
+class LiveDaemon(unittest.TestCase):
+    def ops(self, status_pid, owned):
+        ops = idle_cpu.LiveOwedOps(1, "/b.app", "/s.sock", None, 40)
+        ops._rpc = lambda *a, **k: {"pid": status_pid}
+        ops._owned = lambda: owned
+        return ops
+
+    def test_the_daemon_is_the_one_serving_the_apps_socket_among_several(self):
+        # cmux20-bench, 2026-11-24: the app ran 3 acpmux daemons (its own, Chief's, ...); a name count refused the run.
+        owned = {7: ("acpmux-daemon", "/b.app/Contents/Resources/bin/acpmux daemon run"),
+                 8: ("acpmux-daemon", "/b.app/Contents/Resources/bin/acpmux daemon run"), 9: ("acpmux-daemon", "x")}
+        self.assertEqual(self.ops(8, owned).daemon_pid(), 8)
+
+    def test_a_socket_served_by_no_daemon_of_the_app_is_refused(self):
+        with self.assertRaises(RuntimeError):
+            self.ops(5, {8: ("acpmux-daemon", "x")}).daemon_pid()
+        with self.assertRaises(RuntimeError):   # the acpmux inside cmux-tui: killing it ends the terminals too
+            self.ops(8, {8: ("tui-daemon", "/b.app/Contents/Resources/bin/cmux acp daemon run")}).daemon_pid()
+
+
 if __name__ == "__main__":
     unittest.main()

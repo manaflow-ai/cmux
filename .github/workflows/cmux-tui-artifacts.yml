@@ -248,12 +248,16 @@ jobs:
       # "have the musl builds path-filtered on PRs and main, and run the full set only on merge queue or
       # nightly"). feat-cmux-next, nightly-next, main and dispatches never take this job. Any failure
       # answers "changed" (scripts/ci/cmux_tui_branch_inputs.py). Undo: vars.CMUX_TUI_BRANCH_INPUT_GATE = '0'.
+      # BASE-MOVED: a head that changes a tree-key input builds nothing either once feat-cmux-next moved its own
+      # tree key since the merge base: the pull request's route then reads its merge's tree, never this head's
+      # (1 of 16 such trees was ever fetched, 2026-11-23). Undo that part: vars.CMUX_TUI_BRANCH_BASE_MOVED_GATE = '0'.
       - name: Check whether the push changes any tree-key input
         id: inputs
         if: ${{ steps.stale.outputs.stale != 'true' && format('{0}', vars.CMUX_TUI_BRANCH_INPUT_GATE) != '0' }}
         env:
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
+          CMUX_TUI_BRANCH_BASE_MOVED_GATE: ${{ vars.CMUX_TUI_BRANCH_BASE_MOVED_GATE }}
         run: python3 scripts/ci/cmux_tui_branch_inputs.py --ref "$REF" --sha "$SHA"
 
   # Latest wins on feat-cmux-next, for the runs tree-preflight's group cannot replace: those an
