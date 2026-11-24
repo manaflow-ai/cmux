@@ -65,6 +65,13 @@ public nonisolated struct ConcentricContainer: Hashable, Sendable {
                width: side, height: side)
     }
 
+    /// The frame of a `side`-square control centered on the vertical middle of `bounds`, with ``padding`` from
+    /// its trailing edge. This keeps the control's horizontal inset tied to the surrounding surface while its
+    /// vertical placement follows the content row instead of a surface corner.
+    public func centeredTrailingFrame(side: CGFloat, in bounds: CGRect) -> CGRect {
+        CGRect(x: bounds.maxX - padding - side, y: bounds.midY - side / 2, width: side, height: side)
+    }
+
     /// A capsule around capsule controls `controlHeight` tall, `padding` from each edge: the container is
     /// `controlHeight + 2 * padding` tall and rounds by half of that, the controls by half their height.
     /// - Parameter controlHeight: The controls' height.

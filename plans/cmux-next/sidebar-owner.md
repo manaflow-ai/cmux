@@ -2843,3 +2843,6 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+
+- 2026-11-23 (Updated card close row): the Updated card's native close control stays on the one-line content row's vertical center at every sidebar density, while retaining its density-sized hit target and the card's trailing inset. Regression: `CardCloseConcentricTests`, `UpdatedCardDismissPathTests`.
+  Sidebar-Look: the close button is vertically centered on the Updated card content row

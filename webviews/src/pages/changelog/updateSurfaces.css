@@ -117,6 +117,12 @@
 }
 .wn-card-close svg { width: 8px; height: 8px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
 .wn-card-close:hover { background: var(--page-hover); color: var(--page-text); }
+/* The shipped card is one content row. Center its own fallback x on that row; the native sidebar host uses the
+   same geometry when it owns the button. */
+.wn-updated:is([data-shape="row"], [data-shape="row-change"]) .wn-card-close {
+  top: 50%;
+  transform: translateY(-50%);
+}
 /* The update's top change: the area semibold in the text color, the change after it in the
    secondary color. It wraps instead of being cut with an ellipsis, so it reads and selects whole
    (u4466); a long one stops at two lines. */
