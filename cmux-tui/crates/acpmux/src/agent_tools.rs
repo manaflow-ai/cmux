@@ -68,9 +68,10 @@
 //!   itself). It gets the session as [`AGENT_SESSION_ENV`], the provenance
 //!   of the notes it saves.
 //! - Hosted MCP (`cmux-hosted`, `hosted_mcp.rs`): cmux's hosted MCP server with the signed-in
-//!   person's GitHub connectors and their own remote MCP servers, only while the daemon's
-//!   `CMUX_HOSTED_MCP` is `1` (default off) and not on a cmux Cloud VM. Its env holds only the
-//!   `cmux` CLI's path; the person's token never enters a config, an env or argv.
+//!   person's GitHub connectors and their own remote MCP servers, on by default (the daemon's
+//!   `CMUX_HOSTED_MCP=0` or cmux.json `agents.hostedMcp.enabled: false` turns it off). On a Mac
+//!   its env holds only the `cmux` CLI's path; on a cmux Cloud machine it holds nothing and the
+//!   machine agent adds the bearer. No token ever enters a config, an env or argv.
 //! - Kept servers (`ACPMUX_AGENT_TOOL_SERVERS`, a profile or preset env):
 //!   only the named MCP servers; the Chief's turns keep `cmux` (cx-4a5w2).
 
@@ -509,8 +510,12 @@ pub struct Inputs {
     /// per-workspace displays (`agent_displays.rs`), else `None`.
     pub displays: Option<PathBuf>,
     /// Sessions get cmux's hosted MCP server with the signed-in person's tools
-    /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
+    /// (`hosted_mcp.rs`): on unless [`crate::hosted_mcp::SWITCH_ENV`] is `0` or cmux.json's
+    /// [`crate::hosted_mcp::SETTING_ENABLED`] is `false`.
     pub hosted: bool,
+    /// This is a cmux Cloud machine: the hosted server goes through its agent socket and needs
+    /// no `cmux` CLI.
+    pub hosted_cloud: bool,
     /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
     /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens, or a
     /// machine a Mac lends GitHub (`github_session_env.rs`).
@@ -564,6 +569,7 @@ impl Inputs {
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
+            hosted_cloud: crate::hosted_mcp::cloud_socket().is_some(),
             github: crate::github_mcp::available() || crate::github_session_env::lent(),
             desktop_lease: var(DESKTOP_LEASE_ENV).map(PathBuf::from).filter(|p| is_executable(p)),
         }
@@ -1245,7 +1251,16 @@ fn resolve_servers(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
-    if inputs.hosted
+    if let (true, true, Some(acpmux)) = (inputs.hosted, inputs.hosted_cloud, &inputs.acpmux) {
+        // cmux's hosted MCP on a cmux Cloud machine (`hosted_mcp.rs`): the machine agent adds
+        // its own bearer to each message, so nothing goes in the env.
+        servers.push(McpServer {
+            name: crate::hosted_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["hosted-mcp"]),
+            env: vec![],
+        });
+    } else if inputs.hosted
         && let (Some(acpmux), Some(cmux)) = (&inputs.acpmux, executable("cmux"))
     {
         // cmux's hosted MCP (`hosted_mcp.rs`): only the `cmux` CLI's path goes in its env; the
