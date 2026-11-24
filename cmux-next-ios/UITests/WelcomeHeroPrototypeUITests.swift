@@ -27,9 +27,10 @@ final class WelcomeHeroPrototypeUITests: XCTestCase {
             _ = app.staticTexts["__never__"].waitForExistence(timeout: 2)
             capture("welcome-hero-\(name)")
         }
-        // Replay re-mounts the current direction; it stays on screen.
+        // Replay re-mounts the current direction (the last one tapped); it stays on screen.
+        let last = try XCTUnwrap(directions.last)
         app.buttons["Replay"].tap()
-        XCTAssertTrue(element(app, id: "welcome.wordmark.tube").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, id: "welcome.wordmark.\(last)").waitForExistence(timeout: 5), "\(last): wordmark missing after Replay")
     }
 
     @MainActor
