@@ -73,6 +73,32 @@ public final class PhoneTabPictures {
         return iphone.allowed && !(iphone.paired?.devices.isEmpty ?? true)
     }
 
+    /// The tabs whose pictures the app holds, and one tab's picture (made off the main actor): each time a phone comes
+    /// to want the pictures (``wanted`` turns true, and at once when it is) every one goes to it, so a tab pictured or
+    /// hibernated while no phone was paired still has its card (Leo, 2026-11-24: "there are too many empty previews in
+    /// the safari grid thing").
+    public var held: (keys: @MainActor () -> [String], picture: @MainActor (_ key: String) async -> CGImage?)? {
+        didSet { followWanted() }
+    }
+
+    private var wantedFollow: Task<Void, Never>?
+
+    private func followWanted() {
+        wantedFollow?.cancel()
+        guard held != nil else { return }
+        // task-owner: wantedFollow; event-driven (Observation), cancelled when held is set again.
+        wantedFollow = Task { [weak self] in
+            var was = false
+            for await now in ObservationStream({ [weak self] in self?.wanted ?? false }) {
+                guard let self else { return }
+                if now, !was, let held = self.held {
+                    for key in held.keys() { if let image = await held.picture(key) { self.offerThumbnail(image, tab: key) } }
+                }
+                was = now
+            }
+        }
+    }
+
     /// The surface tab `key`'s pictures go out as now, nil while no phone wants them.
     private func phoneSurface(_ key: String) -> UInt64? {
         guard wanted, let surface = surface(key) else { return nil }
