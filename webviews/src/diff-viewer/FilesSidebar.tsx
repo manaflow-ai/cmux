@@ -4,7 +4,7 @@ import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type SidebarCommentEntry } from "../comments/annotations";
-import { CommentsSidebarSection } from "../comments/CommentsSection";
+import { CommentsSidebarSection, type CommentsReview } from "../comments/CommentsSection";
 import { type DiffCommentLabels } from "../comments/labels";
 import type { CommentsSendState } from "../comments/types";
 import { type DiffItem, type FileTreeSource } from "../diff-stream";
@@ -38,6 +38,7 @@ import type { DiffViewerLabelResolver } from "../labels";
 import { type AppAction, type AppState } from "./state";
 import { LoadingFileList } from "./Loading";
 import { useSyncedRef } from "./useSyncedRef";
+import { RESIZE_HANDLE_PROPS } from "../scrollers";
 import { diffChromeRows, FILE_TREE_ITEM_HEIGHT, useDiffDensityScale } from "./density";
 
 export function FilesSidebarBackdrop({
@@ -98,6 +99,7 @@ export function filteredFileTreeSource(
 export function FilesSidebar({
   commentEntries,
   commentLabels,
+  commentsReview,
   commentsSendState,
   dispatch,
   hasDraft,
@@ -115,6 +117,8 @@ export function FilesSidebar({
 }: {
   commentEntries: SidebarCommentEntry[];
   commentLabels: DiffCommentLabels;
+  /** A review worktree's pull request and its Post to GitHub; absent for an ordinary worktree. */
+  commentsReview?: CommentsReview;
   commentsSendState?: CommentsSendState;
   dispatch: React.Dispatch<AppAction>;
   hasDraft: boolean;
@@ -165,6 +169,7 @@ export function FilesSidebar({
     >
       <button
         id="files-resize-handle"
+        {...RESIZE_HANDLE_PROPS}
         aria-label={label("files")}
         type="button"
         tabIndex={0}
@@ -248,6 +253,7 @@ export function FilesSidebar({
         onSelect={onSelectComment}
         onSend={onSendComments}
         sendState={commentsSendState}
+        {...commentsReview}
       />
     </aside>
   );
@@ -458,6 +464,7 @@ function PierreFileTree({
         ) : null}
         <FileTree model={model} style={{ height: "100%" }} renderContextMenu={() => null} />
         <MenuPopup
+          atPointer
           className="file-tree-context-menu"
           label={
             contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"

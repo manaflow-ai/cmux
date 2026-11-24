@@ -2,15 +2,16 @@
 public import AppKit
 
 /// The arrow keys a person presses to reach a row of an open menu (`debug.object_menu`'s `folders` and `choose`).
-extension NSMenu {
-    /// The key codes that open `folders` in turn from this menu: Down (125) to each folder's row, then Right (124).
+public struct MenuArrowKeys {
+    public init() {}
+    /// The key codes that open `folders` in turn from `top`: Down (125) to each folder's row, then Right (124).
     /// Arrow keys move over enabled, shown rows (an alternate row shares its primary's place; a section header,
     /// such as cmux > Customizations' Experiments and Labs titles, is never highlighted). Nothing is highlighted
     /// in a menu that just opened, so the first Down lands on its first row; a submenu opened with Right starts on
     /// its first row. `choose`, when set, then gets Down to its row of the last menu reached and Return (36).
     /// Nil when a folder or the chosen row is not an enabled row there.
-    public func arrowKeyCodes(_ folders: [String], choose: String? = nil) -> [UInt16]? {
-        var menu = self
+    public static func codes(_ folders: [String], choose: String? = nil, in top: NSMenu) -> [UInt16]? {
+        var menu = top
         var codes: [UInt16] = []
         let rows = { (menu: NSMenu) in
             menu.items.filter { !$0.isSeparatorItem && !$0.isSectionHeader && !$0.isHidden && !$0.isAlternate && $0.isEnabled }

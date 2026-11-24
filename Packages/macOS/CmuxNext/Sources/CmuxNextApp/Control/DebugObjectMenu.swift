@@ -14,7 +14,6 @@ import CmuxNextTabs
 /// - `menu: "tab"`: the focused pane's selected tab's menu (`PaneController.contextMenu(for: .tab)`), opened
 ///   over the middle of the pane's tab strip.
 /// - `menu: "pane"`: the pane's menu, the one the tab strip's empty space opens (`.emptyStrip`).
-/// - `menu: "paneMore"`: the pane's ⋮ at its tab bar's trailing end (``PaneToolbar``), as its click opens it.
 /// - `menu: "browserMore"`: the page's More menu on glass; `folders` open in place, `dismiss` closes it (no posted keys).
 /// - `menu: "customizations"`: the app menu's cmux > Customizations (``CustomizationsMenu``), a fresh copy of the item
 ///   AppDelegate puts there with the same closures, popped over the window's top left: the menu bar is outside the
@@ -66,14 +65,6 @@ enum DebugObjectMenu {
                 DelayedPopUp(menu: shown, at: at, in: strip).schedule()
                 services.debugFixtures.objectMenu = shown // its folders are walked by their rows
                 answer["menu"] = .string(menu)
-            case "paneMore":
-                // The focused pane's ⋮ at its tab bar's trailing end (tour:terminal-chat-switch-menu), under the ⋮.
-                guard let bar = controller.focusedPane?.view.toolbar?.view, let shown = bar.moreMenu?() else {
-                    return failure("the focused pane shows no ⋮")
-                }
-                DelayedPopUp(menu: shown, at: NSPoint(x: bar.bounds.maxX - 32, y: bar.isFlipped ? bar.bounds.maxY : 0), in: bar).schedule()
-                services.debugFixtures.objectMenu = shown
-                answer["menu"] = .string(menu)
             case "browserMore":
                 guard let entry = page(controller) else { return failure("the focused pane shows no browser page") }
                 entry.chrome?.toolbarButtons.presentGlass(BrowserToolbarHandlers.overflowMenu(
@@ -101,7 +92,7 @@ enum DebugObjectMenu {
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
             default:
-                return failure("menu is workspace, tab, pane, paneMore, browserProfile, browserMore or customizations")
+                return failure("menu is workspace, tab, pane, browserProfile, browserMore or customizations")
             }
         }
         let folders = params["folders"]?.arrayValue?.compactMap(\.stringValue) ?? []
@@ -114,7 +105,7 @@ enum DebugObjectMenu {
             let events: [NSEvent]
             if let menu = services.debugFixtures.objectMenu {
                 // A menu this holds: Down to each folder's row, then Right, as a person's arrow keys would.
-                guard let keys = menu.arrowKeyCodes(folders, choose: choice)?.flatMap({ arrow($0, window: window) }) else {
+                guard let keys = MenuArrowKeys.codes(folders, choose: choice, in: menu)?.flatMap({ arrow($0, window: window) }) else {
                     return failure("no enabled \((folders + [choice].compactMap { $0 }).joined(separator: " > ")) in the open menu")
                 }
                 events = keys

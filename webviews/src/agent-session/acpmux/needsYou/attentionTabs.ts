@@ -70,6 +70,16 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function useAttentionTabs(): readonly AttentionTab[] {
-  return useSyncExternalStore(subscribe, attentionTabs, attentionTabs);
+function subscribeNone(): () => void {
+  return () => {};
+}
+
+function noTabs(): readonly AttentionTab[] {
+  return EMPTY;
+}
+
+/// The host's attention list. With `on` false (a feature that is switched off) it neither
+/// subscribes nor rerenders on host pushes, and reads as empty.
+export function useAttentionTabs(on = true): readonly AttentionTab[] {
+  return useSyncExternalStore(on ? subscribe : subscribeNone, on ? attentionTabs : noTabs, on ? attentionTabs : noTabs);
 }

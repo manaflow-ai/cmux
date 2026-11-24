@@ -25,15 +25,15 @@ struct MenuArrowKeysTests {
 
     @Test func chooseSkipsSectionHeaders() {
         let menu = Self.customizationsLike()
-        #expect(menu.arrowKeyCodes([], choose: "Agent Badges") == [125, 36])
-        #expect(menu.arrowKeyCodes([], choose: "Live Code") == [125, 125, 36])
-        #expect(menu.arrowKeyCodes([], choose: "All Customizations…") == [125, 125, 125, 36])
+        #expect(MenuArrowKeys.codes([], choose: "Agent Badges", in: menu) == [125, 36])
+        #expect(MenuArrowKeys.codes([], choose: "Live Code", in: menu) == [125, 125, 36])
+        #expect(MenuArrowKeys.codes([], choose: "All Customizations…", in: menu) == [125, 125, 125, 36])
     }
 
     @Test func chooseRefusesDisabledAndMissingRows() {
         let menu = Self.customizationsLike()
-        #expect(menu.arrowKeyCodes([], choose: "Managed") == nil)
-        #expect(menu.arrowKeyCodes([], choose: "Labs") == nil)
+        #expect(MenuArrowKeys.codes([], choose: "Managed", in: menu) == nil)
+        #expect(MenuArrowKeys.codes([], choose: "Labs", in: menu) == nil)
     }
     #endif
 }

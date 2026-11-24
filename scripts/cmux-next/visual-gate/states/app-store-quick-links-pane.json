@@ -2,7 +2,8 @@
   "title": "Quick Links opened (a declarative scene app)",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],
