@@ -148,8 +148,9 @@ export function Listbox<T>({
     observer.observe(node);
     return () => observer.disconnect();
   }, [ownWindow, readView]);
-  // After every render, read the mounted rows' heights (only those, so it costs the window, not the
-  // list); a row whose height is new or changed updates the map once.
+  // When the mounted rows can change (the list, the scroll, the highlight), read their heights (only
+  // those, so it costs the window, not the list); a row whose height is new or changed updates the
+  // map once.
   useLayoutEffect(() => {
     if (!ownWindow) return;
     const rows = scroller.current?.querySelectorAll<HTMLElement>(":scope > [role='option']") ?? [];
@@ -165,7 +166,7 @@ export function Listbox<T>({
       next.set(key, px);
     }
     if (next) setHeights(next);
-  });
+  }, [ownWindow, items, getKey, heights, view, current]);
   const offsets = useMemo(
     () => (ownWindow ? listboxOffsets(items, getKey, heights) : undefined),
     [ownWindow, items, getKey, heights],
