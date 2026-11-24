@@ -110,6 +110,8 @@ mod serve_wish;
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod stream;
+#[cfg(target_os = "macos")]
+mod surface_source;
 #[cfg(feature = "bench")]
 mod synthetic;
 #[cfg(target_os = "linux")]
@@ -204,7 +206,7 @@ pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]";
+const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install|surface-source [--key value ...]";
 
 /// Commands the usage line names that a build may leave out (by feature or platform).
 const KNOWN_COMMANDS: &[&str] = &[
@@ -223,6 +225,7 @@ const KNOWN_COMMANDS: &[&str] = &[
     "windows-selftest",
     "encode-selftest",
     "openh264-install",
+    "surface-source",
 ];
 
 /// A command this build has no handler for: say whether it is a real command left out
@@ -355,6 +358,8 @@ pub fn run_cli(args: &[String]) -> i32 {
         "permissions" => permissions::run(),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
+        #[cfg(target_os = "macos")]
+        "surface-source" => surface_source::run(&opts),
         #[cfg(feature = "openh264")]
         "openh264-install" => encoder::install_openh264(&opts),
         other => Err(unknown_command(other).into()),
