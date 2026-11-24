@@ -6,16 +6,17 @@ use super::move_end::{Journal, MoveEnd, Reach, Wait, journal_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
-/// Durations observed while a chat is moved.  `freeze_ms` covers the source daemon's
-/// `transfer_begin` request, `transfer_ms` covers the target receive and page/finalize work,
-/// and `thaw_ms` covers the target's import activation when the receiver reports it.  The
-/// blackout is measured by the caller from the start of freeze through the commit response.
+/// Durations observed while a chat is moved.  The source daemon reports `freeze_ms` for its
+/// claimed transfer through bundle export. `transfer_ms` covers target receive and page/finalize
+/// work, and `thaw_ms` covers target import activation when the receiver reports it. `blackout_ms`
+/// ends at the target landing acknowledgement. Legacy daemons leave unsupported fields null.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct MoveTimings {
-    pub(super) freeze_ms: u64,
-    pub(super) transfer_ms: u64,
+    pub(super) freeze_ms: Option<u64>,
+    pub(super) transfer_ms: Option<u64>,
     pub(super) thaw_ms: Option<u64>,
-    pub(super) blackout_ms: u64,
+    pub(super) blackout_ms: Option<u64>,
+    pub(super) carried_running_turn: Option<bool>,
 }
 
 impl MoveTimings {
@@ -25,6 +26,7 @@ impl MoveTimings {
             "transferMs": self.transfer_ms,
             "thawMs": self.thaw_ms,
             "blackoutMs": self.blackout_ms,
+            "carriedRunningTurn": self.carried_running_turn,
         })
     }
 }
@@ -79,6 +81,10 @@ pub(super) struct Begun {
     pub(super) transfer_id: String,
     pub(super) epoch: u64,
     pub(super) stage_id: Option<String>,
+    pub(super) started_at: std::time::Instant,
+    pub(super) pre_claim_ms: Option<u64>,
+    pub(super) freeze_ms: Option<u64>,
+    pub(super) carried_running_turn: Option<bool>,
 }
 
 /// A prefix of the chat staged on the target before the freeze (`hub/transfer_precopy.rs`).
@@ -192,6 +198,7 @@ async fn begin_with(
     if let Some(bound) = turn_bound.filter(|_| after_turn) {
         begin_params.set("afterTurnTimeoutMs", json!(bound.as_millis() as u64));
     }
+    let started_at = std::time::Instant::now();
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
     let epoch = match begin.get("epoch") {
@@ -201,7 +208,22 @@ async fn begin_with(
             .ok_or_else(|| anyhow!("transfer_begin: epoch must be an unsigned integer"))?,
     };
     let stage_id = staged.filter(|_| begin.get("prefix").is_some()).map(|s| s.stage_id.clone());
-    Ok(Begun { begin, transfer_id, epoch, stage_id })
+    let pre_claim_ms = begin.get("preClaimMs").and_then(Value::as_u64);
+    let freeze_ms = begin.get("freezeMs").and_then(Value::as_u64);
+    let carried_running_turn = begin
+        .get("carriedRunningTurn")
+        .and_then(Value::as_bool)
+        .or_else(|| begin.get("continues").map(|value| !value.is_null()));
+    Ok(Begun {
+        begin,
+        transfer_id,
+        epoch,
+        stage_id,
+        started_at,
+        pre_claim_ms,
+        freeze_ms,
+        carried_running_turn,
+    })
 }
 
 /// Gives the chat back on the source: the move did not happen.
@@ -371,9 +393,35 @@ pub(super) async fn finish_move_timed(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<(Value, MoveTimings)> {
+    finish_move_timed_since(src, dst, dst_init, id, begun, cwd, name, to_meta, None).await
+}
+
+/// [`finish_move_timed`] with a start point for the input blackout bound.
+pub(super) async fn finish_move_timed_since(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+    blackout_started: Option<(std::time::Instant, Option<u64>)>,
+) -> Result<(Value, MoveTimings)> {
     let dir = journal_dir();
     let journal = (dir.as_path(), to_meta);
-    finish_journaled_timed(src, dst, dst_init, id, begun, cwd, name, journal).await
+    finish_journaled_timed_since(
+        src,
+        dst,
+        dst_init,
+        id,
+        begun,
+        cwd,
+        name,
+        journal,
+        blackout_started,
+    )
+    .await
 }
 
 /// [`finish_move`], the move noted in the journal at `dir` while it is under way.
@@ -404,6 +452,21 @@ pub(super) async fn finish_journaled_timed(
     name: Option<String>,
     (dir, to_meta): (&std::path::Path, Value),
 ) -> Result<(Value, MoveTimings)> {
+    finish_journaled_timed_since(src, dst, dst_init, id, begun, cwd, name, (dir, to_meta), None)
+        .await
+}
+
+async fn finish_journaled_timed_since(
+    src: &mut MoveEnd<'_>,
+    dst: &mut MoveEnd<'_>,
+    dst_init: &Value,
+    id: &str,
+    begun: &Begun,
+    cwd: Option<String>,
+    name: Option<String>,
+    (dir, to_meta): (&std::path::Path, Value),
+    blackout_started: Option<(std::time::Instant, Option<u64>)>,
+) -> Result<(Value, MoveTimings)> {
     let journal = match (src.reach(), dst.reach()) {
         (Some(s), Some(d)) => Some(Journal {
             session_id: id.to_owned(),
@@ -419,7 +482,9 @@ pub(super) async fn finish_journaled_timed(
     if let Some(j) = &journal {
         j.note(dir);
     }
-    let result = finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta).await;
+    let result =
+        finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta, blackout_started)
+            .await;
     if !matches!(result, Err(Unresolved(_))) {
         Journal::done(dir, &begun.transfer_id);
     }
@@ -451,7 +516,7 @@ async fn finish_noted(
     name: Option<String>,
     to_meta: Value,
 ) -> Result<Value, Failed> {
-    finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta)
+    finish_noted_timed(src, dst, dst_init, id, begun, cwd, name, to_meta, None)
         .await
         .map(|(moved, _)| moved)
 }
@@ -465,6 +530,7 @@ async fn finish_noted_timed(
     cwd: Option<String>,
     name: Option<String>,
     to_meta: Value,
+    blackout_started: Option<(std::time::Instant, Option<u64>)>,
 ) -> Result<(Value, MoveTimings), Failed> {
     let (begin, transfer_id) = (&begun.begin, &begun.transfer_id);
     if let Err(e) = receiver_takes(begin, dst_init) {
@@ -493,13 +559,13 @@ async fn finish_noted_timed(
     )
     .await
     {
-        Ok(moved) => moved,
+        Ok((moved, transfer_ms, thaw_ms)) => (moved, Some(transfer_ms), thaw_ms),
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
         Err(e) => match landed(dst, id, transfer_id).await {
             Some(true) => (
                 dst.call(method::MUX_INFO, json!({"sessionId": id}), Wait::Page, true).await?,
-                transfer_started.elapsed().as_millis() as u64,
+                None,
                 None,
             ),
             Some(false) => return Err(abort_end(src, id, begun, e).await),
@@ -516,8 +582,13 @@ async fn finish_noted_timed(
     // A commit is answered again the same once it is on disk (`transfer_commit_with_epoch`).
     let commit =
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch});
+    let blackout_ms = blackout_started.and_then(|(started, pre_claim_ms)| {
+        pre_claim_ms.map(|pre_claim_ms| {
+            started.elapsed().as_millis().saturating_sub(u128::from(pre_claim_ms)) as u64
+        })
+    });
     src.call("_acpmux/transfer_commit", commit, Wait::Page, true).await?;
-    Ok((moved, MoveTimings { transfer_ms, thaw_ms, ..MoveTimings::default() }))
+    Ok((moved, MoveTimings { transfer_ms, thaw_ms, blackout_ms, ..MoveTimings::default() }))
 }
 
 /// Gives the chat back on the source through `src` (reconnected if its connection dropped):

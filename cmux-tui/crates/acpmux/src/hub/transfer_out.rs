@@ -435,6 +435,7 @@ impl Hub {
         gates_receiver: bool,
         precopy: Option<(&str, u64)>,
     ) -> Result<Value, RpcError> {
+        let begin_started = std::time::Instant::now();
         if !session.ownership_epoch_is_valid() {
             return Err(transfer_error(
                 "epoch_unreadable",
@@ -475,13 +476,14 @@ impl Hub {
         // that fenced move first. The target cannot have finished such a bundle, so retrying
         // cannot create a second chat or lose the original.
         let lease = *self.transfer_lease.lock().unwrap_or_else(|e| e.into_inner());
-        let watch = loop {
+        let (watch, claimed_at) = loop {
             let other = session.moving();
             let Some(other) = other else {
                 let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
+                let claim_started = std::time::Instant::now();
                 if claim_transfer(&mut moving, &transfer_id) {
                     let watch = self.claim_move_watch(&transfer_id);
-                    break watch;
+                    break (watch, claim_started);
                 }
                 continue;
             };
@@ -714,6 +716,9 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "preClaimMs": claimed_at.duration_since(begin_started).as_millis() as u64,
+            "freezeMs": claimed_at.elapsed().as_millis() as u64,
+            "carriedRunningTurn": carried.is_some(),
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));

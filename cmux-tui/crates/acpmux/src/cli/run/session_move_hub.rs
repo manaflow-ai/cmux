@@ -163,7 +163,6 @@ async fn steps(
     // log's tail. A target that lost the stage refuses the move as unstaged: made again in full.
     let staged = precopy(src, &id, daemon).await;
     let moving = Moving { src, id: &id, args, home: &home, home_text: &home_text, cwd: &cwd };
-    let blackout_started = std::time::Instant::now();
     let (sent, answer, mut timings) = match moving.run(daemon, host, staged.as_ref()).await {
         Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
             moving.run(daemon, host, None).await?
@@ -186,12 +185,12 @@ async fn steps(
     )
     .await?;
     if let Some(receiver_timings) = moved.get("timings") {
-        if let Some(pages_ms) = receiver_timings.get("pagesMs").and_then(Value::as_u64) {
-            timings.transfer_ms = pages_ms;
-        }
+        timings.transfer_ms = receiver_timings.get("pagesMs").and_then(Value::as_u64);
         timings.thaw_ms = receiver_timings.get("finishMs").and_then(Value::as_u64);
+    } else {
+        timings.transfer_ms = None;
+        timings.thaw_ms = None;
     }
-    timings.blackout_ms = blackout_started.elapsed().as_millis() as u64;
     o.moved = true;
     o.timings = Some(timings);
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
@@ -240,7 +239,6 @@ impl Moving<'_> {
         let to = json!({"hub": daemon, "host": host});
         let running = (args.interrupt, args.after_turn);
         use super::super::transfer as t;
-        let freeze_started = std::time::Instant::now();
         let begun = match t::begin_move(src, &id, Some(to.clone()), running, None, staged).await {
             // The target's copy diverged from what was staged: send the whole chat.
             Err(e) if staged.is_some() && t::refused_diverged(&e) => {
@@ -248,8 +246,6 @@ impl Moving<'_> {
             }
             begun => begun?,
         };
-        let freeze_ms = freeze_started.elapsed().as_millis() as u64;
-        let transfer_started = std::time::Instant::now();
         let made = async {
             // Read again now that the chat is frozen: it may have changed before the freeze.
             let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
@@ -295,8 +291,15 @@ impl Moving<'_> {
                 sent,
                 answer,
                 t::MoveTimings {
-                    freeze_ms,
-                    transfer_ms: transfer_started.elapsed().as_millis() as u64,
+                    freeze_ms: begun.freeze_ms,
+                    blackout_ms: begun.pre_claim_ms.map(|pre_claim_ms| {
+                        begun
+                            .started_at
+                            .elapsed()
+                            .as_millis()
+                            .saturating_sub(u128::from(pre_claim_ms)) as u64
+                    }),
+                    carried_running_turn: begun.carried_running_turn,
                     ..t::MoveTimings::default()
                 },
             )),

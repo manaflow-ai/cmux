@@ -727,8 +727,6 @@ async fn move_steps(
         super::transfer::precopy(src, &dst, &dst_init, &id),
     )
     .await;
-    let blackout_started = std::time::Instant::now();
-    let freeze_started = std::time::Instant::now();
     let begun = match begin_waiting(src, &id, &name, watch.clone(), args, staged.as_ref()).await {
         // The log changed under the prefix (a compaction): given back, and moved in full.
         Err(e) if super::transfer::refused_diverged(&e) => {
@@ -757,11 +755,10 @@ async fn move_steps(
     };
     let mut src_end = MoveEnd::new("source", src, source.reach());
     let mut dst_end = MoveEnd::new("target", &dst, Some(dst_reach));
-    let freeze_ms = freeze_started.elapsed().as_millis() as u64;
     let finished = waiting(
         &name,
         "copying the chat to the target",
-        super::transfer::finish_move_timed(
+        super::transfer::finish_move_timed_since(
             &mut src_end,
             &mut dst_end,
             &dst_init,
@@ -770,6 +767,7 @@ async fn move_steps(
             there,
             None,
             record,
+            Some((begun.started_at, begun.pre_claim_ms)),
         ),
     )
     .await;
@@ -781,8 +779,8 @@ async fn move_steps(
             return Err(e);
         }
     };
-    timings.freeze_ms = freeze_ms;
-    timings.blackout_ms = blackout_started.elapsed().as_millis() as u64;
+    timings.freeze_ms = begun.freeze_ms;
+    timings.carried_running_turn = begun.carried_running_turn;
     o.timings = Some(timings);
     targets.placed(&target.name);
     o.moved = true;
