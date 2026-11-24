@@ -309,6 +309,8 @@ public final class CloudPlaceFlows {
         guard state != startState || (state != nil && startWatch == nil) else { return }
         startState = state
         startWatch?.cancel()
+        startWatch = nil
+        startRevision &+= 1 // what was read under another folder (or none) is stale
         guard let state else { return }
         // The drivers' folder sits beside the sessions folder (cmux-cloud-start-core `hybrid_show`).
         let folder = state.deletingLastPathComponent().appending(path: "hybrid-start", directoryHint: .isDirectory)
