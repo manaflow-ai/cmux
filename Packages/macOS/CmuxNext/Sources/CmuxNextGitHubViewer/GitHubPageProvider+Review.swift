@@ -1,3 +1,5 @@
+import CmuxNextSettings
+import Foundation
 public import CmuxNextAgentPane
 public import CmuxNextPages
 
