@@ -85,6 +85,32 @@ const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acp
 const tooltip = (ctx: PlayContext) =>
   ctx.document.querySelector<HTMLElement>(".ui-title-tooltip .ui-tooltip-text")?.textContent ?? "";
 
+/** Fails when an icon, or the row's backing, paints a box-shadow ring or the page colour (--agent-bg). */
+function assertNoPageColour(ctx: PlayContext): void {
+  const doc = ctx.document;
+  const probe = doc.createElement("span");
+  probe.style.background = "var(--agent-bg, Canvas)";
+  doc.body.append(probe);
+  const rgb = (color: string) =>
+    color
+      .match(/[\d.]+/g)
+      ?.slice(0, 3)
+      .join(",");
+  const page = rgb(getComputedStyle(probe).backgroundColor);
+  probe.remove();
+  const row = doc.querySelector<HTMLElement>(".acpmux-hat-faces__row");
+  const painted = [
+    ...faces(ctx).map((face) => getComputedStyle(face)),
+    ...(row ? [getComputedStyle(row), getComputedStyle(row, "::before")] : []),
+  ];
+  for (const style of painted) {
+    if (style.boxShadow !== "none") throw new Error(`a hat icon paints a ring: ${style.boxShadow}`);
+    const fill = style.backgroundColor;
+    if (fill !== "rgba(0, 0, 0, 0)" && rgb(fill) === page)
+      throw new Error(`the hat's icon row paints the page colour: ${fill}`);
+  }
+}
+
 /** Crosses the row icon by icon: each names its own subagent at once. */
 async function scrub(ctx: PlayContext): Promise<void> {
   await ctx.waitFor(() => head(ctx));
@@ -112,6 +138,10 @@ function variant(count: number, note: string) {
     play: async (ctx: PlayContext) => {
       await ctx.waitFor(() => head(ctx));
       const before = wordsLeft(ctx);
+      // Nothing in the hat's icon row paints the page colour: a ring or backing in it was a black
+      // outline on the hat's glass (Leo, 2026-11-23). Overlaps are cut out of the icon under, which
+      // no theme can colour; the fan's backing is the ink ladder's inset level.
+      assertNoPageColour(ctx);
       await scrub(ctx);
       const after = wordsLeft(ctx);
       if (Math.abs(after - before) > 0.5) throw new Error(`the header's words moved ${after - before}px on hover`);

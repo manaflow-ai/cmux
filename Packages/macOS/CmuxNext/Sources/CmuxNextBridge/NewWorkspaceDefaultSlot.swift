@@ -119,11 +119,13 @@ public struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// at ``slot(for:section:in:home:catchingUp:)``: the daemon places every new workspace by `workspaces.newPlacement` in
     /// the commit that creates it (first below Home under `top`, last under `bottom`), so a second write would be a second
     /// state change and render for the same order (plans/cmux-next/sidebar-ordering-DESIGN.md). Only a slot the daemon
-    /// does not know is moved to: in the current workspace's group, and every `afterCurrent` one (the daemon anchors it
-    /// to its active workspace, which a top page such as Home leaves on the parked one, #32731).
+    /// does not know is moved to: in the current workspace's group, every `afterCurrent` one, and every one made with no
+    /// current workspace (the daemon anchors it to its active workspace, which a top page such as Home leaves on the
+    /// parked one, #32731; under `top` that put it first in the parked workspace's group while its row drew loose at the
+    /// top, then the row jumped into the group, Leo 2026-11-22, cmux#50539).
     public func move(for id: String, section: SectionID, in sections: [SidebarRowSection], home: String?, catchingUp: Bool = false) -> WorkspaceSlot? {
         guard let slot = slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp) else { return nil }
-        if !named, placement != .afterCurrent, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
+        if !named, placement != .afterCurrent, current != nil, slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
     }
 

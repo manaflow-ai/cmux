@@ -7,6 +7,7 @@ import CmuxNextWakeups
 ///
 ///       ^
 ///       |  Drag cmux Computer Use to the list above to allow Screenshots
+///       |  Then turn it on.
 ///     < [icon] cmux Computer Use
 ///
 /// An accent arrow that bobs up toward the list stands over the helper's
@@ -45,7 +46,8 @@ final class HelperDragPanel: NSPanel {
     /// (the names white, the rest secondary).
     let line: NSTextField = {
         let field = NSTextField(wrappingLabelWithString: "")
-        field.maximumNumberOfLines = 2
+        // The drag line and "Then turn it on." under it; a longer translation wraps, never cut.
+        field.maximumNumberOfLines = 0
         field.isSelectable = false
         return field
     }()
@@ -144,16 +146,18 @@ final class HelperDragPanel: NSPanel {
     /// The back button: the panel goes and the Computer Use window comes back.
     @objc func backPressed() { onBack() }
 
-    /// "Drag **helper** to the list above to allow **grant**": the two names bold.
+    /// "Drag **helper** to the list above to allow **grant**": the two names bold. Under it, in
+    /// the secondary color, "Then turn it on.": a helper dropped into the list lands switched off.
     static func dragLine(helper: String, grant: String) -> NSAttributedString {
-        let text = OnboardingStrings.computerUseDragLine(helper: helper, grant: grant)
+        let drag = OnboardingStrings.computerUseDragLine(helper: helper, grant: grant)
+        let text = drag + "\n" + OnboardingStrings.computerUseTurnOn
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: Typography.system(size: TypeScale.body), .foregroundColor: Palette.textSecondary,
         ])
         let bold: [NSAttributedString.Key: Any] = [.font: Typography.system(size: TypeScale.body, weight: TypeScale.emphasis),
                                                    .foregroundColor: Palette.textPrimary]
         for name in [helper, grant] {
-            let range = (text as NSString).range(of: name)
+            let range = (drag as NSString).range(of: name)
             if range.location != NSNotFound { result.addAttributes(bold, range: range) }
         }
         return result

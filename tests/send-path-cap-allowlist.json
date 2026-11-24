@@ -288,6 +288,7 @@
     "webviews/src/agent-session/acpmux/chips/imageCache.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "webviews/src/agent-session/acpmux/composer/imageWork.ts": {"count": 1, "reason": "safe: an optional image-preview decode budget; the original upload is uncapped"},
     "webviews/src/agent-session/acpmux/composer/videoTranscript.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "webviews/src/agent-session/acpmux/conversation/SavePromptButton.tsx": {"count": 1, "reason": "safe: the Save as Prompt name field's length (its /word, PROMPT_NAME_MAX, as acpmux prompts.rs MAX_NAME_CHARS); the prompt's text is uncapped"},
     "webviews/src/agent-session/acpmux/conversation/cmuxExec.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "webviews/src/agent-session/acpmux/conversation/highlightLimits.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "webviews/src/agent-session/acpmux/conversation/imageEntries.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

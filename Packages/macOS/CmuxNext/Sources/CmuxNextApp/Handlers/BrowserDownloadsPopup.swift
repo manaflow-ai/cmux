@@ -28,7 +28,7 @@ final class BrowserDownloadsPopup {
 
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.browser.downloads"))
     private let model = BrowserDownloadsPopupModel()
-    private var content: FirstMouseHostingView<BrowserDownloadsPopupView>?
+    private var content: ThemedHostingView<BrowserDownloadsPopupView>?
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
@@ -121,8 +121,9 @@ final class BrowserDownloadsPopup {
         return true
     }
 
-    private func makeContent() -> FirstMouseHostingView<BrowserDownloadsPopupView> {
-        let content = FirstMouseHostingView(rootView: BrowserDownloadsPopupView(model: model))
+    private func makeContent() -> ThemedHostingView<BrowserDownloadsPopupView> {
+        // A click on a footer button acts on the first click, also while the popup opened without the keys.
+        let content = ThemedHostingView(rootView: BrowserDownloadsPopupView(model: model), actsOnFirstClick: true)
         let card = Glass.makeMenuPanel(content: content)
         popup.panel.adoptPopupStyle(card: card)
         self.content = content
@@ -458,13 +459,4 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .outsideApplication ? [.copy, .generic] : [.copy, .generic, .link]
     }
-}
-
-/// The popup's content: a click on a control (a footer button) acts on the
-/// first click, also while the popup opened without the keys.
-final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
-    nonisolated deinit {}
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

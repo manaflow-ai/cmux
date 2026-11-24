@@ -146,8 +146,9 @@ await requireBrowserLane("subagent-tray-trailing.test.ts", async () => {
           expect(chevrons.length).toBeGreaterThanOrEqual(2);
           for (const right of chevrons) expect(Math.abs(right - geometry.head.chevron.right)).toBeLessThanOrEqual(0.5);
           expect(geometry.head.chevron.right).toBeLessThanOrEqual(geometry.tray.right + 0.5);
-          // The header is one row; its time follows its counts one 8px gap later.
-          expect(geometry.head.row.bottom - geometry.head.row.top).toBeLessThanOrEqual(28.5);
+          // The header is one row (the `roomy` 34px since ec1f23e06ae, #48542); its time follows its
+          // counts one 8px gap later.
+          expect(geometry.head.row.bottom - geometry.head.row.top).toBeLessThanOrEqual(34.5);
           expect(geometry.head.time.left - geometry.head.title.right).toBeGreaterThanOrEqual(7.5);
           expect(geometry.head.time.left - geometry.head.title.right).toBeLessThanOrEqual(8.5);
           expect(Math.abs(middle(geometry.head.time) - middle(geometry.head.title))).toBeLessThanOrEqual(1);

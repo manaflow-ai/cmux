@@ -162,7 +162,7 @@ import UIKit
             }
             #expect(chip.word.split(separator: " ").count <= 2, "\(chip.word): more than two words")
             #expect(!chip.word.hasSuffix(".") && !chip.word.hasSuffix("…"), "\(chip.word): a sentence")
-            let host = UIHostingController(rootView: ConnectionChip(chip, retry: {}))
+            let host = UIHostingController(rootView: ConnectionChip(chip, downSince: nil, retry: {}))
             let size = host.sizeThatFits(in: CGSize(width: 402, height: 200))
             #expect(size.width <= 201, "\(chip.word): \(size.width) pt wide, over half the phone")
         }
