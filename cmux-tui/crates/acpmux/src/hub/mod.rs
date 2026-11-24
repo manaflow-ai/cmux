@@ -319,6 +319,7 @@ mod elevation;
 mod git_watch;
 mod github_owner;
 mod harness_sandbox;
+mod key_store;
 mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
@@ -334,6 +335,7 @@ mod offer_results;
 mod offers;
 mod question_replies;
 mod resume;
+pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 mod secrets;
 mod seen;
 // Mask old tool output instead of summarizing it (harness magic).
