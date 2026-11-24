@@ -218,14 +218,20 @@ open class ComposerReturnTextView: UITextView {
     }
 
     override open var keyCommands: [UIKeyCommand]? {
+        (super.keyCommands ?? []) + returnCommands
+    }
+
+    /// Built once: UIKit reads `keyCommands` as the field becomes first
+    /// responder, before the keyboard's first frame.
+    private lazy var returnCommands: [UIKeyCommand] = {
         let commands = [
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(hardwareReturn)),
             UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(hardwareShiftReturn)),
             UIKeyCommand(input: "\r", modifierFlags: .alternate, action: #selector(hardwareOptionReturn)),
         ]
         commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
-        return (super.keyCommands ?? []) + commands
-    }
+        return commands
+    }()
 
     override open func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         switch action {
@@ -244,8 +250,19 @@ open class ComposerReturnTextView: UITextView {
     /// An image or a copied file leads the pasteboard, for a composer that
     /// takes attachments (`composerPastesAttachments`).
     private var pastesAttachments: Bool {
-        onPasteAttachments != nil && UIPasteboard.general.composerPastesAttachments
+        guard onPasteAttachments != nil else { return false }
+        // UIKit validates Paste as the field becomes first responder, before
+        // the keyboard's first frame; reading the pasteboard's types costs
+        // about 0.4 ms. Read them again only once the pasteboard changed.
+        let pasteboard = UIPasteboard.general
+        let change = pasteboard.changeCount
+        if let pasteCheck, pasteCheck.change == change { return pasteCheck.attaches }
+        let attaches = pasteboard.composerPastesAttachments
+        pasteCheck = (change, attaches)
+        return attaches
     }
+
+    private var pasteCheck: (change: Int, attaches: Bool)?
 
     override open func paste(_ sender: Any?) {
         if pastesAttachments, let onPasteAttachments {
