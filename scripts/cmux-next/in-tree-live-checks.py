@@ -34,6 +34,26 @@ terminal beside a Chromium page and checks:
              background, and a frame after the show with the blue background but no yellow is a background-only
              (blank) frame and fails the row. INFO when the host gives no captures.
 
+Regression rows (in-tree-regressions.md: one per bug found in real use; each detail names its `bug` and `pass_if`), on
+a layout probe page (five fixed targets, a log of the viewport every display frame and of every click) in the page's
+pane beside the terminal:
+
+  pane_fit        (13) after a wheel scroll, innerWidth/innerHeight and visualViewport equal the page view's size
+                  (debug.layers page_views) within 1 pt; a page click (debug.mouse target page) and a window click
+                  (debug.mouse at the window point) at each target's centre hit it, inside its rect within 1 pt, with
+                  elementFromPoint == event.target
+  divider_resize  (11) a divider drag beside the page: at most 2 missed display frames, p95 within 1.5 refresh
+                  intervals, the page follows during the drag (>= 10 widths) and fits the pane <= 100 ms after it settles
+  window_resize   (11) the window's corner dragged out and back: the same frame budget and settle rule
+  fullscreen      (12) enter and exit: no pinch scale or devicePixelRatio change in any frame, the page view never
+                  larger than its start and end size or outside the window, the page fits the pane <= 100 ms after it
+  pane_zoom       (14) Cmd-Shift-Return zoom and unzoom of the page's pane: area >= 1.3x, then back within 1 pt; one
+                  page view, no panel or page window, the page fits <= 100 ms after the pane
+  popup_float     (10) a 520 x 420 window.open popup has inner 520 x 420 within 2 pt and a window smaller than the
+                  screen, with the opener windowed and in full screen
+  omnibar_narrow  (15) at pane widths 480/360/300/260 with a long URL, the omnibar text area ends before every icon
+                  to its right in the bar, and the bar stays in the toolbar
+
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
 """
@@ -46,7 +66,9 @@ parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
-parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,two_pages,reveal")
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
+                    "window_resize,fullscreen,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
+                    help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
                     help="reveal: seconds the window stays off the screen")
 parser.add_argument("--close-popup", dest="close_popup", choices=["script", "window"], default="script",
@@ -54,6 +76,9 @@ parser.add_argument("--close-popup", dest="close_popup", choices=["script", "win
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
+if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
+    CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
+               "pane_zoom", "popup_float", "omnibar_narrow"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -91,10 +116,55 @@ POPUP = """<!doctype html><html><head><title>in-tree popup</title></head><body s
 <script>window.opener.__popupFile.push('ready');</script></body></html>"""
 
 
+# The regression rows' page (in-tree-regressions.md, bugs 10 to 15): a tall page (it scrolls), five fixed 24 x 24
+# targets (corners and centre), a popup button, a log of every display frame's viewport (window.__vp: Date.now(),
+# innerWidth, innerHeight, visualViewport width, height and scale, devicePixelRatio) and of every click (window.__clicks:
+# the target hit, where the click landed against that target's own rect, and whether elementFromPoint at the click's
+# client point is event.target).
+LAYOUT = """<!doctype html><html><head><title>in-tree layout probe</title><style>
+body{margin:0;background:#246;color:#fff;font:14px sans-serif} .t{position:fixed;width:24px;height:24px;padding:0;border:0;background:#fc3}
+#tl{left:8px;top:8px} #tr{right:8px;top:8px} #bl{left:8px;bottom:8px} #br{right:8px;bottom:8px} #c{left:calc(50% - 12px);top:calc(50% - 12px)}
+.row{height:40px;border-bottom:1px solid #357;padding-left:48px;line-height:40px}
+#pop{position:fixed;left:48px;top:8px;font-size:14px}
+</style></head><body>
+<button class="t" id="tl" data-t="tl"></button><button class="t" id="tr" data-t="tr"></button><button class="t" id="bl" data-t="bl"></button>
+<button class="t" id="br" data-t="br"></button><button class="t" id="c" data-t="c"></button>
+<button id="pop" onclick="window.__pop = window.open('/popup?float', 'floatpopup', 'width=520,height=420')">popup 520x420</button>
+<div id="rows"></div>
+<script>
+window.__popupFile = []; window.__vp = []; window.__clicks = [];
+const rows = document.getElementById('rows');
+for (let i = 0; i < 120; i++) { const d = document.createElement('div'); d.className = 'row'; d.textContent = 'row ' + i; rows.appendChild(d); }
+const vv = window.visualViewport;
+window.viewport = () => JSON.stringify({w: innerWidth, h: innerHeight, vw: vv ? vv.width : null, vh: vv ? vv.height : null,
+  scale: vv ? vv.scale : null, dpr: devicePixelRatio, sy: scrollY, cw: document.documentElement.clientWidth,
+  ch: document.documentElement.clientHeight});
+(function frame() {
+  if (window.__vp.length > 30000) window.__vp.splice(0, 10000);
+  window.__vp.push([Date.now(), innerWidth, innerHeight, vv ? vv.width : 0, vv ? vv.height : 0, vv ? vv.scale : 1, devicePixelRatio]);
+  requestAnimationFrame(frame);
+})();
+window.vpSince = t => JSON.stringify(window.__vp.filter(e => e[0] >= t));
+window.targetCenters = () => JSON.stringify(Object.fromEntries([...document.querySelectorAll('[data-t]')].map(b => {
+  const r = b.getBoundingClientRect(); return [b.dataset.t, [r.x + r.width / 2, r.y + r.height / 2]]; })));
+document.addEventListener('click', e => {
+  const t = e.target.closest ? e.target.closest('[data-t]') : null;
+  const r = (t || e.target).getBoundingClientRect();
+  window.__clicks.push({id: t ? t.dataset.t : null, target: e.target.id || e.target.tagName, x: e.clientX, y: e.clientY,
+    rect: [r.x, r.y, r.width, r.height],
+    inside: e.clientX >= r.x && e.clientX <= r.x + r.width && e.clientY >= r.y && e.clientY <= r.y + r.height,
+    efp_same: document.elementFromPoint(e.clientX, e.clientY) === e.target});
+}, true);
+window.layoutReady = true;
+</script></body></html>"""
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/download"):
             body, kind = b"in-tree download probe\n", "application/octet-stream"
+        elif self.path.startswith("/layout"):
+            body, kind = LAYOUT.encode(), "text/html"
         elif self.path.startswith("/popup"):
             body, kind = POPUP.encode(), "text/html"
         else:
@@ -571,6 +641,411 @@ def reveal(tab, mode, label):
         row(not blank and bool(drawn), f"reveal.{label}.pixels", pixel_detail)
 
 
+# ---- Regression rows for bugs 10 to 15 (in-tree-regressions.md). Each names its bug and its PASS condition. ----
+
+FIT_PX = 1.0        # the page's viewport equals its view's size within this many points
+LAG_MS = 100        # the page reaches the pane's final size at most this long after the pane does
+HIT_PX = 1.0        # a click lands within this many points of where it was sent
+
+
+def page_json(script, tab):
+    value = page_eval(script, tab).get("value")
+    try:
+        return json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+
+
+def main_layers():
+    return (windows() or [{}])[0]
+
+
+def page_pane(tab):
+    """The pane whose tabs list `tab` (debug.focus topology)."""
+    for pane in (rpc("debug.focus") or {}).get("topology") or []:
+        if any(str(t).split(":", 1)[0] == str(tab) for t in pane.get("tabs") or []):
+            return pane.get("pane")
+    return None
+
+
+def page_view(pane, layers=None):
+    """The in-tree page view of `pane` in the main window: its frame [x, y, w, h] in window points from the bottom left,
+    or None (mode off, or no view: the rows that need it say INFO)."""
+    layers = layers or main_layers()
+    views = [v for v in layers.get("page_views") or [] if not v.get("parked") and (pane is None or v.get("pane") == pane)]
+    return views[0].get("frame_in_window") if views else None
+
+
+def content_height(layers=None):
+    frame = (layers or main_layers()).get("frame") or [0, 0, 0, 0]
+    return frame[3]  # full-size content view: the content is the whole window
+
+
+def fits(viewport, frame, px=FIT_PX):
+    return bool(viewport and frame) and abs(viewport["w"] - frame[2]) <= px and abs(viewport["h"] - frame[3]) <= px
+
+
+def track(pane, tab, trigger, seconds=6.0, quiet=0.6):
+    """Run `trigger` and sample the page view's frame (debug.layers) until it has not changed for `quiet` s. Returns
+    {t0_ms, samples: [(ms, frame, window_frame)], final, pane_final_ms, page_final_ms, lag_ms, vp}: pane_final_ms is when
+    the view took its final size, page_final_ms when the page's viewport (its rAF log) took the same size for good."""
+    page_eval("window.__vp = []; true", tab)
+    t0 = time.time()
+    reply = trigger()
+    samples, last, quiet_since = [], None, time.time()
+    while time.time() - t0 < seconds:
+        layers = main_layers()
+        frame = page_view(pane, layers)
+        samples.append((round((time.time() - t0) * 1000), frame, layers.get("frame")))
+        if frame != last:
+            last, quiet_since = frame, time.time()
+        elif time.time() - quiet_since > quiet:
+            break
+        time.sleep(0.016)  # test harness: one sample a display frame
+    final = samples[-1][1] if samples else None
+    pane_final_ms = None
+    for ms, frame, _ in reversed(samples):
+        if frame != final:
+            break
+        pane_final_ms = ms
+    vp = page_json(f"window.vpSince({int(t0 * 1000)})", tab) or []
+    page_final_ms = None
+    if final:
+        for entry in reversed(vp):
+            if abs(entry[1] - final[2]) > FIT_PX or abs(entry[2] - final[3]) > FIT_PX:
+                break
+            page_final_ms = entry[0] - t0 * 1000
+    lag = None if page_final_ms is None or pane_final_ms is None else round(page_final_ms - pane_final_ms)
+    return {"reply": str(reply)[:200], "t0_ms": int(t0 * 1000), "samples": samples, "final": final,
+            "pane_final_ms": pane_final_ms, "page_final_ms": None if page_final_ms is None else round(page_final_ms),
+            "lag_ms": lag, "vp": vp}
+
+
+def zoom_glitch(vp):
+    """Frames of the page's rAF log with a pinch scale other than 1 or a device pixel ratio other than its first."""
+    if not vp:
+        return []
+    dpr = vp[0][6]
+    return [e for e in vp if abs(e[5] - 1) > 1e-3 or e[6] != dpr][:8]
+
+
+def overshoot(samples, start, final):
+    """Samples where the page view is larger than both its start and final size, or leaves the window."""
+    bad = []
+    for ms, frame, window in samples:
+        if not frame or not start or not final:
+            continue
+        if frame[2] > max(start[2], final[2]) + FIT_PX or frame[3] > max(start[3], final[3]) + FIT_PX:
+            bad.append((ms, frame, "larger than start and end"))
+        elif window and (frame[0] < -FIT_PX or frame[1] < -FIT_PX or frame[0] + frame[2] > window[2] + FIT_PX
+                         or frame[1] + frame[3] > window[3] + FIT_PX):
+            bad.append((ms, frame, "outside the window"))
+    return bad[:8]
+
+
+def vertical_divider_near(x_page_left, layers=None):
+    """The vertical divider nearest the page view's left edge: (x, y) in window points from the top left."""
+    layers = layers or main_layers()
+    height = content_height(layers)
+    cands = [(x + w / 2, height - (y + h / 2)) for x, y, w, h in layers.get("divider_areas_in_window") or [] if h > w]
+    return min(cands, key=lambda c: abs(c[0] - x_page_left)) if cands else None
+
+
+def drag_divider(divider, dx, steps=40, hz=60.0):
+    x0, y0 = divider
+    rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+    x, started = x0, time.monotonic()
+    for i in range(1, steps + 1):
+        nx = x0 + dx * i / steps
+        rpc("debug.mouse", {"action": "drag", "x": x, "y": y0, "to_x": nx, "to_y": y0, "steps": 1, "press": False, "release": False})
+        x = nx
+        next_at = started + i / hz
+        if next_at > time.monotonic():
+            time.sleep(next_at - time.monotonic())  # test harness: one event a display frame, as a hand drags
+    return rpc("debug.mouse", {"action": "up", "x": x, "y": y0})
+
+
+def frames_ok(frames):
+    """A drag's display-link intervals: at most 2 missed frames and p95 within 1.5 refresh intervals."""
+    if not isinstance(frames, dict) or "error" in frames or not frames.get("frames"):
+        return False
+    refresh = frames.get("refresh_ms") or 16.7
+    return (frames.get("missed") or 0) <= 2 and (frames.get("p95_ms") or 0) <= 1.5 * refresh
+
+
+def frame_detail(frames):
+    return {k: (frames or {}).get(k) for k in ("frames", "refresh_ms", "p50_ms", "p95_ms", "max_ms", "missed")} \
+        if isinstance(frames, dict) else frames
+
+
+def is_full_screen():
+    g = rpc("debug.window_transition", {"action": "geometry"})
+    return isinstance(g, list) and bool(g) and g[0].get("full_screen") is True
+
+
+def open_layout(tab, query=""):
+    page_eval(f"location.href = {json.dumps(URL + 'layout' + query)}; true", tab)
+    return wait(lambda: page_eval("window.layoutReady === true", tab).get("value") is True, 30, 0.3)
+
+
+def check_pane_fit(tab, pane):
+    """Bug 13: after the split and a scroll, the page's innerWidth/innerHeight and visualViewport equal its view's size
+    within 1 pt, and a click at each of five targets' centres (a page click, then a window click at the same point)
+    hits that target: event.target is the target, the click is inside its rect within 1 pt, elementFromPoint agrees."""
+    layers = main_layers()
+    frame = page_view(pane, layers)
+    if not frame:
+        row("INFO", "pane_fit", {"note": "no in-tree page view for the pane", "pane": pane})
+        return
+    height = content_height(layers)
+    # A wheel scroll over the page's centre (window point), as a person scrolls; a script scroll if it did not move.
+    cx, cy = frame[0] + frame[2] / 2, height - (frame[1] + frame[3] / 2)
+    scroll = rpc("debug.mouse", {"action": "scroll", "x": cx, "y": cy, "dx": 0, "dy": -400})
+    time.sleep(0.6)  # test harness: the scroll lands
+    viewport = page_json("window.viewport()", tab) or {}
+    scrolled_by = "wheel"
+    if not viewport.get("sy"):
+        page_eval("window.scrollBy(0, 400); true", tab)
+        time.sleep(0.3)  # test harness: the scroll lands
+        viewport, scrolled_by = page_json("window.viewport()", tab) or {}, "script (the wheel did not scroll)"
+    frame = page_view(pane)
+    vv_ok = viewport.get("vh") is not None and abs(viewport["vh"] - frame[3]) <= FIT_PX and abs(viewport["vw"] - frame[2]) <= FIT_PX
+    row(fits(viewport, frame) and vv_ok and bool(viewport.get("sy")), "pane_fit.viewport",
+        {"bug": 13, "viewport": viewport, "page_view": frame, "scroll": scroll, "scrolled_by": scrolled_by,
+         "pass_if": "|innerW-viewW|,|innerH-viewH|,|vv-view| <= 1 pt after a scroll"})
+    centres = page_json("window.targetCenters()", tab) or {}
+    for route in ("page", "window"):
+        page_eval("window.__clicks = []; true", tab)
+        sent = {}
+        for name, (x, y) in centres.items():
+            if route == "page":
+                sent[name] = rpc("debug.mouse", {"target": "page", "pane": pane, "x": x, "y": y})
+            else:
+                sent[name] = rpc("debug.mouse", {"x": frame[0] + x, "y": height - (frame[1] + frame[3]) + y})
+            time.sleep(0.15)  # test harness: the click reaches the renderer
+        time.sleep(0.4)  # test harness: the last click lands
+        clicks = page_json("JSON.stringify(window.__clicks)", tab) or []
+        misses = []
+        for name, (x, y) in centres.items():
+            got = next((c for c in clicks if c.get("id") == name), None)
+            if not got or not got["inside"] or not got["efp_same"] or abs(got["x"] - x) > HIT_PX or abs(got["y"] - y) > HIT_PX:
+                misses.append({"target": name, "sent": [round(x, 1), round(y, 1)], "got": got})
+        stray = [c for c in clicks if c.get("id") is None]
+        row(len(centres) == 5 and not misses and not stray, f"pane_fit.click.{route}",
+            {"bug": 13, "misses": misses, "stray_clicks": stray[:5], "clicks": len(clicks),
+             "pass_if": "each of 5 targets hit, inside its rect, within 1 pt, elementFromPoint == event.target"})
+
+
+def check_divider_resize(tab, pane):
+    """Bug 11 (divider): a 40-step divider drag at 60 Hz beside the page misses at most 2 display frames (p95 within
+    1.5 refresh intervals), the page's viewport follows during the drag (at least 10 distinct widths in its rAF log),
+    and after the release the page takes the pane's final size within LAG_MS of the pane."""
+    layers = main_layers()
+    frame = page_view(pane, layers)
+    divider = vertical_divider_near(frame[0], layers) if frame else None
+    if not frame or not divider:
+        row("INFO", "divider_resize", {"note": "no page view or no divider", "frame": frame})
+        return
+    record("divider_resize", 8)
+    rpc("debug.frames", {"action": "start"})
+    result = track(pane, tab, lambda: (drag_divider(divider, -160), drag_divider((divider[0] - 160, divider[1]), 160)), 10)
+    frames = rpc("debug.frames", {"action": "stop"})
+    widths = {e[1] for e in result["vp"]}
+    row(frames_ok(frames), "divider_resize.frames", {"bug": 11, "frames": frame_detail(frames),
+                                                      "pass_if": "missed <= 2 and p95 <= 1.5 x refresh"})
+    row(len(widths) >= 10, "divider_resize.follows", {"bug": 11, "distinct_page_widths": len(widths),
+                                                       "pass_if": ">= 10 distinct innerWidth values during the drag"})
+    viewport = page_json("window.viewport()", tab)
+    row(result["lag_ms"] is not None and result["lag_ms"] <= LAG_MS and fits(viewport, result["final"]), "divider_resize.settle",
+        {"bug": 11, "lag_ms": result["lag_ms"], "viewport": viewport, "page_view": result["final"],
+         "pass_if": f"page matches the pane <= {LAG_MS} ms after the pane settles, then within 1 pt"})
+
+
+def check_window_resize(tab, pane):
+    """Bug 11 (window edge): the bottom-right corner dragged out by 240 x 120 and back at 120 Hz misses at most 2
+    display frames (p95 within 1.5 refresh intervals) and the page takes its view's final size within LAG_MS."""
+    layers = main_layers()
+    window = layers.get("frame")
+    if not window or not page_view(pane, layers):
+        row("INFO", "window_resize", {"note": "no window frame or page view"})
+        return
+    record("window_resize", 8)
+    w, h = window[2], window[3]
+
+    def corner(dx, dy, steps=60):
+        x0, y0 = w - 1, h - 1
+        rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+        started = time.monotonic()
+        for i in range(1, steps + 1):
+            x, y = x0 + dx * i / steps, y0 + dy * i / steps
+            rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1, "press": False, "release": False})
+            next_at = started + i / 120
+            if next_at > time.monotonic():
+                time.sleep(next_at - time.monotonic())  # test harness: one event a 120 Hz frame
+        return rpc("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
+
+    rpc("debug.frames", {"action": "start"})
+    out = track(pane, tab, lambda: corner(240, 120), 8)
+    back = track(pane, tab, lambda: corner(-240, -120), 8)
+    frames = rpc("debug.frames", {"action": "stop"})
+    row(frames_ok(frames), "window_resize.frames", {"bug": 11, "frames": frame_detail(frames),
+                                                     "window_before": window, "window_after": main_layers().get("frame"),
+                                                     "pass_if": "missed <= 2 and p95 <= 1.5 x refresh"})
+    viewport = page_json("window.viewport()", tab)
+    lags = [out["lag_ms"], back["lag_ms"]]
+    row(all(l is not None and l <= LAG_MS for l in lags) and fits(viewport, back["final"]), "window_resize.settle",
+        {"bug": 11, "lag_ms": lags, "viewport": viewport, "page_view": back["final"],
+         "pass_if": f"page matches the pane <= {LAG_MS} ms after each drag ends, then within 1 pt"})
+
+
+def check_fullscreen(tab, pane):
+    """Bug 12: entering and leaving full screen (toggleFullScreen), the page never shows a pinch scale or a changed
+    device pixel ratio (the temporary zoom of every view), its view never grows past both its start and end size or
+    leaves the window (overflow), and the page takes the pane's final size within LAG_MS of the pane."""
+    start = page_view(pane)
+    if not start:
+        row("INFO", "fullscreen", {"note": "no in-tree page view"})
+        return
+    record("fullscreen", 12)
+    for direction in ("enter", "exit"):
+        before = page_view(pane)
+        result = track(pane, tab, lambda: action("toggleFullScreen"), 8, quiet=0.8)
+        wait(lambda: is_full_screen() == (direction == "enter"), 5)
+        viewport = page_json("window.viewport()", tab)
+        glitches, over = zoom_glitch(result["vp"]), overshoot(result["samples"], before, result["final"])
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"fullscreen-{direction}.png")})
+        row(not glitches, f"fullscreen.{direction}.no_zoom", {"bug": 12, "glitch_frames": glitches,
+                                                              "pass_if": "visualViewport.scale 1 and devicePixelRatio unchanged every frame"})
+        row(not over, f"fullscreen.{direction}.no_overflow", {"bug": 12, "samples": over, "before": before, "final": result["final"],
+                                                              "pass_if": "page view never larger than start and end, never outside the window"})
+        row(result["lag_ms"] is not None and result["lag_ms"] <= LAG_MS and fits(viewport, result["final"]),
+            f"fullscreen.{direction}.page_follows",
+            {"bug": 12, "lag_ms": result["lag_ms"], "pane_final_ms": result["pane_final_ms"], "viewport": viewport,
+             "page_view": result["final"], "full_screen": is_full_screen(),
+             "pass_if": f"page matches the pane <= {LAG_MS} ms after the pane settles, then within 1 pt"})
+    if is_full_screen():
+        action("toggleFullScreen")
+        wait(lambda: not is_full_screen(), 5)
+
+
+def check_pane_zoom(tab, pane):
+    """Bug 14: Cmd-Shift-Enter (toggleSplitZoom) on the page's pane: zoomed, the page's view is at least 1.3x its
+    area, exactly one page view shows, no page child window or overlay panel, and the page fits its view within 1 pt
+    within LAG_MS of the pane; unzoomed, the view is back to its first frame within 1 pt and the page fits it."""
+    before = page_view(pane)
+    if not before:
+        row("INFO", "pane_zoom", {"note": "no in-tree page view"})
+        return
+    record("pane_zoom", 8)
+    action("tab.focus", target=f"tab:{tab}")
+    time.sleep(0.3)  # test harness: focus lands
+    for direction in ("zoom", "unzoom"):
+        result = track(pane, tab, lambda: rpc("debug.key", {"key": "return", "modifiers": ["command", "shift"]}), 6)
+        layers = main_layers()
+        shown = [v for v in layers.get("page_views") or [] if not v.get("parked")]
+        viewport = page_json("window.viewport()", tab)
+        final = result["final"]
+        clean = layers.get("overlay_panel") is None and not layers.get("child_window_violations") \
+            and not any(c.get("role") == "content" and c.get("visible") for c in layers.get("child_windows") or [])
+        if direction == "zoom":
+            sized = bool(final) and final[2] * final[3] >= 1.3 * before[2] * before[3]
+        else:
+            sized = bool(final) and all(abs(a - b) <= FIT_PX for a, b in zip(final, before))
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"pane-{direction}.png")})
+        row(sized and len(shown) == 1 and clean and fits(viewport, final) and result["lag_ms"] is not None
+            and result["lag_ms"] <= LAG_MS and not zoom_glitch(result["vp"]), f"pane_zoom.{direction}",
+            {"bug": 14, "before": before, "final": final, "shown_page_views": len(shown), "clean": clean,
+             "viewport": viewport, "lag_ms": result["lag_ms"], "glitches": zoom_glitch(result["vp"]),
+             "pass_if": "zoom: area >= 1.3x; unzoom: back within 1 pt; one page view, no panel/page window, page fits <= 100 ms"})
+
+
+def check_popup_float(tab, pane):
+    """Bug 10: a window.open popup asking for 520 x 420 floats at that size: its page's innerWidth/innerHeight are 520
+    x 420 within 2 pt and its window is smaller than the screen's visible frame, with the opener windowed and with the
+    opener in full screen (the popup must not join it as a full-screen window)."""
+    for mode in ("windowed", "opener_fullscreen"):
+        if mode == "opener_fullscreen":
+            action("toggleFullScreen")
+            if not wait(is_full_screen, 6):
+                row(False, "popup_float.opener_fullscreen", {"bug": 10, "note": "the window did not enter full screen"})
+                continue
+            time.sleep(1.0)  # test harness: the full-screen space settles
+        rpc("debug.popups", {"action": "close"})
+        centre = page_json("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])(document.getElementById('pop').getBoundingClientRect()))", tab)
+        click = rpc("debug.mouse", {"target": "page", "pane": pane, "x": centre[0], "y": centre[1]}) if centre else None
+        opened = wait(lambda: popup_index() is not None, 8)
+        time.sleep(1.0)  # test harness: the popup settles at its size
+        panels = (rpc("debug.popups") or {}).get("panels") or []
+        panel = next((p for p in panels if "/popup" in str(p.get("url") or "")), None)
+        inner = page_json("JSON.stringify(window.__pop ? [window.__pop.innerWidth, window.__pop.innerHeight] : null)", tab)
+        layers = main_layers()
+        screen = layers.get("screen_visible_frame") or layers.get("screen_frame")
+        frame = (panel or {}).get("frame")
+        if isinstance(frame, dict):  # debug.popups frames are {x, y, width, height}
+            frame = [frame.get("x"), frame.get("y"), frame.get("width"), frame.get("height")]
+        floats = bool(frame and screen) and frame[2] < screen[2] - 40 and frame[3] < screen[3] - 40
+        sized = bool(inner) and abs(inner[0] - 520) <= 2 and abs(inner[1] - 420) <= 2
+        if panel:
+            rpc("debug.popups", {"snapshot_dir": os.path.join(opts.out, f"popup-{mode}")})
+        row(bool(opened) and floats and sized, f"popup_float.{mode}",
+            {"bug": 10, "click": click, "popup_frame": frame, "screen_visible_frame": screen, "popup_inner": inner,
+             "opener_full_screen": is_full_screen(), "pass_if": "popup inner 520x420 within 2 pt, window smaller than the screen"})
+        rpc("debug.popups", {"action": "close"})
+        time.sleep(0.5)  # test harness: the popup closes
+    if is_full_screen():
+        action("toggleFullScreen")
+        wait(lambda: not is_full_screen(), 6)
+
+
+def check_omnibar_narrow(tab, pane):
+    """Bug 15: with a long URL, at page-pane widths 480, 360, 300 and 260 pt (divider drags), the omnibar's text area
+    (and its field) ends before every icon to its right inside the bar, starts after every icon to its left, and the
+    bar stays inside the toolbar (debug.omnibar pointer frames, window points from the top left)."""
+    layers = main_layers()
+    frame = page_view(pane, layers)
+    if not frame:
+        row("INFO", "omnibar_narrow", {"note": "no in-tree page view"})
+        return
+    for width in (480, 360, 300, 260):
+        layers = main_layers()
+        frame = page_view(pane, layers)
+        divider = vertical_divider_near(frame[0], layers) if frame else None
+        if divider and abs(frame[2] - width) > 4:
+            drag_divider(divider, frame[2] - width, steps=10)
+            time.sleep(0.8)  # test harness: the pane settles
+        frame = page_view(pane)
+        report = rpc("debug.omnibar", {"pane": pane}) or {}
+        frames = ((report.get("pointer") or {}).get("frames")) or {}
+        text, area, bar, toolbar = frames.get("text"), frames.get("text_area"), frames.get("bar"), frames.get("toolbar")
+        problems = []
+        if not (area and bar):
+            problems.append("no text_area or bar frame")
+        else:
+            for name, f in frames.items():
+                if name in ("text", "text_area", "bar", "toolbar"):
+                    continue
+                inside = f[0] >= bar[0] - 0.5 and f[0] + f[2] <= bar[0] + bar[2] + 0.5 and f[1] < bar[1] + bar[3] and f[1] + f[3] > bar[1]
+                if not inside or f[2] <= 0:
+                    continue
+                for label, r in (("text_area", area), ("text", text)):
+                    if not r:
+                        continue
+                    if f[0] >= r[0] and r[0] + r[2] > f[0] + 0.5:
+                        problems.append(f"{label} runs under {name} by {round(r[0] + r[2] - f[0], 1)} pt")
+                    if f[0] + f[2] <= r[0] + r[2] and f[0] < r[0] and f[0] + f[2] > r[0] + 0.5:
+                        problems.append(f"{name} overlaps the start of {label}")
+            if toolbar and bar[0] + bar[2] > toolbar[0] + toolbar[2] + 0.5:
+                problems.append("bar past the toolbar's right edge")
+        rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"omnibar-{width}.png")})
+        row(not problems, f"omnibar_narrow.{width}",
+            {"bug": 15, "pane_width": frame[2] if frame else None, "problems": problems[:6],
+             "frames": {k: v for k, v in frames.items()}, "text": report.get("text"),
+             "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
+
+
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "pane_zoom", "popup_float", "omnibar_narrow")
+
+
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 config = os.path.join(opts.out, "cmux.json")
@@ -750,6 +1225,28 @@ try:
         RAW["prompt_results"] = page_eval("JSON.stringify(window.__results)", page_tab)
     if "file_after_popup" in CHECKS:
         file_after_popup(page_tab)
+    if CHECKS & set(REGRESSION_CHECKS):
+        # Bugs 10 to 15 (in-tree-regressions.md) on the layout probe page (a long query: the omnibar's text is long),
+        # in the page's pane beside the terminal; the probe page comes back after for the rows below.
+        action("tab.focus", target=f"tab:{page_tab}")
+        layout_ready = open_layout(page_tab, "?" + "long-url-segment-" * 12)
+        pane = page_pane(page_tab)
+        RAW["regressions_pane"] = pane
+        if not layout_ready or not pane:
+            row(False, "regressions.setup", {"layout_ready": layout_ready, "pane": pane})
+        else:
+            time.sleep(0.5)  # test harness: the layout page draws
+            for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
+                              ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
+                              ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
+                              ("omnibar_narrow", check_omnibar_narrow)):
+                if name in CHECKS:
+                    try:
+                        run(page_tab, pane)
+                    except Exception as error:  # one broken row never hides the others
+                        row(False, f"{name}.error", {"error": repr(error)[:300]})
+        page_eval(f"location.href = {json.dumps(URL)}; true", page_tab)
+        wait(lambda: page_eval("document.readyState === 'complete' && !!window.startSteal", page_tab).get("value") is True, 30, 0.3)
     if "two_pages" in CHECKS:
         record("two_pages")
         # Two Chromium pages side by side in one workspace: the terminal's pane (left) gets a second page, so both panes

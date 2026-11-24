@@ -10,6 +10,8 @@ Runs each part with the step's --app and --tag, in its own folder under --out, a
   overlay-off     overlay-live-check.py --in-tree off (C20)
   live-on         in-tree-live-checks.py --in-tree on (C2 census, C7 focus steal, C9 shortcuts, C16 prompts)
   live-off        in-tree-live-checks.py --in-tree off (C20)
+  regressions     in-tree-live-checks.py --in-tree on --checks regressions: only the live rows of in-tree-regressions.md
+                  (one per bug found in real use; not in the default parts, live-on already runs them)
   prompts         permission-prompts-live.py --engines chromium with CMUX_IN_TREE_PAGES=1 (C16)
 
 --parts picks a subset (comma-separated). --live-checks passes in-tree-live-checks.py its --checks (default: all).
@@ -51,6 +53,10 @@ def part(name):
                "--mode", "intree" if name == "cef-intree" else "off"]
     elif name in ("overlay-on", "overlay-off"):
         cmd = ["overlay-live-check.py", "--tag", TAG, "--app", APP, "--out", folder, "--in-tree", name.split("-")[1]]
+    elif name == "regressions":
+        report = os.path.join(folder, "in-tree-live.json")
+        cmd = ["in-tree-live-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,
+               "--in-tree", "on", "--checks", "regressions"]
     elif name in ("live-on", "live-off"):
         report = os.path.join(folder, "in-tree-live.json")
         cmd = ["in-tree-live-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,

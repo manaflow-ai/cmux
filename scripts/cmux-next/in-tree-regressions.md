@@ -1,0 +1,55 @@
+# In-tree pages: one check per bug found in real use
+
+Every bug a person hit with in-tree Chromium pages (`CMUX_IN_TREE_PAGES`, PR manaflow-ai/cmux#47146) has a named,
+automated check here, or a written reason it has none yet. A new bug gets its row, and its check, before its fix.
+
+Status words: **green** (passed at the named run), **red** (fails now, waiting on its fix), **new** (written, not run
+yet: expected red until the fix lands), **not run here** (exists, but no result is recorded in this file).
+
+## How to run
+
+All of these run on the fleet, never on the person's Mac.
+
+| Kind | Command |
+| --- | --- |
+| Live rows (app) | `scripts/measure/split-spring.sh --suite=in-tree-verify --parts=regressions --vdisplay=120 --vdisplay-hold=7200 --app-cache` (a ci-step at the product head), which runs `in-tree-live-checks.py --in-tree on --checks regressions`. One group: `--parts=live-on --live-checks mode,pane_fit` |
+| cef-layer-verify rows | the same suite, `--parts=cef-intree` (`cef-layer-verify.py --mode intree --input cua`) |
+| Package tests | `cmux-ci run --class light --env CMUX_SWIFT_TEST_SUITES=InTreePromptKeyboardTests,InTreePageFocusTests,InTreePageWindowPlacementTests,InTreePagesSwitchRowTests,CEFInTreeRefusalTests --script "scripts/ci/run-swift-testing-suites.sh Packages/macOS/CmuxNext" --ref SHA` |
+| Fork embedder tests | `scripts/measure/cef-embedder.sh <cef digest> <fork sha> <case ...>` (the binary is `cmux_embedder_test <case> <work-dir>`, fork `tests/cmux_embedder/cmux_embedder_intree157.inc`) |
+
+Every live row prints `PASS|FAIL|INFO | name | detail`; the regression rows' detail names its `bug` number and its
+`pass_if` condition, so a log line explains itself. INFO means the row could not apply (for example no in-tree page
+view with the mode off), never a pass.
+
+## Bugs and their checks
+
+| # | Bug | Check(s) | Status |
+| --- | --- | --- | --- |
+| 1 | Blank DevTools and pop-ups in tree (fork display patch) | Fork: `intree157-devtools`, `intree157-popup`, `intree157-devtools-close` (each asserts the page draws, by window capture). App: `cef-layer-verify.py` rows `devtools.pixels`, `popup.pixels` (`--parts=cef-intree`) | Fork green from 25a8799a (display patch), the green run at fork 84ab0dd6 (step 22dda33e). App rows green at 03b82e90 (step 743a3115), where DevTools and pop-ups keep layer hosting (`CEFInTreeRefusalTests.aPageNotAllowedInTreeNeverAsksTheFork`) |
+| 2 | A window.open pop-up blanks its opener | Fork: `intree157-popup-opener` (the opener shows its own pixels before, during and after the pop-up) | green at fork 84ab0dd6 (step 22dda33e) |
+| 3 | The file chooser is cancelled in panes under 400x300 | Fork: `intree157-filechooser-small` (380x280 pane, OnFileDialog runs, no cancel); `intree157-filechooser` for the normal size | green from fork dcf25f91 (red before it, d2fc04e6) |
+| 4 | The file chooser breaks for good after a pop-up closes with a chooser open | Live: `prompts.file_after_popup.*` and the opener chooser rows (`file_after_popup` group: a sheet shows, a new request reaches the app, Escape delivers `cancel`, twice) | Check 0dec98bd, fix ce3dc9bb. Not run here since |
+| 5 | A prompt() doesn't take keys until clicked | Package: `InTreePromptKeyboardTests.aPromptsFieldHasTheKeyboardTheMomentItShowsInTree` | red at cf1489aa, green with fix 5f6516b8 |
+| 6 | The first click into DevTools doesn't take the keys | App: `cef-layer-verify.py` row `devtools.first_click` (after the page had the keys, one click in docked DevTools makes it key). Package: `InTreePageFocusTests.aClickOnThePageLetsItTakeTheKeys` | Check 961a4897; not run here since |
+| 7 | Overlays fall back to a separate panel after system helper windows appear (Gmail sign-in) | Package: `InTreePageWindowPlacementTests` (`aTextInputAccessoryWindowIsNoPageWindow`, `aZeroSizeTransparentHelperWindowIsNoPageWindow`, `aHeadlessPageWindowAtAlphaZeroIsNotOnScreen`, `aParkedPageWindowIsNotOnScreen`, `aPageWindowThatShowsThenHidesLeavesThePlacementInWindow`). Live: `census` (no `overlay_panel`) | red at f19385ff, green with fix 5ca393b4 |
+| 8 | The Debug Settings switch shows Off in a tag-on build | Package: `InTreePagesSwitchRowTests.aTagDefaultBuildShowsTheSwitchOn` (and its three neighbours) | red at c9f51580, green with fix 06675353 |
+| 9 | A blank flash of the page background when returning to the app after being away | Live: `reveal.hide.*`, `reveal.cover.*`, `reveal.hide_devtools.*` (`.layers`: the page's CALayerHost context ids are not replaced after the show; `.pixels`: no background-only frame in the 2.5 s after it) | red (23b8ffbf). Fork fix 430c6b06 (an occluded page keeps its compositor) building |
+| 10 | Pop-up windows go full screen instead of floating at their requested size | Live: `popup_float.windowed`, `popup_float.opener_fullscreen`. PASS: the 520x420 pop-up's `innerWidth/innerHeight` are 520x420 within 2 pt and its window is smaller than the screen's visible frame, with the opener windowed and in full screen | new |
+| 11 | Slow, laggy divider and window-edge resize | Live: `divider_resize.frames`, `.follows`, `.settle`; `window_resize.frames`, `.settle`. PASS: at most 2 missed display frames and p95 within 1.5 refresh intervals during a 60 Hz divider drag (120 Hz corner drag); the page's viewport takes 10 or more widths during the drag; it fits the pane within 1 pt at most 100 ms after the pane settles | new |
+| 12 | Full-screen enter and exit glitches: a temporary zoom of all views, overflow on exit, the page slow to match the pane | Live: `fullscreen.enter.*` and `fullscreen.exit.*`: `.no_zoom` (visualViewport.scale 1 and devicePixelRatio unchanged in every frame), `.no_overflow` (the page view never larger than both its start and end size, never outside the window), `.page_follows` (fits the pane at most 100 ms after it settles) | new |
+| 13 | The page clipped or out of step with its pane; the viewport underestimated on scroll; clicks landing in the wrong place | Live: `pane_fit.viewport` (after the split and a wheel scroll, innerWidth/innerHeight and visualViewport equal the page view's size within 1 pt), `pane_fit.click.page` and `pane_fit.click.window` (a `debug.mouse` click at each of five targets' centres, by page and by window point, hits it: inside its rect within 1 pt, `elementFromPoint == event.target`) | new |
+| 14 | Cmd-Shift-Enter (pane zoom) shows broken states | Live: `pane_zoom.zoom`, `pane_zoom.unzoom` (Cmd-Shift-Return through `debug.key` with the page focused: zoomed area at least 1.3x, back within 1 pt after; one page view shown, no overlay panel or page child window; the page fits its view at most 100 ms after the pane) | new |
+| 15 | Omnibar text overflows under the icons in narrow panes | Live: `omnibar_narrow.480`, `.360`, `.300`, `.260` (with a long URL, `debug.omnibar` frames: the text area and field end before every icon to their right inside the bar; the bar stays inside the toolbar) | new |
+
+## What the rows cannot see yet
+
+- 12 "a temporary zoom of all views": the rows see the page's own scale and pixel ratio and the page view's frame.
+  A transform of the whole window's layers during the transition shows only in the `fullscreen` recording
+  (`video-fullscreen`) and the `fullscreen-enter.png` / `fullscreen-exit.png` snapshots, which a person reviews.
+- 11 and 12 thresholds (2 missed frames, 1.5x refresh p95, 100 ms page lag) are first values. Tighten them once the
+  fixes land and the green numbers are known.
+- 13: a `debug.mouse` window click posts to the cmux window, which is not key in a no-activate run; a miss on
+  `pane_fit.click.window` alone, with `pane_fit.click.page` green, is that route until proven otherwise.
+- Pointer tracking, cursors and hover in the page are checked by hand with
+  `artifacts/in-tree-pages/try-layouts/site/pointer-bench.html` (in cmuxterm-hq): its summary panel shows PASS/FAIL
+  per metric in one screenshot.
