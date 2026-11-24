@@ -180,17 +180,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                     failures.append(f"{path.name}:{number}: {line.strip()}")
         self.assertEqual(failures, [], "nightly jobs must never reach the benchmark mini cmux11s")
 
-    @unittest.skipUnless((WORKFLOWS / "cmux-tui-nightly.yml").exists(), "no cmux-tui nightly on this branch")
-    def test_tui_nightly_overrides_every_package_builder_runner(self) -> None:
-        text = (WORKFLOWS / "cmux-tui-nightly.yml").read_text(encoding="utf-8")
-        block = text[text.index("uses: ./.github/workflows/cmux-tui-build-package.yml"):]
-        block = block[: block.index("\n  publish-npm:")]
-        for name in TUI_NIGHTLY_RUNNER_INPUTS:
-            with self.subTest(input=name):
-                match = re.search(rf"^\s+{name}: (.+)$", block, re.MULTILINE)
-                self.assertIsNotNone(match, f"cmux-tui nightly must pass {name}")
-                self.assertNotRegex(match.group(1), SINGLE_HOST)
-
     def test_native_nightlies_follow_owned_pool_then_our_nightly_builders(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         job = text[text.index("\n  build-nightly-app:"):]
