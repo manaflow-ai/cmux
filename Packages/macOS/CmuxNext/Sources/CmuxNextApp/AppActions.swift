@@ -216,9 +216,9 @@ enum AppActions {
                 registry.refuse(QuitArgumentConflict.reason)
             }
         })
-        registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
-        registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
-        registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
+        QuitActions.bind(registry, quit: { services.quit.requestQuit(.explicit($0)) },
+                         newerInstalled: { services.updater.checkInstalledBuild(); return services.updater.installedBuild != nil },
+                         startRelaunchHelper: { services.updater.startRelaunchAfterQuit() })
         // action-wait-allow: a window opens only once the daemon reports its first workspace (as New Window always did); the new space is created there first.
         registry.bind("newWindow", invoke: { RoomHandlers.newWindow($0, AppActionContext(services: services)) })
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }

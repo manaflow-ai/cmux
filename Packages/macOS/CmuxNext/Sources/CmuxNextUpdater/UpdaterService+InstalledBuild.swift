@@ -28,6 +28,14 @@ extension UpdaterService {
         return true
     }
 
+    /// `cmux app relaunch` (`relaunchKeepSessions`): starts the helper that opens this app's bundle
+    /// again once this process has exited (the newer installed build, when one replaced it); the
+    /// caller then quits. False when the helper could not start, and the app must stay.
+    public func startRelaunchAfterQuit() -> Bool {
+        log.append(installedNewerBuild.map { "app relaunch: into the installed build \($0.build)" } ?? "app relaunch: the running build again")
+        return InstalledBuildRelaunch.start(bundle: Bundle.main.bundleURL)
+    }
+
     /// Whether Sparkle itself holds a downloaded update (its install, not a relaunch, is the click).
     var hasStagedSparkleUpdate: Bool {
         if case .ready = sourcePhase { return true }
