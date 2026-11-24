@@ -390,9 +390,23 @@ public final class TerminalModel {
                 composerText = held.text
             }
             heldComposerSend = nil
+        case .inputHeld(let bytes):
+            heldKeyBytes = max(0, bytes)
         case .hostGrid, .hostGridOwner, .paintMark:
             break
         }
+    }
+
+    /// Typed bytes waiting for the attach (``TerminalSessionEvent/inputHeld(bytes:)``): while
+    /// any do, the composer says so and offers Discard (``discardHeldKeys()``).
+    public internal(set) var heldKeyBytes = 0
+
+    /// The person's Discard on the pending-keys line: the held keys are never sent, and their
+    /// predicted glyphs go.
+    public func discardHeldKeys() {
+        session.discardHeldInput()
+        heldKeyBytes = 0
+        controller?.surface.prediction?.inputDropped()
     }
 
     /// Files and links in a batch of output (the screen's per-frame batch).
