@@ -14,4 +14,7 @@ nonisolated struct ShortcutIndex {
     /// Tables derived from `bindingTable` by a filter (`RegistryKeyBindings.subtable`), by name;
     /// dropped with it.
     var subtables: [String: KeyBindingTable] = [:]
+    /// Each action's keycaps as read since the last binding change (`ActionRegistry.shortcutKeycaps`), nil for one
+    /// with no shortcut: a read walks every override and alternate, and the palette reads every action per open.
+    var keycaps: [ActionID: [String]?] = [:]
 }
