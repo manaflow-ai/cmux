@@ -37,6 +37,7 @@ dependencies = [
  "cmux-computer-use",
  "cmux-config",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-embed",
  "cmux-fault",
  "cmux-felt",
@@ -1858,6 +1859,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -2310,6 +2312,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-egress",
  "cmux-file-lock",
  "cmux-process",
  "flate2",
@@ -2851,6 +2854,7 @@ dependencies = [
  "cmux-customize-recipes",
  "cmux-daemon-launch-core",
  "cmux-device-kind",
+ "cmux-egress",
  "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
