@@ -1492,7 +1492,7 @@ async fn dispatch_request_with_identity(
             }
             hub.github_app.set(&params)
         }
-        method::MUX_GITHUB_ACTION => crate::github_broker::handle(hub, conn, params).await,
+        method::MUX_GITHUB_ACTION => super::github_lane::handle(hub, conn, params).await,
         // Decided in order in `Conn::bind_person`; this only reports it.
         method::MUX_PERSON_PROVE => {
             if conn.is_person() {
@@ -1870,6 +1870,16 @@ async fn dispatch_request_with_identity(
                     workspace: workspace_id.clone(),
                 })
             });
+            // The owner's own daemon starts this machine's own chat, not a remote chain
+            // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
+            // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
+            let remote_start = conn.origin.web_class()
+                && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    && !crate::hub::vm_boundary::asked(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    ));
             let req = crate::hub::NewRequest {
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
@@ -1884,7 +1894,7 @@ async fn dispatch_request_with_identity(
                 workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin.web_class(),
+                remote: remote_start,
                 vm_boundary: crate::hub::vm_boundary::asked(
                     conn.auth,
                     super::remote_guard::control_of(conn.origin, conn.auth, &params),
@@ -1926,7 +1936,7 @@ async fn dispatch_request_with_identity(
             {
                 hub.set_tags(&s, Some(tags), &[], None);
             }
-            if conn.origin.web_class() {
+            if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
@@ -2485,8 +2495,10 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
-            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
-            let remote_switch = conn.origin.web_class();
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`); the
+            // owner's own daemon's is this machine's (`remote_guard::owner_control`).
+            let remote_switch = conn.origin.web_class()
+                && !super::remote_guard::owner_control(conn.origin, conn.auth, &params);
             let retarget = super::fork_through::retarget(&params)?
                 .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
             let switched = retarget.is_some();
@@ -4170,7 +4182,7 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
     }
     let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
     let (reply, following) =
-        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+        tokio::task::spawn_blocking(move || crate::rows::read(&*hub2, &id, &params))
             .await
             .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
     if let Some(following) = following
