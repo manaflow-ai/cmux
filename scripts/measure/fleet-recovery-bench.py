@@ -285,7 +285,7 @@ def main() -> int:
     ap.add_argument("--settle", type=float, default=35.0,
                     help="seconds between the last turn and the kill (one owner read-ahead round is 30 s)")
     ap.add_argument("--budget", type=float, default=30.0)
-    ap.add_argument("--parallel", type=int, default=8, help="moves run at once")
+    ap.add_argument("--parallel", type=int, default=32, help="moves run at once: the executor's concurrency (`session move A B ...` runs its chats one at a time; at 8, N=100 queued past 30 s: 69%%; at 32, 100%%)")
     ap.add_argument("--deadline", type=float, default=180.0, help="give up on a chat this long after t0")
     ap.add_argument("--root", help="directory for the three homes (default: a new private temp dir)")
     ap.add_argument("--keep", action="store_true", help="leave the homes for inspection")
