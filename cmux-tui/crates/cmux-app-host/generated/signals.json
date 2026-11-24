@@ -379,6 +379,234 @@
       "staleAfterSeconds": 300,
       "safetyPollSeconds": 900
     },
+    "http.json": {
+      "docs": "A JSON document at an https URL (a weather forecast, a status page, a feed), parsed. The daemon reads each URL once for every app and widget that watches it and keeps it fresh for 60 s, or the response's Cache-Control max-age when that is longer; a re-read shows the kept value while it revalidates. Bodies over 1 MiB are refused. Needs the app's net:<host> scope for the URL's host.",
+      "scopes": [
+        "net:<host>"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 9,
+            "maxLength": 2048,
+            "pattern": "^https://",
+            "description": "The https URL to read. Its host must be one the app holds a net: scope for (net:api.open-meteo.com, or net:*.example.com for its subdomains)."
+          },
+          "everySeconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 86400,
+            "description": "Read again this often while this reader is shown (default 300, never under 60). The daemon's cache still answers within max(60 s, max-age) without a request."
+          }
+        }
+      },
+      "value": {
+        "description": "The response body, parsed as JSON."
+      },
+      "read": {
+        "reader": "http.json",
+        "ops": [
+          {
+            "op": "net.fetch",
+            "scope": "net:<host>",
+            "docs": "GET params.url with cache: \"shared\": the daemon's shared HTTP cache (apps/http_cache.rs) answers it, one request per URL for every app, after the egress gate checks this app's net:<host> scope."
+          }
+        ]
+      },
+      "push": [],
+      "pollFloorSeconds": 60,
+      "staleAfterSeconds": 300
+    },
+    "media.now_playing": {
+      "docs": "What plays in cmux now, the track the Now Playing card shows: cmux's own player, else a browser tab playing aloud, else another music app while sidebar.nowPlaying.otherApps is on (media.get). The Mac app pushes media.changed when the track, its play state, its position jump or its artwork changes, so the runtime never polls it; between pushes, move the position on from position_ms with rate yourself.",
+      "scopes": [
+        "media:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "value": {
+        "type": "object",
+        "required": [
+          "track"
+        ],
+        "properties": {
+          "track": {
+            "description": "What plays, or null while nothing does.",
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "title",
+                  "artist",
+                  "playing",
+                  "rate",
+                  "position_ms",
+                  "can_previous",
+                  "can_next"
+                ],
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "artist": {
+                    "type": "string",
+                    "description": "The artist, or the site a browser tab plays from; may be empty."
+                  },
+                  "artwork": {
+                    "type": "string",
+                    "description": "The artwork as a small data:image/png;base64 URL, for Image(); absent without artwork."
+                  },
+                  "playing": {
+                    "type": "boolean"
+                  },
+                  "position": {
+                    "type": "number",
+                    "description": "Seconds in at position_ms; absent for a live stream."
+                  },
+                  "duration": {
+                    "type": "number",
+                    "description": "The length in seconds; absent when unknown or endless."
+                  },
+                  "rate": {
+                    "type": "number",
+                    "description": "How fast the position moves while playing (1 is normal speed)."
+                  },
+                  "position_ms": {
+                    "type": "number",
+                    "description": "When position was read, in Unix milliseconds."
+                  },
+                  "can_previous": {
+                    "type": "boolean"
+                  },
+                  "can_next": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "type": "string",
+                    "description": "The name of the other app that plays; absent for cmux's own player and tabs."
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "read": {
+        "op": "media.get"
+      },
+      "push": [
+        "media.changed"
+      ],
+      "pollFloorSeconds": 5,
+      "staleAfterSeconds": 60
+    },
+    "system_calendar.events": {
+      "docs": "The next events in the calendars on this Mac (system_calendar.events): the access status, and the events from now through params.days once access is granted. The Mac app pushes system_calendar.changed when EventKit says a calendar changed, so the runtime never polls it; the daemon shares one read among every watcher for 30 s.",
+      "scopes": [
+        "system_calendar:read"
+      ],
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "value": {
+        "type": "object",
+        "required": [
+          "access",
+          "events"
+        ],
+        "properties": {
+          "access": {
+            "enum": [
+              "granted",
+              "denied",
+              "restricted",
+              "notDetermined",
+              "unavailable"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "title",
+                "start",
+                "end",
+                "allDay",
+                "calendar"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number",
+                  "description": "Unix ms"
+                },
+                "end": {
+                  "type": "number",
+                  "description": "Unix ms"
+                },
+                "allDay": {
+                  "type": "boolean"
+                },
+                "calendar": {
+                  "type": "string",
+                  "description": "The calendar's title"
+                },
+                "color": {
+                  "type": "string",
+                  "description": "The calendar's color, #rrggbb"
+                },
+                "location": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "read": {
+        "op": "system_calendar.events"
+      },
+      "push": [
+        "system_calendar.changed"
+      ],
+      "pollFloorSeconds": 5,
+      "staleAfterSeconds": 300
+    },
     "workspace.list": {
       "docs": "The workspaces of the current session in sidebar order (workspace.list). The daemon pushes workspace.changed on every tree change, so the runtime never polls it.",
       "scopes": [

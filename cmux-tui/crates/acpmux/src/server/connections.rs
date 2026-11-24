@@ -42,6 +42,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
+    method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
@@ -158,54 +159,15 @@ struct Facts {
     builtin: bool,
 }
 
-/// Whether a connection of `kind` always serves a Cloud chat (Revision 2: its credential goes to
-/// the machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. A Codex
-/// CLI login serves one only while it holds a ChatGPT token the machine can use
-/// ([`codex_login_serves_cloud`]); the Claude Code login and added Claude accounts serve local
-/// chats only.
+/// Whether a connection can serve a Cloud chat (Revision 2: its credential goes to the
+/// machine's agent): a ChatGPT plan, a Claude Code token, an Anthropic or OpenAI key. The Mac's
+/// CLI logins and added subscription accounts serve local chats only.
 pub(super) fn serves_cloud(kind: &str, provider: &str) -> bool {
     match kind {
         "chatgpt-plan" | "claude-token" => true,
         "api-key" => matches!(provider, "anthropic" | "openai"),
         _ => false,
     }
-}
-
-/// The Codex home of a Codex CLI login connection: the built-in `codex-login`'s is the Codex
-/// CLI's own (`CODEX_HOME`, else `~/.codex`) unless its route names one; an added Codex account's
-/// is its account home. None for any other connection.
-fn codex_login_folder(route: &Route) -> Option<PathBuf> {
-    let file = &route.file;
-    if file.kind != RouteKind::DirectSubscription || file.families != ["codex"] {
-        return None;
-    }
-    match file.account_home.as_deref() {
-        Some(folder) => Some(PathBuf::from(folder)),
-        None if route.id == routes::CODEX_LOGIN_ROUTE_ID => crate::route_shadow::codex_base(),
-        None => None,
-    }
-}
-
-/// The access a Cloud chat on Codex CLI login connection `route` gets now
-/// (`codex_login_access::read`: a ChatGPT sign-in's access token alone, with enough time left);
-/// None when it has none. Blocking file IO.
-fn codex_login_access(route: &Route) -> Option<crate::codex_login_access::Access> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    crate::codex_login_access::read(&codex_login_folder(route)?, now)
-}
-
-/// Whether a Codex CLI login connection serves a Cloud chat (cmux#45774): it is signed in with
-/// ChatGPT and its access token has time left. Its credential is that token alone
-/// (`codex_login_access.rs`); the machine's Codex sends it to the ChatGPT Codex backend. A person
-/// with a Sign in with ChatGPT connection keeps that one for Cloud ([`list`]): cmux refreshes it
-/// itself, which it never does for a CLI login.
-fn codex_login_serves_cloud(route: &Route, facts: &Facts) -> bool {
-    matches!(facts.kind, "codex-login" | "subscription")
-        && facts.signed_in
-        && codex_login_access(route).is_some()
 }
 
 fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
@@ -221,8 +183,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
             .cloned()
             .collect()
     };
-    let serves_cloud =
-        serves_cloud(facts.kind, &facts.provider) || codex_login_serves_cloud(route, &facts);
+    let serves_cloud = serves_cloud(facts.kind, &facts.provider);
     Connection {
         id: route.id.clone(),
         kind: facts.kind,
@@ -241,22 +202,6 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
 /// Every connection, in the listing order the default order sorts (stably): the Codex CLI's
 /// login, the routes by id, the Claude Code login.
 pub(super) fn list(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connection> {
-    let mut out = listed(dir, home, b);
-    // A Codex CLI login serves Cloud only for a person with no Sign in with ChatGPT that does:
-    // the listing puts the CLI login first, and Cloud takes the first serving connection.
-    let plan_serves =
-        out.iter().any(|c| c.kind == "chatgpt-plan" && c.serves_cloud && c.enabled && c.signed_in);
-    if plan_serves {
-        for c in out.iter_mut().filter(|c| matches!(c.kind, "codex-login" | "subscription")) {
-            if c.families.iter().any(|f| f == "codex") {
-                c.serves_cloud = false;
-            }
-        }
-    }
-    out
-}
-
-fn listed(dir: Option<&Path>, home: &Path, b: &Bindings) -> Vec<Connection> {
     let mut out = Vec::new();
     if let Ok(codex) = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID) {
         let folder = codex
@@ -540,8 +485,7 @@ pub(super) fn add_claude_token(
 
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
-/// the daemon's own, `chatgpt::Service::token_lasting`), nor a Codex CLI login (its token is the
-/// login's own, [`codex_login_access`]): no reference for those.
+/// the daemon's own, `chatgpt::Service::token_lasting`).
 pub(super) fn credential_plan(
     dir: Option<&Path>,
     home: &Path,
@@ -562,10 +506,7 @@ pub(super) fn credential_plan(
     let family = found.families.first().cloned().unwrap_or_default();
     let var = match (found.kind, found.provider.as_str()) {
         ("chatgpt-plan", _) => {
-            return Ok((family, "chatgpt-plan", crate::agent_credentials::CHATGPT_TOKEN, None));
-        }
-        ("codex-login" | "subscription", _) if family == "codex" => {
-            return Ok((family, found.kind, crate::agent_credentials::CODEX_LOGIN_TOKEN, None));
+            return Ok((family, "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN", None));
         }
         ("claude-token", _) => "CLAUDE_CODE_OAUTH_TOKEN",
         ("api-key", "anthropic") => "ANTHROPIC_API_KEY",
@@ -626,6 +567,43 @@ pub(super) fn announce_later(hub: &Arc<Hub>) {
 fn announce_scope() -> &'static cmux_scope::Scope {
     static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
     SCOPE.get_or_init(|| cmux_scope::Scope::new("connections announce"))
+}
+
+/// `_acpmux/connections/chatgpt.import`: refused on any connection but the local socket (the
+/// remote relay and the web listener never reach a login file here) and unless the daemon's
+/// environment turned it on (`enabled`, [`chatgpt::CI_IMPORT_ENV`]); the connection's id.
+fn import_chatgpt(
+    origin: Origin,
+    enabled: bool,
+    dir: Option<PathBuf>,
+    home: PathBuf,
+    secret_file: &str,
+) -> Result<String, RpcError> {
+    if origin != Origin::Local {
+        return Err(RpcError::invalid_params(
+            "chatgpt.import is read from the local unix socket only, never a remote",
+        )
+        .with_data(json!({"reason": "chatgpt.import_local_only"})));
+    }
+    if !enabled {
+        return Err(RpcError::invalid_params(format!(
+            "chatgpt.import is a CI-only method: set {} in the daemon's environment",
+            chatgpt::CI_IMPORT_ENV
+        ))
+        .with_data(json!({"reason": "chatgpt.import_disabled"})));
+    }
+    chatgpt::import_codex_auth(
+        &chatgpt::Places { routes: dir, home },
+        std::path::Path::new(secret_file),
+    )
+    .map_err(failure)
+}
+
+/// The listed connection `id`, as `chatgpt.wait` answers a finished sign-in.
+fn connection_state(dir: Option<&Path>, home: &Path, id: &str) -> Result<Value, RpcError> {
+    let b = routes::bindings(home);
+    let found = list(dir, home, &b).into_iter().find(|c| c.id == id);
+    Ok(json!({"connection": found}))
 }
 
 pub(super) async fn handle(
@@ -778,22 +756,6 @@ pub(super) async fn handle(
             let (family, kind, var, reference) =
                 blocking(move || credential_plan(d.as_deref(), &h, &i)).await??;
             let (value, expires_at) = match reference {
-                // A Codex CLI login: its access token now, read only (never refreshed here).
-                None if kind != "chatgpt-plan" => {
-                    let (d, i) = (dir.clone(), id.clone());
-                    let access = blocking(move || {
-                        routes::find(d.as_deref(), &i).ok().as_ref().and_then(codex_login_access)
-                    })
-                    .await?
-                    .ok_or_else(|| {
-                        RpcError::invalid_params(format!(
-                            "{id} has no ChatGPT sign-in with time left: run Codex on this Mac \
-                             (or `codex login`) to renew it"
-                        ))
-                        .with_data(json!({"reason": "connections.no_token", "id": id}))
-                    })?;
-                    (access.token, Some(access.expires_at))
-                }
                 None => {
                     let (token, expires_at) = hub
                         .chatgpt
@@ -808,6 +770,15 @@ pub(super) async fn handle(
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
             )
+        }
+        method::MUX_CONNECTIONS_CHATGPT_IMPORT => {
+            let secret_file = need("secret_file")?;
+            let enabled = chatgpt::ci_import_enabled();
+            let (d, h) = (dir.clone(), home.clone());
+            let id =
+                blocking(move || import_chatgpt(origin, enabled, d, h, &secret_file)).await??;
+            announce_later(hub);
+            blocking(move || connection_state(dir.as_deref(), &home, &id)).await?
         }
         method::MUX_CONNECTIONS_CHATGPT_TOKEN => {
             let id = need("id")?;
@@ -968,7 +939,7 @@ mod tests {
             kind: RouteKind::ChatgptPlan,
             families: vec!["codex".into()],
             anthropic_base_url: None,
-            openai_base_url: Some(chatgpt::RESOURCE.into()),
+            openai_base_url: Some(chatgpt::CODEX_BACKEND.into()),
             auth: None,
             secret: None,
             headers: Default::default(),
@@ -1023,125 +994,9 @@ mod tests {
             assert_eq!(serves_cloud(kind, provider), cloud, "{kind} {provider}");
         }
         let d = dirs();
-        // A Codex CLI login with no sign-in (never this host's own `~/.codex`).
-        let empty = d._root.path().join("no-codex-login");
-        std::fs::create_dir_all(&empty).unwrap();
-        codex_login_route(&d, &empty);
         let s = state(Some(&d.routes), &d.home);
         assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
         assert_eq!(find(&s, "claude-login")["serves_cloud"], false);
-    }
-
-    /// A Codex CLI `auth.json` signed in with ChatGPT (0600, as Codex writes it), in a new folder
-    /// under `d`: an unsigned access token for account `acct-1234` that ends `left` seconds from now.
-    fn codex_login_folder(d: &Dirs, name: &str, left: i64) -> (PathBuf, String) {
-        use base64::Engine as _;
-        let b64 = |v: &Value| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
-        };
-        let now =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
-                as i64;
-        let claims = json!({"exp": now + left,
-            "https://api.openai.com/auth": {"chatgpt_account_id": "acct-1234"}});
-        let access = format!("{}.{}.c2ln", b64(&json!({"alg": "RS256"})), b64(&claims));
-        let folder = d._root.path().join(name);
-        std::fs::create_dir_all(&folder).unwrap();
-        let auth = json!({"auth_mode": "chatgpt", "OPENAI_API_KEY": null, "tokens": {
-            "access_token": access, "account_id": "acct-1234",
-            "id_token": "the-id-token", "refresh_token": "the-refresh-token"}});
-        let path = folder.join("auth.json");
-        std::fs::write(&path, auth.to_string()).unwrap();
-        crate::router_socket::owner_only(&path);
-        (folder, access)
-    }
-
-    fn codex_login_route(d: &Dirs, folder: &Path) {
-        let mut file = routes::find(None, routes::CODEX_LOGIN_ROUTE_ID).unwrap().file;
-        file.account_home = Some(folder.display().to_string());
-        routes::add(Some(&d.routes), routes::CODEX_LOGIN_ROUTE_ID, &file, true).unwrap();
-    }
-
-    /// cmux#45774: the Mac's Codex CLI signed in with ChatGPT serves a Cloud chat. Cloud
-    /// multiplayer (#40159) listed it as This Mac only, so a person signed in to Codex with ChatGPT
-    /// got no Codex on a Cloud machine. Its credential is the access token alone: never the
-    /// refresh token, the ID token or `auth.json`.
-    #[cfg(unix)]
-    #[test]
-    fn a_codex_cli_chatgpt_login_serves_cloud_with_its_access_token_only() {
-        let d = dirs();
-        let (folder, _access) = codex_login_folder(&d, "codex-home", 3600);
-        codex_login_route(&d, &folder);
-        let s = state(Some(&d.routes), &d.home);
-        let c = find(&s, "codex-login");
-        assert_eq!(c["kind"], "codex-login");
-        assert_eq!(c["signed_in"], true);
-        assert_eq!(c["serves_cloud"], true, "{c}");
-        let (family, kind, var, secret) =
-            credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap();
-        assert_eq!(
-            (family.as_str(), kind, var),
-            ("codex", "codex-login", "CMUX_CODEX_ACCESS_TOKEN")
-        );
-        assert!(secret.is_none(), "the login's own token, not a reference");
-        let route = routes::find(Some(&d.routes), "codex-login").unwrap();
-        let access = codex_login_access(&route).unwrap();
-        assert_eq!(access.token, _access, "the access token, as auth.json has it");
-        assert!(access.expires_at > 0);
-        let shown = format!("{access:?}");
-        assert!(!shown.contains(&access.token), "its Debug never shows the token");
-        let auth = std::fs::read_to_string(folder.join("auth.json")).unwrap();
-        assert!(auth.contains("the-refresh-token"), "auth.json is left as it was");
-
-        // A token about to end (under 5 min) does not serve: the Mac's own Codex renews it first.
-        let (soon, _) = codex_login_folder(&d, "codex-soon", 120);
-        codex_login_route(&d, &soon);
-        let s = state(Some(&d.routes), &d.home);
-        assert_eq!(find(&s, "codex-login")["serves_cloud"], false);
-        let e = credential_plan(Some(&d.routes), &d.home, "codex-login").unwrap_err();
-        assert_eq!(e.data.unwrap()["reason"], "connections.not_cloud");
-        // An API key sign-in is not a ChatGPT one.
-        let (key, _) = codex_login_folder(&d, "codex-key", 3600);
-        std::fs::write(key.join("auth.json"), r#"{"OPENAI_API_KEY":"sk-proj-x"}"#).unwrap();
-        crate::router_socket::owner_only(&key.join("auth.json"));
-        codex_login_route(&d, &key);
-        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], false);
-
-        // An added account's shadow home links the base's config.toml: it still serves.
-        let (shadow, _) = codex_login_folder(&d, "codex-shadow", 3600);
-        let base_config = d._root.path().join("base-config.toml");
-        std::fs::write(
-            &base_config,
-            "model = \"x\"\n[profiles.p]\ncli_auth_credentials_store = \"keyring\"\n",
-        )
-        .unwrap();
-        std::os::unix::fs::symlink(&base_config, shadow.join("config.toml")).unwrap();
-        codex_login_route(&d, &shadow);
-        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], true);
-        // Keyring storage at the top level: the file may be stale, nothing is offered.
-        std::fs::write(&base_config, "cli_auth_credentials_store = \"keyring\"\n").unwrap();
-        assert_eq!(find(&state(Some(&d.routes), &d.home), "codex-login")["serves_cloud"], false);
-        std::fs::write(&base_config, "").unwrap();
-
-        // A Sign in with ChatGPT connection keeps Cloud: the CLI login no longer serves it.
-        let record = chatgpt::store::Record {
-            client_id: "oaiapp_x".into(),
-            sub: "user-1".into(),
-            refresh_token: "r".into(),
-            ..Default::default()
-        };
-        chatgpt::store::write(&d.home, "chatgpt", &record).unwrap();
-        let mut plan = routes::find(None, routes::CODEX_LOGIN_ROUTE_ID).unwrap().file;
-        plan.name = Some("ChatGPT plan".into());
-        plan.kind = RouteKind::ChatgptPlan;
-        plan.account_home = None;
-        plan.notes = None;
-        plan.openai_base_url = Some(chatgpt::RESOURCE.into());
-        plan.provider = Some("openai".into());
-        routes::add(Some(&d.routes), "chatgpt", &plan, false).unwrap();
-        let s = state(Some(&d.routes), &d.home);
-        assert_eq!(find(&s, "chatgpt")["serves_cloud"], true);
-        assert_eq!(find(&s, "codex-login")["serves_cloud"], false, "the plan connection wins");
     }
 
     #[test]
@@ -1182,9 +1037,6 @@ mod tests {
         add_key(Some(&d.routes), &d.home, "anthropic", &anthropic, None).unwrap();
         add_key(Some(&d.routes), &d.home, "openai", &openai, None).unwrap();
         add_key(Some(&d.routes), &d.home, "openrouter", "keychain:cmux-or", None).unwrap();
-        let empty = d._root.path().join("no-codex-login");
-        std::fs::create_dir_all(&empty).unwrap();
-        codex_login_route(&d, &empty);
         let (family, kind, var, _) =
             credential_plan(Some(&d.routes), &d.home, "anthropic-key").unwrap();
         assert_eq!((family.as_str(), kind, var), ("claude", "api-key", "ANTHROPIC_API_KEY"));
@@ -1204,7 +1056,7 @@ mod tests {
     fn a_chatgpt_plan_route_is_listed_from_its_record() {
         let d = dirs();
         let record = chatgpt::store::Record {
-            client_id: "oaiapp_x".into(),
+            client_id: chatgpt::CODEX_CLIENT_ID.into(),
             sub: "user-1".into(),
             email: Some("alex@example.com".into()),
             plan: Some("plus".into()),
@@ -1217,7 +1069,7 @@ mod tests {
             kind: RouteKind::ChatgptPlan,
             families: vec!["codex".into()],
             anthropic_base_url: None,
-            openai_base_url: Some(chatgpt::RESOURCE.into()),
+            openai_base_url: Some(chatgpt::CODEX_BACKEND.into()),
             auth: None,
             secret: None,
             headers: Default::default(),
@@ -1245,11 +1097,106 @@ mod tests {
             ("codex", "chatgpt-plan", "CMUX_CHATGPT_ACCESS_TOKEN")
         );
         assert!(secret.is_none(), "the daemon's own token, not a reference");
+        // A sign-in from the retired token-sharing client (`oaiapp_...`) reads signed out: its
+        // token is refused by OpenAI, so the person signs in again (cmux#45774).
+        let old = chatgpt::store::Record { client_id: "oaiapp_x".into(), ..record.clone() };
+        chatgpt::store::write(&d.home, "chatgpt", &old).unwrap();
+        let list = super::list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
+        assert!(!list.iter().find(|c| c.id == "chatgpt").unwrap().signed_in);
         // A local chat never spawns on it.
         let route = routes::find(Some(&d.routes), "chatgpt").unwrap();
         assert!(matches!(
             routes::env_for(&route, "codex", &d.home),
             Err(routes::RouteError::Unavailable(_))
         ));
+    }
+
+    fn auth_file(d: &Dirs, text: &str) -> PathBuf {
+        std::fs::create_dir_all(&d.home).unwrap();
+        let path = d.home.join("auth.json");
+        std::fs::write(&path, text).unwrap();
+        path
+    }
+
+    fn import(d: &Dirs, origin: Origin, enabled: bool, text: &str) -> Result<String, RpcError> {
+        let path = auth_file(d, text);
+        import_chatgpt(
+            origin,
+            enabled,
+            Some(d.routes.clone()),
+            d.home.clone(),
+            path.to_str().unwrap(),
+        )
+    }
+
+    fn codex_auth(refresh: Option<&str>) -> String {
+        chatgpt::import_test_auth(chatgpt::CODEX_CLIENT_ID, refresh, true)
+    }
+
+    fn reason(e: &RpcError) -> String {
+        e.data.as_ref().and_then(|d| d["reason"].as_str()).unwrap_or_default().to_owned()
+    }
+
+    #[test]
+    fn chatgpt_import_is_refused_unless_the_switch_is_set() {
+        let d = dirs();
+        let error = import(&d, Origin::Local, false, &codex_auth(Some("rt"))).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.import_disabled");
+        assert!(chatgpt::store::all(&d.home).is_empty(), "nothing stored");
+        assert!(routes::find(Some(&d.routes), "chatgpt").is_err(), "no route written");
+    }
+
+    #[test]
+    fn chatgpt_import_is_refused_off_the_local_socket_even_with_the_switch() {
+        let d = dirs();
+        for origin in [Origin::Web, Origin::Peer, Origin::LocalApp] {
+            let error = import(&d, origin, true, &codex_auth(Some("rt"))).unwrap_err();
+            assert_eq!(reason(&error), "chatgpt.import_local_only", "{origin:?}");
+        }
+        assert!(chatgpt::store::all(&d.home).is_empty(), "nothing stored");
+    }
+
+    #[test]
+    fn chatgpt_import_refuses_another_client_and_a_missing_refresh_token() {
+        let d = dirs();
+        let other = chatgpt::import_test_auth("app_someone_else", Some("rt"), true);
+        let error = import(&d, Origin::Local, true, &other).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.wrong_client");
+        let error = import(&d, Origin::Local, true, &codex_auth(None)).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.no_refresh_token");
+        let no_account = chatgpt::import_test_auth(chatgpt::CODEX_CLIENT_ID, Some("rt"), false);
+        let error = import(&d, Origin::Local, true, &no_account).unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.no_chatgpt_account");
+        let error = import(&d, Origin::Local, true, "not json").unwrap_err();
+        assert_eq!(reason(&error), "chatgpt.import_invalid");
+        assert!(chatgpt::store::all(&d.home).is_empty(), "nothing stored");
+    }
+
+    #[test]
+    fn an_imported_codex_login_lists_as_a_cloud_serving_chatgpt_plan() {
+        let d = dirs();
+        let id = import(&d, Origin::Local, true, &codex_auth(Some("rt-1"))).unwrap();
+        assert_eq!(id, "chatgpt");
+        let record = chatgpt::store::read(&d.home, &id).unwrap().unwrap();
+        assert!(record.signed_in());
+        assert_eq!(record.client_id, chatgpt::CODEX_CLIENT_ID);
+        assert_eq!(record.refresh_token, "rt-1");
+        assert_eq!(record.sub, "user-1");
+        assert_eq!(record.plan.as_deref(), Some("plus"));
+        let route = routes::find(Some(&d.routes), &id).unwrap();
+        assert_eq!(route.file.kind, RouteKind::ChatgptPlan);
+        assert_eq!(route.file.families, vec!["codex".to_owned()]);
+        let list = list(Some(&d.routes), &d.home, &routes::bindings(&d.home));
+        let plan = list.iter().find(|c| c.id == "chatgpt").unwrap();
+        assert_eq!(plan.kind, "chatgpt-plan");
+        assert!(plan.serves_cloud && plan.signed_in);
+        assert_eq!(plan.email.as_deref(), Some("ci@example.com"));
+        // Importing the same account again replaces its record: no second connection.
+        let again = import(&d, Origin::Local, true, &codex_auth(Some("rt-2"))).unwrap();
+        assert_eq!(again, "chatgpt");
+        assert_eq!(
+            chatgpt::store::read(&d.home, "chatgpt").unwrap().unwrap().refresh_token,
+            "rt-2"
+        );
     }
 }

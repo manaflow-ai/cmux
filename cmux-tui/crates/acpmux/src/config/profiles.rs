@@ -57,8 +57,14 @@ pub const EFFORT_IDS: &[&str] = &["none", "minimal", "low", "medium", "high", "x
 pub struct ProfileSources {
     /// Managed (company) folders, highest precedence first.
     pub managed: Vec<PathBuf>,
-    /// The user's harness folder.
+    /// The user's harness folder: every write (`cmux harness add`, icons,
+    /// endpoints) goes here.
     pub user_dir: Option<PathBuf>,
+    /// The person's folder (`~/.config/cmux/harnesses`) when a DEV build keeps
+    /// `user_dir` in its own acpmux home: read below `user_dir`, never written,
+    /// so a DEV build offers the person's own harnesses (`claude-sr2`) without
+    /// putting its test profiles in front of shipped builds.
+    pub person_dir: Option<PathBuf>,
     /// cmux.json (its `agents.harnesses` object).
     pub cmux_json: Option<PathBuf>,
 }
@@ -81,11 +87,32 @@ impl ProfileSources {
         let build_dir = (!explicit_config)
             .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
             .flatten();
+        Self::with_build_dir(managed, config_dir, build_dir)
+    }
+
+    /// The sources for the managed folder, the person's config folder
+    /// (`~/.config/cmux`) and a DEV build's own harness folder, if any.
+    fn with_build_dir(
+        managed: PathBuf,
+        config_dir: Option<PathBuf>,
+        build_dir: Option<PathBuf>,
+    ) -> Self {
+        let person = config_dir.as_ref().map(|d| d.join("harnesses"));
+        let (user_dir, person_dir) = match build_dir {
+            Some(build) => (Some(build), person),
+            None => (person, None),
+        };
         Self {
             managed: vec![managed],
-            user_dir: build_dir.or_else(|| config_dir.as_ref().map(|d| d.join("harnesses"))),
+            user_dir,
+            person_dir,
             cmux_json: config_dir.map(|d| d.join("cmux.json")),
         }
+    }
+
+    /// Every folder profile files load from, in precedence order.
+    pub fn folders(&self) -> impl Iterator<Item = &PathBuf> + Clone {
+        self.managed.iter().chain(self.user_dir.iter()).chain(self.person_dir.iter())
     }
 
     /// No sources (a config built in code).
@@ -103,8 +130,10 @@ impl ProfileSources {
 /// The user folder (`~/.config/cmux/harnesses`) is per person, not per
 /// build, so a profile a DEV build or a dogfood script wrote there showed in
 /// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
-/// with models m1 and m2 in cmux NEXT). A DEV build neither reads nor writes
-/// it.
+/// with models m1 and m2 in cmux NEXT). A DEV build never writes it; it still
+/// reads it below its own folder ([`ProfileSources::person_dir`]), or the
+/// person's harnesses (issue 46025: "Claude Code (sr2 internal)") vanish from
+/// every DEV build's picker.
 pub fn build_harness_dir(home: &Path, root: &Path) -> Option<PathBuf> {
     use cmux_agent_pane_policy::build_identity::{BuildIdentity, BuildKind};
     let parent = home.parent()?;
@@ -354,11 +383,28 @@ pub fn load(sources: &ProfileSources) -> LoadedProfiles {
     if let Some(dir) = &sources.user_dir {
         load_dir(dir, ProfileSource::UserFile, &mut out);
     }
+    if let Some(dir) = &sources.person_dir {
+        load_person_dir(dir, &mut out);
+    }
     if let Some(path) = &sources.cmux_json {
         load_cmux_json(path, &mut out);
     }
     check_fallbacks(&mut out);
     out
+}
+
+/// The person's folder under a DEV build's own: an id the build already has
+/// (a copy made into its folder) quietly keeps the build's, with no
+/// "defines it too" warning; the file's other problems still show.
+fn load_person_dir(dir: &Path, out: &mut LoadedProfiles) {
+    let mut person = LoadedProfiles::default();
+    load_dir(dir, ProfileSource::UserFile, &mut person);
+    let taken = |id: &Option<String>| id.as_ref().is_some_and(|id| out.profiles.contains_key(id));
+    person.diagnostics.retain(|d| !taken(&d.id));
+    out.diagnostics.append(&mut person.diagnostics);
+    for (id, entry) in person.profiles {
+        out.profiles.entry(id).or_insert(entry);
+    }
 }
 
 fn load_dir(dir: &Path, source: ProfileSource, out: &mut LoadedProfiles) {

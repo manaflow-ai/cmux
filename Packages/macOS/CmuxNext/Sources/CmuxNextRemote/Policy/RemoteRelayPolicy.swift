@@ -69,12 +69,14 @@ public struct RemoteRelayPolicy: Sendable {
     /// which read local state and seed it).
     static let neverAllowedWords: Set<String> = ["send", "text", "key", "keys", "input", "paste", "spawn", "respawn", "eval", "exec",
                                                  "run", "script", "command", "url", "link", "navigate", "resume", "launch", "debug"]
+    /// These local Git operations can execute Git and write to the Mac's filesystem.
+    static let localCheckoutMethods: Set<String> = ["repo.clone", "github.repos.checkout"]
     /// Creating or splitting one of these starts a terminal or loads a page.
     static let spawningNouns: Set<String> = ["workspace", "tab", "pane", "surface", "terminal", "browser", "window", "screen", "column"]
     static let spawningVerbs: Set<String> = ["create", "new", "split", "open", "duplicate", "fork", "reopen", "move"]
 
     public init(allowed: Set<String>) {
-        self.allowed = allowed.filter { !Self.isNeverAllowed($0) }
+        self.allowed = allowed.filter { !Self.localCheckoutMethods.contains($0) && !Self.isNeverAllowed($0) }
     }
 
     public func decide(method: String, params: [String: RelayValue], owned: Ownership) -> Decision {

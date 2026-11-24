@@ -51,6 +51,22 @@ There is no animation, pulse, timer or observer in the indicator or the popover,
 is the only timer, in the page layer (`pages/shared/pageHealth.ts`), and it stops while the page is
 hidden.
 
+## Which chat, and no click it does not need
+
+David Beyer, 2026-11-20, on a call: "Agent chat needs a repair" did not say which chat, with several
+open. A page part is named by the title its tab shows, in the line and the card's title ("“Fix the
+login bug” needs a repair"); the card's first line says where it is ("Agent chat in cmux-next"), and
+**Show chat** goes there. A stuck page is always on screen (a hidden page is never timed), so Show
+chat brings its window forward and gives the page the keyboard, through the focus route. The place
+comes from the daemon's store (`AppHealthPlaces(store:)`: the tab the page shows, its title, the
+workspace that holds its pane), read only when a line or the card is drawn, never on a heartbeat. A
+page in no tab (Home's dock, a floating chat) keeps the label "Agent chat".
+
+The cap is 3 repairs in 10 minutes, not 3 for good. A part that is out of repairs keeps one deadline,
+when its oldest attempt leaves the window; then, still stuck, it tries again by itself from step 1,
+and its signal coming back drops the alert. Repair now still starts at once. A repair is still never
+run over unsaved edits: the page's reload refuses, and the next step comes.
+
 ## Queued actions never apply and revert
 
 While the session daemon or page host is unreachable, a tab click or close is queued by the host
@@ -82,7 +98,14 @@ screen blank").
 
 ## Treatment
 
-Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
+Shipped: `hidden`, and the line is gone from the app (Leo, 2026-11-22, ask-eacfb2ec1f: "i see in the
+sidebar a repair connection to agent service... which i have requested to remove a while ago. ... we
+dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck em. remove them all.").
+The sidebar draws no health line or dot; the parts repair themselves, and the popover opens only from the
+Restoring sessions card's Details (`SidebarView.onHealthDetails`). The rest of this section is the history
+of the treatments tried before.
+
+Where it sat. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
 and `c-hidden` in six states (healthy, only slow, not responding, repairing, needs a repair, a queued
 close), and the restoring card with Details. Web gallery: `ui.app-health.footer-row` draws the sidebar's
 bottom twice per variant, at rest and with the indicator, in the same five states:

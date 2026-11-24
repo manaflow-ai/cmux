@@ -215,7 +215,11 @@ function buildList(m: Mount, containerId: string, view: ViewNode, depth: number)
         } else {
           const owner = createOwner()
           const [read, write] = signal<unknown>(item, { equals: () => false })
-          const nodeId = runWithOwner(owner, () => build(m, template(read as Read<unknown>, key), depth + 1))
+          const nodeId = runWithOwner(owner, () => {
+            const child = template(read as Read<unknown>, key)
+            if (view.type === "Reorderable" && spec.onMove) child.props.reorderKey = key
+            return build(m, child, depth + 1)
+          })
           next.set(key, { key, owner, setItem: (v) => write(() => v), nodeId })
         }
         nextOrder.push(key)
@@ -231,7 +235,6 @@ function buildList(m: Mount, containerId: string, view: ViewNode, depth: number)
       if (changed) setChildren(m, containerId, nextOrder.map((k) => next.get(k)!.nodeId))
     })
   })
-  // Rows emit `move` with the row key, which is what onMove(id, index) expects.
 }
 
 function bindMenu(m: Mount, id: string, record: NodeRecord, source: ViewNode[] | (() => ViewNode[])) {

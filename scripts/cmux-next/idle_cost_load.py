@@ -19,7 +19,13 @@ before and after from one load, so this builds that load in a fresh home:
                each in its own workspace, shown once; `streaming` of them get a reply that keeps
                streaming through the measured window; `tabs` Chromium tabs of local sites, each
                shown once; Home and the New Tab page in a workspace of their own; then the first
-               idle local chat is shown.
+               idle local chat is shown (`show` "newtab": the New Tab page's workspace instead).
+  seeded_open  with `seeded` ids (seeded_idle_ids): each of those stored idle chats opened in its own
+               workspace and shown once, as Leo's ~200 open chat tabs whose agents are not running
+               (bench_power.py `many-chats`); the first `pin` of them pinned, so their pages stay live.
+  split        `split` of the streaming chats side by side in split panes of one workspace, left shown
+               (`many-chats-heavy`); every stream may also retitle its chat with a large title (`title`
+               bytes, `title_rate` a second), so every chat list watcher gets large changed rows.
 
 A remote chat opens the way `acpmux new --host H --group G` opens one (cli/run/launch.rs
 show_in_group): its mirrored id, without a host; this Mac's acpmux forwards it to the peer.
@@ -86,6 +92,18 @@ def read_chat(home: str, session: str, wait: float = CHECKPOINT_WAIT) -> dict:
     return {"id": session, "meta": meta, "events": events}
 
 
+def seeded_id(index: int) -> str:
+    """The session id seed_store gives its `index`th chat."""
+    return str(uuid.UUID(int=(0x01A1DC00 << 96) | (0x7000 << 64) | (0x8 << 60) | index))
+
+
+def seeded_idle_ids(count: int, closed_share: float, want: int) -> list[str]:
+    """The ids of up to `want` of seed_store's idle (answered, not closed) chats, newest first: the chats
+    `seeded_open` opens as tabs (a person's many open chats whose agents are not running)."""
+    closed_count = int(round(count * closed_share))
+    return [seeded_id(i) for i in range(count - 1, closed_count - 1, -1)][:max(want, 0)]
+
+
 def seed_store(home: str, count: int, closed_share: float, answered: dict, closed: dict) -> dict:
     """`count` chats in the store of the acpmux home `home`, as a long-used daemon lists them:
     copies of the `answered` and `closed` template chats (read_chat), each under its own id."""
@@ -96,7 +114,7 @@ def seed_store(home: str, count: int, closed_share: float, answered: dict, close
     now = int(time.time() * 1000)
     for i in range(count):
         template = closed if i < closed_count else answered
-        session = str(uuid.UUID(int=(0x01A1DC00 << 96) | (0x7000 << 64) | (0x8 << 60) | i))
+        session = seeded_id(i)
         swap = lambda data: data.replace(template["id"].encode(), session.encode())  # noqa: E731
         meta = json.loads(swap(template["meta"]))
         at = now - (count - i) * 60_000  # one a minute, oldest first
@@ -282,9 +300,21 @@ def new_session(cli: str, env: dict, text: str) -> str | None:
         return None
 
 
-def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float) -> bool:
-    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`), without waiting for it."""
-    sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}"],
+def stream_prompt(seconds: float, rate: float, chunk: int = 0, title: int = 0, title_rate: float = 0) -> str:
+    """idle_cost_agent.py's `stream:` prompt."""
+    text = f"stream: {int(seconds)} {rate}"
+    if chunk or title:
+        text += f" {chunk}"
+    if title:
+        text += f" {title} {title_rate or 1}"
+    return text
+
+
+def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float, chunk: int = 0,
+           title: int = 0, title_rate: float = 0) -> bool:
+    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`; `chunk` bytes a chunk, 0: one
+    word; `title` bytes at most a retitle, `title_rate` retitles a second), without waiting for it."""
+    sent = subprocess.run(argv + ["send", "--no-wait", session, stream_prompt(seconds, rate, chunk, title, title_rate)],
                           capture_output=True, text=True, timeout=60, env=env)
     if sent.returncode != 0:
         print(f"   send {session}: {(sent.stdout + sent.stderr).strip()[:2000]}", file=sys.stderr)
@@ -298,9 +328,28 @@ def open_workspace(app: bm.App, session: str) -> str | None:
     if not created:
         print(f"   agent.openSessionWorkspace {session}: {response.get('error') or response}", file=sys.stderr)
         return None
+    # The action makes the workspace without showing it; the show loads the chat. The app's chat-open trace
+    # (armed before the show) says when the pane first showed the chat's content.
+    armed = app.call("debug.chat_open_trace", {"action": "arm"}, timeout=30)
     app.action("goToWorkspace", workspace=created[0])
-    time.sleep(1)  # test script: let the shown chat render
+    if isinstance(armed, dict) and not armed.get("error"):
+        trace = app.call("debug.chat_open_trace", {"action": "wait", "timeout_ms": 15000, "settle_ms": 300}, timeout=40) or {}
+        if trace.get("error") or trace.get("first_content_ms") is None:
+            print(f"   {created[0]}: the shown chat's first content was not seen ({trace.get('error') or trace.get('note')})",
+                  file=sys.stderr)
+    else:
+        print(f"   debug.chat_open_trace arm: {armed}", file=sys.stderr)
     return created[0]
+
+
+def pin_chat(app: bm.App, workspace: str) -> bool:
+    """Pins `workspace`'s chat tab: a pinned chat keeps its hidden page (HiddenChatPages), so it stays live."""
+    tab = bm.CHAT_TABS.get(workspace) or bm.chat_tab_of(app, workspace)
+    pinned = app.run("palette.toggleTabPin", target=tab) if tab else {"error": "no chat tab"}
+    if pinned.get("error"):
+        print(f"   pin {workspace}: {pinned['error']}", file=sys.stderr)
+        return False
+    return True
 
 
 def remote_rows(app_socket: str, want: set[str], seconds: float = 90) -> list[tuple[str, str]]:
@@ -330,9 +379,12 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
     """Opens the load in the launched app (see the module); returns what it reached."""
     reached = {"remote_chats": 0, "local_chats": 0, "streaming": 0, "browser_tabs": 0, "home": False,
                "new_tab_page": False, "peer": False}
+    if counts.get("seeded"):
+        reached["seeded_chats"] = 0
     chats = bm.FakeChats(app, bundle, agent)  # the test agent on the app's daemon, and its socket
     app_socket = chats.env["ACPMUX_SOCKET"]
-    streaming_left = counts["streaming"]
+    split = min(counts.get("split") or 0, counts["streaming"])
+    streaming_left = counts["streaming"] - split  # `split` of the streams are the split workspace's chats
     try:
         made = [s for s in (peer.new_chat(f"remote chat {i}") for i in range(counts["remote"])) if s]
         rpc(app_socket, "_acpmux/peer_add", peer.entry, timeout=120)
@@ -343,7 +395,8 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
                 opened.append((own, mirrored))
         reached["remote_chats"] = len(opened)
         # One opened remote chat streams on its own machine (the app mirrors it); the rest stream here.
-        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"]):
+        if streaming_left and opened and stream([peer.binary], peer.env, opened[0][0], stream_s, counts["rate"], counts.get("chunk") or 0,
+                                                     counts.get("title") or 0, counts.get("title_rate") or 0):
             reached["streaming"] += 1
             streaming_left -= 1
     except (OSError, RuntimeError, subprocess.SubprocessError) as error:
@@ -356,11 +409,23 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
         if not workspace:
             continue
         reached["local_chats"] += 1
-        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"]):
+        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"], counts.get("chunk") or 0,
+                                                     counts.get("title") or 0, counts.get("title_rate") or 0):
             reached["streaming"] += 1
             streaming_left -= 1
         elif first_idle is None:
             first_idle = workspace
+    # Stored idle chats (no agent process), each in its own workspace and shown once.
+    if counts.get("pin"):
+        reached["pinned_chats"] = 0
+    for index, session in enumerate(counts.get("seeded") or []):
+        workspace = open_workspace(app, session)
+        if workspace:
+            reached["seeded_chats"] += 1
+        if workspace and index < (counts.get("pin") or 0) and pin_chat(app, workspace):
+            reached["pinned_chats"] += 1
+        if (index + 1) % 25 == 0:
+            safe_print(f"   seeded chats: {reached['seeded_chats']}/{index + 1} opened", flush=True)
     # Browser tabs in a workspace of their own, each shown once (a Chromium page loads when first shown).
     app.run("workspace.newAtBottom")
     app.run("workspace.selectLast")
@@ -381,6 +446,29 @@ def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, 
     for key, action in (("home", "home.tab"), ("new_tab_page", "newTab.page")):
         response = app.run(action)
         reached[key] = not (response.get("error") or response.get("code"))
-    if first_idle:
+    if split:
+        # `split` streaming chats side by side in split panes of one workspace, the window's shown view.
+        app.run("workspace.newAtBottom")
+        app.run("workspace.selectLast")
+        reached["split_chats"] = 0
+        for i in range(split):
+            if i:
+                app.run("splitRight")
+            session = new_session(app.cli_path, chats.env, f"split chat {i}")
+            if not session:
+                continue
+            opened = app.action("agent.openSessionTab", session=session, focus=True)
+            if opened.get("error"):
+                print(f"   agent.openSessionTab {session}: {opened['error']}", file=sys.stderr)
+                continue
+            reached["split_chats"] += 1
+            if stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"], counts.get("chunk") or 0,
+                      counts.get("title") or 0, counts.get("title_rate") or 0):
+                reached["streaming"] += 1
+        reached["shown"] = "split"
+    elif counts.get("show") == "newtab":
+        reached["shown"] = "newtab"  # the window stays on the New Tab page (its workspace is the last one)
+    elif first_idle:
         app.action("goToWorkspace", workspace=first_idle)
+        reached["shown"] = "chat"
     return reached
