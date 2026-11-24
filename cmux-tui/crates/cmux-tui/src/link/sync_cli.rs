@@ -882,7 +882,7 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
         // A per-file pull with a conflict applied the rest and says `"ok":false`.
         Ok(pull::Pulled::Done(summary)) => {
             println!("{summary}");
-            return if summary["ok"] == json!(false) { 1 } else { 0 };
+            return if summary.get("ok") == Some(&json!(false)) { 1 } else { 0 };
         }
         Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(

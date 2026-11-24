@@ -490,13 +490,13 @@ fn pull_based(
         "fast_forwarded_repositories": fast_forwarded,
         "manifest_saved": saved,
     });
-    if per_file {
-        answer["written_files"] = json!(written_files);
-        answer["deleted_files"] = json!(deleted_files);
-        answer["unchanged_files"] = json!(unchanged_files);
-        answer["conflicted_files"] = json!(conflicts);
-        answer["merge_files"] = json!(merge_files);
-        answer["kept_refs"] = json!(kept_refs);
+    if per_file && let Some(fields) = answer.as_object_mut() {
+        fields.insert("written_files".into(), json!(written_files));
+        fields.insert("deleted_files".into(), json!(deleted_files));
+        fields.insert("unchanged_files".into(), json!(unchanged_files));
+        fields.insert("conflicted_files".into(), json!(conflicts));
+        fields.insert("merge_files".into(), json!(merge_files));
+        fields.insert("kept_refs".into(), json!(kept_refs));
         if !conflicts.is_empty() {
             let mut error = format!(
                 "{} changed both here and on the machine: each keeps this Mac's version, with \
@@ -506,10 +506,10 @@ fn pull_based(
             if !reasons.is_empty() {
                 error = format!("{error} ({})", reasons.join("; "));
             }
-            answer["ok"] = json!(false);
-            answer["error"] = json!(error);
-            answer["error_code"] = json!("sync_conflict");
-            answer["conflicts"] = json!(conflicts);
+            fields.insert("ok".into(), json!(false));
+            fields.insert("error".into(), json!(error));
+            fields.insert("error_code".into(), json!("sync_conflict"));
+            fields.insert("conflicts".into(), json!(conflicts));
         }
     }
     Ok(Pulled::Done(answer))
