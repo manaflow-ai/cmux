@@ -173,7 +173,7 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
 // like the CSS tokens, so first placement does not jump when rows are measured. A one-line tool row does
 // not: `--cv-tool-row-height` is 22px at every Interface Size, and Chromium and WebKit draw a run of two
 // shell calls as two 22 px rows at Interface Size 1 and at 1.25 alike (review of #46650).
-test("estimated grid rows follow the Interface Size; tool rows keep their drawn 22 px", () => {
+test("estimated grid rows follow the Interface Size; tool rows keep their drawn line height", () => {
   const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
@@ -210,7 +210,7 @@ test("estimated grid rows follow the Interface Size; tool rows keep their drawn 
       expect(atLarger).toBeCloseTo(atOne * factor, 5);
     }
     scale = "1.25";
-    expect(layoutConversation(run, 720).heights[0]).toBe(2 * 22);
+    expect(layoutConversation(run, 720).heights[0]).toBe(2 * TRANSCRIPT_LINE_ROW);
   } finally {
     if (saved.document === undefined) delete g.document;
     else g.document = saved.document;

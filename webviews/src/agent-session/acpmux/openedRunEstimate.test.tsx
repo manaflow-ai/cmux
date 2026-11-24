@@ -135,10 +135,10 @@ test("an opened edits group is estimated at its files' diff cards, not its close
     edit("e1", "/src/retry.ts", "export const a = 1;\n", "export const a = 2;\nexport const b = 3;\n"),
     edit("e2", "/src/policy.ts", "export const c = 1;\n", "export const c = 2;\n"),
   ]);
-  expect(estimate(row, "opened-edits")).toBe(22);
+  expect(estimate(row, "opened-edits")).toBe(LINE);
   await setLine("opened-edits", keyOf(row), true);
   // "Edited 2 files" opened: its line, the fold's 4px, and per file its card's 4px and 8px margins, 32px
   // head and 18px rows (3, then 2) over the 6px scrollbar lane WebKit keeps (no CSS here: WebKit's).
-  // Before, 22: the rows under it were placed 194px too high (drawn 216 in WebKit).
-  expect(estimate(row, "opened-edits")).toBe(22 + 4 + (4 + 32 + 3 * 18 + 6 + 8) + (4 + 32 + 2 * 18 + 6 + 8));
+  // Before, its closed line alone: the rows under it were placed 194px too high (drawn 216 in WebKit).
+  expect(estimate(row, "opened-edits")).toBe(LINE + 4 + (4 + 32 + 3 * 18 + 6 + 8) + (4 + 32 + 2 * 18 + 6 + 8));
 });
