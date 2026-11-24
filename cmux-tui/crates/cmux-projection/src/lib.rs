@@ -16,6 +16,7 @@ pub mod git;
 pub mod git_swap;
 pub mod layer;
 pub mod link;
+pub mod lower;
 pub mod manifest;
 #[cfg(target_os = "linux")]
 pub mod overlay;
@@ -25,6 +26,7 @@ pub mod reap;
 pub mod revision;
 #[cfg(any(target_os = "linux", test))]
 pub mod sparse;
+pub mod s3;
 #[cfg(unix)]
 pub mod state;
 pub mod store_fetch;
