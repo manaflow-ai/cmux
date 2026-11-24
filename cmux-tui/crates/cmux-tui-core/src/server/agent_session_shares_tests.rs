@@ -138,6 +138,7 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
                     name: "Theo".into(),
                     attempt_id: attempt.into(),
                     account: None,
+                    team_id: None,
                     avatar_url: None,
                 };
                 (attempt, mux.control_clients.agent_sessions.link_shares.redeem(None, redeem))
@@ -347,7 +348,14 @@ fn a_provisioning_share_arms_its_expiry_timer() {
             None,
             SESSION.into(),
             1,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
+            ShareTerms {
+                ttl_secs: 60,
+                uses: 1,
+                create_id: None,
+                role: None,
+                signed_in_role: None,
+                team_id: None,
+            },
             true,
         )
         .unwrap()["expires_at"]
@@ -381,6 +389,7 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
                 create_id: None,
                 role: None,
                 signed_in_role: None,
+                team_id: None,
             },
             false,
         )
@@ -395,6 +404,7 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
                 name: "Ann".into(),
                 attempt_id: attempt.into(),
                 account: None,
+                team_id: None,
                 avatar_url: None,
             },
         )
@@ -762,6 +772,7 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
                 create_id: None,
                 role: None,
                 signed_in_role: None,
+                team_id: None,
             },
             false,
         )
@@ -786,6 +797,7 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
             name: "Ann".into(),
             attempt_id: "a1".into(),
             account: Some("ann@example.com".into()),
+            team_id: None,
             avatar_url: None,
         },
     );
@@ -801,8 +813,14 @@ fn an_invite_and_the_list_carry_the_invite_link() {
     std::fs::create_dir_all(&directory).unwrap();
     let dir = Some(directory.as_path());
     let registry = LinkShares::default();
-    let terms =
-        ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None, signed_in_role: None };
+    let terms = ShareTerms {
+        ttl_secs: 3600,
+        uses: 1,
+        create_id: None,
+        role: None,
+        signed_in_role: None,
+        team_id: None,
+    };
     let created = registry.insert(dir, SESSION.into(), 1, terms, false).unwrap();
     let share_id = created["share_id"].as_str().unwrap().to_owned();
     let invite =
@@ -844,6 +862,7 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
         create_id: None,
         role: None,
         signed_in_role: None,
+        team_id: None,
     };
     let mut refused = false;
     'fill: for index in 0..MAX_SHARES {
@@ -879,6 +898,7 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
                     name: "n".repeat(64),
                     attempt_id: format!("{a}-{g}-{}", "y".repeat(100)),
                     account: Some(account.clone()),
+                    team_id: None,
                     avatar_url: None,
                 };
                 if let Err(code) = shares.redeem(dir, redeem) {
@@ -920,7 +940,126 @@ fn scratch(name: &str) -> std::path::PathBuf {
 }
 
 fn terms() -> ShareTerms {
-    ShareTerms { ttl_secs: 3600, uses: 1, create_id: None, role: None, signed_in_role: None }
+    ShareTerms {
+        ttl_secs: 3600,
+        uses: 1,
+        create_id: None,
+        role: None,
+        signed_in_role: None,
+        team_id: None,
+    }
+}
+
+fn team_terms(team_id: &str, role: Option<Role>) -> ShareTerms {
+    ShareTerms {
+        ttl_secs: 3600,
+        uses: 1,
+        create_id: None,
+        role,
+        signed_in_role: None,
+        team_id: Some(team_id.to_owned()),
+    }
+}
+
+#[test]
+fn team_access_requires_the_room_attestation_and_rechecks_retries() {
+    let directory = scratch("shares-team-access");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let team = "team_0123456789abcdef0123";
+    let share = shares.insert(dir, SESSION.into(), 1, team_terms(team, None), false).unwrap();
+    assert_eq!(share["team_id"], team);
+    assert!(share.get("secret").is_none(), "team links are secretless");
+
+    let deny = |account: Option<&str>, attested: Option<&str>, attempt: &str| {
+        shares.redeem(
+            dir,
+            Redeem {
+                share_id: share["share_id"].as_str().unwrap().into(),
+                secret: String::new(),
+                name: "Member".into(),
+                attempt_id: attempt.into(),
+                account: account.map(str::to_owned),
+                team_id: attested.map(str::to_owned),
+                avatar_url: None,
+            },
+        )
+    };
+    assert_eq!(deny(None, Some(team), "anonymous"), Err("share.not_invited"));
+    assert_eq!(
+        deny(Some("member@example.com"), Some("team_other"), "wrong"),
+        Err("share.not_invited")
+    );
+    let joined = deny(Some("member@example.com"), Some(team), "retry").unwrap();
+    assert_eq!(joined["role"], "view", "team access defaults to view");
+    let shown = shares.with(dir, |all, _| Ok((all[0].shown(shares.now()), false))).unwrap();
+    assert_eq!(shown["guests"][0]["via"], "team");
+    assert_eq!(shares.with(dir, |all, _| Ok((all[0].uses_left, false))).unwrap(), 1);
+    // The same attempt cannot reuse an existing team guest after its attestation changes.
+    assert_eq!(
+        deny(Some("member@example.com"), Some("team_other"), "retry"),
+        Err("share.not_invited")
+    );
+    assert_eq!(
+        deny(Some("member@example.com"), Some(team), "retry").unwrap()["guest_id"],
+        joined["guest_id"]
+    );
+
+    for index in 2..=4 {
+        assert!(deny(Some("member@example.com"), Some(team), &format!("device-{index}")).is_ok());
+    }
+    assert_eq!(deny(Some("member@example.com"), Some(team), "device-5"), Err("share.used"));
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn an_invitation_overrides_team_access_and_removed_members_stay_removed() {
+    let directory = scratch("shares-team-invite");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let team = "team_0123456789abcdef0123";
+    let share =
+        shares.insert(dir, SESSION.into(), 1, team_terms(team, Some(Role::View)), false).unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    let account = "member@example.com";
+    shares
+        .invite(
+            dir,
+            &Invite { share_id: share_id.clone(), account: account.into(), role: Some(Role::Talk) },
+        )
+        .unwrap();
+    let invited = shares
+        .redeem(
+            dir,
+            Redeem {
+                share_id: share_id.clone(),
+                secret: String::new(),
+                name: "Member".into(),
+                attempt_id: "invited".into(),
+                account: Some(account.into()),
+                team_id: Some("team_wrong".into()),
+                avatar_url: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(invited["role"], "talk");
+    shares
+        .uninvite(dir, &Uninvite { share_id: share_id.clone(), account: account.into() })
+        .unwrap();
+    let removed = shares.redeem(
+        dir,
+        Redeem {
+            share_id,
+            secret: String::new(),
+            name: "Member".into(),
+            attempt_id: "after-remove".into(),
+            account: Some(account.into()),
+            team_id: Some(team.into()),
+            avatar_url: None,
+        },
+    );
+    assert_eq!(removed, Err("share.kicked"));
+    let _ = std::fs::remove_dir_all(directory);
 }
 
 /// A create whose new share does not fit goes on once the ended shares it may drop are gone, even
@@ -996,6 +1135,7 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
                 name: "n".repeat(64),
                 attempt_id: format!("{a}-{}", "y".repeat(100)),
                 account: Some(account),
+                team_id: None,
                 avatar_url: None,
             };
             if let Err(code) = shares.redeem(dir, redeem) {
@@ -1362,6 +1502,7 @@ fn a_link_shares_role_survives_a_restart_and_old_files_have_none() {
                 name: "Ann".into(),
                 attempt_id: "a1".into(),
                 account: None,
+                team_id: None,
                 avatar_url: None,
             },
         )
@@ -1402,6 +1543,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
         create_id: None,
         role: Some(Role::View),
         signed_in_role: None,
+        team_id: None,
     };
     let share = shares.insert(dir, "acp_view".into(), 1, view, false).unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
@@ -1413,6 +1555,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
             name: "n".repeat(64),
             attempt_id: attempt,
             account: None,
+            team_id: None,
             avatar_url: None,
         };
         shares.redeem(dir, redeem)
@@ -1506,6 +1649,7 @@ fn join_until(mux: &Mux, share: &Value, done: impl Fn(&[LinkShare]) -> bool) {
             name: "n".repeat(64),
             attempt_id: format!("fill-{i}-{}", "y".repeat(100)),
             account: None,
+            team_id: None,
             avatar_url: None,
         };
         shares.redeem(directory.as_deref(), redeem).unwrap();
@@ -1721,6 +1865,7 @@ fn a_signed_in_link_guest_is_forgotten_once_gone_and_an_invitee_is_not() {
                 name: "Guest".into(),
                 attempt_id: attempt.into(),
                 account: Some(account.into()),
+                team_id: None,
                 avatar_url: Some("https://lh3.example.com/a.png".into()),
             },
         )
@@ -1756,6 +1901,7 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
         create_id: None,
         role: Some(Role::Talk),
         signed_in_role: None,
+        team_id: None,
     };
     let share = shares.insert(dir, "acp_fit".into(), 1, talk, false).unwrap();
     let share_id = share["share_id"].as_str().unwrap().to_owned();
@@ -1772,6 +1918,8 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
                 attempt_id: attempt,
                 account,
                 avatar_url,
+
+                team_id: None,
             },
         )
     };
@@ -1881,6 +2029,7 @@ fn a_link_join_recorded_before_the_upgrade_is_found_again() {
         name: "Sam".into(),
         attempt_id: "s1".into(),
         account: account.map(str::to_owned),
+        team_id: None,
         avatar_url: None,
     };
     // As the older daemon kept it: the account dropped.
