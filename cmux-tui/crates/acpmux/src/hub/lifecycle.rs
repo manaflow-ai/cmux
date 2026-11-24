@@ -1067,12 +1067,16 @@ impl Hub {
             // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
             // state on the stack its caller polls it on.
             let started = Box::pin(self.cold_start(session, profile, stops, off));
-            // The person's start has no deadline, one that asked to wait on its harness ends when
-            // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
+            // The person's start has no deadline, but it ends when its harness stops working
+            // (`StartWatch`: no CPU, no page read, no process started for `START_HUNG`), as one
+            // that asked to wait on its harness does; an agent's or a lane's has a deadline.
+            // Leo, 2026-11-24: "these endless freezes, these soft locks": a harness alive but
+            // silent held the person's chat on "starting" until they pressed Stop.
             let waited = async {
-                if session.person.load(Ordering::SeqCst) {
-                    self.waiting_start(session, budget, started, None).await
-                } else if session.wait_start.load(Ordering::SeqCst) {
+                if super::start_watch::watches_harness(
+                    session.person.load(Ordering::SeqCst),
+                    session.wait_start.load(Ordering::SeqCst),
+                ) {
                     self.waiting_start(session, budget, started, Some(StartWatch::default())).await
                 } else {
                     tokio::time::timeout(budget, started).await.ok()
@@ -1104,8 +1108,10 @@ impl Hub {
             // A start that waits on its harness ends with None only when its harness did no work
             // for `START_HUNG` (`StartWatch`): said apart from a missed deadline, so its caller
             // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
-            let hung =
-                !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
+            let hung = super::start_watch::watches_harness(
+                session.person.load(Ordering::SeqCst),
+                session.wait_start.load(Ordering::SeqCst),
+            );
             // A policy refusal is no start failure: the same agent would be refused again.
             let refused = failed.as_ref().is_some_and(|e| {
                 e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
@@ -1177,10 +1183,11 @@ impl Hub {
         }
     }
 
-    /// The person's agent start (`Session::person`) has no deadline: a loaded host may take
+    /// The person's agent start (`Session::person`) has no time deadline: a loaded host may take
     /// minutes, and Leo: "I TSHOULDN'T FUCKING MATTER IF MY COMPUTER IS LOADED" / "I SHOULD BE
-    /// ALWAYS ABLE TO SATRT NEW FUCKGN CHATS". It ends only as the start does: answered, or failed
-    /// because its harness exited, its spawn failed or a stop ended it. Every `START_PROGRESS`
+    /// ALWAYS ABLE TO SATRT NEW FUCKGN CHATS". It ends as the start does: answered, or failed
+    /// because its harness exited, its spawn failed or a stop ended it; or when its harness did no
+    /// work at all for `START_HUNG` (`StartWatch`), which a loaded host never causes. Every `START_PROGRESS`
     /// (sooner when `agentStartTimeoutMs` is shorter) its log says it is still starting
     /// (`agent_start_waiting`, `waitedMs`), so the app can show that the host is busy. An agent's
     /// or a lane's start keeps `agentStartTimeoutMs` (cx-m5up).

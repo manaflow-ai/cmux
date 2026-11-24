@@ -52,6 +52,14 @@ impl StartWatch {
     }
 }
 
+/// Whether a start is watched for a harness that stopped working (`StartWatch`): the person's
+/// start (which has no time deadline, so a silent harness would otherwise hold their chat on
+/// "starting" until they press Stop) and one whose creator asked to wait on its harness. An
+/// agent's or a lane's other start keeps its deadline instead.
+pub(super) fn watches_harness(person: bool, wait_start: bool) -> bool {
+    person || wait_start
+}
+
 #[cfg(test)]
 #[path = "start_watch_tests.rs"]
 mod start_watch_tests;
