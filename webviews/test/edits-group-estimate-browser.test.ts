@@ -16,6 +16,8 @@
 // `--cmux-chat-text-scale`, then `cmux-ui-scale-change`).
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// Chromium keeps its scrollbars (Playwright's headless default hides them, which no engine the chat runs in
+// does), so an unwrapped card's sideways scrollbar takes its lane as it does in the app.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
@@ -25,13 +27,15 @@ import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("edits-group-estimate-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
+  const launchOptions = (name: string) =>
+    name === "chromium" ? { headless: true, ignoreDefaultArgs: ["--hide-scrollbars"] } : { headless: true };
   const engines: [string, BrowserType][] = [];
   for (const engine of [
     ["chromium", chromium],
     ["webkit", webkit],
   ] as [string, BrowserType][]) {
     try {
-      await (await engine[1].launch({ headless: true })).close();
+      await (await engine[1].launch(launchOptions(engine[0]))).close();
       engines.push(engine);
     } catch {
       console.warn(
@@ -56,7 +60,7 @@ await requireBrowserLane("edits-group-estimate-browser.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/test/browser/transcript-follow.html");
-    for (const [name, type] of engines) browsers.set(name, await type.launch({ headless: true }));
+    for (const [name, type] of engines) browsers.set(name, await type.launch(launchOptions(name)));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();

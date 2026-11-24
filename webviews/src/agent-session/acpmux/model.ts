@@ -2250,12 +2250,12 @@ function editDiffHeight(file: TurnFile, width: number): number {
   return box.margins + box.head + body;
 }
 
-/// A wrapped diff row's room in monospace cells (a cell is 0.602 of the code's size, Menlo's and SF Mono's advance): the card's width less
+/// A wrapped diff row's room in monospace cells (a cell is `monoAdvance()` of the code's size): the card's width less
 /// Pierre's number column (its digits, 4 at least, 3ch of padding and a 2px divider; EditDiffLoading.tsx draws the
 /// same) or, unnumbered, its 6px indicator lane, then the row's 1ch end padding and its hanging indent: 2ch on its
 /// first line, 4ch under it (sideways.ts PIERRE_BLOCK_CSS).
 function wrapRoom(edit: TurnFile["edits"][number], card: number, code: number): { first: number; rest: number } {
-  const cell = code * 0.602;
+  const cell = code * monoAdvance();
   let digits = 4;
   for (const hunk of edit.hunks)
     for (const line of hunk.lines)
@@ -2263,6 +2263,35 @@ function wrapRoom(edit: TurnFile["edits"][number], card: number, code: number): 
   const lead = edit.numbered ? (digits + 3) * cell + 2 : 6;
   const cells = (card - lead) / cell - 1;
   return { first: Math.max(8, Math.floor(cells - 2)), rest: Math.max(8, Math.floor(cells - 4)) };
+}
+
+/// A monospace cell's width per px of size, in the face the chat's code draws in (`--cv-mono`, or the chat's own
+/// code font, chatDisplay.ts): read once per code font from a probe the page lays out, so a wrapped diff's rows
+/// break where the engine's face breaks them (Menlo and SF Mono are 0.602; a face with another advance moves a
+/// long line's wrap by a row). 0.602 where nothing lays out or the font is still loading (not kept then).
+const MONO_ADVANCE = 0.602;
+const monoAdvanceRead = new Map<string, number>();
+function monoAdvance(): number {
+  const display = chatDisplay();
+  const key = display.codeFamily ?? "";
+  const known = monoAdvanceRead.get(key);
+  if (known !== undefined) return known;
+  if (typeof document === "undefined" || !document.body) return MONO_ADVANCE;
+  const family = chatDisplayVariables(display)["--cv-mono"] ?? "var(--cv-mono)";
+  const probe = document.createElement("span");
+  probe.style.cssText = "position:absolute;left:-10000px;top:0;visibility:hidden;white-space:pre;font-size:100px";
+  probe.style.fontFamily = family;
+  probe.textContent = "0".repeat(50);
+  document.body.append(probe);
+  const width = probe.getBoundingClientRect().width;
+  probe.remove();
+  const styled =
+    (document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--cv-mono").trim() ?? "") !==
+    "";
+  if (!styled || !(width > 0) || document.fonts?.status === "loading") return MONO_ADVANCE;
+  const advance = width / 5_000;
+  monoAdvanceRead.set(key, advance);
+  return advance;
 }
 
 /// How many lines `text` takes wrapped as `pre-wrap` with `break-word` does: whole words while they fit, a word
@@ -4596,6 +4625,7 @@ import {
   chatCodeBlock,
   chatDensityTextScale,
   chatDisplay,
+  chatDisplayVariables,
   currentChatMetrics,
   type ChatMetrics,
   drawnFontSize,
