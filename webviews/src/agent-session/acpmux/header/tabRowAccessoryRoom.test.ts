@@ -19,6 +19,6 @@ test("the tabs' free room caps the summary", () => {
 });
 
 test("the limit never widens past the half of the row", () => {
-  const fit = tabRowToolsFit(100, 0, 500, 10_000);
-  expect(fit.room).toBe(Math.floor(250 - fit.need));
+  const fit = tabRowToolsFit(100, 0, 800, 10_000);
+  expect(fit.room).toBe(Math.floor(400 - fit.need));
 });
