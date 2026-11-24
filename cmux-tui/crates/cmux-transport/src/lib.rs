@@ -13,6 +13,8 @@
 //! - [`stun`]: RFC 5389 binding requests and responses, for the reflexive
 //!   address candidate.
 //! - [`relay_frame`]: the binary frame the Durable Object relay forwards.
+//! - [`hub`], [`hub_truth`]: the three-way hub's frame, seal, relay rule
+//!   and the viewer's truth tracker (RFD 0142 R6).
 //! - [`probe`]: path probes carried inside the WireGuard session.
 //! - [`candidates`]: the addresses a peer advertises inside the session.
 //! - [`medium`]: what a direct path physically rides (Thunderbolt, LAN, routed).
@@ -23,6 +25,8 @@
 
 pub mod candidates;
 pub mod classify;
+pub mod hub;
+pub mod hub_truth;
 pub mod medium;
 pub mod path;
 pub mod probe;

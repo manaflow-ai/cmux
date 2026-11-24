@@ -627,6 +627,9 @@ pub struct Translator {
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
+    pub(crate) stop_condition: AtomicBool,
+    /// Present only when this launch included cmux's local session plugin.
+    pub(crate) plugin_hook_home: std::sync::OnceLock<std::path::PathBuf>,
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
@@ -834,6 +837,8 @@ impl Translator {
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
+            plugin_hook_home: Default::default(),
+            stop_condition: AtomicBool::new(false),
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
