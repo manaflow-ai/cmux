@@ -27,6 +27,7 @@ pub mod desktop;
 pub mod detach;
 pub mod entry;
 pub mod errors;
+pub mod fetch;
 pub mod forum;
 pub mod gh_shim;
 pub mod group;
