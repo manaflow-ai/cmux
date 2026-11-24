@@ -102,9 +102,18 @@ class Turn:
                                      stdout=subprocess.PIPE, stderr=self.errors,
                                      start_new_session=True)
 
+    def _group(self, sig):
+        """The agent's own process group at once; listing every process (for a tool's shell in
+        a group of its own) takes a moment on a busy machine."""
+        try:
+            os.killpg(self.proc.pid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
     def stop(self):
         if not self.stopped:
             self.stopped = True
+            self._group(signal.SIGSTOP)
             signal_tree(self.proc.pid, signal.SIGSTOP)
 
     def cont(self):
@@ -115,6 +124,7 @@ class Turn:
     def kill(self):
         self.killed = True
         pids = tree(self.proc.pid)
+        self._group(signal.SIGKILL)
         for p in pids:
             try:
                 os.kill(p, signal.SIGKILL)

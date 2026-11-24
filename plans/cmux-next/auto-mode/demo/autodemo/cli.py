@@ -339,7 +339,7 @@ def cmd_new(args):
 
 # ---- the laptop ----
 
-HELP = "/away  act out no network    /back  network again    /keep on|off    /off  Auto off    /quit"
+HELP = "/away  act out no network    /back  network again    /keep on|off    /off  /on  Auto off, on    /quit"
 
 
 def cmd_chat(args):
@@ -385,6 +385,9 @@ def cmd_chat(args):
                     ui.note("Auto is off: the chat runs only here")
                 except (Offline, Refused) as error:
                     ui.note(str(error))
+            elif text == "/on":
+                chat.turn_on()
+                ui.note("Auto on")
             elif text == "/status":
                 ui.note(chat.status_line())
             elif text.startswith("/"):
@@ -450,3 +453,5 @@ def main(argv=None):
         return args.fn(args) or 0
     except Offline as error:
         sys.exit("the store did not answer: %s" % error)
+    except Refused as refused:
+        sys.exit(str(refused))

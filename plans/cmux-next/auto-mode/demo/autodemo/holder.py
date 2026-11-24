@@ -61,6 +61,7 @@ class Chat:
         # What is not.
         self.mode = "registering"
         self.stopped = False
+        self.stop_why = ""
         self.turn = None
         self.running = None
         self.pending = []
@@ -211,6 +212,13 @@ class Chat:
             self.mode = "off"
         return answer
 
+    def turn_on(self):
+        """Auto on again for a chat it was turned off for."""
+        with self.lock:
+            if self.mode == "off":
+                self.mode = "registering"
+        self.wake.set()
+
     # ---- threads ----
 
     def start(self):
@@ -270,18 +278,24 @@ class Chat:
             wall2, mono2 = time.time(), time.monotonic()
             gap = max(wall2 - wall, mono2 - mono)
             wall, mono = wall2, mono2
-            if gap > 2.0 and self.mode == "holding":
+            if self.mode != "holding":
+                continue
+            if gap > 2.0:
                 self._freeze("this laptop was asleep for %ds" % gap)
                 self.wake.set()
+            elif mono2 - self.last_answer > self.timing["self_stop_ms"] / 1000.0:
+                # Not left to the renewal: a call that hangs would keep the agent running
+                # past the moment the Cloud may start the same chat.
+                self._freeze("no answer from the Cloud for %ds" % (mono2 - self.last_answer))
 
     def _freeze(self, why):
         with self.lock:
             if self.stopped:
                 return
             self.stopped = True
-            turn = self.turn
-        if turn is not None:
-            turn.stop()
+            self.stop_why = why
+            if self.turn is not None:
+                self.turn.stop()
         self.ui.note("%s: the agent is stopped until the Cloud answers" % why)
 
     def _unfreeze(self):
@@ -289,9 +303,8 @@ class Chat:
             if not self.stopped:
                 return
             self.stopped = False
-            turn = self.turn
-        if turn is not None:
-            turn.cont()
+            if self.turn is not None:
+                self.turn.cont()
         self.work.set()
         self.dirty.set()
 
@@ -316,8 +329,9 @@ class Chat:
             elif refused.code != "not_found" or os.environ.get("AUTO_DEBUG"):
                 self.ui.note("the Cloud refused: %s" % refused)
 
-    def _answered(self, answer):
-        self.last_answer = time.monotonic()
+    def _answered(self, answer, began=None):
+        # The store's lease runs from when it got the call, not from when its answer came.
+        self.last_answer = began if began is not None else time.monotonic()
         if answer.get("timing"):
             self.timing = answer["timing"]
         if answer.get("chat"):
@@ -351,9 +365,14 @@ class Chat:
         self.wake.set()
 
     def _renew_holding(self):
-        needs_run = self.turn is not None or bool(self.pending) or self.open_turn is not None
-        answer = self.client.lease(self.id, self.me, self.epoch, needs_run)
-        self._answered(answer)
+        # A turn whose last events have not reached the store is still work: the chat must
+        # not be handed on without them.
+        needs_run = (self.running is not None or self.turn is not None or bool(self.pending)
+                     or self.open_turn is not None or self.sent_seq < self.seq)
+        began = time.monotonic()
+        answer = self.client.lease(self.id, self.me, self.epoch, needs_run,
+                                   timeout=max(2.0, self.timing["self_stop_ms"] / 2000.0))
+        self._answered(answer, began)
         if answer["role"] != "holder":
             return self._lose(answer["chat"])
         view = answer["chat"]
@@ -393,11 +412,10 @@ class Chat:
         with self.lock:
             was = self.mode
             self.mode = "off"
-            turn = self.turn
+        # Nobody else can run the chat now: what was stopped here goes on.
+        self._unfreeze()
         if was != "off":
-            if turn is not None and self.stopped:
-                turn.kill()
-            self.ui.note("Auto is off for this chat")
+            self.ui.note("Auto is off for this chat: it runs only here")
 
     def _lose(self, view):
         """Another holder has the chat. Kill what runs here, keep what it wrote after the last
@@ -555,7 +573,7 @@ class Chat:
         ok, error = True, None
         for ev in turn.events():
             if ev[0] == "delta":
-                if self.mode == "holding":
+                if self.mode in ("holding", "off"):
                     self.ui.delta(ev[1])
             elif ev[0] == "text":
                 self.emit("text", text=ev[1], render=not ev[2])
@@ -737,7 +755,7 @@ class Chat:
         waited = time.monotonic() - self.last_answer
         if self.mode == "holding":
             if self.stopped:
-                return "Auto  ||  no answer from the Cloud for %ds: agent stopped" % waited
+                return "Auto  ||  %s: agent stopped until the Cloud answers" % (self.stop_why or "no answer")
             lease = self.timing["lease_ms"] / 1000.0
             left = max(0, int(lease - waited))
             copy = ("copy #%d" % self.snapshot) if self.snapshot else "no copy yet"

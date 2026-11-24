@@ -87,6 +87,13 @@ class Store:
             return
         self.chats = state.get("chats", {})
         self.machine = state.get("machine")
+        # No holder could renew while the store was down: each gets a whole lease from now.
+        now = self.clock()
+        for r in self.chats.values():
+            if r.get("auto") and r.get("holder") != PARKED:
+                r["lease_expires"] = max(r.get("lease_expires", 0), now + self.lease_ms)
+        if self.machine:
+            self.machine["seen_at"] = max(self.machine.get("seen_at", 0), now)
 
     def _save(self):
         tmp = self._state_path() + ".tmp"
@@ -368,6 +375,8 @@ class Store:
 
     def keep(self, chat_id, keep):
         r = self._chat(chat_id)
+        if not r["auto"]:
+            raise Refused(409, "closed", "Auto is off for this chat", chat=self.view(r))
         if r["keep_in_cloud"] != bool(keep):
             r["keep_in_cloud"] = bool(keep)
             self._changed(r)

@@ -73,7 +73,7 @@ From any other device with the same `login`:
 ```
 
 In a chat: `/away` acts out a laptop with no network, `/back` ends it, `/keep on|off`, `/off`,
-`/status`, `/quit`. Closing the lid, or quitting in the middle of a turn, is the real thing: the
+`/on`, `/status`, `/quit`. Closing the lid, or quitting in the middle of a turn, is the real thing: the
 Cloud continues once the lease runs out (15 s here; the product uses 45 s).
 
 ## Test it
@@ -81,7 +81,7 @@ Cloud continues once the lease runs out (15 s here; the product uses 45 s).
 ```
 python3 tests/journey.py                          # scripted agent, about 20 s
 AUTO_TEST_AGENT=claude python3 tests/journey.py   # real Claude Code on both sides, about 3 min
-python3 tests/scenarios.py                        # the other ways a laptop goes away
+python3 tests/scenarios.py -j 3                   # 20 other ways a laptop goes away, about 4 min
 ```
 
 The journey runs a store, a machine and a laptop as three processes with their own homes:
@@ -148,6 +148,19 @@ did. Each is worth checking in the product's build of Auto mode.
 9. **Under a loaded machine, calls to the store took seconds** (5 s timeouts on a Mac at load
    100). The lease times have to carry that: a 4 s lease flaps, 15 s holds.
 
+10. **The self-stop cannot wait behind the renewal.** With the stop decided when a renewal
+    fails, a call that hung (no answer at all, rather than a refused connection) kept the
+    laptop's agent running up to 3.5 s after the Cloud had the chat. The stop has its own clock
+    here, the lease is counted from when the call left, and the agent's process group is
+    stopped before the slower walk for a tool's shell in a group of its own.
+11. **A store that was down must not read the gap as everybody's lease running out.** After a
+    6 s restart the first alarm gave a working laptop's chat to the machine. Each holder gets a
+    whole lease from the store's start.
+12. **A turn's end must be in the store before the chat can go home.** A holder that says
+    "nothing to run" as soon as its agent exits, with the turn's last events unsent, can have
+    the chat handed on without them, and the next holder runs the turn again. Unsent events
+    count as work here.
+
 ## What it leaves out
 
 - One store, one Auto machine, one token for everybody. No accounts, no teams.
@@ -157,6 +170,9 @@ did. Each is worth checking in the product's build of Auto mode.
   64 MB. No patch against a commit, no merge: the holder's copy wins, and the other side's late
   changes are kept in `leftover/`.
 - The agent is headless Claude Code, one process per turn, permissions skipped.
+- The store writes a chat's events before its state: a crash between the two is not handled.
+- Files the laptop made after its last copy stay in the folder when the Cloud's copy comes
+  home (a copy of them is in `leftover/` too); only files of the earlier copy are removed.
 
 ## Files
 
