@@ -239,7 +239,10 @@ async fn natpmp_answers_when_pcp_does_not_and_is_asked_first_next_time() {
     let (port, mut asked) = fake_pmp(Speaks { pcp: false, natpmp: true, external: PUBLIC }).await;
     let (_quiet, ssdp) = silent().await;
     let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
+    let started = std::time::Instant::now();
     let mapping = mapper.map(41000).await.expect("NAT-PMP maps");
+    // PCP's UNSUPP_VERSION answer ends PCP at once: no 750 ms of retries.
+    assert!(started.elapsed() < Duration::from_millis(200), "fell through at once: {:?}", started.elapsed());
     assert_eq!(mapping.protocol, "nat-pmp");
     assert_eq!(*mapping.external.borrow(), Some(SocketAddr::new(IpAddr::V4(PUBLIC), 41000)));
     let first = drain(&mut asked);
@@ -446,6 +449,12 @@ fn igd_description_and_ssdp() {
         <controlURL>http://127.0.0.1:8080/admin</controlURL></service></root>";
     assert_eq!(igd_service(elsewhere, base), None);
     assert_eq!(igd_service("<root/>", base), None);
+    // An error answer ends an exchange; a success or another opcode does not.
+    let pcp_map = [PCP_VERSION, PCP_MAP, 0, 0];
+    assert!(refused(&pcp_map, &[0, 0x80 | PCP_MAP, 0, 1]));
+    assert!(!refused(&pcp_map, &[PCP_VERSION, 0x80 | PCP_MAP, 0, 0]));
+    assert!(!refused(&pcp_map, &[0, 128, 0, 1]));
+    assert!(refused(&[0, 1], &[0, 129, 0, 3]));
     assert_eq!(
         ssdp_location("HTTP/1.1 200 OK\r\nLOCATION: http://192.168.1.1:5000/rootDesc.xml\r\n\r\n").as_deref(),
         Some("http://192.168.1.1:5000/rootDesc.xml")

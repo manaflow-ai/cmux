@@ -350,7 +350,9 @@ async fn delete(router: Router, spec: Spec) {
 }
 
 /// One UDP request to the gateway's PCP/NAT-PMP port, retried; the first
-/// answer `accept` takes.
+/// answer `accept` takes. An error answer to it (its opcode, a nonzero
+/// result code: a NAT-PMP-only router's UNSUPP_VERSION to PCP, a refused
+/// map) ends it at once, so the next protocol is not kept waiting.
 async fn exchange<T>(router: &Router, request: &[u8], accept: impl Fn(&[u8]) -> Option<T>) -> Option<T> {
     // The local address the PCP request names as its client: never a
     // wildcard socket whose source address could differ.
@@ -369,9 +371,18 @@ async fn exchange<T>(router: &Router, request: &[u8], accept: impl Fn(&[u8]) -> 
             if let Some(answer) = accept(&buffer[..len]) {
                 return Some(answer);
             }
+            if refused(request, &buffer[..len]) {
+                return None;
+            }
         }
     }
     None
+}
+
+/// An error answer to `request`: the same opcode with the answer bit, and
+/// a nonzero result code (PCP: byte 3, byte 2 reserved; NAT-PMP: bytes 2-3).
+fn refused(request: &[u8], answer: &[u8]) -> bool {
+    request.len() >= 2 && answer.len() >= 4 && answer[1] == 0x80 | request[1] && answer[2..4] != [0, 0]
 }
 
 // ---- PCP (RFC 6887) ----
