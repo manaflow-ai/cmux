@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""rivals.py (RFD 0062): the idle soak splits footprint, CPU and wakeups over the five process groups (app,
+renderer, gpu, acpmux, terminals) for every app, the report prints that table, and it says whether Safari's
+WebKit XPC processes were counted.
+Run: python3 -I scripts/perf-bench/tests/test_rivals_groups.py"""
+import contextlib, io, json, os, sys, tempfile, unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, ".."))
+import rivals  # noqa: E402  (imports procs lazily, so this runs on Linux)
+
+MACHINE = {"chip": "Apple M4", "model": "Mac16,10", "cores": 10, "ram_gb": 16, "macos": "26.1", "build": "x",
+           "host": "test"}
+
+
+def report(samples, apps):
+    out = tempfile.mkdtemp()
+    with open(os.path.join(out, "samples.jsonl"), "w") as handle:
+        for sample in samples:
+            handle.write(json.dumps(sample) + "\n")
+    with open(os.path.join(out, "meta.json"), "w") as handle:
+        json.dump({"machine": MACHINE, "args": {"rounds": 1, "warm": 3, "after": 20, "soak": 300, "sample": 10},
+                   "apps": {a: {"name": rivals.LABELS[a]} for a in apps}}, handle)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rivals.report(out, None, None)
+    return buf.getvalue()
+
+
+class Groups(unittest.TestCase):
+    def test_kinds_map_to_groups(self):
+        cases = {"main": "app", "helper": "app", "utility:NetworkService": "app", "webkit-networking": "app",
+                 "renderer": "renderer", "webkit-webcontent": "renderer", "gpu": "gpu", "webkit-gpu": "gpu",
+                 "acpmux": "acpmux", "terminal-host": "terminals", "cmux-tui": "terminals",
+                 "cmux-holder": "terminals", "crashpad_handler": "other"}
+        for kind, group in cases.items():
+            self.assertEqual(rivals.group_of(kind), group, kind)
+
+    def test_by_group_sums(self):
+        got = rivals.by_group({"main": 300.0, "renderer": 40.0, "gpu": 120.0, "terminal-host": 170.0, "acpmux": 15.0},
+                              {"main": {"n": 1, "cpu_pct": 0.2, "wakeups_per_s": 3.0},
+                               "gpu": {"n": 1, "cpu_pct": 1.5, "wakeups_per_s": 90.0},
+                               "terminal-host": {"n": 99, "cpu_pct": 0.0, "wakeups_per_s": 0.0}})
+        self.assertEqual(got["app"]["memory"], 300.0)
+        self.assertEqual(got["gpu"]["wakeups"], 90.0)
+        self.assertEqual(got["terminals"]["processes"], 99)
+        self.assertEqual(got["other"]["memory"], 0.0)
+
+    def test_report_prints_group_table_and_safari_check(self):
+        samples = [{"browser": "cmux", "round": 1, "row": "soak-processes", "value": 110},
+                   {"browser": "safari", "round": 1, "row": "soak-processes", "value": 6},
+                   {"browser": "cmux", "round": 1, "row": "soak-group-gpu-memory", "value": 140.0},
+                   {"browser": "safari", "round": 1, "row": "soak-group-gpu-memory", "value": 60.0},
+                   {"browser": "safari", "round": 1, "row": "soak-detail", "value": 2,
+                    "pids": [{"pid": 1, "kind": "main"}, {"pid": 2, "kind": "webkit-webcontent"}]}]
+        text = report(samples, ["cmux", "safari"])
+        self.assertIn("## Idle by process group", text)
+        self.assertIn("| Idle GPU: footprint, end (MB) | 140 | 60 (cmux 2.3x more) |", text)
+        self.assertNotIn("Idle acpmux", text)  # unused groups have no rows
+        self.assertIn("WebKit XPC processes (WebContent, GPU, Networking) counted: 1 in", text)
+        missing = report([s for s in samples if s["row"] != "soak-detail"], ["cmux", "safari"])
+        self.assertIn("NONE FOUND", missing)
+
+
+if __name__ == "__main__":
+    unittest.main()

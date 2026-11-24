@@ -25,6 +25,15 @@ After the last warm launch, an idle soak: --soak s in --sample s windows of foot
 wakeups/s, threads, processes and disk writes. Rows: start, end and peak footprint (the ceiling), growth
 (MB per minute, least squares over the soak), mean and peak CPU, mean wakeups.
 
+By process group (RFD 0062, hq docs/rfd/0062-ram-cpu-ceiling-and-growth.md): every soak window also splits the
+footprint, CPU and wakeups over five groups, for cmux and every rival alike: app (the app process, its CEF or
+Electron browser-side helpers and utility processes), renderer (Chromium renderers; Safari's WebKit WebContent),
+gpu (Chromium's GPU process; Safari's WebKit GPU), acpmux, terminals (cmux-tui, its holders and terminal hosts);
+anything else is "other". The soak's last window also records every process (pid, kind, group, footprint, CPU,
+wakeups) as a soak-detail sample. Safari's WebContent, GPU and Networking processes are XPC services, not
+children of Safari: procs.Instance counts them through responsibility_get_pid_responsible_for_pid, and the
+report says so when a Safari soak found no WebKit process.
+
 Apps sign in nowhere: an agent app's window is its signed-out first screen, a browser's its new tab page.
 That is what a person sees on a first launch, and the same for every app; signed-in sessions are a later row.
 
@@ -81,6 +90,43 @@ ORDER = ["cmux", "rex", "claude", "codex", "t3code", "slack", "chrome", "edge", 
 CHROMIUM = {"chrome", "edge", "helium"}
 ELECTRON = {"claude", "codex", "t3code", "slack"}
 SYSTEM = {"safari"}  # sealed system apps: no fresh copy
+GROUPS = ["app", "renderer", "gpu", "acpmux", "terminals", "other"]
+GROUP_LABELS = {"app": "app (shell + browser process, helpers, utility)", "renderer": "renderer", "gpu": "GPU",
+                "acpmux": "acpmux", "terminals": "terminals (cmux-tui, holders, terminal hosts)", "other": "other"}
+GROUP_METRICS = [("memory", "footprint, end", "MB"), ("cpu", "CPU, mean", "%"), ("wakeups", "wakeups, mean", "/s"),
+                 ("processes", "processes", "n")]
+for _group in GROUPS:
+    for _metric, _label, _unit in GROUP_METRICS:
+        ROWS.append((f"soak-group-{_group}-{_metric}", f"Idle {GROUP_LABELS[_group]}: {_label}", _unit, False))
+UNITS.update({row: unit for row, _label, unit, _summary in ROWS})
+
+
+def group_of(kind: str) -> str:
+    """The RFD 0062 process group of a procs.kind_of kind."""
+    if kind in ("renderer", "webkit-webcontent"):
+        return "renderer"
+    if kind in ("gpu", "webkit-gpu"):
+        return "gpu"
+    if kind == "acpmux" or kind.startswith("acpmux"):
+        return "acpmux"
+    if kind in ("terminal-host", "cmux-tui", "cmux-holder", "holder") or kind.startswith("cmux-tui"):
+        return "terminals"
+    if kind in ("main", "helper") or kind.startswith("utility:") or kind.startswith("webkit-"):
+        return "app"
+    return "other"
+
+
+def by_group(memory_kinds: dict, window_kinds: dict) -> dict:
+    """{group: {memory, cpu, wakeups, processes}} from one memory() and one window() read."""
+    out = {g: {"memory": 0.0, "cpu": 0.0, "wakeups": 0.0, "processes": 0} for g in GROUPS}
+    for kind, mb in (memory_kinds or {}).items():
+        out[group_of(kind)]["memory"] += mb
+    for kind, entry in (window_kinds or {}).items():
+        group = out[group_of(kind)]
+        group["cpu"] += entry.get("cpu_pct", 0.0)
+        group["wakeups"] += entry.get("wakeups_per_s", 0.0)
+        group["processes"] += entry.get("n", 0)
+    return out
 
 
 def log(message: str):
@@ -241,12 +287,17 @@ class Run:
     def soak(self, app: App, round_no: int):
         points = []
         cpu, wakeups, disk = [], [], []
+        groups: list[dict] = []
         threads = processes = 0
         began = time.monotonic()
-        last_memory = None
+        last_memory = last_window = detail_memory = None
         while time.monotonic() - began < self.args.soak:
-            window = app.instance.window(self.args.sample)
-            memory = app.instance.memory()
+            last_round = time.monotonic() - began + self.args.sample >= self.args.soak
+            window = app.instance.window(self.args.sample, per_pid=last_round)
+            memory = app.instance.memory(per_pid=last_round)
+            groups.append(by_group(memory["kinds"], window["kinds"]))
+            if last_round:
+                last_window, detail_memory = window, memory
             points.append((time.monotonic() - began, memory["mb"]))
             cpu.append(window["cpu_pct"])
             wakeups.append(window["wakeups_per_s"])
@@ -265,6 +316,18 @@ class Run:
         self.record(app.name, round_no, "soak-disk", statistics.fmean(disk))
         self.record(app.name, round_no, "soak-threads", threads)
         self.record(app.name, round_no, "soak-processes", processes)
+        for group in GROUPS:
+            self.record(app.name, round_no, f"soak-group-{group}-memory", groups[-1][group]["memory"])
+            self.record(app.name, round_no, f"soak-group-{group}-cpu", statistics.fmean(g[group]["cpu"] for g in groups))
+            self.record(app.name, round_no, f"soak-group-{group}-wakeups",
+                        statistics.fmean(g[group]["wakeups"] for g in groups))
+            self.record(app.name, round_no, f"soak-group-{group}-processes", groups[-1][group]["processes"])
+        # Every process of the last window: answers "what is each rival's GPU footprint" process by process.
+        cpu_of = {row["pid"]: row for row in (last_window or {}).get("pids", [])}
+        detail = [{**row, "group": group_of(row["kind"]), "cpu_pct": (cpu_of.get(row["pid"]) or {}).get("cpu_pct"),
+                   "wakeups_per_s": (cpu_of.get(row["pid"]) or {}).get("wakeups_per_s")}
+                  for row in (detail_memory or {}).get("pids", [])]
+        self.record(app.name, round_no, "soak-detail", len(detail), pids=detail)
 
     def session(self, app: App, round_no: int, purge: bool):
         copies = os.path.join(self.args.cache, "rivals-copies")
@@ -365,6 +428,14 @@ def aggregate(samples: list[dict]) -> dict:
     return rows
 
 
+def group_rows(rows: dict) -> list[str]:
+    """The per-group row ids of the groups some app has a nonzero number in."""
+    def used(group):
+        return any(cell["median"] for m, _l, _u in GROUP_METRICS
+                   for cell in rows.get(f"soak-group-{group}-{m}", {}).values())
+    return [f"soak-group-{g}-{m}" for g in GROUPS if used(g) for m, _l, _u in GROUP_METRICS]
+
+
 def fmt(value, unit: str) -> str:
     if value is None:
         return "–"
@@ -419,6 +490,8 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
         ("Idle: RAM ceiling and growth, CPU, wakeups",
          ["soak-memory-start", "soak-memory-end", "soak-memory-peak", "soak-memory-growth", "soak-cpu",
           "soak-cpu-peak", "soak-wakeups", "soak-disk", "soak-processes", "soak-threads"]),
+        ("Idle by process group (RFD 0062: footprint at the soak's end, CPU and wakeups mean over the soak)",
+         group_rows(rows)),
         ("On disk", ["bundle-size"]),
     ]
     labels = {row: (label, unit) for row, label, unit, _summary in ROWS}
@@ -440,6 +513,12 @@ def report(out: str, md_path: str | None, json_path: str | None) -> int:
                 cells.append(fmt(cell["median"], unit) + spread + rel)
             lines.append(f"| {label} ({unit}) | " + " | ".join(cells) + " |")
         lines.append("")
+    if "safari" in meta["apps"] and rows.get("soak-processes", {}).get("safari"):
+        webkit = [p for s in samples if s.get("browser") == "safari" and s.get("row") == "soak-detail"
+                  for p in s.get("pids") or [] if str(p.get("kind", "")).startswith("webkit-")]
+        lines += ["Safari's WebKit XPC processes (WebContent, GPU, Networking) counted: " +
+                  (f"{len(webkit)} in the soak's last window." if webkit else
+                   "NONE FOUND: Safari's rows miss its web content (responsibility lookup failed)."), ""]
     if errors:
         lines += ["## Not measured", ""]
         seen = set()
