@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderAdapter } from "./resume-slo-provider.ts";
 import { cliExecResult } from "./cloud-journey.ts";
+import * as matrix from "./cloud-resume-matrix.ts";
 import { armOrder, armUnavailable, awaitPaused, lostPromptFacts, RELAY_REGISTERED, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
@@ -302,4 +303,23 @@ test("the table has a pause landed column", () => {
   const md = resumeMarkdown([s]);
   expect(md).toContain("pause landed p50 / p95");
   expect(md).toContain("| 2.50 / 2.50 |");
+});
+
+describe("the send arm's pause (run 45389803263: every send sample read `no reply within 180 s`)", () => {
+  // A person's pause (cloud.machine.pause) is never woken by a send: cmux-platform CloudDO.ts PERSON_PAUSED refuses the
+  // carrier connect. The send arm measures the app's wake on message, so it needs cmux's own idle pause.
+  const person = async () => {};
+  const idle = async () => {};
+  test("the send arm takes cmux's own pause, never the person's", () => {
+    expect(typeof matrix.pauseOf).toBe("function");
+    expect(matrix.pauseOf("send", { pause: person, autoPause: idle })).toBe(idle);
+  });
+  test("every arm that resumes with a call keeps the person's pause", () => {
+    for (const arm of ["direct", "platform", "reattach", "resume"] as const) expect(matrix.pauseOf(arm, { pause: person, autoPause: idle })).toBe(person);
+  });
+  test("with no automatic pause the send arm is unavailable, not a failed wake", () => {
+    const why = matrix.pauseOf("send", { pause: person });
+    expect(typeof why).toBe("string");
+    expect(armUnavailable(why as string)).toBe(true);
+  });
 });

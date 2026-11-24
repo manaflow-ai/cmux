@@ -468,6 +468,9 @@ export const ownerUnreachable = (body: any): boolean => {
   const e = body?.error && typeof body.error === "object" ? body.error : body;
   return e?.code === "owner.unreachable" && e?.retryable === true;
 };
+/** How long the resume matrix's send arm waits for cmux's own idle pause: the aggressive policy's 60 s window after
+ * the turn ends, the VM's next activity report, and the pause itself. */
+const AUTO_PAUSE_WAIT_MS = 300_000;
 /** The pause before that one retry. */
 const OWNER_RETRY_MS = 1000;
 const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
@@ -5569,6 +5572,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else {
         const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
         let k = 0;
+        let idleArmed = false;
         const platformStart = async (): Promise<{ serverTiming?: Record<string, number>; serverTimingHeader: string | null }> => {
           const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: `${tag}-rm-start-${k++}` }, 180_000);
           if (r.status !== 200 || r.body?.ok !== true) throw new Error(`cloud.machine.start: HTTP ${r.status} ${short(r.body?.error ?? r.body)}`);
@@ -5617,6 +5621,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           pause: async () => {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-rm-pause-${k++}`);
             await waitMachine(api, created.id, (x) => x.status === "paused", 180_000);
+          },
+          // The send arm: cmux's own idle pause (the aggressive policy's 60 s window after the turn ends), never a
+          // person's, which no send wakes (cmux-platform CloudDO.ts PERSON_PAUSED). The policy is set once.
+          autoPause: async () => {
+            if (!idleArmed) {
+              idleArmed = true;
+              // Staging's default already is `aggressive` (CLOUD_PAUSE_POLICY_DEFAULT); a refusal here leaves that default.
+              await api.op("cloud.machine.idle_policy.set", { machine: created.id, pause_policy: "aggressive" }, `${tag}-rm-idle-policy`)
+                .catch((e: Error) => console.log(scrub(`resume matrix: pause_policy aggressive not set (${e.message}); the deployment's default stands`, J.secrets)));
+            }
+            const m = await waitMachine(api, created.id, (x) => x.status === "paused", AUTO_PAUSE_WAIT_MS).catch((e: Error) => {
+              throw new Error(`cmux did not pause the machine by itself within ${AUTO_PAUSE_WAIT_MS / 1000} s (the aggressive policy's idle window; the team's cloud.idlePause must be on): ${e.message}`);
+            });
+            if (!m?.pause_reason) throw new Error(`the machine read paused with no pause_reason (a person's pause, which no send wakes): ${short(machineStopFields(m))}`);
           },
           platformResume: platformStart,
           resumeRoute,

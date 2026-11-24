@@ -14,7 +14,8 @@
  *              `direct_mode` says which call: `start` (POST {api}/v5/vms/{id}/start), or `exec` (an exec-await, which
  *              the provider answers by resuming the VM) when the session may not start the VM
  *   platform   cmux's resume (`cloud.machine.start` on the cmux API, CloudDO and cmux-platform), as the app's Resume
- *   send       no resume call: the prompt alone, sent to the paused machine (the app's wake on message)
+ *   send       no resume call: the prompt alone, sent to a machine cmux paused by itself (an idle pause), the app's wake
+ *              on message; a person's pause is woken only by a start (cmux-platform PERSON_PAUSED)
  *
  * The three main arms send exactly as the app does: one client dial held through the pause, the prompt sent at the
  * event. Two extra arms, labelled, are not the app's path:
@@ -123,8 +124,15 @@ export type ResumeSample = {
 
 export type ResumeDeps = {
   ctx: ChaosContext;
-  /** Pause through the platform and resolve once it reads `paused`. */
+  /** Pause through the platform (a person's pause, cloud.machine.pause) and resolve once it reads `paused`. */
   pause: () => Promise<void>;
+  /**
+   * The send arm's pause: cmux pauses the machine by itself (an idle pause under the aggressive pause policy), resolving
+   * once it reads `paused` with a pause_reason. A person's pause is never woken by a send or a carrier connect
+   * (cmux-platform CloudDO.ts PERSON_PAUSED: only cloud.machine.start resumes it), so the send arm on `pause` measures a
+   * refusal by design, not a wake. Absent: the send arm is unavailable.
+   */
+  autoPause?: () => Promise<void>;
   /** cmux's resume (the app's): resolves when the call answers; its Server-Timing when there is one. */
   platformResume: () => Promise<{ serverTiming?: Record<string, number>; serverTimingHeader?: string | null }>;
   /** The resume arm's POST /v1/machines/{id}/resume; an answer that says the route does not take this machine throws
@@ -333,6 +341,17 @@ export const CLIENT_SESSION_MAX_S = 900;
 const SESSION_SLACK_S = 240;
 
 /**
+ * The pause a sample takes before its arm's wake: the send arm needs cmux's own (idle) pause, since a send never wakes a
+ * machine a person paused (cmux-platform CloudDO.ts PERSON_PAUSED; run 45389803263's send samples all read `no reply
+ * within 180 s` after cloud.machine.pause). Every other arm resumes with a call and takes the person's pause. A string is
+ * the reason the arm is unavailable.
+ */
+export function pauseOf(arm: ResumeArm, deps: Pick<ResumeDeps, "pause" | "autoPause">): (() => Promise<void>) | string {
+  if (arm !== "send") return deps.pause;
+  return deps.autoPause ?? "unavailable here: the send arm needs cmux's own idle pause (a person's pause is never woken by a send) and none was given";
+}
+
+/**
  * When the direct arm mints its client session and for how long: before the pause while the hold and its slack fit in
  * the longest session the route gives (minting for a paused machine may wake it), else after the hold.
  */
@@ -435,7 +454,9 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             const reattach = arm === "reattach";
             if (reattach) chat.suspend();
             const pauseCalledAt = now();
-            try { await deps.pause(); } catch (e) { s.cause = "pause"; throw new Error(`pause: ${(e as Error).message}`); }
+            const pauseNow = pauseOf(arm, deps);
+            if (typeof pauseNow === "string") { s.cause = "unavailable"; throw new Error(pauseNow); }
+            try { await pauseNow(); } catch (e) { s.cause = "pause"; throw new Error(`pause: ${(e as Error).message}`); }
             // The hold starts when the machine reads paused, not at the pause call's answer.
             if (deps.status) {
               try { s.pause_landed_ms = await awaitPaused(deps.status, pauseCalledAt, PAUSE_LAND_DEADLINE_MS, now, sleep); } catch (e) { s.cause = "pause"; throw e; }
