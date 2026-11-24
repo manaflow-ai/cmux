@@ -184,7 +184,7 @@ function pssMB(pid: number): number {
 function pssSplit(pids: number[]): string {
   const sum: Record<string, number> = {};
   const each: number[] = [];
-  for (const pid of pids) {
+  for (const pid of [...pids].sort((a, b) => a - b)) {
     try {
       const rollup = fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
       for (const key of ["Pss", "Pss_Anon", "Pss_File", "Pss_Shmem", "Private_Dirty", "Swap"]) {
@@ -196,6 +196,7 @@ function pssSplit(pids: number[]): string {
       // Gone.
     }
   }
+  console.log(`SIM-LADDER   pss by renderer in pid order ${each.map((v) => Math.round(v)).join(" ")}`);
   each.sort((a, b) => a - b);
   const fmt = Object.entries(sum).map(([k, v]) => `${k} ${Math.round(v)}`);
   return `${fmt.join(", ")} | renderer pss min/median/max ${each
