@@ -7,13 +7,20 @@
 //!
 //! macOS reads the routing socket (`PF_ROUTE`), Linux its netlink route groups; both are kernel
 //! messages read on one thread, with no polling. A burst (an interface coming up adds several
-//! addresses) is one change, [`SETTLE`] after its first message.
+//! addresses) is one change, [`SETTLE`] after its first message, and only when it left this
+//! computer's usable addresses ([`Usable`]: each up and running interface's, loopback and IPv6
+//! link-local left out) other than they were. A burst that changes none is no change: on
+//! a busy Mac (2026-11-22) a VM bridge (`bridge0`) added and removed the same ULA address every
+//! minute or two, and each such burst had all 39 peer links probe and several reconnect (1-6 MB
+//! of frames each). An address list that cannot be read counts as a change, as before.
 //!
 //! Each change bumps a generation. A link phase that starts later (the first connect, a
 //! recovery) does not subscribe afresh, which would mark a change made in between as seen: the
 //! owner takes one receiver before its first dial and keeps it, so a change made while it was
 //! dialing still reaches the link once it exists.
 
+use std::collections::BTreeSet;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -45,6 +52,7 @@ impl NetworkWatch {
                     run(
                         socket,
                         || weak.strong_count() > 0,
+                        usable,
                         || {
                             if let Some(generation) = weak.upgrade() {
                                 bump(&generation);
@@ -76,9 +84,36 @@ fn bump(generation: &watch::Sender<u64>) {
     generation.send_modify(|value| *value = value.wrapping_add(1));
 }
 
+/// This computer's usable addresses: each address of an interface that is up and running, by
+/// interface, leaving out loopback and IPv6 link-local ones (`fe80::/10`, which every interface
+/// has, AWDL's and a VM bridge's too, and no peer link rides). None when they cannot be read.
+pub type Usable = BTreeSet<(String, IpAddr)>;
+
+/// Whether a settled burst changed the network: the usable addresses differ from the last ones
+/// read, or cannot be read (then every burst counts, as before this check).
+#[derive(Debug)]
+struct Seen {
+    last: Option<Usable>,
+}
+
+impl Seen {
+    fn changed(&mut self, now: Option<Usable>) -> bool {
+        let changed = now.is_none() || now != self.last;
+        self.last = now;
+        changed
+    }
+}
+
 /// Reads `socket` until `alive` says no (read at least every [`ALIVE_EVERY`]) or the socket
-/// fails: each burst of changes calls `changed` once, [`SETTLE`] after its first message.
-fn run(socket: imp::Socket, alive: impl Fn() -> bool, mut changed: impl FnMut()) {
+/// fails: each burst of changes calls `changed` once, [`SETTLE`] after its first message, when
+/// `usable` (read then) is not what it was before the burst.
+fn run(
+    socket: imp::Socket,
+    alive: impl Fn() -> bool,
+    mut usable: impl FnMut() -> Option<Usable>,
+    mut changed: impl FnMut(),
+) {
+    let mut seen = Seen { last: usable() };
     let mut first: Option<Instant> = None;
     let mut buf = vec![0u8; 16 * 1024];
     loop {
@@ -100,9 +135,66 @@ fn run(socket: imp::Socket, alive: impl Fn() -> bool, mut changed: impl FnMut())
         }
         if first.is_some_and(|at| at.elapsed() >= SETTLE) {
             first = None;
-            changed();
+            if seen.changed(usable()) {
+                changed();
+            }
         }
     }
+}
+
+/// This computer's usable addresses now ([`Usable`]), read with `getifaddrs` (no process, no
+/// socket); None when the list cannot be read.
+#[cfg(unix)]
+pub fn usable() -> Option<Usable> {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+    let mut list: *mut libc::ifaddrs = std::ptr::null_mut();
+    // SAFETY: `list` is a valid out pointer; freed below.
+    if unsafe { libc::getifaddrs(&mut list) } != 0 {
+        return None;
+    }
+    let wanted = (libc::IFF_UP | libc::IFF_RUNNING) as libc::c_uint;
+    let mut out = Usable::new();
+    let mut at = list;
+    while !at.is_null() {
+        // SAFETY: a non-null node of the list getifaddrs returned.
+        let entry = unsafe { &*at };
+        at = entry.ifa_next;
+        let flags = entry.ifa_flags;
+        if entry.ifa_addr.is_null()
+            || flags & wanted != wanted
+            || flags & libc::IFF_LOOPBACK as libc::c_uint != 0
+        {
+            continue;
+        }
+        // SAFETY: ifa_addr is non-null and points to a sockaddr whose family tells its type.
+        let family = i32::from(unsafe { (*entry.ifa_addr).sa_family });
+        let ip = if family == libc::AF_INET {
+            // SAFETY: an AF_INET address is a sockaddr_in.
+            let sin = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in>() };
+            IpAddr::V4(Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)))
+        } else if family == libc::AF_INET6 {
+            // SAFETY: an AF_INET6 address is a sockaddr_in6.
+            let sin6 = unsafe { &*entry.ifa_addr.cast::<libc::sockaddr_in6>() };
+            let v6 = Ipv6Addr::from(sin6.sin6_addr.s6_addr);
+            if v6.is_unicast_link_local() {
+                continue;
+            }
+            IpAddr::V6(v6)
+        } else {
+            continue;
+        };
+        // SAFETY: ifa_name is a NUL-terminated name getifaddrs filled.
+        let name = unsafe { std::ffi::CStr::from_ptr(entry.ifa_name) };
+        out.insert((name.to_string_lossy().into_owned(), ip));
+    }
+    // SAFETY: the list getifaddrs returned, freed once.
+    unsafe { libc::freeifaddrs(list) };
+    Some(out)
+}
+
+#[cfg(not(unix))]
+pub fn usable() -> Option<Usable> {
+    None
 }
 
 enum Read {
@@ -304,13 +396,141 @@ mod tests {
         let owner = Arc::new(());
         let alive = Arc::downgrade(&owner);
         let counted = generation;
+        // The addresses differ after the burst from before it.
+        let mut reads = 0u32;
+        let usable = move || {
+            reads += 1;
+            Some(Usable::from([("en0".to_owned(), IpAddr::from([10, 0, 0, reads as u8]))]))
+        };
         let thread = std::thread::spawn(move || {
-            run(imp::Socket(reader), || alive.strong_count() > 0, || counted.signal());
+            run(imp::Socket(reader), || alive.strong_count() > 0, usable, || counted.signal());
         });
         std::thread::sleep(SETTLE * 3);
         assert_eq!(*receiver.borrow(), 1, "a burst of three messages is one change");
         drop(owner);
         drop(writer);
         thread.join().unwrap();
+    }
+
+    /// A burst that leaves the usable addresses as they were (an address added and removed at
+    /// once, as a VM bridge did every minute on a busy Mac) is no change; one that leaves them
+    /// otherwise is.
+    #[test]
+    fn a_burst_that_leaves_the_addresses_as_they_were_is_no_change() {
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::sync::Mutex;
+        let generation = NetworkWatch::manual();
+        let receiver = generation.subscribe();
+        let mut fds = [0; 2];
+        // SAFETY: socketpair(2) fills two fds this test owns.
+        assert_eq!(
+            unsafe { libc::socketpair(libc::AF_UNIX, libc::SOCK_DGRAM, 0, fds.as_mut_ptr()) },
+            0
+        );
+        // SAFETY: fresh fds from socketpair, owned once each.
+        let (reader, writer) = unsafe {
+            (std::os::fd::OwnedFd::from_raw_fd(fds[0]), std::os::fd::OwnedFd::from_raw_fd(fds[1]))
+        };
+        let send = |kind: u16| {
+            let mut message = [0u8; 16];
+            message[4..6].copy_from_slice(&kind.to_ne_bytes());
+            // SAFETY: a valid buffer of the given length.
+            let sent = unsafe {
+                libc::send(writer.as_raw_fd(), message.as_ptr().cast(), message.len(), 0)
+            };
+            assert_eq!(sent, message.len() as isize);
+        };
+        let wifi = ("en0".to_owned(), IpAddr::from([192, 168, 1, 20]));
+        let now = Arc::new(Mutex::new(Usable::from([wifi])));
+        let read = now.clone();
+        let owner = Arc::new(());
+        let alive = Arc::downgrade(&owner);
+        let counted = generation;
+        let thread = std::thread::spawn(move || {
+            run(
+                imp::Socket(reader),
+                || alive.strong_count() > 0,
+                || Some(read.lock().unwrap().clone()),
+                || counted.signal(),
+            );
+        });
+        // The bridge's flap: an address added and removed in one burst.
+        send(libc::RTM_NEWADDR);
+        send(libc::RTM_DELADDR);
+        std::thread::sleep(SETTLE * 3);
+        assert_eq!(*receiver.borrow(), 0, "an address added and removed again is no change");
+        // A real change: Wi-Fi's address is another one.
+        *now.lock().unwrap() = Usable::from([("en0".to_owned(), IpAddr::from([10, 1, 0, 7]))]);
+        send(libc::RTM_NEWADDR);
+        std::thread::sleep(SETTLE * 3);
+        assert_eq!(*receiver.borrow(), 1, "a new address is a change");
+        drop(owner);
+        drop(writer);
+        thread.join().unwrap();
+    }
+}
+
+/// Runs on every platform: what the watch decides of a settled burst.
+#[cfg(test)]
+mod seen_tests {
+    use super::*;
+
+    fn addresses(list: &[(&str, [u8; 4])]) -> Option<Usable> {
+        Some(list.iter().map(|(name, ip)| ((*name).to_owned(), IpAddr::from(*ip))).collect())
+    }
+
+    /// The harness behind the PR's numbers: an hour of the churn a busy Mac's routing socket
+    /// showed (a VM bridge adding and removing one address in one burst, about once a minute)
+    /// with two real changes in it (Wi-Fi to another network, a VPN coming up). Before, every
+    /// settled burst was a change; now only the two real ones are.
+    #[test]
+    fn an_hour_of_bridge_flaps_is_two_changes_not_sixty_two() {
+        let wifi = addresses(&[("en0", [192, 168, 1, 20])]);
+        let moved = addresses(&[("en0", [10, 1, 0, 7])]);
+        let vpn = addresses(&[("en0", [10, 1, 0, 7]), ("utun4", [100, 64, 0, 3])]);
+        let mut seen = Seen { last: wifi.clone() };
+        let (mut before, mut after) = (0, 0);
+        for minute in 0..60 {
+            // The flap's burst settles with the addresses as they were.
+            let now = match minute {
+                0..20 => wifi.clone(),
+                20..40 => moved.clone(),
+                _ => vpn.clone(),
+            };
+            before += 1;
+            after += u32::from(seen.changed(now.clone()));
+            // The real change's own burst, once each.
+            if minute == 19 {
+                before += 1;
+                after += u32::from(seen.changed(moved.clone()));
+            }
+            if minute == 39 {
+                before += 1;
+                after += u32::from(seen.changed(vpn.clone()));
+            }
+        }
+        eprintln!("settled bursts in the hour: {before}; changes signalled: {after}");
+        assert_eq!(before, 62);
+        assert_eq!(after, 2, "only Wi-Fi's new address and the VPN's are changes");
+    }
+
+    /// An address list that cannot be read counts every burst, as the watch did before.
+    #[test]
+    fn an_unreadable_address_list_counts_every_burst() {
+        let mut seen = Seen { last: None };
+        assert!(seen.changed(None));
+        assert!(seen.changed(None));
+    }
+
+    /// The live list reads on this machine: loopback and IPv6 link-local are never in it.
+    #[test]
+    fn the_usable_list_leaves_out_loopback_and_link_local() {
+        let Some(now) = usable() else { return };
+        for (_, ip) in &now {
+            assert!(!ip.is_loopback(), "{ip}");
+            if let IpAddr::V6(v6) = ip {
+                assert!(!v6.is_unicast_link_local(), "{v6}");
+            }
+        }
     }
 }

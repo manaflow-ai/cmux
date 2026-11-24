@@ -22,6 +22,9 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 """
 import argparse, json, os, signal, socket, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--app", required=True)
 ap.add_argument("--tag", required=True)
@@ -87,6 +90,14 @@ def wait(predicate, seconds, step=0.5):
             return value
         time.sleep(step)
     return None
+
+
+def changed_then_settled(read, before, what, timeout=10):
+    """Best effort: wait until `read()` differs from `before`, then until it holds still; returns the last read."""
+    if not wait_until(lambda: read() != before, f"{what} to change", timeout=timeout, interval=0.2,
+                      raise_on_timeout=False):
+        print(f"note: {what} did not change in {timeout} s", flush=True)
+    return wait_stable(read, what, timeout=timeout, interval=0.2, raise_on_timeout=False)
 
 
 def snapshot(name):
@@ -205,15 +216,19 @@ try:
     note("home ready", ok=bool(ready))
     # Show the Chief conversation (the session may have shown another place).
     note("open chief", result=rpc("action.run", {"id": "home.openConversation", "args": {"conversation": ready}}) if ready else None)
-    time.sleep(2)
+    # Home shows that conversation and its composer is there.
+    if ready and not wait(lambda: (rpc("debug.home") or {}).get("page", {}).get("shown") == ready
+                          and (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), 20, 0.2):
+        note("chief conversation not shown with a composer after 20 s", home=json.dumps(rpc("debug.home"))[:300])
     text = "inspector preflight: please answer in one short sentence."
     note("send", drive=[rpc("debug.home.drive", {"action": a, **({"text": text} if a == "type" else {})}) for a in ("focus", "type", "send")])
     ended = wait(turn_ended, opts.reply_wait, 2)
     note("turn", ended=bool(ended), status=(ended or {}).get("status"), harness=(ended or {}).get("harness"))
     snapshot("01-home")
     if opts.from_workspace:
+        focus_before = rpc("debug.focus")
         note("select workspace", result=rpc("action.run", {"id": "workspace.selectFirst"}))
-        time.sleep(2)
+        changed_then_settled(lambda: rpc("debug.focus"), focus_before, "the focus after selecting the workspace")
     # Tabs an earlier run left in the tag's app session are not this run's.
     BEFORE.update(t["id"] for t in browser_tabs())
     # The palette path: Cmd-Shift-P, the query, Return.
@@ -244,19 +259,26 @@ try:
         api_turns = api(endpoint, "/api/turns")["turns"]
         if api_turns:
             key = api_turns[-1]["turn"]
+            shown = cli("browser", tab_id, "text", "body")
             cli("browser", tab_id, "eval", f"(() => {{ const s = document.querySelector('select'); s.value = {json.dumps(key)}; s.dispatchEvent(new Event('change', {{bubbles: true}})); return s.value; }})()")
-            time.sleep(2)
+            changed_then_settled(lambda: cli("browser", tab_id, "text", "body"), shown, "the picked turn's prompt")
             body = page(tab_id, "page-turn", "text", "body")
             note("turn prompt", key=key, has_marks="cache mark" in body or "end of the system prompt" in body,
                  exact="Exact bytes" in body, marker="our cache marker" in body)
         # The Tree tab: focus node 0+8 (eight messages), then zoom three hops to one message.
         hops = [cli("browser", tab_id, "eval", "(() => { [...document.querySelectorAll('[role=tab]')].find(b => b.textContent === 'Tree').click(); return 'tree'; })()")]
-        time.sleep(1)
+        wait(lambda: "true" in cli("browser", tab_id, "eval", "!!document.querySelector('.search input')"), 10, 0.2)
+
+        def crumbs_now():
+            return cli("browser", tab_id, "eval", "[...document.querySelectorAll('.crumbs button, .crumbs b')].map(x => x.textContent).join(' > ') + ' | ' + document.querySelectorAll('.kids button').length")
+
+        last = crumbs_now()
         hops.append(cli("browser", tab_id, "eval", "(() => { const i = document.querySelector('.search input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, '0+8'); i.dispatchEvent(new Event('input', {bubbles: true})); i.form.requestSubmit(); return i.value; })()"))
+        # Each hop (the 0+8 focus first): the crumbs move and the node's children render, then the next click.
         for _ in range(3):
-            time.sleep(1.5)
+            last = changed_then_settled(crumbs_now, last, "the zoom path after a hop")
             hops.append(cli("browser", tab_id, "eval", "(() => { const b = [...document.querySelectorAll('.kids button')][0]; if (!b) return 'no child'; b.click(); return b.title; })()"))
-        time.sleep(1.5)
+        changed_then_settled(crumbs_now, last, "the zoom path after the last hop")
         tree = page(tab_id, "page-tree", "text", "body")
         crumbs = cli("browser", tab_id, "eval", "[...document.querySelectorAll('.crumbs button, .crumbs b')].map(x => x.textContent).join(' > ')")
         note("zoom hops", hops=hops, crumbs=crumbs, agent_view="What the agent gets from zoom(" in tree)

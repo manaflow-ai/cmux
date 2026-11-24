@@ -36,12 +36,12 @@ extension NewTabCommandListKeptTests {
     }
 
     /// The keys that the New Tab row of `actions` shows; none when the list has no such row.
-    private static func keys(_ actions: [AgentPaneOmnibar.Action]?) -> [String] {
+    static func keys(_ actions: [AgentPaneOmnibar.Action]?) -> [String] {
         actions?.first { $0.id == "newTab.default" }?.keycaps ?? []
     }
 
     /// The person gives the New Tab key another binding: a change of the registry, and other keys in the New Tab row.
-    private static func rebind(_ services: AppServices) {
+    static func rebind(_ services: AppServices) {
         services.registry.setShortcutOverride(CmuxNextActions.Shortcut("t", modifiers: [.control]), for: "newTab.default")
     }
 
@@ -158,10 +158,11 @@ extension NewTabCommandListKeptTests {
     }
 
     /// What a page with no view costs at a fill. No list is kept (a key binding changed), each page with a view has a
-    /// list, and the app asks for a fill as it does at a page's make. A page with no view that has no list asks for a
-    /// listing then: one at most. The next fill, with that listing's list kept, starts none.
+    /// list, and the app asks for a fill as it does at a page's make. Only a page with no view asks for a listing
+    /// then, and the fill's first task starts it: exactly one. The row's own ask joins that listing, so one listing
+    /// is the whole price to the hand-over. The next fill, with that listing's list kept, starts none.
     @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
-    func aFillWhileAPageHasNoViewAndNoListIsKeptStartsAtMostOneListing() async throws {
+    func aFillWhileAPageHasNoViewAndNoListIsKeptStartsOneListing() async throws {
         try await Self.stored("cn-list-kept-stored-fill") { stored in
             let services = stored.services, lister = services.newTabActions, tabs = services.agentTabs
             Self.rebind(services)
@@ -169,6 +170,7 @@ extension NewTabCommandListKeptTests {
             let lacking = tabs.newTabPages.keys.filter { tabs.views[$0]?.model.newTab?.omnibar.actions.isEmpty == true }.count
             try #require(lacking == 0, "the row did not make its case: \(lacking) pages with a view have no list before the fill")
             let unseen = tabs.newTabPages.keys.filter { tabs.views[$0] == nil }
+            try #require(!unseen.isEmpty, "the row did not make its case: each New Tab page has a view before the fill")
             let bare = unseen.filter { tabs.newTabPages[$0]?.page.omnibar.actions.isEmpty != false }.count
             try #require(!services.mainWork.frames.activeClients.contains(Self.lister), "the row did not make its case: the lister has a task before the fill")
             let before = lister.counts
@@ -188,9 +190,45 @@ extension NewTabCommandListKeptTests {
                 + "stored list; \(byTheFill) listings started by the fill in \(first) frames of the row; \(read.started - before.started) listings "
                 + "and \(read.actionsRead - before.actionsRead) catalog actions read to the hand-over of the row's ask, \(asked.frames) frames with a "
                 + "lister task; a second fill, with that list kept: \(end.started - read.started) listings started in \(second) frames of the row")
-            #expect(byTheFill <= 1, "one fill started \(byTheFill) listings while \(unseen.count) pages have no view; 1 at most is wanted")
+            #expect(byTheFill == 1,
+                    "one fill started \(byTheFill) listings in \(first) frames of the row while \(unseen.count) pages have no view and no list is kept; 1 is wanted")
+            #expect(read.started - before.started == 1,
+                    "the fill and the row's ask started \(read.started - before.started) listings to the hand-over; 1 is wanted")
             #expect(end.started == read.started, "a fill started \(end.started - read.started) listings while a list is kept")
         }
+    }
+
+    /// A page with no view shows no palette action, so it asks (``AgentPaneNewTabActions/Page``): a fill for one such
+    /// page alone, with no kept list, starts one listing at its first task. The control comes first: a fill for no
+    /// page starts none. The row needs no daemon: the lister's fill is the app's, and the page is one with no view.
+    @Test func aFillForOnePageWithNoViewStartsOneListing() async throws {
+        let app = try await Self.shown()
+        defer { app.close() }
+        let services = app.services, lister = services.newTabActions, frames = services.mainWork.frames
+        // A task that the window's own start queued runs first: the row's fills are then the only asks.
+        let start = lister.counts
+        _ = Self.firstTask(services, after: start)
+        try #require(lister.counts == start && lister.kept == nil && !frames.activeClients.contains(Self.lister),
+                     "the row did not make its case: the window's start read a list or left the lister a task (\(lister.counts.started) listings started)")
+
+        lister.fill { [] }
+        let idle = Self.firstTask(services, after: start)
+        let byNoPage = lister.counts.started - start.started
+        // The control's own check, before the check of the case: a fill for no page that starts a listing leaves the lister a task too.
+        try #require(byNoPage == 0, "a fill for no page started \(byNoPage) listings in \(idle) frames of the row")
+        try #require(!frames.activeClients.contains(Self.lister), "the row did not make its case: the lister has a task after the fill for no page")
+        lister.fill { [AgentPaneNewTabActions.Page(view: nil)] }
+        let first = Self.firstTask(services, after: lister.counts)
+        let byThePage = lister.counts.started - start.started - byNoPage
+        // The row's own ask joins the page's listing, or starts one when the fill started none: the listing's end, before the window closes.
+        let asked = await Self.listed(services)
+        let end = lister.counts
+        print("new-tab-list: a fill for no page: \(byNoPage) listings started in \(idle) frames of the row; a fill for one page with no view, "
+            + "with no kept list: \(byThePage) listings started in \(first) frames of the row; \(end.started - start.started) listings and "
+            + "\(end.actionsRead - start.actionsRead) catalog actions read to the hand-over of the row's ask, \(asked.frames) frames with a lister task")
+        #expect(AgentPaneNewTabActions.Page(view: nil).lacks, "a page with no view does not say that it shows no palette action")
+        #expect(byThePage == 1, "a fill for one page with no view started \(byThePage) listings in \(first) frames of the row while no list is kept; 1 is wanted")
+        #expect(end.started == start.started + 1, "the two fills and the row's ask started \(end.started - start.started) listings; 1 is wanted")
     }
 
     /// Is the display to a fill's first task, which hands the kept list over, starts a listing, or finds that no page

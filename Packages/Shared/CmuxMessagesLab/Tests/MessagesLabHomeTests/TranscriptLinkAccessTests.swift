@@ -84,6 +84,22 @@ import Testing
         withExtendedLifetime(window) {}
     }
 
+    /// AppKit advertises no AXPress for this element, so the press is also a named action: CuaDriver
+    /// indexes only a node that lists one (the onboarding walk's shortcut/turn-on clicks it by index).
+    @Test func eachLinkAdvertisesAnActionThatOpensIt() throws {
+        let (window, controller) = controller()
+        var app: [String] = []
+        controller.onAppLink = { app.append($0.absoluteString) }
+        // Two steps: a `#require` inside another is a recursive macro expansion, which the compiler rejects.
+        let element = try #require(controller.accessibilityElements(parent: controller.host).first)
+        let link = try #require(links(element).first)
+        let actions = try #require(link.accessibilityCustomActions())
+        #expect(actions.map(\.name) == [CmuxStrings.openLinkAction])
+        #expect(actions[0].handler?() == true)
+        #expect(app == [Self.anyApp])
+        withExtendedLifetime(window) {}
+    }
+
     @Test func theLinkElementsAreReusedAcrossReads() throws {
         let (window, controller) = controller()
         let first = links(try #require(controller.accessibilityElements(parent: controller.host).first))
