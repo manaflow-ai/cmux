@@ -26,25 +26,28 @@ import Testing
         }
     }
 
-    @Test func offlinePromptReturnsDraftWithConciseReason() async throws {
+    /// Offline, the sent bubble stays with a quiet failed mark and the reason in its menu; its
+    /// Cancel hands the text and attachments back, and sent again they keep their id.
+    @Test func offlinePromptIsAFailedBubbleWithConciseReason() async throws {
         let source = DisconnectedAgentSource(summary: summary)
         let store = AgentChatStore(source: source)
         let attachment = AgentAttachment(kind: .file, name: "notes.txt", data: Data("notes".utf8))
         store.send(prompt: "run the tests", attachments: [attachment])
 
-        for _ in 0..<100 where store.returnedDraft == nil { await Task.yield() }
+        for _ in 0..<100 where store.pendingPrompts.first?.look != .failed { await Task.yield() }
+        let pending = try #require(store.pendingPrompts.first)
+        #expect(pending.look == .failed)
+        #expect(pending.reason == "Mac offline. Not sent.")
+        #expect(store.turns.first?.sendLook == .failed)
+        #expect(store.clientError == nil)
+        #expect(store.returnedDraft == nil)
+
+        store.cancelPending(pending.id)
         let draft = try #require(store.returnedDraft)
         #expect(draft.text == "run the tests")
         #expect(draft.attachments == [attachment])
-        #expect(draft.promptID != nil)
-        #expect(store.clientError == "Mac offline. Not sent.")
+        #expect(draft.promptID == pending.id)
+        #expect(store.turns.isEmpty)
         #expect(store.canRetryPrompt)
-
-        store.returnedDraft = nil // The composer has restored the text and attachments.
-        store.send(prompt: draft.text, attachments: draft.attachments)
-        for _ in 0..<100 where store.returnedDraft == nil { await Task.yield() }
-        #expect(store.returnedDraft?.text == draft.text)
-        #expect(store.returnedDraft?.attachments == draft.attachments)
-        #expect(store.returnedDraft?.promptID == draft.promptID)
     }
 }

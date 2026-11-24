@@ -1099,6 +1099,10 @@ struct UserBubble: View {
     var editEarlier: (() -> Void)?
     /// Bookmark and Read Aloud.
     var polishActions: (() -> [UIMenuElement])?
+    /// Not shown by the Mac yet: how it looks (``ChatPendingMark``), and its Cancel, Edit,
+    /// Retry Now and Delete (``ChatPendingMenu``).
+    var sendLook: AgentPromptLook?
+    var pendingActions: (() -> [UIMenuElement])?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -1109,6 +1113,7 @@ struct UserBubble: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                .modifier(ChatPendingMark(look: sendLook))
         }
         .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
@@ -1116,7 +1121,12 @@ struct UserBubble: View {
     }
 
     private func menuRows(from source: UIView) -> [UIMenuElement] {
+        let pending = sendLook == nil ? [] : pendingActions?() ?? []
         var actions = messageSelectionActions({ prompt }, from: source)
+        if !pending.isEmpty {
+            // Not on the Mac yet: its own actions, not the turn's.
+            return pending + [UIMenu(title: AgentTurn.menuTimestamp(promptAt), options: .displayInline, children: actions)]
+        }
         if let edit = isLast ? editAndResend : editEarlier {
             actions.append(SelectionMenu.action("Edit and Resend", "pencil") { edit() })
         }

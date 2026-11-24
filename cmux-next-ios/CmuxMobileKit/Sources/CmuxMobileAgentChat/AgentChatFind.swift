@@ -63,6 +63,12 @@ public final class AgentChatFind {
     /// The prompt bubble's block key.
     public nonisolated static func promptKey(_ turnID: String) -> String { "\(turnID)|prompt" }
 
+    /// `turn`'s prompt bubble's block key: a bubble drawn before the Mac named its turn keeps
+    /// its row (``AgentTurn/promptRowID``), and Find keys it by that row.
+    public nonisolated static func promptKey(_ turn: AgentTurn) -> String {
+        turn.promptRowOverride.map { steerKey(row: $0) } ?? promptKey(turn.id)
+    }
+
     /// A steered message's block key (`TurnRow.id` of its row).
     public nonisolated static func steerKey(row: String) -> String { "\(row)|steer" }
 
@@ -75,7 +81,7 @@ public final class AgentChatFind {
     public nonisolated static func blocks(of turns: [AgentTurn]) -> [Block] {
         var out: [Block] = []
         for turn in turns {
-            out.append(Block(key: promptKey(turn.id), text: turn.prompt))
+            out.append(Block(key: promptKey(turn), text: turn.prompt))
             for row in turn.rows {
                 // A message steered into the turn, where it went in.
                 if case .steer(let message) = row {

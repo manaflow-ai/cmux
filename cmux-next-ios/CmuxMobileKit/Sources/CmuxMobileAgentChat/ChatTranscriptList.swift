@@ -1306,7 +1306,9 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// The id the store marks replayed for this row (`TurnRow.id`, or the turn's).
     private static func storeID(_ row: ChatRow) -> String {
         if case .block = row.kind, let hash = row.id.firstIndex(of: "#") { return String(row.id[..<hash]) }
-        // A prompt and the Chief's view over it (`cx-`) are the turn's.
+        // A prompt and the Chief's view over it (`cx-`) are the turn's (a bubble drawn from the
+        // tap keeps its first row id, ``AgentTurn/promptRowID``).
+        if case .prompt = row.kind { return row.turnID }
         if row.id.hasPrefix("u-") || row.id.hasPrefix("cx-") { return row.turnID }
         return row.id
     }

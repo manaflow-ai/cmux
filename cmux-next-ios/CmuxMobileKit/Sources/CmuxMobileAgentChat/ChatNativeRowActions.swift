@@ -15,20 +15,28 @@ enum ChatNativeRowActions {
         switch row.kind {
         case .prompt(let text, _, let at, let isLast):
             let turnID = row.turnID
+            let pendingLook = row.sendLook
             actions.menu = { _ in
+                // Not on the Mac yet: Cancel, Edit, Retry Now, Delete first.
+                let pending = pendingLook == nil ? [] : ChatPendingMenu.items(store.turns.last { $0.id == turnID }?.promptID, store: store)
                 var items: [UIMenuElement] = [
                     UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in UIPasteboard.general.string = text },
                     UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out"), identifier: ChatSelectText.actionID) { _ in
                         ChatSelectText.present(text)
                     },
                 ]
-                if isLast {
+                if !pending.isEmpty {
+                    // Its Edit is the pending one's.
+                } else if isLast {
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editAndResend(turnID: turnID) })
                 } else if context.canEditEarlier(turnID: turnID) {
                     // An earlier prompt: edited in its own sheet, sent in a copy of the chat forked before it.
                     items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in context.editEarlier(turnID: turnID) })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
+                if !pending.isEmpty {
+                    return UIMenu(children: pending + [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
+                }
                 items += ChatPolishMenus.promptItems(turnID: turnID, text: text, store: store)
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])
             }
