@@ -30,10 +30,6 @@ pub(super) fn create_browser_profile_schema(transaction: &Transaction<'_>) -> an
            icon TEXT,
            position INTEGER NOT NULL CHECK(position >= 0),
            source_json TEXT
-         );
-         CREATE TABLE IF NOT EXISTS browser_profile_retired_ids (
-           browser_profile_id TEXT PRIMARY KEY NOT NULL,
-           retired_at_ms INTEGER NOT NULL
          );",
     )?;
     if !super::journal_extensions::table_columns(transaction, "browser_profiles")?
@@ -209,16 +205,6 @@ impl WorkspaceRegistry {
         if let Some(existing) = read_browser_profile(&tx, &id)? {
             return Ok((existing, false));
         }
-        anyhow::ensure!(
-            tx.query_row(
-                "SELECT 1 FROM browser_profile_retired_ids WHERE browser_profile_id = ?1",
-                [&id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_none(),
-            "browser profile id {id} was retired and cannot be reused"
-        );
         input.icon.as_deref().map_or(Ok(()), |icon| require_icon_asset(&tx, icon))?;
         let mut ids = order(&tx)?;
         let index = input.index.unwrap_or(ids.len()).min(ids.len());
@@ -389,11 +375,6 @@ impl WorkspaceRegistry {
         )?;
         let cleared_browsers = super::presentation_store::clear_frontend_browser_profile(&tx, id)?;
         tx.execute("DELETE FROM browser_profiles WHERE browser_profile_id = ?1", [id])?;
-        tx.execute(
-            "INSERT INTO browser_profile_retired_ids(browser_profile_id, retired_at_ms)
-             VALUES (?1, CAST(strftime('%s','now') AS INTEGER) * 1000)",
-            [id],
-        )?;
         let (deleted_bookmarks, bookmarks_revision) =
             super::personal_bookmarks::delete_profile_bookmarks(&tx, id)?;
         let ids = order(&tx)?;
