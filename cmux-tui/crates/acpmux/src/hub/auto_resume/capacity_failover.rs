@@ -9,7 +9,7 @@
 //!   model: the catalog's newest Sonnet for a chat on Opus or Fable
 //!   ([`crate::model_catalog::capacity_fallback`]); a chat on Sonnet or Haiku, or on a model the
 //!   catalog does not know, stays where it is. `N` is `capacityFallbackAfter` in config.json,
-//!   else Settings' `agents.autoRetry.capacityFallbackAfter`, default 3; 0 never switches
+//!   else Settings' `agents.autoRetry.capacityFallbackAfter`, default 1; 0 never switches
 //!   ([`super::settings::capacity_fallback_after`]).
 //! - The switch is made as the attempt fires, after its wait: a Stop, close or the person's
 //!   prompt during the wait takes the mark as before, and nothing switches. The queue is kept;

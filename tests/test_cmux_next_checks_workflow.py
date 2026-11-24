@@ -2450,8 +2450,9 @@ class FastTierStartsWarm(unittest.TestCase):
         saves = [s for s in steps if is_cache_save(s)]
         key_id = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]["id"]
         self.assertEqual([s["with"]["path"] for s in saves],
-                         [FAST_CACHE_DIRS["home"], FAST_CACHE_DIRS["swift"]],
-                         "the swift archive, whose pointer readers follow, goes last")
+                         ["${{ matrix.workspace }}/" + FAST_CACHE_DIRS["home"],
+                          "${{ matrix.workspace }}/" + FAST_CACHE_DIRS["swift"]],
+                         "the swift archive, whose pointer readers follow, goes last; each at its pool's path")
         for name, save in zip(("home", "swift"), saves):
             with self.subTest(name=name):
                 self.assertEqual(save["with"]["key"], "${{ steps.%s.outputs.%s-key }}" % (key_id, name))
@@ -2482,8 +2483,11 @@ class FastTierStartsWarm(unittest.TestCase):
         # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
         # cascade fills it first, so a seed pinned there sat queued (run 39351410275).
         self.assertEqual(pools["blacksmith"]["runner"], "blacksmith-6vcpu-macos-26")
-        self.assertEqual(set(pools), {"blacksmith"}, "no GitHub-hosted seed pool")
+        # blacksmith-root2: the same seed at the owned minis' second seed root's path (owned_spm_scratch).
+        self.assertEqual(set(pools), {"blacksmith", "blacksmith-root2"}, "no GitHub-hosted seed pool")
         self.assertEqual(pools["blacksmith"]["workspace"], "/Users/runner/_work/cmux/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["workspace"], "/Users/runner/_work/cmux-2/cmux")
+        self.assertEqual(pools["blacksmith-root2"]["runner"], "blacksmith-6vcpu-macos-26")
 
     def test_a_seed_key_names_the_path_its_restore_writes(self):
         """fast-tier-cache-key.sh keys the path in CMUX_FAST_CACHE_WORKSPACE (else GITHUB_WORKSPACE); its ROOT
@@ -3903,7 +3907,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
         on PR #26741's head 292b43ef and this job went green, though no Mac Release compile ran for
         that change: a pass with nothing compiled. No verdict fails the job and says so; the verdict
         output stays unavailable, so release-compile still takes over where mac_release sends it."""
-        for client_exit in (69, 75, 124, 2, 3, 137):
+        for client_exit in (69, 124, 2, 3, 137):
             with self.subTest(client_exit=client_exit):
                 result, output, _, summary = self.run_check(client_exit)
                 self.assertNotEqual(result.returncode, 0, "no build-fleet verdict must not report success")
@@ -3914,6 +3918,16 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                 self.assertIn(f"exit {client_exit}", result.stdout)
                 self.assertIn("Build fleet app compile: no verdict", summary)
                 self.assertIn("No Mac Release compile runs for this change", result.stdout)
+
+    def test_a_fleet_that_kept_the_compile_queued_is_a_warning_not_a_red(self):
+        """cmux-ci exit 75 (queued past --queue-timeout) was 652 of 1030 red app compiles in 24 h, each re-run
+        queueing again; the verdict stays unavailable so the Release compile still takes over where asked."""
+        result, output, _, summary = self.run_check(75)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=unavailable", output)
+        self.assertNotIn("verdict=pass", output)
+        self.assertIn("::warning title=Build fleet compile: still queued", result.stdout)
+        self.assertIn("Build fleet app compile: unavailable", summary)
 
     def test_no_fleet_verdict_names_the_mac_fallback_when_it_runs(self):
         step = next(s for s in self.job()["steps"] if s.get("id") == "check")

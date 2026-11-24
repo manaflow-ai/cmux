@@ -347,6 +347,51 @@ def check_swift_wash_shape(path: str, raw: str) -> list[Finding]:
     return findings
 
 
+# A wash style on iOS: anything but the no-wash looks (`.cmuxPressLine`, `.cmuxPressGlass`, a `shape: .line` or
+# `.glass` style). `.cmuxPressFillInLabel` washes only a fill the label draws, so a bare line under it draws none.
+SWIFT_WASHING_STYLE = re.compile(
+    r"\.buttonStyle\(\s*(?:\.cmuxPressFill(?:Tinted|Circle|Capsule)?\s*\)"
+    r"|CmuxMobilePressFillStyle\((?![^)]*\bshape:\s*\.(?:line|glass|label)\b)[^)]*\)\s*\))"
+)
+SWIFT_DISCLOSURE_ACTION = re.compile(r"\btoggleDisclosure\(")
+
+
+def check_swift_disclosure_wash(path: str, raw: str) -> list[Finding]:
+    """A transcript disclosure (its Button calls `toggleDisclosure`) is a line of bare text on the page; a press wash
+    behind it draws a gray box out of nothing (Leo 2026-11-23, on tapping a thought on iOS: it had that square
+    placeholder backing, "THAT AINT RIGHT"). Its pressed look is `.cmuxPressLine`: no wash, as its drawn rows."""
+    if not path.startswith("cmux-next-ios/") and "/" in path:
+        return []
+    findings = []
+    lines = raw.splitlines()
+    for n, line in enumerate(lines):
+        if not SWIFT_WASHING_STYLE.search(line.split("//", 1)[0]):
+            continue
+        style_indent = _indent(line)
+        start = None
+        for k in range(n - 1, max(-1, n - 80), -1):
+            if SWIFT_BUTTON_START.match(lines[k]) and _indent(lines[k]) <= style_indent:
+                start = k
+                break
+            if lines[k].strip() and _indent(lines[k]) < style_indent - 4:
+                break
+        if start is None:
+            continue
+        # The action: from the Button's line to its `} label:` (or the whole block for `Button(action:)`).
+        action = []
+        for k in range(start, n):
+            action.append(lines[k].split("//", 1)[0])
+            if "label:" in lines[k] and k > start:
+                break
+        if not any(SWIFT_DISCLOSURE_ACTION.search(a) for a in action) or _allowed(lines, n + 1):
+            continue
+        findings.append(Finding(
+            path, n + 1,
+            "a transcript disclosure line draws a press wash (a gray box behind bare text); use `.cmuxPressLine`",
+        ))
+    return findings
+
+
 def _outer_view_is_leaf(lines: list[str], start: int, k: int, base: int) -> bool:
     """Line `k` (a modifier at base + 8) modifies the label's outer view only when that view, the last line at
     base + 4 above it, opens no block (an `Image(...)`, not an `HStack {` whose children sit at base + 8)."""
@@ -376,7 +421,7 @@ def scanned(path: str) -> bool:
 
 def check_file(path: str, raw: str) -> list[Finding]:
     if path.endswith(".swift"):
-        return check_swift(path, raw) + check_swift_wash_shape(path, raw)
+        return check_swift(path, raw) + check_swift_wash_shape(path, raw) + check_swift_disclosure_wash(path, raw)
     if path.endswith(".css"):
         return check_css(path, raw)
     return check_tailwind(path, raw)
@@ -433,6 +478,14 @@ def self_test() -> int:
             "Button(action: a) {\n    ZStack {\n        Circle().fill(x)\n    }\n    .frame(width: 40, height: 40)\n"
             "    .contentShape(.circle)\n}\n.buttonStyle(.cmuxPressFill)"
         ),
+        "u.swift": (
+            "Button {\n    toggleDisclosure(holdFold, key: k, in: d) { open.toggle() }\n} label: {\n"
+            "    HStack {\n        Text(\"Thought\")\n    }\n    .frame(minHeight: 44)\n}\n.buttonStyle(.cmuxPressFill)"
+        ),
+        "v.swift": (
+            "Button {\n    toggleDisclosure(hold) { x() }\n} label: {\n    Text(\"Worked\")\n}\n"
+            ".buttonStyle(CmuxMobilePressFillStyle(tinted: true))"
+        ),
     }
     good = {
         "a.css": ".b:active:not(:disabled) { background: var(--p); cursor: default }",
@@ -465,6 +518,13 @@ def self_test() -> int:
         "u.swift": (
             "Button {\n} label: {\n    Text(x).background(.fill, in: Capsule())\n}\n"
             ".buttonStyle(CmuxMobilePressFillStyle(shape: .capsule))"
+        ),
+        "v.swift": (
+            "Button {\n    toggleDisclosure(holdFold, key: k, in: d) { open.toggle() }\n} label: {\n"
+            "    Text(\"Thought\")\n}\n.buttonStyle(.cmuxPressLine)"
+        ),
+        "w.swift": (
+            "Button {\n    open(file)\n} label: {\n    Text(\"Edited\")\n}\n.buttonStyle(.cmuxPressFill)"
         ),
     }
     failures = []
