@@ -195,6 +195,8 @@ public final class AgentPaneView: NSView {
     var chromiumMove: ChromiumMove?
     /// The wait of a moved page held outside the window (`AgentPaneView+MoveCover`); nil when none is held.
     var chromiumMoveWait: ChromiumMoveWait?
+    /// What waits for a moved Chromium page to show (``whenMovedPageShows(_:)``): a pane's paint hold.
+    var movedPageWaiters: [() -> Void] = []
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
@@ -570,6 +572,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)
         // A closed page must not notify the pane that used to host it after it leaves.
         onNativeToolOwnerChange = nil
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
