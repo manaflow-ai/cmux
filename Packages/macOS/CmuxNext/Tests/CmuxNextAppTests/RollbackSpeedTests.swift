@@ -8,9 +8,9 @@ import Testing
 /// Going back to a previous nightly is one click that must not take seconds before it starts
 /// (Leo, 2026-11-11: "reverting the app to previous nightly is really slow/doesn't work very well
 /// sometimes?/needs less shitty ui"). A full signature check of a bundle reads every nested
-/// binary, so listing the kept builds never runs one, only the rollback's target is checked (the
-/// card's repeated reads reuse the answer while the bundle stays the same), and a kept build's schemas are read from the store instead of a cold
-/// start of its CLI. The Channels card reads each step of a Switch off ``BuildSwitchProgress``.
+/// binary, so listing the kept builds never runs one: only the rollback's target is checked, and
+/// a sealed kept build (``KeptSeal``) only quickly (``RollbackGoBackTests``). The Channels card
+/// reads each step of a Switch off ``BuildSwitchProgress``.
 @Suite(.serialized) struct RollbackSpeedTests {
     /// Counts the signature checks a store makes.
     private nonisolated final class Checks: Sendable {
@@ -51,35 +51,12 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let checks = Checks()
         let store = try Self.store(keeping: ["100", "200", "300"], in: root, checks: checks)
+        let atKeep = checks.count.withLock { $0 }
 
-        let kept = store.list()
+        let kept = store.list(teams: false)
 
         #expect(kept.map(\.build) == ["300", "200", "100"])
-        #expect(kept.allSatisfy { $0.teamID == nil })
-        #expect(checks.count.withLock { $0 } == 0)
-    }
-
-    @Test func theCardsReadsReuseTheTargetsCheckAndTheClickChecksAfresh() throws {
-        let root = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let checks = Checks()
-        let store = try Self.store(keeping: ["100", "200"], in: root, checks: checks)
-        let target = try #require(store.list().first)
-
-        // Each open of the Channels card asks whether Go Back would run.
-        #expect(store.verified(target, reusing: true).teamID == "TEAM")
-        #expect(store.verified(target, reusing: true).teamID == "TEAM")
-        #expect(checks.count.withLock { $0 } == 1)
-        // The click that runs the rollback checks the bundle it is about to put in place.
-        #expect(store.verified(target).teamID == "TEAM")
-        #expect(checks.count.withLock { $0 } == 2)
-
-        // A new copy at the same path is a new seal file: even the card checks it again.
-        let source = root.appending(path: "again/cmux.app", directoryHint: .isDirectory)
-        try Self.makeBundle(at: source, build: "200")
-        try store.keep(bundle: source, build: "200", limit: 2)
-        _ = store.verified(try #require(store.list().first), reusing: true)
-        #expect(checks.count.withLock { $0 } == 3)
+        #expect(checks.count.withLock { $0 } == atKeep, "the list and the prune check no signature")
     }
 
     @Test func aFailedCheckIsNotRemembered() throws {
@@ -93,55 +70,12 @@ import Testing
         let source = root.appending(path: "source/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: source, build: "100")
         try store.keep(bundle: source, build: "100", limit: 1)
-        let target = try #require(store.list().first)
+        let target = try #require(store.list(teams: false).first)
+        let atKeep = failures.withLock { $0 }
 
-        #expect(store.verified(target, reusing: true).teamID == nil)
-        #expect(store.verified(target, reusing: true).teamID == nil)
-        #expect(failures.withLock { $0 } == 2)
-    }
-
-    @Test func recordedSchemasAreReadBackAndOutliveAReKeepOfTheSameBuild() throws {
-        let root = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = try Self.store(keeping: ["100"], in: root, checks: Checks())
-        #expect(store.list().first?.storeSchemas == nil)
-
-        store.recordSchemas(["workspace_registry": 3, "conversation_store": 7], for: "100")
-        #expect(store.list().first?.storeSchemas == ["workspace_registry": 3, "conversation_store": 7])
-
-        // The rollback swap keeps the running build again under its number: the record stays.
-        let source = root.appending(path: "again/cmux.app", directoryHint: .isDirectory)
-        try Self.makeBundle(at: source, build: "100")
-        try store.keep(bundle: source, build: "100", limit: 1)
-        #expect(store.list().first?.storeSchemas == ["workspace_registry": 3, "conversation_store": 7])
-        // The record is not taken for a bundle.
-        #expect(store.list().map(\.bundle.lastPathComponent) == ["cmux.app"])
-    }
-
-    @Test func aRecordForAnotherBundleOrInTheOldFormIsNeverRead() throws {
-        let root = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = try Self.store(keeping: ["100"], in: root, checks: Checks())
-        store.recordSchemas(["workspace_registry": 3], for: "100")
-
-        // Another bundle kept under the same number (a different seal): the record names the old one.
-        let other = root.appending(path: "other/cmux.app", directoryHint: .isDirectory)
-        try Self.makeBundle(at: other, build: "100")
-        try Data("another seal".utf8).write(to: other.appending(path: "Contents/_CodeSignature/CodeResources"))
-        try store.keep(bundle: other, build: "100", limit: 1)
-        #expect(store.list().first?.storeSchemas == nil)
-
-        // A bare schemas object (no seal) claims nothing.
-        try Data(#"{"workspace_registry": 99}"#.utf8).write(to: store.root.appending(path: "100/store-schemas.json"))
-        #expect(store.list().first?.storeSchemas == nil)
-    }
-
-    @Test func aRecordForABuildNotKeptIsNotWritten() throws {
-        let root = try Self.scratch()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let store = try Self.store(keeping: ["100"], in: root, checks: Checks())
-        store.recordSchemas(["workspace_registry": 3], for: "999")
-        #expect(!FileManager.default.fileExists(atPath: store.root.appending(path: "999").path))
+        #expect(store.checkedTeam(of: target) == nil)
+        #expect(store.checkedTeam(of: target) == nil)
+        #expect(failures.withLock { $0 } == atKeep + 2, "no seal without a team: every click checks every file")
     }
 
     // MARK: Switch progress

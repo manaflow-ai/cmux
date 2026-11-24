@@ -1,4 +1,4 @@
-//! The macOS desktop: one display through ScreenCaptureKit, encoded by VideoToolbox from the
+//! The macOS desktop: one display (or one window, `window.rs`) through ScreenCaptureKit, encoded by VideoToolbox from the
 //! captured IOSurface with no CPU copy, and viewer input posted as CGEvents. Design:
 //! plans/cmux-next/remote-desktop-mac-host.md. Needs Screen Recording and Accessibility for
 //! the host process or the app that launched it.
@@ -8,7 +8,10 @@ pub(crate) mod capture;
 pub(crate) mod cpu;
 #[cfg(feature = "computer-use")]
 pub(crate) mod cu_host;
+#[cfg(feature = "computer-use")]
+pub(crate) mod cu_record;
 pub(crate) mod cursor;
+mod display_pick;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
@@ -17,6 +20,7 @@ pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
+pub(crate) mod window;
 
 use crate::desktop::{Desktop, FrameSource, Halves};
 use crate::stream::SessionCfg;
@@ -27,6 +31,7 @@ use cmux_encode::videotoolbox::{
 };
 use cmux_rd_core::flow::Rect;
 use cmux_rd_core::profile::EncodeProfile;
+use cmux_rd_core::resolution::Picture;
 use cmux_rd_proto::InputEvent;
 use input::Injector;
 use std::os::fd::RawFd;
@@ -62,6 +67,9 @@ pub struct MacFrames {
     picked_times: Option<(u64, u64)>,
     encoder: VideoToolbox,
     name: String,
+    /// The resolution ladder's picture is smaller than the stream (the encode scales).
+    #[cfg_attr(not(feature = "bench"), allow(dead_code))] // read by the bench's quality check
+    scaled: bool,
     #[cfg(feature = "bench")]
     quality: Option<crate::eval::Quality>,
 }
@@ -77,17 +85,53 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         .into());
     }
     let cursor_metadata = cursor_metadata && cursor::available();
-    let capture =
-        Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, !cursor_metadata)?;
-    capture.wait_first_frame(FIRST_FRAME_TIMEOUT_NS)?;
+    // The cursor is in the pictures unless the viewer draws it or asked for none at all.
+    let in_pictures = !cursor_metadata && cfg.show_cursor;
+    let make_encoder = move |(width, height): (u32, u32)| -> Res<VideoToolbox> {
+        let mut encoder = VideoToolbox::new(
+            width,
+            height,
+            encoder_fps(width, height, cfg.max_fps),
+            cfg.start_kbps,
+            cfg.profile == "baseline",
+        )?;
+        // The session's profile and the encoder's resources now, not on the first frame: an
+        // ultra session would otherwise rebuild the encoder inside the session's first keyframe.
+        encoder.set_ultra(cfg.encode_profile.is_ultra());
+        encoder.prepare()?;
+        Ok(encoder)
+    };
+    // The encoder session (about 100 ms on a fleet Mac) needs only the size, which CoreGraphics
+    // knows before ScreenCaptureKit answers, so it is made beside the shareable-content request,
+    // the stream start and the first frame, not after them.
+    let window = window::session_window(cfg.window, &cfg.display)?;
+    let (capture, early) = std::thread::scope(|scope| {
+        // A display's size is known before ScreenCaptureKit answers; one window's is not, so a
+        // window session makes its encoder once the stream reports its size.
+        let early = match window {
+            Some(_) => None,
+            None => capture::expected_size(&cfg.display, cfg.max_width)
+                .map(|size| (size, scope.spawn(move || make_encoder(size)))),
+        };
+        let capture = match window {
+            // One window, captured alone; a close or resize ends the session (`drain`).
+            Some(id) => Capture::start_window(id, cfg.max_fps, cfg.max_width, in_pictures),
+            None => {
+                Capture::start_for_session(&cfg.display, cfg.max_fps, cfg.max_width, in_pictures)
+            }
+        }
+        .and_then(|mut capture| capture.ready(FIRST_FRAME_TIMEOUT_NS).map(|()| capture));
+        let early = early.map(|(size, thread)| (size, thread.join()));
+        (capture, early)
+    });
+    let capture = capture?;
     let (width, height) = capture.size();
-    let encoder = VideoToolbox::new(
-        width,
-        height,
-        encoder_fps(width, height, cfg.max_fps),
-        cfg.start_kbps,
-        cfg.profile == "baseline",
-    )?;
+    let encoder = match early {
+        Some((size, Ok(encoder))) if size == (width, height) => encoder?,
+        // A guess that missed (a display change between the two reads) or a panicked thread:
+        // make it again at the stream's size.
+        _ => make_encoder((width, height))?,
+    };
     let name =
         format!("{} from screencapturekit iosurface", cmux_encode::H264Encoder::name(&encoder));
     let injector = Injector::new(capture.bounds(), (width, height))?;
@@ -98,6 +142,7 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
         picked_times: None,
         encoder,
         name,
+        scaled: false,
         #[cfg(feature = "bench")]
         quality: crate::eval::Quality::from_env(),
     };
@@ -116,8 +161,22 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        // A closed or resized window ends the session with that reason, before a restart of
+        // the stream ScreenCaptureKit stopped for it is tried.
+        let news = self.capture.window_news();
+        if let Some(reason) = news.ended {
+            return Err(reason.into());
+        }
         self.capture.recover()?;
         self.capture.drain(out);
+        // The shared window moved: the picture is the same, the pointer maps through its new
+        // frame.
+        if let Some(bounds) = news.moved {
+            self.injector.move_to(bounds);
+            if let Some(cursor) = self.cursor.as_mut() {
+                cursor.move_to(bounds);
+            }
+        }
         Ok(())
     }
 
@@ -129,6 +188,10 @@ impl Desktop for MacDesktop {
     fn release_all(&mut self) -> Res<()> {
         self.injector.release_all();
         Ok(())
+    }
+
+    fn ready_for_start(&mut self) -> Res<()> {
+        self.capture.ready(FIRST_FRAME_TIMEOUT_NS)
     }
 
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
@@ -161,8 +224,10 @@ impl FrameSource for MacFrames {
         let hint =
             SurfaceRect { x: damage.x, y: damage.y, width: damage.width, height: damage.height };
         let idr = self.encoder.encode_surface(&picture, hint, force_idr, pts_us, out)?;
+        // The bench's quality check compares the decoded frame with the full-size source, so
+        // it skips frames the resolution ladder scaled down.
         #[cfg(feature = "bench")]
-        if let Some(quality) = self.quality.as_mut() {
+        if let (Some(quality), false) = (self.quality.as_mut(), self.scaled) {
             if quality.wants_source(pts_us as u64, out) {
                 if let Some(pixels) = frame.eval_roi() {
                     quality.source(pts_us as u64, out, &pixels);
@@ -181,6 +246,10 @@ impl FrameSource for MacFrames {
         self.encoder.set_refine(refine);
     }
 
+    fn applies_profile(&self) -> bool {
+        true
+    }
+
     fn set_changed_pixels(&mut self, pixels: u64) {
         self.encoder.set_changed_pixels(pixels);
     }
@@ -191,6 +260,16 @@ impl FrameSource for MacFrames {
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    /// The resolution ladder's picture: a size smaller than the stream is scaled down on the
+    /// GPU before the encode (cmux-encode's surface path), and its QP ceiling goes to the
+    /// encoder. `None`: the full stream, no ceiling.
+    fn set_picture(&mut self, picture: Option<Picture>) {
+        let size = picture.map(|p| (p.width, p.height));
+        self.scaled = size.is_some_and(|s| s != self.size);
+        self.encoder.set_picture_size(size);
+        self.encoder.set_max_qp(picture.and_then(|p| p.max_qp));
     }
 
     fn idr_cause(&self) -> Option<&'static str> {

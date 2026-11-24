@@ -63,6 +63,10 @@ extension SidebarViewComponents {
         /// a change draws every row again (WorkspaceRowView+NeedsYouGlow).
         var needsYouMark: AttentionMarkLook
         var animatesLoops: Bool
+        /// `appearance.tabShape`: a row's corners (rounded), and whether the selected row runs into the card
+        /// (``CornerFlush/sidebarRowFlows``): every row lays out again and reports to the window's chrome.
+        var tabShape: TabShape
+        var rowFlows: Bool
         /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
         /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
         /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
@@ -112,6 +116,8 @@ extension SidebarViewComponents {
             rowTuning = SidebarRowTuning.signature
             needsYouMark = design.attention.mark
             animatesLoops = Motion.indicators.animatesLoops
+            tabShape = design.tabShape
+            rowFlows = CornerFlush.sidebarRowFlows
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
                            Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
             switcherTokens = [Metrics.roomDotSlot, Metrics.roomDotDiameter, Metrics.smallIconSize]
@@ -177,6 +183,7 @@ extension SidebarViewComponents {
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
             || lastState?.rowTuning != state.rowTuning
             || lastState?.needsYouMark != state.needsYouMark || lastState?.animatesLoops != state.animatesLoops
+            || lastState?.tabShape != state.tabShape || lastState?.rowFlows != state.rowFlows
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true
@@ -200,6 +207,11 @@ extension SidebarViewComponents {
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
+        // A restore's arrival never moves rows on a spring, even right after a click or key (the user-intent window):
+        // the lineage acpmux's lanes bring (rows nest under the sessions that started them) and the order the launch
+        // hold lets go (`SidebarModel.releasedLaunchOrderRevision`). Leo, 2026-11-22, after a relaunch: "the sidebar
+        // re-rendered/re-ordered with some animations".
+        let arrives = Self.isRestoreArrival(from: lastState, to: state, released: model.releasedLaunchOrderRevision)
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
         // Resolve the selected row's ancestors in its newly drawn lists. A drag or regrouping can
@@ -237,11 +249,11 @@ extension SidebarViewComponents {
                 if list.showModelChange(animates: false) { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
+                list.reload(animated: !arrives && Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
                 if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if rowsChanged {
                 // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
-                if list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections)) {
+                if list.showModelChange(animates: !arrives && Self.animatesReload(from: previous, to: model.sections)) {
                     SidebarNewRowTimer.shared.drew(model.sections, in: window)
                 }
             }
@@ -255,11 +267,21 @@ extension SidebarViewComponents {
             if !rows.isEmpty { list.patchRows(rows) }
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
+        // A built-in listed as a row (the Chief in a group) draws its info there: its status or unread change reloads nothing.
+        if let old = lastState?.itemInfo, old != state.itemInfo { list.patchItemInfo(from: old, to: state.itemInfo) }
         if listChanged || lastState?.tree != state.tree { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
         lastState = state
     }
+    /// Whether the change from `old` to `new` is a restore's arrival, which shows in one step: the drawn lineage changed
+    /// (only acpmux's lanes and the saved lineage write it, never a gesture here), or `new` shows the structural set
+    /// that ended the launch order hold (`released`).
+    static func isRestoreArrival(from old: RenderState?, to new: RenderState, released: UInt64?) -> Bool {
+        guard let old else { return false }
+        return old.tree?.parents != new.tree?.parents || (released != nil && released == new.sectionsRevision && old.sectionsRevision != new.sectionsRevision)
+    }
+
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)

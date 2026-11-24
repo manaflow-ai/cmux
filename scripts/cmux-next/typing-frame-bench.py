@@ -31,9 +31,11 @@ a native typing number and a web typing number were taken under the same load:
   L1 the focused chat streams    L4 every core saturated by other processes (--cpu-burners spinning processes)
   L2 10 other chats streaming    L5 L1 to L4 together, in the STRESS session (60 workspaces, 20 printing terminals)
 
-Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. A knob these
-surfaces cannot express (the 100k-row chat transcript: none of them types into a chat) is in the mode's
-`nativeMissing` and goes in the report beside the row, so a number is never read as the full mode. The web side
+Each mode is one launch of the app, and its knobs come from the registry, not from --busy/--chats. The agentpane
+surface seeds the mode's `native.rows` (L3 and L5: 100,000) into the chat it types in (debug.agent_pane seed_rows)
+before the chat streams. A knob these surfaces cannot express is in the mode's `nativeMissing`, and a seed that came
+up short is added to the run's `mode_missing`; either goes in the report beside the row, so a number is never read
+as the full mode. The web side
 (L0-L3, its own load model in webviews/bench/composer-load.ts) is `scripts/bench/cmux-bench typing`; this harness's
 cmux-bench adapter is `typing-native`.
 
@@ -45,6 +47,11 @@ frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar,agentpane]
       [--phases idle,load | --modes L0,L1,L2,L4,L5|all] [--samples 80] [--busy 20] [--chats 2] [--cpu-burners N]
       [--sample] [--chat-agent mock|real] [--gate-p95-ms 8] [--backdrops opaque,opacity85,picture]
+      [--ab browserPage.drawKeysAtOnce]
+Comparing a key's wait for its frame (`listener -> frame`) across phases needs --chat-agent real: each row
+carries `frame_timing.valid`, false for a mock-streamed load phase, because whether the mock keeps the
+renderer producing frames like the real transport is not established (hq#15723). Every other number in the
+row stands either way.
 
 The perf cron's `typing` part runs the terminal surface only, idle (scripts/cmux-next/perf-cron.py PARTS): its row
 terminal.key_to_echo.idle pools every round's keys (`key_to_frame_values`), p50 and p95, budget p95 8 ms.
@@ -57,7 +64,8 @@ Fleet (an owned mini with a console; the step builds the app):
 import argparse, csv, glob, json, math, os, re, shlex, socket, statistics, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import load_modes  # noqa: E402
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, tag_of as bench_tag_of, tag_state_root  # noqa: E402
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "cmux-tui/crates/acpmux/tests/fake_agent.py")
@@ -118,6 +126,9 @@ parser.add_argument("--modes", help="the shared load modes instead of --phases: 
                                     "`all`; one app launch each, knobs from webviews/bench/load-modes.json")
 parser.add_argument("--cpu-burners", type=int, default=0,
                     help="spinning processes a mode that saturates every core starts (default: this host's cores)")
+parser.add_argument("--launch", choices=("direct", "launchservices"), default="direct",
+                    help="how the app starts: `direct` (a child of this script, with its scheduling: on a fleet worker "
+                         "the worker's utility clamp) or `launchservices` (`open -n`, as a person's Finder or Dock launch)")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
 parser.add_argument("--busy", type=int, default=20, help="busy terminals in the load phase")
@@ -139,9 +150,13 @@ parser.add_argument("--rounds", type=int, default=3, help="every phase this many
 parser.add_argument("--sample", action="store_true", help="/usr/bin/sample the app over each load phase")
 parser.add_argument("--sample-idle", action="store_true", help="with --sample: the idle phases too")
 parser.add_argument("--gate-p95-ms", type=float)
+parser.add_argument("--cef-switches", default="",
+                    help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; DEBUG and bench "
+                         "builds), e.g. disable-component-update: a fresh home's updater runs in the first minutes")
 parser.add_argument("--chat-agent", choices=("mock", "real"), default="mock",
                     help="mock: in-page debug stream; real: ACP fake agent through AgentPaneTransport")
 parser.add_argument("--stream", default="6 10 24", help="real agent stream: SECONDS CHUNK_MS CHARS")
+parser.add_argument("--ab", help="a tunable key (debug.tunables) to measure off against on: every round runs its surfaces twice, once with the key false and once true, the order alternating per round so drift does not land on one arm. Each run row carries `ab`, and an agent chat row carries the frames the engine drew for its keys (`draw_on_input`), so an arm that reads on but changes nothing is visible as an inert toggle instead of a win")
 parser.add_argument("--backdrops", default="default",
                     help="comma list of window backdrops, one launch each: default (the bench's config), opaque "
                          "(Opacity 1), opacity85 (Opacity 0.85, no picture), picture (van-gogh-starry-night at Opacity "
@@ -166,6 +181,12 @@ results = {"tag": TAG, "host": os.uname().nodename, "opts": vars(opts), "log": [
 app = None
 SESSION = "light"
 ROUND = 0
+# The --ab arm being measured (None without --ab): False (the key off) or True (on). ARM is the live-set arm;
+# LAUNCH_ARM is the arm this whole launch was started with, for a key read once at startup.
+ARM = None
+LAUNCH_ARM = None
+# This launch's (ok, detail) switch proof for a launch-time --ab key, read once per launch (`launch_switch_once`).
+LAUNCH_SWITCH = None
 # The mode being measured, when --modes is given: its id, its `native` knobs and what it cannot express here.
 MODE = None
 
@@ -173,6 +194,159 @@ MODE = None
 # What make_load builds: --busy/--chats by default, a mode's `native` knobs with --modes.
 LOADSPEC = {"busy": opts.busy, "chats": opts.chats, "cpu": False}
 BURNERS = []
+
+
+# Keys Chromium (or the app) reads once at startup: a live `debug.tunables set` cannot change them, because the
+# process it would change already parsed its command line. Both arms of such a key need their own launch, with the
+# value written into the build's own debug-tunables.json before the app starts (`--tunables build` in
+# cef-layer-verify.py is the same route). A live set here would leave both arms on the build's default and report
+# them as off and on, which is how an inert change measures as a win (cmux#45709).
+LAUNCH_TIME_TUNABLES = {"browserPage.noFrameRateLimit"}
+
+
+def launch_arm_key():
+    """--ab's key if it needs a launch per arm, else None."""
+    return opts.ab if opts.ab in LAUNCH_TIME_TUNABLES else None
+
+
+def launch_tunables_path():
+    """The override file the bench's own build reads at launch.
+
+    The tag comes off the bundle (`bench_launch.tag_of`), never off `--tag`: `BenchApp` names its state root that
+    way too, so a `--tag` that does not match the bundle would write the file one build reads and launch another
+    (review F2 on cmux#48152). `--tag` only labels the report."""
+    return os.path.join(tag_state_root(bench_tag_of(APP)), "debug-tunables.json")
+
+
+def write_launch_tunable(key, value):
+    """Sets a launch-time key in the build's own override file, read at the next launch. The app must be down: its
+    coalesced writer would race this.
+
+    `value=None` removes the key instead of storing a null: the store reads a stored null as a value that is set,
+    so writing one leaves the key overridden after the arms are done rather than back on the build's default."""
+    path = launch_tunables_path()
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        data = {"version": 1, "values": {}}
+    values = data.setdefault("values", {})
+    if value is None:
+        values.pop(key, None)
+    else:
+        values[key] = value
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    json.dump(data, open(path, "w"), indent=2, sort_keys=True)
+    return path
+
+
+def set_arm(arm):
+    """Sets --ab's key for one arm. Returns why it could not, else None.
+
+    Only for a key read per use (`browserPage.drawKeysAtOnce` is read per key, so this reaches the open chats). A
+    launch-time key never comes here: `run_session` gives each of its arms a launch instead."""
+    if opts.ab in LAUNCH_TIME_TUNABLES:
+        return (f"{opts.ab} is read once at launch, so a live set cannot change this process; "
+                "a launch-time key takes one launch per arm (LAUNCH_TIME_TUNABLES)")
+    rpc("debug.tunables", {"action": "activate"})  # a bench build's tunable store is off until asked (debug-settings.md)
+    row = rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": arm}) or {}
+    if row.get("value") is not arm:
+        return f"debug.tunables set {opts.ab}={arm} answered {json.dumps(row)[:200]}"
+    # sleep-ok: a rest gap; the key is read per key (nothing to propagate), the gap keeps the set's own work out of
+    # the first measured key's frame.
+    time.sleep(0.5)
+    return None
+
+
+def reset_arm():
+    """--ab's key back to the build's default, so a later launch or surface measures the build as it is.
+
+    A launch-time key is not reset here: this process already parsed its command line, so a live set changes
+    nothing in it, and the override file is what the next launch reads (`write_launch_tunable(key, None)` at the
+    end of the arms removes it). Sending the set anyway recorded a reset that never happened (review F3 on
+    cmux#48152)."""
+    if opts.ab and not launch_arm_key():
+        rpc("debug.tunables", {"action": "set", "key": opts.ab, "value": None}, timeout=10)
+
+
+def cpu_share(start, end):
+    """App and WindowServer CPU over an interval, in percent of one core (`cpu_seconds` deltas over the wall time).
+    None for either when the process could not be read."""
+    wall = end[0] - start[0]
+    share = lambda i: (round(100.0 * (end[i] - start[i]) / wall, 1)
+                       if wall > 0 and end[i] is not None and start[i] is not None else None)
+    return {"app": share(1), "window_server": share(2), "seconds": round(wall, 2)}
+
+
+def frame_timing_validity(phase, streams):
+    """Whether this row's frame-start timings (`listener -> frame`) may be compared across phases.
+
+    A key's wait for its frame depends on whether the renderer was already producing frames, so a load phase only
+    answers that question if its chat really streams. `--chat-agent real` streams through AgentPaneTransport and the
+    daemon; the default `mock` drives the page through an in-page debug RPC, and whether that keeps the renderer
+    ticking the same way is **not established** — on one host (cmux20, 120 Hz) the same L1 mode read `listener ->
+    frame` p50 1.3 ms under the real transport and 5.2 ms under the mock, which is the whole size of the effect being
+    measured (hq#15723). An idle phase needs no stream, so it is always comparable.
+
+    This marks the row rather than refusing to measure: every other number here (paint, presentation, hangs) is
+    unaffected, and a reader of the frame-start column needs to know which rows belong in it."""
+    if phase == "idle" or not streams:
+        return {"valid": True, "load_source": "none", "why": "an idle phase needs no stream to be comparable"}
+    if opts.chat_agent == "real":
+        return {"valid": True, "load_source": "real_acp_agent_transport",
+                "why": "the chat streams through AgentPaneTransport and the daemon"}
+    return {"valid": False, "load_source": "mock_stream",
+            "why": "mock_stream is not proven to keep the renderer producing frames like the real transport; "
+                   "use --chat-agent real for frame-start comparisons (hq#15723)"}
+
+
+def draw_on_input_frames():
+    """Frames the engine drew for keys, per browser, from `debug.cef`'s `tracker` counters.
+
+    The engine reports them flat inside `tracker` (`CEFTrackerStats.reportFields`): `draw_on_input_counter` is 1 when
+    the shim answers the per-key count at all, and `draw_on_input.<browser>` is one page's frames. Returns None when
+    `draw_on_input_counter` is absent or 0, which is not the same as zero frames: an engine below fork API 35 takes no
+    draw-on-input call at all, so an arm that reads on measures the off path (cmux#45709 shipped against a pin at
+    API 33)."""
+    report = rpc("debug.cef", timeout=20)
+    tracker = report.get("tracker") if isinstance(report, dict) else None
+    if not isinstance(tracker, dict) or not tracker.get("draw_on_input_counter"):
+        return None
+    return {k[len("draw_on_input."):]: v for k, v in tracker.items() if k.startswith("draw_on_input.")}
+
+
+# What a launch-time key's arm must find in `debug.cef`'s `launch_switches` to have measured its own path.
+LAUNCH_SWITCH_PROOF = {"browserPage.noFrameRateLimit": ["disable-frame-rate-limit", "disable-gpu-vsync"]}
+
+
+def launch_switch_proof(key, arm):
+    """Whether this launch passed Chromium the switches `key`=`arm` means, read off `debug.cef`.
+
+    `launch_switches` is what `CEFRuntime` recorded where it built the command line, so it answers what the process
+    launched with and not what the store holds now. An arm cannot tell its own path from the other one without it:
+    writing the override file and reading back a row proves only that the value was stored, and a launch that raced
+    the store's load, or a build whose code ignores the key, still reports the value as set. That gap is what
+    cmux#45709 shipped. Returns (ok, detail); ok is None when the build is too old to report the field at all."""
+    expected = LAUNCH_SWITCH_PROOF.get(key)
+    if expected is None:
+        return None, {"key": key, "why": "no switch proof known for this key"}
+    report = rpc("debug.cef", timeout=20)
+    if not isinstance(report, dict) or "launch_switches" not in report:
+        return None, {"key": key, "why": "this build's debug.cef reports no launch_switches"}
+    got = sorted(report.get("launch_switches") or [])
+    want = sorted(expected) if arm else []
+    return got == want, {"key": key, "arm": bool(arm), "expected": want, "launched_with": got}
+
+
+def launch_switch_once():
+    """This launch's switch proof, read once and shared by every row of the launch (`LAUNCH_SWITCH`).
+
+    What Chromium was launched with cannot change inside a launch, so one `debug.cef` read answers every row. It
+    used to be read per row, which put a 20 s-timeout RPC between a surface's setup and its keys on every row of
+    every mode (review F1 on cmux#48152)."""
+    global LAUNCH_SWITCH
+    if LAUNCH_SWITCH is None:
+        LAUNCH_SWITCH = launch_switch_proof(launch_arm_key(), LAUNCH_ARM) if launch_arm_key() else (None, None)
+    return LAUNCH_SWITCH
 
 
 def start_burners():
@@ -220,10 +394,23 @@ def rpc(method, params=None, timeout=30):
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
 
 
+def layout_signature():
+    """What an action changes: the shown panes (kind, tab, focus, frame) and the windows' first responders."""
+    surfaces = rpc("debug.surfaces") or {}
+    panes = [(p.get("pane"), p.get("kind"), p.get("selected_tab"), p.get("focused"), json.dumps(p.get("frame")))
+             for w in (surfaces.get("windows") or []) if isinstance(w, dict) for p in (w.get("panes") or [])]
+    return json.dumps([panes, focus_report()["first_responders"]])
+
+
 def action(name, args=None, settle=0.0, focus=True, timeout=60):
+    """settle (s, the old fixed wait): wait for the action's change to show and the layout to stop changing."""
+    before = layout_signature() if settle else None
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": focus, "origin": "script"}, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        wait_until(lambda: layout_signature() != before, f"{name} to change the layout", timeout=max(5.0, settle * 4),
+                   raise_on_timeout=False)
+        wait_stable(layout_signature, f"the layout after {name}", timeout=max(10.0, settle * 6), interval=0.1, reads=4,
+                    raise_on_timeout=False)
     return reply
 
 
@@ -405,17 +592,19 @@ def agent_typing_verdict(stats, expected, dispatch):
                and "".join(keys) == expected)
     exact = stats.get("composer_text") == expected
     finite = bool(samples) and len(samples) == len(expected)
+
+    def good(value):
+        return isinstance(value, (int, float)) and math.isfinite(value) and value >= 0
+    # frame and paint are the measurement; listener and work only split it into stages. The page's work mark waits
+    # for the key's `input` event until the key's frame, so a key whose edit lands after that frame (under load:
+    # 1 of 200 in L2 on cmux20-bench, 2026-11-20) has no work stage. Such keys are counted, and a run stays complete.
+    stage_missing = {"listener": 0, "work": 0}
     for sample in samples:
-        if not isinstance(sample, dict):
+        if not isinstance(sample, dict) or not (good(sample.get("frame")) and good(sample.get("paint"))):
             finite = False
             break
-        for field in ("frame", "paint", "listener", "work"):
-            value = sample.get(field)
-            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
-                finite = False
-                break
-        if not finite:
-            break
+        for field in stage_missing:
+            stage_missing[field] += not good(sample.get(field))
     paints = [sample["paint"] for sample in samples if isinstance(sample, dict)
               and isinstance(sample.get("paint"), (int, float))]
     paint_distribution = pct(paints)
@@ -433,6 +622,7 @@ def agent_typing_verdict(stats, expected, dispatch):
         "complete": finite and ordered and exact and joined,
         "key_order_ok": ordered,
         "text_exact": exact,
+        "stage_missing": stage_missing,
         "expected_keys": len(expected),
         "observed_keys": len(samples),
         "key_to_frame_ms": paint_distribution,
@@ -473,9 +663,23 @@ def open_agent_chat():
     pane = engine.get("pane")
     if pane and opts.chat_agent == "real":
         made = rpc("debug.agent_pane", {"action": "new_chat", "pane": pane, "harness": "fake", "cwd": WORK}, timeout=90)
+        # WORK is a new folder: the start waits on the pane's trust ask until someone answers it (every chat of
+        # 8372af35's L0-L5 run stayed pending). Answer it as a person does, with a click on Trust; once trusted, the
+        # folder asks no later chat.
+        trust = None
+        if (made or {}).get("pending"):
+            trust = wait(lambda: (lambda r: r if r.get("clicked") else None)(
+                rpc("debug.agent_pane", {"action": "click", "pane": pane, "selector": ".acpmux-trust-ask-action"},
+                    timeout=10) or {}), 10, step=0.5)
         attached = wait(lambda: (lambda state: state if state.get("connection") == "attached" and state.get("sessionId") else None)(
             rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}), 40, step=0.5)
-        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}")
+        # The chat's state when it never attached (connection, error, pending ask): the report says why its stream
+        # could not run, and stream_load_missing names it beside the number.
+        last = None if attached else rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=10) or {}
+        LOAD.setdefault("attach", {})[pane] = {"attached": bool(attached), "new_chat": made, "trust_clicked": bool(trust),
+                                               "state": None if attached else json.dumps(last)[:400]}
+        note(f"chat {pane}: new_chat {json.dumps(made)[:160]} attached={bool(attached)}"
+             + ("" if attached else f" state {json.dumps(last)[:240]}"))
     elif pane:
         rpc("debug.agent_pane", {"action": "select_session", "pane": pane, "session": "mock-session"}, timeout=30)
     if pane:
@@ -498,6 +702,9 @@ def ensure_agentpane():
 
 def measure_agentpane(phase, pid, pane, streams=()):
     """Native agent composer path: exact key samples, page paint epoch, foreground proof and load provenance."""
+    global WINDOW_SERVER
+    # `--surfaces=agentpane` never runs `measure`, which is where this is otherwise found.
+    WINDOW_SERVER = WINDOW_SERVER or window_server_pid()
     activation = foreground_activation()
     if activation.get("screen_locked"):
         entry = {
@@ -515,7 +722,7 @@ def measure_agentpane(phase, pid, pane, streams=()):
     entry = {
         "session": SESSION, "surface": "agentpane", "phase": phase, "mode": (MODE or {}).get("id"),
         "mode_missing": (MODE or {}).get("nativeMissing") or [], "pane": pane,
-        "engine": LOAD.get("agentpane_engine"), "foreground": activation,
+        "engine": LOAD.get("agentpane_engine"), "foreground": activation, "launch": opts.launch,
         "focus": {"composer": focus_reply, "report": focus, "app_active": focus.get("app_active") is True},
         "capabilities": {
             "typing": "debug.key -> agent page",
@@ -546,10 +753,17 @@ def measure_agentpane(phase, pid, pane, streams=()):
     for stream in streams:
         stream.start()
     if streams:
-        time.sleep(1.0)
+        # The streams run before the first key: each has made its first step.
+        wait_until(lambda: all(stream.calls >= 1 for stream in streams), "the streams' first step", timeout=30,
+                   raise_on_timeout=False)
     target = {"pane": pane}
     if LOAD.get("agentpane_engine") == "cef":
         target["target"] = "page"
+    frames_before = draw_on_input_frames()
+    # For a launch-time --ab key, what this launch actually passed Chromium: the row carries it so no cell is read
+    # as an arm's number before its switch is proven to have landed (`launch_switch_once`, one read per launch).
+    switch_ok, switch_detail = launch_switch_once()
+    cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     stats_before = rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {}
     before_keys = stats_before.get("keys", 0) if isinstance(stats_before, dict) else 0
     clear_select = rpc("debug.key", dict(target, key="a", modifiers=["command"]), timeout=10)
@@ -569,6 +783,8 @@ def measure_agentpane(phase, pid, pane, streams=()):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), sample_path)
     expected = agent_expected_text(opts.samples)
     dispatch, trips = [], []
+    probe = SchedProbe(pid, opts.samples * opts.interval)
+    probe.start()
     send_start = time.monotonic()
     for index, key in enumerate(expected):
         deadline = send_start + index * opts.interval
@@ -580,6 +796,8 @@ def measure_agentpane(phase, pid, pane, streams=()):
                          "late_ms": (started - deadline) * 1000,
                          "rpc_ms": (time.monotonic() - started) * 1000, "reply": reply})
         trips.append(dispatch[-1]["rpc_ms"])
+    probe.halt.set()
+    probe.join(timeout=10)
     typing = wait(lambda: (lambda report: report if report.get("keys", 0) >= len(expected) else None)(
         rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=5) or {}), 15, step=0.25)
     typing = typing or (rpc("debug.agent_pane", {"action": "typing_stats", "pane": pane}, timeout=10) or {})
@@ -598,18 +816,34 @@ def measure_agentpane(phase, pid, pane, streams=()):
             main_profile = digest_sample(open(sampler[1], errors="replace").read())
         except OSError:
             main_profile = {"error": "sample output unavailable", "file": os.path.basename(sampler[1])}
+    cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
+    frames_after = draw_on_input_frames()
     verdict = agent_typing_verdict(typing, expected, dispatch)
     frame_report = frame_metrics(frames)
     entry.update({"keys": len(expected), "measured": verdict["observed_keys"], "expected_text": expected,
                   "clear": {"select": clear_select, "delete": clear_delete, "delete_key": "delete",
                             "verified": bool(cleared), "reset": reset},
                   "typing": typing, "dispatch": dispatch, "key_rpc_ms": pct(trips), **verdict,
+                  # The app's and WindowServer's CPU over the keys: a frame-pacing arm buys latency with
+                  # frames nobody sees, so its cost belongs in the same row as its win (`--ab`).
+                  "cpu_percent": cpu_share(cpu_start, cpu_end),
+                  "frame_timing": frame_timing_validity(phase, streams),
+                  # `counter: false`: this engine has no draw-on-input counter, so the mode cannot be live here
+                  # whatever a setting reads, and `drew: 0` with a counter means the mode was off or opted this page out.
+                  # `ok: false` means this arm launched without the switches its label claims, so its numbers are
+                  # the other arm's; `ok: null` means the build cannot say (too old to report `launch_switches`).
+                  "launch_switch": None if switch_detail is None else {"ok": switch_ok, **switch_detail},
+                  "draw_on_input": {"counter": frames_after is not None,
+                                    "before": frames_before, "after": frames_after,
+                                    "drew": None if frames_after is None else
+                                            sum(max(0, v - (frames_before or {}).get(k, 0)) for k, v in frames_after.items())},
                   "driver_p95_late_ms": pct([item["late_ms"] for item in dispatch]).get("p95"),
                   "driver_p99_rpc_ms": pct(trips).get("p99"),
                   "frames": frames, "frame_metrics": frame_report, "frames_over_16ms": frame_report.get("frames_over_16ms"),
                   "frame_bursts": frame_report.get("frame_bursts"), "main_thread_cost": frame_report.get("main_thread_cost"),
                   "hangs": hangs,
                   "streams": [stream.calls for stream in streams], "main_profile": main_profile,
+                  "sched_probe": probe.snapshots,
                   "complete": bool(verdict["complete"] and cleared)})
     results["runs"].append(entry)
     if opts.json:
@@ -652,7 +886,8 @@ def build_stress():
         if tab:
             stress.action("tab.focus", target=f"tab:{tab['id']}")
             action("terminal.sendText", {"text": "exec /bin/zsh -f\r"})
-            time.sleep(1)  # the prompt draws
+            wait_until(lambda: zsh_prompt(tab["id"]), "zsh -f's prompt in the stress pane", timeout=15,
+                       raise_on_timeout=False)
         LOAD["stress_pane"] = last["id"]
     return ws
 
@@ -667,24 +902,42 @@ def workspaces():
 SENTENCE = "the chief reads your note and starts on the work in a new workspace "
 
 
+# The app stamps its key events on CLOCK_UPTIME_RAW; off macOS that name does not exist, and a unit test of this
+# module's own functions must still run on the Linux test host (2026-11-23, test_typing_frame_verdict on huge-blue).
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def type_keys(count, params, column):
     keys = SENTENCE if opts.words else "abcdefghijklmnopqrstuvwxyz"
     rows_before = len(probe_rows())
     trips = []
+    # What the app did with each key, as `debug.key` reports it: "responder" or "page" went on to AppKit's dispatch,
+    # which is where the typing probe opens its sample; "app" means the key router consumed the key before that, so
+    # the key leaves no probe row and no sample. Without this a route the router eats reads as a surface that simply
+    # measured nothing -- 80 keys, 0 rows, no reason named (#45273's fleet run, 2026-11-23).
+    verdicts = {}
     for index in range(count):
         t0 = time.perf_counter()
         key = keys[index % len(keys)]
-        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(time.CLOCK_UPTIME_RAW)),
+        reply = rpc("debug.key", dict(params, key="space" if key == " " else key, timestamp=time.clock_gettime(UPTIME_CLOCK)),
                     timeout=10)
         trips.append((time.perf_counter() - t0) * 1000)
-        if isinstance(reply, dict) and reply.get("error"):
-            note(f"key {index}: {reply.get('error')}")
+        if isinstance(reply, dict):
+            verdict = f"{reply.get('handled_by')}/{reply.get('action')}@{reply.get('window_kind')}"
+            if reply.get("error"):
+                verdict = f"error:{json.dumps(reply.get('error'))[:80]}"
+                note(f"key {index}: {reply.get('error')}")
+        else:
+            verdict = f"no reply ({type(reply).__name__})"
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
-    time.sleep(0.5)  # the last frame lands
+    # The last frame lands: a complete probe row for every key typed.
+    wait_until(lambda: sum(1 for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)) >= count,
+               "a probe row for the last key", timeout=5, raise_on_timeout=False)
     rows = [r for r in probe_rows()[rows_before:] if r.get("complete") == "1" and r.get(column)]
-    return rows, trips
+    return rows, trips, verdicts
 
 
 GENERIC = ("start", "main", "NSApplicationMain", "_DPSNextEvent", "_DPSBlockUntilNextEventMatchingListInMode", "ReceiveNextEventCommon",
@@ -755,6 +1008,65 @@ def cpu_seconds(pid):
     return total
 
 
+class SchedProbe(threading.Thread):
+    """Scheduler state while keys are typed: `ps -M` (one row per thread with its scheduler priority PRI and CPU
+    times) of the app, each Chromium helper it started (renderer, GPU, utility) and one CPU burner, at `points`
+    evenly spaced through the typing window. Read-only; signals nothing."""
+
+    def __init__(self, pid, seconds, points=4):
+        super().__init__(daemon=True)
+        self.pid, self.seconds, self.points = pid, seconds, points
+        self.snapshots = []
+        self.halt = threading.Event()
+
+    def helpers(self):
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
+        found = []
+        for line in out.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) < 3 or not parts[0].isdigit() or parts[1] != str(self.pid):
+                continue
+            command = parts[2]
+            kind = re.search(r"--type=([\w-]+)", command)
+            found.append({"pid": int(parts[0]), "kind": kind.group(1) if kind else "other",
+                          "helper": " Helper" in command, "command": command[:400]})
+        return found
+
+    def snapshot(self, index):
+        children = self.helpers()
+        pids = [self.pid] + [child["pid"] for child in children if child["helper"]]
+        if BURNERS:
+            pids.append(BURNERS[0].pid)
+        # Where a scheduling clamp would come from: this harness and its parent (the fleet worker's step tree), and
+        # two apps LaunchServices started on this host, for reference.
+        reference = {"harness": os.getpid(), "harness_parent": os.getppid()}
+        for name in ("Finder", "Dock"):
+            found = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True).stdout.split()
+            if found:
+                reference[name] = int(found[0])
+        pids += [pid for pid in reference.values() if pid not in pids]
+        threads = subprocess.run(["ps", "-M", "-p", ",".join(str(p) for p in pids)],
+                                 capture_output=True, text=True).stdout
+        load = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.strip()
+        front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()
+        front_info = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True,
+                                    text=True).stdout.strip() if front else ""
+        self.snapshots.append({"index": index, "t": time.time(), "app_pid": self.pid, "launch": opts.launch,
+                               "burner_pid": BURNERS[0].pid if BURNERS else None, "loadavg": load,
+                               "reference_pids": reference, "front_app": front, "front_app_pid": front_info,
+                               "children": children, "ps_M": threads})
+
+    def run(self):
+        step = self.seconds / (self.points + 1)
+        for index in range(self.points):
+            if self.halt.wait(step):
+                return
+            try:
+                self.snapshot(index)
+            except Exception as error:  # the probe must never end a run
+                self.snapshots.append({"index": index, "error": repr(error)})
+
+
 def window_server_pid():
     out = subprocess.run(["pgrep", "-x", "WindowServer"], capture_output=True, text=True).stdout.split()
     return int(out[0]) if out else None
@@ -776,12 +1088,14 @@ def measure(surface, phase, params, column, pid, streams=()):
         sampler = (subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", path],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), path)
     if streams:
-        time.sleep(1.0)  # the streams run before the first key
+        # The streams run before the first key: each has made its first step.
+        wait_until(lambda: all(stream.calls >= 1 for stream in streams), "the streams' first step", timeout=30,
+                   raise_on_timeout=False)
     # debug.view_churn (which views ask for display or layout while the keys are typed) exists only in a probe
     # build (scratch branch pl-typing-view-churn, never landed: a DEBUG swizzle of NSView); elsewhere this records the error.
     rpc("debug.view_churn", {"action": "start"})
     cpu_start = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
-    rows, trips = type_keys(opts.samples, params, column)
+    rows, trips, verdicts = type_keys(opts.samples, params, column)
     cpu_end = (time.monotonic(), cpu_seconds(pid), cpu_seconds(WINDOW_SERVER))
     wall = cpu_end[0] - cpu_start[0]
     share = lambda i: (round(100.0 * (cpu_end[i] - cpu_start[i]) / wall, 1)
@@ -805,6 +1119,8 @@ def measure(surface, phase, params, column, pid, streams=()):
         "mode_missing": (MODE or {}).get("nativeMissing") or [],
         "cpu_burners": LOAD.get("cpu_burners", 0),
         "key_to_frame_ms": pct(f(column)), "column": column,
+        # `measured: 0` with every key under "app/..." is the key router eating them, not a slow surface.
+        "key_verdicts": verdicts,
         # Every measured key's value, so a reader pools the rounds (the perf cron's terminal.key_to_echo rows).
         "key_to_frame_values": [round(v, 3) for v in f(column)],
         "send_to_dispatch_ms": pct(f("dispatch_start_ms")),
@@ -846,6 +1162,27 @@ def measure(surface, phase, params, column, pid, streams=()):
     if opts.json:
         json.dump(results, open(opts.json, "w"), indent=1)
     return entry
+
+
+def surface_panes():
+    surfaces = rpc("debug.surfaces", {"text": True}) or {}
+    return [p for w in (surfaces.get("windows") or []) if isinstance(w, dict) for p in (w.get("panes") or [])]
+
+
+def zsh_prompt(tab):
+    """The pane showing `tab` ends in a `zsh -f` prompt (`host% `)."""
+    for pane in surface_panes():
+        if pane.get("selected_tab") == tab:
+            lines = [line for line in (pane.get("text") or (pane.get("surface") or {}).get("text") or "").splitlines() if line.strip()]
+            return bool(lines) and lines[-1].rstrip().endswith(("%", "#"))
+    return False
+
+
+def workspace_shown(ws):
+    """A pane on screen shows one of workspace `ws`'s tabs (snapshot.get vs debug.surfaces)."""
+    tabs = {t.get("id") for w in workspaces() if w.get("id") == ws for sc in w.get("screens") or []
+            for p in sc.get("panes") or [] for t in p.get("tabs") or []}
+    return bool(tabs & {p.get("selected_tab") for p in surface_panes()})
 
 
 def named_workspace(name):
@@ -894,7 +1231,10 @@ def surface_terminal(phase, pid):
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec /bin/zsh -f")
         ws, panes = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("typing")), 20) or (None, [])
         LOAD["terminal_ws"], LOAD["terminal_pane"] = ws, (panes[0].get("id") if panes else None)
-        time.sleep(2)  # the prompt draws
+        tab = next((t.get("id") for p in panes for t in p.get("tabs") or [] if t.get("kind") == "terminal"), None)
+        if tab:
+            wait_until(lambda: zsh_prompt(tab), "zsh -f's prompt in the typing workspace", timeout=20,
+                       raise_on_timeout=False)
     streams = []
     if phase == "load":
         make_load(LOAD["terminal_ws"])
@@ -913,12 +1253,16 @@ def surface_home(phase, pid):
         ws, _ = wait(lambda: (lambda r: r if r[0] else None)(named_workspace("home typing")), 20) or (None, [])
         LOAD["home_ws"] = ws
         rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": ws}, "focus": True, "origin": "script"})
-        time.sleep(1)  # the workspace shows
+        wait_until(lambda: workspace_shown(ws), "the home typing workspace shows", timeout=10, raise_on_timeout=False)
         opened = rpc("debug.home_native_fixture.open", {"new": True})
         note(f"home fixture in {ws}: {json.dumps(opened)[:160]}")
-        time.sleep(2)  # the transcript lays out
+        # The transcript lays out: the composer reports its geometry, then it and the rows stop changing.
+        wait_until(lambda: (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("ok"), "the Home fixture's composer",
+                   timeout=20, raise_on_timeout=False)
+        wait_stable(lambda: (rpc("debug.home.drive", {"action": "geometry"}), rpc("debug.home.drive", {"action": "rows"})),
+                    "the Home fixture's transcript layout", timeout=20, interval=0.1, reads=5, raise_on_timeout=False)
     rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": LOAD["home_ws"]}, "focus": True, "origin": "script"})
-    time.sleep(0.5)  # the workspace shows
+    wait_until(lambda: workspace_shown(LOAD["home_ws"]), "the home typing workspace shows", timeout=10, raise_on_timeout=False)
     if phase == "load":
         make_load(None)
     focused = rpc("debug.home.drive", {"action": "focus"})
@@ -945,7 +1289,9 @@ def empty_draft():
         if opts.prefill:
             text = (SENTENCE * (opts.prefill // len(SENTENCE) + 1))[: opts.prefill]
             rpc("debug.home.drive", {"action": "type", "text": text})
-        time.sleep(0.3)  # the emptied (or filled) field lays out before the first measured key
+        # The emptied (or filled) field lays out before the first measured key: its geometry stops changing.
+        wait_stable(lambda: rpc("debug.home.drive", {"action": "geometry"}), "the Home composer's layout", timeout=10,
+                    interval=0.05, reads=4, raise_on_timeout=False)
 
 
 def surface_dock(phase, pid):
@@ -983,15 +1329,57 @@ def surface_omnibar(phase, pid):
     return entry
 
 
+def seed_transcript(pane, rows):
+    """The mode's god chat: ROWS synthetic rows put into the focused chat's transcript (debug.agent_pane seed_rows,
+    the page's replaceRows), once per launch, before its stream starts; the real agent's stream then lands after
+    them. The rows are the page's (the daemon's log keeps the real turns): the page is where a long transcript
+    costs a key. What it did, or None when the mode wants no rows."""
+    if not rows:
+        return None
+    if LOAD.get("seed", {}).get("pane") == pane:
+        return LOAD["seed"]
+    started = time.time()
+    reply = rpc("debug.agent_pane", {"action": "seed_rows", "pane": pane, "count": rows}, timeout=120) or {}
+    seeded = reply.get("rows") if isinstance(reply.get("rows"), int) else 0
+    LOAD["seed"] = {"pane": pane, "requested": rows, "rows": seeded, "commit_ms": reply.get("commit_ms"),
+                    "seconds": round(time.time() - started, 1), "error": reply.get("error")}
+    note(f"seed {pane}: {json.dumps(LOAD['seed'])[:200]}")
+    return LOAD["seed"]
+
+
+# The page's synthetic transcript is whole turns of a prompt, a reply and a turn summary (webviews
+# src/agent-session/acpmux/synthetic.ts), so a 100,000-row ask seeds 99,999.
+SEED_TURN_ROWS = 3
+
+
+def seed_short(seed):
+    """Whether SEED put fewer rows into the chat than the mode asks for, past the last partial turn."""
+    return seed["rows"] <= seed["requested"] - SEED_TURN_ROWS
+
+
+def stream_load_missing(panes, attach=None):
+    """With the real agent, a chat that never attached has no session to prompt, so its stream never ran: the load
+    is not the mode's. A line naming how many of the streaming chats that is, or None when every one attached (or
+    the mock agent streams, which needs no session)."""
+    if opts.chat_agent != "real" or not panes:
+        return None
+    attach = LOAD.get("attach", {}) if attach is None else attach
+    dead = [p for p in panes if not (attach.get(p) or {}).get("attached")]
+    if not dead:
+        return None
+    return f"{len(dead)} of {len(panes)} streaming chats never attached to the agent, so their streams never ran"
+
+
 def surface_agentpane(phase, pid):
     pane = ensure_agentpane()
-    streams = []
+    seed = seed_transcript(pane, ((MODE or {}).get("native") or {}).get("rows") or 0)
+    streams, source = [], []
     if phase == "load":
         make_load(None)
         mode_id = (MODE or {}).get("id")
         # L1/L3 type into the focused chat while it streams; L2 adds the ten background chats;
         # L5 combines both. The legacy --phases path preserves its existing mock-chat load.
-        source = []
+        source.clear()
         if mode_id in ("L1", "L3", "L5"):
             source.append(pane)
         if mode_id in ("L2", "L5"):
@@ -1001,7 +1389,18 @@ def surface_agentpane(phase, pid):
         stream = chat_streams(source)
         if stream:
             streams.append(stream)
-    return measure_agentpane(phase, pid, pane, streams)
+    entry = measure_agentpane(phase, pid, pane, streams)
+    missing = stream_load_missing(source)
+    if missing:
+        entry["mode_missing"] = [*(entry.get("mode_missing") or []), missing]
+        entry["attach"] = {p: LOAD.get("attach", {}).get(p) for p in source}
+    if seed is not None:
+        entry["transcript_seed"] = seed
+        if seed_short(seed):
+            # Fewer rows than the mode asks for is not that mode: say so beside the number.
+            entry["mode_missing"] = [*(entry.get("mode_missing") or []),
+                                     f"the {seed['requested']}-row chat transcript (seeded {seed['rows']})"]
+    return entry
 
 
 SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_dock,
@@ -1011,11 +1410,14 @@ SURFACES = {"terminal": surface_terminal, "home": surface_home, "dock": surface_
 def run_session(session, phases=None, backdrop="default"):
     """One launch of the app (scripts/cmux-next/bench_launch.py): the light session, or STRESS (built first); every
     surface and phase in it (`phases`, default --phases), --rounds times, with the window's `backdrop` (BACKDROPS)."""
-    global app, SESSION, SOCKET, CONFIG
+    global app, SESSION, SOCKET, CONFIG, LAUNCH_SWITCH
     SESSION = session if backdrop == "default" else f"{session}/{backdrop}"
+    LAUNCH_SWITCH = None  # one switch proof per launch, read by the first row of this one
     LOAD.clear()
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.cef_switches:
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = opts.cef_switches
     if opts.chat_agent == "real":
         env.update(CMUX_NEXT_AGENT_PANE_MOCK=None, ACPMUX_AGENT_LAUNCH=None)
     config = {"browser": {"defaultEngine": "chromium"}}
@@ -1023,7 +1425,7 @@ def run_session(session, phases=None, backdrop="default"):
         config["appearance"] = BACKDROPS[backdrop]
     bench = BenchApp(APP, out=OUT, config=config, window=WINDOW,
                      log_name=f"app-{SESSION.replace('/', '-')}.log",
-                     env=env)
+                     env=env, launch=opts.launch)
     try:
         try:
             bench.launch(timeout=180)
@@ -1048,20 +1450,42 @@ def run_session(session, phases=None, backdrop="default"):
             note(f"harness add: {json.dumps(added)[:300]}")
         if session == "stress":
             LOAD["terminal_ws"] = build_stress()
-            time.sleep(5)  # the grid settles
+            # The grid settles: the topology and the shown layout stop changing.
+            wait_stable(lambda: (json.dumps(workspaces(), sort_keys=True), layout_signature()), "the STRESS grid",
+                        timeout=60, interval=0.5, reads=4, raise_on_timeout=False)
         surfaces = opts.surfaces.split(",")
-        global ROUND
+        global ROUND, ARM
         # Every idle round before the first load round: the load (busy terminals, chats) runs until the app quits,
         # so an idle round after a load round would measure under load.
         for phase in (phases or opts.phases.split(",")):
             for ROUND in range(opts.rounds):
-                for surface in surfaces:
-                    if surface == "dock" and phase != "idle" and not opts.dock_load:
-                        continue
-                    try:
-                        SURFACES[surface](phase, app.pid)
-                    except Exception as error:  # one surface failing must not hide the others
-                        note(f"{session} {surface}.{phase}: failed: {error!r}")
+                # With --ab, both arms in the same round, the order alternating: a drift over the launch (thermals, a
+                # warming cache) then falls on both arms, not on whichever one ran second.
+                arms = ([None] if not opts.ab or launch_arm_key()
+                        else [False, True] if ROUND % 2 == 0 else [True, False])
+                for ARM in arms:
+                    if ARM is not None:
+                        problem = set_arm(ARM)
+                        if problem:
+                            note(f"{session} round {ROUND} arm {opts.ab}={ARM}: {problem}")
+                            results.setdefault("ab_problems", []).append(
+                                {"session": session, "phase": phase, "round": ROUND, "arm": ARM, "problem": problem})
+                            continue
+                    for surface in surfaces:
+                        if surface == "dock" and phase != "idle" and not opts.dock_load:
+                            continue
+                        first = len(results["runs"])
+                        try:
+                            SURFACES[surface](phase, app.pid)
+                        except Exception as error:  # one surface failing must not hide the others
+                            note(f"{session} {surface}.{phase}: failed: {error!r}")
+                        if opts.ab:
+                            arm = LAUNCH_ARM if launch_arm_key() else ARM
+                            for row in results["runs"][first:]:
+                                row["ab"] = {"key": opts.ab, "arm": arm, "round": ROUND,
+                                             "route": "launch" if launch_arm_key() else "live"}
+                ARM = None
+        reset_arm()
     finally:
         bench.stop()
         stop_burners()
@@ -1070,7 +1494,7 @@ def run_session(session, phases=None, backdrop="default"):
 def main():
     results["refresh_hz"] = refresh_hz()
     results["macos"] = subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
-    global MODE
+    global MODE, LAUNCH_ARM
     sessions = opts.sessions.split(",") if opts.sessions else (["stress"] if opts.stress else ["light"])
     try:
         if opts.modes:
@@ -1080,7 +1504,7 @@ def main():
                 wanted = load_modes.load(opts.modes)
             except KeyError as error:
                 sys.exit(str(error))
-            for mode in wanted:
+            for index, mode in enumerate(wanted):
                 MODE = mode
                 native = mode["native"]
                 LOADSPEC.update({"busy": native["busyTerminals"], "chats": native["chats"],
@@ -1092,17 +1516,45 @@ def main():
                      + (f"; not expressed here: {'; '.join(missing)}" if missing else ""))
                 phase = "idle" if mode["id"] == "L0" else "load"
                 for backdrop in opts.backdrops.split(","):
-                    run_session(native["session"], [phase], backdrop)
+                    # A launch-time --ab key cannot be set in a running app, so each arm gets its own launch, the
+                    # order alternating per mode so a drift over the run does not land on one arm.
+                    if launch_arm_key():
+                        order = [False, True] if index % 2 == 0 else [True, False]
+                        for arm in order:
+                            LAUNCH_ARM = arm
+                            path = write_launch_tunable(opts.ab, arm)
+                            note(f"mode {mode['id']} arm {opts.ab}={arm}: wrote {path} for the next launch")
+                            run_session(native["session"], [phase], backdrop)
+                        LAUNCH_ARM = None
+                        write_launch_tunable(opts.ab, None)
+                    else:
+                        run_session(native["session"], [phase], backdrop)
             MODE = None
         else:
-            for session in sessions:
+            for index, session in enumerate(sessions):
                 for backdrop in opts.backdrops.split(","):
-                    run_session(session, backdrop=backdrop)
+                    # As in the --modes path: a launch-time --ab key cannot be set in a running app, so each arm
+                    # gets its own launch, the order alternating per session. Without this the sessions path ran one
+                    # launch at the build's default and labelled its rows off and on, which is the inert-toggle trap
+                    # this harness exists to catch (cmux#45709; review F3 on cmux#48152).
+                    if launch_arm_key():
+                        order = [False, True] if index % 2 == 0 else [True, False]
+                        for arm in order:
+                            LAUNCH_ARM = arm
+                            path = write_launch_tunable(opts.ab, arm)
+                            note(f"session {session} arm {opts.ab}={arm}: wrote {path} for the next launch")
+                            run_session(session, backdrop=backdrop)
+                        LAUNCH_ARM = None
+                        write_launch_tunable(opts.ab, None)
+                    else:
+                        run_session(session, backdrop=backdrop)
     finally:
         summary = {}
         for r in results["runs"]:
             key = (f"{r['mode']}.{r['surface']}" if r.get("mode")
                    else f"{r['session']}.{r['surface']}.{r['phase']}")
+            if r.get("ab"):
+                key = f"{key}.{opts.ab}={r['ab'].get('arm')}"
             summary.setdefault(key, []).append((r.get("key_to_frame_ms") or {}).get("p95"))
         results["summary_p95_ms"] = summary
         note(f"summary p95 ms: {json.dumps(summary)} refresh {results.get('refresh_hz')}")

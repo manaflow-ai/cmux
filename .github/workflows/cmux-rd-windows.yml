@@ -35,7 +35,9 @@ permissions:
 
 concurrency:
   group: cmux-rd-windows-${{ github.ref }}
-  cancel-in-progress: true
+  # A feat-cmux-next push run finishes, so the base has a verdict (a newer push only replaces a queued one);
+  # a newer PR head cancels the old one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -64,6 +66,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui/crates/cmux-rd-host -> target
           shared-key: cmux-rd-windows-host
@@ -80,6 +84,8 @@ jobs:
           # windows-host and its shared hub client (src/screen_host/): private files under the
           # profile, sessions it cannot serve closed.
           cargo test --release --locked --no-default-features --features bench -- windows_host screen_host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --release --locked --no-default-features --features bench windows::
 
       - name: Capture and encode a real desktop sample
         shell: pwsh
@@ -90,9 +96,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows capture selftest exited $LASTEXITCODE" }
           $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
           $result = $json | ConvertFrom-Json
-          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
-          if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
+          if (-not $result.encode_ok) { throw 'Windows host selftest did not encode a frame' }
+          if ([int]$result.frames -lt 60) { throw 'Windows host selftest encoded fewer frames than requested' }
           if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
+          # A runner with no interactive desktop (session 0, no input desktop) cannot BitBlt the screen:
+          # the selftest says so and encodes generated frames instead. The desktop capture cells below
+          # (windows-host status, loopback) are skipped with that reason; the encode cell above still ran.
+          if ($result.capture -eq 'skipped') {
+            $reason = "Desktop capture skipped: $($result.capture_skipped_reason). Encode ran on generated frames; windows-host status and loopback not run."
+            Write-Output "::notice title=Windows desktop capture skipped::$reason"
+            Add-Content $env:GITHUB_STEP_SUMMARY "`n$reason"
+            exit 0
+          }
+          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not capture and encode a frame' }
           # `windows-host status` captures this desktop the way `windows-host run` does.
           $status = & .\target\release\cmux-rd.exe windows-host status
           if ($LASTEXITCODE -ne 0) { throw "windows-host status exited $LASTEXITCODE" }
@@ -112,22 +128,24 @@ jobs:
               Get-Content $motionLog, $motionError -ErrorAction SilentlyContinue
               throw "Windows motion source did not show its window within 30 seconds; exited=$($motion.HasExited)"
             }
-            foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
-              foreach ($trial in 1..2) {
-                $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
-                  --width $size[0] --height $size[1] --duration-s 10 --codec openh264
-                if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
-                $result = $json | ConvertFrom-Json
-                if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
-                  Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
-                  Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
-                  break
+            foreach ($backend in @('gdi', 'dxgi')) {
+              foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
+                foreach ($trial in 1..2) {
+                  $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
+                    --width $size[0] --height $size[1] --duration-s 10 --codec openh264 --capture $backend
+                  if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
+                  $result = $json | ConvertFrom-Json
+                  if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
+                    Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
+                    Write-Output "WINDOWS_LOOPBACK backend=$backend trial=$trial $json"
+                    break
+                  }
+                  if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
+                    throw 'Loopback did not prove a decoded frame in the viewer'
+                  }
+                  Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
+                  Write-Output "WINDOWS_LOOPBACK backend=$backend trial=$trial $json"
                 }
-                if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
-                  throw 'Loopback did not prove a decoded frame in the viewer'
-                }
-                Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
-                Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
               }
             }
           } finally {

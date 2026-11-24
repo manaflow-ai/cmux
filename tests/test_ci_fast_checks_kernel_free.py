@@ -4,7 +4,7 @@
 `cmux-ci test --setup kernel-free -- CMD` asks for a command that needs no Linux kernel, apt or Docker:
 Python, git, shell and macOS tools (`uname -s` prints Darwin there). Before this, cmux's workflow refused
 the setup (HTTP 422, not in the allowed values), so an agent that needed macOS for scripts/measure had to
-reach a mini by hand. The org's lent side-light minis take it (the same pool cmux PR jobs use); every other
+reach a mini by hand. The shared cmux-mac runners take it (the one own-branch Mac label); every other
 setup stays on the Linux job. The Mac job keeps the Linux job's trust boundary: dispatch only, a read-only
 token, no secrets, the exact snapshot sha, and checkout metadata cleared before checkout.
 """
@@ -24,7 +24,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "fast-checks.yml"
 MAC_JOB = "checks-mac"
-MAC_LABEL = "glaeda-side-light-xcode-26.6"
+MAC_LABEL = "cmux-mac"
 
 
 def document() -> dict:
@@ -62,10 +62,10 @@ class KernelFreeMacRouteTests(unittest.TestCase):
             self.assertIn("github.repository == 'manaflow-ai/cmux'", jobs[name]["if"])
 
     def test_the_mac_job_runs_on_the_owned_side_light_pool(self) -> None:
-        # The one owned label: no caller-chosen label, variable or paid label reaches the Mac job.
-        # (the owned label's own override variable is the only other input: vars.CI_LIGHT_LANE_RUNNER)
+        # The one own-branch Mac label: no caller-chosen label or paid label reaches the Mac job; the overflow
+        # switch (vars.CI_OVERFLOW_MAC, unset by default) is the only other input (docs/design/ci-v2.md).
         self.assertEqual(document()["jobs"][MAC_JOB]["runs-on"],
-                         "${{ vars.CI_LIGHT_LANE_RUNNER || '" + MAC_LABEL + "' }}")
+                         "${{ vars.CI_OVERFLOW_MAC || '" + MAC_LABEL + "' }}")
 
     def test_the_mac_job_holds_no_secret_or_write_token(self) -> None:
         job = document()["jobs"][MAC_JOB]

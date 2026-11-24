@@ -100,6 +100,10 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let paletteTogglesInPlace = "palette.togglesInPlace"
     /// The code editor page has the keyboard (``ActionContext/codeEditorFocused``).
     public static let codeEditorFocusedKey = "codeEditorFocused"
+    /// The user key mode the window's keys are in (`keyMode.enter`, design/key-modes.md): its
+    /// name, absent outside a mode. A `when` that requires it (`keyMode == 'resize'`) may bind
+    /// bare keys (``WhenClause/allowsBareKeys``).
+    public static let keyMode = "keyMode"
     /// The kind of window the key goes to (``WindowKindValue``).
     public static let windowKind = "windowKind"
 
