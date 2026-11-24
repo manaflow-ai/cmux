@@ -165,7 +165,7 @@ impl Rig {
     /// A rig whose holder loop imports with the importer `make` builds from the daemon, the
     /// laptop's transport and a folder for chats that are new here.
     async fn with_importer(
-        make: impl FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>,
+        make: impl FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter> + 'static,
     ) -> Rig {
         Rig::build(DEVICE, Some(Box::new(make))).await
     }
