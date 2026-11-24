@@ -245,7 +245,7 @@ pub(crate) async fn serve_pipe<R, W>(
     // `dial` says where the open's time went (a stream on the kept circuit, or a new circuit's
     // ticket, relay, join, Noise and answer), so a caller such as NOW's weft probe splits its
     // first byte by step instead of inferring it.
-    let reply = Message::ok(id, json!({"via": "hub", "dial": report.to_json()}));
+    let reply = Message::ok(id, json!({"via": report.via.name(), "dial": report.to_json()}));
     if writer.write_all(reply.to_line().as_bytes()).await.is_err() {
         return;
     }

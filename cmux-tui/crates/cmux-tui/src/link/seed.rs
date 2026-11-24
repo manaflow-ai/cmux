@@ -9,6 +9,7 @@
 //! streamed copy instead is `{"ok":false,"code":CODE,"why":TEXT}`, exit 1
 //! ([`plan::FallbackCode`]). Bad usage exits 64.
 
+pub(crate) mod carry;
 mod git;
 mod github;
 pub(crate) mod plan;

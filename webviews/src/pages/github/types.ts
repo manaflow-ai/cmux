@@ -24,6 +24,13 @@ export const GitHubOps = {
   checks: "cmux.github.checks.read",
   /** `{url, runs}` → `{rerun}`: re-runs those Actions runs' failed jobs; needs the person's click. */
   rerun: "cmux.github.checks.rerun",
+  /** `{url, event, body, head?}` → `{submitted}`: the person's review (COMMENT, APPROVE,
+   *  REQUEST_CHANGES); an approval or a request for changes is never said by the App. Needs a click. */
+  reviewSubmit: "cmux.github.review.submit",
+  /** `{url, thread, body}` → `{done}`: a reply on a review thread the page showed. Needs a click. */
+  threadReply: "cmux.github.thread.reply",
+  /** `{url, thread, resolved}` → `{done}`: resolves (or reopens) a review thread the page showed. Needs a click. */
+  threadResolve: "cmux.github.thread.resolve",
 } as const;
 
 /** One job of the CI dashboard (GitHubChecks.swift). */
@@ -74,7 +81,19 @@ export interface ReviewComment {
   url: string | null;
   /** Whether its thread is resolved; null when the read did not reach its thread. */
   resolved?: boolean | null;
+  /** Its thread's id, what a reply or a resolve names; null when the read did not reach its thread. */
+  thread?: string | null;
 }
+
+/** A review or a thread write's progress: `what` is `review` or the thread's id. */
+export type WriteState =
+  | { phase: "idle" }
+  | { phase: "sending"; what: string }
+  | { phase: "sent"; what: string }
+  | { phase: "failed"; what: string; message: string; personOnly?: boolean };
+
+/** The verdicts a review may carry, GitHub's names. */
+export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 
 /** A comment or a review in the conversation. */
 export interface ConversationEntry {
