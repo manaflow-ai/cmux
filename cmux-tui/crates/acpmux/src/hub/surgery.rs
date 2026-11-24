@@ -263,7 +263,7 @@ pub(crate) fn mask_records(
     let mut open: HashSet<String> = HashSet::new();
     let mut tokens_before = None;
     let mut named = false;
-    for record in &records[start..] {
+    for record in records.iter().skip(start) {
         named |= record.get("sessionId").is_some_and(Value::is_string);
         let sidechain = record.get("isSidechain").and_then(Value::as_bool) == Some(true);
         if record.get("type").and_then(Value::as_str) == Some("assistant") && !sidechain {
@@ -293,11 +293,18 @@ pub(crate) fn mask_records(
     }
     anyhow::ensure!(named, "no record names the session");
     anyhow::ensure!(open.is_empty(), "a tool call has no result yet: the turn is not over");
-    let prompts: Vec<usize> = (start..records.len()).filter(|&i| is_prompt(&records[i])).collect();
-    if prompts.len() <= opts.keep_turns {
+    let prompts: Vec<usize> = records
+        .iter()
+        .enumerate()
+        .skip(start)
+        .filter(|(_, r)| is_prompt(r))
+        .map(|(i, _)| i)
+        .collect();
+    let Some(&cutoff) =
+        prompts.len().checked_sub(opts.keep_turns).filter(|&k| k > 0).and_then(|k| prompts.get(k))
+    else {
         return Ok(None);
-    }
-    let cutoff = prompts[prompts.len() - opts.keep_turns];
+    };
     let id = uuid::Uuid::now_v7().to_string();
     let mut out = Masked { id: id.clone(), tokens_before, ..Masked::default() };
     for (i, record) in records.iter_mut().enumerate() {
@@ -601,7 +608,7 @@ impl Hub {
         let clock = self.clock.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let generation = GENERATION.fetch_add(1, Ordering::SeqCst);
         let (hub, weak, id) = (Arc::downgrade(self), Arc::downgrade(session), session.id.clone());
-        let task = tokio::spawn(async move {
+        let task = self.scope.spawn_named("surgery-timer", async move {
             clock.sleep_until(std::time::Duration::from_nanos(deadline)).await;
             let own = {
                 let mut timers = TIMERS.lock().unwrap_or_else(|e| e.into_inner());
