@@ -298,3 +298,25 @@ test("a press with no move keeps the size, and a popup smaller than the floor ne
   await drag(grip(doc, "y"), 0, -30);
   expect(popupSize("test.small")).toEqual({ height: 66 });
 });
+
+// A drag stops at the room the positioner gives the popup (--available-height and -width, inside its
+// collision padding and boundary), not the window's edge: the kept size is capped there, so a drag past
+// it snapped back to that line when it ended (cmux#51745 follow-up).
+for (const [side, align] of [
+  ["top", "start"],
+  ["bottom", "end"],
+] as const) {
+  test(`a drag stops at the room the dropdown has, and the size holds when it ends (${side}, ${align})`, async () => {
+    const id = `test.room.${side}.${align}`;
+    const doc = await render(<Dropdown id={id} side={side} align={align} />);
+    const node = popup(doc);
+    fakeBox(node);
+    node.parentElement!.style.setProperty("--available-height", "340px");
+    node.parentElement!.style.setProperty("--available-width", "350px");
+    await drag(grip(doc, "both"), align === "end" ? -400 : 400, side === "top" ? -400 : 400);
+    expect(popupSize(id)).toEqual({ width: 350, height: 340 });
+    // What the drag left is what the kept size gives: nothing to snap back.
+    expect(node.style.height).toBe("min(340px, var(--available-height, 340px))");
+    expect(node.style.width).toBe("min(350px, var(--available-width, calc(100vw - 24px)))");
+  });
+}

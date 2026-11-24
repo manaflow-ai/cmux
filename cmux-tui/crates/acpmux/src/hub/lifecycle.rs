@@ -928,7 +928,7 @@ impl Hub {
             // outlived the stop. It reopens for this request, ready.
             if session.status() == SessionStatus::Closed {
                 self.reopen_to_start(session, stops)?;
-                self.set_status(session, SessionStatus::Ready);
+                self.set_status(session, NotWaiting::Ready);
             }
             return Ok(child);
         }
@@ -1173,7 +1173,7 @@ impl Hub {
         }
         session.loading.store(false, Ordering::SeqCst);
         if session.status() != SessionStatus::Closed {
-            self.set_status(session, SessionStatus::Idle);
+            self.set_status(session, NotWaiting::Idle);
         }
     }
 
@@ -1639,7 +1639,7 @@ impl Hub {
                 self.stop_started_agent(session, false, "policy_refused", record).await;
                 return Err(e);
             }
-            self.set_status(session, SessionStatus::Ready);
+            self.set_status(session, NotWaiting::Ready);
             self.note_launch(session, &child);
             self.note_start_level(session, &child, true);
             self.save_meta(session);
@@ -1750,7 +1750,7 @@ impl Hub {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
-        self.set_status(session, SessionStatus::Ready);
+        self.set_status(session, NotWaiting::Ready);
         self.note_launch(session, &child);
         self.note_start_level(session, &child, true);
         self.save_meta(session);
