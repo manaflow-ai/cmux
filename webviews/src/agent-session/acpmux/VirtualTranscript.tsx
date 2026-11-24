@@ -90,7 +90,12 @@ import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRow } from "./streamingRow";
 import { rowsWithLiveOutput } from "./liveToolOutput";
 import { followTrace } from "./followTrace";
-import { FIELD_GROWTH_EVENT, growthTranslate, type FieldGrowthEvent } from "./composer/fieldGrowthEvent";
+import {
+  FIELD_GROWTH_EVENT,
+  growthPendingIn,
+  growthTranslate,
+  type FieldGrowthEvent,
+} from "./composer/fieldGrowthEvent";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
@@ -1109,6 +1114,8 @@ function TranscriptView({
   const workingRef = useRef(working);
   workingRef.current = working;
   const transcriptMounted = useRef(true);
+  /// The offset and follow state the last commit drew at (written as it lays out).
+  const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   /// The scroller height the last commit drew the followed view at, at its layout's end (`projectedTop`,
   /// which reads no offset); undefined when it drew it anywhere else.
@@ -1157,6 +1164,13 @@ function TranscriptView({
       return;
     }
     if (ref.current && followedFrameDrawn(ref.current, frame.atLatest)) return;
+    // A frame that brings the offset the last commit drew, following as it drew, changes nothing
+    // that commit shows: a followed reply's growth pins the view to its new end, and the render that
+    // measured the growth already drew there (`projectedTop`). Its scroll event then drew the whole
+    // transcript again for no change, about one pass in four of a streamed reply
+    // (test/agent-pane-stream-renders.test.ts).
+    const drew = drewScroll.current;
+    if (drew && Math.abs(frame.top - drew.top) <= 0.5 && drew.following === followingRef.current) return;
     // Counted for the test that a followed stream forces none (agent-pane-follow-stream-no-flush.test.ts).
     acpmuxPerf.render("transcript:scroll-flush");
     acpmuxPerf.timed("flush.scroll", () => {
@@ -1688,7 +1702,21 @@ function TranscriptView({
     // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
     // A glide of their own on top would trail the stack's edge by a fold.
     const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
+    // A typed edit's growth starts in the field's own observer (fieldGrowth.ts, deferred): told first
+    // in that round, the dock already holds the field at its natural height. Taken here, the rows
+    // glided on the fold's curve and led the field by 5 to 7 px (transcript-composer-grow-anchor).
+    // The growth event, in the same round, takes it on the field's curve instead; a change no growth
+    // claims by the next frame is taken then.
+    let waitedForGrowth = 0;
     const resized = () => {
+      if (!growth && growthPendingIn(dock)) {
+        if (!waitedForGrowth)
+          waitedForGrowth = requestAnimationFrame(() => {
+            waitedForGrowth = 0;
+            if (!growth) resized();
+          });
+        return;
+      }
       const rows = thread.current;
       if (!rows || growth || asksFolding()) {
         take();
@@ -1810,6 +1838,7 @@ function TranscriptView({
       observer.disconnect();
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
+      if (waitedForGrowth) cancelAnimationFrame(waitedForGrowth);
       rowsMove?.cancel();
       for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
@@ -3950,6 +3979,10 @@ function TranscriptView({
     drewFollowedEnd.current = followedEnd ? height : undefined;
   });
   const renderFollowing = sessionSwitched || followingRef.current;
+  // What this commit draws at, for the scroll pacer (`pacedScroll`).
+  useLayoutEffect(() => {
+    drewScroll.current = { top: renderScroll.top, following: renderFollowing };
+  });
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
   // further down.
   const shownTop = renderScroll.top - lift - origin;
