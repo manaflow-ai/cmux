@@ -35,6 +35,10 @@
 #                   cores (hw.ncpu / 4 + 1 spinners), the same load as qos-load-bench.sh. They are stopped by PID when
 #                   the bench ends. The report gets `cpu_load`: {spinners, threads, ncpu}, or null without the option.
 #                   The perf cron never passes it; it is for a before/after pair under load ("idle and under load").
+#   --cpu-load=AVG  the same spinners, as many as a 1-minute load average of AVG takes (AVG / 4 rounded up, 4 threads
+#                   each; Leo 2026-11-24, lockstep resize "at any cpu": the duress run is --cpu-load=150), and the bench
+#                   starts once the load average reaches 90% of AVG (or after 240 s, said in the log). `cpu_load` gets
+#                   `target` and `loadavg_at_start`.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -43,12 +47,13 @@ set -euo pipefail
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
 SPLIT_SPRING_MEASURE_VERSION=5  # 5: workspace-scaling adds a dispatcher suite (historical commits without it must not be bisected as another suite); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-cpu_load=0 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
+cpu_load=0 load_target="" build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --cpu-load) cpu_load=1 ;;
+    --cpu-load=*) cpu_load=1 load_target="${arg#--cpu-load=}" ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
     --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
@@ -325,6 +330,7 @@ cpu_load_json='null'
 if [[ "$cpu_load" == 1 ]]; then
   ncpu="$(sysctl -n hw.ncpu)"
   spinners=$((ncpu / 4 + 1))
+  [[ -n "$load_target" ]] && spinners=$(( (load_target + 3) / 4 ))
   cc -O2 -o "$out/spin" scripts/measure/qos-load-bench/spin.c
   for _ in $(seq "$spinners"); do "$out/spin" & spin_pids+=($!); done
   cpu_load_json="{\"spinners\": $spinners, \"threads\": $((spinners * 4)), \"ncpu\": $ncpu}"
@@ -339,6 +345,17 @@ if [[ "$cpu_load" == 1 ]]; then
     sleep 0.1
   done
   (( ${spun:-0} >= spinners )) || echo "split-spring: CPU-LOAD only ${spun:-0} of $spinners spinners used 1 s of CPU within 10 s" >&2
+  if [[ -n "$load_target" ]]; then
+    # The 1-minute load average climbs to the runnable thread count over minutes: wait for 90% of the target.
+    loadavg=0
+    for _ in $(seq 240); do
+      loadavg="$(sysctl -n vm.loadavg | awk '{print $2}')"
+      awk -v l="$loadavg" -v t="$load_target" 'BEGIN { exit !(l >= 0.9 * t) }' && break
+      sleep 1
+    done
+    echo "split-spring: CPU-LOAD target $load_target, 1-minute load average $loadavg at the bench's start"
+    cpu_load_json="{\"spinners\": $spinners, \"threads\": $((spinners * 4)), \"ncpu\": $ncpu, \"target\": $load_target, \"loadavg_at_start\": $loadavg}"
+  fi
 fi
 
 status=0

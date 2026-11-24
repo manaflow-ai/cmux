@@ -25,6 +25,7 @@ public struct TabStripDebug {
     /// right edge of its last tab cell as shown), so a split's frames can be checked against the
     /// divider; nil for another view.
     public static func motionSample(_ view: NSView) -> [String: [Any]]? {
+        if let toolbar = view as? PaneToolbarView { return controlsSample(toolbar) }
         guard let strip = view as? TabStripView else { return nil }
         // What shows on this frame: the presentation layer, with every Core Animation move in flight.
         var pills = -Double.infinity
@@ -41,5 +42,28 @@ public struct TabStripDebug {
             sample["strip_edges"] = [edges + [pills.isFinite ? (pills * 100).rounded() / 100 : 0]]
         }
         return sample
+    }
+
+    /// `controls`: a pane's top-right toolbar (lockstep resize, Leo 2026-11-24: "the buttons to track the dragging of
+    /// the pane split dividers"), as `[minX, maxX, top, paneMaxX, buttonsMaxX]` in window points (top-left origin):
+    /// the toolbar's frame, its pane's right edge (the view it sits in) and the right edge of its rightmost shown
+    /// button as the presentation layer shows it this frame. A toolbar that trails its pane shows as
+    /// `buttonsMaxX` off `paneMaxX` by more than its resting inset; [:] when hidden.
+    static func controlsSample(_ toolbar: PaneToolbarView) -> [String: [Any]]? {
+        guard let window = toolbar.window, !toolbar.isHiddenOrHasHiddenAncestor, let pane = toolbar.superview else { return [:] }
+        let height = window.frame.height
+        func rounded(_ value: CGFloat) -> Double { (Double(value) * 100).rounded() / 100 }
+        let frame = toolbar.convert(toolbar.bounds, to: nil)
+        let paneMaxX = pane.convert(pane.bounds, to: nil).maxX
+        var buttonsMaxX = -CGFloat.infinity
+        for button in toolbar.buttons + toolbar.nativeButtons + [toolbar.moreButton, toolbar.zoomButton] as [NSView]
+        where !button.isHidden && button.superview != nil {
+            let layer = button.layer?.presentation() ?? button.layer
+            let local = layer.map { CGRect(origin: $0.frame.origin, size: $0.bounds.size) } ?? button.frame
+            buttonsMaxX = max(buttonsMaxX, (button.superview ?? toolbar).convert(local, to: nil).maxX)
+        }
+        let row: [Any] = [rounded(frame.minX), rounded(frame.maxX), rounded(height - frame.maxY), rounded(paneMaxX),
+                          buttonsMaxX.isFinite ? rounded(buttonsMaxX) : -1]
+        return ["controls": [row]]
     }
 }
