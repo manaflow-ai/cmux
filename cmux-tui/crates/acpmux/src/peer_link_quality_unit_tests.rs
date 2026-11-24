@@ -128,7 +128,7 @@ fn the_silence_floor_is_6_s_until_the_link_is_slow_and_at_most_12_s() {
     assert_eq!(silence_floor(&steady(5_000, 500), every, base), base * 2, "capped at 12 s");
 }
 
-/// The tier waits for a round trip, and the late share is over the last minute only.
+/// The tier waits for a round trip (a late tick before it is the link opening), and the late share is over the last minute only.
 #[test]
 fn quality_reads_null_until_a_pong_and_forgets_late_ticks_after_a_minute() {
     let mut q = LinkQuality::default();
