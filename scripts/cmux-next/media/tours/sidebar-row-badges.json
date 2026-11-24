@@ -3,55 +3,87 @@
   "steps": [
     {
       "title": "Launch",
-      "wait": 2,
+      "wait": 4,
       "shot": false
     },
     {
-      "title": "Workspace one",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Fix product grid layout shift"
-      ],
+      "title": "Dismiss Meet Chief",
+      "rpc": {
+        "method": "debug.onboarding",
+        "params": {
+          "action": "meet_chief_end"
+        }
+      },
+      "wait": 1,
       "shot": false,
-      "wait": 1
+      "optional": "debug.onboarding is DEBUG only"
     },
     {
-      "title": "Workspace two",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Upgrade the Stripe SDK"
-      ],
-      "shot": false,
-      "wait": 1
+      "title": "Workspace 1",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "workspace new",
+          "args": {
+            "name": "Fix product grid layout shift",
+            "focus": true
+          },
+          "origin": "script"
+        }
+      },
+      "wait": 1,
+      "shot": false
     },
     {
-      "title": "Workspace three",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Add dark mode color tokens"
-      ],
-      "shot": false,
-      "wait": 1
+      "title": "Workspace 2",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "workspace new",
+          "args": {
+            "name": "Upgrade the Stripe SDK",
+            "focus": true
+          },
+          "origin": "script"
+        }
+      },
+      "wait": 1,
+      "shot": false
     },
     {
-      "title": "Workspace four",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Fix flaky checkout tests"
-      ],
-      "shot": false,
-      "wait": 1
+      "title": "Workspace 3",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "workspace new",
+          "args": {
+            "name": "Add dark mode color tokens",
+            "focus": true
+          },
+          "origin": "script"
+        }
+      },
+      "wait": 1,
+      "shot": false
     },
     {
-      "title": "Sample subagents on rows; tree off: one stacked line while they run",
+      "title": "Workspace 4",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "workspace new",
+          "args": {
+            "name": "Fix flaky checkout tests",
+            "focus": true
+          },
+          "origin": "script"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Sample subagents on every other row; session tree on (settings)",
       "rpc": {
         "method": "debug.tunables",
         "params": {
@@ -60,17 +92,8 @@
           "value": true
         }
       },
-      "wait": 2
-    },
-    {
-      "title": "Session tree on: each chat's subagents nested under it (rows when open)",
-      "cmux": [
-        "settings",
-        "set",
-        "sidebar.sessionTree",
-        "true"
-      ],
-      "wait": 2
+      "wait": 2,
+      "shot": false
     },
     {
       "title": "Variant A: stacked line only (state marks: spinner, warning, checks; the line sits whole above the next row)",
@@ -129,16 +152,14 @@
       },
       "wait": 2,
       "optional": "debug.appearance is DEBUG only"
-    },
-    {
-      "title": "Session tree back off",
-      "cmux": [
-        "settings",
-        "set",
-        "sidebar.sessionTree",
-        "false"
-      ],
-      "shot": false
     }
-  ]
+  ],
+  "settings": {
+    "sidebar": {
+      "sessionTree": true,
+      "hoverCards": {
+        "enabled": false
+      }
+    }
+  }
 }
