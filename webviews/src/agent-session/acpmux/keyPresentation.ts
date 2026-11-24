@@ -16,7 +16,7 @@
  * multiple, so `submitted` reads up to 4 ms late; `submittedFloor` is the earliest it can be: that rounded
  * time less 4 ms, never before the frame's main-thread paint (`paintTime`, not rounded).
  */
-export type KeyPresentation = { submitted: number; submittedFloor: number };
+export type KeyPresentation = { submitted: number; submittedFloor: number; painted?: number };
 
 /** The rounding of `presentationTime` when the page is not cross-origin isolated (Chromium). */
 export const PRESENTATION_COARSENING_MS = 4;
@@ -40,7 +40,7 @@ export function keyPresentation(
   if (!(presented > 0)) return null;
   const painted = entry.paintTime ?? 0;
   const floor = isolated ? presented : Math.max(painted, presented - PRESENTATION_COARSENING_MS);
-  return { submitted: presented - start, submittedFloor: Math.min(presented, floor) - start };
+  return { submitted: presented - start, submittedFloor: Math.min(presented, floor) - start, ...(painted > 0 && { painted: painted - start }) };
 }
 
 /**
