@@ -26,7 +26,6 @@ pub const CONVERSATION_RUN_ANSWERS_CAPABILITY: &str = "conversation-run-answers-
 /// `conversation-run-append`: the bound agent's own run (`run.id` and the
 /// summary fields it sets) and up to 64 steps, each replaced by id.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct AppendParams {
     conversation: String,
     run: Value,
@@ -38,7 +37,6 @@ pub(super) struct AppendParams {
 /// `before_started_at`), or the runs of the given reply keys (`turns`, at
 /// most 200).
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct RunsParams {
     conversation: String,
     #[serde(default)]
@@ -54,7 +52,6 @@ pub(super) struct RunsParams {
 /// `conversation-run`: one run and its steps written after `after_rev`
 /// (default 0: every step), oldest write first, `limit` 1-500 (default 500).
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct RunParams {
     conversation: String,
     run: String,
