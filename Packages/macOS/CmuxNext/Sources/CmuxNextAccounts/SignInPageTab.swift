@@ -45,7 +45,8 @@ public final class SignInPageTab<Surface> {
 }
 
 /// The rule for a sign-in's page, apart from any tab.
-public enum SignInPageHosts {
+public struct SignInPageHosts {
+    public init() {}
     /// Whether a tab showing `shown` is still on the sign-in's page: an https page, no user or port, on one of `hosts`.
     public static func still(_ shown: URL, on hosts: [String]) -> Bool {
         guard shown.scheme?.lowercased() == "https", shown.user == nil, shown.password == nil, shown.port == nil,
