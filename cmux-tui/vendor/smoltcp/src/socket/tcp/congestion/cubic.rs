@@ -87,6 +87,10 @@ impl Controller for Cubic {
         self.cwnd
     }
 
+    fn ssthresh(&self) -> usize {
+        self.ssthresh
+    }
+
     fn on_ack(&mut self, now: Instant, len: usize, in_flight: usize, rtt: &RttEstimator) {
         let segment = len.min(self.mss);
 

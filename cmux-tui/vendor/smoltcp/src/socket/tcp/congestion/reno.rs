@@ -37,6 +37,10 @@ impl Controller for Reno {
         self.cwnd
     }
 
+    fn ssthresh(&self) -> usize {
+        self.ssthresh
+    }
+
     fn on_ack(&mut self, _now: Instant, len: usize, _in_flight: usize, _rtt: &RttEstimator) {
         // RFC 5681 only acts on ACKs of new data. The socket also notifies us
         // of accepted segments that acknowledge nothing (window updates, data

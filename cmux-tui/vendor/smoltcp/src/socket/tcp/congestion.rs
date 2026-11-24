@@ -15,6 +15,12 @@ pub(super) trait Controller {
     /// Returns the number of bytes that can be sent.
     fn window(&self) -> usize;
 
+    /// cmux patch: the slow start threshold, for traces; `usize::MAX` when
+    /// the controller has none.
+    fn ssthresh(&self) -> usize {
+        usize::MAX
+    }
+
     /// Set the remote window size.
     fn set_remote_window(&mut self, remote_window: usize) {}
 
