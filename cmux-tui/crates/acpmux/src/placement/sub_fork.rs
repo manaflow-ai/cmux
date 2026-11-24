@@ -158,21 +158,80 @@ pub fn this_machine() -> Option<String> {
     std::env::var("CMUX_VM_ID").ok().filter(|id| !id.trim().is_empty())
 }
 
-/// The fork backend this build has: none yet. cmux-cloud-api's `fork_machine` (cmux-platform
-/// `POST /v1/machines/{id}/fork`) lands on its own lane; until this file is pointed at it every
-/// placement falls back at the fork step, logged, and the sub-agent runs here as today.
-pub struct NoForkBackend;
+/// The Cloud backend: forks through cmux-cloud-api's `machine.fork` op (`fork_machine`,
+/// cmux-platform `POST /v1/machines/{id}/fork`) and deletes through its `destroy_machine`
+/// (`DELETE /v1/machines/{id}`), with the Cloud API, credential and team this daemon was given
+/// (`CMUX_CLOUD_API_URL`, `CMUX_CLOUD_ACCESS_TOKEN`, `CMUX_CLOUD_TEAM`, as `acpmux fork-run`
+/// reads them). A build whose cmux-cloud-api has no `machine.fork` yet refuses at the fork, and
+/// the placement falls back with that refusal as its cause.
+pub struct CloudMachines {
+    request: cmux_cloud_api::Request,
+}
 
-impl Machines for NoForkBackend {
-    async fn fork(&self, _machine: &str, _client_key: &str) -> Result<String, String> {
-        Err("no fork backend in this build (cmux-cloud-api fork_machine not wired yet)".into())
+/// The variables [`CloudMachines::from_env`] reads.
+pub const API_ENV: &str = "CMUX_CLOUD_API_URL";
+pub const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
+pub const TEAM_ENV: &str = "CMUX_CLOUD_TEAM";
+
+impl CloudMachines {
+    /// The backend from `env` (a lookup, `std::env::var` in the daemon), or which value is missing.
+    pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let set = |k: &str| env(k).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        let api = set(API_ENV).ok_or_else(|| format!("{API_ENV} is not set"))?;
+        let credential = set(TOKEN_ENV).ok_or_else(|| format!("{TOKEN_ENV} is not set"))?;
+        Ok(Self {
+            request: cmux_cloud_api::Request {
+                call: String::new(),
+                api,
+                auth: cmux_cloud_api::Auth::Owner,
+                credential,
+                refresh: None,
+                team: set(TEAM_ENV),
+                app_version: None,
+                local_only: false,
+                args: serde_json::Map::new(),
+            },
+        })
     }
-    async fn delete(&self, _machine: &str) -> Result<(), String> {
-        Ok(())
+
+    fn failure(failure: &cmux_cloud_api::Failure, request: &cmux_cloud_api::Request) -> String {
+        cmux_cloud_api::scrub(cmux_cloud_api::answer_line(&Err(failure.clone())), request)
     }
 }
 
-impl SubRun for NoForkBackend {
+impl Machines for CloudMachines {
+    async fn fork(&self, machine: &str, client_key: &str) -> Result<String, String> {
+        let mut request = self.request.clone();
+        request.call = "machine.fork".into();
+        request.args = serde_json::json!({"machine": machine, "clientKey": client_key, "visibility": "private"})
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+        let answer = cmux_cloud_api::perform(&request, zeroize::Zeroizing::new(Vec::new()))
+            .await
+            .map_err(|f| Self::failure(&f, &request))?;
+        answer
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| "machine.fork answered no machine id".to_owned())
+    }
+
+    async fn delete(&self, machine: &str) -> Result<(), String> {
+        cmux_cloud_api::machine_destroy::destroy_machine(&self.request, machine)
+            .await
+            .map(|_| ())
+            .map_err(|f| Self::failure(&f, &self.request))
+    }
+}
+
+/// Runs the sub-agent on a fork. Not in this slice: a fork's daemon is reached through the
+/// machine's exec route once the fork backend is live on staging; until then the run step
+/// refuses, the fork is deleted, and the sub-agent runs here.
+pub struct NoForkRunner;
+
+impl SubRun for NoForkRunner {
     async fn run(&self, _fork: &str, _task: &Task) -> Result<Ran, String> {
         Err("no sub-agent runner for a fork in this build".into())
     }
@@ -182,8 +241,15 @@ impl SubRun for NoForkBackend {
 /// put on the reply, `None` when the plan is today's (the key off: nothing ran, nothing changes).
 pub async fn on_start(plan: &StartPlan, prompt: &str, checkout: &Path) -> Option<Outcome> {
     let StartPlan::Fork { machine } = plan else { return None };
-    let backend = Arc::new(NoForkBackend);
-    Some(place(true, Some(machine), backend.clone(), backend.as_ref(), prompt, checkout).await)
+    let machines = match CloudMachines::from_env(|k| std::env::var(k).ok()) {
+        Ok(m) => Arc::new(m),
+        Err(detail) => {
+            let out = Outcome::Fallback { cause: Cause::Fork, detail, fork_deleted: None };
+            tracing::warn!(?out, "sub_fork: fell back to the parent's machine");
+            return Some(out);
+        }
+    };
+    Some(place(true, Some(machine), machines, &NoForkRunner, prompt, checkout).await)
 }
 
 /// Owns a fork from the moment it exists: [`ForkGuard::delete`] deletes it, and a guard dropped

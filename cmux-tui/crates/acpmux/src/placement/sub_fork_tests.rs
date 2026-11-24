@@ -359,13 +359,36 @@ async fn with_the_key_off_the_start_hook_does_nothing() {
 }
 
 #[tokio::test]
-async fn in_this_build_the_start_hook_falls_back_at_the_fork_and_changes_nothing() {
+async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing() {
     let parent = checkout();
     let before = files(parent.path());
+    // The test process has no CMUX_CLOUD_API_URL / CMUX_CLOUD_ACCESS_TOKEN.
+    if std::env::var(API_ENV).is_ok() || std::env::var(TOKEN_ENV).is_ok() {
+        return;
+    }
     let out = on_start(&StartPlan::Fork { machine: "m".into() }, "edit", parent.path()).await;
-    let Some(Outcome::Fallback { cause: Cause::Fork, fork_deleted: None, .. }) = out else {
+    let Some(Outcome::Fallback { cause: Cause::Fork, ref detail, fork_deleted: None }) = out else {
         panic!("{out:?}")
     };
+    assert!(detail.contains(API_ENV), "{detail}");
     assert!(out.unwrap().runs_here());
     assert_eq!(files(parent.path()), before);
+}
+
+#[test]
+fn the_cloud_backend_reads_its_api_and_credential_and_names_what_is_missing() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| (*v).to_owned())
+    };
+    let missing = CloudMachines::from_env(env(&[(API_ENV, "https://api.example")])).err().unwrap();
+    assert!(missing.contains(TOKEN_ENV), "{missing}");
+    let blank = CloudMachines::from_env(env(&[(API_ENV, " "), (TOKEN_ENV, "t")])).err().unwrap();
+    assert!(blank.contains(API_ENV), "{blank}");
+    let ok = CloudMachines::from_env(env(&[
+        (API_ENV, "https://api.example"),
+        (TOKEN_ENV, "t"),
+        (TEAM_ENV, "team"),
+    ]))
+    .unwrap();
+    assert_eq!(ok.request.team.as_deref(), Some("team"));
 }
