@@ -217,6 +217,8 @@ struct ResidentCard<Content: View>: View {
 /// built card's actions: Open, and Close for a regular card (a pinned one has none).
 struct CardStandIn: View {
     var label: String
+    /// The built card's accessibility value (`cardAccessibilityValue(for:)`).
+    var value: String? = nil
     var rect: CGRect
     var open: () -> Void
     var close: (() -> Void)?
@@ -239,6 +241,7 @@ struct CardStandIn: View {
             .allowsHitTesting(false)
             .accessibilityElement()
             .accessibilityLabel(Text(label))
+            .accessibilityValue(value ?? "")
             .accessibilityAddTraits(.isButton)
             .accessibilityActions {
                 ForEach(actions, id: \.name) { action in
