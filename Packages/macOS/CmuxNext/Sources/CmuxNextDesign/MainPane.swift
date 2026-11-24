@@ -199,7 +199,10 @@ extension Metrics {
     public static var titleAreaShadeScale: CGFloat {
         let design = DesignSettings.shared
         guard CornerFlush.current.isOn else { return design.titleAreaContrast }
-        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
+        // `flush-goo` is two tones, the strip's and the pane's (Leo, 2026-11-18: "the two tone thing"): the goo needs
+        // the frame's shade to show at all, so it tones the frame under One Color too.
+        let toned = design.titleAreaTone != .oneColor || CornerFlush.current == .goo
+        return toned ? TitleAreaTone.subtleShare * design.titleAreaContrast : 0
     }
 
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the

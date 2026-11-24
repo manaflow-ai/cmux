@@ -3535,6 +3535,128 @@ fn daemon_crash_after_record_before_ready_adopts_same_live_host() {
     wait_for_no_host_records(&harness.host_root());
 }
 
+/// `cmux ps` / `cmux gc` answer from the product's records, never from argv:
+/// a host whose `--owner …@<pid>` names a dead daemon, adopted by the live
+/// one, reads in-use and is never a gc candidate (the cleanup that guessed
+/// from argv ended 10 live terminals).
+#[test]
+fn adopted_host_with_a_dead_owner_pid_reads_in_use_and_is_never_a_gc_candidate() {
+    let mut harness = RecoveryHarness::start("ps-gc-adopted");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+            "name": "adopted", "cols": 80, "rows": 24,
+        }),
+    );
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let first_daemon = harness.child.as_ref().unwrap().id();
+    harness.sigkill();
+    harness.restart();
+
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": &terminal_id}),
+        );
+        if resolved["lifecycle"] == "running" && resolved["surface"].as_u64().is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "host was not adopted after restart");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let adopted = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(adopted.host_pid, record.host_pid);
+    let argv = Command::new("ps")
+        .args(["-o", "args=", "-p", &record.host_pid.to_string()])
+        .output()
+        .unwrap();
+    let argv = String::from_utf8_lossy(&argv.stdout).to_string();
+    assert!(
+        argv.contains(&format!("@{first_daemon}")),
+        "the host's argv no longer names the dead daemon: {argv}"
+    );
+    assert_ne!(harness.child.as_ref().unwrap().id(), first_daemon);
+
+    let cli = |args: &[&str]| -> serde_json::Value {
+        let mut command = Command::new(bin());
+        command
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
+            .env_remove("CMUX_SOCKET")
+            .arg("--socket")
+            .arg(&harness.socket)
+            .args(args)
+            .arg("--state-dir")
+            .arg(&harness.state);
+        private_state::use_private_state(&mut command, &harness.dir);
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "cmux {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!(
+                "cmux {args:?} printed no JSON ({error}): {}",
+                String::from_utf8_lossy(&output.stdout)
+            )
+        })
+    };
+
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+    let host = loop {
+        let census = cli(&["ps", "--json"]);
+        assert_eq!(census["source"], "daemon", "{census}");
+        assert_eq!(
+            census["daemon"]["pid"].as_u64(),
+            Some(u64::from(harness.child.as_ref().unwrap().id())),
+            "{census}"
+        );
+        let host = census["hosts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|host| host["terminal_id"] == terminal_id.as_str())
+            .cloned()
+            .unwrap_or_else(|| panic!("ps does not list the adopted host: {census}"));
+        if host["stream_held"] == true || Instant::now() >= deadline {
+            break host;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(host["host_pid"].as_u64(), Some(u64::from(record.host_pid)), "{host}");
+    assert_eq!(host["state"], "in-use", "{host}");
+    assert_eq!(host["stream_held"], true, "{host}");
+    assert_eq!(host["root_owner"], "this-daemon", "{host}");
+    assert_eq!(host["gc"]["candidate"], false, "{host}");
+    assert!(!host["placements"].as_array().unwrap().is_empty(), "{host}");
+
+    for args in [&["gc", "--json"][..], &["gc", "--apply", "--json"][..]] {
+        let report = cli(args);
+        let named = |key: &str| {
+            report[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|host| host["terminal_id"] == terminal_id.as_str())
+        };
+        assert!(!named("candidates"), "gc offered the adopted host: {report}");
+        assert!(named("refused"), "gc did not list the adopted host as refused: {report}");
+        assert_eq!(report["ended"], 0, "{report}");
+    }
+    assert_eq!(
+        terminal_host_record_liveness(
+            &wait_for_host_records(&harness.host_root(), 1)[0].0,
+            &adopted
+        )
+        .unwrap(),
+        TerminalHostLiveness::Live
+    );
+}
+
 #[test]
 fn interrupted_creation_waits_for_transient_host_adoption_before_serving() {
     let mut harness = RecoveryHarness::start_with_host_ready_delay("pre-ready-retry", 2_000);
@@ -5348,6 +5470,9 @@ mod idle_template;
 
 #[path = "terminal_host_recovery/keep_layout.rs"]
 mod keep_layout;
+
+#[path = "terminal_host_recovery/relaunch_loss.rs"]
+mod relaunch_loss;
 
 #[path = "terminal_host_recovery/kept_restore.rs"]
 mod kept_restore;

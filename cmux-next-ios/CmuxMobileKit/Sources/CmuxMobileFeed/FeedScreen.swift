@@ -13,6 +13,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let reconnect: @MainActor () async -> Void
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
+    /// Changes on each tap of the Feed tab while the Feed shows: the list scrolls to its top.
+    private let scrollToTop: Int
     /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
     @State private var list = FeedListControl()
     @State private var swipe = FeedSwipeCoordinator()
@@ -35,8 +37,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
-    public init(path: Binding<[AgentChatDestination]>, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    public init(path: Binding<[AgentChatDestination]>, scrollToTop: Int = 0, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
+        self.scrollToTop = scrollToTop
         self.reconnect = reconnect
         self.sidebarItem = sidebarItem()
         WebMarkdownRenderer.shared.prewarm(count: 2)
@@ -100,6 +103,16 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                 }
             }
+            // Screenshot rig: CMUX_MOBILE_FEED_SHOT_ANSWER=<event id> allows that permission request
+            // (the ask leaves the pinned group for its place in time).
+            if let event = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_SHOT_ANSWER"], !event.isEmpty {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1.5))
+                    guard case .permission(let request) = store.item(id: event)?.kind,
+                          let option = request.options.first(where: \.isAllow) else { return }
+                    store.respond(event, option: option)
+                }
+            }
             // Screenshot rig: CMUX_MOBILE_FEED_SHOT_FILTER=needsYou|finished|errors|all picks the filter;
             // CMUX_MOBILE_FEED_SHOT_CAUGHT_UP=1 marks every open ask done (the "All caught up" state).
             let env = ProcessInfo.processInfo.environment
@@ -127,6 +140,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 return .sent(chat)
             }
         }
+        // The tab tap's scroll: the pill's jump, so the "N new" count clears when it lands.
+        .onChange(of: scrollToTop) { list.scrollToTop() }
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif

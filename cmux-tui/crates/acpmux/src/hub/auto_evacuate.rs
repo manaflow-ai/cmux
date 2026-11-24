@@ -83,18 +83,13 @@ impl Mover for SessionMove {
 }
 
 /// What the timer keeps between ticks.
+#[derive(Default)]
 pub(crate) struct Evacuator {
     tracker: Tracker,
     state: Hysteresis,
     /// When each chat (by id and by name, so one brought back under a new id counts) was last
     /// moved or tried, in hub-clock ms. Entries past the cooldown are dropped each tick.
     moved: HashMap<String, u64>,
-}
-
-impl Default for Evacuator {
-    fn default() -> Self {
-        Self { tracker: Tracker::default(), state: Hysteresis::default(), moved: HashMap::new() }
-    }
 }
 
 impl Evacuator {

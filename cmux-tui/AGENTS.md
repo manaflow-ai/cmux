@@ -33,7 +33,8 @@ their scrollback and their input. `acpmux daemon restart` does the same for agen
 keep their conversation. On a Mac, the new build is the binary `verify-cmux-tui-hosted.sh` downloads
 to `cmux-tui/target/hosted/<commit>/` (above). A tagged app's session is `cmux-app-<tag>`. The app
 hands its session back to the daemon bundled in it on its next launch, unless that bundle carries
-your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`).
+your build (`CMUX_NEXT_TUI_BIN=<path> scripts/reload.sh --tag <tag>`). To see a daemon change in the app,
+`cmux app try .` swaps it into a copy of the NIGHTLY with no app build.
 `scripts/cmux-next/daemon-swap-check.py --old A --new B` checks a swap between two builds end to end
 (HQ#7149 L7 runs it hourly against NIGHTLYs).
 

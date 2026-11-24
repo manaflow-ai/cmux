@@ -55,6 +55,10 @@ pub enum PeerCmd {
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
     Load,
+    /// One walk of the home directory for `load`'s disk split (`disk_usage.rs`); `load` starts
+    /// it in the background when the last split is old.
+    #[command(name = "disk-walk", hide = true)]
+    DiskWalk,
     /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
     /// stdin: one JSON object, or an array of them, in; the verdict (or an
     /// array of verdicts) out, as JSON. Pure: reads no host and starts no
@@ -500,8 +504,12 @@ pub enum ApprovalsCmd {
         #[arg(long)]
         name: Option<String>,
     },
-    /// Stop a Mac's Allows here, at once.
+    /// Stop a Mac's Allows here, at once (`rm standing-grant` ends the standing grant).
     Rm { id: String },
+    /// Record a standing pre-grant on this machine: a key of this user's own, enrolled here, with
+    /// which `acpmux allow SESSION --standing-grant` signs a one-time allow of a plain tool ask
+    /// (never a lasting allow, a plan, a mode, a policy or a rule). Keeps the key already there.
+    Grant,
     /// From this Mac: let its cmux app allow the prompts of MACHINE (a machine name
     /// or ssh host), over ssh. The approvals step of `machine enroll`, alone.
     Enroll {

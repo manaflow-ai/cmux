@@ -74,10 +74,15 @@ nonisolated extension Tunable where Value: BinaryFloatingPoint {
 }
 
 nonisolated extension Tunable where Value == Bool {
+    /// `readCadence: .launch` for a flag the app reads once while starting
+    /// (a Chromium switch): changing it then needs a relaunch, and every
+    /// surface says so rather than reporting a change that did nothing.
     public static func toggle(_ key: String, _ section: TunableSection, _ label: String, help: String,
-                              default value: Bool, code: String? = nil) -> Tunable {
+                              default value: Bool, code: String? = nil,
+                              readCadence: TunableReadCadence = .live) -> Tunable {
         Tunable(descriptor: TunableDescriptor(key: key, section: section, label: label, help: help, kind: .bool,
-                                              defaultSource: .fixed(.bool(value)), codeName: code),
+                                              defaultSource: .fixed(.bool(value)), codeName: code,
+                                              readCadence: readCadence),
                 defaultValue: value)
     }
 }
@@ -102,10 +107,12 @@ nonisolated extension Tunable where Value == SpringParameters {
 
 nonisolated extension Tunable where Value: TunableChoice {
     public static func choice(_ key: String, _ section: TunableSection, _ label: String, help: String,
-                              default value: Value, code: String? = nil) -> Tunable {
+                              default value: Value, code: String? = nil,
+                              readCadence: TunableReadCadence = .live) -> Tunable {
         Tunable(descriptor: TunableDescriptor(key: key, section: section, label: label, help: help,
                                               kind: .choice(Value.tunableOptions),
-                                              defaultSource: .fixed(value.tunableValue), codeName: code),
+                                              defaultSource: .fixed(value.tunableValue), codeName: code,
+                                              readCadence: readCadence),
                 defaultValue: value)
     }
 }

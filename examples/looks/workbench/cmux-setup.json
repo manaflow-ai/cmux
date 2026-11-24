@@ -1,0 +1,58 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/workbench-look",
+  "name": "Workbench",
+  "tagline": "A dense, code-first agent workbench: threads by project down a narrow sidebar, flat prompt rows, a square message box.",
+  "description": "A whole cmux look after a dense code-first agent app with a thread sidebar: a cool neutral dark theme, compact rows grouped by project with their session tree, a monospace-leaning chat in a wide column, prompts as flat rows marked by an accent rule, a square docked message box and the full header. Built only from public surfaces; remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/workbench",
+  "screenshots": ["screenshots/workbench-dark.png", "screenshots/workbench-light.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "workbench",
+
+    // The chat's structure (cmux#52221): prompts as flat rows on the leading edge with an accent
+    // rule, a square docked message box, the header's tools always shown.
+    "agentPane.display.layout.messages": "flat",
+    "agentPane.display.layout.composer": "square",
+    "agentPane.display.layout.header": "full",
+    // With cmux#45843 also set "agentPane.composerLook" and
+    // "agentPane.emptyChatComposerPosition"; neither is a key yet.
+
+    // Monospace-leaning type: replies in the mono preset at 13 px on a tight UI face, code at
+    // nearly full size, a wide 960 px column, the minimap on, harness marks as a compact rail.
+    "agentPane.display.font.preset": "mono",
+    "agentPane.display.font.ui": "system-ui-tight",
+    "agentPane.display.font.size": 13,
+    "agentPane.display.font.lineHeight": 1.5,
+    "agentPane.display.code.scale": 0.95,
+    "agentPane.display.width": 960,
+    "agentPane.display.minimap": "compact",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.composerRing": "context",
+
+    // The thread sidebar: compact rows grouped by project folder, each chat's sub-sessions as a
+    // tree under it, the branch and age on the row, row tools only on hover.
+    "sidebar.density": "compact",
+    "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
+    "sidebar.showTimestamps": true,
+    "sidebar.controlsOnHover": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": true,
+    "sidebar.groupPalette": "theme",
+    "sidebar.workspaceRow.icon": true,
+    "sidebar.workspaceRow.branch": true,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.lastActivity": true,
+    "sidebar.workspaceRow.agentStatus": true,
+    "sidebar.workspaceRow.working": true,
+
+    // Markdown in the same hand: mono, small, wide.
+    "markdown.font.preset": "mono",
+    "markdown.font.size": 13,
+    "markdown.layout.width": 100
+  }
+}

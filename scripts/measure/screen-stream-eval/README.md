@@ -335,6 +335,9 @@ Quality uses a bounded 128x64 luma ROI, matched by timestamp and exact encoded a
 A source PNG and last viewer image with equal dimensions do not establish frame identity.
 Five source samples at most are recorded per host session, and quality is not extrapolated to
 other scene phases. `evidence.tar.gz` retains raw decode/timing records and matched ROI samples.
+With the resolution ladder on, the host logs each frame's encoded picture size, and
+`min_bits_per_pixel` and `median_bits_per_pixel` are encoded access-unit bits over that picture's pixels, across
+emitted frames in the window; they stay null unless every emitted frame carries a size.
 These observations remain under `extra.repeats[].window_netem_metrics` in the target summary.
 There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under

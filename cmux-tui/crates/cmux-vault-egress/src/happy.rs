@@ -69,16 +69,16 @@ pub async fn race(
         }
         let wait = tokio::time::sleep(stagger);
         tokio::pin!(wait);
-        loop {
-            tokio::select! {
-                Some(joined) = running.join_next() => match joined {
-                    Ok(Ok(stream)) => return Ok(stream),
-                    Ok(Err(error)) => { last_error = Some(error); break; }
-                    Err(join) => { last_error = Some(io::Error::other(join)); break; }
-                },
-                () = &mut wait, if pending.len() > 0 => break,
-                else => break,
-            }
+        // One wake per round: an attempt that ended, or the stagger running out with an address
+        // still to try. Either way the next round starts the next address or reads the next end.
+        tokio::select! {
+            Some(joined) = running.join_next() => match joined {
+                Ok(Ok(stream)) => return Ok(stream),
+                Ok(Err(error)) => last_error = Some(error),
+                Err(join) => last_error = Some(io::Error::other(join)),
+            },
+            () = &mut wait, if pending.len() > 0 => {}
+            else => {}
         }
     }
 }

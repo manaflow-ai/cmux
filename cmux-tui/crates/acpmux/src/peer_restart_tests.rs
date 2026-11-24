@@ -225,6 +225,8 @@ async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time(
     let running = tokio::spawn(peer.clone().run());
     daemon.accepted().await;
     while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
+    let redials = &crate::gauges::links().link_redials;
+    let before = redials.load(Ordering::Relaxed);
     let mut waits = Vec::new();
     for _ in 0..3 {
         daemon.restart(1);
@@ -232,6 +234,7 @@ async fn a_peer_that_restarts_again_and_again_is_back_within_a_second_each_time(
         waits.push(daemon.accepted().await.duration_since(refused));
         while !matches!(next_notice(&mut notices).await, PeerNotice::Connected) {}
     }
+    assert!(redials.load(Ordering::Relaxed) >= before + 3);
     eprintln!("wait after the refused attempt, restarts 1-3: {waits:?}");
     assert!(waits[0] < FIRST_NEXT_ATTEMPT_WITHIN, "{waits:?}");
     assert!(waits.iter().all(|w| *w < NEXT_ATTEMPT_WITHIN), "{waits:?}");

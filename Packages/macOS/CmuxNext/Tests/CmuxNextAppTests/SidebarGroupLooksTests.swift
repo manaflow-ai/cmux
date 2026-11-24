@@ -74,9 +74,9 @@ import Testing
 
     // MARK: the setting
 
-    /// The looks are opt-in: the default is still the plain folder, and every choice is a value of the setting.
-    @Test func theLooksAreOptInAndTheDefaultStaysTheFolder() {
-        #expect(SidebarSectionsPreferences().groupHeaderBackground == .folder)
+    /// The alternative group looks are opt-in.
+    @Test func theLooksAreOptInAndAutomaticIsTheDefault() {
+        #expect(SidebarSectionsPreferences().groupHeaderBackground == .auto)
         for raw in ["chip", "tree", "card"] { #expect(SidebarGroupBackgroundStyle(rawValue: raw) != nil, "\(raw) is no value") }
         #expect(SidebarGroupBackgroundStyle.allCases.count == 8)
     }
