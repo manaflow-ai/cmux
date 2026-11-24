@@ -1149,6 +1149,12 @@ impl Hub {
             .store(super::host_level::start_for(&run, provenance.as_ref()), Ordering::SeqCst);
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
+        // A continuation a move at a tool boundary left: a Claude process started for it resumes
+        // the cut turn by itself (`claude_stdio/resume_cut.rs`).
+        session
+            .resume_cut_ask
+            .store(super::auto_resume::silent(provenance.as_ref()), Ordering::SeqCst);
+        session.resumed_cut.store(false, Ordering::SeqCst);
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
@@ -1161,6 +1167,8 @@ impl Hub {
         let started =
             Box::pin(self.retry_late_start(session, stops, cancels, &prompt_id, &turn_id, started))
                 .await;
+        // Only this turn's start resumes the cut turn, never a later one.
+        session.resume_cut_ask.store(false, Ordering::SeqCst);
         let started = match started {
             Ok(child) => session
                 .meta()
@@ -1191,6 +1199,11 @@ impl Hub {
                 return Err(e);
             }
         };
+        // The process this turn started goes on with the cut turn by itself: this turn's prompt
+        // is not written (it is sent as a carried one below), so nothing that rides on a written
+        // prompt is added to it or counted as delivered; the next written prompt carries it. A
+        // turn refused before that prompt ends the process, which would run the turn unheard.
+        let resumed = session.resumed_cut.swap(false, Ordering::SeqCst);
         // A Web steer while the agent started made this a Web turn.
         let control = session.turn().map_or(control, |t| t.control);
         // Starting the agent may have changed its mode (a spawn, a resume, a
@@ -1220,6 +1233,9 @@ impl Hub {
             } else if self.hands_off(session) {
                 super::digest::forget_joined(Some(joined));
             }
+            if resumed {
+                child.kill().await;
+            }
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
@@ -1230,6 +1246,9 @@ impl Hub {
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                if resumed {
+                    child.kill().await;
+                }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1239,7 +1258,7 @@ impl Hub {
         // value, rules too long for one argument, a chat moved under a guard): once, in this
         // message, like the first message's context. Read after the start, which records the
         // command line it ran (`spawn_argv`).
-        let rules_owed = control != Control::Web && {
+        let rules_owed = !resumed && control != Control::Web && {
             let m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             !m.cmux_rules_in_transcript
                 && crate::context_inventory::append_owed_rules(
@@ -1252,11 +1271,12 @@ impl Hub {
         // commands keep their prompt intact and leave these notices for a normal turn.
         let team_enabled =
             self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
-        let team_messages = if team_enabled && super::forum::slash_command(&blocks).is_none() {
-            self.take_team_messages(session)
-        } else {
-            Vec::new()
-        };
+        let team_messages =
+            if !resumed && team_enabled && super::forum::slash_command(&blocks).is_none() {
+                self.take_team_messages(session)
+            } else {
+                Vec::new()
+            };
         // A person's prompt (a shared chat's guest or participant, not the owner) tells the agent
         // who sent it (`author::agent_label`); the transcript's record above keeps their words.
         if super::forum::slash_command(&blocks).is_none()
@@ -1270,7 +1290,9 @@ impl Hub {
         let confirm_team_write = !team_messages.is_empty()
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
-        if session.rehydrate.swap(false, Ordering::SeqCst)
+        if resumed {
+            // Its own transcript is what it goes on from.
+        } else if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
             // The whole transcript covers what an older agent session lacked too.
@@ -1282,7 +1304,11 @@ impl Hub {
             blocks.insert(0, block);
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
-        let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
+        let mut told = if resumed {
+            Default::default()
+        } else {
+            self.forum_context(session, pushed.clone(), &mut blocks).await
+        };
         session.stderr_tail.lock().unwrap().clear();
         // Under the turn lock: this turn ends a person's Stop's hold only if it began under it.
         session.turn_hold.store(session.stop_hold.load(Ordering::SeqCst), Ordering::SeqCst);
@@ -1318,6 +1344,9 @@ impl Hub {
             Ok(_) => {
                 let e = stopped_before_prompt();
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
+                if resumed {
+                    child.kill().await;
+                }
                 self.forum_turn_end(session, &told, false);
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
@@ -1326,6 +1355,9 @@ impl Hub {
             Err(e) => {
                 self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
+                if resumed {
+                    child.kill().await;
+                }
                 Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
                 drop(guard);
                 return Err(e);
@@ -1347,6 +1379,9 @@ impl Hub {
                 .with_data(json!({"reason": reason}));
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
             self.forum_turn_end(session, &told, false);
+            if resumed {
+                child.kill().await;
+            }
             Self::finish_cloud_execution(&mut cloud_exec, session, &turn_id).await;
             drop(guard);
             return Err(e);
@@ -1369,18 +1404,25 @@ impl Hub {
         let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         // Start title generation after the first prompt is written to the harness, while its
         // session-info title can still win before the cheap completion is spent.
-        let delivers_context = control != Control::Web
+        let delivers_context = !resumed
+            && control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
         // Only a person's own turn makes a recap worth asking for (`away_recap.rs`), or a
         // summary worth a model call (`rolling_summary.rs`).
         self.recap_turn_started(session, person);
         self.summary_turn_started(session, person);
+        let params = if resumed {
+            // The turn the process resumed by itself: adopted, nothing written (`carry.rs`).
+            json!({"sessionId": agent_sid, "prompt": [], "_meta": {"carried": true}})
+        } else {
+            // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref())
+        };
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
-            super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref()),
+            params,
             &turn_id,
             false,
             false,
