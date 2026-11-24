@@ -224,6 +224,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const comments = useDiffComments({
     bridgeAvailable,
     canSend: payload.commentsSend === true,
+    commentsThreads: payload.commentsThreads === true,
     dispatch,
     latestState,
     repoRoot: commentRepoRoot,
@@ -504,6 +505,9 @@ export function App({ config, initialStatus }: ConfigProps) {
         labels={commentLabels}
         onDelete={() => comments.remove(metadata.comment)}
         onSaveMessage={(message) => comments.editMessage(metadata.comment, message, item.fileDiff)}
+        onReply={(message) => comments.reply(metadata.comment, message)}
+        onResolve={(resolved) => comments.resolve(metadata.comment, resolved)}
+        threads={comments.threaded}
       />
     );
   };
@@ -1123,10 +1127,13 @@ export function App({ config, initialStatus }: ConfigProps) {
               : undefined
           }
           commentsSendState={comments.sendState}
+          commentsThreads={comments.threaded}
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
           onSendComments={comments.canSend ? comments.send : undefined}
+          onReplyComment={comments.reply}
+          onResolveComment={comments.resolve}
           onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}
