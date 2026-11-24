@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="utf-8"><title>COV popup</title></head>
+<body style="margin:0;background:#462">
+<button id="closeme" style="position:fixed;left:0;top:0;width:100vw;height:100vh;font-size:20px" onclick="window.close()">close me</button>
+<script>try { window.opener.__ev.push([Date.now(), 'popup', 'ready', innerWidth, innerHeight]); } catch (e) {}
+window.addEventListener('pagehide', () => { try { window.opener.__ev.push([Date.now(), 'popup', 'pagehide']); } catch (e) {} });</script>
+</body></html>

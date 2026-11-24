@@ -13,6 +13,9 @@ Runs each part with the step's --app and --tag, in its own folder under --out, a
   regressions     in-tree-live-checks.py --in-tree on --checks regressions: only the live rows of in-tree-regressions.md
                   (one per bug found in real use; not in the default parts, live-on already runs them)
   prompts         permission-prompts-live.py --engines chromium with CMUX_IN_TREE_PAGES=1 (C16)
+  coverage-on     in-tree-coverage-checks.py --in-tree on: the in-tree-coverage.md rows the parts above do not check
+  coverage-off    in-tree-coverage-checks.py --in-tree off (the same rows with the switch off, for parity)
+                  (--coverage-checks passes its --checks; not in the default parts)
 
 --parts picks a subset (comma-separated). --live-checks passes in-tree-live-checks.py its --checks (default: all).
 """
@@ -63,6 +66,12 @@ def part(name):
                "--in-tree", name.split("-")[1]]
         if value("--live-checks"):
             cmd += ["--checks", value("--live-checks")]
+    elif name in ("coverage-on", "coverage-off"):
+        report = os.path.join(folder, "in-tree-coverage.json")
+        cmd = ["in-tree-coverage-checks.py", "--app", APP, "--tag", TAG, "--out", folder, "--json", report,
+               "--in-tree", name.split("-")[1]]
+        if value("--coverage-checks"):
+            cmd += ["--checks", value("--coverage-checks")]
     elif name == "prompts":
         env["CMUX_IN_TREE_PAGES"] = "1"
         cmd = ["permission-prompts-live.py", "--tag", TAG, "--app", APP, "--out", folder, "--engines", "chromium"]

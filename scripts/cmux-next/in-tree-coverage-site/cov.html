@@ -1,0 +1,83 @@
+<!doctype html><html><head><meta charset="utf-8"><title>COV</title><style>
+body{margin:0;background:#246;color:#fff;font:15px sans-serif}
+.box{display:inline-block;margin:6px;padding:6px;background:#357;vertical-align:top}
+#lnk{color:#fc3;cursor:pointer} #textp{cursor:text}
+#nested{width:220px;height:120px;overflow:auto;background:#135} #nested div{height:900px;background:linear-gradient(#135,#531)}
+#src{width:80px;height:40px;background:#c63} #dst{width:120px;height:60px;background:#3a6}
+#hover{width:90px;height:40px;background:#555} #hover:hover{background:#9c3}
+#lockbtn,#fsink{font-size:14px} canvas,video{width:160px;height:90px;background:#000}
+#tall{height:2400px}
+</style></head><body>
+<div class="box"><p id="textp">The needle sits here. A needle again. One more needle. <span id="sel">cmuxselectword</span> end.</p>
+<p id="copysrc">cmuxcopy-TOKEN</p>
+<input id="field" style="width:220px" placeholder="field"> <textarea id="ta" rows="2" cols="20"></textarea></div>
+<div class="box"><a id="lnk" href="?n=linked">a link</a> <a id="blank" href="?n=blank" target="_blank">blank link</a>
+<div id="hover">hover me</div><button id="lockbtn">pointer lock</button></div>
+<div class="box"><div id="nested"><div>nested scroller</div></div></div>
+<div class="box"><div id="src" draggable="true">drag me</div><div id="dst">drop here</div></div>
+<div class="box"><input id="f1" type="file"> <input id="fm" type="file" multiple> <input id="fd" type="file" webkitdirectory>
+<button id="save">save picker</button> <a id="dl" href="/dl/cov-download.bin" download>download</a>
+<a id="dlblob" href="#">blob download</a> <button id="popc">popup</button></div>
+<div class="box"><h2 id="axh">AX probe heading</h2><button id="axb" aria-label="cmux AX probe button">ax</button></div>
+<div class="box"><canvas id="cv" width="160" height="90"></canvas><video id="v1" muted playsinline></video><video id="v2" muted playsinline></video></div>
+<div id="tall"></div>
+<script>
+const $ = s => document.querySelector(s);
+window.__ev = []; window.__k = []; window.__results = {};
+const ev = (...a) => { if (window.__ev.length > 4000) window.__ev.splice(0, 1000); window.__ev.push([Date.now()].concat(a)); };
+const q = new URLSearchParams(location.search);
+const token = q.get('token') || 'TOKEN';
+$('#copysrc').textContent = 'cmuxcopy-' + token;
+try { sessionStorage.loads = String(Number(sessionStorage.loads || 0) + 1); } catch (e) {}
+document.title = 'COV ' + (q.get('n') || '');
+document.addEventListener('keydown', e => window.__k.push(e.key), true);
+for (const t of ['click', 'dblclick', 'contextmenu', 'dragstart', 'dragenter', 'drop', 'dragend', 'pointerlockchange', 'pointerlockerror',
+                 'compositionstart', 'compositionupdate', 'compositionend', 'copy', 'paste'])
+  document.addEventListener(t, e => ev(t, (e.target && e.target.id) || (e.target && e.target.tagName) || ''), true);
+document.addEventListener('wheel', e => ev('wheel', e.target.id || e.target.tagName, e.ctrlKey, e.deltaX, e.deltaY), {capture: true, passive: true});
+for (const id of ['lnk', 'hover', 'textp']) {
+  $('#' + id).addEventListener('mouseover', () => ev('over', id));
+  $('#' + id).addEventListener('mouseout', () => ev('out', id));
+}
+$('#dst').addEventListener('dragover', e => e.preventDefault());
+$('#lockbtn').onclick = () => { try { const p = $('#lockbtn').requestPointerLock(); if (p && p.catch) p.catch(e => ev('lockerr', String(e))); } catch (e) { ev('lockerr', String(e)); } };
+for (const id of ['f1', 'fm', 'fd']) {
+  const el = $('#' + id);
+  el.addEventListener('click', () => ev('file', id, 'click'));
+  el.addEventListener('cancel', () => ev('file', id, 'cancel'));
+  el.addEventListener('change', () => ev('file', id, 'change', [...el.files].map(f => [f.name, f.size])));
+}
+$('#save').onclick = async () => {
+  ev('save', 'click');
+  try { const h = await window.showSaveFilePicker({suggestedName: 'cov-save.txt'}); ev('save', 'chosen', h.name); }
+  catch (e) { ev('save', 'error', e.name); }
+};
+$('#dlblob').onclick = e => { e.preventDefault();
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['blob-content-' + token])); a.download = 'cov-blob.txt';
+  document.body.appendChild(a); a.click(); a.remove(); };
+$('#popc').onclick = () => { window.__popc = window.open('/popup-close.html', 'covpopup', 'width=420,height=320'); ev('popup', 'opened', !!window.__popc); };
+window.centre = s => { const r = $(s).getBoundingClientRect(); return JSON.stringify([r.x + r.width / 2, r.y + r.height / 2, r.width, r.height]); };
+window.evSince = t => JSON.stringify(window.__ev.filter(e => e[0] >= t));
+window.later = (name, f) => { setTimeout(() => { try { window.__results[name] = String(f()); } catch (e) { window.__results[name] = 'error ' + e; } }, 50); return true; };
+window.armUnload = () => { window.onbeforeunload = e => { e.preventDefault(); e.returnValue = 'stay'; return 'stay'; }; return true; };
+window.startVideo = () => {
+  const cv = $('#cv'), cx = cv.getContext('2d'); let n = 0;
+  (function draw() { cx.fillStyle = `hsl(${(n++ * 7) % 360},80%,50%)`; cx.fillRect(0, 0, 160, 90); cx.fillStyle = '#fff'; cx.fillText(String(n), 10, 50); requestAnimationFrame(draw); })();
+  const stream = cv.captureStream(30); const v = $('#v1'); v.srcObject = stream;
+  window.__vf = 0; const count = () => { window.__vf++; v.requestVideoFrameCallback(count); }; v.requestVideoFrameCallback(count);
+  v.play().then(() => ev('video', 'v1', 'playing'), e => ev('video', 'v1', 'error', String(e)));
+  // A real decode: record the canvas as WebM, then play the file through the media pipeline.
+  try {
+    const rec = new MediaRecorder(stream, {mimeType: 'video/webm'}); const parts = [];
+    rec.ondataavailable = e => parts.push(e.data);
+    rec.onstop = () => { const v2 = $('#v2'); v2.src = URL.createObjectURL(new Blob(parts, {type: 'video/webm'})); v2.loop = true;
+      window.__vf2 = 0; const c2 = () => { window.__vf2++; v2.requestVideoFrameCallback(c2); }; v2.requestVideoFrameCallback(c2);
+      v2.play().then(() => ev('video', 'v2', 'playing'), e => ev('video', 'v2', 'error', String(e))); };
+    rec.start(); setTimeout(() => rec.stop(), 1500);
+  } catch (e) { ev('video', 'v2', 'error', String(e)); }
+  return true;
+};
+window.videoState = () => JSON.stringify({vf: window.__vf || 0, vf2: window.__vf2 || 0, t1: $('#v1').currentTime, t2: $('#v2').currentTime,
+  paused1: $('#v1').paused, paused2: $('#v2').paused, err2: $('#v2').error && $('#v2').error.code});
+window.covReady = true;
+</script></body></html>
