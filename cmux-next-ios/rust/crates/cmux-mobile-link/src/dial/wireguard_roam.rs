@@ -93,7 +93,9 @@ pub(super) enum Control {
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
     /// A joined relay socket: one more carrier, beside UDP and TURN.
-    Relay(super::RelayCarrier),
+    /// `pending`: send the pending handshake initiation through it at once
+    /// (both sides dial the relay first, so no reassert follows the join).
+    Relay { carrier: super::RelayCarrier, pending: bool },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
 }
@@ -104,6 +106,9 @@ pub(super) struct RelayPlan {
     pub endpoint: super::super::relay::RelayEndpoint,
     /// Join at once: one side said it has no other path.
     pub now: bool,
+    /// Join as the tunnel starts: both sides offered `relay: "first"`, so the
+    /// relay rides beside the direct race instead of joining 3 s later.
+    pub first: bool,
     /// This device's relay ticket for the session, as the service stamped it
     /// on a signal to this device (`relayTicket`); `None` from a service that
     /// stamps none, whose join is then refused.
@@ -1318,7 +1323,7 @@ pub fn relay_held(session_id: &str, dialer: bool) -> Option<bool> {
 /// peer asked or said it would) asks the peer to join too.
 async fn run_relay_watch(session: Weak<Session>) {
     let Some(first) = session.upgrade() else { return };
-    let mut join_now = first.relay.as_ref().is_some_and(|plan| plan.now);
+    let mut join_now = first.relay.as_ref().is_some_and(|plan| plan.now || plan.first);
     let shared = Arc::clone(&first.relay_shared);
     drop(first);
     let mut failures = 0usize;
@@ -1355,7 +1360,11 @@ async fn run_relay_watch(session: Weak<Session>) {
             peer_away_since = None;
         }
         let reason = if join_now && !shared.held() {
-            Some("one side has no other path")
+            Some(if session.relay.as_ref().is_some_and(|plan| plan.now) {
+                "one side has no other path"
+            } else {
+                "both sides dial the relay first"
+            })
         } else {
             shared.due(session.dialer)
         };
@@ -1397,7 +1406,7 @@ async fn run_relay_watch(session: Weak<Session>) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
                 *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
-                if session.control.send(Control::Relay(carrier)).is_err() {
+                if session.control.send(Control::Relay { carrier, pending: plan.first }).is_err() {
                     return;
                 }
                 shared.set_held(true);
@@ -1408,12 +1417,17 @@ async fn run_relay_watch(session: Weak<Session>) {
                 // and two handshake initiations that cross in lockstep each overwrite the
                 // other side's pending one (boringtun keeps one handshake state), so
                 // every response is refused and their fixed repeat schedule keeps them in
-                // step until the dial times out.
-                reassert_on_relay(&session, &shared).await;
+                // step until the dial times out. Not when both dial the relay first: the
+                // dialer's pending initiation just went through it (a new one would void
+                // a direct answer in flight), and its repeats find the Mac once it joins.
+                if !plan.first {
+                    reassert_on_relay(&session, &shared).await;
+                }
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.
-                if !asked && !plan.now {
+                // Nor when both dial it first: the peer joins on its own clock.
+                if !asked && !plan.now && !plan.first {
                     let _ = session.signaling().send_signal(
                         &session.peer,
                         &session.session_id,
