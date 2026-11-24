@@ -223,7 +223,7 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
@@ -2626,6 +2626,8 @@ export type ProbeExtra = {
   spare_fallback?: string | null;
   spare_skips?: Record<string, number> | null;
   claimed_spare?: boolean | null;
+  /** Whether the reserved first-home-chat ticket was consumed by the app-style start. */
+  reserved_hit?: boolean;
   /** The claim answer's value.claim.behind (cmux-platform#1429): the spare taken was one image roll behind; null with no claim. */
   claimed_behind?: boolean | null;
   /** How the login reached the machine: the spare's copy on spare.ready (a receipt after the claim), or a copy after bind. */
@@ -3318,6 +3320,46 @@ CMUX_JOURNEY_START`;
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+
+/** The exact command CloudMachineRoute uses to warm the reserved first home chat on a keyed spare. */
+export const WARM_HOME_COMMAND =
+  'c=/home/cmux/.cmux/bin/cmux-tui; [ -x "$c" ] || c=cmux-tui; ' +
+  'if [ "$(id -u)" = 0 ] && id cmux >/dev/null 2>&1; then ' +
+  'set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; ' +
+  'else set --; fi; ' +
+  '"$@" "$c" acp --json warm-home --wait 2>/dev/null; true';
+
+/** The guest-side read of tickets consumed by an app-style home start. */
+export const CLAIMED_MARKERS_COMMAND =
+  'for f in "$HOME"/chats/.claimed-*; do [ -f "$f" ] && basename "$f"; done | sort';
+
+/** Claimed marker names, excluding unrelated output and duplicate lines. */
+export function parseClaimedMarkers(stdout: string): string[] {
+  return [...new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^\.claimed-[^/\s]+$/.test(line)))].sort();
+}
+
+export type WarmHomeAnswer = { state: "ready" | "not_ready" | "unsupported"; reason: string };
+
+/** Parse warm-home's optional JSON answer. Older guest images print nothing because the command is absent. */
+export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
+  let answer: any;
+  for (const line of stdout.split(/\r?\n/).map((line) => line.trim()).reverse()) {
+    if (!line.startsWith("{")) continue;
+    try {
+      answer = JSON.parse(line);
+      break;
+    } catch {
+      // The command can include a non-JSON diagnostic before its answer.
+    }
+  }
+  if (!answer || typeof answer !== "object") {
+    return { state: "unsupported", reason: stdout.trim() ? "warm-home returned no JSON answer" : "warm-home is unavailable on this guest image" };
+  }
+  if (answer.accepted === true && answer.state === "ready") return { state: "ready", reason: "reserved home chat is ready" };
+  const state = typeof answer.state === "string" ? answer.state : "unknown";
+  return { state: "not_ready", reason: `warm-home answered state=${state}` };
+}
+
 /**
  * A guest command timed on the guest: its own run, apart from the exec route's trip to the machine and back, which a
  * person's app never takes (it talks to acpmux over the carrier). The time is printed on its own line after the
@@ -4204,6 +4246,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startVia = argValue("--start-via", argv) ?? "acp";
   if (startVia !== "acp" && startVia !== "app") throw new Error(`--start-via ${startVia}: acp or app`);
   if (startVia === "app" && !cmux) throw new Error("--start-via app needs --cmux PATH: the app's start goes over the carrier dial");
+  // --home-chat reserved measures the app's first home chat, after a reserved ticket was warmed on a keyed spare.
+  const homeChat = argValue("--home-chat", argv) ?? "none";
+  if (homeChat !== "none" && homeChat !== "reserved") throw new Error(`--home-chat ${homeChat}: none or reserved`);
+  if (homeChat === "reserved" && !cmux) throw new Error("--home-chat reserved needs --cmux PATH: the app-style start goes over the carrier dial");
   const only =new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
   if (reuse) only.add("pause");
   // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
@@ -4232,9 +4278,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const askedModel = agent.includes("/") ? agent.slice(agent.indexOf("/") + 1) : "";
   const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
   const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
-  let launchCredential = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
+  let launchCredential = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: Boolean(preclaimLoginCmux) });
   // A --preclaim-login run whose claimed machine got no login on spare.ready takes this path (loginPathAfterClaim).
-  const launchOnMiss = startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
+  const launchOnMiss = homeChat === "reserved" ? false : startsOnLaunchCredential({ modelStub, provider, login, gatewayAny, startVia, preclaimLogin: false });
   const tag =`jr-${Date.now().toString(36)}`;
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
@@ -4628,6 +4674,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         } catch (e) {
           prepared = null;
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login goes with the agent's start: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+        }
+      }
+    }
+    if (homeChat === "reserved") {
+      const t0 = Date.now();
+      const name = "home chat warmed ahead (warm-home)";
+      if (!prepared?.spare) {
+        J.record({ step: name, status: "skip", ms: 0, detail: "no keyed spare was ready for the reserved home chat" });
+      } else {
+        try {
+          const warm = await directExec(api, prepared.spare, J)(WARM_HOME_COMMAND, 60_000);
+          const answer = parseWarmHomeAnswer(warm.stdout);
+          J.record({ step: name, status: answer.state === "ready" ? "pass" : "skip", ms: Date.now() - t0, detail: answer.reason });
+        } catch (error) {
+          J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `warm-home could not run: ${String((error as Error)?.message ?? error).slice(0, 300)}` });
         }
       }
     }
@@ -5091,7 +5152,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
       });
     }
-    const session = `journey-${tag}`;
+    let session = `journey-${tag}`;
+    let claimedBefore: Set<string> | null = null;
     // One turn's reply: the session's last message once `acp wait` says the turn ended, or the turn's own error.
     const awaitReply = async (): Promise<string> => {
       const t0 = Date.now();
@@ -5152,10 +5214,88 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: `${last.slice(0, 120)} (model request at step ${fresh[0].step}: the earlier turns came along)` };
     };
     // An agent with no login to pass (OpenCode on its free Zen models) gets the later turns with --lifecycle.
-    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle") && startVia !== "app";
+    const lifecycle = (provider || argv.includes("--lifecycle")) && !gatewayAny && !only.has("chat") && !only.has("lifecycle") && startVia !== "app" && homeChat !== "reserved";
+    if (homeChat === "reserved") {
+      try {
+        const before = await exec(`${GUEST}${CLAIMED_MARKERS_COMMAND}`);
+        if (before.code === 0) claimedBefore = new Set(parseClaimedMarkers(before.stdout));
+        else J.record({ step: "reserved home marker baseline", status: "skip", ms: 0, detail: `could not read ~/chats/.claimed-* before start (exit ${before.code})` });
+      } catch (error) {
+        J.record({ step: "reserved home marker baseline", status: "skip", ms: 0, detail: `could not read ~/chats/.claimed-* before start: ${String((error as Error)?.message ?? error).slice(0, 240)}` });
+      }
+    }
+    const recordReservedMarker = async () => {
+      const markerStarted = Date.now();
+      try {
+        if (claimedBefore === null) {
+          probeExtra.reserved_hit = false;
+          J.record({ step: "reserved home marker", status: "skip", ms: Date.now() - markerStarted, detail: "reserved_hit=false (marker baseline was unavailable)", fields: { reserved_hit: false } });
+        } else {
+          const after = await exec(`${GUEST}${CLAIMED_MARKERS_COMMAND}`);
+          if (after.code !== 0) {
+            probeExtra.reserved_hit = false;
+            J.record({ step: "reserved home marker", status: "skip", ms: Date.now() - markerStarted, detail: `reserved_hit=false (marker read exit ${after.code})`, fields: { reserved_hit: false } });
+          } else {
+            const hit = parseClaimedMarkers(after.stdout).some((marker) => !claimedBefore!.has(marker));
+            probeExtra.reserved_hit = hit;
+            J.record({ step: "reserved home marker", status: "pass", ms: Date.now() - markerStarted, detail: `reserved_hit=${hit}`, fields: { reserved_hit: hit } });
+          }
+        }
+      } catch (error) {
+        probeExtra.reserved_hit = false;
+        J.record({ step: "reserved home marker", status: "skip", ms: Date.now() - markerStarted, detail: `reserved_hit=false (marker read failed: ${String((error as Error)?.message ?? error).slice(0, 240)})`, fields: { reserved_hit: false } });
+      }
+      probeExtra.reserved_hit ??= false;
+    };
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
       await journeyOnly();
+    } else if (homeChat === "reserved") {
+      J.firstText.mark("session_start");
+      let reservedChat: ChatClient | null = null;
+      let started = false;
+      await J.step(`start agent (${agent})`, async () => {
+        const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
+        reservedChat = new ChatClient({
+          cmux: cmux!, machine: created.id, team: api.team, exec, guest: GUEST, session, tag, harness: agent,
+          // The reserved home start deliberately carries no model credentials. The login was copied to the keyed spare.
+          env: { ...inherited, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer },
+          log: (line) => console.log(scrub(line, J.secrets)),
+        });
+        await reservedChat.openTab(agent);
+        const reply = await reservedChat.start(agent);
+        const outcome = appStartDetail(reply);
+        if (!outcome.ok) throw new Error(outcome.detail);
+        session = String(reply?.data?.session ?? "");
+        if (!session) throw new Error(`started with no session: ${JSON.stringify(reply).slice(0, 200)}`);
+        J.firstText.mark("session_ready");
+        started = true;
+        return { value: null, detail: `${outcome.detail}; no cwd or model credential on the start` };
+      }).catch(() => undefined);
+      if (!started) {
+        reservedChat?.stop();
+        J.skip("send chat", "reserved home start did not produce a session");
+        J.skip("reply", "reserved home start did not produce a session");
+        await recordReservedMarker();
+      } else {
+        firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
+        try {
+          await J.step("send chat", async () => {
+            J.firstText.mark("send");
+            await reservedChat!.prompt(prompt, undefined, Date.now() + chatBudget);
+            J.firstText.mark("sent");
+            return { value: null, detail: `${prompt.slice(0, 80)} (sent over the app's carrier chat)` };
+          });
+          await J.step("reply", async () => {
+            const last = await awaitReply();
+            return { value: last, detail: last.slice(0, 280) };
+          });
+        } finally {
+          reservedChat?.stop();
+        }
+        await firstTextObserver;
+        await recordReservedMarker();
+      }
     } else if (startVia === "app") {
       // The Cloud picker's start, as the app sends it: a chat tab on the machine, then agent-session-start with the
       // harness and the owner word. A started session passes; a refusal fails the step with its code and data.harness.
@@ -5249,6 +5389,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: last, detail: last.slice(0, 280) };
       });
       await firstTextObserver;
+      if (homeChat === "reserved") await recordReservedMarker();
       await afterFirstText?.();
       await journeyOnly();
       // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
