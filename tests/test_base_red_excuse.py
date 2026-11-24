@@ -8570,7 +8570,7 @@ class WsCheckPerTest(unittest.TestCase):
     def test_the_tested_tree_window_is_bounded(self):
         # One local merge-tree per commit tried: the window is WS_CHECK_TESTED_TIPS, not every commit read for a verdict.
         self.gh.base_commits = [self.gh.TIP] + [f"{n:040x}" for n in range(excuse.WS_CHECK_TESTED_TIPS + 5)]
-        self.snapshot_runs(tree="8" * 40)
+        self.snapshot_runs(tree="3" * 40)  # a tree no commit in the window makes ("8" is the mock's unknown-tip tree)
         with self.assertRaisesRegex(excuse.Refused, f"of main's {excuse.WS_CHECK_TESTED_TIPS} newest commits"):
             self.judge()
         self.assertEqual(len(self.squashed), excuse.WS_CHECK_TESTED_TIPS)
