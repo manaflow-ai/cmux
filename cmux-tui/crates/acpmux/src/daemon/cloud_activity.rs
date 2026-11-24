@@ -405,9 +405,6 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     // Off a Cloud machine nothing reads the report: no renew tick and no resume subscription (it
     // keeps the hub's resume tick running) until the agent's socket appears (cmux-ad m9).
     agent_socket_appears(&path).await;
-    if let Some(timers) = crate::parked_wait::trigger_timers().await {
-        hub.parked.forward_to(Box::new(timers));
-    }
     let mut events = hub.subscribe();
     let mut resumes = hub.subscribe_resumes();
     let mut person_prompts = hub.subscribe_person_prompts();

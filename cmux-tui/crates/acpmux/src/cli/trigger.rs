@@ -251,13 +251,6 @@ impl TriggerClient {
         )
     }
 
-    /// `POST /v1/triggers/:id/timers` (`{delivery, fireAt}`): the platform fires the trigger at
-    /// `fireAt`, once per delivery id.
-    pub async fn add_timer(&self, id: &str, body: &Value) -> Result<Value> {
-        valid_id(id)?;
-        self.call(reqwest::Method::POST, &format!("/v1/triggers/{id}/timers"), Some(body)).await
-    }
-
     /// Where the event source posts: GitHub's webhook or the generic one.
     pub fn delivery_url(&self, trigger: &Value) -> String {
         let id = trigger.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -306,7 +299,7 @@ pub(crate) fn refusal(status: u16, body: &Value, origin: &str) -> anyhow::Error 
 }
 
 /// The origin and the person's install token from config.json (module docs).
-pub(crate) async fn client(origin: Option<String>) -> Result<TriggerClient> {
+async fn client(origin: Option<String>) -> Result<TriggerClient> {
     let text = std::fs::read_to_string(crate::config::Config::path()).unwrap_or_default();
     let (config, relay) = crate::acpmux_mcp::artifacts::settings_from(&text);
     let signed_out = || {
