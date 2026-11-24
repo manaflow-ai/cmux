@@ -92,8 +92,17 @@ struct Served {
     mtime_ns: i64,
 }
 
+const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
+                     REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
+                     archived|deleted] | enable | disable | status | moves on|off";
+
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // Asked-for help is a success on stdout; before, it was a `project_failed` error, exit 1.
+    if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
+        println!("{USAGE}");
+        return 0;
+    }
     let outcome = match args.first().map(String::as_str) {
         Some("serve") => serve_command(args.get(1..).unwrap_or_default()),
         Some("enable") => set_enabled(true).map(|()| json!({"ok": true, "enabled": true})),
@@ -107,11 +116,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
-        _ => Err(anyhow::anyhow!(
-            "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
-             REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-             archived|deleted] | enable | disable | status | moves on|off"
-        )),
+        _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
         Ok(Value::Null) => 0,

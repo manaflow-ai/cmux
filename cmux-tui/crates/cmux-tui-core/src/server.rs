@@ -1177,10 +1177,11 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known` and `limit`: server/list_workspaces_page.rs.
+    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
+        after: Option<usize>,
     },
     GetFrontendProjection {
         frontend: String,

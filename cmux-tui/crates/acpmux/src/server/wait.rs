@@ -213,9 +213,11 @@ pub(super) async fn wait(
         let mut resolved = Vec::new();
         for id in &ids {
             // `get`, not `remove`: two keys can name one chat (its name and its id).
-            let mut s = summaries
-                .get(id)
-                .cloned()
+            // A chat that moved away is waited on where it runs (`hub/moved_forward.rs`),
+            // not by its tombstone here, which is closed.
+            let mut s = hub
+                .moved_row(id)
+                .or_else(|| summaries.get(id).cloned())
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             if hub.work_coming(id) {
                 s.set(WORK_COMING, json!(true));
