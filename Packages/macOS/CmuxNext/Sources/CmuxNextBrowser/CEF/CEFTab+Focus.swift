@@ -84,16 +84,6 @@ extension CEFTab {
             pendingFocus = true
             return
         }
-        if container.commitAheadSize != nil {
-            // The page lays out ahead for its pane's next commit (fork API 33, no resize fence): a grant now (SetFocus,
-            // the page window made key) stalled the page's frames for about 100 ms just after it laid out at the new
-            // size, so the close showed its old frame beside its backdrop. The commit's end grants the kept ask
-            // (``CEFTabContentView/endCommitAhead()``).
-            host.lifecycleTrace.record(id, "grant kept: commit ahead")
-            traceGrant("kept: commit ahead")
-            pendingFocus = true
-            return
-        }
         if hosting.pageTakesFocus() {
             host.lifecycleTrace.record(id, "grant kept: motion")
             traceGrant("kept: motion")
