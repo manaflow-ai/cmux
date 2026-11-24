@@ -261,7 +261,7 @@ impl crate::mux::Mux {
         let mut events: Vec<Value> = Vec::new();
         let mut before: Option<u64> = None;
         let mut replies = vec![TurnReply::Pending; prompt_ids.len()];
-        for _ in 0..REPLY_PAGES {
+        for page_index in 0..REPLY_PAGES {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
                 break;
@@ -274,8 +274,13 @@ impl crate::mux::Mux {
                 "beforeSeq": before,
             });
             let Ok(page) = link.call("_acpmux/events", query, left.min(REPLY_TIMEOUT)) else {
-                link.close();
-                return None;
+                if page_index == 0 {
+                    link.close();
+                    return None;
+                }
+                // A later page timed out: keep the answers the earlier pages found; the rest stay
+                // pending for the next list.
+                break;
             };
             let older = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
             let Some(first) = older.first().and_then(|e| e.get("seq")).and_then(Value::as_u64)

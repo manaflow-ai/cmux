@@ -136,9 +136,10 @@ struct TerminalCommentThreadsTests {
         #expect(thread.terminalID == "tab-1")
     }
 
-    @Test func aSendTheHostRefusesLeavesTheDraftAndReportsIt() async throws {
+    @Test func aSendTheHostRefusesDeletesTheSavedCommentAndReportsIt() async throws {
         final class RefusingHost: DiffCommentsStoring {
             var saved: [JSONValue] = []
+            var deleted: [String] = []
             func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue { ["comments": .array(saved)] }
             func saveComment(root: String, comment: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
                 guard case .object(var record) = comment else { throw AgentPaneGitFailure.failed }
@@ -146,7 +147,10 @@ struct TerminalCommentThreadsTests {
                 saved.append(.object(record))
                 return ["comment": .object(record)]
             }
-            func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
+            func deleteComments(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+                deleted += ids
+                return [:]
+            }
             func sendComments(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                               text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
             // No sendCommentThreads: the protocol's default refuses, as a host without comment-threads-v1.
@@ -157,7 +161,8 @@ struct TerminalCommentThreadsTests {
             try await model.comment(on: Self.terminal, quote: "ls", message: "?", acpSession: "acp-1", key: "op-2")
         }
         #expect(model.failure != nil)
-        #expect(model.threads.map(\.state) == [.draft])
+        #expect(model.threads.isEmpty)
+        #expect(host.deleted == ["c1"])
         #expect(!model.isPolling)
     }
 }

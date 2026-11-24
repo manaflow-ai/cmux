@@ -19,6 +19,8 @@ struct BrowserCommentThreadsTests {
         /// Each `diff.comments.send {keep: true}`: its acpmux session, ids, text and key.
         var sends: [(session: String, ids: [String], text: String, key: String)] = []
         var lists = 0
+        /// The next `diff.comments.send {keep: true}` fails (the chat refused the prompt).
+        var refusesSend = false
 
         func listComments(root: String) async throws(AgentPaneGitFailure) -> JSONValue {
             lists += 1
@@ -48,6 +50,7 @@ struct BrowserCommentThreadsTests {
 
         func sendCommentThreads(root: String, acpSession: String, ids: [String], versions: [String: JSONValue],
                                 text: String, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+            if refusesSend { throw AgentPaneGitFailure.failed }
             sends.append((acpSession, ids, text, key))
             comments[root] = (comments[root] ?? []).map { comment in
                 guard case .object(var record) = comment, ids.contains(record["id"]?.stringValue ?? "") else { return comment }
@@ -150,6 +153,18 @@ struct BrowserCommentThreadsTests {
         }
         #expect(host.comments.isEmpty)
         #expect(threads.threads.isEmpty)
+    }
+
+    @Test func aSendTheHostRefusesDeletesTheSavedCommentAndShowsFailed() async {
+        let host = ThreadingHost()
+        host.refusesSend = true
+        let threads = BrowserCommentThreads(pollInterval: nil)
+        await #expect(throws: BrowserCommentSendFailure.self) {
+            try await threads.send(Self.comment, key: "card-1", store: host, root: Self.root, acpSession: "acp-7",
+                                   opid: "op-1", userGesture: true)
+        }
+        #expect(host.comments[Self.root]?.isEmpty == true)
+        #expect(threads.threads["card-1"] == BrowserCommentThread(commentID: nil, state: .failed))
     }
 
     @Test func aCommentDeletedElsewhereTakesItsThreadAway() async throws {

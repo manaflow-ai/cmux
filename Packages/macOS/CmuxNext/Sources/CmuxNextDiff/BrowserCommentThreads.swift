@@ -197,8 +197,9 @@ public final class BrowserCommentThreads {
         } catch {
             // The send failed: the saved comment leaves the host too, so no later diff Send takes it
             // as a plain comment; the thread shows failed until resolved.
+            // A send can fail "unsettled" (the chat may hold the prompt): its reply then has no thread.
             _ = await abandon(id, store: store, root: root)
-            update(key, BrowserCommentThread(commentID: nil, state: .failed))
+            if threads[key] != nil { update(key, BrowserCommentThread(commentID: nil, state: .failed)) }
             throw .host(error)
         }
     }

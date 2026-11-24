@@ -203,7 +203,7 @@ extension BrowserDesignModeController {
         switch request {
         case .send(let selector):
             guard let card = tracker.card(at: selector), HomeNativeTranscriptView.shown(in: page.contentView.window) == nil,
-                  threads.threads[card.id] == nil else { return }
+                  threads.threads[card.id].map({ $0.state == .failed && $0.commentID == nil }) ?? true else { return }
             guard let target = threadTarget(near: key) else { return notice(strings.noAgentChat, key) }
             let pick = BrowserCommentPick(tab: key, selector: selector)
             threads.hold(card.id, pick: pick)
