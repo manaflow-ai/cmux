@@ -10,7 +10,8 @@ public import CoreGraphics
 public struct PaneTrailingSlots {
     public init() {}
 
-    /// One tab's need: its toolbar beside it alone (`intrinsic`), its toolbar beside its page's tools in the row
+    /// One tab's need: its toolbar beside it alone, as it fits the pane (`intrinsic`, ``PaneToolbarView/fittedWidth(cap:)``:
+    /// never the room of buttons that fold), its toolbar beside its page's tools in the row
     /// (`shared`, nil: the page shares no row) and those tools' need (`tools`).
     public struct Need: Equatable {
         public var intrinsic: CGFloat
