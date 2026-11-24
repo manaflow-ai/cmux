@@ -1344,6 +1344,21 @@ class WebUiTests(unittest.TestCase):
         # Not a god row: no god_ratio twin is made of the god home's reading.
         self.assertFalse(any("god_ratio" in name for name in rows))
 
+    def test_every_linux_part_that_builds_rust_gets_the_pinned_toolchain(self):
+        # coord-sim's `build: exit 101` (run 45419179993): the linux job installed Rust only for diff-viewer, so every
+        # other part that runs cargo built with the runner's Cargo 1.75, which refuses edition 2024.
+        import re
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        wf = open(os.path.join(root, ".github", "workflows", "cmux-next-perf-budgets.yml")).read()
+        cond = re.search(r"- name: Install Rust\n\s+if: \$\{\{ (.+?) \}\}", wf)
+        self.assertTrue(cond)
+        self.assertEqual(cond.group(1), "!startsWith(needs.plan.outputs.linux_part, 'web-ui')")
+        for p in cron.PARTS:
+            if p.get("where") != "linux" or not p["name"].startswith("web-ui"):
+                continue
+            for argv, _cwd, _env in cron.linux_bench_runs(root, p["name"]).values():
+                self.assertNotIn("cargo", " ".join(argv), p["name"])
+
     def test_the_coord_sim_script_names_shape_files_that_exist(self):
         # cmux#47315 renamed shapes/default.json; the script kept the old path and every coord-sim part failed at gen
         # ("No such file or directory") for days. Each repo path it names under the crate must exist.
