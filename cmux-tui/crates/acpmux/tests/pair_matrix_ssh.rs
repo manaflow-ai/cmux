@@ -518,7 +518,7 @@ impl Client {
 
 fn attach_params() -> Value {
     // The app's chat page (cmux-next-ios AcpmuxHub.swift, as mobile_link_conditions.rs sends it).
-    json!({"sessionId": format!("box/{CHAT}"), "limit": 400, "maxBytes": 128 * 1024, "toolOutputMaxBytes": 64 * 1024})
+    json!({"sessionId": format!("box/{CHAT}"), "limit": 400, "maxBytes": 128 * 1024, "toolOutputMaxBytes": 64 * 1024, "eventStream": true})
 }
 
 fn rows(reply: &Value) -> usize {
