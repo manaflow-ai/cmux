@@ -140,6 +140,11 @@ impl QuietKeepalive {
     pub fn sent(&mut self, now: Instant) {
         self.last_sent = self.last_sent.max(now);
     }
+
+    /// The longest gap it allows from now on (`WgNet::set_air_floor`).
+    pub fn set_every(&mut self, every: Duration) {
+        self.every = every;
+    }
 }
 
 /// The link's idle air gap (`WgNet::set_idle_air_gap`): the shortest gap
@@ -252,5 +257,24 @@ mod quiet_keepalive_tests {
         // 59 s run, so the keepalive is due by 69 s.
         assert!(!keepalive.due(tx, start + TICK * 68));
         assert!(keepalive.due(tx, start + TICK * 69));
+    }
+
+    #[test]
+    fn an_air_floor_shortens_the_gap_from_the_last_send() {
+        const FLOOR: Duration = Duration::from_secs(4);
+        let start = Instant::now();
+        let mut keepalive = QuietKeepalive::new(EVERY, start);
+        assert!(!keepalive.due(0, start + TICK * 3));
+        keepalive.set_every(FLOOR);
+        assert!(!keepalive.due(0, start + FLOOR - TICK));
+        assert!(keepalive.due(0, start + FLOOR));
+        keepalive.sent(start + FLOOR);
+        assert!(!keepalive.due(0, start + FLOOR * 2 - TICK));
+        assert!(keepalive.due(0, start + FLOOR * 2));
+        // Back to the persistent interval.
+        keepalive.sent(start + FLOOR * 2);
+        keepalive.set_every(EVERY);
+        assert!(!keepalive.due(0, start + FLOOR * 2 + EVERY - TICK));
+        assert!(keepalive.due(0, start + FLOOR * 2 + EVERY));
     }
 }

@@ -2164,11 +2164,15 @@ fn start_tunnel(
     };
     let peer = underlay.peer.subscribe();
     let net = Arc::new(WgNet::start_with_underlay(config, underlay).map_err(transport_error)?);
-    if let Some(gap) = options.idle_air_gap {
+    if options.idle_air_gap.is_some() || options.air_floor.is_some() {
         let net = Arc::clone(&net);
+        let (gap, floor) = (options.idle_air_gap, options.air_floor);
         tokio::spawn(async move {
-            if let Err(error) = net.set_idle_air_gap(Some(gap)).await {
+            if let Err(error) = net.set_idle_air_gap(gap).await {
                 tracing::debug!(%error, "idle air gap not set");
+            }
+            if let Err(error) = net.set_air_floor(floor).await {
+                tracing::debug!(%error, "air floor not set");
             }
         });
     }

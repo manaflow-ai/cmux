@@ -10,7 +10,7 @@ use tokio::time::Instant;
 
 use super::Driver;
 use crate::probing;
-use crate::timers::SESSION_FRESH;
+use crate::timers::{QuietKeepalive, SESSION_FRESH};
 use crate::ultra_auto;
 use crate::ultra_hello;
 use crate::underlay::Underlay as _;
@@ -274,6 +274,27 @@ impl Driver {
             }
         }
         self.send_quiet_keepalive();
+    }
+
+    /// `WgNet::set_air_floor`: the quiet keepalive's interval becomes the
+    /// shorter of the persistent keepalive and `floor`.
+    pub(super) fn set_air_floor(&mut self, floor: Option<Duration>) {
+        let persistent = self
+            .config
+            .persistent_keepalive
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| Duration::from_secs(seconds.into()));
+        let every = match (persistent, floor) {
+            (Some(persistent), Some(floor)) => Some(persistent.min(floor)),
+            (one, other) => one.or(other),
+        };
+        match (&mut self.quiet_keepalive, every) {
+            (Some(keepalive), Some(every)) => keepalive.set_every(every),
+            (slot, every) => *slot = every.map(|every| QuietKeepalive::new(every, Instant::now())),
+        }
+        self.schedule.set_persistent_keepalive(
+            self.quiet_keepalive.is_some() && self.stack.hold().is_none(),
+        );
     }
 
     /// The persistent keepalive: an empty data datagram once an interval has

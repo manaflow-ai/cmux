@@ -301,6 +301,23 @@ impl WgNet {
         reply_rx.await.map_err(|_| WgError::Shutdown)
     }
 
+    /// The longest the tunnel stays silent while it has a session: with
+    /// `Some(floor)`, an empty keepalive goes once `floor` passed with
+    /// nothing sent, sooner than the persistent keepalive would. A phone's
+    /// radio that hears nothing for its inactivity timer (5 to 12 s on LTE
+    /// carriers) sleeps, and the next key then waits for its promotion and
+    /// paging slot; the link sets a floor below that timer while the person
+    /// looks at the app. `None` (the default): only the persistent
+    /// keepalive. Not while held.
+    pub async fn set_air_floor(&self, floor: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::AirFloor { floor, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -387,6 +404,7 @@ enum Command {
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
     Hold { hold: Option<Duration>, reply: oneshot::Sender<()> },
     IdleAirGap { gap: Option<Duration>, reply: oneshot::Sender<()> },
+    AirFloor { floor: Option<Duration>, reply: oneshot::Sender<()> },
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
@@ -902,8 +920,8 @@ impl Driver {
             }
             Command::Hold { hold, reply } => {
                 self.stack.set_hold(hold);
-                let keepalive = self.config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
-                self.schedule.set_persistent_keepalive(keepalive && hold.is_none());
+                self.schedule
+                    .set_persistent_keepalive(self.quiet_keepalive.is_some() && hold.is_none());
                 if hold.is_none() && std::mem::take(&mut self.reassert_at_release) {
                     self.reassert();
                 }
@@ -911,6 +929,10 @@ impl Driver {
             }
             Command::IdleAirGap { gap, reply } => {
                 self.air_gap.set(gap);
+                let _ = reply.send(());
+            }
+            Command::AirFloor { floor, reply } => {
+                self.set_air_floor(floor);
                 let _ = reply.send(());
             }
             Command::BindDatagram { port, reply } => {
