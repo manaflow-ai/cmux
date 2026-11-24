@@ -76,13 +76,19 @@ pub enum LiveCap {
     Control(usize),
     /// Set by [`MAX_LIVE_ENV`] when the host started.
     Env(usize),
+    /// The machine's ceiling (machine_limits.rs: `max(2, min(2 x cores,
+    /// RAM GiB / 2))`, or `OPTCHAT_MACHINE_HELPERS=N`).
+    Machine(usize),
+    /// The machine is over budget (load or memory pressure): no new start
+    /// past the helpers at work (at least machine_limits::FLOOR).
+    Busy(usize),
 }
 
 impl LiveCap {
     /// How many subagents may work at once.
     pub fn n(self) -> usize {
         match self {
-            LiveCap::Control(n) | LiveCap::Env(n) => n,
+            LiveCap::Control(n) | LiveCap::Env(n) | LiveCap::Machine(n) | LiveCap::Busy(n) => n,
         }
     }
 
@@ -93,6 +99,14 @@ impl LiveCap {
         match self {
             LiveCap::Control(n) => format!("set with `control cap {n}`"),
             LiveCap::Env(n) => format!("set by {MAX_LIVE_ENV}={n}"),
+            LiveCap::Machine(n) => format!(
+                "this machine's limit of {n} from its cores and memory; {}=N sets it, 0 lifts it",
+                crate::machine_limits::ENV
+            ),
+            LiveCap::Busy(n) => format!(
+                "this machine is over budget (load or memory pressure), so it holds at {n} until it has room; {}=0 lifts it",
+                crate::machine_limits::ENV
+            ),
         }
     }
 }
@@ -168,6 +182,9 @@ pub struct SpawnPlan {
     pub ids: Vec<String>,
     /// The ids over the cap (`live_limit`): they wait for a free slot.
     pub queued: Vec<String>,
+    /// Helpers already queued before this spawn (from other spawns): the
+    /// first of `queued` is #queued_ahead+1 in line.
+    pub queued_ahead: usize,
     /// The cap in force, when there is one, with where it came from.
     pub limit: Option<LiveCap>,
     /// The engine of the turn that called spawn (engine.json); None before
@@ -748,6 +765,24 @@ impl Spawner {
 
     /// Read acpmux off the brain thread. A peer with unknown login/health
     /// is kept for explicit placement, but never chosen automatically.
+    /// The subagent numbers whose session names (`<prefix>-a<N>`) acpmux
+    /// already holds: the brain skips them when it gives ids. A list it cannot
+    /// read is logged and skips none (the start then says the name is taken).
+    fn taken_ids(&self) -> Vec<u64> {
+        let names = match self.agents.session_names() {
+            Ok(names) => names,
+            Err(e) => {
+                (self.log)(&format!("spawn: listing acpmux sessions: {e}"));
+                return Vec::new();
+            }
+        };
+        let prefix = format!("{}-a", self.settings.prefix);
+        names
+            .iter()
+            .filter_map(|name| name.strip_prefix(&prefix)?.parse::<u64>().ok())
+            .collect()
+    }
+
     fn machine_table(&self) -> Vec<crate::place_route::Machine> {
         use crate::place_route::{Kind, login_families, machine};
         let status = self.agents.machine_status().unwrap_or_else(|e| {
@@ -1865,6 +1900,7 @@ impl Orchestrator for Spawner {
                 .clone()
                 .or_else(|| self.pinned.then(|| self.settings.harness.clone())),
             machines: self.machine_table(),
+            taken: self.taken_ids(),
             reply,
         })?;
         let plan = answer
@@ -2024,8 +2060,18 @@ impl Orchestrator for Spawner {
                         )
                     },
                 );
+                let line_no =
+                    plan.queued_ahead + plan.queued.iter().position(|q| q == id).unwrap_or(0) + 1;
+                let how = match plan.limit {
+                    Some(LiveCap::Machine(_) | LiveCap::Busy(_)) => {
+                        "it starts when one finishes or the machine has room; `control cap 0` removes this limit"
+                    }
+                    _ => {
+                        "it starts when one finishes; there is no cap by default, `control cap 0` removes this one"
+                    }
+                };
                 lines.push(format!(
-                    "- {id}: queued ({cap}; it starts when one finishes; there is no cap by default, `control cap 0` removes this one){place_note}{login_note}"
+                    "- {id}: queued, #{line_no} in line ({cap}; {how}){place_note}{login_note}"
                 ));
                 continue;
             }
@@ -2404,6 +2450,14 @@ impl Orchestrator for Spawner {
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn automation(&self, call: crate::automations::AutomationCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Automation { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

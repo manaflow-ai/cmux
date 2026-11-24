@@ -27,10 +27,19 @@ struct Harness {
 
 impl Harness {
     fn start(tag: &str, platform: fn() -> Result<Platform, String>, timeout: Duration) -> Self {
+        Self::start_watching(tag, platform, timeout, None)
+    }
+    fn start_watching(
+        tag: &str,
+        platform: fn() -> Result<Platform, String>,
+        timeout: Duration,
+        executable: Option<PathBuf>,
+    ) -> Self {
         let (in_r, in_w) = std::io::pipe().unwrap();
         let (out_r, out_w) = std::io::pipe().unwrap();
-        let worker =
-            std::thread::spawn(move || run(BufReader::new(in_r), out_w, platform, timeout));
+        let worker = std::thread::spawn(move || {
+            run_watching(BufReader::new(in_r), out_w, platform, timeout, executable)
+        });
         let dir = PathBuf::from(format!("/tmp/cuw{tag}{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         Self { stdin: Some(in_w), stdout: BufReader::new(out_r), worker, dir }
@@ -186,4 +195,49 @@ fn the_persons_stop_reaches_the_agent_through_the_socket_and_resume_undoes_it() 
     click(&mut w, 4);
     assert_eq!(recv(&mut r)["result"]["is_error"], false);
     assert_eq!(h.finish(), EXIT_OK);
+}
+
+#[test]
+fn a_replaced_helper_finishes_the_call_in_flight_then_hands_the_next_one_over() {
+    let exe = PathBuf::from(format!("/tmp/cuwexe{}", std::process::id()));
+    std::fs::write(&exe, "the old helper").unwrap();
+    let mut h = Harness::start_watching("swap", fake, ASK_TIMEOUT, Some(exe.clone()));
+    assert_eq!(h.configure(json!({"mode": "askEveryTime"}))["type"], "ready");
+    // A call in flight: it waits on the person's answer.
+    let (mut w, mut r) = agent(&h.socket());
+    writeln!(
+        w,
+        "{}",
+        json!({"id": 1, "method": "tools/call", "name": "click", "session": "s",
+        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c1"})
+    )
+    .unwrap();
+    let ask = h.recv();
+    assert_eq!(ask["type"], "ask", "{ask}");
+    // A newer build swaps the helper in at the same path.
+    let next = exe.with_extension("next");
+    std::fs::write(&next, "the new helper, longer").unwrap();
+    std::fs::rename(&next, &exe).unwrap();
+    // The next call is not this worker's: its connection closes unanswered, which the
+    // bridge retries on the new worker with the same call_id.
+    let (mut w2, mut r2) = agent(&h.socket());
+    writeln!(
+        w2,
+        "{}",
+        json!({"id": 2, "method": "tools/call", "name": "click", "session": "s2",
+        "arguments": {"window_id": "1", "element_id": "e1"}, "call_id": "c2"})
+    )
+    .unwrap();
+    let mut line = String::new();
+    assert_eq!(r2.read_line(&mut line).unwrap(), 0, "answered by the old worker: {line}");
+    // The call in flight is unaffected: it finishes on the old worker.
+    h.send(json!({"type": "answer", "id": ask["id"], "answer": "allow_once"}));
+    let done = recv(&mut r);
+    assert_eq!(done["id"], 1);
+    assert_eq!(done["result"]["is_error"], false, "{done}");
+    // Then the worker says so and exits on its own, stdin still open.
+    assert_eq!(h.recv(), json!({"type": "replaced"}));
+    assert!(!h.socket().exists(), "the old worker stopped serving");
+    assert_eq!(h.finish(), EXIT_OK);
+    let _ = std::fs::remove_file(&exe);
 }

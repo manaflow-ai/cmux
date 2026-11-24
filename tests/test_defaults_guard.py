@@ -604,6 +604,9 @@ struct Flags: TunableFactory {
             result = self.check(head, comments=[self.receipt(text)])
             self.assertEqual(result.returncode, 1, text)
             self.assertIn("Needs a review", result.summary)
+            # A self-review counts, so the guidance must not send the author lane away from reviewing its own head.
+            self.assertNotIn("not a self-review", result.summary)
+            self.assertNotIn("never reviews its own", result.summary)
 
     def test_a_later_block_beats_an_earlier_ship(self):
         head = self.changed_head()
@@ -1119,6 +1122,23 @@ class StatusCommentTests(unittest.TestCase):
         self.comments = [self.comment(1, self.status.render({"defaults": "Needs review", "review": "SHIP"}))]
         self.post(False)
         self.assertIn('No default changes', self.status.parse(self.comments[0]['body'])['defaults'])
+
+    def test_skipped_judge_clears_an_earlier_heads_section(self):
+        # main's cmux-next-defaults-guard.yml calls exactly this when the head changes nothing the guard
+        # reads (the judge is skipped): keep these two signatures or change that step with them.
+        head = "0123456789abcdef0123456789abcdef01234567"
+        self.comments = [self.comment(1, self.status.render({"defaults": "Needs review from @owner", "review": "SHIP"}))]
+        with patch.object(self.status, "http_api", self.api):
+            self.guard.post_comment("o/r", 1, {}, self.guard.comment_body([], None, head), [])
+        sections = self.status.parse(self.comments[0]['body'])
+        self.assertIn(f"No defaults change at `{head[:12]}`", sections['defaults'])
+        self.assertNotIn("@owner", sections['defaults'])
+        self.assertEqual(sections['review'], 'SHIP')
+        self.writes.clear()
+        self.comments = [self.comment(1, self.status.render({"review": "SHIP"}))]
+        with patch.object(self.status, "http_api", self.api):
+            self.guard.post_comment("o/r", 1, {}, self.guard.comment_body([], None, head), [])
+        self.assertEqual(self.writes, [])
 
     def test_failed_status_write_keeps_legacy_comment(self):
         self.comments = [self.comment(1, self.status.render({"review": "SHIP"})),

@@ -58,8 +58,13 @@ mod git_ops;
 pub mod git_seed;
 mod history_ops;
 pub mod history_search;
+/// `language_packs.ensure`: the app's languages, downloaded on first use.
+pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+/// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
+#[cfg(unix)]
+pub mod tool_packs;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;
@@ -112,6 +117,7 @@ mod shell_history;
 mod shell_integration;
 #[cfg(unix)]
 mod shell_runs;
+mod shell_state;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
@@ -191,6 +197,8 @@ pub use model::{
     ColumnDock, DockEdge, DockMode, DockRole, Node, Pane, Screen, State, ViewportColumn, Workspace,
 };
 pub(crate) use mux::BatchCloseTarget;
+#[cfg(any(unix, windows))]
+pub use mux::process_census;
 pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,

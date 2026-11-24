@@ -22,10 +22,17 @@
 //! stays alive in the tmux server. The command ends, and the shell it ran in
 //! comes back, when the pane, its session or the server goes away.
 //!
+//! The pane's terminal modes come along at attach (`Modes`): a full-screen
+//! program on tmux's alternate screen is shown on the terminal's alternate
+//! screen, over the pane's main screen and history, with its mouse
+//! reporting, cursor keys, keypad, cursor visibility, scroll region, origin,
+//! insert and wrap modes as tmux has them, so it keeps working without a
+//! redraw. Leaving puts the terminal's modes back.
+//!
 //! Not yet (later slices of the design): a manual-IO Ghostty surface pushed
-//! onto the pane instead of the calling terminal, the pane's terminal modes
-//! (alternate screen, mouse, cursor style) at attach, and the opt-in view of
-//! the raw control stream.
+//! onto the pane instead of the calling terminal, the modes tmux does not
+//! report (cursor style, bracketed paste, focus events), and the opt-in view
+//! of the raw control stream.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::ChildStdin;
@@ -163,31 +170,127 @@ fn pane_alive(tmux: &Tmux, pane: &str) -> bool {
         .is_ok_and(|id| id.trim() == pane)
 }
 
-/// The pane's whole history and screen with its colors, and where its cursor is.
+/// The pane's whole history and main screen with its colors, its alternate
+/// screen when a full-screen program has it, and its terminal modes.
 struct Snapshot {
+    /// History, then the main screen.
     text: String,
+    /// The alternate screen, when the pane is on it.
+    alternate: Option<String>,
+    modes: Modes,
+}
+
+/// What tmux knows of a pane's terminal state: where its cursor is and the
+/// modes its program set. A program that is running when the attach starts
+/// set these long ago; the terminal has to start in them too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Modes {
+    alternate: bool,
+    cursor_visible: bool,
+    /// DECCKM: arrow keys send `ESC O A` instead of `ESC [ A`.
+    cursor_keys: bool,
+    /// DECKPAM: the keypad sends application sequences.
+    keypad: bool,
+    insert: bool,
+    origin: bool,
+    wrap: bool,
+    /// The mouse tracking mode: 1000 (clicks), 1002 (drags) or 1003 (all motion).
+    mouse: Option<u16>,
+    mouse_sgr: bool,
+    mouse_utf8: bool,
+    /// The scroll region's first and last rows, both counted from 0.
+    scroll_region: (u16, u16),
     cursor_x: u16,
     cursor_y: u16,
     height: u16,
+    /// The main screen's cursor, saved while the alternate screen is on.
+    saved_x: u16,
+    saved_y: u16,
+    history: u32,
+}
+
+impl Modes {
+    /// Whether the program narrowed the scroll region from the whole screen.
+    fn has_scroll_region(&self) -> bool {
+        let (upper, lower) = self.scroll_region;
+        lower > upper && (upper, lower) != (0, self.height.saturating_sub(1))
+    }
+}
+
+/// One `display-message` for every field of `Modes`, in `parse_modes` order.
+/// Commas, not spaces: a variable this tmux does not know prints nothing.
+const MODES_FORMAT: &str = "#{alternate_on},#{cursor_flag},#{keypad_cursor_flag},\
+#{keypad_flag},#{insert_flag},#{origin_flag},#{wrap_flag},#{mouse_standard_flag},\
+#{mouse_button_flag},#{mouse_all_flag},#{mouse_sgr_flag},#{mouse_utf8_flag},\
+#{scroll_region_upper},#{scroll_region_lower},#{cursor_x},#{cursor_y},#{pane_height},\
+#{alternate_saved_x},#{alternate_saved_y},#{history_size}";
+
+fn parse_modes(line: &str) -> Option<Modes> {
+    let fields: Vec<Option<u32>> =
+        line.trim_end().split(',').map(|field| field.trim().parse().ok()).collect();
+    if fields.len() != 20 {
+        return None;
+    }
+    let number = |index: usize| fields[index].unwrap_or(0);
+    let short = |index: usize| u16::try_from(number(index)).unwrap_or(u16::MAX);
+    // A flag this tmux does not report keeps the terminal's default.
+    let flag = |index: usize, default: bool| fields[index].map_or(default, |value| value != 0);
+    let height = short(16);
+    let mouse = if flag(9, false) {
+        Some(1003)
+    } else if flag(8, false) {
+        Some(1002)
+    } else if flag(7, false) {
+        Some(1000)
+    } else {
+        None
+    };
+    let lower = fields[13].map_or(height.saturating_sub(1), |_| short(13));
+    Some(Modes {
+        alternate: flag(0, false),
+        cursor_visible: flag(1, true),
+        cursor_keys: flag(2, false),
+        keypad: flag(3, false),
+        insert: flag(4, false),
+        origin: flag(5, false),
+        wrap: flag(6, true),
+        mouse,
+        mouse_sgr: flag(10, false),
+        mouse_utf8: flag(11, false),
+        scroll_region: (short(12), lower),
+        cursor_x: short(14),
+        cursor_y: short(15),
+        height,
+        saved_x: short(17),
+        saved_y: short(18),
+        history: number(19),
+    })
+}
+
+fn pane_modes(tmux: &Tmux, pane: &str) -> Result<Modes, String> {
+    let line = tmux.output(&["display-message", "-p", "-t", pane, MODES_FORMAT])?;
+    parse_modes(&line).ok_or_else(|| format!("tmux gave no terminal modes: {line:?}"))
 }
 
 fn snapshot(tmux: &Tmux, pane: &str) -> Result<Snapshot, String> {
-    let text =
-        tmux.output(&["capture-pane", "-p", "-e", "-J", "-S", "-", "-E", "-", "-t", pane])?;
-    let place = tmux.output(&[
-        "display-message",
-        "-p",
-        "-t",
-        pane,
-        "#{cursor_x} #{cursor_y} #{pane_height}",
-    ])?;
-    let mut numbers = place.split_whitespace().map(|word| word.parse::<u16>().unwrap_or(0));
-    Ok(Snapshot {
-        text,
-        cursor_x: numbers.next().unwrap_or(0),
-        cursor_y: numbers.next().unwrap_or(0),
-        height: numbers.next().unwrap_or(0),
-    })
+    let modes = pane_modes(tmux, pane)?;
+    let capture = |range: &[&str]| {
+        let mut args = vec!["capture-pane", "-p", "-e", "-J"];
+        args.extend_from_slice(range);
+        args.extend_from_slice(&["-t", pane]);
+        tmux.output(&args)
+    };
+    if !modes.alternate {
+        let text = capture(&["-S", "-", "-E", "-"])?;
+        return Ok(Snapshot { text, alternate: None, modes });
+    }
+    // On the alternate screen tmux keeps the history with it and the main
+    // screen aside (`-a`): history, then the main screen, is what scrolled by.
+    let mut text =
+        if modes.history > 0 { capture(&["-S", "-", "-E", "-1"])? } else { String::new() };
+    text.push_str(&capture(&["-a"])?);
+    let alternate = capture(&[])?;
+    Ok(Snapshot { text, alternate: Some(alternate), modes })
 }
 
 /// What one line of the control stream means for an attached pane.
@@ -226,15 +329,16 @@ impl Parser {
             return Event::Other;
         }
         let (name, rest) = match line.iter().position(|byte| *byte == b' ') {
-            Some(space) => (&line[..space], &line[space + 1..]),
+            Some(space) => line.split_at(space),
             None => (line, &[][..]),
         };
+        let rest = rest.get(1..).unwrap_or_default();
         match name {
             b"%output" => {
                 let space = rest.iter().position(|byte| *byte == b' ').unwrap_or(rest.len());
                 let value = rest.get(space + 1..).unwrap_or_default();
                 Event::Output {
-                    pane: String::from_utf8_lossy(&rest[..space]).into_owned(),
+                    pane: String::from_utf8_lossy(rest.get(..space).unwrap_or(rest)).into_owned(),
                     bytes: unescape(value),
                 }
             }
@@ -252,9 +356,9 @@ impl Parser {
 fn unescape(value: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(value.len());
     let mut index = 0;
-    while index < value.len() {
+    while let Some(&byte) = value.get(index) {
         let octal = value.get(index + 1..index + 4).filter(|digits| {
-            value[index] == b'\\' && digits.iter().all(|digit| (b'0'..=b'7').contains(digit))
+            byte == b'\\' && digits.iter().all(|digit| (b'0'..=b'7').contains(digit))
         });
         match octal {
             Some(digits) => {
@@ -263,7 +367,7 @@ fn unescape(value: &[u8]) -> Vec<u8> {
                 index += 4;
             }
             None => {
-                bytes.push(value[index]);
+                bytes.push(byte);
                 index += 1;
             }
         }
@@ -419,27 +523,23 @@ fn stream<'scope>(
     scope.spawn(move || watch_keys(fd, stop, &keys_sender));
     scope.spawn(move || watch_size(fd, (cols, rows), stop, &typed_sender));
     let mut detach = DetachKey::default();
-    loop {
+    'attached: loop {
         // Typed bytes and resizes are rare next to output; a short wait keeps both live.
         while let Ok(typed) = typed.try_recv() {
             match typed {
                 Typed::Bytes(bytes) => {
                     let (send, detached) = detach.scan(&bytes);
                     if send > 0 {
-                        gateway.send(&send_keys(&pane.id, &bytes[..send]));
+                        gateway.send(&send_keys(&pane.id, bytes.get(..send).unwrap_or(&bytes)));
                     }
                     if detached {
-                        drop(raw);
-                        return Ok(());
+                        break 'attached;
                     }
                 }
                 Typed::Size(cols, rows) => {
                     gateway.send(&format!("refresh-client -C {cols}x{rows}\n"));
                 }
-                Typed::Closed => {
-                    drop(raw);
-                    return Ok(());
-                }
+                Typed::Closed => break 'attached,
             }
         }
         match gateway.events.recv_timeout(std::time::Duration::from_millis(10)) {
@@ -456,24 +556,106 @@ fn stream<'scope>(
             Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
     }
+    // The pane's program may have changed its modes since the snapshot;
+    // tmux knows what they are now. A pane that is gone set none we can see.
+    let _ = stdout.write_all(&leave_bytes(pane_modes(tmux, &pane.id).ok().as_ref()));
+    let _ = stdout.flush();
     drop(raw);
     Ok(())
 }
 
 /// The snapshot as terminal bytes: the screen cleared, every line of history
-/// and screen, then the cursor where the pane has it.
+/// and main screen, the alternate screen over them when the pane is on it,
+/// the pane's modes, then the cursor where the pane has it.
 fn snapshot_bytes(snapshot: &Snapshot, rows: u16) -> Vec<u8> {
-    let text = snapshot.text.strip_suffix('\n').unwrap_or(&snapshot.text);
-    let lines = text.split('\n').count();
+    let modes = &snapshot.modes;
     let mut bytes = b"\x1b[0m\x1b[H\x1b[2J".to_vec();
-    bytes.extend_from_slice(text.replace('\n', "\r\n").as_bytes());
+    let lines = write_lines(&mut bytes, &snapshot.text);
     // The pane's screen is its last `height` lines; they end at the bottom
     // row when the history filled the terminal, else at the last line written.
     let bottom = lines.min(usize::from(rows));
-    let top = bottom.saturating_sub(usize::from(snapshot.height));
-    let row = top + usize::from(snapshot.cursor_y) + 1;
-    let column = usize::from(snapshot.cursor_x) + 1;
-    bytes.extend_from_slice(format!("\x1b[0m\x1b[{row};{column}H").as_bytes());
+    let top = bottom.saturating_sub(usize::from(modes.height));
+    let (top, x, y) = match &snapshot.alternate {
+        None => (top, modes.cursor_x, modes.cursor_y),
+        Some(alternate) => {
+            // Where the main screen's cursor waits; `?1049h` saves it, and
+            // leaving the alternate screen brings it back.
+            let row = top + usize::from(modes.saved_y) + 1;
+            let column = usize::from(modes.saved_x) + 1;
+            bytes.extend_from_slice(format!("\x1b[0m\x1b[{row};{column}H").as_bytes());
+            bytes.extend_from_slice(b"\x1b[?1049h\x1b[H\x1b[2J");
+            write_lines(&mut bytes, alternate);
+            (0, modes.cursor_x, modes.cursor_y)
+        }
+    };
+    bytes.extend_from_slice(b"\x1b[0m");
+    bytes.extend_from_slice(&mode_bytes(modes));
+    // Setting a scroll region or origin mode homes the cursor: both go
+    // first, and an origin-mode cursor counts from the region's top.
+    let (upper, lower) = modes.scroll_region;
+    if modes.has_scroll_region() {
+        let first = top + usize::from(upper) + 1;
+        let last = top + usize::from(lower) + 1;
+        bytes.extend_from_slice(format!("\x1b[{first};{last}r").as_bytes());
+    }
+    let row = if modes.origin {
+        bytes.extend_from_slice(b"\x1b[?6h");
+        usize::from(y.saturating_sub(upper)) + 1
+    } else {
+        top + usize::from(y) + 1
+    };
+    let column = usize::from(x) + 1;
+    bytes.extend_from_slice(format!("\x1b[{row};{column}H").as_bytes());
+    bytes
+}
+
+/// `text`'s lines as terminal lines; how many there were.
+fn write_lines(bytes: &mut Vec<u8>, text: &str) -> usize {
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    bytes.extend_from_slice(text.replace('\n', "\r\n").as_bytes());
+    text.split('\n').count()
+}
+
+/// The modes that do not move the cursor, as a terminal starts without them.
+fn mode_bytes(modes: &Modes) -> Vec<u8> {
+    let mouse = modes.mouse.map(|mouse| format!("\x1b[?{mouse}h"));
+    let sequences = [
+        (!modes.cursor_visible, "\x1b[?25l"),
+        (modes.cursor_keys, "\x1b[?1h"),
+        (modes.keypad, "\x1b="),
+        (modes.insert, "\x1b[4h"),
+        (!modes.wrap, "\x1b[?7l"),
+        (mouse.is_some(), mouse.as_deref().unwrap_or_default()),
+        (modes.mouse_sgr, "\x1b[?1006h"),
+        (modes.mouse_utf8, "\x1b[?1005h"),
+    ];
+    sequences.iter().filter(|(on, _)| *on).flat_map(|(_, sequence)| sequence.bytes()).collect()
+}
+
+/// Puts the terminal's modes back when the attach ends. `now` is the pane's
+/// modes at that moment, `None` when the pane is gone. The modes that home
+/// the cursor are reset only when they are on, and the alternate screen is
+/// left last, which brings back the main screen's cursor.
+fn leave_bytes(now: Option<&Modes>) -> Vec<u8> {
+    let mut bytes = b"\x1b[0m\x1b[?1l\x1b>\x1b[4l\x1b[?7h".to_vec();
+    bytes.extend_from_slice(b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l");
+    if let Some(modes) = now {
+        let region = modes.has_scroll_region();
+        if modes.origin {
+            bytes.extend_from_slice(b"\x1b[?6l");
+        }
+        if region {
+            bytes.extend_from_slice(b"\x1b[r");
+        }
+        if modes.alternate {
+            bytes.extend_from_slice(b"\x1b[?1049l");
+        } else if modes.origin || region {
+            // Those resets homed the cursor; the pane fills the terminal.
+            let (row, column) =
+                (modes.cursor_y.saturating_add(1), modes.cursor_x.saturating_add(1));
+            bytes.extend_from_slice(format!("\x1b[{row};{column}H").as_bytes());
+        }
+    }
     bytes
 }
 
@@ -497,7 +679,7 @@ fn watch_keys(fd: i32, stop: &AtomicBool, typed: &Sender<Typed>) {
             let _ = typed.send(Typed::Closed);
             return;
         }
-        let bytes = buffer[..read as usize].to_vec();
+        let Some(bytes) = buffer.get(..read as usize).map(<[u8]>::to_vec) else { return };
         if typed.send(Typed::Bytes(bytes)).is_err() {
             return;
         }

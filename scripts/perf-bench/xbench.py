@@ -180,7 +180,7 @@ def now_ms() -> float:
 
 
 def sleep(seconds: float):
-    time.sleep(seconds)  # bench: a deliberate settle or idle window
+    time.sleep(seconds)  # sleep-ok: the bench's fixed settle and idle points, the same for every browser compared
 
 
 def tree_states(root: str) -> dict[str, tuple[float, int]]:
@@ -731,7 +731,7 @@ class Run:
             browser.ready()
             log(f"{browser.name} r{round_no}: session (load {load})")
             if browser.name == "cmux-terminal":
-                sleep(a.settle)
+                sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the home idle window
                 self.window(browser, round_no, {"power-home-idle": "mw", "idle-cpu-home": "cpu_pct",
                                                 "idle-wakeups-home": "wakeups_per_s"}, a.idle)
             browser.adopt_first(first)
@@ -739,7 +739,7 @@ class Run:
                 painted = self.server.wait("fcp", first, timeout=30)
                 if not painted:
                     log(f"{browser.name}: first tab never painted")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before memory-1 and its idle window
             self.memory(browser, round_no, "memory-1")
             self.window(browser, round_no, {"power-idle-visible-1": "mw", "idle-cpu-1": "cpu_pct",
                                             "idle-wakeups-1": "wakeups_per_s"}, a.idle)
@@ -759,12 +759,12 @@ class Run:
                         browser.tabs.remove(handle)  # Safari keeps it open: it is one of the 20 below
                         browser.tabs.append(handle)
             self.open_to(browser, 10)
-            sleep(10)
+            sleep(10)  # sleep-ok: memory-10 is read 10 s after the tenth tab, the same for every browser
             self.memory(browser, round_no, "memory-10")
             self.open_to(browser, 20)
-            sleep(15)
+            sleep(15)  # sleep-ok: memory-20 is read 15 s after the twentieth tab, the same for every browser
             self.memory(browser, round_no, "memory-20")
-            sleep(a.settle)
+            sleep(a.settle)  # sleep-ok: --settle, the protocol's rest before the 20-tab idle window
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
             if isinstance(browser, ChromiumBrowser):
@@ -811,14 +811,14 @@ class Run:
                         browser.close(handle)
                     sleep(2)
             browser.hide()
-            sleep(10)
+            sleep(10)  # sleep-ok: 10 s hidden before the hidden power window (the OS's hidden-app throttling starts in it)
             self.window(browser, round_no, {"power-idle-hidden": "mw"}, a.idle)
             browser.unhide()
             if browser.can_close:
                 while len(browser.tabs) > 1:
                     browser.close(browser.tabs[-1])
                     sleep(0.2)  # bench: a user's pace closing tabs
-                sleep(30)
+                sleep(30)  # sleep-ok: memory-closed is read 30 s after the closes, the same for every browser
                 self.memory(browser, round_no, "memory-closed")
         except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on
             self.record(browser.name, round_no, "session-error", None, note=f"{type(error).__name__}: {error}"[:400])
@@ -860,7 +860,7 @@ class Run:
                 self.record(browser.name, round_no, tab_row(count, "cpu"), window["cpu_pct"], kinds=kinds, **extra)
                 self.record(browser.name, round_no, tab_row(count, "wakeups"), window["wakeups_per_s"], **extra)
                 self.record(browser.name, round_no, tab_row(count, "gpu-cpu"),
-                            kinds.get("gpu", {}).get("cpu_pct", 0.0), **extra)
+                            sum(kinds.get(kind, {}).get("cpu_pct", 0.0) for kind in ("gpu", "webkit-gpu")), **extra)
                 self.record(browser.name, round_no, tab_row(count, "gpu-util"), gpu_got.get("device_utilization_pct"),
                             gpu=gpu_got, **extra)
         except Exception as error:  # noqa: BLE001 - a failed session is logged, the run goes on

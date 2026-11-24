@@ -73,6 +73,10 @@ extension AgentTurnStateStore {
         if record.title != nil { record.title = nil }
         if record.generatedTitle != nil { record.generatedTitle = nil }
         if record.sessionName != nil { record.sessionName = nil }
+        if record.identity != nil {
+            record.identity = nil
+            record.iconArt = nil
+        }
         if record.detail != nil { record.detail = nil }
         if !record.peers.isEmpty { record.peers = [:] }
     }
@@ -132,6 +136,22 @@ extension AgentTurnStateStore {
     /// The chat's real title, excluding its session name and first prompt.
     public func generatedTitle(for ref: AgentSessionRef) -> String? { local(ref)?.generatedTitle }
 
+    /// The name given to the session `ref` shows (acpmux `displayName`); nil when none was, or off this Mac.
+    public func displayName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.displayName }
+
+    /// The name that session had just before its current one (the newest of `formerNames`).
+    public func formerName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.formerName }
+
+    /// The icon that session set for itself, drawn once per icon (``HarnessIconArtwork/art(_:)``, the harness
+    /// icons' drawing); nil when it set none or cannot be drawn.
+    func iconArt(for ref: AgentSessionRef) -> HarnessIconLookup.Art? {
+        guard let record = local(ref), let spec = record.identity?.icon else { return nil }
+        if let drawn = record.iconArt { return drawn }
+        let drawn = HarnessIconArtwork.art(spec)
+        record.iconArt = .some(drawn)
+        return drawn
+    }
+
     /// Whether the chat an agent chat tab shows has its notifications muted; nil when
     /// the chat is not on this Mac (its acpmux runs elsewhere) or not known yet.
     public func isMuted(_ ref: AgentSessionRef) -> Bool? { local(ref)?.muted }
@@ -142,7 +162,7 @@ extension AgentTurnStateStore.Session {
     /// nothing a reader sees.
     var isBlank: Bool {
         state == nil && peers.isEmpty && lastMessage == nil && !muted && title == nil && generatedTitle == nil
-            && sessionName == nil && detail == nil && startedBy == nil && timeline.events.isEmpty
+            && sessionName == nil && identity == nil && detail == nil && startedBy == nil && timeline.events.isEmpty
     }
 }
 
