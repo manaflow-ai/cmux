@@ -111,6 +111,14 @@ public struct SentryScrubber: Sendable {
     /// turn into `/Users/<redacted>ice/x`, leaking the `ice` suffix.
     private let homeDirectoryPattern: SentryRegexPattern?
 
+    /// Recent ``scrub(_:)`` results, so a string seen before costs a lookup,
+    /// not ~20 regex passes. Every crash or lag-spike event repeats most of
+    /// its strings: the same image path on each frame and debug image, the
+    /// same (already scrubbed) breadcrumbs and device context. ``scrub(_:)``
+    /// is a pure function of its input for one scrubber, so a hit returns
+    /// exactly what the regex pass would.
+    private let memo: SentryScrubMemo
+
     /// Creates a scrubber bound to a home directory.
     ///
     /// The default reads the current process home. Tests inject a fixed value so
@@ -119,8 +127,11 @@ public struct SentryScrubber: Sendable {
     /// build-machine stack-frame paths (whose home differs from the runtime one)
     /// are still covered.
     ///
-    /// - Parameter homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
-    public init(homeDirectory: String = NSHomeDirectory()) {
+    /// - Parameters:
+    ///   - homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
+    ///   - memoCapacity: How many recent results ``scrub(_:)`` keeps (0 turns the memo off).
+    public init(homeDirectory: String = NSHomeDirectory(), memoCapacity: Int = SentryScrubMemo.defaultCapacity) {
+        self.memo = SentryScrubMemo(capacity: memoCapacity)
         // A trailing slash (`HOME=/srv/alice/`) would keep the home from matching `/srv/alice/x`.
         var home = homeDirectory
         while home.count > 1, home.hasSuffix("/") {
@@ -163,11 +174,13 @@ public struct SentryScrubber: Sendable {
     /// - Returns: The scrubbed string.
     public func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
+        if let remembered = memo.result(for: text) { return remembered }
         var result = text
         result = redactURLCredentials(in: result)
         result = redactSecrets(in: result)
         result = redactEmails(in: result)
         result = redactPaths(in: result)
+        memo.remember(result, for: text)
         return result
     }
 
