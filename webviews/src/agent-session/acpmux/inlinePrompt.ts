@@ -59,11 +59,16 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
       ...placed,
       name: a.name,
       ...(a.mimeType ? { mimeType: a.mimeType } : {}),
-      size: a.size,
+      ...knownSize(a),
       ...(a.pageCount ? { pageCount: a.pageCount } : {}),
       ...(a.source ? { source: a.source } : {}),
     });
-    if (a.kind === "image")
+    if (a.kind === "image") {
+      const src = a.data ? `data:${a.mimeType};base64,${a.data}` : undefined;
+      // Its size from its bytes (the header the composer's tile read), so the sent row is laid out
+      // and drawn at its final shape from the send, never a square that reshapes once it decodes
+      // (Leo, 2026-11-07: "know beforehand the size we're going to go for").
+      const shape = src ? knownImageSize(src) : undefined;
       parts.push({
         kind: "image",
         id: a.id,
@@ -72,17 +77,18 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
         mimeType: a.mimeType,
         name: a.name,
         ...placed,
-        ...(a.data ? { src: `data:${a.mimeType};base64,${a.data}` } : {}),
+        ...(src ? { src } : {}),
+        ...(shape ? { width: shape.width, height: shape.height } : {}),
         ...(a.source ? { source: a.source } : {}),
       });
-    else {
+    } else {
       const first = blocks[0];
       parts.push({
         kind,
         attachmentId: a.id,
         name: a.name,
         mimeType: a.mimeType,
-        size: a.size,
+        ...knownSize(a),
         ...placed,
         ...(text ? { text } : {}),
         ...(a.pageCount ? { pageCount: a.pageCount } : {}),
@@ -105,6 +111,13 @@ export function inlinePrompt(input: string, attachments: ComposerAttachment[]) {
     blockIndex += blocks.length;
   }
   return { parts, display };
+}
+/// `{size}` when the chip knows its file's size: a link chip (a dropped file's, an image past the
+/// budget gone as its original's link, promptBudget.ts `originalLink`) has neither a type nor a
+/// size, and its 0 is no size, so the sent bubble never names it "0 byte" (Leo, 2026-11-22: "WHAT
+/// THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?"). stripFileDisplay keeps the same rule.
+function knownSize(a: Pick<ComposerAttachment, "mimeType" | "size">): { size?: number } {
+  return a.mimeType || a.size > 0 ? { size: a.size } : {};
 }
 export function normalizePromptContentPart(value: unknown): PromptContentPart | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -139,7 +152,10 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
     ...(typeof raw.uri === "string" ? { uri: raw.uri } : {}),
     ...(typeof raw.text === "string" ? { text: raw.text } : {}),
     ...(typeof raw.mimeType === "string" ? { mimeType: raw.mimeType } : {}),
-    ...(typeof raw.size === "number" ? { size: raw.size } : {}),
+    // A recorded 0 with no type is a link chip's unknown size (`knownSize`), never "0 byte".
+    ...(typeof raw.size === "number" && (raw.size > 0 || (typeof raw.mimeType === "string" && raw.mimeType))
+      ? { size: raw.size }
+      : {}),
     ...(typeof raw.pageCount === "number" ? { pageCount: raw.pageCount } : {}),
     ...(Number.isSafeInteger(raw.companionOf) && Number(raw.companionOf) >= 0
       ? { companionOf: Number(raw.companionOf) }

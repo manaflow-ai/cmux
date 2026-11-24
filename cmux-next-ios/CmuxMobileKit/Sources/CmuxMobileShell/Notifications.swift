@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxDeviceHub
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileLive
@@ -387,11 +388,6 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     func removeThisPhoneFromMacs() async {
         await live?.removeThisPhoneFromMacs()
     }
-
-    func openPairingCode(_ text: String) -> Bool {
-        guard let live, let invite = PairInvite(text: text) else { return false }
-        return live.accept(invite)
-    }
 }
 #endif
 
@@ -424,5 +420,15 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     func deleteAccountData() async throws {}
 
     func removeThisPhoneFromMacs() async {}
+
+    /// The mock account's Macs as Screen Sharing lists them: each once, sharing its screen,
+    /// online as Devices shows it.
+    static func hubDevices(_ macs: [MacDevice]) -> [HubDevice] {
+        macs.reduce(into: [HubDevice]()) { out, mac in
+            guard !out.contains(where: { $0.id == mac.id }) else { return }
+            out.append(HubDevice(id: mac.id, name: mac.name, platform: .macos, lastSeenAt: mac.lastSeenAt,
+                                 macScreenShared: true, online: mac.isOnline))
+        }
+    }
 }
 #endif

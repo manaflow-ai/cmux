@@ -489,6 +489,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-composer-send"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-fault"
 version = "0.1.0"
 dependencies = [
@@ -497,6 +504,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -589,6 +603,7 @@ name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-composer-send",
  "cmux-follow-cam",
  "cmux-mobile-host",
  "cmux-mobile-link",
@@ -598,6 +613,7 @@ dependencies = [
  "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-share-approval",
+ "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
@@ -707,6 +723,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"

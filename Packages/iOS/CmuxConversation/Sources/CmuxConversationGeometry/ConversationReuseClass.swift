@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// Which reuse queue a transcript row's cell goes back to.
 ///
