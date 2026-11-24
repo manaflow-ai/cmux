@@ -24,6 +24,9 @@ pub const MAX_ASKS: u8 = 3;
 /// An open parity group is closed this long after its last DATA, so the
 /// tail of a burst is covered too.
 pub const FEC_FLUSH: Duration = Duration::from_millis(5);
+// A lost last DATA opens no gap the receiver can see, so the sender resends
+// it once `RTT + reorder guard` after it went out if nothing followed (a
+// tail-loss probe; a duplicate when nothing was lost).
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LegMode {
@@ -114,6 +117,8 @@ pub struct LegStats {
     pub dropped_overflow: u64,
     /// NACKed DATA not resent because every record in it was superseded.
     pub skipped_superseded_resend: u64,
+    /// Last DATA resent once after a quiet RTT (also counted in `resent`).
+    pub tail_probes: u64,
     pub delivered: u64,
     pub duplicates: u64,
     pub malformed: u64,
@@ -148,6 +153,8 @@ pub struct Leg {
     retain_bytes: usize,
     resend: VecDeque<u64>,
     fec: Option<FecGroup>,
+    /// When to probe the tail, and the DATA to resend then.
+    tail_probe: Option<(Instant, u64)>,
     parity_out: VecDeque<Vec<u8>>,
     peer_loss: u16,
     pace_at: Instant,
@@ -174,6 +181,7 @@ impl Leg {
             retain_bytes: 0,
             resend: VecDeque::new(),
             fec: None,
+            tail_probe: None,
             parity_out: VecDeque::new(),
             peer_loss: 0,
             pace_at: now,
@@ -278,6 +286,9 @@ impl Leg {
             }
             if let Some(group) = &self.fec {
                 at(after(group.last_at, FEC_FLUSH));
+            }
+            if let Some((probe_at, _)) = self.tail_probe {
+                at(probe_at);
             }
         }
         earliest
@@ -481,6 +492,9 @@ impl Leg {
             self.retain_bytes = self.retain_bytes.saturating_sub(old.bytes.len());
         }
         self.add_to_fec_group(seq, &datagram, now);
+        if self.config.nack {
+            self.tail_probe = Some((after(now, self.rtt() + self.guard()), seq));
+        }
         Some(datagram)
     }
 
@@ -538,6 +552,15 @@ impl Leg {
         }
         if self.fec.as_ref().is_some_and(|g| now >= after(g.last_at, FEC_FLUSH)) {
             self.close_fec_group();
+        }
+        if let Some((probe_at, seq)) = self.tail_probe
+            && now >= probe_at
+        {
+            self.tail_probe = None;
+            if seq + 1 == self.next_seq && !self.resend.contains(&seq) {
+                self.resend.push_back(seq);
+                self.stats.tail_probes += 1;
+            }
         }
         if now >= self.next_ping {
             self.ping_nonce = self.ping_nonce.wrapping_add(1);

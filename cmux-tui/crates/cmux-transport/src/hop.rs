@@ -19,6 +19,8 @@
 //!                   Parity { first_seq, count, len_xor, xor }, Bind { ticket }, BindOk { addr, lifetime_s },
 //!                   Ping { nonce, sent_ms }, Pong { nonce, sent_ms, loss_permille }, Error { code } }
 //! impl HopMsg { fn encode(&self) -> Result<Vec<u8>, HopError>; fn decode(&[u8]) -> Result<Self, HopError> }
+//! pub fn decode_records(payload: &[u8]) -> Result<Vec<Record>, HopError>; // a DATA body after its 6-byte header
+//! pub fn encode_records(records: &[Record]) -> Result<Vec<u8>, HopError>;
 //! pub enum HopError { Short, Magic(u8), Type(u8), Trailing, NoRecords, RecordTruncated, Class(u8),
 //!                     Flags(u8), TagClass, EmptyRecord, Family(u8), BadParity, TooLarge(usize) }
 //! ```
@@ -45,7 +47,8 @@
 //! pub enum Repair { None, Nack, Fec }
 //! pub struct LegStats { srtt, loss_permille, peer_loss_permille, sent, resent, parity_sent,
 //!                       repaired_by_nack, repaired_by_fec, nacks_sent, dropped_superseded,
-//!                       dropped_overflow, skipped_superseded_resend, delivered, duplicates }
+//!                       dropped_overflow, skipped_superseded_resend, tail_probes, delivered,
+//!                       duplicates, malformed }
 //! ```
 //!
 //! The PoP's forwarding core (two legs, records forwarded with their tag):
@@ -336,14 +339,7 @@ impl HopMsg {
         let msg = match kind {
             TYPE_DATA => {
                 let seq = r.u32().ok_or(HopError::Short)?;
-                if r.rest.is_empty() {
-                    return Err(HopError::NoRecords);
-                }
-                let mut records = Vec::new();
-                while !r.rest.is_empty() {
-                    records.push(decode_record(&mut r)?);
-                }
-                return Ok(Self::Data { seq, records });
+                return Ok(Self::Data { seq, records: decode_records(r.rest)? });
             }
             TYPE_NACK => {
                 let (Some(base), Some(bitmap), Some(highest), Some(loss_permille)) =
@@ -409,6 +405,33 @@ impl HopMsg {
         }
         Ok(msg)
     }
+}
+
+/// The records of a DATA body (everything after `[magic][type][u32 seq]`),
+/// or of a relay frame that carries the same record layout. At least one
+/// record; errors as [`HopMsg::decode`] gives them for a DATA.
+pub fn decode_records(payload: &[u8]) -> Result<Vec<Record>, HopError> {
+    if payload.is_empty() {
+        return Err(HopError::NoRecords);
+    }
+    let mut r = Reader { rest: payload };
+    let mut records = Vec::new();
+    while !r.rest.is_empty() {
+        records.push(decode_record(&mut r)?);
+    }
+    Ok(records)
+}
+
+/// The inverse of [`decode_records`].
+pub fn encode_records(records: &[Record]) -> Result<Vec<u8>, HopError> {
+    if records.is_empty() {
+        return Err(HopError::NoRecords);
+    }
+    let mut out = Vec::with_capacity(records.iter().map(Record::encoded_len).sum());
+    for record in records {
+        record.encode_into(&mut out)?;
+    }
+    Ok(out)
 }
 
 /// `[u8 class][u8 flags][u32 key, u32 key_seq if flags & 1][u16 len][bytes]`,
