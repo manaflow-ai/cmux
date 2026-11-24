@@ -288,7 +288,8 @@ pub struct LinkHandle {
     link: cmux_mobile_link::Link,
     /// The (shared, warm) signaling socket this link was dialed on; it
     /// stays open for the next dial while the warm pool holds it.
-    _signaling: Arc<WarmSocket>,
+    /// `None` for a link resumed on a dormant tunnel (no signaling ran).
+    _signaling: Option<Arc<WarmSocket>>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
     /// A direct path's peer address (`peer_scope`).
@@ -848,7 +849,10 @@ async fn connect_on(
     };
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
-    let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
+    let media = match &signaling {
+        Some(socket) if connected.webrtc_media => Some(media_manager(pool, &request, &connected, socket)),
+        _ => None,
+    };
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -916,7 +920,10 @@ async fn connect_on(
         connected.transport,
         connected.path.clone(),
         timeline.clone(),
-        current_signaling(pool, &signaling),
+        match &signaling {
+            Some(socket) => current_signaling(pool, socket),
+            None => pooled_signaling(pool, &request),
+        },
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
@@ -929,6 +936,23 @@ async fn connect_on(
         session_id: connected.session_id,
         media,
     }))
+}
+
+/// The pool's current signaling socket for `request`'s team and device (a
+/// resumed link's: it was dialed on none).
+fn pooled_signaling(pool: &Arc<Warm>, request: &ConnectRequest) -> cmux_mobile_link::hybrid::SignalingSource {
+    let key = SocketKey {
+        base_url: request.base_url.clone(),
+        team_id: request.team_id.clone(),
+        device_id: request.device_id.clone(),
+        build_space: build_space(),
+    };
+    let pool = Arc::clone(pool);
+    Arc::new(move || {
+        let key = key.clone();
+        let pool = Arc::clone(&pool);
+        Box::pin(async move { pool.pooled(&key).await.map(|socket| socket.client.clone()) })
+    })
 }
 
 /// The pool's current signaling socket for `socket`'s team and device, else `socket` itself while
@@ -1762,9 +1786,51 @@ pub async fn network_changed(
 #[uniffi::export]
 pub async fn reset_warm_state() {
     WarmPool::shared().reset().await;
+    cmux_mobile_link::dial::wireguard::dormant::forget_all();
 }
 
+/// A dial, or a redial of a Mac whose WireGuard tunnel this phone keeps
+/// dormant (`dial::wireguard::dormant`): then the dormant tunnel resumes
+/// beside the full dial, and the first link up wins. A resumed link has no
+/// signaling socket of its own; the pool opens one behind it.
 async fn dial(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Option<Arc<WarmSocket>>), CmuxMobileError> {
+    use cmux_mobile_link::dial::wireguard::dormant;
+    let kind: cmux_mobile_link::TransportKind = request.transport.into();
+    let ticket =
+        if kind == cmux_mobile_link::TransportKind::WireGuard && !request.mac_device_id.trim().is_empty() {
+            dormant::ticket(&request.mac_device_id)
+        } else {
+            None
+        };
+    let link_config =
+        if cmux_mobile_link::keepalive::aligned() { LinkConfig::aligned() } else { LinkConfig::default() };
+    match dormant::hedged(ticket, link_config, timeline, full_dial(pool, request, timeline)).await? {
+        dormant::Hedged::Full((connected, socket)) => Ok((connected, Some(socket))),
+        dormant::Hedged::Resumed(connected) => {
+            // The next dial (and the path report) want a socket: open it
+            // now, off the link's path.
+            let (pool, token) = (Arc::clone(pool), request.token.clone());
+            let key = SocketKey {
+                base_url: request.base_url.clone(),
+                team_id: request.team_id.clone(),
+                device_id: request.device_id.clone(),
+                build_space: build_space(),
+            };
+            tokio::spawn(async move {
+                if let Err(error) = pool.pooled_or_open(&key, &token, &Timeline::new()).await {
+                    tracing::info!(%error, "no signaling socket behind a resumed link");
+                }
+            });
+            Ok((connected, None))
+        }
+    }
+}
+
+async fn full_dial(
     pool: &Arc<Warm>,
     request: &ConnectRequest,
     timeline: &Timeline,

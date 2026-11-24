@@ -56,6 +56,10 @@ const PHONE_MARGIN: Duration = Duration::from_secs(10);
 /// The transport hold outlasts the bound a little (the tunnel is dropped at
 /// the bound anyway).
 const HOLD_MARGIN: Duration = Duration::from_secs(5);
+/// How long a resumed link waits for the Mac's answer loop to take it.
+const UNCLAIMED: Duration = Duration::from_secs(10);
+/// How often a dormant tunnel looks for the peer's `bye`.
+const BYE_CHECK: Duration = Duration::from_millis(250);
 /// The most dormant tunnels one side keeps (each peer has at most one: a
 /// newer one replaces it). The oldest goes first.
 pub const MAX_DORMANT: usize = 8;
@@ -91,6 +95,37 @@ fn waiting() -> &'static Mutex<HashMap<u64, Dialed>> {
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Tests: a side that keeps no dormant tunnel, as a build before this one
+/// (bit 0: the phone, bit 1: the Mac).
+static OLD_SIDES_FOR_TESTS: AtomicU64 = AtomicU64::new(0);
+
+/// Tests: the phone (`dialer`) or the Mac side of this process acts as a
+/// build without dormant tunnels: its tunnel ends with its link, and it
+/// tells the peer (`bye`), as before.
+#[doc(hidden)]
+pub fn act_old_for_tests(dialer: bool, old: bool) {
+    let bit = if dialer { 1 } else { 2 };
+    if old {
+        OLD_SIDES_FOR_TESTS.fetch_or(bit, Ordering::Relaxed);
+    } else {
+        OLD_SIDES_FOR_TESTS.fetch_and(!bit, Ordering::Relaxed);
+    }
+}
+
+fn acts_old(dialer: bool) -> bool {
+    OLD_SIDES_FOR_TESTS.load(Ordering::Relaxed) & if dialer { 1 } else { 2 } != 0
+}
+
+/// A shorter bound for tests (0: [`DORMANT_HOLD`]).
+static HOLD_FOR_TESTS: AtomicU64 = AtomicU64::new(0);
+
+/// Tests: tunnels that go dormant from now on keep for `hold` (`None`: the
+/// real [`DORMANT_HOLD`]).
+#[doc(hidden)]
+pub fn set_hold_for_tests(hold: Option<Duration>) {
+    HOLD_FOR_TESTS.store(hold.map_or(0, |hold| hold.as_millis().max(1) as u64), Ordering::Relaxed);
+}
 
 /// What a side knows to start a keeper.
 pub(super) struct KeeperSpec {
@@ -154,7 +189,11 @@ impl Keeper {
     }
 
     fn hold(&self) -> Duration {
-        if self.dialer { DORMANT_HOLD - PHONE_MARGIN } else { DORMANT_HOLD }
+        let bound = match HOLD_FOR_TESTS.load(Ordering::Relaxed) {
+            0 => DORMANT_HOLD,
+            millis => Duration::from_millis(millis),
+        };
+        if self.dialer { bound.saturating_sub(PHONE_MARGIN.min(bound / 10)) } else { bound }
     }
 
     /// A link ended (`reason`, `None` when no link ever ran on the lease).
@@ -166,6 +205,7 @@ impl Keeper {
                 return;
             }
             reason.is_some_and(ended_on_its_own)
+                && !acts_old(self.dialer)
                 && self.session.net().is_ok()
                 && tokio::runtime::Handle::try_current().is_ok()
         };
@@ -180,11 +220,24 @@ impl Keeper {
         let hold = self.hold();
         let weak = Arc::downgrade(self);
         let timer = tokio::spawn(async move {
-            tokio::time::sleep(hold).await;
+            // Ends at the bound, or once the peer's `bye` dropped the tunnel
+            // (its link closed on purpose after this side saw it end).
+            let bound = tokio::time::Instant::now() + hold;
+            loop {
+                let now = tokio::time::Instant::now();
+                if now >= bound {
+                    break;
+                }
+                tokio::time::sleep((bound - now).min(BYE_CHECK)).await;
+                let Some(keeper) = weak.upgrade() else { return };
+                if keeper.session.net().is_err() {
+                    break;
+                }
+            }
             if let Some(keeper) = weak.upgrade()
                 && unlist(keeper.id).is_some()
             {
-                tracing::info!(session = keeper.session.id(), "dormant tunnel reached its bound");
+                tracing::info!(session = keeper.session.id(), "dormant tunnel ended (bound or bye)");
                 keeper.close();
             }
         });
@@ -319,6 +372,12 @@ impl Keeper {
                 phone = self.peer_device,
                 "resumed link from a dormant tunnel"
             );
+            // The answer loop refused it (admission: the Mac's owner changed)
+            // or never took it: the link is dropped, and with it the tunnel.
+            tokio::spawn(async move {
+                tokio::time::sleep(UNCLAIMED).await;
+                lock(waiting()).remove(&ticket);
+            });
         } else {
             // No answer loop to take it: the phone's full dial goes on.
             lock(waiting()).remove(&ticket);
@@ -433,6 +492,12 @@ pub fn forget_all() -> usize {
         keeper.close();
     }
     count
+}
+
+/// Whether a dormant tunnel with `peer_device` is kept (the Mac's side: a
+/// phone's device id).
+pub fn keeps(peer_device: &str) -> bool {
+    lock(dormant()).iter().any(|keeper| !keeper.dialer && keeper.peer_device == peer_device)
 }
 
 /// How many dormant tunnels this side keeps now.
