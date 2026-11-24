@@ -483,7 +483,13 @@ final class CEFLayerHosting {
     /// the attach (its end attaches it).
     func placementChanged() { // perf-hot: 1us cef-geometry (each geometry post, each parked page's update)
         let away = Self.liesOutsideWindow(view)
-        guard away != isParkedAway else { return }
+        guard away != isParkedAway else {
+            // A parked hosted page whose detach the fork refused (cmux#53434: a chat parked by a new tab's show while
+            // the fork was busy) is asked again at each read, as ``attachOwed`` is for an attach: latched without a
+            // retry, its page window stayed attached and the chat drew over the New Tab page that replaced it.
+            if away, !isDetached, page != nil { setDetached(true) }
+            return
+        }
         isParkedAway = away
         if away {
             setDetached(true)
