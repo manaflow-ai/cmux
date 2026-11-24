@@ -1034,6 +1034,8 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
     transition: max-height var(--agent-motion-move) var(--agent-ease-out);
   }
 }
+[data-composer-buttons-visible] .acpmux-queued-actions { opacity: 1; }
+
 /* A row the pointer opens or closes: its actions sit on its last line, and the list grows or shrinks
    at its top by exactly the row's change, at once (ComposerQueue.tsx `resized`), so nothing under
    the pointer moves (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
