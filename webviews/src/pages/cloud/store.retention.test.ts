@@ -202,7 +202,7 @@ describe("Cloud cleanup: settings", () => {
 
 describe("Cloud cleanup: native answers", () => {
   test("a confirmed op's answer under `value` is unwrapped; a flat or declined answer stays as it is", () => {
-    const machine = { id: "vm_n1" } as CloudMachine;
+    const machine = { id: "vm_n1" } as unknown as CloudMachine;
     expect(confirmedValue({ confirmed: true, value: { machine, revision: 7 } })).toEqual({
       confirmed: true,
       machine,

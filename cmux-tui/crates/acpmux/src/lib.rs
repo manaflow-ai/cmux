@@ -60,6 +60,7 @@ pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
+pub mod close_why;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
@@ -76,6 +77,7 @@ mod codex_cloud_auth;
 pub mod codex_cmux_entry;
 pub mod codex_desktop;
 pub mod codex_repo_gate;
+mod codex_signed_out;
 pub mod complete;
 pub mod computer_use;
 pub mod config;
@@ -236,6 +238,8 @@ pub mod peer_paths;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+// A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
 #[cfg(not(unix))]
@@ -262,9 +266,11 @@ pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
 pub mod race_records;
+pub mod range_fetch;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
+pub(crate) mod replay_rules;
 pub mod request_cancel;
 pub mod resume;
 pub mod review_box;
@@ -306,6 +312,7 @@ pub mod sha256;
 pub mod share_approval;
 /// The share host: a joined Mac's daemon serves screen shares with no app running (`share_host/`).
 pub mod share_host;
+pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
@@ -340,6 +347,7 @@ mod stress;
 pub mod subagent_call;
 pub mod subagent_notice;
 pub mod subagents;
+pub mod subrouter_priority;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_settings;
