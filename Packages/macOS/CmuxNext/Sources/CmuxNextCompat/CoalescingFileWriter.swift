@@ -13,7 +13,7 @@ public import Foundation
 ///   ``maximumQueuedBytes`` of pending bytes the window is skipped and the queue drains at once
 ///   (nothing is dropped, and the caller still never waits); an append stream keeps at most
 ///   ``maximumAppendBytes`` pending per path, dropping its oldest lines.
-/// - Off the caller's thread: ``write(to:options:then:produce:)`` and ``append(_:to:rotatingTo:limit:)``
+/// - Off the caller's thread: ``save(to:options:bytes:then:produce:)`` and ``append(_:to:rotatingTo:limit:)``
 ///   take the lock for a dictionary update, never the disk.
 /// - ``flush()`` (app termination) and ``settled()`` (awaiting, holding no thread) run what is
 ///   pending now. A crash between a call and its write loses that write: at most one window, plus
@@ -71,7 +71,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     public init(queue: DispatchQueue? = nil, window: TimeInterval = CoalescingFileWriter.defaultWindow,
                 maximumQueuedBytes: Int = CoalescingFileWriter.defaultMaximumQueuedBytes,
                 onError: @escaping @Sendable (URL, any Error) -> Void = { _, _ in }) {
-        // blocking-allow: the writer's one utility queue, bounded by maximumQueuedBytes, listed in threading-model.md
+      
         self.queue = queue ?? DispatchQueue(label: "com.cmuxterm.app.next.coalescing-file-writer", qos: .utility)
         self.window = window
         self.maximumQueuedBytes = maximumQueuedBytes
@@ -80,7 +80,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
 
     /// Writes `data` to `url` (latest wins).
     public func write(_ data: Data, to url: URL, options: Data.WritingOptions = [.atomic]) {
-        write(to: url, options: options, bytes: data.count) { data }
+        save(to: url, options: options, bytes: data.count) { data }
     }
 
     /// Writes what `produce` returns to `url` on the queue (latest wins): nil removes the file, a
@@ -88,7 +88,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     ///
     /// - Parameters:
     ///   - bytes: The size `produce` will return, if known, for the queued-bytes bound.
-    public func write(to url: URL, options: Data.WritingOptions = [.atomic], bytes: Int = 0,
+    public func save(to url: URL, options: Data.WritingOptions = [.atomic], bytes: Int = 0,
                       then: (@Sendable () -> Void)? = nil, produce: @escaping @Sendable () throws -> Data?) {
         enqueue(Job(url: url, work: .replace(produce: produce, options: options, then: then), bytes: bytes))
     }
@@ -134,7 +134,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
     /// Runs everything pending now and waits for it: for app termination, under its deadline.
     public func flush() {
         // concurrency-allow: termination only, after the quit deadline is armed; never from the writer's own queue
-        queue.sync { drain() }  // blocking-allow: quit-time flush under the quit's deadline, documented on flush()
+        queue.blockingSync { drain() }
     }
 
     private func enqueue(_ job: Job) {
@@ -199,7 +199,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
             switch job.work {
             case .replace(let produce, let options, let then):
                 guard let data = try produce() else {
-                    try? FileManager.default.removeItem(at: job.url)  // blocking-allow: runs only on the writer's own background queue
+                    try? FileManager.checked.removeItem(at: job.url)
                     state.withLock { $0.diskWrites += 1 }
                     return
                 }
@@ -207,7 +207,7 @@ public nonisolated final class CoalescingFileWriter: Sendable {
                 state.withLock { $0.diskWrites += 1 }
                 then?()
             case .append(let chunks, let rotation):
-                let files = FileManager.default
+                let files = FileManager.checked
                 try files.createDirectory(at: job.url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if !files.fileExists(atPath: job.url.path) { _ = files.createFile(atPath: job.url.path, contents: nil) }
                 let added = chunks.reduce(Data(), +)

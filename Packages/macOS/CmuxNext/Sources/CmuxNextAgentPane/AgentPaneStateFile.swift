@@ -41,7 +41,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     /// removes the file, and a throw keeps it as the last save that ran left it (a save a newer one
     /// replaced before it ran never ran).
     public func write(_ encode: @escaping @Sendable () throws -> Data?) {
-        writer.write(to: url, produce: encode)
+        writer.save(to: url, produce: encode)
     }
 
     /// Whether a save is still queued (or running).

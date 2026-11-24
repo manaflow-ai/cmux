@@ -72,11 +72,11 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     public func write(_ tail: JSONValue?, for sessionId: String) {
         let file = url(for: sessionId)
         guard let tail else {
-            writer.write(to: file) { nil }  // blocking-allow: hands the removal to the writer's queue, no disk here
+            writer.save(to: file) { nil }
             return
         }
         let limitBytes = limitBytes, directory = directory
-        writer.write(to: file, then: { [self] in trim() }) {  // blocking-allow: hands the save to the writer's queue, no disk here
+        writer.save(to: file, then: { [self] in trim() }) {
             var text = ""
             tail.appendCompactText(to: &text)
             let data = Data(text.utf8)
