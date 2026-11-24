@@ -186,6 +186,7 @@ members = [
     "crates/cmux-source-scan",
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
+    "crates/cmux-redact",
 ]
 default-members = [
     "crates/acpmux",
