@@ -3216,3 +3216,20 @@ fn enroll_create_takes_a_via_machine_node_key() {
     let pending = ["pending", "--via-machine", HUB_KEY].map(String::from);
     assert!(parse_enroll_admin_args(&pending).is_err());
 }
+
+/// `cmux remote <verb> --help` is that verb's help, not the whole remote help (the Cloud and
+/// remote command matrix): an app verb's from the catalog, a remote action's its own.
+#[test]
+fn each_remote_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let disconnect = remote_verb_help(&words("disconnect --help")).expect("app verb");
+    assert!(disconnect.starts_with("usage: cmux remote disconnect"), "{disconnect}");
+    let group = remote_verb_help(&words("new-group --help")).expect("app verb");
+    assert!(group.contains("--destination <value>"), "{group}");
+    assert_eq!(
+        remote_verb_help(&words("exec --help")).as_deref(),
+        Some(remote_help(Some("remote-exec")))
+    );
+    assert_eq!(remote_verb_help(&words("--help")), None);
+    assert_eq!(remote_verb_help(&words("no-such-verb --help")), None);
+}
