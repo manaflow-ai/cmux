@@ -64,6 +64,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
+import cmux_next_terminal_chat_leg  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
@@ -429,6 +430,10 @@ def main():
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
     ask_ok = restart_ok = not discovery
+    # The terminal-chat leg (cmux_next_terminal_chat_leg.py): CMUX_PAIR_E2E_TERMINAL_CHAT=0 leaves it out.
+    terminal_chat = (os.environ.get("CMUX_PAIR_E2E_TERMINAL_CHAT") != "0" and
+                     os.path.exists(os.path.join(ROOT, cmux_next_terminal_chat_leg.FAKE_CLAUDE)))
+    terminal_chat_ok = not terminal_chat
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -440,6 +445,11 @@ def main():
         if probe:
             os.makedirs(upload_root, mode=0o700)
             settings["agents"] = {"chats": {"roots": [upload_root]}}
+        if terminal_chat:
+            # Write to a Chat a Terminal Runs, on for the leg (the leg turns it off again); the rig's acpmux
+            # home (a fake Claude profile) and Claude store, for the Mac app and its daemon.
+            settings.setdefault("agents", {}).setdefault("chats", {})["terminalChatWritable"] = True
+            env.update(cmux_next_terminal_chat_leg.prepare(rig, ROOT))
         with open(config, "w") as f:
             json.dump(settings, f)
         # With a session, the explicit file names no account: the app signs in from no file (not even the
@@ -590,6 +600,16 @@ def main():
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
                 uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
+            if paired and terminal_chat:
+                try:
+                    legs = cmux_next_terminal_chat_leg.run_leg(dict(
+                        mac_app=a.mac_app, env=env, rig=rig, out=a.out, root=ROOT, sims=a.sims, simctl=simctl,
+                        udid=a.udid, bundle=a.bundle_id, phone_env=phone_env, phone_shot=phone_shot, note=note,
+                        rpc=rpc, config_path=config, settings=settings, mac_name=RIG_MAC_NAME,
+                        streams_add=lambda argv, path: (streams.append(s := Stream(argv, path)), s)[1]))
+                    terminal_chat_ok = all(legs.values())
+                except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
+                    note(f"- terminal chat: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -633,7 +653,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok and terminal_chat_ok else 1
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
