@@ -225,6 +225,15 @@ fn bdp_window_covers_a_fifty_ms_path_at_sixty_fps() {
 }
 
 #[test]
+fn bdp_window_covers_a_150_ms_path_and_stays_within_reassembly_budget() {
+    // Nine frame intervals cover the 150 ms RTT, and the extra encode slot makes
+    // ten. The queue-derived bound still applies to a path wider than the BDP.
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(150_000, 60), 10);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(250_000, 60), 16);
+    assert_eq!(cmux_rd_engine::frames_in_flight_for(u64::MAX, 60), 16);
+}
+
+#[test]
 fn nacked_shards_are_resent_from_history() {
     let mut e = engine();
     let first = e.start(0).expect("first");
