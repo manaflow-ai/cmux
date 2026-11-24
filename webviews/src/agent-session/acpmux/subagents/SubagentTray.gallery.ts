@@ -1037,7 +1037,7 @@ export default pinKindsHead(
                 throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
               if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
                 throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
-              if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              if (!waits && ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count !== "3")
                 throw new Error("the tab counts the three that run");
             },
             snapshot: (() => {

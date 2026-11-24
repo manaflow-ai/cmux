@@ -106,6 +106,8 @@ import { approvedPlanPlace } from "./approvedPlan.experiment";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
+import { hatSide } from "./jumpPlace";
+import { hatPillPlace } from "./hatPillPlace.experiment";
 import { githubFolderRepo } from "./githubRepos";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { shownTemplate } from "./newtab/templates";
@@ -2563,6 +2565,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Where the jump stack stands over the composer (jumpPlace.experiment.ts; Leo, 2026-11-21: "didn't
   // we say we wanted to move these to the side or smth?"): beside the hat's handle, never on it.
   const [jumpPlaceArm] = useState(() => experimentArm(jumpLatestPlace));
+  // Where the hat's handle stands: with the jump stack on the center line, the middle handle moves
+  // aside (hatPillPlace.experiment.ts; Leo, 2026-11-22: "the composer hat hidden bit was the one to
+  // move to the right. or left.").
+  const [hatPillArm] = useState(() => experimentArm(hatPillPlace));
+  const hatHandle = hatSide(jumpPlaceArm, trayHandle, hatPillArm);
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -5782,7 +5789,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             planEarlier={hatEarlier}
             planKept={hatKept}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
-            tuckSide={trayHandle}
+            tuckSide={hatHandle}
             onHold={setHatHeld}
             onSeen={setHatSeen}
           />
@@ -9384,6 +9391,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hatPlan,
     hatKept,
     trayHandle,
+    hatHandle,
+    hatPillArm,
     statusCardOpen,
     setStatusCardOpen,
     openImage,

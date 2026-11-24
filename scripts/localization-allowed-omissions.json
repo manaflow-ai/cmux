@@ -7664,6 +7664,32 @@
     "class": "brand",
     "source": "Superwhisper"
   },
+  "argument.home.chief.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "nb": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pl": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.home.chief.effort": {
+    "source": "Effort",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.home.chief.model": {
+    "source": "Model",
+    "identityLocales": {
+      "bs": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "da": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "pl": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "tr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
   "argument.value.dividerInsertKind.terminal": {
     "source": "Terminal",
     "identityLocales": {
