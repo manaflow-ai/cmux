@@ -501,7 +501,9 @@ jobs:
             echo "cmux-tui tree $KEY is not published; a dispatch on $branch would build it without publishing, so none is sent" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+          # The tree only: the look applies the darwin daemon, and the pull request's own run tests it
+          # (daemon_tests=false skips cmux_next_ daemon tests, 22% of these builds' minutes on 11-24).
+          gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" -f daemon_tests=false
           echo "requested the cmux-tui tree build of ${HEAD_SHA:0:12} on $branch (cmux-tui-artifacts.yml dispatch)" >> "$GITHUB_STEP_SUMMARY"
 
   # The look's request. The job runs nothing: its NAME is the request, and the build fleet controller reads it from

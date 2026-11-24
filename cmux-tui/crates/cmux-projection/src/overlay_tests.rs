@@ -818,7 +818,9 @@ fn the_cache_stays_under_its_cap_least_recently_used_first() {
     let (state, manifest, fake) = setup(false);
     // Two 4 MiB chunks of big.bin and a little more.
     let cap = 2 * 4 * 1024 * 1024 + 64;
-    let overlay = open(state.path(), &manifest, &fake).with_cache_max(cap);
+    // No content store under it: an evicted blob is gone from the disk.
+    let overlay =
+        open(state.path(), &manifest, &fake).with_cache_max(cap).with_content_floor(u64::MAX);
     let big = path_ino(&overlay, "big.bin");
     let chunk = 4 * 1024 * 1024u64;
     let bytes = big_bytes();
@@ -888,8 +890,9 @@ fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
     assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
     assert_eq!(overlay.read(path_ino(&overlay, "src/a.rs"), 0, 64).unwrap(), b"fn a() {}");
     assert_eq!(away.calls.load(Ordering::Relaxed), 0, "a pinned read asked the Mac");
-    // An unpinned file still needs the Mac.
-    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64), Err(112));
+    // An unpinned file the cap let go is still on the disk, in the content store (RFD 0065).
+    assert_eq!(overlay.read(path_ino(&overlay, "README.md"), 0, 64).unwrap(), b"readme");
+    assert_eq!(away.calls.load(Ordering::Relaxed), 0, "a stored read asked the Mac");
     let again = overlay.hydrate_pins();
     assert_eq!((again.fetched_bytes, again.failed), (0, 0), "already whole on disk");
 }
@@ -1056,4 +1059,140 @@ fn extend_refuses_a_path_that_changed_kind() {
     let items = vec![file_item("README.md", 6), file_item("big.bin", BIG), file_item("src", 1)];
     let full = Arc::new(Manifest::build(1, items).unwrap());
     assert!(matches!(overlay.extend(full), Err(ExtendError::NotSuperset { .. })));
+}
+
+// MARK: Content store (RFD 0065 piece 5)
+
+/// `files` as a listing with every mtime `mtime_ns`, and a fake serving their bytes.
+fn listing(files: &[(String, Vec<u8>)], mtime_ns: i64) -> (Arc<Manifest>, Arc<Fake>) {
+    let items = files
+        .iter()
+        .map(|(path, bytes)| Item {
+            path: path.clone(),
+            kind: Kind::File,
+            mode: 0o644,
+            size: bytes.len() as u64,
+            mtime_ns,
+            link: None,
+        })
+        .collect();
+    let manifest = Arc::new(Manifest::build(1, items).unwrap());
+    let mut fake = Fake::default();
+    for (path, bytes) in files {
+        fake.bytes.insert(manifest.resolve(path).unwrap(), bytes.clone());
+    }
+    (manifest, Arc::new(fake))
+}
+
+/// Reads every file of `files` whole through `overlay` and checks the bytes.
+fn scan(overlay: &Overlay, files: &[(String, Vec<u8>)]) {
+    for (path, bytes) in files {
+        let ino = path_ino(overlay, path);
+        assert_eq!(&overlay.read(ino, 0, bytes.len() as u32 + 1).unwrap(), bytes, "{path}");
+    }
+}
+
+/// A tree several times the cache's cap: 40 small files in four folders and two big files.
+fn tree_over_the_cap() -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = (0..40)
+        .map(|n| {
+            (
+                format!("d{}/f{n}.rs", n % 4),
+                format!("fn f{n}() {{ {} }}", "x".repeat(n)).into_bytes(),
+            )
+        })
+        .collect();
+    files.push(("big.bin".into(), big_bytes()));
+    files.push(("other.bin".into(), big_bytes().into_iter().rev().collect()));
+    files
+}
+
+/// The RFD's largest defect: a warm whole-tree scan of a tree bigger than the cache, after a new
+/// listing of unchanged files, downloaded the tree again. Now it makes no content request.
+#[test]
+fn a_warm_scan_after_a_new_listing_asks_for_nothing() {
+    let files = tree_over_the_cap();
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&files, 1_700_000_000_000_000_000);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(1024).with_content_floor(0);
+    scan(&overlay, &files);
+    assert!(fake.calls.load(Ordering::Relaxed) > 0);
+    assert!(overlay.cache_evicted() > 0, "the tree fit the cap; the test proves nothing");
+    // Warm, same listing: the cap let most of it go, the content store has all of it.
+    let asked = fake.calls.load(Ordering::Relaxed);
+    scan(&overlay, &files);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked, "a warm scan asked the Mac");
+    drop(overlay);
+
+    // A new listing (one more file, so a new manifest and a fresh `cache/`), unchanged files.
+    let mut more = files.clone();
+    more.push(("d0/new.rs".into(), b"fn new() {}".to_vec()));
+    let (manifest, fake) = listing(&more, 1_700_000_000_000_000_000);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(1024).with_content_floor(0);
+    scan(&overlay, &files);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0, "unchanged files were fetched again");
+    assert_eq!(overlay.stats().remote_bytes, 0);
+    assert!(overlay.stats().cache_hits > 0);
+    // The new file is fetched, once.
+    scan(&overlay, &more[more.len() - 1..]);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+}
+
+/// A file the new listing says changed (another mtime) is fetched, never served from the old.
+#[test]
+fn a_changed_file_in_a_new_listing_is_fetched_again() {
+    let files = vec![("a.txt".to_owned(), b"first".to_vec())];
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&files, 1);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &files);
+    drop(overlay);
+    let changed = vec![("a.txt".to_owned(), b"secnd".to_vec())];
+    let (manifest, fake) = listing(&changed, 2);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &changed);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 1);
+}
+
+/// A blob damaged on disk fails its hash: it is dropped and fetched again, never served.
+#[test]
+fn a_damaged_blob_is_fetched_again() {
+    let files = vec![("a.txt".to_owned(), b"the bytes".to_vec())];
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&files, 1);
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &files);
+    drop(overlay);
+    let blobs = state.path().join("content/blobs");
+    for blob in fs::read_dir(&blobs).unwrap() {
+        fs::write(blob.unwrap().path(), b"the bytez").unwrap();
+    }
+    // A new listing (another root mtime) empties `cache/`; the store answers or fetches.
+    let items = vec![Item {
+        path: "a.txt".into(),
+        kind: Kind::File,
+        mode: 0o644,
+        size: 9,
+        mtime_ns: 1,
+        link: None,
+    }];
+    let manifest = Arc::new(Manifest::build(2, items).unwrap());
+    let overlay = open(state.path(), &manifest, &fake).with_content_floor(0);
+    scan(&overlay, &files);
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 2, "a damaged blob was served");
+}
+
+/// The store keeps its floor of free disk: with no room it keeps nothing, and reads still work.
+#[test]
+fn the_content_store_keeps_its_floor_of_free_disk() {
+    let files = tree_over_the_cap();
+    let state = tempfile::tempdir().unwrap();
+    let (manifest, fake) = listing(&files, 1);
+    let overlay =
+        open(state.path(), &manifest, &fake).with_cache_max(1024).with_content_floor(u64::MAX);
+    scan(&overlay, &files);
+    assert_eq!(overlay.content_bytes(), 0);
+    let asked = fake.calls.load(Ordering::Relaxed);
+    scan(&overlay, &files);
+    assert!(fake.calls.load(Ordering::Relaxed) > asked, "evicted blobs came from nowhere");
 }
