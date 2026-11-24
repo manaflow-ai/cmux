@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
+use super::credential_wake::{self, WakeTries};
 use super::gate::{Gate, HoldKind, Honor, Refused};
 use super::resolve::{
     GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
@@ -933,7 +934,7 @@ fn check_inner(
     // carrier sessions' last look is inside the gate ([`flip_in_gate`]).
     let last = match off_reason(paths) {
         Some(why) => Some(Outcome::Off(why)),
-        None => match acpmux_busy_sessions() {
+        None => match acpmux_busy_before_flip() {
             Ok(busy) if busy.is_empty() => None,
             Ok(busy) => Some(Outcome::Busy(busy)),
             Err(e) => Some(Outcome::Busy(vec![e])),
@@ -1667,13 +1668,18 @@ pub(super) fn output_within(mut cmd: Command, limit: Duration) -> Result<Vec<u8>
 /// which the caller counts as busy, unless acpmux answered. Empty only when
 /// it answered that no daemon runs and its unit is down (or absent).
 fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
+    Ok(acpmux_look()?.0)
+}
+
+/// [`acpmux_busy_sessions`] with the list it read (`acpmux --json ls`; None when no daemon runs).
+fn acpmux_look() -> Result<(Vec<String>, Option<String>), String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
     match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),
         Some(false) => {
             return match user_unit_state(ACPMUX_UNIT).as_deref() {
-                Some("inactive" | "failed") => Ok(Vec::new()),
-                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok(Vec::new()),
+                Some("inactive" | "failed") => Ok((Vec::new(), None)),
+                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok((Vec::new(), None)),
                 state => Err(format!("no acpmux daemon answered, its unit is {state:?}")),
             };
         }
@@ -1683,7 +1689,44 @@ fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
     if !ok {
         return Err("acpmux ls failed".to_owned());
     }
-    super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
+    let busy = super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())?;
+    Ok((busy, Some(ls)))
+}
+
+/// The failed wakes between looks ([`super::credential_wake`]).
+static CREDENTIAL_WAKES: Mutex<WakeTries> = Mutex::new(WakeTries::new());
+
+/// How long one look's wakes may take together. The guard is armed by then
+/// ([`GUARD_AFTER_SECS`]), and each wake starts an agent (seconds; `acpmux` gives it 20 s). A
+/// session not reached in time counts as a failed wake: it holds this look and is tried first
+/// at the next, within its [`credential_wake::WAKE_TRIES`].
+const WAKES_WITHIN: Duration = Duration::from_secs(90);
+
+/// The last look before a flip: [`acpmux_busy_sessions`], and with none busy, the wake of every
+/// chat whose launch credential only acpmux's memory holds ([`super::credential_wake`]), so the
+/// restart does not lose it. A wake that failed holds the update like a busy session. After a
+/// wake the sessions are read once more: it took seconds, and a turn may have started.
+fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
+    let (busy, ls) = acpmux_look()?;
+    let Some(ls) = ls.filter(|_| busy.is_empty()) else { return Ok(busy) };
+    let began = Instant::now();
+    let looked = CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).look(
+        &ls,
+        |id| {
+            if began.elapsed() >= WAKES_WITHIN {
+                return credential_wake::Woke::Failed;
+            }
+            match acpmux(&["--json", "session", "wake", id]) {
+                Some((ok, reply)) => credential_wake::woke(ok, &reply),
+                None => credential_wake::Woke::Failed,
+            }
+        },
+        log,
+    );
+    if !looked.holding.is_empty() || looked.woken == 0 {
+        return Ok(looked.holding);
+    }
+    acpmux_busy_sessions()
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.

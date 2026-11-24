@@ -18,7 +18,11 @@
 //! with [`MARKER`]), so the agent's next start (a wake after the machine paused, a route switch)
 //! runs on it again (cmux#45776: a Cloud Claude chat said "not signed in" after a pause). The Mac
 //! re-sends only a token that expires; an agent whose host also ended before a daemon restart
-//! starts without it. Without one the agent keeps today's coderouter route.
+//! starts without it. An idle chat is the usual case of that (its agent hibernates after two idle
+//! minutes, `hub/idle.rs`), so its summary says `credentialOnlyHere` meanwhile and a machine update
+//! wakes it before it restarts this daemon (`hub/credentials.rs` `credential_only_here`, cmux-host
+//! `updater/credential_wake.rs`). Left open: a daemon that ends any other way while the agent
+//! sleeps, and a closed chat. Without one the agent keeps today's coderouter route.
 //!
 //! At each spawn ([`apply`]) the agent gets the credential's variables and loses the machine's
 //! coderouter route (`cloud_model_plane::KEYS`: base URLs, placeholder keys) and any other provider
