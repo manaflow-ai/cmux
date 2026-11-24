@@ -241,6 +241,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_EXPORT_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_HOLD_CAPABILITY
+            && *capability != crate::git_seed::GIT_SEED_CARRY_CAPABILITY
             && *capability != crate::blob_fetch::BLOB_FETCH_CAPABILITY
             && *capability != crate::projection::PROJECTION_CAPABILITY
             && *capability != crate::projection::PROJECTION_EXTEND_CAPABILITY
@@ -395,6 +396,7 @@ pub(super) fn advertised_capabilities(
         BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::settings::SETTINGS_EDIT_CAPABILITY,
+        crate::mux::settings::SETTINGS_HISTORY_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         crate::feed_client::FEED_CLIENT_CAPABILITY,
