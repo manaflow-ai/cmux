@@ -21,7 +21,7 @@ struct CloudPreviewShareLinkTests {
     private func api(_ daemon: FakeDaemon) throws -> CloudAPIClient {
         var worker = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.invalid")),
                                                    accessToken: { "access" }, teamID: { "team_1" })
-        worker.daemonCall = { input, _ in try daemon.run(input) }
+        worker.daemon.daemonCall = { input, _ in try daemon.run(input) }
         return worker.previewClient(baseURL: try #require(URL(string: "https://platform.invalid")))
     }
 

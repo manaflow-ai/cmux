@@ -1,5 +1,9 @@
 @testable import CmuxTabsKit
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// iPhone 17 Pro Max: 440 x 956 pt, 62 pt top / 34 pt bottom safe area.

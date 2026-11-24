@@ -65,7 +65,7 @@ extension CloudAPIClient {
     public func previewClient(baseURL: URL) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: tokens, teamID: teamID, session: session, appVersion: appVersion, buildSpace: buildSpace)
         client.machineIO = machineIO
-        client.daemonCall = daemonCall
+        client.daemon.daemonCall = daemon.daemonCall
         return client
     }
 
