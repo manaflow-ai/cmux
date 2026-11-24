@@ -37,6 +37,7 @@
 //! threads),
 //! [`additions`] (a person's image additions list, sent at idle only under their usage-sharing
 //! choice), `additions_thread` (its listing and send, off the poll loop),
+//! [`page_cache`] (the sync and clean page-cache drop the platform runs before a pause),
 //! `role` (the Linux worker), [`trajectory`] (ACP chats kept in cmux
 //! Cloud and restored into a replacement machine, #25584),
 //! and `trajectory_thread` (its thread). A person's Claude or Codex login is
@@ -80,6 +81,7 @@ pub mod github_minter;
 pub mod github_repos;
 pub mod github_status;
 pub mod handoff;
+pub mod page_cache;
 #[cfg(target_os = "linux")]
 mod poster_http;
 #[cfg(target_os = "linux")]

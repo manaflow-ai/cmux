@@ -82,6 +82,10 @@ FAKE_FORK_SILENT=1: the agent never answers session/fork, and goes on answering 
 FAKE_FORK_DELAY_MS=<ms>: the agent answers session/fork that long after it read it, and goes on
 answering everything else meanwhile.
 
+FAKE_FORK_REPLAY=1: before it answers session/fork, the agent replays the forked conversation as
+session/updates under the NEW session's id (a prompt, a thought, a tool call, a reply, its
+commands), as OpenCode 1.19's forkSession does (its replayMessages).
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -186,9 +190,23 @@ def send(obj):
     send_all([obj])
 
 
+# FAKE_USAGE=<json>: every prompt answer that ends a turn carries it as its ACP `usage` (a
+# harness's token counts and cost). FAKE_SENT_LOG=<path>: append the wall clock (Unix
+# microseconds) each such answer is written at, one per line (the cost-per-task bench).
+FAKE_USAGE = json.loads(os.environ["FAKE_USAGE"]) if os.environ.get("FAKE_USAGE") else None
+FAKE_SENT_LOG = os.environ.get("FAKE_SENT_LOG")
+
+
 def send_all(objs):
     """Write `objs` as one write: a burst the agent sends at once."""
+    ends = [o for o in objs if isinstance(o.get("result"), dict) and "stopReason" in o["result"]]
+    if FAKE_USAGE is not None:
+        for o in ends:
+            o["result"].setdefault("usage", FAKE_USAGE)
     with lock:
+        if FAKE_SENT_LOG and ends:
+            with open(FAKE_SENT_LOG, "a") as f:
+                f.write(f"{time.time_ns() // 1000}\n")
         sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
 
@@ -1665,6 +1683,18 @@ def handle_prompt(rid, params):
         chunk("e")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "background-subagent" starts background subagent bg-quiet and ends the turn at once, as a
+    # coordinator's Claude Agent call with run_in_background outlives its turn;
+    # "background-subagent-done" reports it completed.
+    if text in ("background-subagent", "background-subagent-done"):
+        if text == "background-subagent":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-quiet", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
+        else:
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "bg-quiet", "state": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "reply-segments":
         chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
         chunk("a", "m1")
@@ -2485,6 +2515,17 @@ def main():
                 continue
             sessions += 1
             result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            if os.environ.get("FAKE_FORK_REPLAY") == "1":
+                new_sid = result["sessionId"]
+                update(new_sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+                update(new_sid, {"sessionUpdate": "user_message_chunk", "messageId": "fork-u1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY prompt"}})
+                update(new_sid, {"sessionUpdate": "agent_thought_chunk", "messageId": "fork-a1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY thought"}})
+                update(new_sid, {"sessionUpdate": "tool_call", "toolCallId": "fork-t1", "title": "FORK-REPLAY tool",
+                                 "kind": "read", "status": "completed"})
+                update(new_sid, {"sessionUpdate": "agent_message_chunk", "messageId": "fork-a1",
+                                 "content": {"type": "text", "text": "FORK-REPLAY reply"}})
             # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
             # harness's defaults, not the forked session's model and effort, as Codex does.
             if os.environ.get("FAKE_FORK_DEFAULTS") == "1":
