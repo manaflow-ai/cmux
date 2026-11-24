@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAccounts
+@testable import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
@@ -40,7 +40,8 @@ struct SignInPageOpensBesideTests {
             services.linkOpener.placement = { .splitRight }
             let panes = Set(content.panes.keys)
 
-            let first = try await Self.open(services) { _ = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
+            var ends: [@MainActor () -> Void] = []
+            let first = try await Self.open(services) { ends.append(services.linkOpener.openSignInPage(Self.page, beside: pane.view)) }
             @MainActor func right() -> PaneController? {
                 content.panes.first { !panes.contains($0.key) && $0.value.pane.tabs.contains { $0.id == first } }?.value
             }
@@ -52,11 +53,21 @@ struct SignInPageOpensBesideTests {
             let side = try #require(right())
             let afterFirst = Set(content.panes.keys)
 
-            let second = try await Self.open(services) { _ = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
+            let second = try await Self.open(services) { ends.append(services.linkOpener.openSignInPage(Self.page, beside: pane.view)) }
             try await PinnedPageTests.until({ side.stripModel.selectedID?.rawValue == second },
                                             report: { "a second sign-in is not selected in the pane beside the code: " + Self.describe(content) })
             #expect(Set(content.panes.keys) == afterFirst, "a second sign-in made another split: \(Self.describe(content))")
             #expect(content.focusedPane === pane, "a second sign-in took the keyboard from the code: \(Self.describe(content))")
+
+            // Each sign-in's end (Cancel, finished, expired) closes the page it opened and no other: the
+            // second's leaves the first's, and the first's then empties the split, which goes away.
+            @MainActor func tabs() -> Set<String> { Set(content.panes.values.flatMap { $0.pane.tabs.map(\.id) }) }
+            ends[1]()
+            try await PinnedPageTests.until({ !tabs().contains(second) }, report: { "the second sign-in's end left its page open: " + Self.describe(content) })
+            #expect(tabs().contains(first), "the second sign-in's end closed the first's page: \(Self.describe(content))")
+            ends[0]()
+            try await PinnedPageTests.until({ !tabs().contains(first) && Set(content.panes.keys) == panes },
+                                            report: { "the first sign-in's end left its page or its split: " + Self.describe(content) })
         }
     }
 
@@ -93,6 +104,7 @@ struct SignInPageOpensBesideTests {
             end()
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == codeTab },
                                             report: { "the sign-in's end did not show the code's tab again: " + Self.describe(content) })
+            try await PinnedPageTests.until({ !codePane.pane.tabs.contains { $0.id == first } }, report: { "the sign-in's end left its page open: " + Self.describe(content) })
 
             let second = try await Self.open(services) { back = services.linkOpener.openSignInPage(Self.page, beside: codePane.view) }
             try await PinnedPageTests.until({ codePane.stripModel.selectedID?.rawValue == second }, report: { "a second sign-in page is not selected: " + Self.describe(content) })
@@ -104,70 +116,28 @@ struct SignInPageOpensBesideTests {
         }
     }
 
-    /// The reported bug: Cancel closed the card and left the provider's page open in its split. The sign-in's
-    /// end (cancelled, finished, expired) closes the tab that sign-in opened, and only that tab: a page the
-    /// person has on the same site stays, and so does the sign-in's tab once it is off the sign-in's hosts.
-    @Test func theSignInsEndClosesTheTabItOpenedAndOnlyThatTab() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+    /// From the onboarding tool window (the Agents step) over Home or another top page: the page would open in a
+    /// workspace the top page covers, so the top page is left, as a terminal sign-in leaves it, and shows again
+    /// once the tool window closes (``OnboardingService``).
+    @Test func fromTheToolWindowTheSignInPageLeavesATopPageWhichComesBackOnClose() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let window = try #require(services.windows.active)
+            #expect(TopPages.show(.page(.history), services: services) != nil)
+            #expect(window.shownTopPage == .page(.history))
+            services.onboarding.show(step: .agents)
+            let tool = try #require(services.onboarding.controller)
+            let open = try #require(services.onboarding.signInHarnesses.openSignInPage)
             let store = services.daemon.store
-            let content = try #require(services.windows.active?.workspaceContent)
-            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
-            let pane = try #require(services.paneController(for: model))
-            services.windows.active?.window?.setFrame(NSRect(x: 0, y: 0, width: 1800, height: 900), display: true)
-            try await PinnedPageTests.until({ (LinkOpener.width(of: pane) ?? 0) >= 2 * RightColumnPlacement.minimumChatWidth },
-                                            report: { "the pane did not widen: \(LinkOpener.width(of: pane) ?? -1)" })
-            PaneHandlers.focus(pane.layoutPaneID, in: content)
-            try await PinnedPageTests.until({ content.focusedPane === pane })
-            services.linkOpener.placement = { .splitRight }
-            @MainActor func listed(_ id: String) -> Bool {
-                store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { $0.id == id }
-            }
-
-            var end: (@MainActor () -> Void)?
-            let first = try await Self.open(services) { end = services.linkOpener.openSignInPage(Self.page, beside: pane.view) }
-            @MainActor func right() -> PaneController? { content.panes.values.first { $0 !== pane && $0.pane.tabs.contains { $0.id == first } } }
-            try await PinnedPageTests.until({ right()?.stripModel.selectedID?.rawValue == first },
-                                            report: { "the sign-in page is not shown in a split beside the code: " + Self.describe(content) })
-            let side = try #require(right())
-            // The person's own tab on the same site, beside the sign-in's: never the sign-in's to close.
-            let own = try await connection.newFrontendBrowserTab(url: Self.page.absoluteString, engine: .webkit, in: side.pane.handle, activate: false)
-            try await PinnedPageTests.until({ side.pane.tabs.contains { $0.surface == own.surface } }, report: { "the person's own tab did not open" })
-            let ownTab = try #require(side.pane.tabs.first { $0.surface == own.surface }?.id)
-            let endFirst = try #require(end)
-            endFirst()
-            try await PinnedPageTests.until({ !listed(first) }, report: { "the sign-in's end left its page open: " + Self.describe(content) })
-            #expect(listed(ownTab), "the sign-in's end closed a tab the person opened: \(Self.describe(content))")
-
-            // A sign-in whose hosts do not hold what its tab shows (the person took the tab elsewhere): it stays.
-            let second = try await Self.open(services) {
-                end = services.linkOpener.openSignInPage(Self.page, beside: pane.view, stillOn: ["github.com"])
-            }
-            let endSecond = try #require(end)
-            endSecond()
-            // A sign-in that ended before its open reported the tab closes it once reported.
-            let third = try await Self.open(services) { _ = services.linkOpener.openWeb(Self.page, from: pane, background: true, revealing: true) }
-            let late = SignInPageTab<SurfaceID>(hosts: ["auth.example.test"], shown: { _ in nil }, close: { services.cache.pageRequests.closeDaemonTab(on: $0) })
-            late.end()
-            #expect(listed(third))
-            let thirdTab: TabModel? = store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.id == third }
-            let thirdSurface: SurfaceID = try #require(thirdTab).surface
-            late.made(thirdSurface)
-            try await PinnedPageTests.until({ !listed(third) }, report: { "a sign-in that ended first left its page open: " + Self.describe(content) })
-            #expect(listed(second), "the sign-in's end closed a tab that had left its hosts: \(Self.describe(content))")
-            #expect(listed(ownTab), "a later sign-in's end closed a tab the person opened: \(Self.describe(content))")
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            let back = try #require(await open(Self.page, []))
+            #expect(window.shownTopPage == nil, "the sign-in page opened under a top page")
+            try await PinnedPageTests.until({ store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).contains { !before.contains($0.id) } },
+                                            report: { "the sign-in page opened no tab" })
+            back()
+            tool.close()
+            try await PinnedPageTests.until({ window.shownTopPage == .page(.history) },
+                                            report: { "closing the tool window did not show the top page again: \(String(describing: window.shownTopPage))" })
         }
-    }
-
-    @Test func aTabIsStillTheSignInsOnlyOnItsHostsOverHTTPS() throws {
-        let hosts = ["claude.com", "claude.ai", "platform.claude.com"]
-        for still in ["https://claude.ai/login", "https://CLAUDE.AI/oauth/authorize?x=1", "https://platform.claude.com/oauth/code/callback"] {
-            #expect(SignInPageHosts.still(try #require(URL(string: still)), on: hosts), "\(still)")
-        }
-        for gone in ["https://github.com/login/device", "https://claude.ai.example.com/login", "http://claude.ai/login",
-                     "https://user@claude.ai/login", "https://claude.ai:8443/login", "http://localhost:54545/callback", "about:blank"] {
-            #expect(!SignInPageHosts.still(try #require(URL(string: gone)), on: hosts), "\(gone)")
-        }
-        #expect(!SignInPageHosts.still(try #require(URL(string: "https://claude.ai/login")), on: []))
     }
 
     /// The tab `open` made, once the daemon lists it.

@@ -526,7 +526,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         }
     }
 
-    func closeDaemonTab(on surface: SurfaceID) {
+    private func closeDaemonTab(on surface: SurfaceID) {
         if let tab = services?.locateTab(surface: surface) {
             closeTab(tab.id)
         } else {
