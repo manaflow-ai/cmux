@@ -4,6 +4,9 @@ import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxTabsKit
 import Foundation
+import OSLog
+
+private let placementLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 
 /// Open on iPhone / Mirror from <Mac>: a linked browser tab shows the Mac's page
 /// (mirrored) or loads it in this iPhone's own web view (`NativeBrowserTabs`).
@@ -60,7 +63,7 @@ extension WorkspaceTabsSource {
         guard tab.kind == .browser else { return }
         let decision = native.place(tab: tab.id, macID: workspace?.macID ?? store.workspace(id: workspaceID)?.macID, url: tab.url)
         guard let decision else { return }
-        tabsLog.info("browser placement \(tab.id, privacy: .public): \(decision.target.rawValue, privacy: .public) (\(decision.reason.rawValue, privacy: .public))")
+        placementLog.info("browser placement \(tab.id, privacy: .public): \(decision.target.rawValue, privacy: .public) (\(decision.reason.rawValue, privacy: .public))")
         refreshTab(tab.id)
         if announce, let notice = decision.notice(macName: macName) { show(notice) }
     }

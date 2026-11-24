@@ -1,3 +1,4 @@
+#if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
@@ -105,3 +106,4 @@ struct BrowserSettingsPage: View {
         Rule(title: String(localized: "New blank tabs"), example: String(localized: "No address yet"), onPhone: false),
     ]
 }
+#endif
