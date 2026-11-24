@@ -521,6 +521,7 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",
         "experiments.attachmentTypeIcons",

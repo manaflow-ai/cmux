@@ -245750,6 +245750,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.composerButtonsVisible": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Always Show Composer Buttons"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إظهار أزرار مُنشئ الرسائل دائمًا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Uvijek prikaži dugmad sastavljača poruka"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vis altid skrivefeltsknapper"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Composer-Schaltflächen immer anzeigen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mostrar siempre los botones del compositor"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Toujours afficher les boutons du compositeur"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mostra sempre i pulsanti del compositore"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンポーザーのボタンを常に表示"}},
+        "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញប៊ូតុងអ្នកសរសេរសារជានិច្ច"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "작성기 버튼 항상 표시"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vis alltid knapper i skrivefeltet"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zawsze pokazuj przyciski kompozytora"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Sempre mostrar os botões do compositor"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Всегда показывать кнопки редактора"}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงปุ่มตัวเขียนข้อความเสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Oluşturucu düğmelerini her zaman göster"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Завжди показувати кнопки редактора"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Luôn hiển thị các nút trình soạn thảo"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "始终显示编辑器按钮"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "永遠顯示編輯器按鈕"}}
+      }
+    },
+    "settings.experiments.composerButtonsVisible.help": {
+      "comment": "Settings > Advanced > Experiments: the Always Show Composer Buttons taste prototype row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Keep Send, attachment removal, and queued message actions visible in agent chats."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "أبقِ الإرسال وإزالة المرفقات وإجراءات الرسائل في قائمة الانتظار ظاهرة في محادثات الوكلاء."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Zadrži slanje, uklanjanje priloga i radnje za poruke u redu vidljivima u razgovorima s agentima."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Hold Send, fjernelse af vedhæftede filer og handlinger for køede beskeder synlige i agentchats."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Senden, das Entfernen von Anhängen und Aktionen für wartende Nachrichten in Agent-Chats sichtbar halten."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantén visibles Enviar, quitar adjuntos y las acciones de mensajes en cola en los chats de agentes."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Gardez visibles l’envoi, la suppression des pièces jointes et les actions des messages en file dans les chats d’agents."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Mantieni visibili l’invio, la rimozione degli allegati e le azioni dei messaggi in coda nelle chat degli agenti."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントチャットで、送信、添付ファイルの削除、キュー内メッセージの操作を常に表示します。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រក្សាការផ្ញើ ការលុបឯកសារភ្ជាប់ និងសកម្មភាពសារដែលនៅក្នុងជួររង់ចាំឱ្យមើលឃើញក្នុងការជជែកជាមួយភ្នាក់ងារ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "에이전트 채팅에서 보내기, 첨부 파일 제거 및 대기 중인 메시지 작업을 항상 표시합니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Hold Send, fjerning av vedlegg og handlinger for meldinger i kø synlige i agentchatter."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Zachowaj widoczność wysyłania, usuwania załączników i działań dotyczących wiadomości w kolejce na czatach agentów."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Mantenha visíveis o envio, a remoção de anexos e as ações de mensagens na fila nos chats de agentes."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Показывать отправку, удаление вложений и действия с сообщениями в очереди в чатах агентов."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แสดงการส่ง การลบไฟล์แนบ และการดำเนินการกับข้อความในคิวในแชตของเอเจนต์เสมอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Ajan sohbetlerinde Gönder, ek kaldırma ve sıradaki mesaj işlemlerini görünür tut."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Залишайте видимими надсилання, видалення вкладень і дії з повідомленнями в черзі в чатах агентів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giữ hiển thị nút Gửi, xóa tệp đính kèm và thao tác với tin nhắn đang chờ trong các cuộc trò chuyện với tác nhân."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在代理聊天中始终显示发送、移除附件和队列消息操作。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在代理聊天中永遠顯示傳送、移除附件和佇列訊息操作。"}}
+      }
+    },
     "settings.experiments.hoverLook": {
       "comment": "Settings > Experiments: the Tooltip Refresh taste prototype row",
       "extractionState": "manual",
