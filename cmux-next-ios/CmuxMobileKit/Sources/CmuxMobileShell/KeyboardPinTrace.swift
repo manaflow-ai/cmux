@@ -228,6 +228,22 @@ public final class KeyboardPinTrace: NSObject {
             parts.append("axhit=" + Self.axHit(window, point))
             parts.append(String(format: "hp2=%.0f,%.0f", 368.0, point.y))
             parts.append("axhit2=" + Self.axHit(window, CGPoint(x: 368, y: point.y)))
+            parts.append(String(format: "fr=%.0f,%.0f,%.0f,%.0f", rect.minX, rect.minY, rect.width, rect.height))
+            parts.append("axfield=" + Self.axHit(window, CGPoint(x: rect.midX, y: rect.midY)))
+            // Every window of the scene, frontmost first: which one answers the point.
+            let windows = (window.windowScene?.windows ?? [window]).sorted { $0.windowLevel.rawValue > $1.windowLevel.rawValue }
+            for (index, other) in windows.enumerated() {
+                let local = other.convert(point, from: window)
+                parts.append("w\(index)=" + String(describing: type(of: other)) + String(format: "@%.0f/h%d/a%.2f", other.windowLevel.rawValue, other.isHidden ? 1 : 0, other.alpha)
+                    + ":ui=" + Self.describeChain(other.hitTest(local, with: nil)) + ":ax=" + Self.axHit(other, local))
+            }
+            var alphaChain: [String] = []
+            var view = window.hitTest(point, with: nil)
+            while let current = view, alphaChain.count < 12 {
+                alphaChain.append(String(format: "%.2f%@", current.alpha, current.isHidden ? "H" : ""))
+                view = current.superview
+            }
+            parts.append("alphas=" + alphaChain.joined(separator: ","))
         }
         let line = parts.joined(separator: " ")
         let summary = [

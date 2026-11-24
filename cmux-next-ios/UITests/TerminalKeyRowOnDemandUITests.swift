@@ -30,9 +30,16 @@ final class TerminalKeyRowOnDemandUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.5)
         let hittable = key.isHittable
         let line = probe.value as? String ?? "-"
-        let att = XCTAttachment(string: "hittable=\(hittable) probe=\(line)")
+        let others = ["terminal.key.composer", "terminal.key.control", "terminal.key.escape"].map { id -> String in
+            let element = app.buttons[id]
+            return "\(id)=\(element.exists ? (element.isHittable ? "hit" : "nohit") : "none")@\(element.exists ? element.frame : .zero)"
+        }.joined(separator: " ")
+        let summary = "hittable=\(hittable) keyframe=\(key.frame) field=\(field.isHittable ? "hit" : "nohit")@\(field.frame) kb=\(keyboard.frame) \(others) probe=\(line)"
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "diag-tree"; tree.lifetime = .keepAlways; add(tree)
+        let att = XCTAttachment(string: summary)
         att.name = "diag-probe"; att.lifetime = .keepAlways; add(att)
-        XCTAssertTrue(key.waitForHittable(timeout: 3), "the key row opens with the keyboard DIAG hittable=\(hittable) \(line)")
+        XCTAssertTrue(key.waitForHittable(timeout: 3), "the key row opens with the keyboard DIAG \(summary)")
         // The row's slot opens with the keyboard (0.25 s): read the key once it has.
         let open = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in key.frame.height >= 44 }, object: nil)
         XCTAssertEqual(XCTWaiter().wait(for: [open], timeout: 3), .completed, "the key is \(key.frame)")
