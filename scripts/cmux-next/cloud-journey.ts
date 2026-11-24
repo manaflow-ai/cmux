@@ -3047,6 +3047,37 @@ export async function waitPreflight(exec: Exec, program: string, kinds: string, 
   }
 }
 
+/**
+ * Prints `vm-kind=<record>`: /etc/cmux/vm-kind, after one run of the image's sync (cmux-vm-kind-sync, root) when it
+ * does not read owner yet. A claimed warm spare keeps the image's baked `team` until that sync's next tick (every 60 s,
+ * cmux-devbox-boot VM_KIND_SYNC_INTERVAL); the backend's create-time write keeps any record already there
+ * (guestVmKind.ts). While it reads team, the image's claude launcher (agent-auth.sh cmux_agent_auth_resolve,
+ * shared-machine) runs team mode whatever the launch carries: its --settings puts the CodeRouter pair over
+ * settings.json's endpoint and empties CLAUDE_CODE_OAUTH_TOKEN, so the launch credential and the stub are both lost
+ * (run 45276109812 shard 30-0: the stub's turn answered by coderouter.cmux.internal). The app's start is refused there
+ * (cmux-tui agent_start_host.rs); the journey's direct acpmux start is not, so it waits for owner as the app must.
+ */
+export const OWNER_KIND_PROGRAM =
+  `k=$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]'); ` +
+  `if [ "$k" != owner ] && [ -x /usr/local/bin/cmux-vm-kind-sync ]; then sudo -n /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1; ` +
+  `k=$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]'); fi; echo "vm-kind=\${k:-none}"`;
+
+/** Runs {@link OWNER_KIND_PROGRAM} until the record reads owner or `budgetMs` runs out (then throws, naming the record). */
+export async function waitOwnerKind(exec: Exec, budgetMs = 90_000, pauseMs = 3_000, pause = sleep): Promise<{ waitedMs: number; tries: number; first: string }> {
+  const t0 = Date.now();
+  let first = "";
+  for (let tries = 1; ; tries++) {
+    const r = await exec(OWNER_KIND_PROGRAM);
+    const kind = /vm-kind=(\S+)/.exec(r.stdout)?.[1] ?? `unread (exit ${r.code})`;
+    if (!first) first = kind;
+    if (kind === "owner") return { waitedMs: Date.now() - t0, tries, first };
+    if (Date.now() - t0 + pauseMs >= budgetMs) {
+      throw new Error(`/etc/cmux/vm-kind reads ${kind} after ${tries} tries in ${Math.round((Date.now() - t0) / 1000)} s: the image's launcher would run the agent in team mode (CodeRouter), off its launch credential and the stub`);
+    }
+    await pause(pauseMs);
+  }
+}
+
 /** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
@@ -5127,6 +5158,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
+      // An owner machine's agents run on what their launch carries only once its kind record reads owner (OWNER_KIND_PROGRAM).
+      if (provider && !team && !gatewayAny) {
+        await J.step("machine kind owner", async () => {
+          const k = await waitOwnerKind(exec);
+          return { value: null, detail: k.tries === 1 ? "/etc/cmux/vm-kind reads owner" : `/etc/cmux/vm-kind read ${k.first}, owner after ${Math.round(k.waitedMs / 1000)} s (${k.tries} tries)` };
+        });
+      }
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
