@@ -2,8 +2,31 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::ImportReason;
+use super::{ImportReason, MoveTo};
 use crate::wire::Blocked;
+
+/// Why a holder does not give the chat the person moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Declined {
+    /// The chat is past the size cap: it cannot be copied, so it cannot change hands.
+    TooLarge,
+    /// The store refused to take the chat and named why (no laptop stands by, no machine to
+    /// be found).
+    Refused,
+    /// The turn that runs here did not stop.
+    Stuck,
+}
+
+impl Declined {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Declined::TooLarge => "too_large",
+            Declined::Refused => "refused",
+            Declined::Stuck => "stuck",
+        }
+    }
+}
 
 /// One thing for the daemon to do. Plain data: the daemon runs a step's effects in order and
 /// sends what comes of them back as events.
@@ -47,6 +70,20 @@ pub enum Effect {
     /// follows the drain, because the store keeps a `deliver` while a message is unread.
     /// Machine only.
     AckAssignment { epoch: u64 },
+    /// The person moved the chat: stop the turn that runs here now, the way a move by hand
+    /// interrupts one. Its continuation is queued first, in the log, so it runs where the chat
+    /// lands. Nothing else of the chat starts here meanwhile. Answer: `TurnStopped`, also when
+    /// no turn ran.
+    StopTurn,
+    /// `POST /:id/give` at `epoch`: hand the chat to where the person wants it. It follows the
+    /// copy that covers the chat's last event. Answer: `Event::from_give(..)`.
+    Give { epoch: u64 },
+    /// A give did not happen and the chat goes on here: a continuation `StopTurn` queued runs
+    /// here, told that the chat did not move.
+    Stay,
+    /// Tell the person the chat was not moved `to` where they asked, and why. It goes out once
+    /// for a wish: the same wish is not acted on again while the store still tells it.
+    NotMoved { to: MoveTo, why: Declined },
     /// Show this on the chat's row (`autoSession.blocked`), or clear it with None.
     ShowBlocked { blocked: Option<Blocked> },
     /// Send `Tick` at this time (epoch ms). It replaces any earlier schedule for the chat.
@@ -69,18 +106,23 @@ impl Effect {
             Effect::DrainInbox => "drain_inbox",
             Effect::Import { .. } => "import",
             Effect::AckAssignment { .. } => "ack_assignment",
+            Effect::StopTurn => "stop_turn",
+            Effect::Give { .. } => "give",
+            Effect::Stay => "stay",
+            Effect::NotMoved { .. } => "not_moved",
             Effect::ShowBlocked { .. } => "show_blocked",
             Effect::ScheduleAt { .. } => "schedule_at",
         }
     }
 
     /// The name with the data the table shows: `renew(standby)`, `import(handback)`,
-    /// `show_blocked(offline)`.
+    /// `show_blocked(offline)`, `not_moved(too_large)`.
     pub fn label(&self) -> String {
         let detail = match self {
             Effect::Renew { standby: true, .. } => "standby",
             Effect::Renew { needs_run: true, .. } => "needs_run",
             Effect::Import { reason, .. } => reason.as_str(),
+            Effect::NotMoved { why, .. } => why.as_str(),
             Effect::ShowBlocked { blocked: Some(blocked) } => blocked.as_str(),
             Effect::ShowBlocked { blocked: None } => "none",
             Effect::Register { .. }
@@ -94,6 +136,9 @@ impl Effect {
             | Effect::UploadSnapshot { .. }
             | Effect::DrainInbox
             | Effect::AckAssignment { .. }
+            | Effect::StopTurn
+            | Effect::Give { .. }
+            | Effect::Stay
             | Effect::ScheduleAt { .. } => return self.kind().to_owned(),
         };
         format!("{}({detail})", self.kind())

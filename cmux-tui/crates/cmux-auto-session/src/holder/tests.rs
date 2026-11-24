@@ -1,6 +1,9 @@
 //! The table, and what holds for every state against every event. The journeys are in
-//! `tests/laptop.rs` and `tests/machine.rs`.
+//! `tests/laptop.rs` and `tests/machine.rs`, and a move by hand in `tests/give_laptop.rs` and
+//! `tests/give_machine.rs`.
 
+mod give_laptop;
+mod give_machine;
 mod laptop;
 mod machine;
 
@@ -29,9 +32,17 @@ fn request(effects: &[Effect]) -> u64 {
         .expect("a renewal or a registration")
 }
 
-/// A store answer with nothing pending.
+/// A store answer with nothing pending and no wish.
 fn answer(verdict: Verdict, epoch: u64, snapshot: u64) -> Answer {
-    Answer { verdict, epoch, snapshot, inbox_pending: false, handback_due: false }
+    Answer { verdict, epoch, snapshot, inbox_pending: false, handback_due: false, wish: None }
+}
+
+/// The effects' names in order, without the schedule and the row's `blocked`.
+fn acts(effects: &[Effect]) -> Vec<&'static str> {
+    kinds(effects)
+        .into_iter()
+        .filter(|kind| !matches!(*kind, "schedule_at" | "show_blocked"))
+        .collect()
 }
 
 fn table_path() -> PathBuf {
@@ -138,14 +149,16 @@ fn a_tree_is_continued_only_from_stopped_and_never_killed_too() {
     }
 }
 
-/// A chat that ran here and may no longer run had its tree stopped or killed in the same step.
+/// A chat that ran here and may no longer run had its tree stopped or killed in the same step,
+/// or its turn stopped for a give.
 #[test]
 fn a_chat_that_may_no_longer_run_was_stopped_or_killed() {
     for (from, event, before, after, effects) in every_pair() {
         let ran = matches!(before.state, State::Holding { .. } | State::Serving { .. });
         if ran && !after.may_run() {
+            let giving = has(&effects, "stop_turn") && after.moving().is_some();
             assert!(
-                has(&effects, "stop_tree") || has(&effects, "kill_tree"),
+                has(&effects, "stop_tree") || has(&effects, "kill_tree") || giving,
                 "{from} {event}: {:?}",
                 kinds(&effects)
             );
@@ -154,7 +167,8 @@ fn a_chat_that_may_no_longer_run_was_stopped_or_killed() {
 }
 
 /// A machine that loses a chat keeps what it wrote since its last stored copy, unless it had
-/// nothing left to run and the store has that copy: then the laptop has everything.
+/// nothing left to run and the store has that copy: then the laptop has everything. The store
+/// that took a give has everything too.
 #[test]
 fn a_machine_kill_keeps_a_leftover_patch_unless_everything_is_copied() {
     for (from, event, before, _, effects) in every_pair() {
@@ -162,7 +176,56 @@ fn a_machine_kill_keeps_a_leftover_patch_unless_everything_is_copied() {
             let copied = !before.needs_run && before.copy == CopyState::Stored;
             let handed_back =
                 copied && event == "answered_lost" && matches!(before.state, State::Serving { .. });
-            assert_eq!(has(&effects, "write_leftover_patch"), !handed_back, "{from} {event}");
+            let given = event == "gave" && matches!(before.state, State::Returning { .. });
+            assert_eq!(
+                has(&effects, "write_leftover_patch"),
+                !(handed_back || given),
+                "{from} {event}"
+            );
+        }
+    }
+}
+
+/// A give starts with the turn's stop, the store is asked only once it has the chat's newest
+/// copy, and nothing of the chat runs here in between.
+#[test]
+fn a_give_stops_the_turn_then_copies_then_asks() {
+    for (from, event, before, after, effects) in every_pair() {
+        if has(&effects, "stop_turn") {
+            assert!(before.may_run(), "{from} {event}");
+            let step = after.state.giving().map(|(step, _)| step);
+            assert_eq!(step, Some(GiveStep::Stopping), "{from} {event}");
+        }
+        if has(&effects, "give") {
+            let step = after.state.giving().map(|(step, _)| step);
+            assert_eq!(step, Some(GiveStep::Asking), "{from} {event}");
+            assert_eq!(after.copy, CopyState::Stored, "{from} {event}");
+        }
+        if after.moving().is_some() {
+            assert!(after.here() && !after.may_run(), "{from} {event}");
+        }
+    }
+}
+
+/// A give that ends with the chat still here says so (`stay`), so the turn it stopped goes on
+/// here. One that ends with the chat gone, or with Auto's own stop, kills or stops the tree.
+#[test]
+fn a_give_that_ends_is_stayed_or_the_chat_is_gone() {
+    for (from, event, before, after, effects) in every_pair() {
+        if has(&effects, "stay") {
+            assert!(before.moving().is_some() && after.moving().is_none(), "{from} {event}");
+            assert!(!has(&effects, "kill_tree"), "{from} {event}");
+        }
+        if before.moving().is_some() && after.moving().is_none() {
+            assert!(
+                has(&effects, "stay") || has(&effects, "kill_tree"),
+                "{from} {event}: {:?}",
+                kinds(&effects)
+            );
+        }
+        if has(&effects, "not_moved") {
+            assert!(after.declined && !before.declined, "{from} {event}");
+            assert!(after.moving().is_none(), "{from} {event}");
         }
     }
 }
@@ -227,7 +290,8 @@ fn every_write_names_the_chats_epoch() {
                 | Effect::UploadEvents { epoch }
                 | Effect::UploadSnapshot { epoch, .. }
                 | Effect::Import { epoch, .. }
-                | Effect::AckAssignment { epoch } => Some(*epoch),
+                | Effect::AckAssignment { epoch }
+                | Effect::Give { epoch } => Some(*epoch),
                 _ => None,
             };
             if let Some(epoch) = named {
@@ -277,6 +341,33 @@ fn a_holding_laptop_stops_before_the_lease_runs_out() {
         let (after, effects) = step(holding, event, SAMPLE_AT + SELF_STOP_MS);
         assert!(matches!(after.state, State::Stopped { .. }), "{name}");
         assert_eq!(effects.first(), Some(&Effect::StopTree), "{name}");
+        // A give that would begin at that moment does not: the chat is stopped, not given.
+        assert!(!has(&effects, "stop_turn"), "{name}");
+    }
+}
+
+/// A laptop in the middle of a give holds the chat too: it stops before the lease can run out,
+/// unless the store took the chat by then.
+#[test]
+fn a_giving_laptop_stops_before_the_lease_runs_out() {
+    for (from, giving) in sample_chats() {
+        if !matches!(giving.state, State::Giving { .. }) {
+            continue;
+        }
+        for (name, event, _) in sample_events() {
+            if matches!(event, Event::Answered { .. } | Event::Closed { .. } | Event::Wake) {
+                continue;
+            }
+            let (after, effects) = step(giving, event, SAMPLE_AT + SELF_STOP_MS);
+            if matches!(after.state, State::Standby { .. }) {
+                assert_eq!((from, name), ("giving_asking", "gave"));
+                continue;
+            }
+            assert!(matches!(after.state, State::Stopped { .. }), "{from} {name}");
+            assert_eq!(effects.first(), Some(&Effect::StopTree), "{from} {name}");
+            // The turn the give stopped is continued here once the chat may run again.
+            assert!(has(&effects, "stay"), "{from} {name}");
+        }
     }
 }
 

@@ -2,9 +2,33 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Effect, Event, ImportReason, step};
+use super::{Effect, Event, ImportReason, MoveTo, step};
 use crate::consts::SELF_STOP_MS;
 use crate::wire::Blocked;
+
+/// How far a give is: the holder hands the chat to where the person wants it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GiveStep {
+    /// The turn that ran here is being stopped.
+    Stopping,
+    /// Nothing runs here. The copy that covers the chat's last event is on its way, or
+    /// failed and the next tick sends it again; with it stored, the next tick asks again for a
+    /// give the store did not answer.
+    Copying,
+    /// The store has the copy and was asked to take the chat.
+    Asking,
+}
+
+impl GiveStep {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GiveStep::Stopping => "stopping",
+            GiveStep::Copying => "copying",
+            GiveStep::Asking => "asking",
+        }
+    }
+}
 
 /// Which kind of machine this is. A laptop holds as `device:<id>`, stops by itself offline and
 /// stands by; a Cloud machine holds as `vm:<machine>`, takes assignments and hands back.
@@ -46,8 +70,8 @@ pub enum CopyState {
     Failed,
 }
 
-/// Where a chat is on this machine, with the data only that state has. The first six are a
-/// laptop's states and the last three a Cloud machine's, so the state says which side it is.
+/// Where a chat is on this machine, with the data only that state has. The first seven are a
+/// laptop's states and the last four a Cloud machine's, so the state says which side it is.
 /// `epoch` is the epoch this machine writes under (in `standby`, the last one it heard of).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", rename_all_fields = "camelCase")]
@@ -67,6 +91,10 @@ pub enum State {
     /// Laptop: the store gave the chat to this laptop; the import has not finished, so
     /// nothing runs. `failed`: the last attempt failed and the next tick tries again.
     ComingHome { epoch: u64, failed: bool },
+    /// Laptop: this laptop holds the chat and the person moved it (`to`): its turn is stopped,
+    /// its last copy goes to the store, and the store is asked to take it. Nothing of the chat
+    /// starts here meanwhile.
+    Giving { epoch: u64, step: GiveStep, to: MoveTo },
     /// Machine: the chat is not this machine's. It does not run here until the store assigns
     /// it.
     Away,
@@ -77,20 +105,25 @@ pub enum State {
     /// left to run and the store has its last copy, its renewal says so, and the store gives
     /// the chat home to a laptop standing by.
     Serving { epoch: u64 },
+    /// Machine: this machine holds the chat and the person moved it (`to`): the machine's
+    /// [`State::Giving`].
+    Returning { epoch: u64, step: GiveStep, to: MoveTo },
 }
 
 impl State {
     /// Every state's name, in the table's order.
-    pub const KINDS: [&'static str; 9] = [
+    pub const KINDS: [&'static str; 11] = [
         "off",
         "registering",
         "holding",
         "stopped",
         "standby",
         "coming_home",
+        "giving",
         "away",
         "taking",
         "serving",
+        "returning",
     ];
 
     pub fn kind(&self) -> &'static str {
@@ -101,9 +134,11 @@ impl State {
             State::Stopped { .. } => "stopped",
             State::Standby { .. } => "standby",
             State::ComingHome { .. } => "coming_home",
+            State::Giving { .. } => "giving",
             State::Away => "away",
             State::Taking { .. } => "taking",
             State::Serving { .. } => "serving",
+            State::Returning { .. } => "returning",
         }
     }
 
@@ -114,8 +149,12 @@ impl State {
             | State::Holding { .. }
             | State::Stopped { .. }
             | State::Standby { .. }
-            | State::ComingHome { .. } => Side::Laptop,
-            State::Away | State::Taking { .. } | State::Serving { .. } => Side::Machine,
+            | State::ComingHome { .. }
+            | State::Giving { .. } => Side::Laptop,
+            State::Away
+            | State::Taking { .. }
+            | State::Serving { .. }
+            | State::Returning { .. } => Side::Machine,
         }
     }
 
@@ -127,8 +166,28 @@ impl State {
             | State::Stopped { epoch, .. }
             | State::Standby { epoch }
             | State::ComingHome { epoch, .. }
+            | State::Giving { epoch, .. }
             | State::Taking { epoch, .. }
-            | State::Serving { epoch } => Some(*epoch),
+            | State::Serving { epoch }
+            | State::Returning { epoch, .. } => Some(*epoch),
+        }
+    }
+
+    /// The give this holder is in the middle of: how far it is and where the chat goes.
+    pub fn giving(&self) -> Option<(GiveStep, MoveTo)> {
+        match self {
+            State::Giving { step, to, .. } | State::Returning { step, to, .. } => {
+                Some((*step, *to))
+            }
+            State::Off
+            | State::Registering
+            | State::Holding { .. }
+            | State::Stopped { .. }
+            | State::Standby { .. }
+            | State::ComingHome { .. }
+            | State::Away
+            | State::Taking { .. }
+            | State::Serving { .. } => None,
         }
     }
 }
@@ -176,6 +235,11 @@ pub struct Chat {
     pub copy: CopyState,
     /// When the last copy was asked for.
     pub copied_at: u64,
+    /// The store refused to take this chat for the wish it still tells, or the chat is too
+    /// large to copy: the wish is not acted on again until an answer comes without one, or the
+    /// person asks again.
+    #[serde(default)]
+    pub declined: bool,
 }
 
 impl Chat {
@@ -199,6 +263,7 @@ impl Chat {
             copies: 0,
             copy: CopyState::Stored,
             copied_at: 0,
+            declined: false,
         }
     }
 
@@ -238,24 +303,33 @@ impl Chat {
             State::Holding { .. }
             | State::Stopped { .. }
             | State::ComingHome { .. }
+            | State::Giving { .. }
             | State::Taking { .. }
-            | State::Serving { .. } => true,
+            | State::Serving { .. }
+            | State::Returning { .. } => true,
             State::Off | State::Registering | State::Standby { .. } | State::Away => false,
         }
     }
 
     /// The chat's agent may run here now: start a turn, run a queued prompt, go on with a
-    /// tool. False while the tree is stopped, while another holder runs the chat, and during an
-    /// import.
+    /// tool. False while the tree is stopped, while another holder runs the chat, during an
+    /// import, and while the chat is being given to where the person moved it.
     pub fn may_run(&self) -> bool {
         match self.state {
             State::Off | State::Registering | State::Holding { .. } | State::Serving { .. } => true,
             State::Stopped { .. }
             | State::Standby { .. }
             | State::ComingHome { .. }
+            | State::Giving { .. }
             | State::Away
-            | State::Taking { .. } => false,
+            | State::Taking { .. }
+            | State::Returning { .. } => false,
         }
+    }
+
+    /// Where the chat is being moved to by this holder, while it is (the row's `moving`).
+    pub fn moving(&self) -> Option<MoveTo> {
+        self.state.giving().map(|(_, to)| to)
     }
 
     /// What the session row shows as `blocked` from this machine's side. The store's own
@@ -263,16 +337,17 @@ impl Chat {
     pub fn blocked(&self) -> Option<Blocked> {
         match self.state {
             State::Stopped { why: Stop::Offline, .. } => Some(Blocked::Offline),
-            State::Holding { .. } | State::Stopped { why: Stop::Wake, .. } => {
-                self.too_large.then_some(Blocked::TooLarge)
-            }
+            State::Holding { .. }
+            | State::Stopped { why: Stop::Wake, .. }
+            | State::Giving { .. } => self.too_large.then_some(Blocked::TooLarge),
             State::Off
             | State::Registering
             | State::Standby { .. }
             | State::ComingHome { .. }
             | State::Away
             | State::Taking { .. }
-            | State::Serving { .. } => None,
+            | State::Serving { .. }
+            | State::Returning { .. } => None,
         }
     }
 
@@ -288,10 +363,12 @@ impl Chat {
     /// this renewal.
     pub fn reports_needs_run(&self) -> bool {
         match self.state {
-            State::Holding { .. } | State::Stopped { .. } => {
+            State::Holding { .. } | State::Stopped { .. } | State::Giving { .. } => {
                 self.needs_run && self.snapshot > 0 && !self.too_large
             }
-            State::Serving { .. } => self.needs_run || self.copy != CopyState::Stored,
+            State::Serving { .. } | State::Returning { .. } => {
+                self.needs_run || self.copy != CopyState::Stored
+            }
             State::Off
             | State::Registering
             | State::Standby { .. }
@@ -302,9 +379,12 @@ impl Chat {
     }
 
     /// When a laptop that holds the chat stops it by itself, with no renewal answered by then.
+    /// A laptop in the middle of a give holds the chat too.
     pub fn self_stop_at(&self) -> Option<u64> {
         match self.state {
-            State::Holding { .. } => Some(self.fresh_at.saturating_add(SELF_STOP_MS)),
+            State::Holding { .. } | State::Giving { .. } => {
+                Some(self.fresh_at.saturating_add(SELF_STOP_MS))
+            }
             State::Off
             | State::Registering
             | State::Stopped { .. }
@@ -312,7 +392,8 @@ impl Chat {
             | State::ComingHome { .. }
             | State::Away
             | State::Taking { .. }
-            | State::Serving { .. } => None,
+            | State::Serving { .. }
+            | State::Returning { .. } => None,
         }
     }
 

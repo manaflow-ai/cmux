@@ -110,12 +110,17 @@ impl Daemon {
                 ready(self.cloud.ack_assignment(CHAT, &self.fence(epoch))).expect("acked");
                 None
             }
+            // No answer here carries a wish yet, so the holder asks for none of the last four.
             Effect::StopTree
             | Effect::ContinueTree
             | Effect::KillTree
             | Effect::WriteLeftoverPatch
             | Effect::ShowBlocked { .. }
-            | Effect::ScheduleAt { .. } => None,
+            | Effect::ScheduleAt { .. }
+            | Effect::StopTurn
+            | Effect::Give { .. }
+            | Effect::Stay
+            | Effect::NotMoved { .. } => None,
         }
     }
 

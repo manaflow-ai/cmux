@@ -39,10 +39,17 @@
 //! - **Copies.** While this machine runs the chat, a turn end, a tool end and a queue change
 //!   send the events and a snapshot, and a streaming turn at most every
 //!   [`STREAM_COPY_MS`](crate::consts::STREAM_COPY_MS).
+//! - **A move by hand.** The store tells the holder the person's wish in its lease answer. The
+//!   holder stops its turn (`StopTurn`), stores a copy that covers the chat's last event, then
+//!   asks the store to take the chat (`Give`); `auto.not_copied` copies again and asks again.
+//!   After the give a laptop stands by and a machine has lost the chat. A give that does not
+//!   happen leaves the chat running here (`Stay`). A chat too large to copy is not given, nor
+//!   one the store refused or whose turn did not stop: the person is told once (`NotMoved`).
 
 mod chat;
 mod effect;
 mod event;
+mod give;
 mod laptop;
 mod machine;
 mod out;
@@ -50,9 +57,9 @@ mod reason;
 mod step;
 mod table;
 
-pub use chat::{Chat, CopyState, Sent, Side, State, Stop};
-pub use effect::Effect;
-pub use event::{Answer, Change, Event, Verdict};
+pub use chat::{Chat, CopyState, GiveStep, Sent, Side, State, Stop};
+pub use effect::{Declined, Effect};
+pub use event::{Answer, Change, Event, GiveFailure, MoveTo, Verdict};
 pub use reason::ImportReason;
 pub use step::{CLOCK_SLACK_MS, step};
 pub use table::{
