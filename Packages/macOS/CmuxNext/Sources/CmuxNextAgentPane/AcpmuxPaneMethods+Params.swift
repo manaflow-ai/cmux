@@ -130,6 +130,9 @@ nonisolated extension AcpmuxPaneMethods {
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
+        // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
+        // `place` name and its `headroom`, all data the page already holds (Cloud today).
+        "_acpmux/place_chat": (["where", "targets"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
@@ -205,6 +208,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `ended`: how many ended subagents to list, at most 500.
+        "_acpmux/subagents": (["sessionId", "ended"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
         "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
