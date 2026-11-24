@@ -127,14 +127,15 @@ nonisolated extension AgentWatchPage {
 
     /// Sets this Mac's session `id` as a push or a follow's row has it: a nil fact is none.
     public mutating func setSession(_ id: String, state: AgentTurnState?, lastMessage: String?, muted isMuted: Bool, title: String?,
-                                    generatedTitle: String?, sessionName: String?, detail: AgentChatDetail?, lane: AgentActivityLane?,
-                                    startedBy parent: String?) {
+                                    generatedTitle: String?, sessionName: String?, identity: AgentSessionIdentity? = nil,
+                                    detail: AgentChatDetail?, lane: AgentActivityLane?, startedBy parent: String?) {
         states.set(id, state)
         lastMessages[id] = lastMessage
         if isMuted { muted.insert(id) } else { muted.remove(id) }
         titles[id] = title
         generatedTitles[id] = generatedTitle
         sessionNames[id] = sessionName
+        identities[id] = identity
         details[id] = detail
         lanes[id] = lane
         startedBy[id] = parent
@@ -169,7 +170,7 @@ nonisolated extension AgentWatchPage {
             let id = row.session
             setSession(id, state: rows.states[id], lastMessage: rows.lastMessages[id], muted: rows.muted.contains(id),
                        title: rows.titles[id], generatedTitle: rows.generatedTitles[id], sessionName: rows.sessionNames[id],
-                       detail: rows.details[id], lane: rows.lanes[id], startedBy: rows.startedBy[id])
+                       identity: rows.identities[id], detail: rows.details[id], lane: rows.lanes[id], startedBy: rows.startedBy[id])
         }
         for row in follow.gone {
             if let peer = row.peer {

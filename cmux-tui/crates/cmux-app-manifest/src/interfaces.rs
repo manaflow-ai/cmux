@@ -15,10 +15,12 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.chat.action/1" => "cmux.chat.action",
     "cmux.composer.chip/1" => "cmux.composer.chip",
     "cmux.composer.toolbar/1" => "cmux.composer.toolbar",
     "cmux.composer.command/1" => "cmux.composer.command",
     "cmux.composer.mention/1" => "cmux.composer.mention",
+    "cmux.composer.model.picker/1" => "cmux.composer.model.picker",
     "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",

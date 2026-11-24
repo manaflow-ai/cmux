@@ -8,11 +8,13 @@ import type {
   ImportCounts,
   ImportRow,
   ImportState,
-  MakeItYoursBackground,
-  MakeItYoursState,
   OnboardingFooter,
   OnboardingState,
+  MakeItYoursBackground,
+  MakeItYoursState,
 } from "./ops";
+import { agentFamily } from "../shared/signIn/ProviderReadiness";
+import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -131,6 +133,27 @@ export function agentsState(kind: AgentsFixture = "mixed"): OnboardingState {
     },
     importer: null,
     computerUse: null,
+  };
+}
+
+/** The agents step as a host with the in-place sign-in sends it: the daemon's `signInReadiness`
+ * and `signInAccounts` (shared/signIn/galleryFixtures.ts READINESS), and the agents it installs. */
+export function withReadiness(state: OnboardingState, fixture: ReadinessFixtureCase): OnboardingState {
+  const installing = fixture.installing ?? [];
+  const agents = state.agents && {
+    ...state.agents,
+    rows: state.agents.rows.map((row) => {
+      const family = agentFamily(row.id);
+      return family && installing.includes(family)
+        ? { ...row, install: { state: "installing" as const, step: "download" } }
+        : row;
+    }),
+  };
+  return {
+    ...state,
+    agents,
+    signInAccounts: fixture.accounts.map((account) => ({ ...account })),
+    signInReadiness: { providers: fixture.providers.map((provider) => ({ ...provider })) },
   };
 }
 
@@ -363,20 +386,30 @@ export function importState(kind: ImportFixture = "ready"): OnboardingState {
 
 // MARK: Computer Use
 
-export type ComputerUseFixture = "fresh" | "oneGranted" | "allGranted" | "helperFailed" | "off" | "unavailable";
+/** `finished`: the person's Allow got the last grant on (the done view); `confirmingCapture`: Screen
+ * Recording was just allowed here while Accessibility still waits (the Screenshots row's capture note). */
+export type ComputerUseFixture =
+  | "fresh"
+  | "oneGranted"
+  | "allGranted"
+  | "finished"
+  | "confirmingCapture"
+  | "helperFailed"
+  | "off"
+  | "unavailable";
 
 export function computerUseState(kind: ComputerUseFixture = "fresh"): OnboardingState {
+  const allOn = kind === "allGranted" || kind === "finished";
   const rows: ComputerUseState["rows"] = [
     {
       pane: "accessibility",
-      control:
-        kind === "oneGranted" || kind === "allGranted" ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
+      control: kind === "oneGranted" || allOn ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
       icon: accessibilityIcon,
     },
     {
       pane: "screenRecording",
       control:
-        kind === "allGranted"
+        allOn || kind === "confirmingCapture"
           ? "done"
           : kind === "helperFailed"
             ? "hidden"
@@ -388,13 +421,13 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   ];
   return {
     step: "computerUse",
-    footer: footer({ primary: "done", primaryEnabled: kind === "allGranted" }),
+    footer: footer({ primary: "done", primaryEnabled: allOn }),
     agents: null,
     importer: null,
     computerUse: {
       helperIcon: kind === "unavailable" ? null : helperIcon,
       rows,
-      allGranted: kind === "allGranted",
+      allGranted: allOn,
       note:
         kind === "helperFailed"
           ? "helperFailed"
@@ -404,7 +437,9 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               ? "unavailable"
               : null,
       showsRestart: kind === "helperFailed",
-      comebacks: kind === "oneGranted" ? 1 : 0,
+      comebacks: kind === "oneGranted" || kind === "confirmingCapture" ? 1 : kind === "finished" ? 2 : 0,
+      finished: kind === "finished",
+      confirmsCapture: kind === "confirmingCapture" || kind === "finished",
     },
   };
 }

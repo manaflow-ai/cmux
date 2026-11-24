@@ -482,6 +482,25 @@ fn a_config_that_is_not_json_is_named_and_left_as_it_is() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
 
+/// #39320 review: an unlink over a config it cannot read or parse is a failure, never "not
+/// linked" with a zero exit; the config is left as it is.
+#[test]
+fn an_unlink_over_an_unreadable_config_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    let path = env.config_path(App::ClaudeDesktop);
+    std::fs::write(&path, "{ not json").unwrap();
+    for dry_run in [false, true] {
+        let row = unlink(&env, App::ClaudeDesktop, dry_run);
+        assert!(row.note.as_deref().is_some_and(|n| n.contains("is not JSON")), "{:?}", row.note);
+        assert!(row.failed("unlink"), "dry run {dry_run}: {:?}", row.note);
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    // A config with no entry is a clean unlink.
+    std::fs::write(&path, r#"{"mcpServers": {}}"#).unwrap();
+    assert!(!unlink(&env, App::ClaudeDesktop, false).failed("unlink"));
+}
+
 /// A stand-in `claude` CLI that writes `~/.claude.json` the way `claude mcp add-json` and
 /// `claude mcp remove` do, and logs its argv.
 #[cfg(unix)]

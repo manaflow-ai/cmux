@@ -143,6 +143,7 @@ pub(crate) fn start_host_runtime(
         exit_published: AtomicBool::new(false),
         exit_record_path: Path::new(&launch.record_path).with_extension("exit"),
         exit_publish_requests,
+        exit_publisher: Mutex::new(None),
         force_pty_drain: AtomicBool::new(false),
         pty_drain_waker: Mutex::new(pty_drain_waker),
         termination_started: AtomicBool::new(false),

@@ -5,6 +5,10 @@ self-hosted-runner:
     # these are the literal labels referenced as fallbacks or as manual
     # workflow_dispatch choices.
     # See docs/ci-runners.md.
+    # The one own-branch Mac label (Leo, 2026-11-21): a Mac job that needs only a
+    # plain Mac with Xcode 26.6 reads vars.CI_OVERFLOW_MAC || 'cmux-mac'; the 60
+    # shared Mac runners carry it.
+    - cmux-mac
     - blacksmith-6vcpu-macos-15
     - blacksmith-6vcpu-macos-26
     - blacksmith-6vcpu-macos-latest

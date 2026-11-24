@@ -49,7 +49,7 @@ class BudgetTable(unittest.TestCase):
                             {"g2g": [20.0, 30.0, 40.0]}, label="after", rev="abc")
         rows = rows_named(b)
         self.assertEqual([r["row"] for r in b["rows"]],
-                         ["Input", "Screen", "Capture", "Encode", "Send", "Network", "Reassembly",
+                         ["Input", "Screen", "Capture", " Gate wait", " Readback", "Encode", "Send", "Network", "Reassembly",
                           "Decode", "Present", "Total"])
         self.assertEqual(rows["Input"]["cmux"]["source"], "up + inject")
         self.assertEqual(sorted([rows["Input"]["cmux"]["p50"], rows["Input"]["cmux"]["p95"]]), [1.5, 3.5])
@@ -498,6 +498,11 @@ class BudgetInputTests(unittest.TestCase):
     def test_budget_input_defaults_to_key(self):
         self.assertEqual(vs.build_budget({"rows": [breakdown_row()]}, None)["input"], "key")
 
+    def test_budget_names_the_encode_profile(self):
+        b = vs.build_budget({"rows": [breakdown_row()]}, None, encode_profile="ultra")
+        self.assertEqual(b["encode_profile"], "ultra")
+        self.assertIsNone(vs.build_budget({"rows": [breakdown_row()]}, None)["encode_profile"])
+
 
 class FakeRelay(vs.SpoolRemote):
     """A SpoolRemote whose relay is a local shell: each run is one `reach` call's command,
@@ -655,6 +660,32 @@ class AppViewerHelpers(unittest.TestCase):
         self.assertEqual(got, [{"id": 1, "method": "debug.mac_screen", "params": {"action": "state"}}])
         self.assertIn("error", vs.app_call(["/nonexistent.sock"], "x"))
 
+    def test_launch_refuses_a_release_app_at_once(self):
+        # A NIGHTLY answers system.ping but not debug.mac_screen: launch says so, no 120 s wait.
+        calls = []
+
+        def fake_call(paths, method, params=None, timeout=60):
+            calls.append(method)
+            if method == "debug.mac_screen":
+                return {"error": {"code": "method_not_found", "message": "debug.mac_screen"}}
+            return {"pong": True}
+
+        orig, vs.app_call = vs.app_call, fake_call
+        orig_id, vs.app_bundle_id = vs.app_bundle_id, lambda app: "com.cmuxterm.app.nightly"
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                a = vs.build_parser().parse_args(["app", "launch", "--app", os.path.join(d, "cmux NIGHTLY.app")])
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    vs.cmd_app(a)
+        finally:
+            vs.app_call, vs.app_bundle_id = orig, orig_id
+        got = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertIn("is a Release build", got["error"])
+        self.assertIn("mac_screen.state", got["error"])
+        self.assertTrue(got["reused"])
+        self.assertEqual(calls, ["system.ping", "debug.mac_screen"])
+
     def test_locate_output(self):
         self.assertEqual(vs.parse_locate("origin 812,402 cell 32 at 868,418\n"), ("812,402", 32, "868,418"))
         self.assertIsNone(vs.parse_locate("no marker\n"))
@@ -718,10 +749,15 @@ class AppViewerRun(unittest.TestCase):
             if method == "debug.device_hub" and params["action"] == "connect":
                 opened.append(params)
                 return {"ok": True}
+            if method == "mac_screen.state":
+                # Every build's read: the pane timings come from here, not debug.mac_screen.
+                self.assertEqual(params, {"tab": "t1"})
+                return {"tabs": [{k: row[k] for k in ("tab", "phase") + vs.APP_TIMING_FIELDS if k in row}]}
             if method == "debug.mac_screen":
+                dev = {k: v for k, v in row.items() if k not in vs.APP_TIMING_FIELDS}
                 if "tab" in params:
-                    return {"tabs": [row]}
-                return {"tabs": [row] if opened else []}
+                    return {"tabs": [dev]}
+                return {"tabs": [dev] if opened else []}
             return {}
         return answer
 
@@ -836,6 +872,86 @@ class ClockRetryTest(unittest.TestCase):
             o.clock()
         self.assertEqual(len(calls), vs.Orchestrator.CLOCK_TRIES)
         self.assertIn("RuntimeError: a | TimeoutError: b | ValueError: c", str(e.exception))
+
+
+class HostTestLossTest(unittest.TestCase):
+    def orchestrator(self, pct):
+        o = vs.Orchestrator.__new__(vs.Orchestrator)
+        o.host_test_loss = pct
+        o.host_args, o.viewer_args, o.host_argv, o.out = [], [], [], None
+        o.root = "/r"
+        o.a = argparse.Namespace(synthetic_size=None, synthetic_scene=None, link_bind=None)
+        return o
+
+    def test_the_value_is_checked(self):
+        self.assertEqual(vs.test_loss_pct(1.0), "1")
+        self.assertEqual(vs.test_loss_pct("0.5"), "0.5")
+        for bad in (0, -1, 100.5, "x"):
+            with self.assertRaises(ValueError):
+                vs.test_loss_pct(bad)
+
+    def test_the_flag_parses(self):
+        a = vs.build_parser().parse_args(run_argv("--host-test-loss", "1"))
+        self.assertEqual(a.host_test_loss, 1.0)
+        self.assertIsNone(vs.build_parser().parse_args(run_argv()).host_test_loss)
+
+    def test_synthetic_serve_sets_the_env(self):
+        self.assertIn("CMUX_RD_TEST_LOSS_PCT=1 ", self.orchestrator("1").synthetic_serve("fps"))
+        self.assertNotIn("CMUX_RD_TEST_LOSS_PCT", self.orchestrator(None).synthetic_serve("fps"))
+
+    def test_rows_record_it_only_when_set(self):
+        for pct, want in (("1", {"host_test_loss_pct": 1.0}), (None, {})):
+            o = self.orchestrator(pct)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                o.log({"mode": "fps"})
+            row = json.loads(out.getvalue())
+            self.assertEqual({k: v for k, v in row.items() if k == "host_test_loss_pct"}, want)
+
+
+class RemoteRunStdin(unittest.TestCase):
+    """Remote.run with no input gives the remote command /dev/null, not the orchestrator's stdin."""
+
+    def test_no_input_reads_dev_null(self):
+        r = vs.Remote("here", "local")
+        r_fd, w_fd = os.pipe()  # an open stdin that never ends: inherited, `cat` would block
+        saved = os.dup(0)
+        try:
+            os.dup2(r_fd, 0)
+            self.assertEqual(r.run("cat; echo done", timeout=10), "done\n")
+        finally:
+            os.dup2(saved, 0)
+            for fd in (saved, r_fd, w_fd):
+                os.close(fd)
+
+    def test_input_is_still_passed(self):
+        self.assertEqual(vs.Remote("here", "local").run("cat", timeout=10, stdin="hi"), "hi")
+
+
+class ClockProbeDeadline(unittest.TestCase):
+    """A clock probe at a silent-but-for-one-reply peer stops at --max-seconds, not after count misses."""
+
+    def test_probe_stops_at_its_deadline(self):
+        import threading
+        import time
+        srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        srv.bind(("127.0.0.1", 0))
+        port = srv.getsockname()[1]
+
+        def answer_once():  # one reply, then a lossy link drops everything
+            data, peer = srv.recvfrom(64)
+            srv.sendto(data[:8] + (0).to_bytes(8, "big"), peer)
+        t = threading.Thread(target=answer_once, daemon=True)
+        t.start()
+        args = argparse.Namespace(addr=f"127.0.0.1:{port}", count=200, gap_ms=0, max_seconds=1.5)
+        out = io.StringIO()
+        t0 = time.time()
+        try:
+            with contextlib.redirect_stdout(out):
+                vs.cmd_clock_probe(args)
+        finally:
+            srv.close()
+        self.assertLess(time.time() - t0, 3.0)
+        self.assertEqual(json.loads(out.getvalue())["replies"], 1)
 
 
 if __name__ == "__main__":

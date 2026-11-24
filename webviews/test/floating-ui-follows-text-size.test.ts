@@ -173,7 +173,7 @@ const FLOATING: Array<{ file: string; selector: string; properties: string[] }> 
   { file: "agent-session/acpmux/quickModelColumns.css", selector: ".acpmux-cols-card", properties: ["width"] },
   {
     file: "agent-session/acpmux/header/header.css",
-    selector: ".acpmux-header-preview",
+    selector: ".acpmux-header-preview.ui-card",
     properties: ["max-width", "padding"],
   },
   {

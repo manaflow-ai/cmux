@@ -117,8 +117,8 @@ final class AppPageNativeProvider: PageProvider {
                               context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard let forward else { throw PageError.unknownOp(op) }
         let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
-        guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
-        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
+        if !page.runsOnClick(op, context), !(await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor())) { return ["confirmed": false] }
+        let value = try await forward(op, args, context.asConfirmedUser)
         return ["confirmed": true, "value": value]
     }
 

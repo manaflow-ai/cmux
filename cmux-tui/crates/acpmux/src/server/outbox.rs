@@ -125,32 +125,8 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params("team messaging requires a configured mesh relay")
             .with_data(json!({"reason": "team_messaging_unavailable", "address": target})));
     }
-    // A session here, one a peer lists, or one on a peer that is down now: anything else is no
-    // session, said at once.
-    if hub.resolve(&target).is_err()
-        && hub.resolve_remote(&target).is_none()
-        && hub.peer_down_for(&target).is_none()
-        && hub.no_session_is_final(&target)
-    {
-        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
-        // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
-        // refusal (`Hub::mesh_may_route`).
-        if let Some(mesh) = hub.mesh.get()
-            && hub.mesh_may_route(&target)
-        {
-            return super::mesh_send::send(hub, conn, &mesh, &request, &target).await;
-        }
-        // The machine is reachable and has no such session: refused now, never queued, with the
-        // closest names there so the sender can pick one (`hub/no_session.rs`).
-        let (text, data) = hub.no_session_text(&target);
-        return Err(
-            RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
-        );
-    }
-    // A peer that is down now: queued and tried again, and the answer says so.
-    let host_unreachable = hub.host_unreachable_for(&target);
-    // Over the caps it is refused now, never kept (`attach.rs`).
-    crate::attach::check_wire(&request)?;
+    // Its prompt id, fixed before anything is sent: the hub's key for it (`mesh_send.rs`) and
+    // the outbox's are the same, so a post the outbox sends again is the same message.
     let mux = request
         .as_object_mut()
         .map(|r| r.entry("_meta").or_insert_with(|| json!({})))
@@ -162,6 +138,40 @@ pub(super) async fn handle(
     if mux.get("promptId").and_then(Value::as_str).is_none_or(str::is_empty) {
         mux.insert("promptId".into(), json!(uuid::Uuid::now_v7().to_string()));
     }
+    // A post the hub did not take in a way that passes, kept for the outbox's retry, and why.
+    let mut hub_post: Option<(crate::mesh::OutMessage, String)> = None;
+    // A session here, one a peer lists, or one on a peer that is down now: anything else is no
+    // session, said at once.
+    if hub.resolve(&target).is_err()
+        && hub.resolve_remote(&target).is_none()
+        && hub.peer_down_for(&target).is_none()
+        && hub.no_session_is_final(&target)
+    {
+        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
+        // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
+        // refusal (`Hub::mesh_may_route`).
+        // A hub that fails in a way that passes (a 503 from overload, no answer) never fails the
+        // send: it is kept here and the outbox posts it again (RFD 0049 R1).
+        if let Some(mesh) = hub.mesh.get()
+            && hub.mesh_may_route(&target)
+        {
+            match super::mesh_send::post_or_queue(hub, conn, &mesh, &request, &target).await {
+                super::mesh_send::Posted::Answered(answer) => return answer,
+                super::mesh_send::Posted::Queue { post, why } => hub_post = Some((post, why)),
+            }
+        } else {
+            // The machine is reachable and has no such session: refused now, never queued,
+            // with the closest names there so the sender can pick one (`hub/no_session.rs`).
+            let (text, data) = hub.no_session_text(&target);
+            return Err(
+                RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
+            );
+        }
+    }
+    // A peer that is down now: queued and tried again, and the answer says so.
+    let host_unreachable = hub.host_unreachable_for(&target);
+    // Over the caps it is refused now, never kept (`attach.rs`).
+    crate::attach::check_wire(&request)?;
     let now = crate::store::now_ms();
     let delivery_id = uuid::Uuid::now_v7().to_string();
     if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
@@ -177,14 +187,15 @@ pub(super) async fn handle(
         not_terminal: !conn.is_person() && !conn.may_be_owner_terminal(),
         state: State::Queued,
         attempts: 0,
-        never_sent: true,
+        // The hub may hold a post that did not answer in time: only the relay sends it again.
+        never_sent: hub_post.is_none(),
         resends: 0,
         resent_at: 0,
-        relay_post: None,
+        relay_post: hub_post.as_ref().map(|(post, _)| post.clone()),
         open_on_peer: false,
         pin: None,
         proof: None,
-        error: None,
+        error: hub_post.map(|(_, why)| why),
         accepted: None,
         created_at: now,
         updated_at: now,
@@ -665,6 +676,13 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         let ready = hub.outbox.peer_ready.notified();
         tokio::pin!(ready);
         ready.as_mut().enable();
+        // The same for the hub's gate opening (`mesh_gate.rs` `Gate::opened`): a delivery the
+        // hub carries is tried the moment the hub takes a post again (RFD 0086 item 2).
+        let opened = hub.mesh.gate().opened.notified();
+        tokio::pin!(opened);
+        opened.as_mut().enable();
+        // This attempt asked the team hub (or its gate kept it from asking).
+        let mut relayed = false;
         let attempt = delivery.attempts + 1;
         // Saved as maybe sent, and with its pin, before the attempt may reach the peer
         // (below): an attempt whose state is not on disk does not go (review of #37284 at
@@ -719,6 +737,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         } else if delivery.relay_post.is_some() {
             // The hub may hold it already: only the relay tries it again. With the relay off here
             // it may still deliver it (the target's daemon reads it), so it is never sent twice.
+            relayed = true;
             relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
                 let key = delivery.relay_post.as_ref().map_or("", |m| m.idempotency_key.as_str());
                 let why = format!(
@@ -757,6 +776,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             match outcome {
                 // Nothing has reached the target: the mesh relay carries it when it can.
                 Err((error, Next::Unsent)) if delivery.never_sent => {
+                    relayed = true;
                     match relay_attempt(hub, &delivery).await {
                         Some(Ok(accepted)) => Ok(accepted),
                         Some(Err((why, next))) => Err((format!("{error}; {why}"), next)),
@@ -909,15 +929,29 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 // keeps its bounded schedule: another peer's reconnects must not use it up. A
                 // message's wait never runs past its day; an intent's delays are never cut, so an
                 // intent older than a day after a restart does not spend its retries at once.
-                let sleep =
-                    tokio::time::sleep(retry_sleep(&delivery, secs, crate::store::now_ms()));
-                if delivery.projection_only() || !wake_on_ready {
-                    sleep.await;
-                } else {
-                    tokio::select! {
-                        () = sleep => {}
-                        () = ready => {}
-                    }
+                //
+                // A delivery the hub carries (its post is kept) ends its wait when the hub's gate
+                // opens: the outbox drains as soon as the hub is back, not on each send's own
+                // schedule. Its key makes the post again the same message. One the hub's shut gate
+                // held waits for the gate, not its own schedule: until the gate lets its next probe
+                // go (with a little jitter, so the queue does not race for it) or the hub takes any
+                // post, whichever comes first. Twenty sends refused in one window go together once
+                // it opens, in their order (`waits_behind`), rather than one per window as each own
+                // back-off ran out (RFD 0049 R1).
+                let own = retry_sleep(&delivery, secs, crate::store::now_ms());
+                let by_hub = hub.outbox.get(id).is_some_and(|d| d.relay_post.is_some());
+                let behind_gate = !delivery.projection_only() && relayed && hub.mesh.gate().shut();
+                let wait = match hub.mesh.gate().reopens_at().filter(|_| behind_gate) {
+                    Some(at) => own.min(gate_wait(at, crate::peer_link::jitter())),
+                    None => own,
+                };
+                let sleep = tokio::time::sleep(wait);
+                let on_ready = !delivery.projection_only() && wake_on_ready;
+                let on_open = !delivery.projection_only() && (by_hub || behind_gate);
+                tokio::select! {
+                    () = sleep => {}
+                    () = ready, if on_ready => {}
+                    () = opened, if on_open => {}
                 }
             }
         }
@@ -1051,6 +1085,8 @@ async fn redeliver_one(
         }
         Step::Release => close_open(hub, d, od::release).await,
         Step::Wait | Step::Check => {}
+        // Answered a duplicate with its final outcome already: closed, not sent again (`done_on_peer`).
+        Step::Again if od::done_on_peer(d) => close_open(hub, d, od::release).await,
         Step::Again | Step::Unproven => {
             if step == Step::Unproven {
                 // Proven by records no restore gave back and no journal holds (review of #37284
@@ -1115,6 +1151,16 @@ fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
     delay.min(Duration::from_millis(left))
 }
 
+/// The most a send behind the hub's gate adds to the gate's reopening, spread by `jitter`
+/// (0..1) so the queue's wakes do not all land on the same instant.
+const GATE_JITTER: Duration = Duration::from_millis(250);
+
+/// How long a send behind the hub's shut gate sleeps: until `reopens_at`, plus its jitter.
+fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
+    let left = reopens_at.saturating_duration_since(tokio::time::Instant::now());
+    left + GATE_JITTER.mul_f64(jitter.clamp(0.0, 1.0))
+}
+
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
 /// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
 fn expired(delivery: &Delivery, now: u64) -> bool {
@@ -1159,6 +1205,20 @@ async fn relay_attempt(
     Some(outcome.map_err(|e| {
         let held =
             matches!(e.code.as_deref(), Some("mesh.idempotency_conflict" | "mesh.not_found"));
+        let passes = crate::mesh_retry::transient(&e, true);
+        if hub_only(hub, &delivery.target) {
+            // Only the hub routes it: its refusal is final, said with its reason, and anything
+            // else is tried again through it on the outbox's back-off.
+            return if e.code.as_deref() == Some(super::mesh_send::BACKING_OFF) {
+                // Not asked: the reason it waits is still the hub's last answer.
+                let why = delivery.error.clone();
+                (why.unwrap_or_else(|| super::mesh_send::waiting_reason(&e)), Next::Retry)
+            } else if passes || held {
+                (super::mesh_send::waiting_reason(&e), Next::Retry)
+            } else {
+                (format!("the mesh hub refused it: {e}"), Next::Fail)
+            };
+        }
         let next = if e.refused && !held {
             hub.outbox.update(&delivery.id, |d| d.relay_post = None);
             Next::Unsent
@@ -1167,6 +1227,13 @@ async fn relay_attempt(
         };
         (format!("the mesh relay did not take it: {e}"), next)
     }))
+}
+
+/// Whether only the hub routes `target`: no session here, none a peer lists, no peer of it down.
+fn hub_only(hub: &Hub, target: &str) -> bool {
+    hub.resolve(target).is_err()
+        && hub.resolve_remote(target).is_none()
+        && hub.peer_down_for(target).is_none()
 }
 
 /// What delivery `d` is saved as while its attempt `attempt` runs: the record a restart resumes.
@@ -1461,6 +1528,36 @@ mod no_session_next_tests {
         let down = RpcError::internal("down").with_data(json!({"reason": "peer_unreachable"}));
         assert_eq!(next(&down), Next::Unsent);
         assert_eq!(next(&RpcError::internal("connection reset")), Next::Retry);
+    }
+
+    /// A session whose folder is gone keeps the delivery: the folder may come back, so it is
+    /// tried again, and the refusal names the folder.
+    #[test]
+    fn a_missing_folder_is_tried_again_and_named() {
+        use crate::hub::worktree_care::folder_missing;
+        let gone = folder_missing("probe", std::path::Path::new("/tmp/probe-gone"), "is gone");
+        assert_eq!(next(&gone), Next::Retry);
+        assert!(gone.message.starts_with("session.folder_missing"), "{}", gone.message);
+        assert!(gone.message.contains("/tmp/probe-gone"), "{}", gone.message);
+    }
+
+    /// How many attempts one message to a session whose folder stays gone makes in two hours on
+    /// the outbox's own schedule, with no peer's reconnect ending a wait (`deliver`'s
+    /// `wake_on_ready`): the schedule, then a doubling tail.
+    #[test]
+    fn a_missing_folder_is_tried_eleven_times_in_two_hours() {
+        use crate::hub::worktree_care::folder_missing;
+        let d = super::retry_delay_tests::delivery(0, false);
+        let refusal = folder_missing("probe", std::path::Path::new("/tmp/x"), "is gone");
+        let (mut delays, mut tail, mut now, mut attempts) = (RETRY_DELAYS_SECS.iter(), 0, 0, 0);
+        let two_hours = 2 * 60 * 60 * 1000;
+        while now <= two_hours && !expired(&d, now) {
+            attempts += 1;
+            assert_eq!(next(&refusal), Next::Retry);
+            let Some(secs) = retry_delay(&mut delays, &mut tail, &d, now) else { break };
+            now += retry_sleep(&d, secs, now).as_millis() as u64;
+        }
+        assert_eq!(attempts, 11);
     }
 }
 
@@ -1967,3 +2064,7 @@ mod forward_projection_tests {
 #[cfg(test)]
 #[path = "outbox_relay_tests.rs"]
 mod relay_tests;
+
+#[cfg(test)]
+#[path = "outbox_hub_queue_tests.rs"]
+mod hub_queue_tests;

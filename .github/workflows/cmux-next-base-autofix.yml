@@ -151,7 +151,8 @@ jobs:
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
+    # 15, not 5: on a slow cmux-linux runner the checkout alone used the whole 5 (runs 45335340351, 45339629317 cancelled in checkout), so the exports stopped regenerating.
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -610,7 +611,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
@@ -715,7 +716,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     # 20 minutes of repair and push, plus the compile gate's wait (base-autofix-compile-gate.sh, 40 min) when a repair changes Swift.
     timeout-minutes: 65
     permissions:
@@ -813,12 +814,50 @@ jobs:
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: ./scripts/install-zig-ci.sh
 
+      # The clippy gate's warm target (cmux-tui-spec.yml clippy, "Mount the warm clippy target"): the last
+      # feat-cmux-next clippy's whole target dir and cargo registry on a Blacksmith sticky disk, mounted as
+      # a clone this job never writes back. The rust-cache entry below found nothing on 2026-11-21, so a
+      # run that had no green run to diff from (every repair, all 145 crates) spent 16 of its 18 minutes
+      # of Repair building clippy cold on 4 vCPU (run 44930924492). A source whose content equals the
+      # snapshot's gets its recorded mtime back, so a changed file is always checked again. A failed
+      # mount or an empty disk falls back to the rust-cache restore, as before.
+      - name: Mount the warm clippy target (read-only)
+        id: warm-read
+        if: steps.areas.outputs.clippy == 'true' && startsWith(runner.name, 'blacksmith')
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-tui-clippy-warm-v1-next
+          path: /home/runner/cmux-tui-clippy-warm
+          commit: "false"
+
+      - name: Link the warm clippy target
+        id: warm
+        if: steps.warm-read.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          disk=/home/runner/cmux-tui-clippy-warm
+          if [[ ! -f "$disk/target/.machine-channel-warm-source" ]]; then
+            echo "warm target: miss (no feat-cmux-next snapshot on the disk yet); rust-cache restore instead"
+            exit 0
+          fi
+          start=$(date +%s)
+          bash scripts/ci/machine-channel-warm-target.sh restore "$disk" x86_64-unknown-linux-gnu
+          if [[ "$(readlink cmux-tui/target 2>/dev/null || true)" == "$disk/target" ]]; then
+            echo "linked=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "warm target: restore took $(( $(date +%s) - start )) s"
+
       # cargo clippy --fix (CLIPPY) builds the crates the changed Rust can affect: it reads the build cache
-      # feat-cmux-next's own clippy gate saves (cmux-tui-spec.yml) and never writes it.
+      # feat-cmux-next's own clippy gate saves (cmux-tui-spec.yml) and never writes it. Skipped when the
+      # warm target above is linked.
       - name: Cache cargo build
-        if: steps.areas.outputs.clippy == 'true'
+        if: steps.areas.outputs.clippy == 'true' && steps.warm.outputs.linked != 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-pr-clippy
@@ -1040,7 +1079,7 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs
@@ -1145,8 +1184,9 @@ jobs:
             fi
             echo "feat-cmux-next moved (attempt $attempt); re-applying on the new tip."
           done
-          echo "::error::feat-cmux-next kept moving; the next run pins it."
-          exit 1
+          # No red: each of those pushes started a run, and the newest pins it.
+          echo "::warning title=GhosttyKit pin::feat-cmux-next kept moving; the next run pins it."
+          exit 0
 
       # A GITHUB_TOKEN push (no App token) started no workflow: start the bot head's cmux-tui
       # artifacts run (scripts/cmux-next/publish-bot-head-tree.sh: nothing when the head has a run;

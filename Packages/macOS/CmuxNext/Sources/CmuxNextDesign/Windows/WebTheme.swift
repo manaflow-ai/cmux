@@ -63,6 +63,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// The `experiments.*` switches that are on, by name (``DesignSettings/experiments``):
+    /// `window.cmuxExperimentSettings`, which webviews/src/experiments/hostSettings.ts maps to
+    /// experiment arms, and a `cmux-experiment-settings` event when it changes. Empty sends no
+    /// `experiments` key; the page then clears the switches.
+    public let experiments: [String: Bool]
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -231,6 +236,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+        experiments = DesignSettings.shared.experiments
     }
 
     /// `data-cmux-font-smoothing` for `setting`: an explicit choice as it is; ``FontSmoothing/auto``
@@ -262,6 +268,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -376,6 +383,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       window.cmuxTheme = {
         current: null,
         apply: function (payload) {
+          // The experiments.* switches (WebTheme.experiments), before the root wait: a page's modules
+          // read them as they load. The event only when they changed.
+          var switches = payload.experiments || {};
+          if (JSON.stringify(switches) !== JSON.stringify(window.cmuxExperimentSettings || {})) {
+            window.cmuxExperimentSettings = switches;
+            window.dispatchEvent(new Event('cmux-experiment-settings'));
+          }
           var root = document.documentElement;
           // Chromium runs new-document scripts before the parser makes <html>, so its document-start
           // apply finds no root. It waits for one (awaitRoot): registering every color first and then
