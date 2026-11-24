@@ -58,6 +58,9 @@ pane beside the terminal:
                   screen, with the opener windowed and in full screen
   omnibar_narrow  (15) at pane widths 480/360/300/260 with a long URL, the omnibar text area ends before every icon
                   to its right in the bar, and the bar stays in the toolbar
+  key_route       (23) the page focused by tab.focus from the terminal, no click: its view is the first responder, a
+                  real letter reaches it, real Cmd-Shift-Return zooms and unzooms its pane, real Cmd-D splits it (real
+                  keys: debug.key `sequence`, the app's event queue)
 
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
@@ -72,7 +75,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,live_resize,tab_spam,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
+                    "window_resize,fullscreen,live_resize,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
                     help="reveal: seconds the window stays off the screen")
@@ -83,7 +86,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "live_resize", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow"}
+               "live_resize", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -669,7 +672,9 @@ def main_layers():
 
 def page_pane(tab):
     """The pane whose tabs list `tab` (debug.focus topology)."""
-    for pane in (rpc("debug.focus") or {}).get("topology") or []:
+    focus = rpc("debug.focus") or {}
+    # debug.focus lists each window's topology (windows[].topology); a top-level list is read too.
+    for pane in (focus.get("topology") or []) + [p for w in focus.get("windows") or [] for p in w.get("topology") or []]:
         if any(str(t).split(":", 1)[0] == str(tab) for t in pane.get("tabs") or []):
             return pane.get("pane")
     return None
@@ -1440,8 +1445,96 @@ def check_omnibar_narrow(tab, pane):
              "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
 
 
+KEY_CODES = {"command": 55, "shift": 56, "return": 36, "d": 2, "z": 6}
+
+
+def real_keys(keys):
+    """Plays `keys` (modifier names, then one key) as a keyboard's raw transitions through the app's event queue
+    (debug.key `sequence`: NSApp.postEvent, nextEvent, sendEvent, the key window), the path a real key takes, not the
+    key router's own entry that `debug.key` without `sequence` calls. The cmux window is made key first (without
+    activating the app), as it is for a person whose cmux window is in front."""
+    steps = [{"key_code": KEY_CODES[k], "down": True, "after_ms": 0 if i == 0 else 8} for i, k in enumerate(keys)]
+    steps += [{"key_code": KEY_CODES[k], "down": False, "after_ms": 30 if i == 0 else 8} for i, k in enumerate(reversed(keys))]
+    reply = rpc("debug.key", {"sequence": steps, "key_window": "shell"})
+    time.sleep(0.25 + (reply.get("duration_ms") or 0) / 1000 if isinstance(reply, dict) else 0.5)  # test harness: the sequence plays
+    return reply
+
+
+def focus_facts():
+    """What has the keys: the app's key window, the main window's first responder and its classification, the model's
+    resolved target, and the in-tree gate's counters (debug.focus)."""
+    focus = rpc("debug.focus") or {}
+    window = (focus.get("windows") or [{}])[0]
+    appkit, model = window.get("appkit") or {}, window.get("model") or {}
+    return {"key_window": focus.get("key_window"), "app_active": focus.get("app_active"), "is_key": window.get("is_key"),
+            "first_responder": appkit.get("first_responder"), "classified": appkit.get("classified"),
+            "resolved": model.get("resolved"), "resolved_pane": model.get("resolved_pane"),
+            "panes": len(window.get("topology") or []), "in_tree": focus.get("in_tree"),
+            "creation_hold": window.get("creation_hold"), "mismatches": window.get("mismatches")}
+
+
+def viewport_area(tab):
+    v = page_json("window.viewport()", tab)
+    return (v["w"] * v["h"]) if v else None
+
+
+def check_key_route(tab, pane):
+    """Bug 23 (sweep-06675353 D1): the page gets the keyboard by an action, with no click (tab.focus, the route of
+    Cmd-Opt-arrow and a tab switch), from the terminal beside it. Then: the page's view is the window's first responder
+    (a programmatic focus gives the page the keys exactly as a click does), a real letter reaches the page, real
+    Cmd-Shift-Return zooms its pane and again unzooms it, and real Cmd-D splits it. Real keys: debug.key `sequence`
+    (the app's event queue and sendEvent), never the router's own entry. In tree before the fix the gate refused the
+    page (`gate_last_refusal` "no input event or focus route") and the shortcuts did nothing until a click."""
+    terminal_tab = next((c for c in ((RAW.get("split") or {}).get("created") or []) if str(c).startswith("tab_")), None)
+    if terminal_tab:
+        action("tab.focus", target=f"tab:{terminal_tab}")
+        time.sleep(0.5)  # test harness: the terminal takes the keys
+    page_eval("window.__k = []; if (!window.__kOn) { window.__kOn = true;"
+              " document.addEventListener('keydown', e => window.__k.push(e.key), true); } true", tab)
+    action("tab.focus", target=f"tab:{tab}")
+    time.sleep(0.6)  # test harness: focus lands
+    facts = focus_facts()
+    RAW["key_route_focus"] = facts
+    on = opts.in_tree == "on"
+    page_responder = facts["classified"] not in (None, "windowOrNone") and facts["resolved"] == "browserPage" \
+        and (not on or "RenderWidgetHostView" in str(facts["first_responder"]))
+    row(page_responder, "key_route.responder",
+        {"bug": 23, "facts": facts, "pass_if": "after tab.focus with no click the page's view is the first responder"})
+    real_keys(["z"])
+    keys = page_json("JSON.stringify(window.__k)", tab)
+    row(keys == ["z"], "key_route.page_key",
+        {"bug": 23, "page_keys": keys, "facts": focus_facts(), "pass_if": "a real z reaches the page's document"})
+    last0 = rpc("debug.key", {"last": True})
+    area0 = viewport_area(tab)
+    record("key_route", 8)
+    for direction in ("zoom", "unzoom"):
+        reply = real_keys(["command", "shift", "return"])
+        time.sleep(0.8)  # test harness: the zoom spring settles
+        area = viewport_area(tab)
+        if direction == "zoom":
+            ok = bool(area and area0) and area >= 1.3 * area0
+        else:
+            ok = bool(area and area0) and abs(area - area0) <= 0.05 * area0
+        row(ok, f"key_route.{direction}",
+            {"bug": 23, "viewport_area_before": area0, "viewport_area": area, "sequence": reply,
+             "router_last_before": last0, "router_last": rpc("debug.key", {"last": True}), "facts": focus_facts(),
+             "pass_if": "real Cmd-Shift-Return after tab.focus: zoom area >= 1.3x, unzoom back within 5%"})
+    action("tab.focus", target=f"tab:{tab}")
+    time.sleep(0.4)  # test harness: focus lands
+    panes0 = focus_facts()["panes"]
+    reply = real_keys(["command", "d"])
+    panes = wait(lambda: (lambda n: n if n > panes0 else None)(focus_facts()["panes"]), 6)
+    row(bool(panes), "key_route.split",
+        {"bug": 23, "panes_before": panes0, "panes_after": panes or focus_facts()["panes"], "sequence": reply,
+         "router_last": rpc("debug.key", {"last": True}), "facts": focus_facts(),
+         "pass_if": "real Cmd-D after tab.focus adds a pane"})
+    if panes:
+        action("closePane")  # the new pane has the focus; the page's pane stays
+        time.sleep(1.0)  # test harness: the pane closes
+
+
 REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "tab_spam", "pane_zoom",
-                     "popup_float", "omnibar_narrow")
+                     "popup_float", "omnibar_narrow", "key_route")
 
 
 if os.path.exists(SOCKET):
@@ -1638,7 +1731,8 @@ try:
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
                               ("live_resize", check_live_resize),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
-                              ("omnibar_narrow", check_omnibar_narrow), ("tab_spam", check_tab_spam)):
+                              ("omnibar_narrow", check_omnibar_narrow), ("tab_spam", check_tab_spam),
+                              ("key_route", check_key_route)):
                 if name in CHECKS:
                     try:
                         run(page_tab, pane)
