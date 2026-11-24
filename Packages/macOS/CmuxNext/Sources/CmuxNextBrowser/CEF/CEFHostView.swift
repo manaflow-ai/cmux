@@ -320,6 +320,15 @@ final class CEFHostView: NSView {
     func pagesNeedUpdate(force: Bool, geometryOnly: Bool = false) { // perf-hot: 0.05ms cef-geometry (every page, every motion frame)
         // A page parked away comes back when its view does (`CEFLayerHosting.isParkedAway`): its geometry no fork reads.
         if layerHosting.isParkedAway { layerHosting.placementChanged() }
+        // A page the fork last read hidden that is still hidden has nothing new, whatever moved: a hidden workspace's
+        // pages stay in the window (`WindowRootView.withdraw`) and hear every motion frame of the shown one. Without
+        // this each built its whole key per frame, so a 9-pane divider drag cost O(pages of every workspace)
+        // (instant-splits: s9-browser-w30 divider_drag 1520 ms against 820 ms at w1). Shown again, the key it last
+        // read (hidden) differs and it works out its geometry in full.
+        if !force, readPlacement?.hidden == true, readGeometry?.hidden == true, isHiddenOrHasHiddenAncestor {
+            Self.trackerStats.geometrySkips += 1
+            return
+        }
         let key = PlacementKey(of: self)
         if geometryOnly, !force, readGeometry != nil, key == readPlacement {
             Self.trackerStats.geometrySkips += 1
@@ -352,6 +361,7 @@ final class CEFHostView: NSView {
         var windowOcclusion: [CGRect]
 
         init(of view: CEFHostView) {
+            CEFHostView.trackerStats.placementKeys += 1
             let window = view.window
             let inWindow = view.convert(view.bounds, to: nil)
             self.inWindow = inWindow
