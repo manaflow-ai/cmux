@@ -27,34 +27,22 @@ private actor ReplyChannel: LinkChannel {
         #expect(directory.desktops)
         #expect(directory.machines.map(\.status) == ["running", "provisioning"])
         #expect(directory.machines.map(\.ran) == [true, false])
-        let computer = LiveCoordinator.computerDirectory(directory)
-        #expect(computer.computer?.machineID == "m1")
-        #expect(computer.computer?.name == "Dev box")
     }
 
-    @Test func aMacWithCloudDesktopsOffHidesTheCard() async throws {
-        let directory = try await CloudChatDirectory.readDirectory(ReplyChannel(#"""
-        {"paid":true,"desktops":false,"machines":[
-          {"machine_id":"m1","team_id":"t1","name":"Dev box","status":"running","ran":true}]}
-        """#))
-        #expect(!LiveCoordinator.computerDirectory(directory).showsComputer)
-    }
-
-    @Test func anOlderMacsReplyHidesTheCard() async throws {
+    @Test func anOlderMacsReplyHasNoPlanOrStatus() async throws {
         let directory = try await CloudChatDirectory.readDirectory(ReplyChannel(
             #"{"machines":[{"machine_id":"m1","team_id":"t1","name":"Dev box"}]}"#))
         #expect(!directory.paid)
         #expect(!directory.desktops)
         #expect(directory.machines.first?.status == nil)
         #expect(directory.machines.first?.ran == false)
-        #expect(!LiveCoordinator.computerDirectory(directory).showsComputer)
         // The Cloud chats list still reads the same reply.
         let machines = try await CloudChatDirectory.read(ReplyChannel(
             #"{"machines":[{"machine_id":"m1","team_id":"t1","name":"Dev box"}]}"#))
         #expect(machines.map(\.machineID) == ["m1"])
     }
 
-    @Test func anAsleepMachineIsTheComputerCardsButNeverAChat() async throws {
+    @Test func anAsleepMachineIsNeverAChat() async throws {
         let reply = #"{"paid":true,"desktops":true,"machines":["#
             + #"{"machine_id":"m1","team_id":"t1","name":"Up","status":"running","ran":true,"linked":true},"#
             + #"{"machine_id":"m2","team_id":"t1","name":"Zzz","status":"paused","ran":true,"linked":false}]}"#
