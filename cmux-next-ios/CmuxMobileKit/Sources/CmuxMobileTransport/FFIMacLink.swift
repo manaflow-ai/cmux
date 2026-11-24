@@ -28,6 +28,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
 
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
+        // Macs nearby are found as the dial starts at the latest; the core dials one through its hub first.
+        LocalLinkBrowser.shared.start()
         // Settings → Transport → Align Keepalives, read at each dial like Ultra mode.
         KeepaliveBeat.applySettingToCore()
         try applyBuildSpaceToCore()
@@ -51,6 +53,8 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     }
 
     public func prewarm(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        // Browse for Macs nearby from launch, so the first dial already knows them.
+        LocalLinkBrowser.shared.start()
         // The signaling socket opened here reads the setting at its ticks.
         KeepaliveBeat.applySettingToCore()
         guard (try? applyBuildSpaceToCore()) != nil else { return [] }

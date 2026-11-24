@@ -19,6 +19,7 @@ mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
 mod link_side;
+pub mod local_link;
 mod mac_screen;
 mod share_approval;
 mod terminal_chat;
@@ -844,9 +845,22 @@ async fn connect_on(
             return Err(error);
         }
     };
+    finish_link(pool, &request, connected, signaling, timeline, observer).await
+}
+
+/// A dialed link's handle: its watcher, first ping and path report.
+async fn finish_link(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    connected: cmux_mobile_link::Connected,
+    signaling: Arc<WarmSocket>,
+    timeline: Timeline,
+    observer: Option<Arc<dyn LinkObserver>>,
+) -> Result<Arc<LinkHandle>, CmuxMobileError> {
+    let transport = request.transport;
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
-    let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
+    let media = connected.webrtc_media.then(|| media_manager(pool, request, &connected, &signaling));
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -937,13 +951,16 @@ fn current_signaling(
 ) -> cmux_mobile_link::hybrid::SignalingSource {
     let key = socket.key.clone();
     let fallback = socket.client.clone();
+    let local = socket.local;
     let pool = Arc::clone(pool);
     Arc::new(move || {
         let key = key.clone();
         let fallback = fallback.clone();
         let pool = Arc::clone(&pool);
         Box::pin(async move {
-            match pool.pooled(&key).await {
+            // A local link signals through its own hub, not the service's socket.
+            let pooled = if local { None } else { pool.pooled(&key).await };
+            match pooled {
                 Some(socket) => Some(socket.client.clone()),
                 None => (fallback.closed_reason().is_none()).then_some(fallback),
             }
@@ -1009,6 +1026,8 @@ struct SocketKey {
 pub struct WarmSocket {
     key: SocketKey,
     client: SignalingClient,
+    /// A socket to a Mac's local hub (`local_link`): never pooled, never replaced by the service's.
+    local: bool,
 }
 
 impl Drop for WarmSocket {
@@ -1313,7 +1332,7 @@ impl Warm {
         .await
         .map_err(CmuxMobileError::from)?;
         timeline.mark("signaling_open");
-        let socket = Arc::new(WarmSocket { key: key.clone(), client });
+        let socket = Arc::new(WarmSocket { key: key.clone(), client, local: false });
         let mut pool = self.sockets.lock().await;
         pool.retain(|s| s.key != *key && s.client.closed_reason().is_none());
         pool.push(Arc::clone(&socket));
@@ -1522,11 +1541,41 @@ pub async fn reset_warm_state() {
     WarmPool::shared().reset().await;
 }
 
+/// The dial's options for `request` (the service's ICE servers; none for a hub dial).
+fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
+    DialOptions {
+        ice_servers,
+        include_loopback: request.include_loopback,
+        // The rig's relay-only and UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
+        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
+        // The rig's UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
+        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        video_lane: request.video_lane,
+        webrtc_media: request.webrtc_media,
+        ultra: request.ultra,
+        // Read once, so the tunnel and its link agree (`dial_on`).
+        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    }
+}
+
 async fn dial(
     pool: &Arc<Warm>,
     request: &ConnectRequest,
     timeline: &Timeline,
 ) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+    // A Mac found nearby (its ad matches the Mac the phone paired with) is dialed through its own
+    // hub first: no service round trip, and a link even with no route out. Else the dial goes on
+    // as it always has.
+    if !request.device_id.trim().is_empty()
+        && !request.mac_device_id.trim().is_empty()
+        && let Some(ok) = local_link::dial_local(request, timeline).await
+    {
+        return Ok(ok);
+    }
     for (name, value) in [
         ("base_url", &request.base_url),
         ("team_id", &request.team_id),
@@ -1555,23 +1604,7 @@ async fn dial(
         tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
     let (socket, reused) = socket?;
     let ice_servers = without_turn_if_asked(ice_servers);
-    let options = DialOptions {
-        ice_servers,
-        include_loopback: request.include_loopback,
-        // The rig's relay-only and UDP-blocked runs (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
-        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
-        // The rig's UDP-blocked runs (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
-        video_lane: request.video_lane,
-        webrtc_media: request.webrtc_media,
-        ultra: request.ultra,
-        // Read once, so the tunnel and its link agree (`dial_on`).
-        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
-        timeline: timeline.clone(),
-        ..DialOptions::default()
-    };
+    let options = dial_options(request, ice_servers, timeline);
     let attempt = dial_on(&socket, request, &options, reused).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
