@@ -185,7 +185,12 @@ async fn a_create_past_the_cap_starts_on_the_picked_peer_only_when_its_client_as
         assert_eq!(placed_on(&old), None, "an old client's create moved: {old}");
         assert!(old.get("peer").is_none(), "{old}");
         let admission = &old["_meta"]["acpmux"]["admission"];
-        assert_eq!(admission["suggestedHost"], "far", "warned as before: {admission}");
+        assert_eq!(
+            admission["suggestedHost"],
+            "far",
+            "warned as before: {admission}; peers: {:?}",
+            a.peers()
+        );
         before_local += 1;
     }
     assert!(seen.lock().unwrap().is_empty(), "an old client's create reached the peer");
