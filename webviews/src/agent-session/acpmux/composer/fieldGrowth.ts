@@ -361,7 +361,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
         run(field, motion, animation);
         observer?.observe(view.dom);
         // The transcript takes the end height into its room now and moves its rows on this curve.
-        const detail: FieldGrowthDetail = { from, to, easing, duration, animation, ...(progress ? { progress } : {}) };
+        const detail: FieldGrowthDetail = { to, easing, duration, animation, ...(progress ? { progress } : {}) };
         field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
       };
       attach();

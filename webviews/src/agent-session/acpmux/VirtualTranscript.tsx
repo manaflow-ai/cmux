@@ -1744,18 +1744,23 @@ function TranscriptView({
       const { detail, target } = event as FieldGrowthEvent;
       if (!(target instanceof HTMLElement)) return;
       growth = { field: target, to: detail.to };
+      // Hold the field at its start height while the transcript takes the growth into its room. Both
+      // animations then start from the same committed layout instead of the field leading by a frame.
+      detail.animation.pause();
       // After the edit's own task (ProseMirror's update, the composer's render), before the frame.
       queueMicrotask(() => {
         const rows = thread.current;
         if (!rows || growth?.field !== target) return;
+        const before = rows.getBoundingClientRect().top;
         rowsMove?.cancel();
         rowsMove = undefined;
         take();
-        // The room's layout shift can lag the field's animated height by a frame when the field's
-        // ResizeObserver starts the motion. Drive the rows from the same measured height change so
-        // their bottom edge stays aligned with the composer's top on every frame.
-        const delta = detail.from - detail.to;
-        if (Math.abs(delta) < 0.5) return;
+        // Where the rows now lie against where they were drawn: they start there and go home.
+        const delta = before - rows.getBoundingClientRect().top;
+        if (Math.abs(delta) < 0.5) {
+          detail.animation.play();
+          return;
+        }
         // A move already in flight (a send's, the stack's): the growth joins its plan, one curve.
         const tx = transactionOn(rows) ? threadTransaction(rows) : undefined;
         if (tx?.active()) {
@@ -1767,6 +1772,7 @@ function TranscriptView({
           easing: detail.progress ? "linear" : detail.easing,
           composite: "add",
         });
+        detail.animation.play();
         if (detail.animation.startTime !== null) move.startTime = detail.animation.startTime;
         rowsMove = move;
         move.addEventListener("finish", () => {
