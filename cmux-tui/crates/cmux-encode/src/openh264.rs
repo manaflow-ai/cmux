@@ -256,6 +256,8 @@ pub struct OpenH264Options {
     /// 0 low (the default), 1 medium, 2 high.
     pub complexity: u8,
     pub min_qp: Option<u8>,
+    /// Camera usage's finest quantizer when `min_qp` is unset (see [`qp_range`]).
+    pub camera_min_qp: u8,
     pub max_qp: Option<u8>,
     pub adaptive_quant: bool,
     pub background_detection: bool,
@@ -289,6 +291,16 @@ pub const SHIPPED_LTR: u8 = 0;
 /// within 1.6x of it. The host's `CMUX_RD_OPENH264_USAGE=screen|switch` codes as before.
 pub const LINUX_HOST_USAGE: Usage = Usage::Camera;
 
+/// The Linux host's finest camera-usage quantizer. At OpenH264's 12 camera usage spent its
+/// bits making the unchanged text sharper than the eye reads (shown frames 52.6 dB on typing)
+/// and then skipped or ran late on the next line feed: codec-bench typing, 4 threads, median
+/// of seeds 1-3, on-time 24.1 fps and p95 latency 95 ms at 0 % loss, 22.3 fps and 119 ms at
+/// 2 %. At 24: 28.4 fps and 70 ms, 27.8 fps and 80 ms, with 40 % fewer bits (3.7 to 2.2
+/// Mbit/s), and what the viewer sees (screen PSNR-Y) the same or better in every scene (drag
+/// 37.1 to 40.9 dB, scroll 21.7 to 23.9, page 20.1 to 19.7). Shown frames still read 42.9 dB,
+/// above screen usage's 40.0. Frame skipping was not it: `frameskip=0` coded the same ticks.
+pub const LINUX_HOST_CAMERA_MIN_QP: u8 = 24;
+
 impl Default for OpenH264Options {
     fn default() -> Self {
         Self {
@@ -298,6 +310,7 @@ impl Default for OpenH264Options {
             load_balancing: false,
             complexity: 0,
             min_qp: None,
+            camera_min_qp: CAMERA_MIN_QP,
             max_qp: None,
             adaptive_quant: false,
             background_detection: false,
@@ -308,9 +321,10 @@ impl Default for OpenH264Options {
 }
 
 impl OpenH264Options {
-    /// The Linux host's shipped settings: the default with [`LINUX_HOST_USAGE`].
+    /// The Linux host's shipped settings: the default with [`LINUX_HOST_USAGE`] and
+    /// [`LINUX_HOST_CAMERA_MIN_QP`].
     pub fn linux_host() -> Self {
-        Self { usage: LINUX_HOST_USAGE, ..Self::default() }
+        Self { usage: LINUX_HOST_USAGE, camera_min_qp: LINUX_HOST_CAMERA_MIN_QP, ..Self::default() }
     }
 
     /// Reads `key=value` pairs, comma separated, over the default.
@@ -332,6 +346,7 @@ impl OpenH264Options {
                 "lb" => o.load_balancing = num()? != 0,
                 "complexity" => o.complexity = num()?.min(2) as u8,
                 "minqp" => o.min_qp = Some(num()?.min(51) as u8),
+                "cameraminqp" => o.camera_min_qp = num()?.min(51) as u8,
                 "maxqp" => o.max_qp = Some(num()?.min(51) as u8),
                 "aq" => o.adaptive_quant = num()? != 0,
                 "bgd" => o.background_detection = num()? != 0,
@@ -371,6 +386,9 @@ impl OpenH264Options {
         }
         if let Some(q) = self.max_qp {
             s.push(format!("maxqp={q}"));
+        }
+        if self.camera_min_qp != d.camera_min_qp {
+            s.push(format!("cameraminqp={}", self.camera_min_qp));
         }
         if self.adaptive_quant {
             s.push("aq=on".into());
@@ -616,7 +634,7 @@ unsafe fn init(
     Ok(())
 }
 
-/// Camera usage's quantizer range: OpenH264's own low end, and H.264's coarsest step at the top.
+/// Camera usage's quantizer range (the Linux host's low end is [`LINUX_HOST_CAMERA_MIN_QP`]): OpenH264's own low end, and H.264's coarsest step at the top.
 pub const CAMERA_MIN_QP: u8 = 12;
 pub const CAMERA_MAX_QP: u8 = 51;
 
@@ -634,7 +652,7 @@ fn qp_range(opts: &OpenH264Options, screen: bool) -> (Option<u8>, Option<u8>) {
     if screen {
         return (opts.min_qp, opts.max_qp);
     }
-    (Some(opts.min_qp.unwrap_or(CAMERA_MIN_QP)), Some(opts.max_qp.unwrap_or(CAMERA_MAX_QP)))
+    (Some(opts.min_qp.unwrap_or(opts.camera_min_qp)), Some(opts.max_qp.unwrap_or(CAMERA_MAX_QP)))
 }
 
 /// A new instance's first frame (the share's start keyframe, or the one after a usage move)
@@ -1076,8 +1094,20 @@ mod linux_host_tests {
         let enc = OpenH264::with_options(&cfg, OpenH264Api::from_source(), &host).expect("encoder");
         assert!(enc.name().contains("camera-realtime"), "{}", enc.name());
         assert!(enc.name().ends_with("usage=camera"), "{}", enc.name());
+        assert_eq!(host.camera_min_qp, LINUX_HOST_CAMERA_MIN_QP);
+        assert_eq!(qp_range(&host, false), (Some(LINUX_HOST_CAMERA_MIN_QP), Some(CAMERA_MAX_QP)));
+        assert_eq!(qp_range(&OpenH264Options::default(), false).0, Some(CAMERA_MIN_QP));
         let screen = OpenH264Options::parse_over(host, "usage=screen").expect("parse");
-        assert_eq!(screen, OpenH264Options { usage: Usage::Screen, ..OpenH264Options::default() });
+        assert_eq!(
+            screen,
+            OpenH264Options {
+                usage: Usage::Screen,
+                camera_min_qp: LINUX_HOST_CAMERA_MIN_QP,
+                ..OpenH264Options::default()
+            }
+        );
+        // Screen usage keeps OpenH264's own range.
+        assert_eq!(qp_range(&screen, true), (None, None));
         let enc =
             OpenH264::with_options(&cfg, OpenH264Api::from_source(), &screen).expect("encoder");
         assert!(enc.name().contains("screen-realtime"), "{}", enc.name());
