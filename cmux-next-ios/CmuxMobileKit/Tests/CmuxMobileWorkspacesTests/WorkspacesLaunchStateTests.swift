@@ -46,12 +46,4 @@ import Testing
         // The rows come from the Macs' links: their per-Mac states, not the error page.
         #expect(state(.failed, macs: true, workspaces: false) == .content(refreshFailed: true))
     }
-
-    @Test func updatingSubtitleOnlyOverRows() {
-        #expect(!WorkspacesLaunchState.firstLoad(offline: false).allowsUpdatingSubtitle)
-        #expect(!WorkspacesLaunchState.failed(offline: false).allowsUpdatingSubtitle)
-        #expect(!WorkspacesLaunchState.noMacs.allowsUpdatingSubtitle)
-        #expect(!WorkspacesLaunchState.content(refreshFailed: true).allowsUpdatingSubtitle)
-        #expect(WorkspacesLaunchState.content(refreshFailed: false).allowsUpdatingSubtitle)
-    }
 }

@@ -386,8 +386,9 @@ public final class AgentChatStore {
     /// instead (``AgentChatLoadingState``).
     public var connectionLine: String? {
         guard quietStatus.isShown, hasTurns else { return nil }
-        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
-        return isLoadingHistory ? "Updating…" : nil
+        // Catching up with the Mac over kept turns says nothing: they update in place
+        // (Leo, 2026-11-24: "they dont need to know that it's updating before they KNOW it's updating").
+        return summary.status == .disconnected ? "Connecting to \(summary.macName)…" : nil
     }
 
     /// Feeds ``quietStatus`` from the link and history state.
