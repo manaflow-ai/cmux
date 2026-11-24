@@ -1994,8 +1994,10 @@ async fn a_spare_gone_while_the_person_was_away_starts_again_when_they_are_back(
     tokio::time::sleep(Duration::from_millis(INIT_MS + NEW_MS)).await;
     assert_eq!(spare_entries(&mut person).await.len(), 1, "a ready spare is not wanted again");
     assert_eq!(daemon.pool_records().len(), 1, "one pooled host: {:?}", daemon.pool_records());
-    let (next, _) = new_session(&mut person, &home, "fakeb").await;
-    assert!(taken(&daemon, &next), "the person's next session took the spare");
+    // The spare has the shape of the session that made it (the script's here, as in
+    // `a_restarted_daemon_starts_a_spare_for_a_harness_it_used`): a session of that shape takes it.
+    let (next, _) = new_session(&mut script, &home, "fakeb").await;
+    assert!(taken(&daemon, &next), "the next session of its shape took the re-wanted spare");
 }
 
 #[tokio::test(flavor = "multi_thread")]
