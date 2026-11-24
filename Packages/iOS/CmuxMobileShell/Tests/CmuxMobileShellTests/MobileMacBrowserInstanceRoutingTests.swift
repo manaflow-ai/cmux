@@ -124,6 +124,42 @@ import Testing
         await stable.stop()
     }
 
+    /// A Stable preparation that runs after Nightly took the page's port
+    /// (a cached-network retry, or one suspended across the switch) must
+    /// not evict Nightly's forward with Stable's stale listing.
+    @Test(.timeLimit(.minutes(1))) func staleInstanceCannotEvictTheForegroundInstancesForward() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanDefaults() }
+        let port = try {
+            let holder = try TCPHolder()
+            defer { holder.close() }
+            return holder.port
+        }()
+        await fixture.probe.setPorts([port: "127.0.0.1"])
+        let registry = fixture.shell.sshComputers.loopbackPorts
+
+        try fixture.select(instanceTag: "stable")
+        let stableKey = MacPairingKey(macDeviceID: "mac-a", instanceTag: "stable")
+        _ = try await fixture.shell.prepareMacBrowserNetwork(pairingKey: stableKey, loopbackPort: port)
+        let stable = fixture.shell.macBrowserNetwork(for: stableKey)
+        #expect(registry.entry(for: port)?.owner == stable.registryOwner)
+
+        try fixture.select(instanceTag: "nightly")
+        let nightlyKey = MacPairingKey(macDeviceID: "mac-a", instanceTag: "nightly")
+        _ = try await fixture.shell.prepareMacBrowserNetwork(pairingKey: nightlyKey, loopbackPort: port)
+        let nightly = fixture.shell.macBrowserNetwork(for: nightlyKey)
+        #expect(registry.entry(for: port)?.owner == nightly.registryOwner)
+
+        _ = try await stable.prepare(loopbackPort: port)
+        #expect(registry.entry(for: port)?.owner == nightly.registryOwner)
+        #expect(nightly.forwards[port] != nil)
+        #expect(stable.forwards[port] == nil)
+        #expect(await fixture.probe.listedRoutes == ["stable", "nightly"])
+
+        await stable.stop()
+        await nightly.stop()
+    }
+
     @MainActor private struct Fixture {
         let shell: MobileShellComposite
         let probe = BrowserTunnelProbe()
@@ -175,6 +211,11 @@ import Testing
 private actor BrowserTunnelProbe {
     private(set) var openedRoutes: [String] = []
     private(set) var listedRoutes: [String] = []
+    private var ports: [Int: String] = [:]
+
+    func setPorts(_ ports: [Int: String]) {
+        self.ports = ports
+    }
 
     func open(_ request: CmxByteTransportRequest) -> any MobileTunnelLaneConnection {
         openedRoutes.append(request.route.id)
@@ -183,7 +224,7 @@ private actor BrowserTunnelProbe {
 
     func list(_ request: CmxByteTransportRequest) -> MobileTunnelListeningPorts {
         listedRoutes.append(request.route.id)
-        return MobileTunnelListeningPorts(ports: [:], allowsNonLoopbackHosts: false)
+        return MobileTunnelListeningPorts(ports: ports, allowsNonLoopbackHosts: false)
     }
 }
 

@@ -89,6 +89,9 @@ extension MobileShellComposite {
                 }
                 return try await provider.listPorts(request)
             },
+            isAuthorized: { [weak self] in
+                self?.macBrowserTunnelAvailability(pairingKey: pairingKey) == .available
+            },
             // One loopback for SSH hosts and Macs alike, so a Mac's mirror
             // evicts an SSH host's forward on the same port and vice versa.
             registry: sshComputers.loopbackPorts
