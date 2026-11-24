@@ -480,6 +480,8 @@ pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
 pub(crate) mod release_to_watch;
+#[cfg(test)]
+mod reply_segment_tests;
 mod restore_point;
 pub mod rules;
 pub(crate) mod session_hold;
@@ -506,8 +508,6 @@ mod turn_attestation;
 mod turn_git;
 pub(crate) mod turn_shots;
 mod turn_usage;
-#[cfg(test)]
-mod reply_segment_tests;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
