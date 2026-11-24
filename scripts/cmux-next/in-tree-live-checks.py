@@ -47,6 +47,11 @@ pane beside the terminal:
   window_resize   (11) the window's corner dragged out and back: the same frame budget and settle rule
   fullscreen      (12) enter and exit: no pinch scale or devicePixelRatio change in any frame, the page view never
                   larger than its start and end size or outside the window, the page fits the pane <= 100 ms after it
+  live_resize     (17 to 21) by pixels, the app's own recorder (debug.motion record_*, one device row through the
+                  page; the layout page's cyan left and magenta right edge strips): every composited frame of three
+                  divider drags, three window corner drags, full screen enter and exit and a workspace switch is right,
+                  gutter (stale narrower), clipped (stale wider) or blank; rows give the counts, the longest wrong run,
+                  frames per second and gaps over 50 ms while moving, and the settle time after the input
   pane_zoom       (14) Cmd-Shift-Return zoom and unzoom of the page's pane: area >= 1.3x, then back within 1 pt; one
                   page view, no panel or page window, the page fits <= 100 ms after the pane
   popup_float     (10) a 520 x 420 window.open popup has inner 520 x 420 within 2 pt and a window smaller than the
@@ -67,7 +72,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
+                    "window_resize,fullscreen,live_resize,pane_zoom,popup_float,omnibar_narrow,two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
                     help="reveal: seconds the window stays off the screen")
@@ -78,7 +83,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "pane_zoom", "popup_float", "omnibar_narrow"}
+               "live_resize", "pane_zoom", "popup_float", "omnibar_narrow"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -126,9 +131,11 @@ body{margin:0;background:#246;color:#fff;font:14px sans-serif} .t{position:fixed
 #tl{left:8px;top:8px} #tr{right:8px;top:8px} #bl{left:8px;bottom:8px} #br{right:8px;bottom:8px} #c{left:calc(50% - 12px);top:calc(50% - 12px)}
 .row{height:40px;border-bottom:1px solid #357;padding-left:48px;line-height:40px}
 #pop{position:fixed;left:48px;top:8px;font-size:14px}
+#edgeL{position:fixed;left:0;top:0;bottom:0;width:8px;background:#0ff;z-index:5} #edgeR{position:fixed;right:0;top:0;bottom:0;width:8px;background:#f0f;z-index:5}
 </style></head><body>
 <button class="t" id="tl" data-t="tl"></button><button class="t" id="tr" data-t="tr"></button><button class="t" id="bl" data-t="bl"></button>
 <button class="t" id="br" data-t="br"></button><button class="t" id="c" data-t="c"></button>
+<div id="edgeL"></div><div id="edgeR"></div>
 <button id="pop" onclick="window.__pop = window.open('/popup?float', 'floatpopup', 'width=520,height=420')">popup 520x420</button>
 <div id="rows"></div>
 <script>
@@ -928,6 +935,311 @@ def check_fullscreen(tab, pane):
         wait(lambda: not is_full_screen(), 5)
 
 
+# ---- Live resize by pixels (in-tree-regressions.md bugs 17 to 21; the user's recordings, defects 5 to 10) ----
+# The app's own ScreenCaptureKit recorder (`debug.motion` record_*: what the window server composites, every frame, no
+# main-thread work per frame) keeps one device-pixel row through the middle of the page. The layout page has a cyan
+# strip on its left edge and a magenta strip on its right edge, on its blue background. A frame is classified:
+#   right    cyan, then the page, then magenta, and no page blue right after the magenta (the page fills its pane)
+#   gutter   page blue right after the magenta: the page is narrower than its pane (a stale, smaller frame)
+#   clipped  cyan but no magenta: the page is wider than its pane (a stale, larger frame, cut at the pane's edge)
+#   blank    neither strip: no page content in the row (the pane's backdrop, or nothing)
+
+def _is_cyan(p):
+    return p[0] < 90 and p[1] > 180 and p[2] > 180
+
+
+def _is_magenta(p):
+    return p[0] > 180 and p[1] < 90 and p[2] > 180
+
+
+def _is_page_blue(p):
+    return abs(p[0] - 0x22) < 24 and abs(p[1] - 0x44) < 24 and abs(p[2] - 0x66) < 24
+
+
+def _runs(pixels, test, lo, hi, min_len):
+    runs, start = [], None
+    for x in range(lo, hi):
+        if test(pixels[x]):
+            if start is None:
+                start = x
+        elif start is not None:
+            if x - start >= min_len:
+                runs.append((start, x))
+            start = None
+    if start is not None and hi - start >= min_len:
+        runs.append((start, hi))
+    return runs
+
+
+def classify_row(pixels, lo, hi, scale):
+    """One frame's row (RGB tuples) between device columns lo and hi: right, gutter, clipped or blank (see above)."""
+    strip = max(3, int(8 * scale) - 3)
+    cyan = [r for r in _runs(pixels, _is_cyan, lo, hi, strip) if r[1] < hi and _is_page_blue(pixels[min(hi - 1, r[1] + 1)])]
+    magenta = [r for r in _runs(pixels, _is_magenta, lo, hi, strip) if r[0] > lo and _is_page_blue(pixels[r[0] - 2])]
+    if not cyan and not magenta:
+        return "blank", None
+    if not magenta:
+        return "clipped", None
+    end = magenta[-1][1]
+    after = [pixels[x] for x in range(end + 1, min(hi, end + int(6 * scale)))]
+    if after and sum(1 for p in after if _is_page_blue(p)) >= max(2, len(after) // 2):
+        return "gutter", end
+    return "right", end
+
+
+def read_scan(path):
+    """The recorder's scan file: (header, [(host seconds, [row pixels as RGB tuples])])."""
+    import struct
+    with open(path, "rb") as f:
+        data = f.read()
+    nl = data.index(b"\n")
+    header = json.loads(data[:nl])
+    width, height, rows, cols = header["width"], header["height"], header["rows"], header["columns"]
+    size = 8 + 4 * (len(rows) * width + len(cols) * height)
+    frames, pos = [], nl + 1
+    while pos + size <= len(data):
+        t = struct.unpack("<d", data[pos:pos + 8])[0]
+        lines, at = [], pos + 8
+        for _ in rows:
+            raw = data[at:at + 4 * width]
+            lines.append([(raw[i + 2], raw[i + 1], raw[i]) for i in range(0, len(raw), 4)])  # BGRA -> RGB
+            at += 4 * width
+        frames.append((t, lines))
+        pos += size
+    return header, frames
+
+
+def pixel_record(name, seconds):
+    """Starts the app's recorder with one row through the middle of the page (device pixels from the window's top left).
+    Returns {path, scale, row, x_lo} or {"error"}."""
+    layers = main_layers()
+    win = layers.get("frame") or [0, 0, 0, 0]
+    views = [v for v in layers.get("page_views") or [] if not v.get("parked")]
+    if not views:
+        return {"error": "no page view"}
+    frame = views[0].get("frame_in_window")
+    folder = os.path.join(opts.out, f"pixels-{name}")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{name}.mov")
+    probe = rpc("debug.motion", {"action": "record_read"})
+    scale = 2.0
+    y_pt = win[3] - (frame[1] + frame[3] / 2)
+    started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 60,
+                                   "rows": [int(y_pt * scale)], "columns": []})
+    if not isinstance(started, dict) or started.get("error"):
+        return {"error": f"record_start: {started}", "read": probe}
+    scale = started.get("scale") or scale
+    if abs(scale - 2.0) > 1e-6:  # the row was asked in 2x pixels; ask again at the real scale
+        rpc("debug.motion", {"action": "record_stop"})
+        wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 30)
+        started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 60,
+                                       "rows": [int(y_pt * scale)], "columns": []})
+    ok = wait(lambda: (lambda r: r if isinstance(r, dict) and (r.get("capturing") or r.get("error")) else None)(
+        rpc("debug.motion", {"action": "record_read"})), 10, 0.05)
+    if not ok or not ok.get("capturing"):
+        return {"error": f"recorder did not start: {ok}"}
+    return {"path": path, "scale": scale, "row": int(y_pt * scale), "frame": frame, "window": win}
+
+
+def pixel_stop(rec):
+    rpc("debug.motion", {"action": "record_stop"})
+    read = wait(lambda: (lambda r: r if isinstance(r, dict) and (r.get("written") or r.get("error")) else None)(
+        rpc("debug.motion", {"action": "record_read"})), 60, 0.25) or {}
+    return read
+
+
+def pixel_verdict(rec, spans, x_lo_pt, settle_after):
+    """Classifies every complete frame inside `spans` ([(start, end)] in time.monotonic seconds, the same host clock as
+    the recorder's) and after the last span's end for `settle_after` s. Returns counts, the longest run of wrong frames,
+    the gaps between complete frames over 50 ms while moving (stalls), and the settle time after the last span."""
+    scan = rec["path"] + ".scan"
+    if not os.path.exists(scan):
+        return {"error": "no scan file", "path": scan}
+    header, frames = read_scan(scan)
+    scale = rec["scale"]
+    lo = max(0, int(x_lo_pt * scale))
+    hi = header["width"]
+    first, last_end = spans[0][0], spans[-1][1]
+    classes, moving_times, wrong_runs, run, examples = {}, [], [], 0, []
+    settle_ms, last_wrong_t = None, None
+    timeline = []
+    for t, lines in frames:
+        if t < first - 0.1 or t > last_end + settle_after:
+            continue
+        kind, _ = classify_row(lines[0], lo, hi, scale)
+        timeline.append((round((t - first) * 1000, 1), kind))
+        classes[kind] = classes.get(kind, 0) + 1
+        if any(a <= t <= b for a, b in spans):
+            moving_times.append(t)
+        if kind != "right":
+            run += 1
+            last_wrong_t = t
+            if len(examples) < 12:
+                examples.append((round((t - first) * 1000, 1), kind))
+        else:
+            if run:
+                wrong_runs.append(run)
+            run = 0
+    if run:
+        wrong_runs.append(run)
+    if last_wrong_t is None or last_wrong_t <= last_end:
+        settle_ms = 0.0
+    else:
+        settle_ms = round((last_wrong_t - last_end) * 1000, 1)
+    gaps = [round((b - a) * 1000, 1) for a, b in zip(moving_times, moving_times[1:])]
+    total = sum(classes.values())
+    moving_s = sum(b - a for a, b in spans)
+    return {"frames": total, "classes": classes, "wrong": total - classes.get("right", 0),
+            "blank": classes.get("blank", 0), "longest_wrong_run": max(wrong_runs or [0]),
+            "moving_fps": round(len(moving_times) / moving_s, 1) if moving_s > 0 else None,
+            "stalls_over_50ms": sum(1 for g in gaps if g > 50), "gap_p50_ms": sorted(gaps)[len(gaps) // 2] if gaps else None,
+            "gap_max_ms": max(gaps) if gaps else None, "settle_ms_after_input": settle_ms,
+            "examples": examples, "timeline": timeline[:400]}
+
+
+def check_live_resize(tab, pane):
+    """Bugs 17 to 21 by pixels: a divider drag, a window corner drag, full screen enter and exit, a window move and a
+    workspace switch, each recorded by the app's own recorder, every composited frame classified (classify_row)."""
+    frame = page_view(pane)
+    if not frame:
+        row("INFO", "live_resize", {"note": "no in-tree page view"})
+        return
+    page_eval("window.scrollTo(0, 0); window.__token = Math.random(); true", tab)
+    token = page_eval("String(window.__token)", tab).get("value")
+    time.sleep(1.2)  # test harness: overlay scroll bars fade before the recording
+    layers = main_layers()
+    divider = vertical_divider_near(frame[0], layers)
+    window = layers.get("frame")
+    rounds = 3
+
+    # Divider: three out-and-back drags of 160 pt at 60 Hz (the user's oscillating drag, V6 14-24 s).
+    if divider:
+        rec = pixel_record("divider", 20)
+        if rec.get("error"):
+            row(False, "live_resize.divider.pixels", {"bug": 18, "error": rec["error"]})
+        else:
+            time.sleep(0.3)  # test harness: the recorder's first frames at rest
+            rpc("debug.frames", {"action": "start"})
+            spans = []
+            for _ in range(rounds):
+                a = time.monotonic()
+                drag_divider(divider, -160)
+                drag_divider((divider[0] - 160, divider[1]), 160)
+                spans.append((a, time.monotonic()))
+            app_frames = rpc("debug.frames", {"action": "stop"})
+            time.sleep(0.8)  # test harness: the settle is in the recording
+            read = pixel_stop(rec)
+            v = pixel_verdict(rec, spans, frame[0] - 170, 0.7)
+            RAW["live_resize_divider"] = {"verdict": v, "read": read, "app_frames": app_frames}
+            row(not v.get("error") and v["blank"] == 0 and v["wrong"] <= 0.1 * max(1, v["frames"]) and v["stalls_over_50ms"] == 0
+                and v["settle_ms_after_input"] <= LAG_MS,
+                "live_resize.divider.pixels",
+                {"bug": 18, **{k: v.get(k) for k in ("frames", "classes", "wrong", "blank", "longest_wrong_run", "moving_fps",
+                                                      "stalls_over_50ms", "gap_p50_ms", "gap_max_ms", "settle_ms_after_input",
+                                                      "examples", "error")},
+                 "app_frames": frame_detail(app_frames),
+                 "pass_if": "no blank frame, wrong <= 10% of frames, no gap over 50 ms between composited frames while "
+                            f"dragging, page right <= {LAG_MS} ms after the drag"})
+
+    # Window corner: three out-and-back drags of 240 x 120 pt at 120 Hz (V6 1.8-10.3 s).
+    if window:
+        w, h = window[2], window[3]
+
+        def corner(dx, dy, steps=60):
+            x0, y0 = w - 1, h - 1
+            rpc("debug.mouse", {"action": "down", "x": x0, "y": y0})
+            started = time.monotonic()
+            for i in range(1, steps + 1):
+                x, y = x0 + dx * i / steps, y0 + dy * i / steps
+                rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": y, "steps": 1, "press": False, "release": False})
+                next_at = started + i / 120
+                if next_at > time.monotonic():
+                    time.sleep(next_at - time.monotonic())  # test harness: one event a 120 Hz frame
+            return rpc("debug.mouse", {"action": "up", "x": x0 + dx, "y": y0 + dy})
+
+        rec = pixel_record("window", 20)
+        if rec.get("error"):
+            row(False, "live_resize.window.pixels", {"bug": 19, "error": rec["error"]})
+        else:
+            time.sleep(0.3)  # test harness: the recorder's first frames at rest
+            rpc("debug.frames", {"action": "start"})
+            spans = []
+            for _ in range(rounds):
+                a = time.monotonic()
+                corner(240, 120)
+                corner(-240, -120)
+                spans.append((a, time.monotonic()))
+            app_frames = rpc("debug.frames", {"action": "stop"})
+            time.sleep(0.8)  # test harness: the settle is in the recording
+            read = pixel_stop(rec)
+            v = pixel_verdict(rec, spans, frame[0] - 10, 0.7)
+            RAW["live_resize_window"] = {"verdict": v, "read": read, "app_frames": app_frames,
+                                         "window_after": main_layers().get("frame")}
+            row(not v.get("error") and v["blank"] == 0 and v["wrong"] <= 0.1 * max(1, v["frames"]) and v["stalls_over_50ms"] == 0
+                and v["settle_ms_after_input"] <= LAG_MS,
+                "live_resize.window.pixels",
+                {"bug": 19, **{k: v.get(k) for k in ("frames", "classes", "wrong", "blank", "longest_wrong_run", "moving_fps",
+                                                      "stalls_over_50ms", "gap_p50_ms", "gap_max_ms", "settle_ms_after_input",
+                                                      "examples", "error")},
+                 "app_frames": frame_detail(app_frames),
+                 "pass_if": "no blank frame, wrong <= 10% of frames, no gap over 50 ms while dragging, page right "
+                            f"<= {LAG_MS} ms after the drag"})
+
+    # Full screen enter and exit (V2): the transition's frames, then the page must be right within LAG_MS of its end.
+    for direction in ("enter", "exit"):
+        rec = pixel_record(f"fullscreen-{direction}", 12)
+        if rec.get("error"):
+            row(False, f"live_resize.fullscreen.{direction}.pixels", {"bug": 17, "error": rec["error"]})
+            continue
+        time.sleep(0.3)  # test harness: frames at rest
+        a = time.monotonic()
+        action("toggleFullScreen")
+        done = wait(lambda: is_full_screen() == (direction == "enter"), 6, 0.02)
+        b = time.monotonic()
+        time.sleep(1.2)  # test harness: the settle is in the recording
+        read = pixel_stop(rec)
+        v = pixel_verdict(rec, [(a, b)], 0, 1.1)
+        RAW[f"live_resize_fullscreen_{direction}"] = {"verdict": v, "read": read, "transition_s": round(b - a, 3)}
+        row(not v.get("error") and bool(done) and v["blank"] == 0 and v["settle_ms_after_input"] <= LAG_MS,
+            f"live_resize.fullscreen.{direction}.pixels",
+            {"bug": 17, "transition_ms": round((b - a) * 1000), **{k: v.get(k) for k in (
+                "frames", "classes", "wrong", "blank", "longest_wrong_run", "settle_ms_after_input", "examples", "error")},
+             "pass_if": f"no blank frame; the page right <= {LAG_MS} ms after the window reports the new state"})
+        time.sleep(0.5)  # test harness: rest between the two transitions
+    if is_full_screen():
+        action("toggleFullScreen")
+        wait(lambda: not is_full_screen(), 6)
+
+    # Workspace switch away and back (V6 53.5 s, 59.3 s): the page keeps its document (no reload) and draws at once.
+    rec = pixel_record("switch", 12)
+    if rec.get("error"):
+        row(False, "live_resize.switch.pixels", {"bug": 21, "error": rec["error"]})
+    else:
+        made = action("workspace.newAtBottom")
+        wait(lambda: page_eval("document.visibilityState", tab).get("value") == "hidden", 5, 0.05)
+        time.sleep(1.5)  # test harness: the other workspace shows for a while
+        a = time.monotonic()
+        back = action("workspace.selectFirst")
+        if page_eval("document.visibilityState", tab).get("value") == "hidden":
+            wait(lambda: page_eval("document.visibilityState", tab).get("value") == "visible", 1.0, 0.05)
+        if page_eval("document.visibilityState", tab).get("value") == "hidden":
+            back = action("workspace.selectLast")
+        b = time.monotonic()
+        time.sleep(1.5)  # test harness: frames after the switch back
+        read = pixel_stop(rec)
+        v = pixel_verdict(rec, [(a, b)], frame[0] - 10, 1.4)
+        after = page_eval("String(window.__token)", tab).get("value")
+        # Only frames after the switch back count: before it the other workspace shows (no page in the row).
+        late = [k for ms, k in v.get("timeline", []) if ms >= (b - a) * 1000 + 50]
+        blank_after = sum(1 for k in late if k == "blank")
+        RAW["live_resize_switch"] = {"verdict": v, "read": read, "new": made, "back": back}
+        row(after == token and blank_after == 0 and not v.get("error"), "live_resize.switch.pixels",
+            {"bug": 21, "same_document": after == token, "blank_frames_after_switch": blank_after,
+             "frames_after_switch": len(late), "classes_after_switch": {k: late.count(k) for k in set(late)},
+             "error": v.get("error"),
+             "pass_if": "the page's document survives (no reload) and no blank frame after the switch back"})
+
+
 def check_pane_zoom(tab, pane):
     """Bug 14: Cmd-Shift-Enter (toggleSplitZoom) on the page's pane: zoomed, the page's view is at least 1.3x its
     area, exactly one page view shows, no page child window or overlay panel, and the page fits its view within 1 pt
@@ -1043,7 +1355,8 @@ def check_omnibar_narrow(tab, pane):
              "pass_if": "text area ends before every icon to its right in the bar; bar inside the toolbar"})
 
 
-REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "pane_zoom", "popup_float", "omnibar_narrow")
+REGRESSION_CHECKS = ("pane_fit", "divider_resize", "window_resize", "fullscreen", "live_resize", "pane_zoom", "popup_float",
+                     "omnibar_narrow")
 
 
 if os.path.exists(SOCKET):
@@ -1238,6 +1551,7 @@ try:
             time.sleep(0.5)  # test harness: the layout page draws
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
+                              ("live_resize", check_live_resize),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow)):
                 if name in CHECKS:
