@@ -337,6 +337,32 @@
           ]
         },
         {
+          "key": "computerUse.whileLocked",
+          "note": "Off by default. On, while the screen is locked the engine still runs app and window lists, window captures by window id and background input to a window; foreground input, display captures, launches and permission prompts stay refused with mac_locked (cmux_computer_use::locked; cmuxterm-hq docs/design/locked-screen-computer-use.md).",
+          "title": {
+            "key": "settings.computerUse.whileLocked",
+            "text": "Keep Working While Locked"
+          },
+          "help": {
+            "key": "settings.computerUse.whileLocked.help",
+            "text": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock."
+          },
+          "summary": {
+            "key": "settings.computerUse.whileLocked.summary",
+            "text": "Lets agents use app windows while the Mac is locked"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "locked",
+            "lock screen",
+            "screen lock",
+            "background",
+            "while locked"
+          ]
+        },
+        {
           "key": "computerUse.menus",
           "note": "Whether agents may open pop-up and context menus of background apps (cmux_computer_use::menus::MenuMode).",
           "title": {

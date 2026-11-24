@@ -1593,7 +1593,8 @@
         "computerUse.cursorTag",
         "computerUse.settle",
         "computerUse.livePreview",
-        "computerUse.menus"
+        "computerUse.menus",
+        "computerUse.whileLocked"
       ]
     },
     {
