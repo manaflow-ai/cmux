@@ -84,10 +84,10 @@ impl Hub {
             if stop.is_cancelled() {
                 return;
             }
-            let mut slot = session.inbound_rx.lock().await;
+            let mut slot = session.inbound_rx().lock().await;
             if session.status() == SessionStatus::Closed
                 && rx.is_empty()
-                && !producers_live(&session.inbound_tx)
+                && !producers_live(session.inbound_tx())
             {
                 *slot = Some(rx);
                 return;
@@ -97,7 +97,7 @@ impl Hub {
 
     /// Start the chat's inbound loop when no loop holds its receiver.
     pub(super) async fn spawn_inbound_loop(self: &Arc<Self>, session: &Arc<Session>) {
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
+        if let Some(rx) = session.inbound_rx().lock().await.take() {
             let (hub, s) = (self.clone(), session.clone());
             self.scope.spawn_named("inbound-loop", async move { hub.inbound_loop(s, rx).await });
         }
@@ -110,7 +110,7 @@ impl Hub {
         stop: &tokio_util::sync::CancellationToken,
         closed: &mut tokio::sync::watch::Receiver<bool>,
     ) {
-        while let Some(item) = next_inbound(rx, stop, closed, &session.inbound_tx).await {
+        while let Some(item) = next_inbound(rx, stop, closed, session.inbound_tx()).await {
             // An agent's stream allocates without any request: its pages go back once it stops.
             cmux_tui_platform::malloc_quiet_trim::note_activity();
             match item {
@@ -189,6 +189,7 @@ impl Hub {
                             .contains(&agent);
                         self.arm_auto_background(&session, params.as_ref(), replayed);
                         self.on_update_cache(&session, params.as_ref(), replayed);
+                        self.surgery_on_update(&session, params.as_ref(), replayed);
                         self.notice_overlaps(&session);
                     } else if m == method::CANCEL_REQUEST
                         && let Some(id) = params.as_ref().and_then(|p| p.get("requestId"))
