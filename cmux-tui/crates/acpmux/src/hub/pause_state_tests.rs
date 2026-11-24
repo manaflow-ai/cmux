@@ -41,7 +41,9 @@ fn a_failed_turn_with_nothing_to_continue_it_is_stranded_with_its_cause() {
             other => panic!("{error}: {other:?}"),
         }
     }
-    assert!(is_outage("capacity") && !is_outage("disk") && !is_outage("refused"));
+    assert!(
+        is_outage("capacity") && is_outage("disk") && !is_outage("refused") && !is_outage("auth")
+    );
 }
 
 #[test]

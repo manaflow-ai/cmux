@@ -910,7 +910,10 @@ impl Hub {
         let delay = next_at.saturating_sub(now_ms());
         tokio::select! {
             () = tokio::time::sleep(Duration::from_millis(delay)) => {}
-            () = wake.notified() => {}
+            () = wake.notified() => return,
+        }
+        if reason == crate::protocol::session::RetryReason::Disk {
+            self.wait_disk_free(session, wake).await;
         }
     }
 }

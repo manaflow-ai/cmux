@@ -6380,13 +6380,14 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, or the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once).",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once), or the machine's disk\nwas full (`disk`: it goes on once space is free again).",
       "enum": [
         "capacity",
         "rate_limit",
         "transport",
         "agent_exited",
-        "context"
+        "context",
+        "disk"
       ],
       "type": "string"
     },

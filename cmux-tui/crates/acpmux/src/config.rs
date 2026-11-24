@@ -1717,6 +1717,10 @@ pub struct Config {
         deserialize_with = "crate::hub::auto_resume::delays_from_config"
     )]
     pub auto_resume_delays_ms: Option<Vec<u64>>,
+    /// `autoResumeDiskFreeBytes`: how much free space a chat a full disk cut waits for before
+    /// it goes on (`hub/auto_resume/disk_wait.rs`). Default 16 MiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_resume_disk_free_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
