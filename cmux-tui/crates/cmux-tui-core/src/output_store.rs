@@ -1139,6 +1139,31 @@ impl OutputStore {
         Some(tail::restore(snapshot, &tail))
     }
 
+    /// Tests: persist `terminal` the way the writer's pass does in snapshot
+    /// mode, at the default policy: its snapshot (the bounded replay the
+    /// pass captures) at stream offset `snapshot_end`, then `tail`, the
+    /// output after it, in the tail file.
+    #[cfg(test)]
+    pub(crate) fn persist_for_test(
+        &self,
+        terminal_id: &TerminalPublicId,
+        generation: &str,
+        terminal: &mut ghostty_vt::Terminal,
+        snapshot_end: u64,
+        tail: &[u8],
+    ) -> anyhow::Result<()> {
+        let directory = self
+            .directory
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("the store has no directory"))?;
+        let policy = PersistencePolicy::resolve(None, None, None);
+        let (cols, rows) = (terminal.cols(), terminal.rows());
+        let budget = snapshot::replay_budget(cols, rows, policy.max_bytes_per_terminal);
+        let replay = terminal.vt_replay_bounded(budget)?.into_self_contained_bytes();
+        snapshot::write(directory, terminal_id, generation, snapshot_end, cols, rows, &replay)?;
+        tail::append(directory, terminal_id, generation, snapshot_end, snapshot_end, tail, false)
+    }
+
     /// The logs whose terminal printed since the writer last looked; their
     /// flags are cleared.
     fn take_dirty(&self) -> Vec<Arc<TerminalLog>> {

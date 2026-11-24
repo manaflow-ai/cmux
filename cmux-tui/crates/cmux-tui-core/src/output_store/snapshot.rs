@@ -763,7 +763,7 @@ fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
 
 /// Bytes for the screen plus about [`SNAPSHOT_HISTORY_LINES`] lines (a VT
 /// replay is bounded in bytes; it keeps the newest rows that fit).
-fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
+pub(super) fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
     let lines = SNAPSHOT_HISTORY_LINES + usize::from(rows);
     let estimate = lines.saturating_mul(usize::from(cols).max(1)).saturating_mul(3);
     let cap = usize::try_from(max_per_terminal)
@@ -781,7 +781,7 @@ pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf 
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
 }
 
-fn write(
+pub(super) fn write(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,
