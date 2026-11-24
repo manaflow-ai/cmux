@@ -111,7 +111,7 @@ class CompileTestPlanTests(unittest.TestCase):
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
         # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
-        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        # (CmuxMobileSSH runs on Linux: scripts/ci/swift-linux-packages.txt.)
         plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
         self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
