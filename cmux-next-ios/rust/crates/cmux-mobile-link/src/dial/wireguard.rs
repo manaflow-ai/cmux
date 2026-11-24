@@ -446,6 +446,7 @@ fn relay_plan(
     own_now: bool,
     peer: Option<&str>,
     ticket: Option<String>,
+    early: Option<Arc<roam::EarlyJoin>>,
 ) -> Option<roam::RelayPlan> {
     let endpoint = options.relay.clone()?;
     let Some(peer) = peer else {
@@ -456,7 +457,10 @@ fn relay_plan(
     // Both sides join as the dial starts only when both said `first` (an older
     // peer says `ready` and keeps the 3 s rule; one with no other path, `now`).
     let first = !now && options.relay_first && peer == RELAY_FIRST;
-    Some(roam::RelayPlan { endpoint, now, first, ticket })
+    // A join started on `wg-early` is kept only when this plan joins as the dial
+    // starts; else it is dropped here, which closes it.
+    let early = if first || now { early } else { None };
+    Some(roam::RelayPlan { endpoint, now, first, ticket, early })
 }
 
 /// This side's `relay` in its `wg-init` / `wg-resp`: `now` with no other path,
@@ -2484,6 +2488,16 @@ pub(super) fn dial_wireguard<'a>(
         // Debug "relay via cmux only": no TURN server, no plain UDP.
         let effective = effective_options(options);
         let options: &DialOptions = &effective;
+        // Relay first: tell the Mac now, before the gather that `wg-init` waits
+        // for, so it joins the relay meanwhile (an older Mac ignores the kind).
+        if options.relay.is_some() && options.relay_first {
+            let _ = signaling.send_signal(
+                mac,
+                session_id,
+                SignalPayload::WgEarly { relay: Some(RELAY_FIRST.to_owned()) },
+            );
+            options.timeline.mark("wg_early_sent");
+        }
         let socket = bind_udp().map_err(transport_error)?;
         let (gathered, turn) = match early {
             Some(mut early) => {
@@ -2586,7 +2600,7 @@ pub(super) fn dial_wireguard<'a>(
         if peer_ip == DIALER_OVERLAY {
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
-        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, None);
         if relay.is_none() && no_plain_udp(options) && turn.is_none() {
             // The relay was this side's only way, and the Mac has none.
             return Err(options.diagnosis.blocked());
@@ -2700,13 +2714,41 @@ impl Dialer for WireGuardDialer {
     fn answer<'a>(
         &'a self,
         signaling: &'a SignalingClient,
-        first: SignalEnvelope,
-        events: SessionEvents,
+        mut first: SignalEnvelope,
+        mut events: SessionEvents,
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
             let effective = effective_options(options);
             let options: &DialOptions = &effective;
+            // The phone's `wg-early` came first (relay first): join the relay now,
+            // while its `wg-init` is still being gathered, then wait for that.
+            let mut early_join = None;
+            if matches!(first.payload, SignalPayload::WgEarly { .. }) {
+                if let (Some(endpoint), true, Some(ticket)) =
+                    (options.relay.clone(), options.relay_first, first.relay_ticket.clone())
+                {
+                    options.timeline.mark("relay_early_join_started");
+                    early_join = Some(roam::EarlyJoin::start(
+                        endpoint,
+                        first.session_id.clone(),
+                        first.from.clone(),
+                        ticket,
+                    ));
+                }
+                first = loop {
+                    match events.next().await? {
+                        SessionEvent::Signal(envelope) => match envelope.payload {
+                            SignalPayload::WgInit { .. } => break envelope,
+                            SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                            _ => {}
+                        },
+                        SessionEvent::Disconnected => {
+                            return Err(DialError::Signaling("disconnected".into()));
+                        }
+                    }
+                };
+            }
             // This side's relay ticket comes stamped on the phone's `wg-init` (`relayTicket`).
             let relay_ticket = first.relay_ticket.clone();
             let SignalPayload::WgInit {
@@ -2754,7 +2796,7 @@ impl Dialer for WireGuardDialer {
             diagnose_gather(options, udp_blocked, turn.as_ref(), wants_turn);
             let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
             let relay_offer = relay_offer(options, own_relay_now);
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, early_join);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());

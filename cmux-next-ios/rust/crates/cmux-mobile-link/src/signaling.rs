@@ -147,6 +147,16 @@ pub enum SignalPayload {
     /// relay (`relay` in its `wg-init` / `wg-resp`).
     #[serde(rename = "wg-relay")]
     WgRelay {},
+    /// The phone's first signal of a WireGuard dial, sent before it gathers
+    /// its endpoints (so before `wg-init`): the Mac may join cmux's relay now
+    /// instead of when `wg-init` arrives. `relay` is [`RELAY_FIRST`] (the only
+    /// value so far). The `wg-init` follows on the same session. An older Mac
+    /// does not know the kind and ignores it, and keeps the rule it has.
+    #[serde(rename = "wg-early")]
+    WgEarly {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
+    },
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -836,7 +846,9 @@ impl Shared {
                 }
                 if !matches!(
                     envelope.payload,
-                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
+                    SignalPayload::WebrtcOffer { .. }
+                        | SignalPayload::WgInit { .. }
+                        | SignalPayload::WgEarly { .. }
                 ) {
                     tracing::debug!(
                         session = envelope.session_id,

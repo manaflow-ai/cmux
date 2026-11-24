@@ -100,9 +100,58 @@ pub(super) enum Control {
     KillRelay,
 }
 
+/// A relay join the Mac started on the phone's `wg-early`, before `wg-init`.
+/// The relay watch takes its result instead of joining again; dropped unused
+/// it aborts the join (and closes a socket that finished).
+pub(super) struct EarlyJoin {
+    task: std::sync::Mutex<
+        Option<JoinHandle<Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure>>>,
+    >,
+}
+
+impl EarlyJoin {
+    pub(super) fn start(
+        endpoint: super::super::relay::RelayEndpoint,
+        session: String,
+        peer: String,
+        ticket: String,
+    ) -> Arc<Self> {
+        let task = tokio::spawn(async move {
+            super::super::relay::RelayCarrier::join(&endpoint, &session, &peer, Some(&ticket)).await
+        });
+        Arc::new(Self { task: std::sync::Mutex::new(Some(task)) })
+    }
+
+    /// The join's outcome, once; `None` after the first call or when it was
+    /// aborted or panicked.
+    async fn take(
+        &self,
+    ) -> Option<Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure>> {
+        let task = lock(&self.task).take()?;
+        task.await.ok()
+    }
+}
+
+impl Drop for EarlyJoin {
+    fn drop(&mut self) {
+        if let Some(task) = lock(&self.task).take() {
+            task.abort();
+        }
+    }
+}
+
+impl std::fmt::Debug for EarlyJoin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EarlyJoin")
+    }
+}
+
 /// This session's relay, when both sides offered it.
 #[derive(Debug, Clone)]
 pub(super) struct RelayPlan {
+    /// The Mac's join started on `wg-early`, if the plan joins as the dial
+    /// starts ([`Self::first`]).
+    pub early: Option<Arc<EarlyJoin>>,
     pub endpoint: super::super::relay::RelayEndpoint,
     /// Join at once: one side said it has no other path.
     pub now: bool,
@@ -1379,14 +1428,25 @@ async fn run_relay_watch(session: Weak<Session>) {
         let decided = Instant::now();
         tracing::info!(session = session.session_id, reason, "WireGuard joins cmux's relay");
         let host = plan.endpoint.host();
-        match super::super::relay::RelayCarrier::join(
-            &plan.endpoint,
-            &session.session_id,
-            &session.peer,
-            plan.ticket.as_deref(),
-        )
-        .await
-        {
+        // The Mac's join started before `wg-init` is awaited, not begun here;
+        // one that failed is tried again as any join.
+        let early = match &plan.early {
+            Some(early) => early.take().await.and_then(Result::ok),
+            None => None,
+        };
+        let joined = match early {
+            Some(carrier) => Ok(carrier),
+            None => {
+                super::super::relay::RelayCarrier::join(
+                    &plan.endpoint,
+                    &session.session_id,
+                    &session.peer,
+                    plan.ticket.as_deref(),
+                )
+                .await
+            }
+        };
+        match joined {
             Ok(carrier) => {
                 failures = 0;
                 // The peer was heard while the join ran (a slow handshake, not a

@@ -37,7 +37,7 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. } | SignalPayload::WgEarly { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }

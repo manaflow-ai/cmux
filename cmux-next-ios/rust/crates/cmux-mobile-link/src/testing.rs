@@ -50,6 +50,9 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
+    /// Do not forward `wg-early` (an older Mac does not know the kind and
+    /// ignores it).
+    pub drop_wg_early: bool,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -302,6 +305,9 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 {
                     let relayed = value["payload"]["relayed"].clone();
                     value["payload"]["endpoints"] = if relayed.is_array() { relayed } else { json!([]) };
+                }
+                if options.drop_wg_early && value["payload"]["kind"] == "wg-early" {
+                    continue;
                 }
                 let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
                 let existing = state.sessions.get(&session).cloned();
