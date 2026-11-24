@@ -346,11 +346,11 @@ public final class CmuxMobileAuthModel {
     }
 
     /// A display cache scoped to the signed-in account, Stack project and backend data space.
-    public func lastKnownList(screen: String, teamID: String? = nil) -> LastKnownList? {
-        guard let user, !isMock, !isReviewDemo, buildSpace.refusal == nil else { return nil }
+    public func lastKnownList(screen: String, teamID: String? = nil, context: [String] = []) -> LastKnownList? {
+        guard isSignedIn, let user, !isMock, !isReviewDemo, buildSpace.refusal == nil else { return nil }
         return LastKnownListStore.standard.list(accountID: user.id, teamID: teamID, screen: screen,
                                                 context: [stackProjectID ?? "", apiBaseURL?.absoluteString ?? "",
-                                                          buildSpace.childEnvironmentValue ?? ""])
+                                                          buildSpace.childEnvironmentValue ?? ""] + context)
     }
 
     /// The account's team list as it loads: setup shows a loading state, not
@@ -394,6 +394,7 @@ public final class CmuxMobileAuthModel {
     public func loadTeams() async {
         restoreTeams()
         guard let user, !fetchedTeams.isLoaded else { return }
+        let session = coordinator?.authSessionGeneration
         fetchedTeams.retry()
         if isMock {
             #if DEBUG
@@ -410,15 +411,17 @@ public final class CmuxMobileAuthModel {
         }
         guard let stack else { return }
         do {
-            guard let account = try await stack.getUser(or: .returnNull) else { return }
+            guard let account = try await stack.getUser(or: .returnNull), await account.id == user.id else { return }
             var list: [AppStore.AccountTeam] = []
             for team in try await account.listTeams() {
                 list.append(AppStore.AccountTeam(id: team.id, name: await team.displayName))
             }
-            guard !Task.isCancelled, self.user?.id == user.id, teamsUserID == user.id else { return }
+            guard !Task.isCancelled, coordinator?.authSessionGeneration == session,
+                  self.user?.id == user.id, teamsUserID == user.id else { return }
             fetchedTeams.fetched(list)
         } catch {
-            guard teamsUserID == user.id else { return }
+            guard !Task.isCancelled, coordinator?.authSessionGeneration == session,
+                  self.user?.id == user.id, teamsUserID == user.id else { return }
             authModelLog.error("team list failed: \(String(describing: type(of: error)), privacy: .public)")
             fetchedTeams.failed("Couldn't load your teams.")
         }
@@ -437,7 +440,7 @@ public final class CmuxMobileAuthModel {
             return [you]
             #endif
         }
-        guard let stack, let account = try await stack.getUser(or: .throw),
+        guard let stack, let account = try await stack.getUser(or: .throw), await account.id == user.id,
               let team = try await account.getTeam(id: teamID) else { throw AuthError.unauthorized }
         let profiles = try await team.listUsers().map { (userID: $0.id, displayName: $0.teamProfile.displayName) }
         return TeamMember.list(profiles, you: (user.id, user.name))
@@ -667,14 +670,19 @@ public final class CmuxMobileAuthModel {
     /// still runs, in the background, so the next read has a new token).
     /// Otherwise, and with `forceRefresh` (the service answered 401), Stack's
     /// own read on the main actor, as before. verify/perf-latency.md.
-    public nonisolated func serviceAccessToken(forceRefresh: Bool = false) async throws -> String {
-        if !forceRefresh, let stack, let stored = await stack.getStoredAccessToken(),
-           AccessTokenExpiry(token: stored).isUsable() {
-            // Not awaited: the main actor may be busy, and the token is good now.
-            Task { @MainActor [weak self] in self?.refreshInBackground() }
-            return stored
+    public nonisolated func serviceAccessToken(forceRefresh: Bool = false, forAccount accountID: String? = nil) async throws -> String {
+        if !forceRefresh, let stack, let stored = await stack.getStoredAccessToken() {
+            let claims = AccessTokenExpiry(token: stored)
+            if claims.isUsable(), accountID == nil || accountID == claims.accountID {
+                // Not awaited: the main actor may be busy, and the token is good now.
+                Task { @MainActor [weak self] in self?.refreshInBackground() }
+                return stored
+            }
         }
-        return try await accessToken(forceRefresh: forceRefresh)
+        let token = try await accessToken(forceRefresh: forceRefresh)
+        // A retry from the old coordinator must never send its request with the next user's token.
+        if let accountID, accountID != AccessTokenExpiry(token: token).accountID { throw AuthError.unauthorized }
+        return token
     }
 
     /// Lets Stack refresh a stored token that was handed out as is (one at a time).

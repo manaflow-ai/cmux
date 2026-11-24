@@ -25,12 +25,22 @@ public struct LastKnownList {
 /// and excluded from backups. Credentials and live connections never belong in a snapshot.
 @MainActor
 public final class LastKnownListStore {
-    public static let standard = LastKnownListStore(directory: URL.cachesDirectory.appending(path: "cmux-mobile-lists-v1"))
+    public static let standard: LastKnownListStore = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return LastKnownListStore(directory: base.appending(path: "cmux-mobile-lists-v1"))
+    }()
 
+    private final class Entry {
+        let value: (any Sendable)?
+        init(_ value: (any Sendable)?) { self.value = value }
+    }
+
+    nonisolated private static let hex = Array("0123456789abcdef".utf8)
     private let directory: URL
     // Same ordering for atomic writes, cold reads, and sign-out deletion.
     private let io = DispatchQueue(label: "dev.cmux.mobile.last-known-lists", qos: .utility)
-    private let memory = NSCache<NSURL, AnyObject>()
+    private let memory = NSCache<NSURL, Entry>()
     fileprivate var generation = 0
 
     public init(directory: URL) {
@@ -41,31 +51,48 @@ public final class LastKnownListStore {
     /// Each component identifies a different source of rows, including the absence of a team.
     public func list(accountID: String, teamID: String? = nil, screen: String, context: [String] = []) -> LastKnownList {
         let parts: [String?] = [accountID, teamID, screen] + context.map(Optional.some)
-        let file = parts.reduce(directory) { url, part in
+        let file = Self.scopedDirectory(in: directory, components: parts).appending(path: "rows.json")
+        return LastKnownList(store: self, file: file, generation: generation)
+    }
+
+    /// A case-insensitive filesystem can preserve distinct account, team and source IDs by
+    /// encoding each path component separately, including absent and empty identifiers.
+    nonisolated public static func scopedDirectory(in directory: URL, components: [String?]) -> URL {
+        components.reduce(directory) { url, part in
             guard let part else { return url.appending(path: "nil") }
             // Lowercase hex is reversible even on a case-insensitive file system. Split long
             // components (such as backend URLs) below the file system's filename length limit.
             let bytes = Array(part.utf8)
             return stride(from: 0, to: bytes.count, by: 100).reduce(url.appending(path: "s")) { parent, start in
-                parent.appending(path: bytes[start..<min(start + 100, bytes.count)].map { String(format: "%02x", $0) }.joined())
+                let chunk = bytes[start..<min(start + 100, bytes.count)]
+                var hex: [UInt8] = []
+                hex.reserveCapacity(chunk.count * 2)
+                for byte in chunk {
+                    hex.append(Self.hex[Int(byte >> 4)])
+                    hex.append(Self.hex[Int(byte & 15)])
+                }
+                return parent.appending(path: String(decoding: hex, as: UTF8.self))
             }
-        }.appending(path: "rows.json")
-        return LastKnownList(store: self, file: file, generation: generation)
+        }
     }
 
     fileprivate func read<Value: Codable & Sendable>(_ type: Value.Type, at file: URL) -> Value? {
-        if let value = memory.object(forKey: file as NSURL) as? Value { return value }
+        if let entry = memory.object(forKey: file as NSURL) { return entry.value as? Value }
         // A cold first frame needs its own list before it can draw. Subsequent opens read memory.
-        let value = io.sync { () -> Value? in
-            guard let data = try? Data(contentsOf: file) else { return nil }
-            return try? JSONDecoder().decode(type, from: data)
+        do {
+            let value = try io.sync { try JSONDecoder().decode(type, from: Data(contentsOf: file)) }
+            memory.setObject(Entry(value), forKey: file as NSURL)
+            return value
+        } catch CocoaError.fileReadNoSuchFile {
+            memory.setObject(Entry(nil), forKey: file as NSURL)
+        } catch {
+            // Protected data may become readable after unlock.
         }
-        if let value { memory.setObject(value as AnyObject, forKey: file as NSURL) }
-        return value
+        return nil
     }
 
     fileprivate func save<Value: Codable & Sendable>(_ value: Value, at file: URL) {
-        memory.setObject(value as AnyObject, forKey: file as NSURL)
+        memory.setObject(Entry(value), forKey: file as NSURL)
         io.async {
             guard let data = try? JSONEncoder().encode(value) else { return }
             do {

@@ -36,7 +36,7 @@ public struct AccountSignOut {
     public var lastKnownLists: LastKnownListStore
     public var snapshots: LiveSnapshotStore
     public var feedStore: FeedStore
-    public var feedArchive: (String) -> FeedArchive
+    public var removeFeedArchives: (String) -> Void
     public var readMarks: (String) -> FeedReadMarks
     public var preferences: AccountPreferences
     public var discardChiefTranscripts: @MainActor () -> Void
@@ -45,7 +45,7 @@ public struct AccountSignOut {
     public var discardKeptChats: @MainActor () -> Void
 
     public init(lastKnownLists: LastKnownListStore = .standard, snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
-                feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
+                removeFeedArchives: @escaping (String) -> Void = FeedArchive.removeAll,
                 readMarks: @escaping (String) -> FeedReadMarks = FeedReadMarks.forAccount,
                 preferences: AccountPreferences = .standard,
                 discardChiefTranscripts: @escaping @MainActor () -> Void = {
@@ -61,7 +61,7 @@ public struct AccountSignOut {
         self.lastKnownLists = lastKnownLists
         self.snapshots = snapshots
         self.feedStore = feedStore
-        self.feedArchive = feedArchive
+        self.removeFeedArchives = removeFeedArchives
         self.readMarks = readMarks
         self.preferences = preferences
         self.discardChiefTranscripts = discardChiefTranscripts
@@ -91,7 +91,7 @@ public struct AccountSignOut {
         session?.stop()
         feedStore.clearForSignOut()
         if let userID {
-            feedArchive(userID).remove()
+            removeFeedArchives(userID)
             preferences.stash(userID: userID)
             if session?.accountDeleted == true {
                 preferences.forget(userID: userID)

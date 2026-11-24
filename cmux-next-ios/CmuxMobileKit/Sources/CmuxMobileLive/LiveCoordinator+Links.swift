@@ -1033,18 +1033,6 @@ extension LiveCoordinator {
         session.terminalFeed.treeChanged(tree, macID: macID, connection: session.workspaces.connectionSerial)
     }
 
-    /// One write per main-queue turn, however many items a burst changed.
-    func scheduleFeedSave(_ archive: FeedArchive) {
-        guard !feedSavePending else { return }
-        feedSavePending = true
-        Task { @MainActor [weak self] in
-            guard let self, !stopped else { return }
-            feedSavePending = false
-            // Encoded and written off the main thread (a save per change dropped frames while scrolling).
-            archive.saveInBackground(feedStore.items)
-        }
-    }
-
     /// Where an acpmux session lives (acpmux session ids are unique across Macs).
     func place(sessionID: String) -> LiveFeed.Place? {
         if let place = focused.place(sessionID: sessionID) { return place }

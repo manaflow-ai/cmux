@@ -214,7 +214,8 @@ public final class LiveCoordinator {
     /// go (the new team's Macs fill it on connect): an old team's ask answered here went to
     /// the new team's Mac and failed, or reached the wrong one.
     @ObservationIgnored private var feedTeamID: String?
-    @ObservationIgnored var feedSavePending = false
+    @ObservationIgnored private var feedArchive: FeedArchive?
+    @ObservationIgnored private var feedSaveTask: Task<Void, Never>?
     /// The Feed's answers (`FeedStore.actions` is weak: this keeps them alive).
     @ObservationIgnored var feedActions: MultiMacFeedActions?
     /// How long a connected Mac may take to send its workspace list before
@@ -284,16 +285,19 @@ public final class LiveCoordinator {
         // the Mac Chief below stays reachable beside it.
         // In the same build space as the mobile service (a dev build's own cloud data).
         ChiefSources.shared.start(userID: userID, config: .current(buildSpace: api.buildSpace)) { try await apiForLink.accessToken($0) }
-        // The Feed as this phone last saw it; the Mac's history merges in on connect.
-        let archive = FeedArchive.forAccount(userID)
+        // The Feed as this phone last saw it. A team is not known until the
+        // account/team snapshot or the account list arrives, so the legacy
+        // account-only archive is never shown under an arbitrary team.
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
-        // Events past the Feed's window wait on disk while the app runs, not in memory.
-        feedStore.useSpill(.inCaches("feed", scope: userID))
-        feedStore.replaceAll(archive.load())
+        feedStore.onItemsChange = nil
+        feedStore.onKnownData = nil
+        feedStore.resetKnownData()
+        feedStore.replaceAll([])
         feedStore.onItemsChange = { [weak self] items in
-            self?.scheduleFeedSave(archive)
+            self?.scheduleFeedSave()
             for session in self?.sessions.values ?? [:].values { session.terminalFeed.itemsChanged(items) }
         }
+        feedStore.onKnownData = { [weak self] in self?.scheduleFeedSave() }
         let feedActions = MultiMacFeedActions(coordinator: self)
         self.feedActions = feedActions
         feedStore.actions = feedActions
@@ -536,7 +540,7 @@ public final class LiveCoordinator {
         // presence: a cached "offline" waits for a real dial to say so.
         if let focusedMacID { sessions[focusedMacID]?.link.send(.open) }
         startedTeamID = snapshot.teamID
-        feedTeamID = snapshot.teamID
+        activateFeed(for: snapshot.teamID)
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
     }
 
@@ -588,22 +592,25 @@ public final class LiveCoordinator {
 
     // MARK: Teams
 
-    private var personal: AppStore.AccountTeam {
-        AppStore.AccountTeam(id: Self.personalTeamID(userID: userID), name: "Personal")
+    private static func personalTeam(for userID: String) -> AppStore.AccountTeam {
+        AppStore.AccountTeam(id: personalTeamID(userID: userID), name: "Personal")
     }
+
+    private var personal: AppStore.AccountTeam { Self.personalTeam(for: userID) }
 
     /// Applies the account's teams (or the personal space) and starts the
     /// active one. The personal space stays listed next to Stack teams while
     /// one of the account's Macs is in it. Starts Mac discovery.
     public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
-        showAccountTeams(teams, selectedID: selectedID)
+        Self.showAccountTeams(teams, selectedID: selectedID, userID: userID, in: store)
         activeTeamChanged()
         for team in store.teams { loadPrefs(team.id) }
         discovery.start { [weak self] in await self?.lookForMacs() }
     }
 
     /// Populate the sidebar without treating cached memberships as a new service answer.
-    public func showAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
+    public static func showAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?, userID: String, in store: AppStore) {
+        let personal = personalTeam(for: userID)
         var list = teams.isEmpty ? [personal] : teams
         let keepsPersonal = store.activeTeamID == personal.id || store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty })
         if !teams.isEmpty, keepsPersonal { list.append(personal) }
@@ -623,21 +630,69 @@ public final class LiveCoordinator {
         activeTeamChanged(byUser: true)
     }
 
+    /// Restores the team's Feed before its fresh membership and service discovery arrive.
+    public func restoreFeedForActiveTeam() {
+        if !store.activeTeamID.isEmpty { activateFeed(for: store.activeTeamID) }
+    }
+
+    /// Coalesce a burst of events. The latest rows go to the team active when the write began.
+    private func scheduleFeedSave() {
+        guard !stopped, feedArchive != nil, feedSaveTask == nil,
+              feedStore.hasKnownData || !feedStore.items.isEmpty else { return }
+        feedSaveTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            flushFeedSave()
+        }
+    }
+
+    private func flushFeedSave() {
+        guard let pending = feedSaveTask else { return }
+        pending.cancel()
+        feedSaveTask = nil
+        feedArchive?.saveInBackground(feedStore.items)
+    }
+
+    /// Activates the persisted Feed for one account/team. During a switch the
+    /// old callbacks are muted so replacing rows cannot save them into the new
+    /// archive or turn an uncached team into a known-empty snapshot.
+    private func activateFeed(for teamID: String) {
+        guard feedTeamID != teamID || feedArchive == nil else { return }
+        let archive = FeedArchive.forAccount(userID, teamID: teamID)
+        flushFeedSave()
+        let itemsChange = feedStore.onItemsChange
+        let knownData = feedStore.onKnownData
+        feedStore.onItemsChange = nil
+        feedStore.onKnownData = nil
+        feedArchive = archive
+        feedTeamID = teamID
+        feedStore.resetKnownData()
+        feedStore.syncState = .connecting
+        feedStore.useSpill(.forThisRun("feed", scope: UUID().uuidString))
+        let snapshot = archive.loadIfPresent()
+        feedStore.replaceAll(snapshot ?? [])
+        if snapshot != nil { feedStore.markKnown() }
+        feedStore.onItemsChange = itemsChange
+        feedStore.onKnownData = knownData
+    }
+
     /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets
     /// the link. `byUser` marks a sidebar pick, which discovery respects.
     public func activeTeamChanged(byUser: Bool = false) {
         let teamID = store.activeTeamID
         if byUser { pinnedTeamID = teamID }
-        guard !teamID.isEmpty, teamID != registeredTeamID, teamID != startedTeamID else { return }
+        guard !teamID.isEmpty else { return }
+        guard teamID != registeredTeamID, teamID != startedTeamID else {
+            activateFeed(for: teamID)
+            return
+        }
         startedTeamID = teamID
-        if let feedTeamID, feedTeamID != teamID { feedStore.replaceAll([]) }
-        feedTeamID = teamID
         teamTask?.cancel()
         presence?.stop()
         presence = nil
         registeredTeamID = nil
         store.teamDataState = .loading
         closeAllSessions()
+        activateFeed(for: teamID)
         teamTask = Task { [weak self] in await self?.startTeam(teamID) }
     }
 
@@ -756,6 +811,9 @@ public final class LiveCoordinator {
 
     /// Macs registered by another member (a shared team): listed, never
     /// dialed. Protocol v1 admits only the Mac owner's own phones.
+    /// Display-only peer records for Settings. A coordinator retains its own account's cache handle.
+    public var terminalSizingPeers: TerminalSizingPeers?
+
     @ObservationIgnored private var othersMacs: Set<String> = []
 
     /// A Mac its owner deleted (here or on another device): gone from every
@@ -774,6 +832,7 @@ public final class LiveCoordinator {
         lastShown[id] = nil
         let known = store.forgetMac(id)
         othersMacs.remove(id)
+        terminalSizingPeers?.forget(id)
         discoveredMacIDs?.remove(id)
         previouslyOnline = previouslyOnline?.filter { !$0.hasPrefix("\(id)\u{0}") }
         if snapshot?.linkedMacID == id { snapshot?.linkedMacID = nil }
@@ -787,8 +846,10 @@ public final class LiveCoordinator {
         for mac in macs {
             if let owner = mac.ownerUserId, owner != userID { othersMacs.insert(mac.deviceId) } else { othersMacs.remove(mac.deviceId) }
         }
-        store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
-                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }, teamID: teamID)
+        let devices = macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
+                                           ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }
+        store.setMacs(devices, teamID: teamID)
+        terminalSizingPeers?.replace(teamID: teamID, devices: devices, accountID: userID)
         #if DEBUG
         if let id = dogfoodFocusMacID, macs.contains(where: { $0.deviceId.lowercased() == id.lowercased() }) {
             UserDefaults.standard.set(id, forKey: "cmuxMobile.live.mac.\(teamID)")
@@ -1100,6 +1161,7 @@ public final class LiveCoordinator {
 
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
+        flushFeedSave()
         stopped = true
         restTask?.cancel()
         restTask = nil

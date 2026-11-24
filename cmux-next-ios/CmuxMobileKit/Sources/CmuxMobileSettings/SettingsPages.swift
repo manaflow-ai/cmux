@@ -227,6 +227,7 @@ struct TeamPage: View {
     let invite: () -> Void
     private let cache: LastKnownList?
     @State private var members: SettingsLoad<[TeamMember]>
+    @State private var memberRequest = 0
 
     init(team: Team, auth: CmuxMobileAuthModel, cache: LastKnownList?, edit: @escaping () -> Void, invite: @escaping () -> Void) {
         self.team = team
@@ -263,7 +264,8 @@ struct TeamPage: View {
                         // placeholder-ok: No member list has ever been received for this account and team.
                         CmuxSpinner()
                     } content: {
-                        Text("Loading members") // placeholder-ok: First load of this team's member list..foregroundStyle(theme.colors.label2)
+                        // placeholder-ok: First load of this team's member list.
+                        Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
                     SettingsLoadError(message: message) { Task { await loadMembers() } }
@@ -301,16 +303,18 @@ struct TeamPage: View {
     }
 
     private func loadMembers() async {
+        memberRequest += 1
+        let request = memberRequest
         if case .loaded = members {} else { members = .loading }
         let userID = auth.user?.id
         do {
             let list = try await auth.teamMembers(teamID: team.id)
-            guard !Task.isCancelled, userID == auth.user?.id else { return }
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
             members = .loaded(list)
             cache?.save(list)
         } catch is CancellationError {
         } catch {
-            guard !Task.isCancelled, userID == auth.user?.id else { return }
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
             if case .loaded = members { return }
             members = .failed("Couldn't load the team's members.")
         }

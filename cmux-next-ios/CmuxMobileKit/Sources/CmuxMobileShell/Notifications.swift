@@ -338,6 +338,7 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
     }
 
     var relayAvailable: Bool? { live?.relayAvailable }
+    var terminalSizingPeers: TerminalSizingPeers? { live?.terminalSizingPeers }
 
     struct NotSignedIn: Error {}
 

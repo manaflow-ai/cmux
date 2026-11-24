@@ -280,6 +280,7 @@ public struct RootView: View {
             // A reply a cold background launch is sending holds the device's one
             // signaling socket: let it finish before this coordinator dials.
             await PushReplies.shared.headlessFinished()
+            guard !Task.isCancelled else { return }
             accountChanged()
             await auth.loadTeams()
         }
@@ -288,12 +289,11 @@ public struct RootView: View {
         // account signing in again skips setup (verify/persistence.md).
         .onChange(of: auth.isResolved ? (auth.isSignedIn ? auth.user?.id : "") : nil, initial: true) { _, id in
             guard auth.isResolved, !auth.isMock else { return }
-            // A restored session publishes the active push account too. A
-            // signed-out launch removes the old marker while retaining keys.
-            PushActiveAccountMirror.shared.update(userID: id?.isEmpty == true ? nil : id)
-            guard let id, !id.isEmpty else { return }
-            AccountPreferences.standard.activate(userID: id)
-            accountUserID = id
+            if let id, !id.isEmpty {
+                activateAccount(id)
+            } else {
+                PushActiveAccountMirror.shared.update(userID: nil)
+            }
         }
         // Connectivity telemetry follows the account: the cmux team's own accounts
         // (@manaflow.ai, @cmux.com) record verbosely, everyone else sampled and text-free.
@@ -367,14 +367,14 @@ public struct RootView: View {
         // The review demo keeps its own space. An unvisited account waits for its first answer.
         guard !auth.isReviewDemo, let teams = auth.teamsForDisplay() else { return }
         log.info("Stack teams: \(teams.count, privacy: .public)")
-        if let live {
-            // Live: Macs come from the cmux-next-ios service, never the samples. An
-            // account with no team uses its personal space, once that is known.
-            if auth.teamList.isLoaded {
-                live.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
-            } else {
-                live.showAccountTeams(teams, selectedID: auth.selectedTeamID)
-            }
+        if let live, auth.teamList.isLoaded {
+            live.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
+            return
+        }
+        if auth.apiBaseURL != nil, let userID = auth.user?.id {
+            // Even before the coordinator attaches, a cached empty Stack roster shows Personal.
+            LiveCoordinator.showAccountTeams(teams, selectedID: auth.selectedTeamID, userID: userID, in: store)
+            live?.restoreFeedForActiveTeam()
             return
         }
         guard !teams.isEmpty else { return }
@@ -455,6 +455,16 @@ public struct RootView: View {
         log.info("signed out: account state reset, device identity kept")
     }
 
+    /// Auth may switch directly between signed-in users. Both callbacks activate the same
+    /// identity before restoring preferences or creating its links, whichever callback runs first.
+    private func activateAccount(_ id: String) {
+        guard accountUserID != id else { return }
+        if accountUserID != nil { signedOut() }
+        PushActiveAccountMirror.shared.update(userID: id)
+        AccountPreferences.standard.activate(userID: id)
+        accountUserID = id
+    }
+
     /// Starts live data for a signed-in account (before setup, so setup sees
     /// real Macs) and stops it on sign-out.
     private func accountChanged() {
@@ -464,6 +474,7 @@ public struct RootView: View {
             setupPlan = nil
             return
         }
+        if !auth.isMock { activateAccount(user.id) }
         // The App Review demo account: its demo Mac and workspaces, and no live
         // data (nothing dials a Mac, nothing registers this phone for pushes).
         if auth.isReviewDemo {
@@ -475,7 +486,7 @@ public struct RootView: View {
             // Its Cloud Chief, as LiveCoordinator starts it for every other account.
             if !reviewDemoChief {
                 ChiefSources.shared.start(userID: user.id, config: .current(buildSpace: auth.buildSpace)) { [auth] force in
-                    try await auth.serviceAccessToken(forceRefresh: force)
+                    try await auth.serviceAccessToken(forceRefresh: force, forAccount: user.id)
                 }
                 reviewDemoChief = true
             }
@@ -1030,8 +1041,9 @@ struct ShellTabs: View {
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current(buildSpace: .nightly) == nil ? nil : SettingsCloudPages(
-                        machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })) },
-                        automations: { AnyView(CloudAutomationsScreen()) },
+                        machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })
+                            .id(ChiefSources.shared.personalListIdentity)) },
+                        automations: { AnyView(CloudAutomationsScreen().id(ChiefSources.shared.personalListIdentity)) },
                         connectGitHub: { AnyView(GitHubConnectRow()) }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },

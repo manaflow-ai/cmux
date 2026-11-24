@@ -101,12 +101,13 @@ struct HostSizePolicyEditor: View {
 /// Settings → Terminal → Terminal Size When Shared: the phone's Macs.
 struct TerminalSizingMacsPage: View {
     let store: AppStore
-
+    let accountID: String?
     let directory: (any SettingsDeviceDirectory)?
     let list: SettingsDeviceList
 
     private var macs: [MacDevice] {
-        SettingsDeviceRows.sizingMacs(teams: store.teams, activeTeamID: store.activeTeamID, service: list.devices)
+        SettingsDeviceRows.sizingMacs(teams: store.teams, activeTeamID: store.activeTeamID, service: list.devices, accountID: accountID,
+                                     peers: directory?.terminalSizingPeers?.visible(in: store.teams) ?? [])
     }
 
     var body: some View {
@@ -128,7 +129,7 @@ struct TerminalSizingMacsPage: View {
             }
         }
         .settingsPage("Terminal Size When Shared")
-        .task { await list.load(directory) }
+        .task(id: directory.map(ObjectIdentifier.init)) { await list.load(directory) }
     }
 }
 
@@ -136,16 +137,22 @@ struct TerminalSizingMacsPage: View {
 struct TerminalSizingMacPage: View {
     let macID: String
     let store: AppStore
+    let list: SettingsDeviceList
+    let peers: TerminalSizingPeers?
     @State private var model: HostSizePolicyModel
 
-    init(macID: String, store: AppStore, service: (any TerminalSizingService)?) {
+    init(macID: String, store: AppStore, list: SettingsDeviceList, peers: TerminalSizingPeers?, service: (any TerminalSizingService)?) {
         self.macID = macID
         self.store = store
+        self.list = list
+        self.peers = peers
         _model = State(initialValue: HostSizePolicyModel(macID: macID, service: service))
     }
 
     private var title: String {
-        store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
+        store.teams.flatMap(\.macs).first { $0.id == macID }?.name
+            ?? list.devices?.first { $0.kind == .mac && $0.id == macID }?.name
+            ?? peers?.visible(in: store.teams).first { $0.id == macID }?.name ?? "Mac"
     }
 
     var body: some View {

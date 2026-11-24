@@ -197,7 +197,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 refreshErrorRow(refreshError)
             }
             if store.visibleItems.isEmpty {
-                if store.syncState == .connecting {
+                if store.syncState == .connecting && !store.hasKnownData {
                     connectingState
                 } else {
                     emptyState
@@ -340,6 +340,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     /// No events known yet and the Mac has not answered: not "Nothing yet".
     private var connectingState: some View {
         VStack(spacing: 10) {
+            // placeholder-ok: the account has no Feed snapshot or live result yet.
             CmuxSpinner()
             Text("Connecting to your Mac…")
                 .font(.subheadline)

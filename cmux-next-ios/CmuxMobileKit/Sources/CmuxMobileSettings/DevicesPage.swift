@@ -1,14 +1,18 @@
+import CmuxMobileModel
+import Foundation
+import Observation
 #if os(iOS)
 import CmuxMobileDesign
-import CmuxMobileModel
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
+#endif
 
 /// The live service behind Settings → Devices and account deletion (the
 /// shell supplies it; mock mode has none).
 @MainActor
 public protocol SettingsDeviceDirectory: AnyObject {
+    var terminalSizingPeers: TerminalSizingPeers? { get }
     func devices() async throws -> [SettingsDevice]
     func remove(_ device: SettingsDevice) async throws
     /// Whether the service has a TURN relay (nil: not known yet).
@@ -21,11 +25,20 @@ public protocol SettingsDeviceDirectory: AnyObject {
     func removeThisPhoneFromMacs() async
 }
 
+extension SettingsDeviceDirectory {
+    public var terminalSizingPeers: TerminalSizingPeers? { nil }
+}
+
 /// The account's devices from the service, shared by the Settings root (its
 /// "Devices" count) and the Devices page, so both read one list.
 @MainActor
 @Observable
 final class SettingsDeviceList {
+    struct RefreshSource: Hashable {
+        let directory: ObjectIdentifier?
+        let macCount: Int?
+    }
+
     private let cache: LastKnownList?
     // SettingsScreen's value may be rebuilt many times. Read the kept rows only on the
     // model SwiftUI actually retains, the first time a page asks for them.
@@ -67,13 +80,14 @@ final class SettingsDeviceList {
 
     /// The Mac rows (see `SettingsDeviceRows.macs`); nil while loading.
     func macs(store: AppStore, hasService: Bool) -> [SettingsDevice]? {
-        SettingsDeviceRows.macs(service: devices, hasService: hasService || devices != nil, liveMacs: store.teams.flatMap(\.macs),
+        SettingsDeviceRows.macs(service: devices, hasService: hasService || cache != nil, liveMacs: store.teams.flatMap(\.macs),
                                 teamOf: store.teams.reduce(into: [:]) { out, team in for mac in team.macs where out[mac.id] == nil { out[mac.id] = team.id } })
     }
 
     var phones: [SettingsDevice] { SettingsDeviceRows.phones(service: devices) }
 }
 
+#if os(iOS)
 /// Settings → Devices: the account's Macs and phones from the service, with
 /// real presence; stale ones can be removed.
 struct DevicesPage: View {
@@ -140,7 +154,7 @@ struct DevicesPage: View {
                     Text(String(localized: "mobile.devices.macsFooter", defaultValue: "Removed Macs can return when you sign in again.", bundle: .module))
                 }
             }
-            if directory != nil, !phones.isEmpty {
+            if !phones.isEmpty {
                 Section {
                     ForEach(phones) { phone in
                         removableRow(phone, rows)
@@ -174,7 +188,7 @@ struct DevicesPage: View {
         .sheet(isPresented: $scanning) { PairCodeScannerSheet() }
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
-        .task { await list.load(directory) }
+        .task(id: directory.map(ObjectIdentifier.init)) { await list.load(directory) }
         // A centered alert, with no arrow: a popover from the page pointed at
         // whichever row it chose, so with same-name Macs it could point at the
         // other Mac. A dialog attached to the swiped row does not present in a

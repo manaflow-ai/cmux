@@ -58,7 +58,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     }
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, screenSharing: ScreenSharingService? = nil, cloudPages: SettingsCloudPages? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
-        _deviceList = State(initialValue: SettingsDeviceList(cache: auth.lastKnownList(screen: "devices")))
+        _deviceList = State(initialValue: SettingsDeviceList(cache: auth.apiBaseURL == nil ? nil : auth.lastKnownList(screen: "devices")))
         self.scrollRequest = scrollRequest
         self.callChief = callChief
         self.screenSharing = screenSharing
@@ -258,7 +258,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 TeamAppearanceEditor(team: team) { saveAppearance($0, team) }
             }
             // The count follows the account's Macs as discovery finds them.
-            .task(id: store.accountMacCount) { await deviceList.load(directory) }
+            .task(id: SettingsDeviceList.RefreshSource(directory: directory.map(ObjectIdentifier.init),
+                                                       macCount: store.accountMacCount)) { await deviceList.load(directory) }
             .onAppear { Task { notificationPermission = await NotificationPermission.current() } }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
@@ -313,8 +314,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .transport: TransportPage(settings: settings, store: store, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
-        case .terminalSizing: TerminalSizingMacsPage(store: store, directory: directory, list: deviceList)
-        case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, service: sizing)
+        case .terminalSizing: TerminalSizingMacsPage(store: store, accountID: auth.user?.id, directory: directory, list: deviceList)
+        case .terminalSizingMac(let macID): TerminalSizingMacPage(macID: macID, store: store, list: deviceList, peers: directory?.terminalSizingPeers, service: sizing)
         case .composer: ComposerPage(settings: settings, voice: callPreferences)
         case .accentColor: AccentColorPage(accents: accentTheme)
         case .notifications: NotificationsPage(settings: settings, macs: store.notificationMacs,
