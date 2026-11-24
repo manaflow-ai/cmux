@@ -1156,6 +1156,11 @@ pub(crate) fn overlay(
     values.into_iter().collect()
 }
 
+/// This machine's delivered `machine.env` under `home`.
+pub(crate) fn machine_env_path(home: &std::path::Path) -> std::path::PathBuf {
+    machine::path(home)
+}
+
 /// Whether an env name may come from a person's or machine's declarations:
 /// never a loader, shell bootstrap, PATH/HOME or `CMUX_`/`ACPMUX_` name.
 pub(crate) fn machine_env_name_allowed(name: &str) -> bool {
@@ -1563,9 +1568,8 @@ fn save_cache(fingerprint: &str, login: &[(String, String)], login_path: Option<
         saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
-    if let Err(e) = crate::config::write_atomic(&cache_path(), &bytes) {
-        tracing::warn!("login env cache: {e:#}");
-    }
+    // A cache: the disk writer (`disk_writer.rs`) writes it and logs a failure.
+    crate::config::write_atomic_later(&cache_path(), bytes);
 }
 
 /// Files created by cloud apply-machine-config and deliver-secrets. Their

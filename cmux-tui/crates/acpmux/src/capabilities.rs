@@ -3,10 +3,9 @@
 //! apart from the app (web OTA), so a newer pane checks these before it
 //! relies on a surface instead of reading the daemon's version.
 //!
-//! [`CAPABILITIES`] is the one source: `initialize` sends its ids in
-//! `_meta.acpmux.capabilities`, `_acpmux/status` in `capabilities`, and
-//! `acpmux capabilities [--json]` prints them with no daemon running, which
-//! the app bundle records in `Contents/Resources/bin/daemon-capabilities.json`
+//! [`CAPABILITIES`] declares the wire names across builds. `initialize` sends the ids for its
+//! transport in `_meta.acpmux.capabilities`. `_acpmux/status` and `acpmux capabilities [--json]`
+//! report the build's ids, which the app records in `Contents/Resources/bin/daemon-capabilities.json`
 //! (scripts/cmux-next/write-daemon-capabilities.sh).
 //!
 //! An id names a wire contract. Never rename one or drop it while the daemon
@@ -30,9 +29,21 @@ pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 /// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
 pub const HOLD_ATTACH: &str = "attach-hold-v1";
 
+/// `_acpmux/presence` and `_acpmux/typing` (`hub/presence.rs`).
+pub const CHAT_PRESENCE: &str = "chat-presence-v1";
+
+/// `_acpmux/connections.changed`, pushed to a local watcher when a model connection changes
+/// (`server/connections.rs`).
+pub const CONNECTIONS_EVENTS: &str = "connections-events-v1";
+
 /// `_acpmux/info` with `sessionIds` answers the list's rows by key, and `_acpmux/status` says
 /// `closedListed` (`server/requests/info.rs` `rows`).
 pub const INFO_ROWS: &str = "info-rows-v1";
+
+/// The hub carrier can list and probe machine routes.
+pub const MACHINE_ROUTES: &str = "machine-routes-v1";
+/// A fresh local stream accepts a remote pipe request on its first line.
+pub const REMOTE_PIPE: &str = "remote-pipe-v1";
 
 /// A client that sends `initialize` with `_meta.acpmux.peerRowBatches: true` hears a burst of one
 /// peer's rows (more than 32, a peer's list) as one `_acpmux/peer_rows_changed`, and follows the
@@ -152,6 +163,7 @@ pub const CAPABILITIES: &[Capability] = &[
             method::SESSION_SET_CONFIG_OPTION,
             method::SESSION_UPDATE,
             method::MUX_STATUS,
+            method::MUX_INFO,
             method::MUX_SESSIONS,
             method::MUX_ATTACH,
             method::MUX_DETACH,
@@ -199,6 +211,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // `_acpmux/sessions {pendingOnly: true}`: only the chats with a pending ask, without the
     // list's pace (the app's dialog list). Older daemons would answer the whole list.
     Capability { id: "session-list-pending-v1", wire: &[method::MUX_SESSIONS] },
+    // `_acpmux/sessions {topLevelOnly: true}`: no side chat and no session another chat's agent
+    // started, filtered before the page is cut (the phone's chat lists). Older daemons ignore it
+    // and list every chat.
+    Capability { id: "session-list-top-level-v1", wire: &[method::MUX_SESSIONS] },
     // `_acpmux/usage`: every listed chat's `usageStats` and nothing else, `unchanged` while the
     // digest the client holds is current (Session Info's Usage). Older daemons: the client reads
     // the list's pages with `usage: true`.
@@ -242,6 +258,11 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::server::session_patch::CAPABILITY,
         wire: &[method::INITIALIZE, method::MUX_SESSION_CHANGED, method::MUX_SESSION_PATCH],
     },
+    Capability {
+        id: MACHINE_ROUTES,
+        wire: &[method::MUX_MACHINE_ROUTES, method::MUX_MACHINE_ROUTE_PROBE],
+    },
+    Capability { id: REMOTE_PIPE, wire: &[method::MUX_REMOTE_PIPE] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.
@@ -326,7 +347,7 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "team-audit-v1", wire: &[method::MUX_TEAM_AUDIT] },
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
-    Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
@@ -385,6 +406,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "start-mode-v1",
         wire: &[method::MUX_START_MODE, method::MUX_START_MODE_CHANGED],
     },
+    // A model connection's change, pushed to a local watcher (`server/connections.rs`).
+    Capability { id: CONNECTIONS_EVENTS, wire: &[method::MUX_CONNECTIONS_CHANGED] },
     // A peer link's state, pushed on each change (`protocol/peer_state.rs`).
     Capability { id: "peer-state-events-v1", wire: &[method::MUX_PEER_STATE_CHANGED] },
     // Folder trust (`trust.rs`).
@@ -570,19 +593,24 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
 ];
 
-/// The ids of [`CAPABILITIES`], in its order.
+/// The capabilities of this build, including the local stream listener.
 pub fn ids() -> Vec<&'static str> {
+    ids_for_connection(true)
+}
+
+/// `initialize` lists only the surfaces available over its transport.
+pub(crate) fn ids_for_connection(local_stream: bool) -> Vec<&'static str> {
     CAPABILITIES
         .iter()
-        .filter(|capability| {
-            capability.id != "agent-session-turn-rewind-v1"
-                || [
-                    "CMUX_PLATFORM_ORIGIN",
-                    "CMUX_PLATFORM_WORKSPACE_ID",
-                    "CMUX_PLATFORM_MACHINE_ID",
-                ]
-                .iter()
-                .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+        .filter(|capability| match capability.id {
+            MACHINE_ROUTES => cfg!(feature = "hub-carrier"),
+            REMOTE_PIPE => local_stream && cfg!(feature = "hub-carrier"),
+            "agent-session-turn-rewind-v1" => {
+                ["CMUX_PLATFORM_ORIGIN", "CMUX_PLATFORM_WORKSPACE_ID", "CMUX_PLATFORM_MACHINE_ID"]
+                    .iter()
+                    .all(|name| std::env::var(name).is_ok_and(|value| !value.is_empty()))
+            }
+            _ => true,
         })
         .map(|capability| capability.id)
         .collect()
@@ -724,19 +752,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn base_info_and_carrier_methods_have_wire_declarations_in_every_build() {
+        let wire = |id| CAPABILITIES.iter().find(|cap| cap.id == id).unwrap().wire;
+        assert!(wire("acpmux-v1").contains(&method::MUX_INFO));
+        assert!(wire(INFO_ROWS).contains(&method::MUX_INFO));
+        assert_eq!(
+            wire(MACHINE_ROUTES),
+            &[method::MUX_MACHINE_ROUTES, method::MUX_MACHINE_ROUTE_PROBE]
+        );
+        assert_eq!(wire(REMOTE_PIPE), &[method::MUX_REMOTE_PIPE]);
+    }
+
+    fn memory_hub() -> std::sync::Arc<crate::hub::Hub> {
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        crate::hub::Hub::new(cfg, store)
+    }
+
+    #[tokio::test]
+    async fn declared_agent_passthroughs_require_a_session() {
+        let client = Client::in_process(memory_hub()).await.unwrap();
+        for m in [method::MUX_SUBAGENT_STOP, method::MUX_STEER_WITHDRAW, method::MUX_STEP_NOW] {
+            let error = client.request(m, json!({})).await.unwrap_err();
+            let rpc = &error.downcast_ref::<crate::client::DaemonError>().unwrap().0;
+            assert_eq!((rpc.code, rpc.message.as_str()), (-32602, "sessionId is required"), "{m}");
+        }
+        let unknown = client.request("_acpmux/unknown", json!({})).await.unwrap_err();
+        assert_eq!(unknown.downcast_ref::<crate::client::DaemonError>().unwrap().0.code, -32601);
+    }
+
     /// `initialize` and `_acpmux/status` carry the list, and `acpmux
     /// capabilities --json` prints the same one without a daemon.
     #[tokio::test]
     async fn initialize_status_and_the_cli_name_the_same_capabilities() {
-        let mut cfg = Config::default();
-        cfg.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub = crate::hub::Hub::new(cfg, store);
+        let hub = memory_hub();
         let dir = cmux_unix_socket::short_test_dir("acpmux-caps");
         let path = dir.path().join("d.sock");
         let listener = crate::server::bind_unix(&path).await.unwrap();
+        let channel = Client::in_process(hub.clone()).await.unwrap();
         tokio::spawn(crate::server::serve_unix(hub, listener));
         let client = Client::connect(&path).await.unwrap();
+
+        let carrier = cfg!(feature = "hub-carrier");
+        assert_eq!(client.daemon_lists(MACHINE_ROUTES), carrier);
+        assert_eq!(channel.daemon_lists(MACHINE_ROUTES), carrier);
+        assert_eq!(client.daemon_lists(REMOTE_PIPE), carrier);
+        assert!(!channel.daemon_lists(REMOTE_PIPE));
 
         let expected = json!(ids());
         let status = client.request(method::MUX_STATUS, json!({})).await.unwrap();

@@ -37,10 +37,13 @@ pub use dual::DualStats;
 mod dialer;
 #[path = "peer_features.rs"]
 mod features;
+pub use features::{PEER_FEATURES, PeerFeature, gating as features_gating};
 #[path = "peer_health.rs"]
-mod health;
+pub(crate) mod health;
 #[path = "peer_overlay.rs"]
 pub(crate) mod overlay;
+#[path = "peer_tailnet.rs"]
+mod tailnet_path;
 
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
@@ -218,6 +221,13 @@ pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
 
 #[cfg(test)]
 impl Peer {
+    /// A test that stands in for a listener from before the early request: no first request goes
+    /// out with the upgrade, as after the real refusal (`early_refused`).
+    #[cfg(test)]
+    pub(crate) fn refuse_early(&self) {
+        self.early_refused.store(true, Ordering::SeqCst);
+    }
+
     /// Test stand-in for the far daemon: answers every request this peer's link would write with
     /// `result` until one is `m`, and gives that one's line. No `serve` runs: the frames are read
     /// off the link's queue as `serve` would read them.
@@ -314,6 +324,8 @@ pub struct Peer {
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
     /// found or recalled for it (`peer_overlay.rs`).
     explicit_route: AtomicBool,
+    /// The opt-in tailnet path (`peer_tailnet.rs`).
+    tailnet: StdMutex<tailnet_path::State>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
     link_socket: std::sync::OnceLock<std::path::PathBuf>,
     /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
@@ -564,6 +576,11 @@ pub struct Peer {
     /// watch's reply, and the changes after it, until then, and drops them when the
     /// initialize reply says the watch was not the one to ask.
     pipelined_key: StdMutex<Option<String>>,
+    /// The `initialize` that went out with the upgrade request: its id and its answer
+    /// (`early_initialize`); the handshake takes it instead of asking again.
+    /// A listener refused the upgrade with a request behind it: none is sent early again.
+    early_refused: AtomicBool,
+    early_init: StdMutex<Option<(i64, oneshot::Receiver<Result<Value, RpcError>>)>>,
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.
     pipelines: AtomicBool,
@@ -742,10 +759,6 @@ impl Peer {
         }
     }
 }
-
-/// The longest a handshake reading its watch list in pages may take in all: each page moves its
-/// deadline on by the handshake's own (`LinkTimings::handshake`), never past this.
-const HANDSHAKE_MOST: Duration = Duration::from_secs(300);
 
 /// The rows of the first watch page read by count (`Peer::watch_row_pages`): about 5 MB
 /// without tools at the incident's row sizes (2.3 KB).
