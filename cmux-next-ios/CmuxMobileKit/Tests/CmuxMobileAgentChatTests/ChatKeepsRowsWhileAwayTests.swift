@@ -35,7 +35,7 @@ import Testing
         for _ in 0..<200 where store.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(store.connectionLine == "Connecting to m…")
         store.apply(.status(.idle))
-        #expect(store.connectionLine == nil, "catching up over kept turns says nothing")
+        #expect(store.connectionLine == nil, "catching up with the Mac says nothing: the kept rows show")
         store.apply(.historyLoading(false))
         #expect(store.connectionLine == nil)
         #expect(!store.quietStatus.isShown)

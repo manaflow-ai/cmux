@@ -294,7 +294,9 @@ struct AgentChatsScreen: View {
     private var content: some View {
         switch model.phase {
         case .loading:
-            CmuxSpinner(label: Text(model.reconnecting ? "Connecting to your Mac…" : "Loading chats…"))
+            // Never "Connecting to your Mac…" (Leo, 2026-11-23: "i dont wanna see connecting to
+            // cosmic-gray... with the spinner, i want it to just work"): the list's own load only.
+            CmuxSpinner(label: Text("Loading chats…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChats.loading")
         case .failed(let message):
@@ -320,8 +322,17 @@ struct AgentChatsScreen: View {
     private var linkChip: some View {
         Group {
             if model.reconnecting {
-                ConnectionChip((model.stale ? ListStatusRow.State.stale : .reconnecting).chip, downSince: nil) // the model held it past the quiet gate
-                    .padding(.top, 8)
+                Group {
+                    // Still redialing: a symbol, not "Reconnecting" (Leo, 2026-11-23: "i dont
+                    // wanna see reconnecting to the Mac in a toast, i want it to just connect").
+                    // The model held it past the quiet gate, so the chip shows at once.
+                    if model.stale {
+                        ConnectionChip(ListStatusRow.State.stale.chip, downSince: nil)
+                    } else {
+                        ConnectionChip.SymbolOnly(ListStatusRow.State.reconnecting.chip, downSince: nil)
+                    }
+                }
+                .padding(.top, 8)
                     .accessibilityIdentifier("agentChats.reconnecting")
                     .transition(.opacity)
             }
