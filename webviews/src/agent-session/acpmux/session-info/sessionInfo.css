@@ -1416,6 +1416,16 @@ button.acpmux-session-info-port:focus-visible {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* Why a row does not open (TasksSection.tsx, a1e7752d4c3: the reason as text, not a tooltip) gives way
+   with the command, never squeezing it out: in a 320px panel a finished row's long time and the
+   reason left the command no width, so the row read "No terminal to open" with no command at all. */
+.acpmux-session-info-task__why {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .acpmux-session-info-task[data-state="failed"] .acpmux-session-info-task__state,
 .acpmux-session-info-task[data-state="lost"] .acpmux-session-info-task__state {
   color: var(--agent-status-failure);
