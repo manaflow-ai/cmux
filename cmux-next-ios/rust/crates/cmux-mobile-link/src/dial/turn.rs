@@ -1062,10 +1062,10 @@ async fn transact(
 /// Returns once the STUN wait beside an allocation saw UDP look blocked;
 /// never when there is no STUN wait, or it ended with UDP answering.
 async fn until_silent(silent: Option<watch::Receiver<bool>>) {
-    if let Some(mut silent) = silent {
-        if silent.wait_for(|silent| *silent).await.is_ok() {
-            return;
-        }
+    if let Some(mut silent) = silent
+        && silent.wait_for(|silent| *silent).await.is_ok()
+    {
+        return;
     }
     std::future::pending::<()>().await;
 }

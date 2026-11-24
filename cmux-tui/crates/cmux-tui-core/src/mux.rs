@@ -193,6 +193,7 @@ mod agent_chat_notices;
 #[cfg(unix)]
 mod agent_failure_code;
 pub(crate) mod agent_message_pump;
+mod agent_notice_stats;
 pub(crate) mod app_terminals;
 mod cell_pixels;
 pub(crate) mod chat_index;
