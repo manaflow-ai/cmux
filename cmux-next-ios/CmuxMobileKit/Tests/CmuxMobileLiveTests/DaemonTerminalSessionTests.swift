@@ -76,8 +76,11 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var sendKeys = false
     /// `identify` lists send-expect-agent-v1 (`send` takes `submit` with `paste`).
     var pasteSubmit = false
-    /// `send` with `submit` is answered with an error (a daemon refusing the paste).
+    /// `send` with `submit` is answered with an error that wrote nothing (a daemon refusing the paste).
     var refusesPasteSubmit = false
+    /// `send` with `submit` is answered with an error that may have typed it (the text went in,
+    /// its Return failed): no `error_delivery: known-not-delivered`.
+    var ambiguousPasteSubmit = false
     private var declaredHybrid = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
@@ -102,7 +105,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         case "send" where lock.withLock({ unansweredSends }):
             return []
         case "send" where object["submit"] != nil && lock.withLock({ refusesPasteSubmit }):
-            return [Self.line(["id": id, "ok": false, "error": "send refused"])]
+            return [Self.line(["id": id, "ok": false, "error": "send refused", "error_delivery": "known-not-delivered"])]
+        case "send" where object["submit"] != nil && lock.withLock({ ambiguousPasteSubmit }):
+            return [Self.line(["id": id, "ok": false, "error": "submit failed after the text was written", "error_delivery": "ambiguous"])]
         case "resize-surface" where lock.withLock({ unansweredResizes }):
             return []
         case "identify" where initialSize || sizeLease || shortSizeLease || sharedSizing || tailReplay || sendKeys || pasteSubmit || lock.withLock({ advertisesHybrid }):
