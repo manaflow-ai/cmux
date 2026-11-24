@@ -116,10 +116,23 @@ public struct TerminalTabPage: View {
             // Only a page on screen, settled and taking input sizes the Mac's
             // terminal; the grid, a swipe away, another tab or leaving the
             // workspace release it (PROTOCOL.md, "Terminal size claims").
-            .onAppear { host.pageAppeared(pageID, interactive: isInteractive) }
-            .onChange(of: isInteractive) { _, interactive in host.pageSettled(pageID, interactive: interactive) }
-            .onDisappear { host.pageDisappeared(pageID) }
-            .ignoresSafeArea()
+            .onAppear {
+                host.pageAppeared(pageID, interactive: isInteractive)
+                TerminalPageOrientation.shared.page(pageID, shows: isInteractive)
+            }
+            .onChange(of: isInteractive) { _, interactive in
+                host.pageSettled(pageID, interactive: interactive)
+                // Settled, the page turns with the phone; zoomed out, the grid is portrait.
+                TerminalPageOrientation.shared.page(pageID, shows: interactive)
+            }
+            .onDisappear {
+                host.pageDisappeared(pageID)
+                TerminalPageOrientation.shared.page(pageID, shows: false)
+            }
+            // Full bleed top and bottom (the page's own insets place the rows);
+            // sideways, the grid keeps clear of the Dynamic Island and the
+            // corners (no side insets in portrait). The black fills them.
+            .ignoresSafeArea(.all, edges: .vertical)
             .background(Color.black)
             // Not attached: the page as last seen on this phone, as it was (a
             // warm surface keeps its own rows, live and scrollable, under
@@ -138,7 +151,8 @@ public struct TerminalTabPage: View {
                         // once; once attached the frame stays until the live rows
                         // are drawn, then goes in one frame: a cut, never a fade
                         // over live rows at other positions (R3-4).
-                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame)
+                        TerminalConnectingView(topInset: insets.top, lastFrame: model.coldFrame,
+                                               screenText: model.cardScreenText)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
@@ -174,16 +188,20 @@ public struct TerminalTabCard: View {
         cardContent.accessibilityHidden(true)
     }
 
+    /// What the card draws: also read by the UI tests' face probe (`TabCardFaceRecord`).
+    public var content: TerminalCardContent {
+        let started = model.controller?.started == true
+        return TerminalCardContent.choose(sessionStarted: started,
+                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
+                                          hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
+                                          screenTextIsNewer: model.cardScreenTextIsNewer)
+    }
+
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
                     ?? CmuxMobileGhosttyApp.background)
-                let started = model.controller?.started == true
-                let content = TerminalCardContent.choose(sessionStarted: started,
-                                                         connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
-                                                         hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
-                                                         screenTextIsNewer: model.cardScreenTextIsNewer)
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)

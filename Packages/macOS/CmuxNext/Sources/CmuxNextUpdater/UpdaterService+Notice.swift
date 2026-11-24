@@ -59,6 +59,8 @@ extension UpdaterService {
     /// The notice's x without its menu: a found update hides until a newer
     /// one (``closeUpdateCard(_:)``); a result clears (as when it times out).
     public func dismissCard() {
+        // A going back that failed shows on this card; its x clears it.
+        if revert?.step == .failed { revert = nil }
         switch card {
         case .available:
             closeUpdateCard(.hideVersion)

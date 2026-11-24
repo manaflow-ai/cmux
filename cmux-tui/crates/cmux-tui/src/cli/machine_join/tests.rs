@@ -930,3 +930,24 @@ fn the_platform_reads_acpmuxs_variable_first_and_the_old_name_as_its_alias() {
         "https://flag.example"
     );
 }
+
+/// `cmux machine add|revoke|rotate|vault --help` prints the verb's own usage (the Cloud and remote
+/// command matrix); without the flag the verb parses as before.
+#[test]
+fn each_join_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let revoke = verb_help(&words("machine revoke --help")).unwrap();
+    assert!(revoke.starts_with("usage: cmux machine revoke ID|NAME [--yes]\n"), "{revoke}");
+    assert!(revoke.contains("--cloud-token-file PATH"), "{revoke}");
+    assert!(!revoke.contains("rotate") && !revoke.contains("machine add"), "{revoke}");
+    let add = verb_help(&words("machine add -h")).unwrap();
+    assert!(add.starts_with("usage: cmux machine add [--name NAME]"), "{add}");
+    assert!(add.contains("\n       cmux machine add --usb PATH"), "{add}");
+    assert!(add.contains("opens the app's Add Machine card"), "{add}");
+    assert!(!add.contains("revoke"), "{add}");
+    let rotate = verb_help(&words("machine rotate box --help")).unwrap();
+    assert!(rotate.starts_with("usage: cmux machine rotate ID|NAME\n"), "{rotate}");
+    assert_eq!(verb_help(&words("machine vault --help")).unwrap(), vault::USAGE);
+    assert!(verb_help(&words("machine revoke box")).is_none());
+    assert!(verb_help(&words("machine list --help")).is_none());
+}

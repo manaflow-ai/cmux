@@ -31,7 +31,8 @@ Home, launch reopens where you were) and their reasons: cmuxterm-hq `decisions/j
 
 ## Check a change in five minutes (from a Linux lane VM)
 
-Push first: the fleet builds the pushed SHA. "here" is the lane VM. Running the app needs a Mac.
+Push first: the fleet builds the pushed SHA. "here" is the lane VM. Running the app needs a Mac; a web or daemon
+change needs no app build there (`cmux app try .`, or `cmux-ci hot-verify N --look` from here).
 
 | What | Command | Where |
 |---|---|---|

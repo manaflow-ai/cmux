@@ -36,7 +36,7 @@ impl Flush {
     }
 }
 
-fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+pub(super) fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // A record a catch-up after a lap already sent goes no second time (`stream_cursor.rs`).
     if ev.remote.is_none() && !conn.stream_cursors.advance(&ev.session_id, ev.record.seq) {
         return;
@@ -54,7 +54,7 @@ async fn lapped(hub: &Arc<Hub>, conn: &Arc<Conn>, dropped: u64) {
     super::stream_cursor::catch_up(hub, conn, deliver_once).await;
 }
 
-fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+pub(super) fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
@@ -88,7 +88,7 @@ pub(super) fn start(
                 Some(done) = flushes.recv() => {
                     loop {
                         match rx.try_recv() {
-                            Ok(ev) => send_event(&hub, &conn, ev),
+                            Ok(ev) => super::follow::event(&hub, &conn, ev).await,
                             Err(broadcast::error::TryRecvError::Lagged(n)) => {
                                 lapped(&hub, &conn, n).await
                             }
@@ -160,7 +160,7 @@ pub(super) fn start(
                 }
             };
             match ev {
-                Ok(ev) => send_event(&hub, &conn, ev),
+                Ok(ev) => super::follow::event(&hub, &conn, ev).await,
                 Err(broadcast::error::RecvError::Lagged(n)) => lapped(&hub, &conn, n).await,
                 Err(broadcast::error::RecvError::Closed) => break,
             }
