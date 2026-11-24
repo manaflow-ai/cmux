@@ -16,7 +16,8 @@
 // a state's queued updates in the order they were made, so a later snapshot always wins, including
 // over a pending one an urgent draw overtook.
 //
-// What draws at once (urgent): the first snapshot, another chat's (a chat switch), and one that
+// What draws at once (urgent): the first snapshot (unless the copy from the last launch covers the
+// pane, below), another chat's (a chat switch), and one that
 // carries what the person just did: a sent prompt's row, a queued or steered prompt, a stop. Those
 // answer the person's own gesture, and the composer that sent them redraws at once too: a sent
 // message must not leave the composer a frame before the transcript shows it.
@@ -47,8 +48,15 @@ function sameList(a: readonly string[] | undefined, b: readonly string[] | undef
 
 /// Whether `next` draws at once rather than as a transition, given the snapshot the pane last
 /// set (`drawn`, undefined before the first).
-export function drawsAtOnce(drawn: AcpmuxSnapshot | undefined, next: AcpmuxSnapshot): boolean {
-  if (!drawn) return true;
+///
+/// `behindCopy`: the copy from the last launch is on screen over the pane (chatSnapshot/live.ts
+/// `showsChatSnapshot`) and stays until the chat itself is drawn, so the pane's first draw shows
+/// nothing yet. Drawn at once, that first draw of a restart's kept tail ran in one ~190 ms piece
+/// right as the socket opened, and acpmux's `initialize` and attach answers waited behind it
+/// (bench/first-load-after-restart.bench.ts PROFILE=1 WIRE_TRACE=1). As a transition the answers
+/// are read between its slices, and the attach's own draw takes over from it.
+export function drawsAtOnce(drawn: AcpmuxSnapshot | undefined, next: AcpmuxSnapshot, behindCopy = false): boolean {
+  if (!drawn) return !behindCopy;
   // A chat switch, or a new chat's first frame.
   if (drawn.sessionId !== next.sessionId) return true;
   // A sent prompt: its row (pending, then delivered or failed), its place in the queue, its steer.
@@ -127,14 +135,15 @@ export class PendingPaneDraw {
 }
 
 /// Runs `draw` (the pane's `setSnapshot` of `next`) at once or as a transition, given the
-/// snapshot the pane last set (`drawn`), and records it in `pending`.
+/// snapshot the pane last set (`drawn`), and records it in `pending`. `behindCopy`: see `drawsAtOnce`.
 export function drawPaneSnapshot(
   drawn: AcpmuxSnapshot | undefined,
   next: AcpmuxSnapshot,
   pending: PendingPaneDraw,
   draw: () => void,
+  behindCopy = false,
 ): void {
-  const urgent = drawsAtOnce(drawn, next);
+  const urgent = drawsAtOnce(drawn, next, behindCopy);
   pending.drew(next, urgent);
   if (urgent) draw();
   else startTransition(draw);

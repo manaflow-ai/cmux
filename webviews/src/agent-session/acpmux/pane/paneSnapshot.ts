@@ -32,6 +32,7 @@ import { configurationSessionMatches, pickEffort } from "../configurationActions
 import { rememberRecentFolders } from "../newtab/recentProject";
 import { publishWarmNewTab } from "../newtab/warmSnapshot";
 import { drawPaneSnapshot, type PendingPaneDraw } from "../paneSnapshotLane";
+import { showsChatSnapshot } from "../chatSnapshot/live";
 import { setBookmarkTransport } from "../threadMinimap/bookmarks";
 import { setSavedPromptsTransport } from "../savedPrompts";
 import { setStashTab, setStashTransport } from "../composer/draftStash";
@@ -1224,17 +1225,23 @@ export function paneSnapshotEffect({
           // the person just did or opens another chat (paneSnapshotLane.ts).
           const drewBefore = drawnSnapshot.current;
           drawnSnapshot.current = next;
-          drawPaneSnapshot(drewBefore, next, pendingPaneDraw, () =>
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            }),
+          drawPaneSnapshot(
+            drewBefore,
+            next,
+            pendingPaneDraw,
+            () =>
+              setSnapshot((previous) => {
+                if (
+                  next.canHandoff &&
+                  !next.handoff?.ready &&
+                  next.sessionId === previous.sessionId &&
+                  previous.handoff?.record
+                )
+                  return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
+                return next;
+              }),
+            // The copy from the last launch covers a first draw: it need not hold up the handshake.
+            drewBefore === undefined && showsChatSnapshot(),
           );
         },
         () => {

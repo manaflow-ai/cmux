@@ -11,6 +11,7 @@ import React, {
   useEffectEvent,
   useLayoutEffect,
   useMemo,
+  startTransition,
   useReducer,
   useRef,
   useState,
@@ -6705,9 +6706,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rowsRef.current = next.rows;
       snapshotRef.current = next;
       acpmuxPerf.markLaunch("restoredTailDrawn");
-      setSnapshot(next);
-      setRestoredTailSession(next.sessionId);
-      setContextKnown(true);
+      const draw = () => {
+        setSnapshot(next);
+        setRestoredTailSession(next.sessionId);
+        setContextKnown(true);
+      };
+      // Under the copy from the last launch (which stays until the chat is drawn) nothing of this
+      // draw shows, so it is a transition the handshake's answers are read between the slices of,
+      // not one piece they wait behind (paneSnapshotLane.ts `drawsAtOnce`, `behindCopy`).
+      if (showsChatSnapshot()) startTransition(draw);
+      else draw();
     });
   }, []);
   // What this frame drew, not only that it drew: a chat taken from a kept tail is on screen in the
