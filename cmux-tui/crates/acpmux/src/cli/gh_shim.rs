@@ -150,6 +150,7 @@ fn request(
         issue,
         title: p.values.remove("--title"),
         body,
+        // Only a `token` ask names permissions; `acpmux gh` never sends one.
         permissions: None,
         // The daemon sets it when it sends the action on.
         deadline_ms: None,
