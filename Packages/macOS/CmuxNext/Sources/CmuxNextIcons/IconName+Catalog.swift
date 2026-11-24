@@ -239,6 +239,7 @@ extension IconName {
         .placeholder,
         .policyReject,
         .profileDot,
+        .promptSave,
         .radioOff,
         .radioOn,
         .remoteDisplay,

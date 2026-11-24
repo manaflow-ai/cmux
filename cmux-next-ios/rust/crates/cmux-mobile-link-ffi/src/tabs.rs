@@ -666,7 +666,7 @@ mod tests {
         let terminal = |i: usize, title: &str| Observation {
             tab_id: format!("{}", 1000 + i),
             title: title.to_owned(),
-            kind: if i % 2 == 0 { Kind::Terminal } else { Kind::Agent },
+            kind: if i.is_multiple_of(2) { Kind::Terminal } else { Kind::Agent },
             favicon: None,
             thumb: None,
             screen: Some(ScreenInput { text: format!("$ cargo test {i}\n"), cols: 120, rows: 40 }),
