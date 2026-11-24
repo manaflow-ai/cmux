@@ -77,6 +77,8 @@ export type ResumeSample = {
   machine: string;
   at: string;
   paused_ms: number | null;
+  /** From the pause call's start until the platform read the machine `paused`, ms: the hold starts there, not at the call's answer. */
+  pause_landed_ms?: number | null;
   answered_ms: number | null;
   running_ms: number | null;
   registered_ms: number | null;
@@ -214,12 +216,47 @@ export function armUnavailable(error: string): boolean {
   return /cloud\.provider\.unsupported|has no client sessions|^unavailable here:/.test(error);
 }
 
+/**
+ * The relay registration lines the session host writes (cmux-remote provider/relay.rs): `<label>: registered[ again, N ms
+ * after the drop,] on slot S after N ms` when a registration is answered, and `<label>: resumed during the wait;
+ * registering now` when the host saw the wake before its retry timer. Both start the relay's way back.
+ */
+export const RELAY_REGISTERED = /relay registration on \S+: (registered|resumed during the wait)/;
+
+/**
+ * Waits until the machine reads `paused`, to a deadline: the hold of a pause sample starts there, as the pause call's
+ * answer can come before the pause lands (run 45373442557 read `pausing` after a 5 s hold started at the answer).
+ * Resolves with ms from `startedAt` to the read; throws, naming the last status, at the deadline.
+ */
+export async function awaitPaused(
+  read: () => Promise<string>,
+  startedAt: number,
+  deadlineMs: number,
+  now: () => number = Date.now,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise<void>((r) => setTimeout(r, ms)),
+  pollMs = 500,
+): Promise<number> {
+  let last = "unread";
+  for (;;) {
+    last = await read().catch((e: Error) => `unread (${e.message})`);
+    if (last === "paused") return now() - startedAt;
+    if (now() - startedAt >= deadlineMs) throw new Error(`pause did not land: the machine read ${last} ${Math.round(deadlineMs / 1000)} s after the pause call`);
+    await wait(pollMs);
+  }
+}
+
+/** The send arm sent a prompt and no turn came, with the machine still paused: nothing woke it. */
+export function sendWokeNothing(turnOk: boolean, statusAfter: string): string | null {
+  if (turnOk || statusAfter !== "paused") return null;
+  return "the prompt did not wake the machine: it still reads paused (a person's pause is never woken by a carrier ask or a prompt, cmux-platform CloudDO PERSON_PAUSED; the app's Resume is cloud.machine.start)";
+}
+
 /** One exec after a wake: the guest's clock now, the ticker's gaps and the journal's relay and resume lines since `sinceS`. */
 export function wakeFactsCommand(sinceS: number): string {
   return `echo "@@now $(date +%s%3N)"; sed 's/^/@@gap /' ${TICKER}/gaps 2>/dev/null | tail -n 50; ${AGENT_PIDS_COMMAND}; `
     + `J=journalctl; [ "$(id -u)" = 0 ] || J='sudo -n journalctl'; `
     + `$J -o short-unix --no-pager --since @${Math.max(0, Math.floor(sinceS) - 5)} 2>/dev/null `
-    + `| grep -E 'relay registration on \\S+: registered|event=resumed' | head -n 200 | sed 's/^/@@j /'; true`;
+    + `| grep -E 'relay registration on \\S+: (registered|resumed during the wait)|event=resumed' | head -n 200 | sed 's/^/@@j /'; true`;
 }
 
 /** The guest's facts for one wake at runner time `t0` (ms), the exec sent at `sent` and answered at `got`. */
@@ -238,7 +275,7 @@ export function parseWakeFacts(stdout: string, t0: number, sent: number, got: nu
   for (const m of stdout.matchAll(/@@j (\d+(?:\.\d+)?) (.*)/g)) {
     const at = Math.round(Number(m[1]) * 1000);
     if (at < g0) continue;
-    if (/relay registration on \S+: registered/.test(m[2]) && (registered === null || at < registered)) registered = at;
+    if (RELAY_REGISTERED.test(m[2]) && (registered === null || at < registered)) registered = at;
     if (/event=resumed/.test(m[2]) && (resumed === null || at < resumed)) resumed = at;
   }
   const rel = (x: number | null) => (x === null ? null : Math.max(0, x - g0));
@@ -283,6 +320,8 @@ export async function directWake(session: { token: string; vm_id: string; api_ba
 }
 
 const FIRST_BYTE_DEADLINE_MS = 180_000;
+/** How long a pause may take to read `paused` before the sample fails (its own column: pause landed). */
+const PAUSE_LAND_DEADLINE_MS = 180_000;
 /** The client-session route's ttl_seconds bounds (validation.invalid outside them). */
 export const CLIENT_SESSION_MIN_S = 60;
 export const CLIENT_SESSION_MAX_S = 900;
@@ -391,7 +430,12 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             // arm holds its dial through the pause, as the app does.
             const reattach = arm === "reattach";
             if (reattach) chat.suspend();
+            const pauseCalledAt = now();
             try { await deps.pause(); } catch (e) { s.cause = "pause"; throw new Error(`pause: ${(e as Error).message}`); }
+            // The hold starts when the machine reads paused, not at the pause call's answer.
+            if (deps.status) {
+              try { s.pause_landed_ms = await awaitPaused(deps.status, pauseCalledAt, PAUSE_LAND_DEADLINE_MS, now, sleep); } catch (e) { s.cause = "pause"; throw e; }
+            }
             const pausedAt = now();
             await sleep(pause_s * 1000);
             if (deps.status) {
@@ -456,6 +500,10 @@ export async function runResumeMatrix(deps: ResumeDeps, pauses: number[], n: num
             s.agent_same_process = before && after ? before.length > 0 && before.join(",") === after.join(",") : null;
             const outcome = s.first_byte_ms === null && s.cause === "attach" ? { ok: false, text: "not sent" } : await turnOutcome(ctx, marker, chat.session);
             if (!outcome.ok) s.turn = outcome.text;
+            if (arm === "send" && deps.status) {
+              const woke = sendWokeNothing(outcome.ok, await deps.status().catch(() => "unread"));
+              if (woke) { s.error = woke; s.cause = "unavailable"; }
+            }
             if (!outcome.ok && s.first_byte_ms !== null) { s.error ||= `turn: ${outcome.text}`; s.cause ??= "turn"; }
             s.restored = s.agent_same_process === null ? null : s.agent_same_process && outcome.ok && s.first_byte_ms !== null;
             floor = await feltBoundary(ctx, chat.session, floor ?? chat.held, outcome.ok);
@@ -626,8 +674,8 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
   const cells = resumeCells(samples);
   const get = (pause_s: number, arm: AnyArm, point: ResumePoint) => cells.find((c) => c.pause_s === pause_s && c.arm === arm && c.point === point);
   const lines = [
-    "| pause | arm | n | failed | of them product-suspect | restored | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 | largest server phase p50 |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| pause | arm | n | failed | of them product-suspect | restored | answered p50 / p95 | running p50 / p95 | registered p50 / p95 | first byte p50 / p95 | first byte p95 - direct answered p95 | page-in p50 / p95 | largest server phase p50 | pause landed p50 / p95 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const pause_s of [...new Set(cells.map((c) => c.pause_s))]) {
     const floor = get(pause_s, "direct", "answered")?.p95 ?? null;
@@ -641,8 +689,9 @@ export function resumeMarkdown(samples: ResumeSample[], stops: (ResumeStop & { m
       const mine = samples.filter((x) => x.pause_s === pause_s && x.arm === arm);
       const judged = mine.filter((x) => typeof x.restored === "boolean");
       const restored = judged.length ? `${judged.filter((x) => x.restored).length}/${judged.length}` : "-";
+      const landed = mine.map((x) => x.pause_landed_ms).filter((x): x is number => typeof x === "number");
       const suspect = mine.filter((x) => x.error && x.product_suspect).length;
-      lines.push(`| ${pause_s} s | ${(EXTRA_ARMS as AnyArm[]).includes(arm) ? `${arm} (extra)` : arm} | ${total} | ${fb.failed} | ${suspect} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} | ${largestPhase(mine)} |`);
+      lines.push(`| ${pause_s} s | ${(EXTRA_ARMS as AnyArm[]).includes(arm) ? `${arm} (extra)` : arm} | ${total} | ${fb.failed} | ${suspect} | ${restored} | ${pts.join(" | ")} | ${gap} | ${pin.length ? `${sec(percentile(pin, 50))} / ${sec(percentile(pin, 95))}` : "-"} | ${largestPhase(mine)} | ${landed.length ? `${sec(percentile(landed, 50))} / ${sec(percentile(landed, 95))}` : "-"} |`);
     }
   }
   const stopped = stops.map((x) => `- ${x.pause_s} s${x.arm ? ` ${x.arm}` : ""}${x.machine ? ` (${x.machine})` : ""}: stopped after ${x.after} sample(s): ${x.reason}`);

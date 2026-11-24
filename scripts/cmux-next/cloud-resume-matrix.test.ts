@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ProviderAdapter } from "./resume-slo-provider.ts";
 import { cliExecResult } from "./cloud-journey.ts";
-import { armOrder, armUnavailable, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
+import { armOrder, armUnavailable, awaitPaused, sendWokeNothing, RELAY_REGISTERED, infraCause, largestPhase, productSuspect, cellDeadline, parseAgents, CLIENT_SESSION_MAX_S, CLIENT_SESSION_MIN_S, directSessionPlan, parseServerTiming, parseWakeFacts, percentile, resumeCells, resumeMarkdown, runProviderArm, syncRunning, type ResumeSample } from "./cloud-resume-matrix.ts";
 
 describe("parseWakeFacts", () => {
   test("takes the gap spanning the event and the first relay line after it, guest clock corrected", () => {
@@ -265,4 +265,43 @@ describe("runProviderArm", () => {
     expect(r.stops[0]!.reason).toContain("3 provider:fake samples in a row failed");
     expect(f.calls.at(-1)).toBe("remove");
   });
+});
+
+describe("awaitPaused (the hold starts once the machine reads paused; run 45373442557 read pausing after the hold)", () => {
+  test("waits through pausing, answers the ms from the call to the paused read", async () => {
+    let t = 1000;
+    const reads = ["pausing", "pausing", "paused"];
+    const ms = await awaitPaused(async () => reads.shift()!, 1000, 60_000, () => t, async (w) => { t += w; });
+    expect(ms).toBe(1000);
+    expect(reads).toEqual([]);
+  });
+  test("at the deadline it names the last status", async () => {
+    let t = 0;
+    await expect(awaitPaused(async () => "pausing", 0, 3000, () => t, async (w) => { t += w; })).rejects.toThrow("pause did not land: the machine read pausing 3 s after the pause call");
+  });
+});
+
+describe("sendWokeNothing", () => {
+  test("a send turn that never ran on a machine still paused says nothing woke it", () => {
+    expect(sendWokeNothing(false, "paused")).toContain("did not wake the machine");
+    expect(sendWokeNothing(false, "running")).toBeNull();
+    expect(sendWokeNothing(true, "paused")).toBeNull();
+    expect(armUnavailable(sendWokeNothing(false, "paused")!)).toBe(false);
+  });
+});
+
+describe("the relay registration line", () => {
+  test("matches what cmux-remote writes: registered, registered again, and resumed during the wait", () => {
+    expect(RELAY_REGISTERED.test("cmux-tui: relay registration on relay+do://cmux-remote-relay-staging.debussy.workers.dev: registered on slot s after 120 ms")).toBe(true);
+    expect(RELAY_REGISTERED.test("cmux-tui: relay registration on relay+do://h: registered again, 900 ms after the drop, on slot s after 1 ms")).toBe(true);
+    expect(RELAY_REGISTERED.test("cmux-tui: relay registration on relay+do://h: resumed during the wait; registering now")).toBe(true);
+    expect(RELAY_REGISTERED.test("cmux-tui: relay registration on relay+do://h: attempt 2 failed, retrying in 500 ms: x")).toBe(false);
+  });
+});
+
+test("the table has a pause landed column", () => {
+  const s: ResumeSample = { pause_s: 5, arm: "platform", i: 0, machine: "m", at: "", paused_ms: 5000, pause_landed_ms: 2500, answered_ms: 800, running_ms: null, registered_ms: null, first_byte_ms: 1500, ack_ms: null, clock_offset_ms: 0, error: "" };
+  const md = resumeMarkdown([s]);
+  expect(md).toContain("pause landed p50 / p95");
+  expect(md).toContain("| 2.50 / 2.50 |");
 });
