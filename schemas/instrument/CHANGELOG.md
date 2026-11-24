@@ -7,6 +7,16 @@ system (cmuxterm-hq RFD 0034). A version moves when a token's Instrument value o
 Semver for a design system: a patch moves no pixel (a source, a note, a renamed path); a minor applies
 pending values (a default moves, the pending list shrinks); a major changes a seed or a rule.
 
+## 0.2.0 (2026-11-24)
+
+Two pending corner values applied: the drawn default now equals Instrument's value.
+
+- `corner.card` 14 to 12 (`schemas/design-scale/design-scale.json`, `namedRadii[name=card].px`).
+- `corner.toast` 9 to 12 (`schemas/surface-roles/surface-roles.json`, `roles[name=toast].webRadius`).
+- Both were among the corner values that waited on Leo's question 2; he answered on 2026-11-22 23:15Z
+  (relayed): "the last 4 do not need my call. Just do them. They are extremely obvious."
+- Still pending: `corner.pane`, `corner.popup`, `corner.composer`, `corner.dialog`, and the rest of the list.
+
 ## 0.1.0 (2026-11-22)
 
 First version: the token table of Instrument v0.1 as the 2026-11-22 debate adopted it, one row per token.
