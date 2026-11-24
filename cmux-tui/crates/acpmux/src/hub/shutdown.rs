@@ -182,6 +182,8 @@ impl Hub {
         // daemon, alongside the sessions below.
         let ((), kept) =
             tokio::join!(self.stop_pool(), self.shutdown_sessions(preserve_auto_resume, true));
+        // Its tasks' ends are the next daemon's to send (`bg_notify_resume`).
+        self.bg_unwatch_all();
         self.seal();
         kept
     }
