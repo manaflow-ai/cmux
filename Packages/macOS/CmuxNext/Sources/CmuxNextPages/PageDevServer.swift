@@ -52,7 +52,6 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.keybindings",
         "cmux.machines",
         "cmux.markdown",
-        "cmux.mobile-pairing",
         "cmux.onboarding",
         "cmux.passwords",
         "cmux.server-cards",
