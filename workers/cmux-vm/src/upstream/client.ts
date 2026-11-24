@@ -69,6 +69,15 @@ export interface CreateVmSpec {
   /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
   readonly journal: {
     readonly context: string | null;
+    /**
+     * The VM id was minted in this request (the key's ledger held no creation to resume), so no create can have been
+     * sent for its slug yet. False on every resumed creation, whose earlier attempt may have sent one.
+     */
+    readonly minted: boolean;
+    /** A resumed creation's retained source digest (its probe's `source`), when it booted a snapshot or an image. */
+    readonly source: string | null;
+    /** A resumed creation's retained request digest (its probe's `request`): what its VM carries as `cmux_create`. */
+    readonly request: string | null;
     readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
     readonly beginSend: () => Effect.Effect<string, UpstreamError>;
     readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;
@@ -83,9 +92,14 @@ export interface CreateVmSpec {
   /** Deployment name (staging, production, ...), tagged on the upstream VM. */
   readonly environment: string;
   /**
+   * The caller's switch (TenantPolicy.createsWithoutReads): no provider read before the create. The exact-slug read is
+   * skipped only when `journal.minted`; the boot image read always. Absent: both reads come first.
+   */
+  readonly withoutReads?: boolean;
+  /**
    * Filled as the create runs, for the handler's vm_create line: recoverMs, verifyImageMs, createMs, recoverAfterMs,
-   * resizeMs (each only when that provider call was made), `recovered`, and the provider's own `providerTotalMs` and
-   * `providerTimingsMs` when its create answer carried them.
+   * resizeMs (each only when that provider call was made), `recovered`, `imageVariant` for an approved image, and the
+   * provider's own `providerTotalMs` and `providerTimingsMs` when its create answer carried them.
    */
   readonly phases?: TimedPhases;
 }

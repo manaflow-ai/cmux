@@ -186,6 +186,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
   Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
   nothing, the decode pipeline reads them; MacScreenUnixStream),
+  `com.cmuxterm.mac-screen.stream-stdin` (one iPhone viewer session's JSON lines into its WebRTC host child
+  in the Screen Sharing helper, user-initiated, serial: its pipe writes block only it; a few signals per
+  session and an exclusion list per window change, so no back-pressure; MacScreenStreamProcess),
+  `com.cmuxterm.mac-screen.stream-host-stdout` and `screen-stream-host-input` (that child's own lines to the
+  app and its input reader thread, in the child process only, never the app: the queue's pipe writes block
+  only it, the thread blocks on its stdin and ends at its end of file; MacScreenStreamChild),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "cc981d12cb04b0a5fec675c072b70593a7ec85d841dd735743fc6b420becb95d",
+  "catalog_sha256": "9ecdaee36d7fc67945eda3d1e7581981480a833bb420c8cb6c6d398fb010d85d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -195,6 +195,9 @@
     },
     "cloud.machine.chat_access": {
       "class": "read"
+    },
+    "cloud.machine.chief_resize": {
+      "class": "mutation"
     },
     "cloud.machine.chief_start": {
       "class": "mutation"
@@ -433,6 +436,9 @@
     "git.worktree.setup": {
       "class": "read"
     },
+    "git.worktree.setup.run": {
+      "class": "mutation"
+    },
     "history.backups.purge": {
       "class": "mutation"
     },
@@ -582,6 +588,9 @@
     },
     "participant.avatar.set": {
       "class": "mutation"
+    },
+    "project.actions.list": {
+      "class": "read"
     },
     "project.add": {
       "class": "mutation"
