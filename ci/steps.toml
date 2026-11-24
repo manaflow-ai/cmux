@@ -1463,8 +1463,17 @@ inputs = [
   "scripts/ci/ios_app_package_paths.py",
   "scripts/ci/ios_link_ffi_key.py",
   "scripts/ci/ios_sim_udid.py",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  "cmux-tui/rust-toolchain.toml",
 ]
-ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
+# Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
+# (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
+# reads stay in.
+ignore = ["cmux-next-ios/verify/**", "**/*.md", "cmux-next-ios/scripts/**", "cmux-next-ios/backend/**",
+          "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
+          "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
+          "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
           "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
 needs = ["rust"]
 run = '''
