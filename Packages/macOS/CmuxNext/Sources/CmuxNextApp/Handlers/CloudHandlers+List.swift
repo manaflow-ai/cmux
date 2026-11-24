@@ -150,10 +150,10 @@ extension CloudHandlers {
         let services = context.services, store = services.cloud.computerControl
         store.onHumanRequested = { [weak services] machine, state in services.map { postComputerAsk($0, machine: machine, reason: state.reason) } }
         store.onAskEnded = { [weak services] machine in services?.notifications.desktop.withdraw(["chief-computer." + machine]) }
-        let bound = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
+        // A miss (a stale FFI pin) is noted in uncataloguedBindings, never trapped (UncataloguedBindingTests).
+        _ = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
             store.effect(invocation, knows: { services.machines.session($0) != nil })
         }
-        assert(bound, "cloud.computerControl is not in the action catalog")
         // `cmux cloud chief-computer`: a Chief of this Mac drives its own computer (ChiefComputerControlClient+Act.swift).
         _ = registry.bindEffect("cloud.chiefComputer", requires: nil) { ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).actEffect($0) }
     }
