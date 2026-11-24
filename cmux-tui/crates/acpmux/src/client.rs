@@ -69,7 +69,14 @@ impl Client {
         Self::connect_with_caller(path, false).await
     }
 
-    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
+    /// A renewal proves its origin from the local socket peer and inbox. Put it on the wire
+    /// before waiting for the daemon; it needs none of the normal hello's caller capabilities.
+    pub(crate) async fn renew_registration(path: &Path, params: Value) -> Result<Value> {
+        let client = Self::open_socket(path).await?;
+        client.request(method::MUX_REGISTER, params).await
+    }
+
+    async fn open_socket(path: &Path) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
@@ -141,6 +148,11 @@ impl Client {
             notif_tx,
             closed,
         });
+        Ok(client)
+    }
+
+    async fn connect_with_caller(path: &Path, include_caller: bool) -> Result<Arc<Self>> {
+        let client = Self::open_socket(path).await?;
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
         // Inside an acpmux session: say which, with the caller token the
         // daemon put in that session's env (`hub/person.rs` (a)), only to

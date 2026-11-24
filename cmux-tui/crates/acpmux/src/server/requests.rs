@@ -3743,7 +3743,7 @@ async fn dispatch_request_with_identity(
                 }
             };
             let req = crate::hub::register::RegisterRequest::from_params(&params)?;
-            hub.register_caller_with_ancestry(pid, conn.socket_ancestry.clone(), req).await
+            hub.register_caller(pid, req).await
         }
         method::MUX_INBOX_RELAY => {
             // As register: the session served is the one the kernel's pid runs under.
