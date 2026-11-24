@@ -59,6 +59,7 @@ pub mod chief_resize;
 mod fork_runs;
 mod http;
 mod machine;
+pub mod machine_destroy;
 pub mod machine_io;
 mod network;
 mod owner;
