@@ -45,6 +45,7 @@ import {
   type DashboardRow,
   type DashboardSize,
 } from "./checksModel";
+import { DashboardList } from "./DashboardList";
 import type { GitHubStore } from "./store";
 import type { DashboardChecks, DashboardJob, RerunState } from "./types";
 import { WithFacts } from "../../agent-session/acpmux/chips/FactsHoverCard";
@@ -179,7 +180,7 @@ export function ChecksDashboard({
             {summary.queued > 0 && <span data-check="queued" style={{ flexGrow: summary.queued }} />}
             {summary.passed > 0 && <span data-check="passed" style={{ flexGrow: summary.passed }} />}
           </div>
-          <div className="gh-ci-list" ref={list} onFocus={shown.onFocus}>
+          <DashboardList items={items} listRef={list} onFocus={shown.onFocus}>
             {/* An empty grid row the band's columns are read from (useColumns). */}
             <ul className="gh-list gh-ci-rows gh-ci-probe" aria-hidden="true" />
             {shown.before > 0 && <div className="gh-ci-space" style={{ height: shown.before }} />}
@@ -202,7 +203,7 @@ export function ChecksDashboard({
               );
             })}
             {shown.after > 0 && <div className="gh-ci-space" style={{ height: shown.after }} />}
-          </div>
+          </DashboardList>
         </>
       )}
     </section>
@@ -250,7 +251,13 @@ function ItemView({
   if (item.kind === "fold") {
     return (
       <div {...shared} className="gh-ci-item" data-check="passed">
-        <button type="button" className="gh-fold" aria-expanded={showPassed} onClick={togglePassed}>
+        <button
+          type="button"
+          className="gh-fold"
+          data-focus-key={item.key}
+          aria-expanded={showPassed}
+          onClick={togglePassed}
+        >
           <Chevron open={showPassed} />
           <span className="gh-dot" aria-hidden="true" />
           <span>{strings.t("github.checks.passed")}</span>
@@ -299,7 +306,13 @@ const CiRow = memo(function CiRow({
         {first.url ? (
           <WithFacts facts={[{ value: first.name }]}>
             {(facts) => (
-              <button {...facts} type="button" className="gh-row-link" onClick={() => open(first.url!)}>
+              <button
+                {...facts}
+                type="button"
+                className="gh-row-link"
+                data-focus-key={row.key}
+                onClick={() => open(first.url!)}
+              >
                 {row.name}
               </button>
             )}
@@ -315,6 +328,8 @@ const CiRow = memo(function CiRow({
                 key={job.id || job.name}
                 type="button"
                 className="gh-ci-pip"
+                data-focus-key={row.key}
+                data-shard={job.id || job.name}
                 data-check={job.state === "running" ? "pending" : job.state}
                 title={job.name}
                 aria-label={job.name}
@@ -385,16 +400,20 @@ function useDashboardWindow(list: RefObject<HTMLElement | null>, items: readonly
     resize?.observe(element.closest("main") ?? element);
     return () => resize?.disconnect();
   }, [list, windowed]);
-  // The item holding the keyboard focus, by key: an answer that moves it keeps it found.
+  // A row's parent line can change across a refresh or a column resize. Pin its current line by
+  // row identity, so focus can follow the same control even when it is well outside the viewport.
   const [focusedKey, setFocusedKey] = useState<string>();
   const onFocus = useCallback((event: FocusEvent<HTMLElement>) => {
-    const index = Number((event.target as Element).closest("[data-index]")?.getAttribute("data-index"));
-    setFocusedKey(Number.isInteger(index) ? (itemsRef.current[index]?.key ?? undefined) : undefined);
+    setFocusedKey(event.target.dataset.focusKey);
   }, []);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-  // Once per item list: each item's place by key, and the first and last items with a tab stop.
-  const place = useMemo(() => new Map(items.map((item, index) => [item.key, index])), [items]);
+  const place = useMemo(() => {
+    const indices = new Map<string, number>();
+    items.forEach((item, index) => {
+      if (item.kind === "fold") indices.set(item.key, index);
+      if (item.kind === "line") for (const row of item.rows) indices.set(row.key, index);
+    });
+    return indices;
+  }, [items]);
   const ends = useMemo(() => [stopFrom(items, 0, 1), stopFrom(items, items.length - 1, -1)], [items]);
   const focused = focusedKey === undefined ? -1 : (place.get(focusedKey) ?? -1);
   // One function per item list: TanStack asks every item's key again when it changes.
