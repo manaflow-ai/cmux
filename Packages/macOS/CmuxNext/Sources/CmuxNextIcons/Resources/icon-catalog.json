@@ -1461,6 +1461,12 @@
    "denseStyle": "solid"
   },
   {
+   "name": "prompt.save",
+   "meaning": "Save a message as a prompt for the / menu",
+   "sf": "questionmark.square.dashed",
+   "family": "prompt"
+  },
+  {
    "name": "remote.display",
    "meaning": "Remote desktop / a machine's display (Remote View)",
    "sf": "display",

@@ -230,6 +230,7 @@ extension IconName {
     nonisolated public static let placeholder = IconName("placeholder")
     nonisolated public static let policyReject = IconName("policy.reject")
     nonisolated public static let profileDot = IconName("profile.dot")
+    nonisolated public static let promptSave = IconName("prompt.save")
     nonisolated public static let remoteDisplay = IconName("remote.display")
     nonisolated public static let search = IconName("search")
     nonisolated public static let searchFiles = IconName("search.files")

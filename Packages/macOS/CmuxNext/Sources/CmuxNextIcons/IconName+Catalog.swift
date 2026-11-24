@@ -232,6 +232,7 @@ extension IconName {
         .placeholder,
         .policyReject,
         .profileDot,
+        .promptSave,
         .remoteDisplay,
         .search,
         .searchFiles,

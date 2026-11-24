@@ -70,7 +70,7 @@ export function SavePromptButton({ text }: { text: string }) {
           setOpen(true);
         }}
       >
-        <Icon name="action.save" size={ROW_ICON} />
+        <Icon name="prompt.save" size={ROW_ICON} />
       </button>
       {open && (
         <Popover
