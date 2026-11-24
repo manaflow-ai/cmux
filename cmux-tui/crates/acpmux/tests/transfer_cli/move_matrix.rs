@@ -199,6 +199,7 @@ async fn move_matrix(harness: &'static str, harness_env: Value, mode: &str, hibe
         }
     }
 
+    eprintln!("DIAG peers before: {}", src.call("_acpmux/peers", json!({})).await);
     let destination = target.home.join("arrived");
     let mut command = daemon_env::tokio_command(&source.home, daemon_env::Agents::Deny);
     command
