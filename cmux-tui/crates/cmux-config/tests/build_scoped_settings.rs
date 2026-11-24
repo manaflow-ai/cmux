@@ -3,15 +3,21 @@
 //! build's owner (the palette, `cmux settings`, the MCP `settings_*` tools, the app) changes only
 //! that build's file, and every other preference stays shared.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use cmux_config::managed::FixedManagedReader;
 use cmux_config::{ConfigStore, ManagedPreferences, Op, Origin, Target, WriteMeta};
 use serde_json::{Value, json};
 
-fn open(config: &PathBuf, build_file: &PathBuf) -> ConfigStore {
+fn open(config: &Path, build_file: &Path) -> ConfigStore {
     let reader = Box::new(FixedManagedReader(ManagedPreferences::default()));
-    ConfigStore::open_with_build_file(config.clone(), None, None, reader, Some(build_file.clone()))
+    ConfigStore::open_with_build_file(
+        config.to_path_buf(),
+        None,
+        None,
+        reader,
+        Some(build_file.to_path_buf()),
+    )
 }
 
 fn set(store: &mut ConfigStore, key: &str, value: Value) {
@@ -24,7 +30,7 @@ fn effective(store: &ConfigStore, pointer: &str) -> Option<Value> {
     store.state().effective().root.pointer(pointer).cloned()
 }
 
-fn file(path: &PathBuf) -> Value {
+fn file(path: &Path) -> Value {
     cmux_config::jsonc::parse(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
