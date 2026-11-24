@@ -16,6 +16,11 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// Keys typed while the terminal was unreachable were dropped, not sent
     /// late (a command must never run long after it was typed).
     case inputNotSent(bytes: Int)
+    /// Keys the person typed while the terminal was not attached wait for the attach: `bytes`
+    /// of them, 0 once none do (they went, were dropped, or were discarded). The screen says
+    /// keys are pending and offers to discard them (``TerminalSession/discardHeldInput()``):
+    /// they are typed into whatever the terminal shows after the attach.
+    case inputHeld(bytes: Int)
     /// The Mac's terminal has this grid from here on in the byte stream
     /// (`vt-state`, `resized`): the bytes after it are drawn for it, so the
     /// screen resizes its mirror (columns) and places it (rows) at exactly
@@ -70,24 +75,6 @@ public enum TerminalConnectionState: Sendable, Equatable {
         !isAttached && sessionStarted
     }
 
-    /// The placeholder's label ("Connecting to Aziz's Mac Studio…", "Reattaching…").
-    public var label: String? {
-        switch self {
-        case .connecting(let mac):
-            guard let mac, !mac.isEmpty else { return "Connecting…" }
-            return "Connecting to \(mac)…"
-        case .reattaching:
-            return "Reattaching…"
-        case .offline(let mac):
-            guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
-            return "\(mac) is offline"
-        case .failed(let message):
-            return message
-        case .attached:
-            return nil
-        }
-    }
-
     /// The quiet line by the composer once an outage has lasted
     /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
     /// transport error ("daemon channel closed").
@@ -96,7 +83,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         switch self {
         case .connecting(let mac): return "Connecting to \(named(mac))…"
         case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
-        case .offline: return label
+        case .offline(let mac): return mac.flatMap { $0.isEmpty ? nil : "\($0) is offline" } ?? "Your Mac is offline"
         case .failed: return "Can't reach this terminal"
         case .attached: return nil
         }
@@ -155,6 +142,9 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
+    /// Said while keys typed before the attach wait for it (``TerminalSessionEvent/inputHeld(bytes:)``),
+    /// beside Discard.
+    public static let inputHeldNotice = "Keys you typed go when the terminal reconnects."
     /// Said when the composer's message did not reach the Mac's terminal (its text is back in the composer).
     public static let composerSendNotSentNotice = "Your message was not sent."
     /// Said when the composer's message may have reached the Mac's terminal but its answer never
@@ -277,6 +267,9 @@ public protocol TerminalSession: AnyObject {
     /// Stamped redraws the screen painted (`[seq, received, painted]`, epoch ms), for a
     /// session with a Mac to join with its stamps (`phone-frames` `paint`). Others ignore it.
     func reportPaint(_ samples: [TerminalPaintTally.Sample])
+    /// Drops the keys held for the attach (``TerminalSessionEvent/inputHeld(bytes:)``), at the
+    /// person's word: none is sent. Sessions that hold no keys ignore it.
+    func discardHeldInput()
 }
 
 extension TerminalSession {
@@ -324,6 +317,8 @@ extension TerminalSession {
     public func reportScrollFrames(_ pan: TerminalPanFrames) {}
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {}
+
+    public func discardHeldInput() {}
 
     public var hostGridOwnerName: String? { nil }
 }
