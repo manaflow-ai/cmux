@@ -236,9 +236,10 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         #expect(machine.handle(.foreground).isEmpty, "nothing probes a parked link")
         #expect(machine.handle(.resume) == [.resumeParked(generation: generation)])
         #expect(machine.phase.isConnected && machine.generation == generation && !machine.isParked)
-        // The resume's probe failed: redial at once.
+        // The resume's probe failed in the foreground: redial at once, with the link kept beside
+        // the redial (make before break, #49327), as any unanswered probe in front does.
         #expect(machine.handle(.probeFailed(generation: generation, reason: "timeout"))
-            == [.close, .dial(generation: generation + 1, macID: "m", transport: .wireGuard)])
+            == [.keepStandby, .dial(generation: generation + 1, macID: "m", transport: .wireGuard)])
     }
 
     @Test func aLapsedParkRedialsOnResume() {
@@ -247,7 +248,8 @@ private final class ParkingDialer: MacLinkDialer, @unchecked Sendable {
         _ = machine.handle(.background)
         _ = machine.handle(.parked(generation: generation))
         _ = machine.handle(.parkLapsed)
-        #expect(machine.handle(.resume) == [.close, .dial(generation: generation + 1, macID: "m", transport: .wireGuard)])
+        // Redial at once; the connected link is kept beside the redial, not closed first (#50311).
+        #expect(machine.handle(.resume) == [.keepStandby, .dial(generation: generation + 1, macID: "m", transport: .wireGuard)])
     }
 
     @Test func aParkForAnOlderLinkIsIgnored() {

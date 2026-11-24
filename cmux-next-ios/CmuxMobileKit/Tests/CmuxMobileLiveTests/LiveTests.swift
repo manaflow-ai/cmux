@@ -725,7 +725,8 @@ private struct LinkOf: MacLinkDialer {
         let link = setupDaemon(log)
         let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
         _ = await prepared.replies.value
-        #expect(log.count == 5)
+        // Seven: the setup's one write carries list-personal and sidebar_layout.get too (#51114).
+        #expect(log.count == 7)
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
         var trees: [DaemonTree] = []
         sync.onTree = { trees.append($0) }
@@ -733,7 +734,7 @@ private struct LinkOf: MacLinkDialer {
         #expect(trees.count == 1)
         #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
         #expect(sync.daemon != nil)
-        #expect(log.count == 5)
+        #expect(log.count == 7)
     }
 
     /// `prepare` runs once per dial, before the link is handed over, and its
