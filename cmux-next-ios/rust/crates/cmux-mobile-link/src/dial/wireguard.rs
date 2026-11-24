@@ -1015,7 +1015,13 @@ impl HybridUnderlay {
             .filter(|address| endpoints.iter().any(|s| s == address) && relayed.iter().any(|s| s == address))
             .and_then(|s| s.parse::<SocketAddr>().ok())
             .filter(|addr| {
-                addr.port() != 0 && !addr.ip().is_multicast() && turn_reachable(addr, &self.options)
+                // Both endpoints send UDP directly to the advertised relay port.
+                let ip = addr.ip();
+                addr.port() != 0
+                    && !ip.is_unspecified()
+                    && !ip.is_multicast()
+                    && (self.options.include_loopback || !ip.is_loopback())
+                    && !(self.options.exclude_cgnat && super::is_cgnat(ip))
             });
         if self.hop.as_ref().map(|h| h.relayed) != address {
             self.install_hop(address.and_then(|addr| HopCarrier::peer(addr).ok()));
@@ -1454,7 +1460,7 @@ impl HybridUnderlay {
             for addr in &relayed {
                 let _ = self.send_udp(&datagram, *addr);
             }
-            self.send_relay_targets(&datagram, class);
+            self.send_relay_targets(&datagram, class, None);
         }
     }
 
@@ -1495,7 +1501,7 @@ impl HybridUnderlay {
     /// Through our TURN allocation, and plain UDP to the peer's relayed
     /// addresses (its TURN allocation).
     fn send_on_relays(&mut self, datagram: &[u8], class: SendClass) {
-        self.send_relay_targets(datagram, class);
+        self.send_relay_targets(datagram, class, None);
         if no_plain_udp(&self.options) {
             return;
         }
@@ -1556,18 +1562,20 @@ impl HybridUnderlay {
         }
     }
 
-    /// Through this side's TURN allocation to every peer endpoint it can
-    /// reach.
-    fn send_relay_targets(&self, datagram: &[u8], class: SendClass) {
+    /// Send on each relay carrier that has not already carried this copy.
+    fn send_relay_targets(&self, datagram: &[u8], class: SendClass, sent: Option<Carrier>) {
         if self.dark {
             return;
         }
         if let Some(hop) = &self.hop
+            && sent != Some(Carrier::Hop)
             && !self.blackhole
         {
             hop.sender.send(datagram, class);
         }
-        if let Some(turn) = &self.turn {
+        if let Some(turn) = &self.turn
+            && sent != Some(Carrier::Turn)
+        {
             for target in &self.turn_targets {
                 turn.send(datagram, *target, class);
             }
@@ -1587,12 +1595,10 @@ impl HybridUnderlay {
                 self.paths.remove(route);
                 false
             }
-            Carrier::Hop => self.hop.as_ref().is_some_and(|hop| {
-                if !self.dark && !self.blackhole {
-                    hop.sender.send(datagram, class);
-                }
-                true
-            }),
+            Carrier::Hop => self
+                .hop
+                .as_ref()
+                .is_some_and(|hop| self.dark || self.blackhole || hop.sender.send(datagram, class)),
             Carrier::Turn => match &self.turn {
                 Some(turn) if !turn.is_dead() => {
                     if !self.dark {
@@ -1787,7 +1793,7 @@ impl HybridUnderlay {
                 self.paths.sent_everywhere(now);
             }
             self.spray(datagram, None);
-            self.send_relay_targets(datagram, class);
+            self.send_relay_targets(datagram, class, None);
             return true;
         }
         false
@@ -1832,14 +1838,12 @@ impl HybridUnderlay {
                     self.direct = None;
                     self.publish_path();
                 }
-                if route.carrier == Carrier::Udp {
-                    self.send_relay_targets(datagram, class);
-                }
+                self.send_relay_targets(datagram, class, Some(route.carrier));
                 self.maybe_spray(datagram, route);
             }
             None => {
                 self.spray(datagram, None);
-                self.send_relay_targets(datagram, class);
+                self.send_relay_targets(datagram, class, None);
             }
         }
     }
