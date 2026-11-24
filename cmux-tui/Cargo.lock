@@ -2205,6 +2205,7 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "png",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 
@@ -2545,6 +2546,19 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "zstd",
+]
+
+[[package]]
+name = "cmux-session-pack"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tempfile",
  "zstd",
 ]
 
