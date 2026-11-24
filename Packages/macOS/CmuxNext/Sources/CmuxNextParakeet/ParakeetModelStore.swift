@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import FluidAudio
 import os
@@ -124,10 +125,10 @@ public actor ParakeetModelStore {
     /// The size of everything under `directory`, as Finder counts it.
     static func diskBytes(_ directory: URL) -> Int64 {
         let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .isRegularFileKey]
-        guard let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: keys) else { return 0 }
+        guard let files = FileManager.checked.enumerator(at: directory, includingPropertiesForKeys: keys) else { return 0 }
         var total: Int64 = 0
         for case let url as URL in files {
-            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            guard let values = try? url.blockingResourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
             total += Int64(values.totalFileAllocatedSize ?? 0)
         }
         return total
