@@ -72,8 +72,12 @@ async fn select_stalled_then_unix(
     let (_shutdown_tx, shutdown_rx) = watch::channel(false);
     let mut attempt = PerRouteBudgetAttempt {
         attempts: vec![
-            RuntimeInitialRouteAttempt { options: &stalled, shutdown: shutdown_rx.clone() },
-            RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx },
+            RuntimeInitialRouteAttempt {
+                options: &stalled,
+                shutdown: shutdown_rx.clone(),
+                last_good: None,
+            },
+            RuntimeInitialRouteAttempt { options: &unix, shutdown: shutdown_rx, last_good: None },
         ],
         failures: Vec::new(),
     };

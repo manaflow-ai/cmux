@@ -942,8 +942,8 @@ test("a prompt that names a plugin lists only its Ask rows: no web search for it
   await typePrompt("open the settings app");
   expect(types()).toContain("search");
   await typePrompt("open the settings app with @computer-use ");
-  // No web search row is left: the chip's own agent is no row (Return asks it), so the list is empty.
-  expect(types()).toEqual([]);
+  // No web search row is left: only the chip's own agent's Ask row, which leads again since #53126.
+  expect(types()).toEqual(["ask"]);
 });
 
 // CMUX-682: the hold runs on the Return or the Ask row's own key press or click, before the page

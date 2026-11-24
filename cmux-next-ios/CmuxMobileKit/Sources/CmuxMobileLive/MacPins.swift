@@ -1,3 +1,4 @@
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 
@@ -65,9 +66,30 @@ public final class MacPins: @unchecked Sendable {
     public func forget(_ mac: String) {
         lock.withLock {
             pins[mac.lowercased()] = nil
+            pins[Self.tunnelEntry(mac)] = nil
             save()
         }
     }
+
+    /// Whether `mac` once proved its identity over a tunnel's keys (a v2
+    /// `auth`): from then on a tunnel `auth` with it must be v2 again, so a v1
+    /// challenge (an advertisement stripped on the way) is refused.
+    public func bindsTunnel(_ mac: String) -> Bool {
+        lock.withLock { pins[Self.tunnelEntry(mac)] != nil }
+    }
+
+    /// Remembers that `mac` proved its identity over a tunnel's keys.
+    public func pinTunnelBinding(for mac: String) {
+        lock.withLock {
+            guard pins[Self.tunnelEntry(mac)] == nil else { return }
+            pins[Self.tunnelEntry(mac)] = "v2"
+            save()
+        }
+    }
+
+    /// The entry beside a Mac's key pin that says it proves tunnel keys (a
+    /// device id never contains `#`).
+    private static func tunnelEntry(_ mac: String) -> String { "tunnel#" + mac.lowercased() }
 
     private func save() {
         guard let file, let data = try? JSONEncoder().encode(pins) else { return }
@@ -75,9 +97,15 @@ public final class MacPins: @unchecked Sendable {
         try? data.write(to: file, options: [.atomic, .completeFileProtection])
     }
 
-    /// The bytes a Mac's identity key signs (cmux-mobile-host `mac_proof_message`).
-    public static func proofMessage(mac: String, phone: String, phoneNonce: String, challenge: String) -> Data {
-        ApprovalPayload.joined("cmux-mobile-mac-identity-v1", [mac, phone, phoneNonce, challenge])
+    /// The bytes a Mac's identity key signs (cmux-mobile-host `mac_proof_message`,
+    /// or `mac_proof_message_v2` over the tunnel's keys).
+    public static func proofMessage(mac: String, phone: String, phoneNonce: String, challenge: String,
+                                    tunnel: TunnelKeys? = nil) -> Data {
+        guard let tunnel else {
+            return ApprovalPayload.joined("cmux-mobile-mac-identity-v1", [mac, phone, phoneNonce, challenge])
+        }
+        return ApprovalPayload.joined("cmux-mobile-mac-identity-v2",
+                                      [mac, phone, phoneNonce, challenge, tunnel.dialer, tunnel.answerer])
     }
 
     /// Whether `signature` (raw `r || s`, hex) by `key` (X9.63 hex) is valid over `message`.

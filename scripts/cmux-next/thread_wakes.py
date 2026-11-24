@@ -23,9 +23,16 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import time
 import xml.etree.ElementTree as ET
 
 RECORD_GRACE_S = 180  # after --time-limit, xctrace processes and saves the recording
+# A trace never fills a disk (cmux20-bench, 2026-11-23: a bench step left 2 GiB free and failed the next steps): at
+# most MAX_SECONDS long, ended when its folder passes MAX_BYTES, refused with less than MIN_FREE free.
+MAX_SECONDS = 15
+MAX_BYTES = 4 << 30
+MIN_FREE = 30 << 30
+OVER_SIZE = 125  # _run_bounded's code for a run ended at the size cap
 EXPORT_TIMEOUT_S = 300
 # Thread states: a thread that was waiting and then runs (directly or through Runnable) woke once; a
 # preempted thread that runs again is the same run going on.
@@ -129,36 +136,81 @@ def count_wakes(path, pid=None):
     return threads
 
 
-def _run_bounded(command, timeout):
-    """Runs `command` in its own process group; on a timeout ends that group (only this call's own child)."""
+def free_bytes(path: str) -> int:
+    """The free bytes of the volume that holds `path`."""
+    return shutil.disk_usage(path).free
+
+
+def folder_bytes(path: str) -> int:
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def _end(proc) -> str:
+    """Ends `proc`'s group (only this call's own child): SIGINT, then SIGKILL after 60 s."""
+    os.killpg(proc.pid, signal.SIGINT)
+    try:
+        out, _ = proc.communicate(timeout=60)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+    return out or ""
+
+
+def _run_bounded(command, timeout, watch: str | None = None, max_bytes: int | None = None):
+    """Runs `command` in its own process group; on a timeout ends that group (only this call's own child). With
+    `watch` and `max_bytes`, also ends it once that folder holds more than `max_bytes` (code OVER_SIZE)."""
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             start_new_session=True)
-    try:
-        out, _ = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGINT)
+    if watch is None or max_bytes is None:
         try:
-            out, _ = proc.communicate(timeout=60)
+            out, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-            out, _ = proc.communicate()
-        return 124, out or ""
-    return proc.returncode, out or ""
+            return 124, _end(proc)
+        return proc.returncode, out or ""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            out, _ = proc.communicate(timeout=0.5)
+            return proc.returncode, out or ""
+        except subprocess.TimeoutExpired:
+            pass
+        size = folder_bytes(watch)
+        if size > max_bytes:
+            return OVER_SIZE, _end(proc) + f"\nended: {size} bytes, over the size cap of {max_bytes}"
+        if time.monotonic() > deadline:
+            return 124, _end(proc)
 
 
-def record(pid: int, seconds: int = 10) -> dict:
-    """{"seconds", "threads": {tid: {...}}} for `pid`, or {"error": ...}. Nothing is left on disk."""
+def record(pid: int, seconds: int = 10, max_bytes: int = MAX_BYTES, min_free: int = MIN_FREE) -> dict:
+    """{"seconds", "threads": {tid: {...}}} for `pid`, or {"error": ...}. Nothing is left on disk. At most
+    MAX_SECONDS; refused below `min_free` free bytes; ended past `max_bytes`."""
+    seconds = max(1, min(int(seconds), MAX_SECONDS))
+    free = free_bytes(tempfile.gettempdir())
+    if free < min_free:
+        return {"error": f"only {free >> 30} GiB free (a trace needs {min_free >> 30} GiB free): not recorded"}
     scratch = tempfile.mkdtemp(prefix=f"thread-wakes-{pid}-")
     try:
         trace = os.path.join(scratch, "rest.trace")
         rc, log = _run_bounded(["xcrun", "xctrace", "record", "--template", "System Trace", "--attach", str(pid),
-                                "--time-limit", f"{int(seconds)}s", "--no-prompt", "--output", trace],
-                               seconds + RECORD_GRACE_S)
+                                "--time-limit", f"{seconds}s", "--no-prompt", "--output", trace],
+                               seconds + RECORD_GRACE_S, watch=scratch, max_bytes=max_bytes)
+        if rc == OVER_SIZE:
+            return {"error": f"the trace passed its size cap ({max_bytes >> 20} MiB) and was ended: {log.strip()[-200:]}"}
         if not os.path.exists(trace):
             return {"error": f"xctrace record rc {rc}: {log.strip()[-300:]}"}
         table = os.path.join(scratch, "thread-state.xml")
         rc, log = _run_bounded(["xcrun", "xctrace", "export", "--input", trace, "--output", table, "--xpath",
-                                '/trace-toc/run[@number="1"]/data/table[@schema="thread-state"]'], EXPORT_TIMEOUT_S)
+                                '/trace-toc/run[@number="1"]/data/table[@schema="thread-state"]'], EXPORT_TIMEOUT_S,
+                               watch=scratch, max_bytes=max_bytes)
+        if rc == OVER_SIZE:
+            return {"error": f"the export passed the size cap ({max_bytes >> 20} MiB) and was ended"}
         if not os.path.exists(table):
             return {"error": f"xctrace export rc {rc}: {log.strip()[-300:]}"}
         threads = count_wakes(table, pid)
