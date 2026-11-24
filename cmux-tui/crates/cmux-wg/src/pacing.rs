@@ -359,6 +359,18 @@ impl Pacer {
         self.queued < MAX_QUEUED
     }
 
+    /// The peer was silent and is heard again (a parked phone woke, a
+    /// blackout ended): a segment timed before or during the silence would
+    /// time the silence as a round trip. One such sample after a 60 s sleep
+    /// put the smoothed RTT at about 7.5 s, so a resumed backlog left at a
+    /// hundredth of the path's rate for seconds. Every connection's sample
+    /// in flight is dropped; its next new segment starts another.
+    pub(crate) fn forget_samples(&mut self) {
+        for connection in self.connections.values_mut() {
+            connection.timed = None;
+        }
+    }
+
     /// The largest smoothed RTT among the connections, if any measured one.
     pub(crate) fn srtt(&self) -> Option<Duration> {
         self.connections.values().filter_map(|connection| connection.srtt).max()
