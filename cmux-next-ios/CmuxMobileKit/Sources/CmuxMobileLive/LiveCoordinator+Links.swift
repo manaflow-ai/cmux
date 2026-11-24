@@ -1172,16 +1172,9 @@ extension LiveCoordinator {
         case .signedOut:
             bannerHold.show(.signedOut)
         case .connected:
-            // "Connected" only answers a banner that was on screen; a held one never showed.
-            if everConnected, let shown = banner, shown != .connected {
-                bannerHold.show(.connected)
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.bannerHold.show(nil)
-                }
-            } else {
-                bannerHold.show(nil)
-            }
+            // Back: the banner just goes. No "Connected" flash after a reconnect (audit 20,
+            // ceremony): the live rows say it, and a flapping link flashed it every time.
+            bannerHold.show(nil)
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):
