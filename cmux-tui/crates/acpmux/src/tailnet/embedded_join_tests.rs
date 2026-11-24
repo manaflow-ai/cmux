@@ -278,15 +278,20 @@ async fn live_join_against_a_throwaway_headscale() {
             println!("LIVE change: {}", change.to_json(false));
         }
     });
+    let started = std::time::Instant::now();
     let joined = controller.join(p.plan().unwrap()).await;
+    let took = started.elapsed();
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     watch.abort();
     let snapshot = joined.unwrap_or_else(|error| {
         panic!("join failed: {error}; now {}", controller.snapshot().to_json(false))
     });
     println!(
-        "LIVE joined: state={} dns={:?} ips={:?}",
-        snapshot.state, snapshot.dns_name, snapshot.ips
+        "LIVE joined in {:.2}s: state={} dns={:?} ips={:?}",
+        took.as_secs_f64(),
+        snapshot.state,
+        snapshot.dns_name,
+        snapshot.ips
     );
     assert_eq!(snapshot.state, "running");
     assert!(!contains(&all_bytes(&dir), key.trim()), "the key reached the state folder");

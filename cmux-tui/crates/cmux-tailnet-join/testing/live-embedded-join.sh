@@ -38,11 +38,11 @@ d run -d --name "$NODE" --label "$LABEL" --network "$RUN_ID" \
   ubuntu:24.04 /acpmux-tests --ignored --exact --nocapture \
   tailnet::embedded_join::tests::live_join_against_a_throwaway_headscale >/dev/null
 for _ in $(seq 1 120); do
-  d logs "$NODE" 2>&1 | grep -q "LIVE READY" && break
+  d logs "$NODE" 2>&1 | grep -aq "LIVE READY" && break
   d ps -q --filter "name=$NODE" --filter status=running | grep -q . || break
   sleep 1
 done
-d logs "$NODE" 2>&1 | grep '^LIVE' || true
+d logs "$NODE" 2>&1 | grep -a '^LIVE' || true
 FAILS=0
 CLIENT="$RUN_ID-client"
 for _ in $(seq 1 30); do
@@ -54,6 +54,6 @@ else echo "FAIL client status"; d exec "$CLIENT" tailscale status || true; FAILS
 if d exec "$CLIENT" tailscale ping -c 10 cmux-embedded-live; then echo "PASS client pings the embedded node"
 else echo "FAIL ping"; FAILS=1; fi
 d wait "$NODE" >/dev/null || true
-d logs "$NODE" 2>&1 | grep -E '^LIVE left|test result' || true
-d logs "$NODE" 2>&1 | grep -q 'test result: ok. 1 passed' || { echo "FAIL the live test"; d logs "$NODE" 2>&1 | tail -30; FAILS=1; }
+d logs "$NODE" 2>&1 | grep -aE '^LIVE left|test result' || true
+d logs "$NODE" 2>&1 | grep -aq 'test result: ok. 1 passed' || { echo "FAIL the live test"; d logs "$NODE" 2>&1 | tail -30; FAILS=1; }
 exit "$FAILS"
