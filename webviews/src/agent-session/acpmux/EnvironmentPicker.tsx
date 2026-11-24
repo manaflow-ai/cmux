@@ -892,7 +892,7 @@ export function EnvironmentPicker({
             </span>
             {value === AUTO_RUN && <span className="acpmux-menu-description">{t("composer.autoPlaceDetail")}</span>}
           </span>
-          <kbd className="acpmux-env-key">⌥⌘{digit}</kbd>
+          <KeyHint keys={`⌥⌘${digit}`} className="acpmux-env-key" />
           <span className="acpmux-location-check" aria-hidden="true">
             {checked && <CheckIcon />}
           </span>

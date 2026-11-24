@@ -13,6 +13,7 @@
 //
 // Variants: Liquid Glass on (the gallery's base theme keeps glass on), Liquid Glass off
 // (data-glass="off", the shipped default since cmux#46104) and Reduce Transparency.
+import { KeyHint } from "../KeyHint";
 import { type CSSProperties, useEffect } from "react";
 import { componentEntry } from "../../gallery/format";
 
@@ -200,7 +201,7 @@ function HoverInputScene() {
         style={{ ...box(32, 24, 0, 0), width: "auto", height: "auto", whiteSpace: "nowrap" }}
       >
         <span className="ui-tooltip-text">Fork Conversation</span>
-        <span className="ui-tooltip-hint">⌘⇧D</span>
+        <KeyHint keys="⌘⇧D" className="ui-tooltip-hint" />
       </div>
       <div
         className="ui-title-tooltip ui-glass"
