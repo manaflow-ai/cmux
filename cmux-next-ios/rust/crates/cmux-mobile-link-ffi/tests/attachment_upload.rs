@@ -282,6 +282,27 @@ async fn with_no_link_it_waits_for_the_mac_then_finishes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_tab_folder_the_mac_cannot_check_falls_back_to_the_uploads_folder() {
+    // The cwd is outside the roots, so hostd asks its daemon, which is not running here:
+    // `unavailable`. Retrying the same cwd would never finish; the uploads folder needs no daemon.
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("tab.bin");
+    patterned_file(&source, MIB + 3);
+    let (uploads, _recorder) = engine(Timings::default());
+    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
+    let mut outside = spec(&rig, "tab.bin");
+    outside.cwd = Some(phone.path().to_str().unwrap().into());
+    let id = uploads.start(outside, source.to_str().unwrap().into());
+    let path = tokio::time::timeout(Duration::from_secs(20), uploads.wait(id))
+        .await
+        .expect("bounded: it fell back instead of retrying the tab folder")
+        .expect("uploaded");
+    assert!(!path.starts_with(phone.path().to_str().unwrap()), "{path}");
+    assert_eq!(sha256(Path::new(&path)), sha256(&source));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_missing_file_fails_unreadable_and_a_given_id_is_kept() {
     let rig = upload_rig(Transport::WireGuard).await;
     let (uploads, _recorder) = engine(Timings::default());

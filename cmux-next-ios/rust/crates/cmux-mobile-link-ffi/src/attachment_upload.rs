@@ -629,7 +629,9 @@ fn handle(upload: &Upload, event: Event, attempt: &mut Attempt) -> Option<Outcom
         }
         Event::Final(path) => Some(Outcome::Done(path)),
         Event::Refused { code, message } => match code.as_str() {
-            "forbidden" | "not_found" if attempt.sent_cwd => {
+            // `unavailable` with a cwd is the Mac's daemon not answering for the tab folder
+            // (hostd bounds it at 5 s); the uploads folder needs no daemon.
+            "forbidden" | "not_found" | "unavailable" if attempt.sent_cwd => {
                 lock(&upload.state).no_cwd = true;
                 Some(Outcome::RetryNow)
             }

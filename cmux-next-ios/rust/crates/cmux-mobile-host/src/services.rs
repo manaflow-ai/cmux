@@ -1844,9 +1844,6 @@ pub fn safe_file_name(name: &str) -> String {
     if out.is_empty() { "attachment".into() } else { out }
 }
 
-/// How long an upload waits for the daemon's tab list before using the uploads folder.
-const DAEMON_FOLDERS_BOUND: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// The folders of the tabs the daemon lists (`list-workspaces`), canonical.
 async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal> {
     Ok(folders_in(&list_workspaces(&config.daemon_socket()).await?))
@@ -2113,16 +2110,10 @@ async fn upload_folder(
         return Err(Refusal::new("bad_request", "cwd is not a folder"));
     }
     let in_roots = confine(&config.file_roots, &canonical).is_ok();
-    // Bounded: a stalled daemon must not hold the upload unopened. `not_found` sends the
-    // phone to the uploads folder, which needs no daemon.
-    if !in_roots {
-        let tab_folders = match tokio::time::timeout(DAEMON_FOLDERS_BOUND, daemon_folders(config)).await {
-            Ok(folders) => folders?,
-            Err(_) => return Err(Refusal::new("not_found", "the Mac's tab list did not answer in time")),
-        };
-        if !tab_folders.contains(&canonical) {
-            return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
-        }
+    // The daemon is asked only for a folder outside the roots (`daemon_query` bounds it at
+    // 5 s, `unavailable`, on which the phone falls back to the uploads folder).
+    if !in_roots && !daemon_folders(config).await?.contains(&canonical) {
+        return Err(Refusal::new("forbidden", "cwd is not the folder of a tab on this Mac"));
     }
     let folder = canonical.join(".cmux").join("attachments").join(format!("phone-{scope}"));
     std::fs::create_dir_all(&folder)

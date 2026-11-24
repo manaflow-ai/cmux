@@ -1027,7 +1027,7 @@ async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
 }
 
 /// A daemon that never answers its tab list cannot hold an upload unopened: past
-/// hostd's 5 s bound it answers `not_found`, which sends the phone to the uploads folder.
+/// hostd's 5 s bound it answers `unavailable`, on which the phone uses the uploads folder.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_upload_to_a_tab_folder_is_bounded_when_the_daemon_stalls() {
     let fixture = fixture(FakeOptions::default()).await;
@@ -1042,7 +1042,7 @@ async fn an_upload_to_a_tab_folder_is_bounded_when_the_daemon_stalls() {
     let (_, code) = tokio::time::timeout(std::time::Duration::from_secs(20), drain(&mut upload))
         .await
         .expect("the upload waited on the daemon past its bound");
-    assert_eq!(code, "not_found");
+    assert_eq!(code, "unavailable");
     assert!(started.elapsed() < std::time::Duration::from_secs(15), "{:?}", started.elapsed());
 }
 
