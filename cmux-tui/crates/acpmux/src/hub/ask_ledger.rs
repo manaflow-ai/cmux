@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub(crate) const METHOD: &str = "_acpmux/ask_ledger";
+pub(crate) const METHOD: &str = crate::rpc::method::MUX_ASK_LEDGER;
 const LIMIT: usize = 200;
 const TEXT_CHARS: usize = 16_384;
 
