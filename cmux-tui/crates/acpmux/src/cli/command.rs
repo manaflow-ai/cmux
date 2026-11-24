@@ -825,12 +825,20 @@ pub enum Command {
     #[command(hide = true)]
     WakeAgent { session: String },
     #[command(hide = true)]
+    /// Built only by `flatten` from `session hold` / `session release`; never parsed, so its fields are skipped
+    /// (as plain fields clap read them as positionals, and `held: bool` as a positional fails clap's debug asserts).
     SessionHold {
+        #[arg(skip)]
         session: Option<String>,
+        #[arg(skip)]
         held: bool,
+        #[arg(skip)]
         fleet: bool,
+        #[arg(skip)]
         allow: Vec<String>,
+        #[arg(skip)]
         reason: Option<String>,
+        #[arg(skip)]
         status: bool,
     },
     #[command(hide = true)]

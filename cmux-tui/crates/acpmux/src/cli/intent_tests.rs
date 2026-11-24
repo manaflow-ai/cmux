@@ -34,7 +34,12 @@ fn an_ambiguous_form_is_listed_or_the_best_read_runs() {
     match r.outcome {
         Kind::Candidates => assert!(r.candidates.len() >= 2, "{r:?}"),
         Kind::Ran => {
-            assert!(r.candidates[0].notes.iter().any(|n| n.contains("read-only")), "{r:?}")
+            // One synonym that parses (`info`), or the best of several read-only forms.
+            assert!(
+                ["info", "status"].contains(&r.argv[0].as_str())
+                    || r.candidates[0].notes.iter().any(|n| n.contains("read-only")),
+                "{r:?}"
+            )
         }
         other => panic!("{other:?} {r:?}"),
     }
@@ -42,10 +47,15 @@ fn an_ambiguous_form_is_listed_or_the_best_read_runs() {
 
 #[test]
 fn a_destructive_form_with_a_typo_is_refused_with_its_exact_form() {
-    let r = fix(&["archve", "lane-1"]);
+    let r = fix(&["archiv", "lane-1"]);
     assert_eq!(r.outcome, Kind::Exact, "{r:?}");
-    assert_eq!(to(&r), ["archve", "lane-1"]);
+    assert_eq!(to(&r), ["archiv", "lane-1"]);
     assert_eq!(r.candidates[0].argv, ["archive", "lane-1"]);
+    // Close to both `archive` and `unarchive`: listed, and nothing runs.
+    let r = fix(&["archve", "lane-1"]);
+    assert!(matches!(r.outcome, Kind::Exact | Kind::Candidates), "{r:?}");
+    assert_eq!(to(&r), ["archve", "lane-1"]);
+    assert!(r.candidates.iter().any(|c| c.argv == ["archive", "lane-1"]), "{r:?}");
 }
 
 #[test]

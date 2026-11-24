@@ -277,10 +277,12 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
     if !out.is_empty() {
         return out;
     }
+    // A synonym may name a hidden subcommand: it still parses (`inspect` -> the hidden top-level `info`).
+    let all = sub_names(cmd, false);
     let syn: Vec<String> = tbl
         .mates(&tok, false)
         .into_iter()
-        .filter(|m| choices.iter().any(|c| c == m))
+        .filter(|m| all.iter().any(|c| c == m))
         .map(str::to_owned)
         .collect();
     for m in dedup(syn) {
@@ -574,7 +576,8 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
     parsed.truncate(MAX_SHOWN);
     if let [only] = parsed.as_slice() {
         let word = unsafe_in(&built, &only.argv, tbl, prog)
-            .or_else(|| argv.iter().find(|w| w.starts_with('-') && tbl.unsafe_word(w)).cloned());
+            .or_else(|| argv.iter().find(|w| w.starts_with('-') && tbl.unsafe_word(w)).cloned())
+            .or_else(|| supplied_write(&built, &argv, &only.argv, tbl, prog));
         if let Some(word) = word {
             return Repair {
                 outcome: Kind::Exact,
@@ -621,6 +624,54 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
         };
     }
     Repair { outcome: Kind::Candidates, argv, candidates: parsed, error: first_text, word: None }
+}
+
+fn reading(word: &str, prog: &str, tbl: &Table) -> bool {
+    tbl.reads.iter().any(|r| r == word)
+        || tbl.cli_entry(prog).is_some_and(|e| e.safe.iter().any(|s| s == word))
+}
+
+/// The word the layer would supply that is not a known read, else None. A word it puts in (a subcommand or a
+/// choice: `docs pull` -> `docs sync`, `keepupp` -> `keepup`) runs only when it is a read (the table's `reads` or
+/// the CLI's `safe`), or sits in a subcommand path that ends in one (`land-status` -> `land status`): a write's
+/// verb is never supplied. Flags and reordering supply no new word. Twin of `_supplied_write` in tools/intent.py.
+fn supplied_write(
+    root: &Command,
+    typed: &[String],
+    new: &[String],
+    tbl: &Table,
+    prog: &str,
+) -> Option<String> {
+    let mut added: Vec<&String> = new.iter().filter(|t| !t.starts_with('-')).collect();
+    for t in typed.iter().filter(|t| !t.starts_with('-')) {
+        if let Some(i) = added.iter().position(|a| *a == t) {
+            added.remove(i);
+        }
+    }
+    if added.is_empty() {
+        return None;
+    }
+    let w = walk::walk(root, new);
+    let subs: Vec<usize> = w.levels.iter().filter_map(|l| l.sub).collect();
+    let reads_at = subs.iter().copied().find(|&i| reading(&new[i], prog, tbl));
+    let leaf_reads = subs.last().is_some_and(|&i| reading(&new[i], prog, tbl));
+    let ok = |i: usize| {
+        reading(&new[i], prog, tbl)
+            || leaf_reads
+            || reads_at.is_some_and(|r| !subs.contains(&i) || i > r)
+    };
+    for (i, word) in new.iter().enumerate() {
+        if word.starts_with('-') {
+            continue;
+        }
+        if let Some(k) = added.iter().position(|a| *a == word) {
+            added.remove(k);
+            if !ok(i) {
+                return Some(word.clone());
+            }
+        }
+    }
+    None
 }
 
 /// Whether `argv` runs a subcommand that only reads: its last subcommand word is in `reads` or the CLI's
