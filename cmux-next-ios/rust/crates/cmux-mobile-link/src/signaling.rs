@@ -93,6 +93,12 @@ pub enum SignalPayload {
         /// older peers, which still send relay frames and their marker.
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
+        /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"):
+        /// [`RELAY_READY`] when this side can join it, [`RELAY_NOW`] when it
+        /// joins at once (it has no other path); absent from older peers,
+        /// which never join.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -116,6 +122,10 @@ pub enum SignalPayload {
         /// older Macs.
         #[serde(default, skip_serializing_if = "is_zero")]
         version: u32,
+        /// As in `wg-init`: [`RELAY_READY`] or [`RELAY_NOW`]; absent from
+        /// older Macs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        relay: Option<String>,
     },
     /// A WireGuard side's new endpoints after a roam (or a new TURN
     /// allocation), the same announcement it sends inside the tunnel
@@ -131,6 +141,12 @@ pub enum SignalPayload {
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
     },
+    /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
+    /// "WebSocket relay"): its datagrams no longer reach the peer any other
+    /// way, so the peer joins too. Sent only to a peer that offered the
+    /// relay (`relay` in its `wg-init` / `wg-resp`).
+    #[serde(rename = "wg-relay")]
+    WgRelay {},
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -157,6 +173,11 @@ pub struct SignalEnvelope {
     /// sender. Clients never set it (the backend overwrites it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_user_id: Option<String>,
+    /// Stamped by the backend on forwarded `wg-*` signals (API 0.17.0): this
+    /// device's own ticket for the session's WebSocket relay, which a relay
+    /// join presents (PROTOCOL.md "WebSocket relay"). Clients never set it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_ticket: Option<String>,
 }
 
 /// One sealed reply the backend held for this Mac (PROTOCOL.md "Reply
@@ -192,6 +213,10 @@ pub enum SignalMessage {
         you: String,
         #[serde(default)]
         macs: Vec<MacPresence>,
+        /// A Mac's local hub's wire version ([`crate::local::HUB_VERSION`]);
+        /// absent (0) from the Worker and from hubs before it was sent.
+        #[serde(rename = "hubVersion", default, skip_serializing_if = "is_zero")]
+        hub_version: u32,
     },
     Presence {
         mac: MacPresence,
@@ -214,6 +239,14 @@ pub enum SignalMessage {
         session_id: Option<String>,
     },
 }
+
+/// `relay` in `wg-init` / `wg-resp`: this side can join cmux's WebSocket
+/// relay (PROTOCOL.md "WebSocket relay") when nothing else reaches the peer.
+pub const RELAY_READY: &str = "ready";
+/// `relay`: this side joins the relay at once, since it has no other path
+/// (no plain UDP and no TURN allocation); the peer joins too, without
+/// waiting for its own paths to fail.
+pub const RELAY_NOW: &str = "now";
 
 /// The WireGuard protocol version this side speaks (`version` in `wg-init`
 /// and `wg-resp`, PROTOCOL.md):
@@ -355,6 +388,12 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
+    /// sessions never move onto a Worker socket, nor a Worker's onto it.
+    local: std::sync::atomic::AtomicBool,
+    /// The `hubVersion` of this socket's hello: 0 from the Worker, an older
+    /// hub, or before the hello arrives.
+    hub_version: std::sync::atomic::AtomicU32,
 }
 
 /// How long after a `link_stat` an older Worker's refusal of it is taken for its answer.
@@ -437,8 +476,18 @@ impl SignalingClient {
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
-        crate::install_crypto_provider();
         let url = signal_url(base_url, team_id, device_id)?;
+        Self::open(url, token, device_id, build_space).await
+    }
+
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    async fn open(
+        url: String,
+        token: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+    ) -> Result<Self, SignalingError> {
+        crate::install_crypto_provider();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -459,7 +508,7 @@ impl SignalingClient {
         // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
         // would otherwise hold the reconnect, and the Mac stays offline, with no end.
         let connecting = crate::liveness::spawn(async move {
-            match tokio::time::timeout(CONNECT_WAIT, tokio_tungstenite::connect_async(request)).await {
+            match tokio::time::timeout(CONNECT_WAIT, crate::signal_dial::connect_async(request)).await {
                 Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
                 Err(_) => Err(SignalingError::Connect(format!(
                     "no answer to the upgrade within {}s",
@@ -487,6 +536,8 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            local: std::sync::atomic::AtomicBool::new(false),
+            hub_version: std::sync::atomic::AtomicU32::new(0),
         });
         let pinger = Arc::clone(&out);
         crate::liveness::spawn(async move { out.write_out(sink).await });
@@ -580,6 +631,34 @@ impl SignalingClient {
 
     pub fn device_id(&self) -> &str {
         &self.shared.device_id
+    }
+
+    /// Connect to a Mac's local hub (`local_hub.rs`) at `ws://host:port`:
+    /// no Worker, no account token (`token` is the hub's own). The URL
+    /// carries this side's [`HUB_VERSION`](crate::local::HUB_VERSION)
+    /// (`&hubVersion=`), which an older hub ignores.
+    pub async fn connect_local(base_url: &str, token: &str, device_id: &str) -> Result<Self, SignalingError> {
+        let url = format!(
+            "{}&{}={}",
+            signal_url(base_url, crate::local::LOCAL_TEAM, device_id)?,
+            crate::local::HUB_VERSION_PARAM,
+            crate::local::HUB_VERSION
+        );
+        let client = Self::open(url, token, device_id, None).await?;
+        client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(client)
+    }
+
+    /// The hub's wire version from its hello ([`crate::local::HUB_VERSION`]):
+    /// 0 from the Worker, from a hub older than the field, or before the
+    /// hello arrived.
+    pub fn hub_version(&self) -> u32 {
+        self.shared.hub_version.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whether this socket runs to a Mac's local hub rather than the Worker.
+    pub fn is_local(&self) -> bool {
+        self.shared.local.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether `other` is a handle of this same socket.
@@ -695,6 +774,7 @@ impl SignalingClient {
             session_id: session_id.to_owned(),
             payload,
             from_user_id: None,
+            relay_ticket: None,
         });
         let text = serde_json::to_string(&message).expect("signal serializes");
         self.shared.out.push_signal(Signal::Text(text))
@@ -803,7 +883,8 @@ impl Shared {
             }
         };
         match message {
-            SignalMessage::Hello { you, macs } => {
+            SignalMessage::Hello { you, macs, hub_version } => {
+                self.hub_version.store(hub_version, std::sync::atomic::Ordering::Relaxed);
                 let _ = self.events.send(SignalingEvent::Hello { you, macs });
             }
             SignalMessage::Presence { mac } => {
@@ -860,6 +941,8 @@ mod tests {
         let rx = events.subscribe();
         let shared = super::Shared {
             device_id: "d".into(),
+            local: std::sync::atomic::AtomicBool::new(false),
+            hub_version: std::sync::atomic::AtomicU32::new(0),
             inbound: tokio::sync::watch::channel(0).0,
             opened: std::time::Instant::now(),
             last_inbound: Mutex::new((std::time::Instant::now(), std::time::SystemTime::now())),
@@ -972,6 +1055,7 @@ mod tests {
                 sdp_m_line_index: Some(0),
             },
             from_user_id: None,
+            relay_ticket: None,
         });
         let json: serde_json::Value = serde_json::to_value(&offer).unwrap();
         assert_eq!(
@@ -1013,6 +1097,26 @@ mod tests {
         assert!(matches!(old, SignalPayload::WgResp { version: 0, .. }));
         let text = serde_json::to_string(&old).unwrap();
         assert!(!text.contains("version") && !text.contains("relayed"), "{text}");
+    }
+
+    /// Lockstep (P7 13f): the Worker's hello has no `hubVersion` (0) and
+    /// writes none back; a newer hub's hello, with fields this side does not
+    /// know yet, still parses.
+    #[test]
+    fn lockstep_hello_hub_version_both_ways() {
+        let worker: SignalMessage = serde_json::from_str(r#"{"type":"hello","you":"p","macs":[]}"#).unwrap();
+        assert!(matches!(worker, SignalMessage::Hello { hub_version: 0, .. }));
+        assert!(!serde_json::to_string(&worker).unwrap().contains("hubVersion"));
+        let newer: SignalMessage = serde_json::from_str(
+            r#"{"type":"hello","you":"p","macs":[{"deviceId":"m","name":"","online":true,"future":1}],
+                "hubVersion":9,"caps":["x"],"future":{"a":1}}"#,
+        )
+        .unwrap();
+        assert!(matches!(newer, SignalMessage::Hello { hub_version: 9, ref macs, .. } if macs.len() == 1));
+        let ours =
+            SignalMessage::Hello { you: "p".into(), macs: vec![], hub_version: crate::local::HUB_VERSION };
+        let text = serde_json::to_string(&ours).unwrap();
+        assert!(text.contains(&format!("\"hubVersion\":{}", crate::local::HUB_VERSION)), "{text}");
     }
 
     #[test]
