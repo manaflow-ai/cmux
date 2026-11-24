@@ -142,6 +142,7 @@ export function CloudTriToggle({
         <Tooltip key={mode} label={t(NAMES[mode])} detail={t(HELP[mode])} side="top">
           <button
             type="button"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a segment holds a glyph and a tooltip, which an input cannot.
             role="radio"
             aria-checked={mode === pin}
             aria-label={t(NAMES[mode])}
