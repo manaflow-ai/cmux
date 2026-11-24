@@ -9,7 +9,6 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
-  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
@@ -17,6 +16,7 @@ import {
   type AcpmuxFileDiff,
   type AcpmuxPlanEntry,
   type AcpmuxRow,
+  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
@@ -55,7 +55,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
+import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -1282,15 +1282,20 @@ function shapedTurn(
   // turn goes on under that prompt, so it neither ends nor times the turn.
   // Nor does it before the steer's own record comes, while it is the turn's last summary: the turn
   // is about to go on, and would read "You stopped after" for that moment.
+  // The person's steer still on its way (the pane's own row, before acpmux's record) draws where he
+  // sent it, as acpmux's record of it will: what came in after the send draws under it, never over it
+  // (Leo, 2026-11-22: "WHY DID IT FUCKING DISPLAY NOTHING THEN COPY BUTTONS THEN YOU SENT SHIT THEN MY
+  // STEER WENT UNDER IT"). Held after the body, it sat under every row that came in before its record.
+  const sentHere = (row: AcpmuxRow) => live && sentSteer(row);
   const kept = source.filter(
     (row, at) =>
-      (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
+      (row.kind !== "user" || sentHere(row) || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
       !hidesContinuedSummary(source, at, last),
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
   const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
-  const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
+  const held = source.filter((row) => row.kind === "user" && !continuesTurn(row) && !sentHere(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
   const date = dated && visibleTurn ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
@@ -1347,12 +1352,9 @@ function shapedTurn(
     // the agent reads it (Leo, 2026-11-09: "i hate the way when i send off a message it seems to move
     // up and under your current running tool call or whatever").
     const runs = foldBackgroundRuns(messaged, expanded);
-    // The person's steer still on its way (the pane's own row, before acpmux's record) is held after the
-    // body; its stretch's footer comes in the frame it is drawn, as for one acpmux recorded.
-    const sending = live ? held.filter(sentSteer) : [];
-    const body = sinceAboveWorked(
-      supersededFooters(runs, sending.length ? [...turn, ...sending] : turn, endedByPerson, user.at, live),
-    );
+    // The person's steer still on its way draws in its place in the body (`sentHere`); its stretch's
+    // footer comes in the frame it is drawn, as for one acpmux recorded.
+    const body = sinceAboveWorked(supersededFooters(runs, turn, endedByPerson, user.at, live));
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
     const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];

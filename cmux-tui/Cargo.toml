@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/acpmux-tui",
     "crates/cmux-egress",
     "crates/desktop-lease",
     "crates/acpmux-core",
@@ -120,6 +121,7 @@ members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
@@ -272,6 +274,7 @@ default-members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
@@ -483,6 +486,7 @@ cmux-mobile-last-place = { path = "crates/cmux-mobile-last-place" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-braid-carrier = { path = "crates/cmux-braid-carrier" }
 cmux-braid-path = { path = "crates/cmux-braid-path" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }

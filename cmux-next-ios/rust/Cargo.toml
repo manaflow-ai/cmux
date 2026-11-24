@@ -27,6 +27,8 @@ cmux-composer-send = { path = "../../cmux-tui/crates/cmux-composer-send" }
 # Where the person was (workspace, chat or terminal, scroll anchor, selection), opened again on launch.
 cmux-mobile-last-place = { path = "../../cmux-tui/crates/cmux-mobile-last-place" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
+# Braid carriers (RFD 0164 B7): the kinds a dial ranks its rungs by, and the trait it opens them through.
+cmux-braid-carrier = { path = "../../cmux-tui/crates/cmux-braid-carrier" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).
 cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["serde"] }
 cmux-tab-snapshots = { path = "../../cmux-tui/crates/cmux-tab-snapshots" }
