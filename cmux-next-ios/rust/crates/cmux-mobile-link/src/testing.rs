@@ -971,6 +971,12 @@ impl TestTurn {
         self.streams.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Allocations this server holds now (each until it is released or
+    /// expires).
+    pub fn allocations(&self) -> usize {
+        self.allocated.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+
     /// Whether `addr` is one of this server's relayed addresses.
     pub fn is_relayed(&self, addr: &std::net::SocketAddr) -> bool {
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).contains(addr)
