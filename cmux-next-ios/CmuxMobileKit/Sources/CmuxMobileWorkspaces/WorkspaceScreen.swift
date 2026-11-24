@@ -149,7 +149,8 @@ public struct WorkspaceScreen: View {
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
-                             start: { [source] start in source.startAgentChat(start) })
+                             start: { [source] start in source.startAgentChat(start) },
+                             macID: source.workspace?.macID ?? "")
                     .presentationDetents([.medium, .large])
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
