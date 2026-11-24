@@ -34,7 +34,9 @@ if [ -z "$bin" ]; then
     ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
     cd cmux-tui && GHOSTTY_ZIG_SOURCE=ghostty-next cargo build -p cmux-tui --locked
   )
-  bin=$root/cmux-tui/target/debug/cmux-tui
+  target=${CARGO_TARGET_DIR:-$root/cmux-tui/target}
+  case "$target" in /*) ;; *) target=$root/cmux-tui/$target ;; esac
+  bin=$target/debug/cmux-tui
 fi
 [ -x "$bin" ] || { echo "ghostty-e2e: no cmux-tui at $bin" >&2; exit 2; }
 
