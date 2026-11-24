@@ -126,8 +126,11 @@ export function useDiffComments({
     if (!commentsThreads || !bridgeAvailable || repoRoot == null) {
       return;
     }
+    // Only a thread sent to the agent and still open can gain an answer the page has not written.
+    const awaitingAgent = () =>
+      latestState.current.comments.some((comment) => comment.sentIn != null && comment.resolved !== true);
     const refresh = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && awaitingAgent()) {
         void refreshComments();
       }
     };
@@ -141,7 +144,7 @@ export function useDiffComments({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.clearInterval(interval);
     };
-  }, [bridgeAvailable, commentsThreads, refreshComments, repoRoot]);
+  }, [bridgeAvailable, commentsThreads, latestState, refreshComments, repoRoot]);
 
   const onGutterUtilityClick = (range: SelectedLineRange, context: { item: DiffItem }) => {
     const side: DiffCommentSide = range.side === "deletions" ? "deletions" : "additions";
