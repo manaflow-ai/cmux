@@ -48,7 +48,16 @@ export function matchesSourceQuery(text: string, query: string): boolean {
     .every((word) => lower.includes(word));
 }
 
-export type CloudFolder = { id: string; label: string; peer: string; machine: string; stage?: string };
+/// `disabled`: its machine cannot take a new chat now (offline, or already resuming) and has no action to start a
+/// wait; a paused machine is not disabled, it resumes through its own action.
+export type CloudFolder = {
+  id: string;
+  label: string;
+  peer: string;
+  machine: string;
+  stage?: string;
+  disabled?: boolean;
+};
 
 export function cloudSourceFolders(
   sessions: readonly { peer?: string; cwd?: string; host?: string }[],
@@ -71,6 +80,7 @@ export function cloudSourceFolders(
         peer,
         machine: machine?.label === peer ? (session.host ?? peer) : (machine?.label ?? session.host ?? peer),
         stage: machine?.detail,
+        ...(machine?.disabled ? { disabled: true } : {}),
       });
     groups.set(peer, group);
   }

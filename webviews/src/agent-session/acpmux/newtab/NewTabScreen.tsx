@@ -2211,18 +2211,21 @@ export function NewTabScreen(props: Props) {
     setWorktreeError(undefined);
     const choice = ++projectChoice.current;
     if (github) setLocalGitHubPick({ name: github.repo });
+    // A later choice replaced this checkout: its pick that still waits for a folder goes too, so Send never stays
+    // held behind a checkout nobody wants (a saved environment chosen meanwhile).
+    const dropReplaced = () =>
+      setLocalGitHubPick((pick) => (pick && !pick.cwd && pick.name === github?.repo ? undefined : pick));
     void onNewWorktree(cwd, github).then(
       (folder) => {
-        if (choice !== projectChoice.current) return;
+        if (choice !== projectChoice.current) return dropReplaced();
         if (folder) pickProject(folder, github?.repo);
         else setLocalGitHubPick(undefined);
       },
       (error: unknown) => {
         console.warn("agent pane: New Worktree failed", error);
-        if (choice === projectChoice.current) {
-          setLocalGitHubPick(undefined);
-          setWorktreeError({ retry: () => newWorktreeHere(cwd, github) });
-        }
+        if (choice !== projectChoice.current) return dropReplaced();
+        setLocalGitHubPick(undefined);
+        setWorktreeError({ retry: () => newWorktreeHere(cwd, github) });
       },
     );
   };
@@ -2376,6 +2379,8 @@ export function NewTabScreen(props: Props) {
                 onPick: (id: string) => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  // The environment replaces a GitHub checkout still on its way.
+                  setLocalGitHubPick(undefined);
                   // An environment is where the chat starts: New project's folder is no longer it.
                   setNewProject(undefined);
                   newProjectMade.current = undefined;
@@ -2390,6 +2395,7 @@ export function NewTabScreen(props: Props) {
                 onClear: () => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  setLocalGitHubPick(undefined);
                   props.onCloudMachinePicked?.(undefined);
                   saved.pick(undefined);
                 },

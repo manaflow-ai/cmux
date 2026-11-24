@@ -219,12 +219,12 @@ export function SourcePicker({
       scope: step.scope,
       query,
       rows: [
-        ...rows.map(({ id, label, icon, status, path, current }) => ({
+        ...rows.map(({ id, label, icon, status, path, current, disabled }) => ({
           id,
           label,
           icon,
           status: nativeStatus(status ?? path, current),
-          enabled: true,
+          enabled: !disabled,
         })),
         ...(step.message ? [{ id: "\0message", label: step.message, enabled: messageEnabled }] : []),
       ],
@@ -370,6 +370,8 @@ type ListRow = {
   trail?: ReactNode;
   path?: string;
   current?: boolean;
+  /// Shown but not pickable (a folder on a Cloud machine that cannot take a chat now); its status says why.
+  disabled?: boolean;
   run(): void;
 };
 
@@ -419,7 +421,11 @@ function SourceList({
         onQuery={onQuery}
         onCommand={(event) => backOnEmptyField(event, scope ? onEscape : undefined)}
         onCancel={onEscape}
-        onSubmit={(value) => byId.get(value)?.run()}
+        onSubmit={(value) => {
+          const row = byId.get(value);
+          if (row && !row.disabled) row.run();
+        }}
+        isItemDisabled={(id) => byId.get(id)?.disabled === true}
         isItemCurrent={(id) => byId.get(id)?.current === true}
         itemLabel={(id) => {
           const row = byId.get(id);
@@ -523,6 +529,7 @@ function cloudRows(
         icon: "folder",
         path: folder.id,
         current: current === folder.id && currentPeer === folder.peer,
+        ...(folder.disabled ? { disabled: true, status: folder.stage ?? folder.id } : {}),
         run: () => onPick(folder),
       });
     }
@@ -537,6 +544,7 @@ function cloudRows(
         label: folder.machine,
         status: folder.stage,
         icon: "folder",
+        ...(folder.disabled ? { disabled: true } : {}),
         run: () => onMachine(folder),
       });
     }

@@ -25,6 +25,8 @@ import {
 import { SourcePicker, type SourcePickerOptions } from "./SourcePicker";
 import { matchesSourceQuery } from "./sourcePickerModel";
 
+const NO_FOLDERS: FolderChoice[] = [];
+
 /// A folder the popover offers: its path (`id`), name and, when known, its repository.
 export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 
@@ -98,8 +100,13 @@ export function FolderPopover({
     side,
     flip,
   } = useLocationPopover({ listCap: FOLDER_MENU_LIST_CAP });
-  // The filesystem root is no project. Typing / still offers it as a path.
-  const offered = useMemo(() => folders.filter((folder) => !/^\/+$/.test(folder.id)), [folders]);
+  // The filesystem root is no project. Typing / still offers it as a path. A closed menu offers none: the folders
+  // change with every chat that works in another one, and grouping thousands of them by repository on each change
+  // of a menu nobody opened cost each page about 7 ms a second at 10K chats (bench/session-scale-typing.bench.ts).
+  const offered = useMemo(
+    () => (open ? folders.filter((folder) => !/^\/+$/.test(folder.id)) : NO_FOLDERS),
+    [open, folders],
+  );
   const groups = useMemo(() => groupByRepo(offered, current, "main"), [offered, current]);
   const currentGroup = useMemo(
     () => groups.find((group) => group.members.some((member) => member.id === current)),
@@ -224,7 +231,13 @@ export function FolderPopover({
       setHighlightBy("none");
       // Each open reads whether GitHub is connected, and its repositories once it is.
       if (!open) {
-        if (currentGroup && currentGroup.lead.id !== current) setExpanded(new Set([currentGroup.key]));
+        // The closed menu grouped nothing: find the current folder's repository once, at the open.
+        const opening = groupByRepo(
+          folders.filter((folder) => !/^\/+$/.test(folder.id)),
+          current,
+          "main",
+        ).find((group) => group.members.some((member) => member.id === current));
+        if (opening && opening.lead.id !== current) setExpanded(new Set([opening.key]));
         github?.onOpen();
       }
     }

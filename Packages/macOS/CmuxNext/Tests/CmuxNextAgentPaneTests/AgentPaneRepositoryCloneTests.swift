@@ -97,6 +97,15 @@ struct AgentPaneRepositoryCloneTests {
         #expect(await git.calls.isEmpty)
     }
 
+    @Test func anExistingCheckoutsSSHOriginReadsAsItsHTTPSForm() {
+        typealias Clone = AgentPaneRepositoryClone
+        #expect(Clone.httpsForm(of: "git@github.com:acme/api.git\n") == "https://github.com/acme/api.git")
+        #expect(Clone.httpsForm(of: "ssh://git@github.com/acme/api") == "https://github.com/acme/api")
+        #expect(Clone.httpsForm(of: "ssh://git@git.example.test:2222/group/api.git") == "https://git.example.test/group/api.git")
+        #expect(Clone.httpsForm(of: "https://github.com/acme/api") == "https://github.com/acme/api")
+        #expect(Clone.httpsForm(of: "/Users/me/api") == "/Users/me/api")
+    }
+
     @Test func aGitHubURLUsesTheGitHubPickersLayout() async throws {
         let root = try temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

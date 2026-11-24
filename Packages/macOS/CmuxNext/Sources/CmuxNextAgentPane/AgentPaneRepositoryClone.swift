@@ -159,8 +159,26 @@ import Foundation
         guard let top = await git(["rev-parse", "--show-toplevel"], folder, [:], timeout), top.status == 0,
               top.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == folder,
               let origin = await git(["config", "--local", "--get", "remote.origin.url"], folder, [:], timeout),
-              origin.status == 0, let existing = try? Remote(origin.stdout) else { return false }
+              origin.status == 0, let existing = try? Remote(Self.httpsForm(of: origin.stdout)) else { return false }
         return remote.matches(existing)
+    }
+
+    /// An existing checkout's origin in its HTTPS form, so a repository checked out over SSH
+    /// (`git@github.com:acme/api.git`, `ssh://git@github.com/acme/api`) is the one an HTTPS URL names. Only for
+    /// reading checkouts already there: a new clone still takes an HTTPS URL alone.
+    nonisolated static func httpsForm(of origin: String) -> String {
+        let raw = origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.lowercased().hasPrefix("ssh://") {
+            guard let parsed = URLComponents(string: raw), let host = parsed.host, !host.isEmpty else { return raw }
+            return "https://\(host)\(parsed.percentEncodedPath)"
+        }
+        // scp-like `user@host:path` (no scheme, a colon before any slash).
+        guard !raw.contains("://"), let at = raw.firstIndex(of: "@"), let colon = raw[at...].firstIndex(of: ":"),
+              !raw[at..<colon].contains("/") else { return raw }
+        let host = raw[raw.index(after: at)..<colon]
+        let path = raw[raw.index(after: colon)...]
+        guard !host.isEmpty, !path.isEmpty, !path.hasPrefix("/") else { return raw }
+        return "https://\(host)/\(path)"
     }
 
     static func reply(url: String, key: String, userGesture: Bool, in model: AgentPaneModel) async -> [String: Any] {
