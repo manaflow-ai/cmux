@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 const LIMIT: usize = 30;
 const MAX_LIMIT: usize = 500;
 /// How much of a task's command (with its description) a compact line keeps.
-const COMMAND_CHARS: usize = 100;
+pub(super) const COMMAND_CHARS: usize = 100;
 /// What `state` takes: a task's own state, or its outcome (`bg_run::outcome`).
 const STATES: [&str; 7] = ["running", "exited", "stopped", "killed", "lost", "ok", "failed"];
 /// The keys a call picks its page with, in the order a hint lists them.
@@ -201,7 +201,7 @@ fn task_state(t: &Value) -> &str {
 }
 
 /// `text` on one line, at most `max` characters, with an ellipsis when cut.
-fn cut(text: &str, max: usize) -> String {
+pub(super) fn cut(text: &str, max: usize) -> String {
     let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if one.chars().count() <= max {
         return one;
