@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "retry-first-launch-handoff"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -67,6 +67,38 @@ struct DemoDriver {
         case "retry-refresh-failed":
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
+        // The first-load hand-off (#48907, #48947; WorkspacesLaunchStatesUITests): the team loads,
+        // then the Macs are known and their lists still on the way, then an offline Mac's line, then
+        // the rows, 2.5 s each, so the placeholder rows must stay on screen from the first phase to the rows.
+        case "retry-first-launch-handoff":
+            shell.tab = .workspaces
+            let store = shell.store
+            let teams = store.teams, rows = store.workspaces
+            store.workspaces = []
+            store.teams = teams.map { var team = $0; team.macs = []; return team }
+            store.isOffline = false
+            store.teamDataState = .loading
+            try? await Task.sleep(for: .seconds(2.5))
+            let macIDs = teams.flatMap(\.macs).map(\.id)
+            store.accountMacCount = macIDs.count
+            for id in macIDs {
+                var machine = MacDataMachine()
+                machine.handle(.connecting)
+                store.macData[id] = machine
+            }
+            store.tracksMacData = true
+            store.teams = teams
+            store.teamDataState = .loaded
+            try? await Task.sleep(for: .seconds(2.5))
+            // The Mac line (#48947): an offline Mac's rows arrive first, folded under its line, while
+            // the online Mac's list still loads, so the list's own loading rows take over from the page's.
+            let offline = Set(teams.flatMap(\.macs).filter { !$0.isOnline }.map(\.id))
+            store.workspaces = rows.filter { offline.contains($0.macID) }
+            try? await Task.sleep(for: .seconds(2.5))
+            store.workspaces = rows
+            for id in macIDs {
+                store.macData[id]?.handle(.received(count: rows.filter { $0.macID == id }.count))
+            }
         case "retry-feed":
             shell.tab = .feed
             // A failed real refresh is the fixture; no private connection is used.
