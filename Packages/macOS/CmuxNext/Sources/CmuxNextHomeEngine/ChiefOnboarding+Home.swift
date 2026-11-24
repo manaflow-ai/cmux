@@ -3,6 +3,7 @@ public import CmuxNextActions
 public import CmuxNextHome
 public import CmuxNextHomeModel
 import CmuxNextCompat
+import Foundation
 
 extension ChiefOnboarding {
     /// Shows Meet Chief on `transcript` where ``place(chatAt:shownAt:otherChiefs:)`` says (the first run on the
@@ -79,6 +80,9 @@ extension ChiefOnboarding {
         case "meet_chief_next": next()
         case "meet_chief_back": back()
         case "meet_chief_end": finish()
+        // `meet_chief_style_card`, `_chat`, `_chatPlain`: how Meet Chief draws (HomeChiefOnboardingCard.Style).
+        case let style where style.hasPrefix("meet_chief_style_"):
+            UserDefaults.standard.set(String(style.dropFirst("meet_chief_style_".count)), forKey: "home.chiefOnboarding.style")
         default: break
         }
         return ["shows": "\(shows)", "decided": "\(decided)", "step": self.step.rawValue, "mode": mode.rawValue,
