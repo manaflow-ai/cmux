@@ -1381,8 +1381,9 @@ way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
   over TLS, or with no `turns:` or TCP `turn:` server, does nothing. Both
   sides then send a handshake initiation at once (the escalating side on its
   new allocation, the peer on the announcement); after answering the peer's,
-  a side waits up to 2 s for the peer's first data before it starts another
-  (cmux-wg `ANSWER_WAIT`), so the two crossing handshakes complete.
+  a side with data queued waits up to 2 s for the peer's first data before it
+  starts another (cmux-wg `ANSWER_WAIT`), so the two crossing handshakes
+  complete instead of replacing each other.
 
 Debug builds add Settings → Transport → Developer → "Proxy only" and "Drop
 WireGuard" (`DeveloperOptions.proxyOnlyKey`, `dropWireGuardKey`;
