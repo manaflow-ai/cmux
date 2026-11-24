@@ -282,11 +282,15 @@ fi
 
 # A silent build that is still using CPU (one long Swift-driver step) is not
 # stalled, however long its silence.
+# Why 4 s: on Linux, ps prints CPU time in whole seconds and the idle clock counts whole seconds, so a 2 s window
+# could close after about 1 s of wall time with the busy loop's CPU still reading the same whole second. On a loaded
+# guard runner that read as a stall (status 124; cmux-next guards run 45383801233, job 138410334575). A 4 s window
+# needs only about a third of a core to tick the next whole CPU second inside it. macOS ps keeps fractions.
 cat >"$TMP_DIR/fake-busy-silent.sh" <<'EOF'
 #!/usr/bin/env bash
 python3 -c '
 import time
-end = time.time() + 5
+end = time.time() + 7
 while time.time() < end:
     pass
 '
@@ -294,7 +298,7 @@ echo "fake busy build finished"
 EOF
 chmod +x "$TMP_DIR/fake-busy-silent.sh"
 set +e
-CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.1 CMUX_XCODEBUILD_STALL_SECONDS=2 CMUX_XCODEBUILD_STALL_CPU_SECONDS=0.5 \
+CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.1 CMUX_XCODEBUILD_STALL_SECONDS=4 CMUX_XCODEBUILD_STALL_CPU_SECONDS=0.5 \
   "$WRAPPER" -- "$TMP_DIR/fake-busy-silent.sh" >"$TMP_DIR/busy-silent.log" 2>&1
 status=$?
 set -e

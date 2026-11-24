@@ -522,6 +522,7 @@
         "experiments.composerV2",
         "experiments.hoverLook",
         "experiments.seeThroughDock",
+        "experiments.attachmentTypeIcons",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
