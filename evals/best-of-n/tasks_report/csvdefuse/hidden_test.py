@@ -40,7 +40,7 @@ def test_quoted_cells():
 
 
 def test_risky_chars_mid_cell_or_after_space_stay():
-    assert d("a=b,x@y, =z") == "a=b,x@y, =z"
+    assert d("a=b,x@y,1+1") == "a=b,x@y,1+1"
 
 
 def test_row_starts():

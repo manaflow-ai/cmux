@@ -11,4 +11,4 @@ typed text.
 
 An escape sequence (an ESC up to the next ESC) should never be split if it could still be written whole later. Text
 can be cut anywhere, and a write should still use as much of the room as it safely can, or input stalls. Careful: a
-sequence longer than the whole queue can never be written whole, so it must not wait forever either.
+sequence longer than the whole queue can never be written whole, so it must not wait forever either (it has to be cut, but a write that ends on its ESC is exactly the bug above).
