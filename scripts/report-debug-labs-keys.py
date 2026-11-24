@@ -8,7 +8,7 @@ left out. Each key's age is the day its literal first appeared on this branch, f
 the history (the checkout needs full history). The case for a key (flip it on, delete its code, or
 keep it with a reason) lives in scripts/debug-labs-keys.json; a key with no case is listed as such.
 
-The daily debug-labs-keys-report workflow turns the JSON into one issue. Flipping a default needs
+A dispatched report turns the JSON into one issue. Flipping a default needs
 Leo's word on that flag; the report only lists.
 """
 
