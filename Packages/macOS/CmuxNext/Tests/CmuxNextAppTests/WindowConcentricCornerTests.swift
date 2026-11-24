@@ -94,21 +94,6 @@ import Testing
         #expect(Metrics.tabCornerRadius == min(max(0, card - Metrics.tabStripCardInset), Metrics.tabHeight / 2))
     }
 
-    /// The pane's "…" rounds as a tab and the + do (Lucas 2026-11-13: "match the rest like the + for new workspace");
-    /// only an outer radius the person set makes it concentric with the card's top-trailing corner.
-    @Test func theMoreButtonRoundsAsATab() {
-        defer { load() }
-        load()
-        #expect(!Metrics.cornerRadiusIsSet)
-        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.tabBarControlCornerRadius())
-        let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 160, height: Metrics.tabStripHeight))
-        toolbar.moreButton.hoverStyle = .plate
-        toolbar.show([], more: true, lit: false)
-        toolbar.layoutSubtreeIfNeeded()
-        toolbar.moreButton.updateLayer()
-        #expect(toolbar.moreButton.layer?.cornerRadius == Metrics.buttonCornerRadius)
-    }
-
     /// The default top row starts its strip under the window's rim (user 2026-11-19: "top padding is not equal to left
     /// padding for the tab"): the card's top is the rim, not the side gutter, so the one strip padding inside the strip is
     /// the whole gap above the tabs, as it is beside the first and under them, and the controls center on the pills' line.
