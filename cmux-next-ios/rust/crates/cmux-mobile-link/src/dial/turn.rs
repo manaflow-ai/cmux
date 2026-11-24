@@ -35,6 +35,8 @@ use webrtc::stun::message as stun_message;
 use webrtc::stun::textattrs::{Nonce, Realm, Username};
 use webrtc::util::Conn;
 
+use cmux_braid_carrier::{Carrier, CarrierKind, Endpoint, Login, NetFacts, OpenFuture};
+
 use super::DialOptions;
 use crate::api::IceServer;
 use crate::class_queue::{ClassQueue, Queued, SendClass};
@@ -106,6 +108,29 @@ pub struct TurnServer {
     pub credential: String,
 }
 
+impl TurnTransport {
+    /// The braid carrier this leg is.
+    pub fn carrier_kind(self) -> CarrierKind {
+        match self {
+            Self::Udp => CarrierKind::TurnUdp,
+            Self::Tcp => CarrierKind::TurnTcp,
+            Self::Tls => CarrierKind::TurnTls,
+        }
+    }
+}
+
+impl TurnServer {
+    /// The server as a braid endpoint, which ranks it among the dial's rungs.
+    pub fn endpoint(&self) -> Endpoint {
+        Endpoint {
+            kind: self.transport.carrier_kind(),
+            address: self.address.clone(),
+            host: self.host.clone(),
+            login: Some(Login { user: self.username.clone(), secret: self.credential.clone() }),
+        }
+    }
+}
+
 /// `host[:port]` or `[v6][:port]` → `(host, port)`.
 fn split_host_port(text: &str, default_port: u16) -> Option<(String, u16)> {
     if let Some(rest) = text.strip_prefix('[') {
@@ -155,16 +180,58 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
     let all = servers_in_order(servers);
-    let udp = all.iter().find(|server| server.transport == TurnTransport::Udp).cloned();
-    let rank = |server: &TurnServer| match server.transport {
-        TurnTransport::Tls if server.address.ends_with(":443") => 0,
-        TurnTransport::Tls => 1,
-        TurnTransport::Tcp => 2,
-        TurnTransport::Udp => 3,
+    let endpoints: Vec<Endpoint> = all.iter().map(TurnServer::endpoint).collect();
+    let pick = |kinds: &[CarrierKind]| {
+        let best = cmux_braid_carrier::best(&endpoints, kinds, NetFacts::default())?;
+        all.iter().find(|server| server.endpoint() == *best).cloned()
     };
-    let stream =
-        all.iter().filter(|server| server.transport.is_stream()).min_by_key(|server| rank(server)).cloned();
-    (udp, stream)
+    (pick(&[CarrierKind::TurnUdp]), pick(&[CarrierKind::TurnTls, CarrierKind::TurnTcp]))
+}
+
+/// TURN as a braid carrier ([`cmux_braid_carrier::Carrier`]): opening an endpoint allocates on its
+/// server, over the leg its kind names, in a task of its own ([`TurnCarrier::allocate_on`]).
+pub struct TurnRung<'o> {
+    kind: CarrierKind,
+    options: &'o DialOptions,
+}
+
+impl<'o> TurnRung<'o> {
+    /// `None` for a kind that is not a TURN leg.
+    pub fn new(kind: CarrierKind, options: &'o DialOptions) -> Option<Self> {
+        matches!(kind, CarrierKind::TurnUdp | CarrierKind::TurnTcp | CarrierKind::TurnTls)
+            .then_some(Self { kind, options })
+    }
+}
+
+impl Carrier for TurnRung<'_> {
+    type Link = TurnCarrier;
+
+    fn kind(&self) -> CarrierKind {
+        self.kind
+    }
+
+    fn open<'a>(&'a self, endpoint: &'a Endpoint) -> OpenFuture<'a, TurnCarrier> {
+        Box::pin(async move {
+            let transport = match endpoint.kind {
+                CarrierKind::TurnUdp => TurnTransport::Udp,
+                CarrierKind::TurnTcp => TurnTransport::Tcp,
+                CarrierKind::TurnTls => TurnTransport::Tls,
+                other => return Err(std::io::Error::other(format!("{other:?} is not a TURN leg"))),
+            };
+            if endpoint.kind != self.kind {
+                return Err(std::io::Error::other("the endpoint is another carrier's"));
+            }
+            let login = endpoint.login.clone().ok_or_else(|| std::io::Error::other("TURN needs a login"))?;
+            let server = TurnServer {
+                address: endpoint.address.clone(),
+                host: endpoint.host.clone(),
+                transport,
+                username: login.user,
+                credential: login.secret,
+            };
+            TurnCarrier::allocate_on(server, self.options).await.map_err(std::io::Error::other)
+        })
+    }
 }
 
 /// Why a WireGuard dial with these options cannot work, before it starts:
@@ -807,8 +874,20 @@ impl EarlyPermits {
 /// nothing here relies on more than WireGuard guarantees. Any other
 /// datagram is never sent twice. Once a crate send to the address comes
 /// back within the grace after one that did not, or after two others (its
-/// round trips are done, its channel is bound), that address gets no more duplicates or
-/// indications: everything goes through the crate.
+/// round trips are done, its channel is bound), that address leaves its
+/// early window.
+///
+/// The crate holds its client the same way later, for as long as a server
+/// round trip, every time it refreshes its permissions (every 120 s) or its
+/// allocation (at half its lifetime): every send waits behind it, keys
+/// included (Leo, 2026-11-24: "im also still noticing in intervals lag
+/// spikes when just typing on phone"; 104 to 202 ms at each refresh in
+/// `examples/typing_echo.rs` at lte, the server 70 ms away). So an address
+/// the crate is ready for goes around a busy crate the same way: its
+/// datagrams go as Send indications under the permission the crate keeps
+/// refreshing, and a WireGuard datagram the crate holds past the grace
+/// also goes as one. Between refreshes the crate's sends come back within
+/// the grace, and nothing goes twice.
 async fn sender_loop(
     relay: Arc<dyn Conn + Send + Sync>,
     queue: Arc<ClassQueue>,
@@ -845,8 +924,10 @@ async fn sender_loop(
         if sent.failed.get(&to).is_some_and(|at| at.elapsed() < FAILED_TARGET_WAIT) {
             continue;
         }
-        let early_to = early_window.contains(&to);
-        if busy.is_some() && early_to && early.indicate(&datagram, to).await.is_some() {
+        // In its early window, or ready: either way the server holds a
+        // permission for it, so an indication arrives.
+        let around = early_window.contains(&to) || sent.ready.contains(&to);
+        if busy.is_some() && around && early.indicate(&datagram, to).await.is_some() {
             continue;
         }
         // The crate goes on with the next datagram once it is done with the last.
@@ -866,7 +947,7 @@ async fn sender_loop(
             })
         };
         busy = Some(task);
-        if !early_to {
+        if !around {
             // Nothing else may carry it: wait for the crate, as before.
             sent.settle(busy.take()).await;
             continue;
@@ -1135,16 +1216,18 @@ pub async fn timed_allocation(
 ) -> Result<TimedAllocation, String> {
     let mut candidates: Vec<TurnServer> =
         servers_in_order(servers).into_iter().filter(|server| server.transport == transport).collect();
-    // UDP: the first listed, as a dial takes it. A stream: 443 first (stable).
-    if transport.is_stream() {
-        candidates.sort_by_key(|server| !server.address.ends_with(":443"));
-    }
+    // UDP: the first listed, as a dial takes it. A stream: in the dial's order (443 first, stable).
+    candidates.sort_by_key(|server| cmux_braid_carrier::rank(&server.endpoint()));
     let server = candidates.into_iter().next().ok_or_else(|| format!("no TURN server over {transport:?}"))?;
     let address = server.address.clone();
+    // Through the braid carrier, as the ladder opens a TURN rung.
+    let rung = TurnRung::new(transport.carrier_kind(), options).ok_or("not a TURN leg")?;
+    let endpoint = server.endpoint();
     let started = tokio::time::Instant::now();
-    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, TurnCarrier::allocate_on(server, options))
+    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, rung.open(&endpoint))
         .await
-        .map_err(|_| "TURN allocation timed out".to_owned())??;
+        .map_err(|_| "TURN allocation timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
     let elapsed = started.elapsed();
     let relayed = carrier.relayed;
     drop(carrier);
@@ -1165,6 +1248,29 @@ fn servers_in_order(servers: &[IceServer]) -> Vec<TurnServer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B7: a TURN server is a braid carrier. The dial's ranking and an open through the trait
+    /// reach the same allocation a dial makes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_server_opens_as_a_braid_carrier() {
+        let turn = crate::testing::TestTurn::start().await;
+        let options = DialOptions {
+            ice_servers: vec![turn.udp_only()],
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let (udp, stream) = turn_servers(&options.ice_servers);
+        let endpoint = udp.expect("the test server's UDP leg").endpoint();
+        assert_eq!(stream, None);
+        assert_eq!(endpoint.kind, CarrierKind::TurnUdp);
+        assert!(TurnRung::new(CarrierKind::WssRelay, &options).is_none());
+        let rung = TurnRung::new(CarrierKind::TurnUdp, &options).expect("a TURN kind");
+        assert!(!rung.reliable());
+        let carrier = rung.open(&endpoint).await.expect("an allocation through the trait");
+        assert_eq!(carrier.transport, TurnTransport::Udp);
+        let tls = Endpoint { kind: CarrierKind::TurnTls, ..endpoint.clone() };
+        assert!(rung.open(&tls).await.is_err(), "a rung opens only its own kind");
+    }
 
     /// lossy-3 lost 2 dials in 20 (lan_roundtrip, before): the server's
     /// answer to the Allocate was lost, the client's retransmit met the
@@ -1466,5 +1572,126 @@ mod tests {
         for n in 0..60 {
             assert_eq!(arrived.get(&plain(n)), Some(&1), "datagram {n}");
         }
+    }
+
+    /// A Conn that records what it sends, and holds every send while `held`
+    /// is true (the turn crate's relay during a refresh).
+    struct Recorder {
+        sent: std::sync::Mutex<Vec<(Vec<u8>, SocketAddr)>>,
+        held: watch::Receiver<bool>,
+    }
+
+    #[async_trait::async_trait]
+    impl Conn for Recorder {
+        async fn connect(&self, _addr: SocketAddr) -> webrtc::util::Result<()> {
+            Ok(())
+        }
+        async fn recv(&self, _buf: &mut [u8]) -> webrtc::util::Result<usize> {
+            std::future::pending().await
+        }
+        async fn recv_from(&self, _buf: &mut [u8]) -> webrtc::util::Result<(usize, SocketAddr)> {
+            std::future::pending().await
+        }
+        async fn send(&self, _buf: &[u8]) -> webrtc::util::Result<usize> {
+            Ok(0)
+        }
+        async fn send_to(&self, buf: &[u8], target: SocketAddr) -> webrtc::util::Result<usize> {
+            let _ = self.held.clone().wait_for(|held| !*held).await;
+            self.sent.lock().unwrap().push((buf.to_vec(), target));
+            Ok(buf.len())
+        }
+        fn local_addr(&self) -> webrtc::util::Result<SocketAddr> {
+            Ok("127.0.0.1:1".parse().unwrap())
+        }
+        fn remote_addr(&self) -> Option<SocketAddr> {
+            None
+        }
+        async fn close(&self) -> webrtc::util::Result<()> {
+            Ok(())
+        }
+        fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+            self
+        }
+    }
+
+    /// Leo, 2026-11-24: "im also still noticing in intervals lag spikes when
+    /// just typing on phone". Long after the early window, the turn crate
+    /// holds every send for a round trip each time it refreshes its
+    /// permissions (every 120 s) or allocation. While it does, keys to an
+    /// address it is ready for go around it as Send indications at once;
+    /// the held one still goes through the crate when it is let go.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn keys_go_around_a_crate_held_by_a_refresh_as_send_indications() {
+        let (hold, held) = watch::channel(false);
+        let relay = Arc::new(Recorder { sent: Default::default(), held });
+        let (_never, free) = watch::channel(false);
+        let conn = Arc::new(Recorder { sent: Default::default(), held: free });
+        let server: SocketAddr = "127.0.0.1:3478".parse().unwrap();
+        let peer: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        let early = EarlyPermits {
+            conn: conn.clone(),
+            server: Some(server),
+            auth: Arc::default(),
+            username: "u".into(),
+            password: "p".into(),
+        };
+        let queue = Arc::new(ClassQueue::default());
+        let (_permits, permit_requests) = mpsc::unbounded_channel();
+        let duplicates = Arc::new(Duplicates::default());
+        let task = tokio::spawn(sender_loop(
+            relay.clone(),
+            Arc::clone(&queue),
+            early,
+            permit_requests,
+            Arc::clone(&duplicates),
+        ));
+        let key = |n: u64| Queued { datagram: Bytes::from(wg_data(n)), to: peer };
+        let settle = || tokio::time::sleep(Duration::from_millis(50));
+
+        // Three quick sends: the crate is ready for the peer.
+        for n in 0..3 {
+            queue.push(key(n), SendClass::Input);
+            settle().await;
+        }
+        assert_eq!(relay.sent.lock().unwrap().len(), 3);
+        assert!(conn.sent.lock().unwrap().is_empty(), "nothing goes around a crate that is not busy");
+
+        hold.send_replace(true);
+        let held_at = tokio::time::Instant::now();
+        for n in 3..6 {
+            queue.push(key(n), SendClass::Input);
+        }
+        settle().await;
+        let around = conn.sent.lock().unwrap().clone();
+        assert_eq!(around.len(), 3, "keys 3 to 5 went around the held crate");
+        for ((raw, to), n) in around.iter().zip(3u64..) {
+            assert_eq!(*to, server);
+            let mut message = stun_message::Message::new();
+            message.raw = raw.clone();
+            message.decode().expect("a STUN message");
+            assert_eq!(
+                message.typ,
+                stun_message::MessageType::new(stun_message::METHOD_SEND, stun_message::CLASS_INDICATION)
+            );
+            use webrtc::stun::message::Getter as _;
+            let mut data = webrtc::turn::proto::data::Data::default();
+            data.get_from(&message).expect("DATA");
+            assert_eq!(data.0, wg_data(n));
+            let mut to_peer = webrtc::turn::proto::peeraddr::PeerAddress::default();
+            to_peer.get_from(&message).expect("XOR-PEER-ADDRESS");
+            assert_eq!((to_peer.ip, to_peer.port), (peer.ip(), peer.port()));
+        }
+        assert!(held_at.elapsed() < Duration::from_millis(200));
+        assert_eq!(relay.sent.lock().unwrap().len(), 3, "nothing passed the held crate");
+        assert_eq!(duplicates.datagrams.load(Ordering::Relaxed), 1, "only the held key goes twice");
+
+        hold.send_replace(false);
+        settle().await;
+        assert_eq!(relay.sent.lock().unwrap().len(), 4, "the held key went once let go");
+        queue.push(key(6), SendClass::Input);
+        settle().await;
+        assert_eq!(relay.sent.lock().unwrap().len(), 5, "and the crate carries keys again");
+        assert_eq!(conn.sent.lock().unwrap().len(), 3);
+        task.abort();
     }
 }
