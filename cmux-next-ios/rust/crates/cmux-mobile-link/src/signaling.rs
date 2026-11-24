@@ -215,10 +215,12 @@ pub enum SignalMessage {
 ///   until the peer's relay marker confirms a direct route;
 /// - 2: never sends relay frames; confirms routes with an in-tunnel `reach`
 ///   message, and may offer TURN relayed addresses reached over TCP or TLS.
+/// - 3: takes datagrams from the peer's second socket on another interface
+///   (cell beside Wi-Fi), and its in-tunnel `metered` message naming them.
 ///
 /// A side treats a version-0 peer's authenticated datagrams as the
 /// confirmation, since that peer's marker can no longer arrive.
-pub const WG_VERSION: u32 = 2;
+pub const WG_VERSION: u32 = 3;
 
 fn is_zero(value: &u32) -> bool {
     *value == 0

@@ -48,6 +48,15 @@ const ANNOUNCE_RESENDS: [Duration; 5] = [
 /// The most endpoints one announcement may carry.
 const MAX_ENDPOINTS: usize = 16;
 
+/// Metered addresses one message carries.
+const MAX_METERED: usize = 4;
+
+/// How often this side's metered addresses go again.
+const METERED_RESEND: Duration = Duration::from_secs(5);
+
+/// Times an empty `metered` list goes again after the first.
+const METERED_CLEARED_RESENDS: usize = 2;
+
 /// Changes the roaming side makes to its [`HybridUnderlay`].
 pub(super) enum Control {
     /// This side's network changed: carry the session on `socket`, ask
@@ -81,10 +90,20 @@ pub(super) enum Control {
     /// Debug and tests: the network goes dark (`true`: nothing this side
     /// sends leaves and nothing arrives, on its socket or its TURN
     /// allocation) or comes back on the same socket and addresses
-    /// (`false`), with no roam: an elevator, a tunnel, a dead cell.
+    /// (`false`), with no roam: an elevator, a tunnel, a dead cell. A
+    /// second socket ([`Control::Secondary`]) is on another interface and
+    /// stays up: Wi-Fi dies, cell lives.
     Dark(bool),
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
+    /// Take a socket on the second interface (cell beside Wi-Fi), or drop it.
+    Secondary(Option<super::multipath::SecondarySocket>),
+    /// The second interface became the primary one: carry the session on
+    /// its warm socket.
+    Promote,
+    /// The peer's addresses on its metered interface (its `metered` roam
+    /// message; none: it has no second interface now).
+    PeerMetered(Vec<String>),
 }
 
 /// Relayed addresses one announcement carries (a phone has one TURN
@@ -124,6 +143,14 @@ enum RoamMessage {
     Ack {
         generation: u64,
     },
+    /// This side's addresses on its metered interface (cell beside Wi-Fi,
+    /// protocol version 3; an older peer logs it as unreadable and goes on):
+    /// the peer keeps them out of its path selector and sends a copy of its
+    /// keystrokes and echo there. Empty: no second interface now.
+    Metered {
+        #[serde(default)]
+        addresses: Vec<String>,
+    },
     /// "Your datagrams reach me" (protocol version 2; an older peer logs it
     /// as unreadable and goes on): they arrived from `from` (the sender's
     /// address as seen here), on this side's plain UDP socket or its TURN
@@ -157,6 +184,8 @@ pub(super) struct SessionParts {
     pub turn_dead: Option<watch::Receiver<bool>>,
     /// The underlay's current plain-UDP destination.
     pub route_to: Arc<watch::Sender<Option<SocketAddr>>>,
+    /// The peer's protocol version (`version` in its `wg-*`).
+    pub peer_version: u32,
 }
 
 /// One live tunnel, as roaming sees it.
@@ -200,6 +229,15 @@ pub(super) struct Session {
     roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
     route_to: Arc<watch::Sender<Option<SocketAddr>>>,
+    /// The peer takes a second socket's datagrams and the `metered` message
+    /// (protocol version [`super::multipath::MULTIPATH_VERSION`]).
+    multipath: bool,
+    /// The interface the underlay's second socket is bound to.
+    secondary: Mutex<Option<String>>,
+    /// The second socket's reflexive address (`None`: gone), for the control
+    /// task to announce as metered.
+    metered: Mutex<Option<mpsc::UnboundedSender<Option<SocketAddr>>>>,
+    metered_rx: Mutex<Option<mpsc::UnboundedReceiver<Option<SocketAddr>>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -214,12 +252,20 @@ fn registry() -> &'static Mutex<Vec<Weak<Session>>> {
 /// Every live session of this process.
 /// Give every live session the second socket [`super::multipath`] wants
 /// now, or take it away (WIP: the underlay side lands next).
+/// Bring every live session's second socket in line with the interfaces,
+/// the person's setting and the app's state ([`super::multipath`]).
 pub(super) fn apply_multipath_to_live_sessions() {
-    let _wanted = super::multipath::secondary_interface(
-        &super::multipath::interfaces(),
+    let interfaces = super::multipath::interfaces();
+    let wanted = super::multipath::secondary_interface(
+        &interfaces,
         super::multipath::cellular_assist(),
         super::app_backgrounded(),
     );
+    let primary =
+        interfaces.iter().find(|interface| interface.primary).map(|interface| interface.name.as_str());
+    for session in live() {
+        session.apply_multipath(wanted.as_ref(), primary);
+    }
 }
 
 fn live() -> Vec<Arc<Session>> {
@@ -237,6 +283,7 @@ impl Session {
         let turn_dead = parts.turn_dead;
         let (inject, injected) = mpsc::unbounded_channel();
         let (resignal, resignals) = mpsc::unbounded_channel();
+        let (metered, metered_rx) = mpsc::unbounded_channel();
         let session = Arc::new(Self {
             session_id: parts.session_id,
             peer: parts.peer,
@@ -265,12 +312,63 @@ impl Session {
             roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
             route_to: parts.route_to,
+            multipath: parts.peer_version >= super::multipath::MULTIPATH_VERSION,
+            secondary: Mutex::new(None),
+            metered: Mutex::new(Some(metered)),
+            metered_rx: Mutex::new(Some(metered_rx)),
         });
         lock(registry()).push(Arc::downgrade(&session));
         if let Some(dead) = turn_dead {
             session.monitor_turn(dead);
         }
+        let interfaces = super::multipath::interfaces();
+        let wanted = super::multipath::secondary_interface(
+            &interfaces,
+            super::multipath::cellular_assist(),
+            super::app_backgrounded(),
+        );
+        session.apply_multipath(wanted.as_ref(), None);
         session
+    }
+
+    /// Give the underlay a socket on `wanted` (none: drop it), or move the
+    /// session onto it once its interface is the `primary` one.
+    fn apply_multipath(&self, wanted: Option<&super::multipath::NetInterface>, primary: Option<&str>) {
+        if !self.multipath || self.closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut current = lock(&self.secondary);
+        if current.is_some() && current.as_deref() == primary {
+            tracing::debug!(interface = ?current, "the second interface is the primary one now");
+            *current = None;
+            let _ = self.control.send(Control::Promote);
+            return;
+        }
+        let wanted_name = wanted.map(|interface| interface.name.as_str());
+        if current.as_deref() == wanted_name {
+            return;
+        }
+        let metered = lock(&self.metered).clone().unwrap_or_else(|| mpsc::unbounded_channel().0);
+        let Some(interface) = wanted else {
+            *current = None;
+            let _ = self.control.send(Control::Secondary(None));
+            let _ = metered.send(None);
+            return;
+        };
+        match super::multipath::bind_udp_on(&interface.name) {
+            Ok(socket) => {
+                *current = Some(interface.name.clone());
+                let _ = self.control.send(Control::Secondary(Some(super::multipath::SecondarySocket {
+                    socket,
+                    interface: interface.name.clone(),
+                    stun: lock(&self.stun).clone(),
+                    reflexive: metered,
+                })));
+            }
+            Err(error) => {
+                tracing::debug!(%error, interface = interface.name, "no socket on the second interface");
+            }
+        }
     }
 
     /// When the current TURN allocation's stream to its server dies, take a
@@ -493,6 +591,7 @@ impl Session {
         let reach = lock(&self.reach).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let injected = lock(&self.injected).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let resignal = lock(&self.resignals).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
+        let metered = lock(&self.metered_rx).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let task = tokio::spawn(run_control(
             socket,
             peer,
@@ -503,6 +602,7 @@ impl Session {
                 reach,
                 injected,
                 resignal,
+                metered,
                 signal: SignalTarget {
                     dialer: self.dialer,
                     signaling: Arc::clone(&self.signaling),
@@ -716,6 +816,8 @@ struct ControlChannels {
     reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
     resignal: mpsc::UnboundedReceiver<()>,
+    /// The reflexive address of this side's second socket (`None`: gone).
+    metered: mpsc::UnboundedReceiver<Option<SocketAddr>>,
     signal: SignalTarget,
 }
 
@@ -730,7 +832,13 @@ async fn run_control(
     channels: ControlChannels,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
-    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, signal } = channels;
+    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, mut metered, signal } =
+        channels;
+    // This side's metered addresses, sent again every METERED_RESEND while
+    // there are any (the message has no acknowledgment).
+    let mut own_metered: Vec<String> = Vec::new();
+    let mut metered_at: Option<Instant> = None;
+    let mut cleared_left = 0usize;
     // The latest announcement, for a resend through a new signaling socket.
     let mut latest: Option<RoamMessage> = None;
     let mut generation = 0u64;
@@ -751,7 +859,27 @@ async fn run_control(
                 None => std::future::pending().await,
             }
         };
+        let metered_resend = async {
+            match metered_at {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
+            Some(address) = metered.recv() => {
+                own_metered = address.map(|addr| vec![addr.to_string()]).unwrap_or_default();
+                cleared_left = METERED_CLEARED_RESENDS;
+                send_message(&socket, peer, &RoamMessage::Metered { addresses: own_metered.clone() }).await;
+                metered_at = Some(Instant::now() + METERED_RESEND);
+            }
+            () = metered_resend => {
+                send_message(&socket, peer, &RoamMessage::Metered { addresses: own_metered.clone() }).await;
+                // An empty list goes a few times more, then stops.
+                if own_metered.is_empty() {
+                    cleared_left = cleared_left.saturating_sub(1);
+                }
+                metered_at = (!own_metered.is_empty() || cleared_left > 0).then(|| Instant::now() + METERED_RESEND);
+            }
             Some((from, carrier)) = reach.recv() => {
                 let via = if carrier == Carrier::Turn { "turn" } else { "udp" };
                 let message = RoamMessage::Reach { from: Some(from.to_string()), via: Some(via.to_owned()) };
@@ -854,6 +982,16 @@ async fn run_control(
                         let current = lock(&net).clone();
                         if let Some(net) = current {
                             let _ = net.reach_moved_peer().await;
+                        }
+                    }
+                    Ok(RoamMessage::Metered { addresses }) => {
+                        let addresses: Vec<String> = addresses
+                            .into_iter()
+                            .filter(|text| text.parse::<SocketAddr>().is_ok())
+                            .take(MAX_METERED)
+                            .collect();
+                        if control.send(Control::PeerMetered(addresses)).is_err() {
+                            return;
                         }
                     }
                     Ok(RoamMessage::Ack { generation: acked }) => {
