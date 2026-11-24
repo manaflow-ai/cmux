@@ -290,19 +290,42 @@ final class CEFInTreeHosting {
         return calls?.widgetDrawing(browser)
     }
 
-    /// The host view took a new size in this turn: the page's compositor resized in that layout, and the page joins the
-    /// window's resize fence for this turn, so the render server shows the pane's commit with the page's first frame at
-    /// the new size, up to about one frame. The main thread waits for nothing; a miss shows the last frame, pinned
-    /// top-left and clipped by the container.
+    /// The window's size when this page last resized (``pageViewResized()``): a resize with the window at another size
+    /// is a resize of the window itself.
+    private var windowSizeAtLastResize: CGSize?
+
+    /// The host view took a new size in this turn: the page's compositor resized in that layout. When the window itself
+    /// took a new size (its edge dragged, a zoom), the page joins the window's resize fence for this turn, so the render
+    /// server shows the window's commit with the page's first frame at the new size, up to about one frame. The main
+    /// thread waits for nothing; a miss shows the last frame, pinned top-left and clipped by the container.
+    ///
+    /// Chrome's rule (`NativeWidgetNSWindowBridge::ShouldWaitInPreCommit`): its window's commit waits for a compositor
+    /// frame only while the window's content size differs from its last frame's, and never in a full screen transition
+    /// ("no need for updates during such transition", crbug.com/875707). A resize inside the window (a divider drag, a
+    /// pane spring) never waits: Chrome's `DelegatedFrameHost` embeds the new surface with a zero deadline and shows the
+    /// last frame until it comes. Before this every resize joined: each divider drag frame held the window's commit for
+    /// every page's frame (the user's recording: the window at about 28 of 60 frames a second, defects.md 8), and the
+    /// full screen transitions held theirs (defects.md 5, 6).
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each in-tree page, each motion frame)
         guard page != nil, let browser, let fence = calls?.resizeFence, let view, let window = view.window,
               let layer = view.layer else { return }
+        let windowSize = window.frame.size
+        let windowResized = windowSizeAtLastResize.map { $0 != windowSize } ?? false
+        windowSizeAtLastResize = windowSize
+        guard Self.joinsFence(windowResized: windowResized || window.inLiveResize,
+                              fullScreenTransition: Motion.isFullScreenTransitioning(window)) else { return }
         let refreshMs = (NSScreen.screens.map(\.minimumRefreshInterval).min() ?? 1.0 / 60) * 1_000
         let timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs
             : Int32(max(8, refreshMs.rounded(.up)))
         resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
             fence(browser, port, timeout, done)
         }
+    }
+
+    /// Whether a page resize holds the window's commit for the page's frame (``pageViewResized()``): only a resize of
+    /// the window itself, outside a full screen transition.
+    nonisolated static func joinsFence(windowResized: Bool, fullScreenTransition: Bool) -> Bool {
+        windowResized && !fullScreenTransition
     }
 
     /// Gives the page the keyboard on cmux's behalf (`CEFTab.grantFocus`): Chromium's focus call and the move of the
