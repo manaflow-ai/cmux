@@ -172,3 +172,38 @@ fn a_mac_with_no_journal_answers_a_listing_ask_with_the_full_listing_signal() {
     let _mac = attach(&link);
     assert_eq!(link.listing_since(3).unwrap(), None);
 }
+
+/// A file that compresses well, so a packed answer carries it as zstd.
+struct Text;
+
+impl Source for Text {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+        let bytes = self.whole(entry).bytes;
+        let start = (offset as usize).min(bytes.len());
+        let end = (start + len as usize).min(bytes.len());
+        Part::ok(bytes[start..end].to_vec())
+    }
+
+    fn whole(&self, entry: u32) -> Part {
+        Part::ok(format!("line {entry} of a text file\n").repeat(500).into_bytes())
+    }
+}
+
+#[test]
+fn a_mac_that_packs_its_answers_is_read_the_same() {
+    let link = Arc::new(Link::new(Duration::from_millis(200)));
+    let (machine, mac) = UnixStream::pair().unwrap();
+    let served = link.clone();
+    let writer = machine.try_clone().unwrap();
+    std::thread::spawn(move || served.serve(machine, writer));
+    std::thread::spawn(move || {
+        let writer = mac.try_clone().unwrap();
+        let _ = answer_asks_packed(mac, writer, &Text);
+    });
+    let whole = Text.whole(3).bytes;
+    assert_eq!(link.read(3, 10, 4000).unwrap(), whole[10..4010]);
+    let batch = link.batch(&[3, 4]);
+    assert_eq!(batch[0].as_deref().unwrap(), whole.as_slice());
+    assert_eq!(batch[1].as_deref().unwrap(), Text.whole(4).bytes.as_slice());
+    assert!(link.ping());
+}
