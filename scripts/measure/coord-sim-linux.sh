@@ -53,7 +53,10 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 run_dir="${keep:-$work/run}"
 mkdir -p "$run_dir" "$work/chats"
-shape="$crate/shapes/default.json"
+# The built-in default shape (shape.rs DEFAULT_SHAPE); shapes/default.json became lane-host.json in cmux#47315, which
+# left this path naming no file, and every coord-sim part since failed at `gen`. COORD_SIM_SHAPE picks another.
+shape="${COORD_SIM_SHAPE:-$crate/shapes/leo-peak.json}"
+[[ -f "$shape" ]] || { echo "coord-sim-linux: no shape file $shape" >&2; exit 1; }
 "$sim" gen --format script --shape "$shape" --seed "$seed" --coordinators "$coordinators" --scale 1 \
   --out "$work/chats" >&2
 "$sim" drive --coordinators "$coordinators" --rate "$rate" --target acpmux --duration "$seconds" --seed "$seed" \

@@ -149,13 +149,13 @@ struct AgentPaneGitPullRequestTests {
         #expect(rig.calls.filter { $0.hasPrefix("pr create") }.count == 2)
     }
 
-    /// No GitHub CLI still avoids a push. A fresh branch is pushed by Create
+    /// No push route still avoids a push. A fresh branch is pushed by Create
     /// PR, later commits are pushed too, and a non-fast-forward refusal stops
     /// before asking `gh`.
     @Test func refusalsNeverPushOrAskGitHub() async throws {
         let rig = try Self.rig()
         let request = try Self.request(rig.repo)
-        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: nil) == .refused(AgentPaneGitPullRequest.noGitHubCLIMessage))
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: nil) == .refused(AgentPaneGitPullRequest.pushUnavailableMessage))
         #expect(try Self.git(rig.remote, "branch", "--list", "feature").isEmpty)
         #expect(rig.calls.isEmpty)
         #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push()) == .formOpened(url: "https://github.com/o/r/compare/main...feature?expand=1"))
@@ -175,6 +175,33 @@ struct AgentPaneGitPullRequestTests {
     }
 
     /// Through the pane: a request needs a real click or key and a chat on this Mac.
+    /// With no `gh` here Create PR still works: after the push, the branch's pull request is
+    /// looked up through acpmux (the cmux GitHub App) in the repository gh would pick, and the
+    /// open one is opened.
+    @Test func withoutTheCLIItFindsThePullRequestThroughAcpmux() async throws {
+        let rig = try Self.rig()
+        try Self.git(rig.repo, "remote", "add", "upstream", "https://github.com/o/r.git")
+        let request = try Self.request(rig.repo)
+        let asked = Asked()
+        let outcome = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: nil, push: Self.push(), github: { params in
+            asked.append("\(params["op"] as? String ?? "") \(params["repo"] as? String ?? "") \(params["path"] as? String ?? "")")
+            let pulls = #"[{"html_url":"https://github.com/o/r/pull/9","number":9,"state":"open","head":{"sha":"x"}}]"#
+            return AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data(pulls.utf8), source: "app")
+        })
+        #expect(outcome == .opened(url: "https://github.com/o/r/pull/9", number: 9))
+        #expect(asked.all == ["get o/r pulls?head=o:feature&state=all&per_page=20"])
+        #expect(!(try Self.git(rig.remote, "branch", "--list", "feature")).isEmpty, "the branch was pushed first")
+        #expect(rig.calls.isEmpty)
+    }
+
+    final class Asked: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String] = []
+
+        func append(_ value: String) { lock.withLock { values.append(value) } }
+        var all: [String] { lock.withLock { values } }
+    }
+
     @Test func thePaneNeedsAGestureAndAChatOnThisMac() async throws {
         let rig = try Self.rig()
         let model = AgentPaneModel(host: NoHost())
