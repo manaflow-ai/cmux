@@ -64,6 +64,8 @@ final class ShellModel {
             updateShownMacs()
         }
     }
+    /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
+    var workspacesMacPanelShown = false
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
     /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
@@ -778,10 +780,8 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        // Layout captures only: `-cmux-mobile-banner-demo offline|pairing|pairing-reset|signed-out`.
         switch Self.bannerDemo {
-        case "connected"?: return .connected
-        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
         case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")

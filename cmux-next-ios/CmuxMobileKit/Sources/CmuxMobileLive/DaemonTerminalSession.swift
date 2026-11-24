@@ -210,8 +210,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input-lane channel for `send`, once open.
     private var inputClient: DaemonClient?
     /// Keystrokes not yet sent, with when they were typed; sent as one
-    /// `send` (``drainInput()``). Keys older than `inputHoldLimit` when the
-    /// terminal can take them are dropped, never sent late (termfix-r13 D5:
+    /// `send` (``drainInput()``). Keys held past the reconnect giving up
+    /// (``expireInput()``) are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
     /// `typed`: the person's own input; false for Ghostty's replies to
     /// terminal queries (``sendReply(_:)``), which are never "keys not sent".
@@ -261,7 +261,17 @@ public final class DaemonTerminalSession: TerminalSession {
     /// blips and said so (Leo, 2026-11-12, on LTE: "thjs chatters too often
     /// with connectivity"). 10 s rides those out and still never runs a
     /// command long after it was typed (termfix-r13 D5).
-    public static let inputHoldLimit: TimeInterval = 10
+    nonisolated public static let inputHoldLimit: TimeInterval = 10
+    /// Keys typed while the terminal reconnects wait for the attach however long the
+    /// reconnect takes: they are dropped when it gives up (its retries ran out, or the Mac
+    /// stayed offline for `inputHoldLimit`), not 10 s after they were typed (Leo,
+    /// 2026-11-24, back from another app: "I can't interact with anything at all"). This
+    /// ceiling is far past any reconnect (its backoff gives up in about 16 s, the link
+    /// calls the Mac offline after 4-8 s): it only covers an app suspended with keys
+    /// queued, whose next attach must not type them minutes later (termfix-r13 D5).
+    nonisolated public static let inputHoldCeiling: TimeInterval = 60
+    /// When the coordinator last called the Mac offline (``now``'s clock), while it is.
+    private var offlineSince: TimeInterval?
     /// At most this many typed bytes wait for a detached terminal; past it
     /// the queue is dropped as an expired one is (a long paste into a dead
     /// link is not replayed whole into whatever runs when it comes back).
@@ -292,6 +302,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private var tailProbe: Task<Void, Never>?
     /// Sends written and not yet answered (tests).
     var inputsInFlight: Int { inputInFlight }
+    /// The oldest typed batch whose echo has not come yet: its number and its first key's tap.
+    /// The first output after it is its echo (PROTOCOL.md "Link stats", `echo`).
+    private var echoDue: (number: Int, typedAt: TimeInterval)?
+    /// The Mac's answer to the `echoDue` batch, ms after its tap, when it came first.
+    private var echoDueAckMs: UInt32?
     /// A tail probe is armed (tests).
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
@@ -401,11 +416,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (termfix-r13 D4, T-LIFE-13); an attached one is unaffected.
     public func setMacOffline(_ offline: Bool) {
         guard offline != macOffline else { return }
+        // Back: keys that waited out the hold while it was offline go now, before the attach.
+        if !offline { expireInput() }
         let before = connectionState
         macOffline = offline
+        offlineSince = offline ? now() : nil
         let after = connectionState
         if after != before, handler != nil, !ended { handler?(.connection(after)) }
-        if offline { expireInput() }
+        if offline { scheduleInputExpiry(after: Self.inputHoldLimit) }
     }
 
     /// `open` returns a client on a fresh `daemon` channel to the Mac;
@@ -526,13 +544,44 @@ public final class DaemonTerminalSession: TerminalSession {
             scheduleInputDrain()
             noteInteraction()
         } else {
-            // Dropped once they are too old to send, not at the reattach:
-            // the screen says so while the person still remembers typing.
-            let limit = Self.inputHoldLimit
-            Task { [weak self] in
-                try? await Task.sleep(for: .seconds(limit))
-                self?.expireInput()
-            }
+            // Held for the attach while the terminal reconnects; dropped when the reconnect
+            // gives up (``expireInput()``), and the screen says so then.
+            scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+            reportHeldInput()
+        }
+    }
+
+    /// Typed bytes the screen was last told wait for the attach (``reportHeldInput()``).
+    private var reportedHeldBytes = 0
+
+    /// Tells the screen how many typed bytes wait for the attach (`.inputHeld`), when that
+    /// changed: the composer says keys are pending and offers Discard while there are any,
+    /// since they will be typed into whatever the terminal shows after the attach.
+    private func reportHeldInput() {
+        let held = attached ? 0 : input.reduce(0) { $0 + ($1.detached && $1.typed ? $1.bytes.count : 0) }
+        guard held != reportedHeldBytes else { return }
+        reportedHeldBytes = held
+        if handler != nil, !ended { handler?(.inputHeld(bytes: held)) }
+    }
+
+    /// The person discarded the keys held for the attach: none of them is sent, and nothing
+    /// says "not sent" (they chose it). A held composer send comes back to the composer.
+    /// Typing goes on queueing for the attach. A no-op while attached.
+    public func discardHeldInput() {
+        guard !attached, !input.isEmpty else { return }
+        let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
+        let pastes = input.compactMap(\.paste)
+        input.removeAll()
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) held typed bytes discarded by the person")
+        pastes.forEach(pasteWasNotSent)
+        reportHeldInput()
+    }
+
+    /// Checks the held keys against the hold (``expireInput()``) after `delay`.
+    private func scheduleInputExpiry(after delay: TimeInterval) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            self?.expireInput()
         }
     }
 
@@ -555,22 +604,37 @@ public final class DaemonTerminalSession: TerminalSession {
         // after a reattach (the screen is replayed by then).
         input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true, $0.key, $0.paste) }
         guard !input.isEmpty else { return }
-        let limit = Self.inputHoldLimit
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(limit))
-            self?.expireInput()
-        }
+        scheduleInputExpiry(after: macOffline ? Self.inputHoldLimit : Self.inputHoldCeiling)
+        reportHeldInput()
     }
 
-    /// Keys that waited for a detached terminal longer than
-    /// `inputHoldLimit`: all queued keys are dropped (never only the oldest:
-    /// the rest of a command must not run alone), input is refused until the
-    /// next attach, and the screen is told. Keys typed while attached (a
-    /// slow but live link) never expire here.
+    /// Keys held for a detached terminal whose reconnect gave up: all queued
+    /// keys are dropped (never only the oldest: the rest of a command must not
+    /// run alone), input is refused until the next attach, and the screen is
+    /// told. Held, not dropped, while the terminal reconnects
+    /// (``inputHoldCeiling``). Keys typed while attached (a slow but live link)
+    /// never expire here.
     private func expireInput() {
-        let cutoff = now() - Self.inputHoldLimit
-        guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
-        dropDetachedInput(reason: "the terminal was unreachable for longer than \(Self.inputHoldLimit) s")
+        guard let reason = Self.heldInputExpiry(typedAt: input.filter(\.detached).map(\.at), now: now(),
+                                                gaveUp: gaveUp, offlineSince: macOffline ? offlineSince : nil) else { return }
+        dropDetachedInput(reason: reason)
+    }
+
+    /// Why keys held for a detached terminal (typed at `typedAt`) go now, or nil while
+    /// they wait for the attach: the reconnect gave up, the Mac was offline for
+    /// ``inputHoldLimit`` since the later of the key and the Mac going offline, or a key
+    /// is past ``inputHoldCeiling``.
+    nonisolated static func heldInputExpiry(typedAt: [TimeInterval], now: TimeInterval, gaveUp: Bool,
+                                            offlineSince: TimeInterval?) -> String? {
+        guard !typedAt.isEmpty else { return nil }
+        if gaveUp { return "the reattach gave up" }
+        if let offlineSince, typedAt.contains(where: { now - max($0, offlineSince) >= inputHoldLimit }) {
+            return "the Mac was offline for \(inputHoldLimit) s"
+        }
+        if typedAt.contains(where: { now - $0 >= inputHoldCeiling }) {
+            return "the terminal was unreachable for longer than \(inputHoldCeiling) s"
+        }
+        return nil
     }
 
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
@@ -578,6 +642,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let pastes = input.compactMap(\.paste)
         input.removeAll()
+        reportHeldInput()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
         guard bytes > 0 else { return }
@@ -687,6 +752,8 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        echoDue = nil
+        echoDueAckMs = nil
         tailProbe?.cancel()
         tailProbe = nil
         autoReattach?.cancel()
@@ -1260,6 +1327,8 @@ public final class DaemonTerminalSession: TerminalSession {
             settleReclaimHold()
             refusingInput = false
             everAttached = true
+            // The held keys go now (``drainInput()``): nothing is pending any more.
+            reportHeldInput()
             handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
@@ -1349,6 +1418,8 @@ public final class DaemonTerminalSession: TerminalSession {
             // it instead: the composer's quiet line with Retry, and a keystroke
             // tries again.
             gaveUp = true
+            // Keys held for this reattach are dropped now, and the screen says so.
+            expireInput()
             handler?(.connection(connectionState))
         }
     }
@@ -1387,6 +1458,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
         case .output(let data):
+            keyEchoed()
             show(.output(data))
         case .stamped(let seq, let receivedMs):
             show(.paintMark(seq: seq, receivedMs: receivedMs))
@@ -1697,6 +1769,37 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    // MARK: Keystroke round trips
+
+    /// Milliseconds since `typedAt` (the input clock), or nil past the hold limit (keys held over an
+    /// outage are an outage, not a slow key).
+    private func msSince(_ typedAt: TimeInterval) -> UInt32? {
+        let elapsed = now() - typedAt
+        guard elapsed >= 0, elapsed <= Self.inputHoldLimit else { return nil }
+        return UInt32((elapsed * 1000).rounded())
+    }
+
+    /// The Mac answered typed batch `number`: one `ack` sample for the next `link_stat`.
+    private func keyAnswered(number: Int, typedAt: TimeInterval) {
+        guard let ms = msSince(typedAt) else { return }
+        if echoDue?.number == number { echoDueAckMs = ms }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyAck(ackMs: ms)
+        #endif
+    }
+
+    /// Terminal output came: the echo of the oldest typed batch still waiting for one.
+    private func keyEchoed() {
+        guard let due = echoDue else { return }
+        echoDue = nil
+        let ack = echoDueAckMs
+        echoDueAckMs = nil
+        guard let ms = msSince(due.typedAt) else { return }
+        #if canImport(CmuxMobileLinkFFI)
+        recordKeyEcho(echoMs: ms, ackMs: ack)
+        #endif
+    }
+
     // MARK: Input lane
 
     /// Opens the input-lane channel for the attach `main` (a no-op without
@@ -1804,6 +1907,12 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
+        let timesEcho = typedBytes > 0 && paste == nil && !resent
+        if timesEcho, echoDue == nil {
+            echoDue = (number, typedAt)
+            echoDueAckMs = nil
+        }
         let surface = surface
         let onLane = target !== client
         let deadline = inputRequestDeadline
@@ -1852,6 +1961,9 @@ public final class DaemonTerminalSession: TerminalSession {
                     reply = answer
                 } else {
                     reply = try await target.reply(to: id)
+                }
+                if timesEcho, Self.error(in: reply) == nil {
+                    keyAnswered(number: number, typedAt: typedAt)
                 }
                 if let error = Self.error(in: reply) {
                     lastError = error
