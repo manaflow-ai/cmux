@@ -6,7 +6,7 @@ import { BlockTail, InlineTail } from "./InlineTail";
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
 // ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
-import { Fragment, memo, useId, useLayoutEffect, useMemo, useRef, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useId, useMemo, useRef, type CSSProperties, type ReactNode, useLayoutEffect } from "react";
 
 import { CodeBlock } from "./CodeBlock";
 import { InlinePreview } from "./InlinePreview";
@@ -36,6 +36,7 @@ import { useStartedMentions } from "../started/startedSessionCardModel";
 import { entranceAllowed } from "../../shared/pageReveal";
 
 import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget } from "./markdownModel";
+import { ReplyScan } from "./replyScan";
 import { type InlineOptions, renderInline, InlineImage } from "./inlineMarkdown";
 
 /// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
@@ -462,6 +463,7 @@ export function Markdown({
   messageAt,
   trailing,
   skills,
+  tools,
   commonmark = false,
   claims,
 }: MarkdownProps) {
@@ -490,14 +492,25 @@ export function Markdown({
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
   // Blocks first drawn while entrances wait (the page hidden or just shown again).
   const awayBlocks = useRef(new Set<string>());
+  // A streaming reply's closed text is read once, as it closes, and only the text after it on each
+  // chunk (replyScan.ts), so a chunk costs the same at 200 words and at 20,000.
+  const scan = useRef<ReplyScan | null>(null);
+  scan.current ??= new ReplyScan();
+  const closedEnd = whole ? -1 : parser.current!.closedState.end;
+  const generation = whole ? -1 : parser.current!.closedState.generation;
+  const scanned = useMemo(
+    () =>
+      closedEnd < 0
+        ? { noteIds: footnoteOrder(children).join(" "), folderKey: replyFolders(children).join("\n") }
+        : scan.current!.read(children, { end: closedEnd, generation }),
+    [children, closedEnd, generation],
+  );
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
-  // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
-  // full footnote scan on source changes instead of repeating it for each animation frame.
-  const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
+  const noteIds = scanned.noteIds;
   // The folders this reply's paths are in, joined so a streaming reply keeps the same value (and
   // its memoized blocks) until a new folder arrives; its bare file names may be files there.
-  const folderKey = useMemo(() => replyFolders(children).join("\n"), [children]);
+  const folderKey = scanned.folderKey;
   const folders = useMemo(() => (folderKey ? folderKey.split("\n") : []), [folderKey]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
@@ -517,6 +530,7 @@ export function Markdown({
       ...(commits ? { commits } : {}),
       ...(thumbnails === false ? { thumbnails } : {}),
       ...(skills?.size ? { skills } : {}),
+      ...(tools ? { tools } : {}),
       ...(commonmark ? { commonmark } : {}),
       ...(claims?.length ? { claims } : {}),
     };
@@ -530,6 +544,7 @@ export function Markdown({
     started,
     thumbnails,
     skills,
+    tools,
     commonmark,
     claims,
   ]);

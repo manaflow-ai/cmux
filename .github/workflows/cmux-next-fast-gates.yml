@@ -15,7 +15,10 @@ name: cmux-next fast gates
 # check path (scripts/ci/check-paths.txt); otherwise it dispatches this workflow
 # with pr=N on feat-cmux-next, which merges the PR head into the current tip and
 # runs the gates again, plus the webviews checks (a check that landed after the
-# PR's CI runs before it merges). No paths filter: every pull request gets a
+# PR's CI runs before it merges). A pull request that changes webviews/ runs the
+# webviews checks here too (the type check among them): land-judge lands a clean
+# base merge on this status without waiting for ci-web's webview suite, where
+# they also run (cmux#49052, cmuxterm-hq#19108). No paths filter: every pull request gets a
 # status; a draft gets it when it is marked ready (a draft cannot merge, and a
 # merger that finds no status dispatches the gates). About two minutes on Linux.
 # A pull request that touches no gate input (fast-check-route) gets its success
@@ -350,8 +353,9 @@ jobs:
           fi
 
       # Web lint installs node_modules only in the web folders the diff touches
-      # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch
-      # only) installs webviews'; without either none of this runs.
+      # (scripts/web_lint_prepush.py), and the webviews checks gate (a dispatch,
+      # or a webviews/, catalog or spec change) installs webviews'; without either
+      # none of this runs.
       - name: Setup Bun
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -364,8 +368,29 @@ jobs:
       # which nothing else reads and which evicts the base's caches from the 10 GB store (2026-11-22: 10.56 GB, 6.66 GB
       # of it pull request refs). A dispatch runs on feat-cmux-next's ref after pull request code (bun install
       # scripts) ran, so it never saved.
-      - name: Restore the Bun package cache
+      #
+      # R2 is read first: Freestyle VMs pull from GitHub at about 0.9 MB/s (cmuxterm-hq#17571), so this 710 MB restore
+      # took 10 minutes there (job 137463137173, 2026-11-23: 1,145 s in all, the gates 2.5 min of it), while their
+      # other egress runs at about 20 MB/s; on pool hosts hx*/hd* the same restore took 192 to 639 s, or hung until the
+      # 25-minute limit (job 137476653902). 52 of the 70 fast gates jobs over 15 minutes from 03:30Z to 05:26Z that
+      # day ran on Freestyle. R2 reads need no credentials (and the minis read them through their LAN cache); the
+      # web-lint job saves the key there. An R2 miss falls through to the GitHub store, as before.
+      - name: Restore the Bun package cache from R2
+        id: bun-r2
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+          restore-keys: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the Bun package cache
+        if: ${{ (steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true') && steps.bun-r2.outputs.cache-matched-key == '' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -381,7 +406,21 @@ jobs:
       # prepush-gate.py downloads its pinned tools (sha256 checked) when they are missing. Restore only, as with the
       # Bun cache above: cmux-next-web-lint.yml's web-lint job saves this key on each feat-cmux-next push. On
       # 2026-11-22 the store held 14 pull request copies of it (65 MB each) and none on feat-cmux-next.
+      # R2 first, as the Bun cache above: this 62 MB restore took 1.5 minutes on Freestyle.
+      - name: Restore the pinned lint tools from R2
+        id: lint-tools-r2
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
       - name: Restore the pinned lint tools
+        if: ${{ steps.lint-tools-r2.outputs.cache-hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux-lint-tools

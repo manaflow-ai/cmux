@@ -95,7 +95,7 @@ extension SettingDescriptor {
             return pickedListOptions(choices, current: current, ordered: true)
         case .orderedChoices(let choices):
             return orderOptions(choices, current: current, inherited: inherited)
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList:
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .soundRules, .stringList, .json:
             return []
         }
     }
