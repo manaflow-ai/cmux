@@ -39,11 +39,16 @@ const snapshotSave: {
   next: Map<string | null, AcpmuxSnapshot>;
   timer?: ReturnType<typeof setTimeout>;
   hooked?: boolean;
-  /// Set by `clearSnapshot`: this page keeps no copy, until it loads again.
-  dropped?: boolean;
   /// Every view whose copy this page saved or read (the page's own, `null`, always): `clearSnapshot` removes each.
   views: Set<string | null>;
 } = { next: new Map(), views: new Set([null]) };
+/// The pages `clearSnapshot` dropped: each keeps no copy until it loads again. Held per page (its `window`), not
+/// in this module: a module outlives the page in a test run (one module cache for every file, each with its own
+/// document), and one file's dropped page must not stop the next file's saves.
+const droppedPages = new WeakSet<object>();
+function thisPage(): object {
+  return typeof window === "undefined" ? globalThis : window;
+}
 /// The copy of `snapshot` with its newest `count` rows. The prompt index (`earlierPrompts`) stays
 /// out: typed arrays do not survive JSON, and a reload reads it again.
 function savedCopy(snapshot: AcpmuxSnapshot, count: number): string {
@@ -90,7 +95,7 @@ function writeOne(key: string, next: AcpmuxSnapshot): void {
 /// for the rest of this page, so the next load starts empty and draws from its live client
 /// (PaneBoundary: a copy holding the rows that threw would fail the same way).
 export function clearSnapshot(): void {
-  snapshotSave.dropped = true;
+  droppedPages.add(thisPage());
   clearTimeout(snapshotSave.timer);
   snapshotSave.timer = undefined;
   snapshotSave.next.clear();
@@ -158,7 +163,7 @@ export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
   return saved;
 }
 export function saveSnapshot(next: AcpmuxSnapshot, view: string | null = null): void {
-  if (snapshotSave.dropped) return;
+  if (droppedPages.has(thisPage())) return;
   snapshotSave.views.add(view);
   snapshotSave.next.set(view, next);
   if (!snapshotSave.hooked && typeof window !== "undefined") {
