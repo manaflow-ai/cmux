@@ -3410,6 +3410,66 @@ body {
   }
 }
 
+/* The roll fades its words at the line's edges (Leo, 2026-11-24: "very bad/nonexistent fade-in
+   fade-out. it needs to be more graceful"): while a roll plays, the row that clips it feathers its top
+   and bottom, so the old words fade as they rise out and the new fade in as they rise into place,
+   every word at full ink in the middle of the line, never two texts over each other and never a blank
+   line (status-swap-frames.test.ts). The feather opens with the roll and closes on the same step, so
+   at rest it is gone and nothing fades the words. Its width is a registered property, so it interpolates (on the main
+   thread; a missed frame budget turns the chat's motion to 0, composerStates.css MINIMAL-MOTION); the
+   two keyframe names swap each change, as the roll's do, to restart it. With the
+   live line's call entry wait (liveCallEntry.ts) a burst of quick calls rolls nothing. Any `data-live-swap` look
+   draws without it (`hard`: the cut edge it replaced, agent-pane.live-line-burst). Off wherever the roll is off. */
+@property --cv-roll-feather {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll] > .cv-shimmer__row:has(> .cv-roll-out) {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--cv-roll-feather),
+      #000 calc(100% - var(--cv-roll-feather)),
+      transparent
+    );
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row:has(> .cv-roll-out) {
+    animation: cv-roll-feather-odd var(--agent-motion-arrive, 80ms) linear both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-shimmer__row:has(> .cv-roll-out) {
+    animation: cv-roll-feather-even var(--agent-motion-arrive, 80ms) linear both;
+  }
+  /* Every other hand-over look draws its own edges. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap] .cv-worked--live[data-roll] > .cv-shimmer__row:has(> .cv-roll-out) {
+    mask-image: none;
+    animation: none;
+  }
+}
+/* 0 at both ends, so the first frame draws the old words whole and the last the new; at its peak the
+   feather stays in the line's leading, above and below the glyphs at rest. */
+@keyframes cv-roll-feather-odd {
+  0%,
+  100% {
+    --cv-roll-feather: 0%;
+  }
+  25%,
+  70% {
+    --cv-roll-feather: 24%;
+  }
+}
+@keyframes cv-roll-feather-even {
+  0%,
+  100% {
+    --cv-roll-feather: 0%;
+  }
+  25%,
+  70% {
+    --cv-roll-feather: 24%;
+  }
+}
+
 /* A running tool row's words shimmer (ShimmerText.tsx RowShimmer; ToolRow.tsx, CommandRow.tsx), as
    Claude desktop's and ChatGPT's running rows do, in place of a mark at the row's far edge (Leo,
    2026-11-03: "this is kinda weird looking" / "doesn't claude desktop have the thinking shimmer go
@@ -4198,11 +4258,15 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
    line"): cut to one line with an ellipsis while closed, wrapped while open, the same words broken at
    the same places either way, so opening moves none of them. ThoughtRow.tsx sizes it between the two
    over the fold's time; `is-closing` keeps the wrapped words until it is one line tall again. */
+/* The row's air is a margin, not padding: the line clamp lays out every line and the box's overflow
+   clips at its padding edge, so padding drew the top of the second line under the first (Leo,
+   2026-11-24: "is this two lines showing fixed yet? in the thuoght stuff."). With a margin the clip
+   is the one line itself (one-line-rows-browser.test.ts). */
 .cv-thought__preview {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
-  padding-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
+  margin-block: calc((var(--cv-tool-row-height) - var(--cv-thought-pitch)) / 2);
   color: var(--cv-text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
