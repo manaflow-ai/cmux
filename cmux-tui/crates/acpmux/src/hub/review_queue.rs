@@ -440,8 +440,7 @@ impl Hub {
         };
         let mut items = Vec::new();
         let mut visited = 0;
-        let lookup =
-            |id: &str| self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let lookup = |id: &str| self.session_get(id);
         for id in asking {
             visited += 1;
             let Some(session) = lookup(&id) else {
