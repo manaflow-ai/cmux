@@ -725,7 +725,9 @@ const settledBy = <T,>(promise: Promise<T>, until: number): Promise<T | undefine
   Promise.race([promise, new Promise<undefined>((settled) => setTimeout(settled, Math.max(0, until - Date.now())))]);
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
-const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
+// `need`: the width less the row's accessories (header/tabRow.ts TAB_ROW_ACCESSORY), what decides whether the pane offers the row.
+const reportTabRowTools = (width: number, need: number) =>
+  void callNative("pane.tabRowTools", { width, need }).catch(() => undefined);
 /// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
 /// last resort only: the page reports its first paint once the chat's rows are in (`chatRead`) or
 /// its open failed. A shorter hold showed a busy daemon's chat as an empty page with only its
@@ -3141,6 +3143,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
   );
+  // Session Info's Carried memory (CarriedSection.tsx): the chat's carried files and proposals, and
+  // Accept or Drop, sent on the click with no await before it (acpmux takes it only from the person).
+  const carriedSessionId = snapshot.sessionId;
+  const readCarried = useCallback(
+    () =>
+      carriedSessionId
+        ? (directClient.current?.agentHome(carriedSessionId) ?? Promise.reject(new Error()))
+        : Promise.reject(new Error()),
+    [carriedSessionId],
+  );
+  const resolveCarried = useCallback(
+    (change: { accept: string[]; drop: string[] }) =>
+      carriedSessionId
+        ? (directClient.current?.resolveAgentHome(change, carriedSessionId) ?? Promise.reject(new Error()))
+        : Promise.reject(new Error()),
+    [carriedSessionId],
+  );
   // Session Info shows: every listed chat's usage is read now (direct.ts `refreshUsage`).
   const refreshUsage = useCallback(() => directClient.current?.refreshUsage(), []);
   // Session Info's Changes row reads the folder's git changes (session-info/changeCounts.ts).
@@ -5139,6 +5158,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Environment's Changes: the header's Changes counts and what it opens (the chat folder's diff
     // beside the chat), only where the header offers it.
     readChanges: quick ? undefined : readChanges,
+    // Carried memory: the chat's own panel, not Quick Chat's (useSessionInfo leaves a subagent's out).
+    readCarried: quick ? undefined : readCarried,
+    onResolveCarried: quick ? undefined : resolveCarried,
     onOpenChanges: quick ? undefined : () => openChangesTab.current(),
     // Active chat panes do not support environment.save; the native handler accepts it only from
     // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
@@ -6371,6 +6393,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const paintReported = useRef(false);
   /// The chat whose settled frame the paint report named (`pane.painted` with `settled: true`).
   const settledReported = useRef<string | undefined>(undefined);
+  /// The chat whose live draw the paint report named (`pane.painted` with `live: true`).
+  const liveReported = useRef<string | undefined>(undefined);
   // The chat whose saved draft the composer read (Composer `onDraftSettled`), and the chat whose
   // wait for it ran out: until one names the chat, its draft is not in the prompt yet.
   const [draftSettled, setDraftSettled] = useState<string>();
@@ -6521,6 +6545,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current?.bindToSession(adoption.sessionId);
       paintReported.current = false;
       settledReported.current = undefined;
+      liveReported.current = undefined;
       setAdoptingSession(adoption.sessionId);
       setAwaitsChat(true);
       setNewTab(undefined);
@@ -6564,6 +6589,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // report follows, once per chat opened.
   const settledSession =
     clientSnapshot.settled !== undefined && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
+  // The chat on screen is the live one, settled view or not: its own attach answered on this selection
+  // (direct.ts `chatAttached`). A chat's first open has no settled view (acpmux writes it for the next
+  // open, settled_attach.rs), so this is what tells the host a fresh chat drew live, `live: true`, once
+  // per chat opened: a remote chat's `agent.chat.live_paint` (RemoteChatEvents.swift).
+  const liveSession =
+    clientSnapshot.chatAttached === true && clientSnapshot.chatRead === true ? clientSnapshot.sessionId : undefined;
   // The first report waits for the rows' parts that draw a moment late (math, diagrams, images the
   // host reads) to settle, at most OPEN_SETTLE_MAX_MS: the host shows the page at its final layout,
   // not one that moves under the reader as they land (https://github.com/manaflow-ai/cmux/issues/48498).
@@ -6571,10 +6602,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (!showsWhatItIs || (!paintReported.current && !heightsSettled())) return;
     const settledNow = settledSession !== undefined && settledReported.current !== settledSession;
-    if (paintReported.current && !settledNow) return;
+    const liveNow = liveSession !== undefined && liveReported.current !== liveSession;
+    if (paintReported.current && !settledNow && !liveNow) return;
     const first = !paintReported.current;
     paintReported.current = true;
     if (settledNow) settledReported.current = settledSession;
+    if (liveNow) liveReported.current = liveSession;
     // The page drew what it is under the chat's snapshot (chatSnapshot/boot.ts): it takes over at
     // the next frame, in one step.
     if (first) swapChatSnapshot();
@@ -6590,9 +6623,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (first) performance.mark?.(PANE_PAINTED_MARK);
         // The perf watch's page-load span ends here (perfReporter.ts): once per page.
         if (first) acpmuxPerf.markLaunch("painted");
-        void callNative("pane.painted", { drewKeptTail, ...(settledNow ? { settled: true } : {}) }).catch(
-          () => undefined,
-        );
+        void callNative("pane.painted", {
+          drewKeptTail,
+          ...(settledNow ? { settled: true } : {}),
+          ...(liveNow ? { live: true } : {}),
+        }).catch(() => undefined);
         if (!first) return;
         void loadHighlightedCode();
         void loadEditDiffHunks();
@@ -6600,7 +6635,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         preloadNewTabWhenIdle();
       }, 0),
     );
-  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, newTab]);
+  }, [showsWhatItIs, heightsSettled, drewKeptTail, settledSession, liveSession, newTab]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
   // the visible window, written when it goes quiet and when the page hides. Only the shared page host
   // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
