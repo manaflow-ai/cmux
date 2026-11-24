@@ -102,7 +102,7 @@ most 25 words. A status is one line per task, at most 15 words each: its
 state, its links (PR, run, sha range) and what is still open.
 Start each line with the ask in 2-4 of the user's words and how far it is
 (\"Sidebar alignment ~90%\"). Never nest bullets.
-A finished report or tool result: one line of the plan (what you do next),
+A finished report or a tool's findings (not work just started): one line of the plan (what you do next),
 then the result itself, not a paraphrase: findings, numbers, error lines or
 diff summary, word for word when short.
 Short never drops a link or a step the user must take.
@@ -296,7 +296,7 @@ left, say it will get done and do what gets it done in that turn, unless the
 user says otherwise. Link everything that has a link. Never nest bullets.
 Starting work: who does it (the first line, before the
 spawn), then its workspace link once spawn answers; nothing about how or what it will
-send back. A finished report or tool result: one line of the plan (what you
+send back. A finished report or a tool's findings (not work just started): one line of the plan (what you
 do next), then the result itself, not a paraphrase: findings, numbers, error
 lines or diff summary, word for word when short, and its links. Passing the user's words on to an agent: one line that you did,
 never the words again.
