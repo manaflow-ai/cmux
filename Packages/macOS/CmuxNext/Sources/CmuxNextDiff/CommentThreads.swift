@@ -115,11 +115,11 @@ public final class CommentThreadsModel {
                         key: String) async throws(AgentPaneGitFailure) -> CommentThread {
         let record: JSONValue = ["surface": "terminal", "terminal": terminal.json, "quote": .string(quote),
                                  "message": .string(message)]
-        do {
+        do throws(AgentPaneGitFailure) {
             let saved = try await store.saveComment(root: root, comment: record, key: key + "-save")
             guard let comment = saved["comment"], let thread = CommentThread(comment) else { throw AgentPaneGitFailure.failed }
             upsert(thread)
-            do {
+            do throws(AgentPaneGitFailure) {
                 _ = try await store.sendCommentThreads(root: root, acpSession: acpSession, ids: [thread.id],
                                                        versions: thread.version.map { [thread.id: $0] } ?? [:],
                                                        text: terminal.prompt(quote: quote, message: message), key: key)
