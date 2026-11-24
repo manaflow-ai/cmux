@@ -110,8 +110,11 @@ struct ChatComposer: View {
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { image in
                 if let data = image.jpegData(compressionQuality: AgentImageOptimizer.jpegQuality) {
-                    let data = AgentImageOptimizer.optimize(data)
-                    attachments.append(AgentAttachment(kind: .image, name: "Camera \(Date().formatted(date: .omitted, time: .shortened))", data: data))
+                    let name = "Camera \(Date().formatted(date: .omitted, time: .shortened))"
+                    Task {
+                        let optimized = await AgentImageOptimizer.optimizeAsync(data)
+                        attachments.append(AgentAttachment(kind: .image, name: name, data: optimized))
+                    }
                 }
             }
             .ignoresSafeArea()
@@ -179,21 +182,40 @@ struct ChatComposer: View {
         let board = UIPasteboard.general
         if board.hasImages {
             let stamp = Date().formatted(date: .omitted, time: .shortened)
-            for (index, image) in board.composerImages().enumerated() {
+            let images = board.composerImages().enumerated().map { index, image in
                 let suffix = index > 0 ? " \(index + 1)" : ""
-                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: AgentImageOptimizer.optimize(image.data)))
+                return (name: "Pasted image \(stamp)\(suffix)", data: image.data)
+            }
+            Task {
+                var optimized: [AgentAttachment] = []
+                optimized.reserveCapacity(images.count)
+                for image in images {
+                    let data = await AgentImageOptimizer.optimizeAsync(image.data)
+                    optimized.append(AgentAttachment(kind: .image, name: image.name, data: data))
+                }
+                attachments.append(contentsOf: optimized)
             }
         } else if board.composerHoldsFileData {
             // A file copied in Files is its bytes on the pasteboard, not a path.
             let providers = board.itemProviders
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
-                attachments += pasted.files.map { file in
+                var attachmentsToAdd: [AgentAttachment] = []
+                attachmentsToAdd.reserveCapacity(pasted.files.count)
+                for file in pasted.files {
                     let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
-                    let data = image == nil ? file.data : file.data.map(AgentImageOptimizer.optimize)
-                    return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
-                                           data: data, fileURL: file.fileURL, byteCount: data?.count ?? file.byteCount)
+                    let data: Data?
+                    if image == nil {
+                        data = file.data
+                    } else if let original = file.data {
+                        data = await AgentImageOptimizer.optimizeAsync(original)
+                    } else {
+                        data = nil
+                    }
+                    attachmentsToAdd.append(AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
+                                                           data: data, fileURL: file.fileURL, byteCount: data?.count ?? file.byteCount))
                 }
+                attachments += attachmentsToAdd
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
@@ -773,7 +795,8 @@ struct ChatComposer: View {
                 continue
             }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let attachment = AgentAttachment(kind: .image, name: "Photo", data: AgentImageOptimizer.optimize(data))
+            let optimized = await AgentImageOptimizer.optimizeAsync(data)
+            let attachment = AgentAttachment(kind: .image, name: "Photo", data: optimized)
             attachments.append(attachment)
         }
         photoItems = []

@@ -13,6 +13,12 @@ enum AgentImageOptimizer {
     static let maxPixelSize = 2048
     static let jpegQuality: CGFloat = 0.82
 
+    static func optimizeAsync(_ data: Data) async -> Data {
+        await Task.detached(priority: .userInitiated) {
+            optimize(data)
+        }.value
+    }
+
     /// Returns a smaller, orientation-correct image when ImageIO can decode it.
     /// The original bytes are retained when optimization would not save space.
     static func optimize(_ data: Data) -> Data {
@@ -36,6 +42,7 @@ enum AgentImageOptimizer {
             hasAlpha = false
         }
         let type: CFString = hasAlpha ? UTType.png.identifier as CFString : UTType.jpeg.identifier as CFString
+        let alreadyAccepted = AgentAttachment(kind: .image, name: "image", data: data).imageMIMEType != nil
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, type, 1, nil) else { return data }
         var properties: [CFString: Any] = [:]
@@ -43,7 +50,7 @@ enum AgentImageOptimizer {
         CGImageDestinationAddImage(destination, image, properties as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return data }
         let optimized = output as Data
-        return optimized.count < data.count ? optimized : data
+        return alreadyAccepted && optimized.count >= data.count ? data : optimized
     }
 }
 #endif
