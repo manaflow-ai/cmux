@@ -32,6 +32,7 @@ fn extracts_paths_lines_and_cues() {
         ]
     );
     assert!(extract("no paths here at all, version 1.2 and e.g. and 3.14").is_empty());
+    assert_eq!(extract("see main.c").len(), 1);
 }
 
 #[test]

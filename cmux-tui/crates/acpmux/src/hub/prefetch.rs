@@ -141,8 +141,10 @@ fn looks_like_path(p: &str) -> bool {
     // A bare file name: `name.ext`, the extension short and plain.
     match p.rsplit_once('.') {
         Some((stem, ext)) => {
+            // "e.g" is no file; "main.c" and "x.py" are.
             !stem.is_empty()
                 && (1..=8).contains(&ext.len())
+                && (ext.len() >= 2 || stem.chars().count() >= 2)
                 && ext.chars().all(|c| c.is_ascii_alphanumeric())
                 && ext.chars().any(|c| c.is_ascii_alphabetic())
         }
@@ -155,7 +157,14 @@ fn cued_before(text: &str, at: usize) -> bool {
     while !text.is_char_boundary(from) {
         from -= 1;
     }
-    let before = text[from..at].to_lowercase();
+    let before = text.get(from..at).unwrap_or_default().to_lowercase();
+    // Only this sentence's words cue: "Read a.md first. Then b.rs" does not cue b.rs.
+    let before = [". ", "! ", "? ", "\n", "; "]
+        .iter()
+        .filter_map(|end| before.rfind(end).map(|i| i + end.len()))
+        .max()
+        .and_then(|i| before.get(i..))
+        .unwrap_or(&before);
     before
         .split(|c: char| !c.is_alphanumeric())
         .any(|w| matches!(w, "read" | "see" | "follow" | "reading"))
@@ -169,15 +178,18 @@ pub fn extract(text: &str) -> Vec<Ref> {
         while !text.is_char_boundary(end) {
             end -= 1;
         }
-        &text[..end]
+        text.get(..end).unwrap_or_default()
     } else {
         text
     };
     let mut out: Vec<Ref> = Vec::new();
     let mut start = None;
-    let mut push = |s: usize, e: usize, out: &mut Vec<Ref>| {
-        let raw =
-            text[s..e].trim_start_matches('@').trim_end_matches(['.', ',', ':', ';', '!', '?']);
+    let push = |s: usize, e: usize, out: &mut Vec<Ref>| {
+        let raw = text
+            .get(s..e)
+            .unwrap_or_default()
+            .trim_start_matches('@')
+            .trim_end_matches(['.', ',', ':', ';', '!', '?']);
         let (path, lines) = split_lines(raw);
         if !looks_like_path(path) {
             return;
@@ -303,7 +315,8 @@ fn numbered(lines: &[&str], from: usize, to: usize, cap: usize) -> (String, usiz
     let mut out = String::new();
     let mut last = from.saturating_sub(1);
     for n in from..=to {
-        let line = format!("{n:>6}\t{}\n", lines[n - 1].trim_end_matches('\r'));
+        let Some(text) = lines.get(n.wrapping_sub(1)) else { break };
+        let line = format!("{n:>6}\t{}\n", text.trim_end_matches('\r'));
         if out.len() + line.len() > cap {
             break;
         }
@@ -332,7 +345,7 @@ fn fetch_one(path: &Path, refs: &[&Ref], cap: usize) -> Option<(String, Fetched)
         return None;
     }
     let bytes = std::fs::read(path).ok()?;
-    if bytes[..bytes.len().min(8192)].contains(&0) {
+    if bytes.iter().take(8192).any(|b| *b == 0) {
         return None;
     }
     let text = std::str::from_utf8(&bytes).ok()?;
@@ -579,10 +592,10 @@ impl PrefetchTurn {
                 });
             }
         }
-        if let Some(i) = hit {
+        if let Some(canon) = hit.and_then(|i| self.files.get(i)).map(|f| f.0.clone()) {
             self.calls.insert(id.to_owned());
             self.reread += 1;
-            self.read.insert(self.files[i].0.clone());
+            self.read.insert(canon);
         }
     }
 
