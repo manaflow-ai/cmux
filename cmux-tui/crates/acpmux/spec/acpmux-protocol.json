@@ -1873,6 +1873,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_export",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_history_have",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_prepare",
       "params": true,
       "result": true

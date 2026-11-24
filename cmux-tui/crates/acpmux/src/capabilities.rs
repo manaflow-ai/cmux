@@ -59,6 +59,9 @@ pub const TRANSFER_PRECOPY: &str = "transfer-precopy-v1";
 /// the source's digest of a prefix, and the client's progress reports.
 pub const TRANSFER_LIVE: &str = "transfer-live-v1";
 
+/// A chat move whose history follows the chat as a session pack (`hub/transfer_history.rs`).
+pub const TRANSFER_HISTORY_LATER: &str = "transfer-history-later-v1";
+
 pub struct Capability {
     pub id: &'static str,
     pub wire: &'static [&'static str],
@@ -429,6 +432,21 @@ pub const CAPABILITIES: &[Capability] = &[
             "_acpmux/transfer_progress",
             "_acpmux/transfer_stage",
             "_acpmux/transfer_write",
+        ],
+    },
+    // A move whose history follows the chat (`hub/transfer_history.rs`): `transfer_prepare
+    // {historyLater}` prepares only the chat's last turns, the chat runs on the target at once,
+    // and its earlier history is exported as a session pack (`transfer_history_export`, less the
+    // chunks the target says it has, `transfer_history_have`), staged, and taken into the live
+    // chat (`transfer_history`). A client asks for it only between two daemons that both list it.
+    Capability {
+        id: TRANSFER_HISTORY_LATER,
+        wire: &[
+            "_acpmux/transfer_history",
+            "_acpmux/transfer_history_export",
+            "_acpmux/transfer_history_have",
+            "_acpmux/transfer_prepare",
+            "_acpmux/transfer_stage_finish",
         ],
     },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).

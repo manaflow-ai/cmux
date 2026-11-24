@@ -201,6 +201,7 @@ async fn precopy(src: &Client, id: &str, daemon: &str) -> Option<Staged> {
         prepare_id: field(&staged, "prepareId").as_str()?.to_owned(),
         after_seq: field(&staged, "afterSeq").as_u64()?,
         stage_id: field(&staged, "stageId").as_str()?.to_owned(),
+        history_later: false,
     })
 }
 
