@@ -249,9 +249,21 @@ public final class SettingsStore {
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
+        #if canImport(Darwin)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
         }
+        #else
+        // swift-corelibs-foundation posts to `queue: .main` and waits for it, which deadlocks a post from the
+        // main actor (the Linux test build): deliver on the posting thread, hopping to main from elsewhere.
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: nil) { [weak self] _ in
+            guard Thread.isMainThread else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.reloadTerminalFontSize() } }
+                return
+            }
+            MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
+        }
+        #endif
         // Retired settings that never took effect (a terminal theme the phone
         // cannot read from the Mac, and a connection-details switch).
         for key in Self.retiredKeys { defaults.removeObject(forKey: "cmuxMobile.settings.\(key)") }
