@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers"
 import type { RawEnv } from "./env.ts"
 import { BASE_SPACE, spacedEnv } from "./build-space.ts"
-import { isOwnSlackMessage, slackEnabled, validSlackInbound, type SlackInbound } from "./chief-slack.ts"
+import { isOwnSlackMessage, slackEnabled, slackMayAct, validSlackInbound, type SlackInbound } from "./chief-slack.ts"
 import { brainName } from "./chief-brain/brain-do.ts"
 import { declared } from "./do-stub.ts"
 
@@ -21,6 +21,8 @@ export class PlatformChief extends WorkerEntrypoint<RawEnv> {
     if (!chief?.main_conversation) return { ok: false as const, code: "chief.not_found" }
     if (chief.brain_place) return { ok: false as const, code: "chief.placed" }
     const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(chief.id, chief.main_conversation)))
-    return brain.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound })
+    // The persisted isOwner is what authorizes effects (effect-policy.ts): a channel without `run` keeps even the
+    // owner's Slack messages to answers.
+    return brain.slackInbound({ agent: chief.id, conversation: chief.main_conversation, inbound: { ...inbound, isOwner: slackMayAct(inbound) } })
   }
 }
