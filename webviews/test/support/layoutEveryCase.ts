@@ -6,9 +6,12 @@
 // reader parked while it streams, tab and workspace switches, wheel and resize bursts, reconnect replay,
 // re-delivery), plus a width sweep. Every move over 1 px the reader's own act did not cause is a flag.
 //
-// Leo, 2026-11-22: "EVERY POSSIBLE CASE, NO MATTER HOW WILD". The gate is a ratchet: a case may flag no
-// more than test/layout-every-case-baseline.json lists for it today (0 for a case it does not list), so a
-// new shift fails now and the list shrinks to empty as fixes land. A case under its baseline is printed.
+// Leo, 2026-11-22: "EVERY POSSIBLE CASE, NO MATTER HOW WILD". The gate is a ratchet on which cases shift:
+// a case test/layout-every-case-baseline.json does not list must not flag at all, so a new shift fails now,
+// and the list shrinks to empty as fixes land (a listed case that comes back clean is printed, to drop).
+// It is not a ratchet on how many flags a listed case has: that count moves run to run with frame timing
+// (huge/zoom flagged 24, 27 and 30 times, table/zoom 36, 41 and 44, in three runs of the same tree), while
+// whether a case flags at all held in every rerun. The listed counts are one run's, for reading.
 //
 //   CMUX_BROWSER_TESTS=1 bun test test/layout-every-case-browser-1.test.ts   (one part; each plays every PARTS-th case)
 //   LAYOUT_CASES=basic/none,table/resize   pick cases within the part (a prefix ending in / takes a content kind)
@@ -114,12 +117,13 @@ export async function layoutEveryCase({ file, part }: { file: string; part: numb
     });
 
     for (const spec of cases)
-      test(`layout case ${spec.id}: no unprovoked shift over 1px beyond its baseline`, async () => {
+      test(`layout case ${spec.id}: no unprovoked shift over 1px unless its baseline lists one`, async () => {
         const result = (await page!.evaluate(
           (id) => (window as unknown as { __chatSim: { runCase(id: string): Promise<unknown> } }).__chatSim.runCase(id),
           spec.id,
         )) as LayoutCaseResult;
         results.push(result);
+        const listed = spec.id in baseline.flags;
         const allowed = baseline.flags[spec.id] ?? 0;
         if (result.flags.length)
           console.log(
@@ -129,12 +133,15 @@ export async function layoutEveryCase({ file, part }: { file: string; part: numb
                 .map((flag) => `step ${flag.step} ${flag.kind} ${flag.label} ${flag.px}px`)
                 .join("; "),
           );
-        if (result.flags.length < allowed) console.log(`${spec.id}: below its baseline (${allowed}); lower it`);
+        if (listed && !result.flags.length)
+          console.log(`${spec.id}: no shift now (baseline lists ${allowed}); drop it from the baseline`);
         if (process.env.LAYOUT_CASES_REPORT === "1") return;
         expect(result.error).toBeUndefined();
         // The control plants a jump: a detector that misses it would pass every other case blind.
         if (spec.perturbation === CONTROL) return expect(result.flags.length).toBeGreaterThan(0);
-        expect(result.flags.length).toBeLessThanOrEqual(allowed);
+        // A listed case already shifts; one the baseline does not list must not.
+        if (!listed)
+          expect(result.flags.map((flag) => `step ${flag.step} ${flag.kind} ${flag.label} ${flag.px}px`)).toEqual([]);
       });
   });
 }
